@@ -13,6 +13,7 @@
  * by the type checker.
  */
 
+import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
 import { loadConfig } from "../../config/loader.js";
 import { callerOwnsWorkflowRun } from "../../workflows/capabilities.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
@@ -163,7 +164,7 @@ export async function executeManageWorkflows(
       // workspace-wide active profile. Read-only — leaves use this to pick a
       // valid `profile` for `run_workflow` (an unknown profile throws).
       const { llm } = loadConfig();
-      const profiles = llm?.profiles ?? {};
+      const profiles = getEffectiveProfiles(llm?.profiles);
       return {
         content: JSON.stringify({
           profiles: Object.keys(profiles).sort(),

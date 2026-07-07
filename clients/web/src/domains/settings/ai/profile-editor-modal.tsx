@@ -37,6 +37,10 @@ import {
   resolveProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
+import {
+  MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_CONNECTION_PROVIDER,
+} from "@/domains/settings/ai/constants";
 import { isProviderSelectableForAssistant } from "@/domains/settings/ai/provider-availability";
 import type {
   ConnectionProvider,
@@ -45,12 +49,30 @@ import type {
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
 // of selecting a provider.
 const CREATE_NEW_PROVIDER_SENTINEL = "__create_new_provider__";
 type EffortSelection = "inherit" | NonNullable<ProfileEntry["effort"]>;
+
+/**
+ * Whether a connection (identified by its stored `provider`) can back a profile
+ * whose provider is `selectedProvider`. The provider-agnostic Vellum-managed
+ * connection stores the `vellum` sentinel but serves every managed-routable
+ * provider, so it counts as available for those.
+ */
+function connectionServesProvider(
+  connectionProvider: string,
+  selectedProvider: string,
+): boolean {
+  if (connectionProvider === selectedProvider) return true;
+  return (
+    connectionProvider === VELLUM_CONNECTION_PROVIDER &&
+    MANAGED_ROUTABLE_PROVIDERS.has(selectedProvider)
+  );
+}
 
 export interface ProfileEditorModalProps {
   isOpen: boolean;
@@ -184,6 +206,7 @@ function ProfileEditorModalInner({
   // daemon rejects for managed profiles.
   const isReadOnly = effectiveMode === "view" || isInvariant;
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
+  const isMobile = useIsMobile();
 
   // Baseline for `hasViewModeChanges`: the enable flip is the only edit
   // read-only mode permits.
@@ -323,11 +346,15 @@ function ProfileEditorModalInner({
   }, [connections, locallyCreatedConnections]);
 
   // Connections matching the currently selected provider. Also used by
-  // the save handler for binding resolution.
+  // the save handler for binding resolution. The provider-agnostic `vellum`
+  // connection serves managed-routable providers, so it counts as available
+  // for those even though its own `provider` is the `vellum` sentinel.
   const availableConnectionsForProvider = useMemo(
     () =>
       provider
-        ? effectiveConnections.filter((c) => c.provider === provider)
+        ? effectiveConnections.filter((c) =>
+            connectionServesProvider(c.provider, provider),
+          )
         : [],
     [provider, effectiveConnections],
   );
@@ -369,8 +396,8 @@ function ProfileEditorModalInner({
     // Auto-select connection: if exactly one connection exists for the new
     // provider, select it automatically. If multiple exist, clear so the user
     // must pick. If zero, clear.
-    const connectionsForProvider = effectiveConnections.filter(
-      (c) => c.provider === newProvider,
+    const connectionsForProvider = effectiveConnections.filter((c) =>
+      connectionServesProvider(c.provider, newProvider),
     );
     setProviderConnection(
       connectionsForProvider.length === 1 ? connectionsForProvider[0].name : "",
@@ -701,6 +728,7 @@ function ProfileEditorModalInner({
         checked={status === "active"}
         onChange={(v) => setStatus(v ? "active" : "disabled")}
         label="Active"
+        className="touch-mobile:mt-2 touch-mobile:[&_button]:h-7 touch-mobile:[&_button]:w-10 touch-mobile:[&_button>span]:h-6 touch-mobile:[&_button>span]:w-6"
       />
     ) : null;
 
@@ -793,7 +821,7 @@ function ProfileEditorModalInner({
           >
             Provider
           </label>
-          {providerMissing && !creatingProvider ? (
+          {providerMissing && !creatingProvider && !isMobile ? (
             <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
               Pick a provider
             </span>
@@ -945,6 +973,7 @@ function ProfileEditorModalInner({
           <>
             <Button
               variant="outlined"
+              className="touch-mobile:h-10"
               onClick={onCancel}
               disabled={saving}
               data-testid="modal-cancel-btn"
@@ -953,6 +982,7 @@ function ProfileEditorModalInner({
             </Button>
             <Button
               variant="outlined"
+              className="touch-mobile:h-10"
               onClick={() => {
                 setEffectiveMode("create");
                 setKey("");
@@ -967,6 +997,7 @@ function ProfileEditorModalInner({
                 session can't round-trip a no-op write. */}
             <Button
               variant="primary"
+              className="touch-mobile:h-10"
               onClick={() => void handleSave()}
               disabled={!hasViewModeChanges || saving}
               data-testid="modal-save-btn"
@@ -978,6 +1009,7 @@ function ProfileEditorModalInner({
           <>
             <Button
               variant="outlined"
+              className="touch-mobile:h-10"
               onClick={onCancel}
               disabled={saving}
               data-testid="modal-cancel-btn"
@@ -986,6 +1018,7 @@ function ProfileEditorModalInner({
             </Button>
             <Button
               variant="primary"
+              className="touch-mobile:h-10"
               onClick={() => void handleSave()}
               disabled={isInvalid || saving}
               data-testid="modal-save-btn"

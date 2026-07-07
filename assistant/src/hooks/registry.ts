@@ -12,7 +12,7 @@
  *
  * {@link getHooksFor} combines both sources: in-process hooks from this
  * registry (filtered by `isPluginDisabled` at read time) and user-land hooks
- * from the mtime cache. The read-time filtering is what makes `assistant
+ * from the plugin cache. The read-time filtering is what makes `assistant
  * plugins disable default-*` take effect immediately in a running assistant
  * — the hooks stay registered but are filtered out on the next turn.
  */
@@ -45,7 +45,9 @@ export function registerPluginHooks(
   hooks: Record<string, HookFunction>,
 ): void {
   for (const [hookName, fn] of Object.entries(hooks)) {
-    if (typeof fn !== "function") continue;
+    if (typeof fn !== "function") {
+      continue;
+    }
     let list = hookRegistry.get(hookName);
     if (!list) {
       list = [];
@@ -81,8 +83,8 @@ export function unregisterPluginHooks(pluginName: string): void {
  *
  * In-process default plugin hooks are read from this registry (synchronous)
  * and filtered by the `.disabled` sentinel at read time via
- * {@link isPluginDisabled}. User-land hooks are pulled from the mtime cache
- * (async, may re-import). Default hooks are prepended so they compose
+ * {@link isPluginDisabled}. User-land hooks are pulled from the plugin cache
+ * (async; applies any pending source-versions reconcile first). Default hooks are prepended so they compose
  * innermost, ahead of any user plugins.
  *
  * The `TCtx` generic mirrors {@link HookFunction}'s — callers parameterize
@@ -108,9 +110,8 @@ export async function getHookEntriesFor<TCtx = unknown>(
   // hook-dispatch, well after boot). The module is cached after the first load.
   let effectiveEnabledPlugins: Set<string> | null = null;
   if (options?.conversationId) {
-    const { resolveConversationPluginScope } = await import(
-      "../daemon/conversation-plugin-scope.js"
-    );
+    const { resolveConversationPluginScope } =
+      await import("../daemon/conversation-plugin-scope.js");
     effectiveEnabledPlugins = resolveConversationPluginScope(
       options.conversationId,
     );
@@ -121,7 +122,9 @@ export async function getHookEntriesFor<TCtx = unknown>(
   // registered but are filtered out on the next turn.
   const defaultEntries: HookEntry<TCtx>[] = [];
   for (const entry of hookRegistry.get(name) ?? []) {
-    if (isPluginDisabled(entry.pluginName)) continue;
+    if (isPluginDisabled(entry.pluginName)) {
+      continue;
+    }
     if (
       effectiveEnabledPlugins != null &&
       !effectiveEnabledPlugins.has(entry.pluginName)
@@ -134,7 +137,8 @@ export async function getHookEntriesFor<TCtx = unknown>(
     });
   }
 
-  // User-land hooks from the mtime cache (async, may re-import). The per-chat
+  // User-land hooks from the plugin cache (async; applies any pending
+  // source-versions reconcile first). The per-chat
   // scope is threaded through so a deselected user plugin's hooks are excluded
   // too — standalone workspace hooks (not owned by a plugin) always run.
   const userEntries = await getUserHookEntriesFor<TCtx>(

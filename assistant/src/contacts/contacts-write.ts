@@ -8,9 +8,7 @@
 
 import {
   findContactChannel,
-  getChannelById,
   getContact,
-  getContactInternal,
   upsertContact,
 } from "./contact-store.js";
 import type { ContactType, ContactWriteResult } from "./types.js";
@@ -125,24 +123,4 @@ export function upsertContactChannel(params: {
   }
 
   return null;
-}
-
-/**
- * Resolve the native contact/channel for a member id. The ACL downgrade is
- * gateway-owned (relayed via mark_channel_revoked); this no longer mutates
- * local status. The memberId may be a plain channel ID (internal callers) or a
- * composite contactId:channelId (from the API response format).
- */
-export function revokeMember(memberId: string): ContactWriteResult | null {
-  const channelId = memberId.includes(":") ? memberId.split(":")[1] : memberId;
-
-  const channelRow = getChannelById(channelId);
-  if (!channelRow) return null;
-
-  const contact = getContactInternal(channelRow.contactId);
-  if (!contact) return null;
-  const channel = contact.channels.find((ch) => ch.id === channelId);
-  if (!channel) return null;
-
-  return { contact, channel };
 }

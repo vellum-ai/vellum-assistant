@@ -39,6 +39,17 @@ export const MANAGED_ROUTABLE_PROVIDERS: ReadonlySet<string> = new Set(
 export const VELLUM_MANAGED_PROVIDER = "vellum";
 
 /**
+ * Name of the single provider-agnostic Vellum-managed connection row. The
+ * connection carries platform auth and the `vellum` sentinel instead of a
+ * real upstream; the upstream is chosen per-request from the resolving
+ * profile's provider. Lives in this pure module (rather than
+ * `inference/connections.ts`, which re-exports it) so leaf consumers like the
+ * default-profile catalog can reference it without importing the
+ * DB-connected module graph.
+ */
+export const VELLUM_MANAGED_CONNECTION_NAME = "vellum";
+
+/**
  * Whether a connection is the provider-agnostic Vellum-managed connection.
  * Structurally typed so this stays a pure module with no connection-schema
  * import.

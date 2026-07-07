@@ -52,7 +52,7 @@ class FakeConversation {
     capturedConversations.push(this.capturedState);
   }
   updateClient() {}
-  setIsSubagent() {}
+
   setTrustContext(ctx: unknown) {
     this.capturedState.trustContext = ctx ?? undefined;
   }
@@ -195,6 +195,10 @@ describe("SubagentManager — provider call-site routing", () => {
         provider_connection: "anthropic-conn",
         model: "claude-opus-4-7",
       },
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
+      },
     });
 
     capturedProvider = undefined;
@@ -225,6 +229,8 @@ describe("SubagentManager — provider call-site routing", () => {
         model: "claude-opus-4-7",
       },
       profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
         altOpenai: {
           provider: "openai",
           provider_connection: "openai-conn",
@@ -264,6 +270,10 @@ describe("SubagentManager — provider call-site routing", () => {
         provider_connection: "anthropic-conn",
         model: "claude-opus-4-7",
       },
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
+      },
       // No subagentSpawn override.
     });
 
@@ -289,6 +299,10 @@ describe("SubagentManager — provider call-site routing", () => {
         provider: "anthropic",
         provider_connection: "anthropic-conn",
         model: "claude-opus-4-7",
+      },
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
       },
     });
 
@@ -341,6 +355,10 @@ describe("SubagentManager — provider call-site routing", () => {
         provider_connection: "anthropic-conn",
         model: "claude-opus-4-7",
       },
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
+      },
     });
 
     const parentScope = ["caveman", "data"];
@@ -377,6 +395,10 @@ describe("SubagentManager — provider call-site routing", () => {
         provider: "anthropic",
         provider_connection: "anthropic-conn",
         model: "claude-opus-4-7",
+      },
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
       },
     });
 

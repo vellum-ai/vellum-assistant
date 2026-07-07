@@ -442,15 +442,6 @@ async function drainSingleMessage(
     },
     "Dequeuing message",
   );
-  conversation.traceEmitter.emit(
-    "request_dequeued",
-    `Message dequeued (${reason})`,
-    {
-      requestId: next.requestId,
-      status: "info",
-      attributes: { reason },
-    },
-  );
   next.onEvent({
     type: "message_dequeued",
     conversationId: conversation.conversationId,
@@ -616,14 +607,6 @@ async function drainSingleMessage(
         text: slashResult.message,
         conversationId: conversation.conversationId,
       });
-      conversation.traceEmitter.emit(
-        "message_complete",
-        "Unknown slash command handled",
-        {
-          requestId: next.requestId,
-          status: "success",
-        },
-      );
       next.onEvent({
         type: "message_complete",
         conversationId: conversation.conversationId,
@@ -638,15 +621,6 @@ async function drainSingleMessage(
           requestId: next.requestId,
         },
         "Failed to persist unknown-slash exchange",
-      );
-      conversation.traceEmitter.emit(
-        "request_error",
-        `Unknown-slash persist failed: ${message}`,
-        {
-          requestId: next.requestId,
-          status: "error",
-          attributes: { reason: "persist_failure" },
-        },
       );
       next.onEvent({
         type: "error",
@@ -717,11 +691,6 @@ async function drainSingleMessage(
         text: responseText,
         conversationId: conversation.conversationId,
       });
-      conversation.traceEmitter.emit(
-        "message_complete",
-        "Compact slash command handled",
-        { requestId: next.requestId, status: "success" },
-      );
       next.onEvent({
         type: "message_complete",
         conversationId: conversation.conversationId,
@@ -805,11 +774,6 @@ async function drainSingleMessage(
         text: responseText,
         conversationId: conversation.conversationId,
       });
-      conversation.traceEmitter.emit(
-        "message_complete",
-        "Clean slash command handled",
-        { requestId: next.requestId, status: "success" },
-      );
       next.onEvent({
         type: "message_complete",
         conversationId: conversation.conversationId,
@@ -883,15 +847,6 @@ async function drainSingleMessage(
         requestId: next.requestId,
       },
       "Failed to persist queued message",
-    );
-    conversation.traceEmitter.emit(
-      "request_error",
-      `Queued message persist failed: ${message}`,
-      {
-        requestId: next.requestId,
-        status: "error",
-        attributes: { reason: "persist_failure" },
-      },
     );
     next.onEvent({
       type: "error",
@@ -1134,15 +1089,6 @@ async function drainBatch(
       conversationId: conversation.conversationId,
       requestId: qm.requestId,
     });
-    conversation.traceEmitter.emit(
-      "request_dequeued",
-      "Message dequeued (batched)",
-      {
-        requestId: qm.requestId,
-        status: "info",
-        attributes: { reason, batchIndex: i, batchSize: batch.length },
-      },
-    );
 
     const qmSlash = await resolveSlash(
       qm.content,
@@ -1167,11 +1113,6 @@ async function drainBatch(
         },
         "drainBatch invariant violated — non-passthrough message found in batch",
       );
-      conversation.traceEmitter.emit("request_error", invariantMessage, {
-        requestId: qm.requestId,
-        status: "error",
-        attributes: { reason: "batch_invariant_violation" },
-      });
       qm.onEvent({
         type: "error",
         conversationId: conversation.conversationId,
@@ -1252,15 +1193,6 @@ async function drainBatch(
           batchIndex: i,
         },
         "Failed to persist batched queued message",
-      );
-      conversation.traceEmitter.emit(
-        "request_error",
-        `Queued message persist failed: ${message}`,
-        {
-          requestId: qm.requestId,
-          status: "error",
-          attributes: { reason: "persist_failure" },
-        },
       );
       qm.onEvent({
         type: "error",
@@ -1726,14 +1658,6 @@ export async function processMessage(
       text: slashResult.message,
       conversationId: conversation.conversationId,
     });
-    conversation.traceEmitter.emit(
-      "message_complete",
-      "Unknown slash command handled",
-      {
-        requestId,
-        status: "success",
-      },
-    );
     onEvent({
       type: "message_complete",
       conversationId: conversation.conversationId,
@@ -1802,11 +1726,6 @@ export async function processMessage(
         text: responseText,
         conversationId: conversation.conversationId,
       });
-      conversation.traceEmitter.emit(
-        "message_complete",
-        "Compact slash command handled",
-        { requestId, status: "success" },
-      );
       onEvent({
         type: "message_complete",
         conversationId: conversation.conversationId,
@@ -1881,11 +1800,6 @@ export async function processMessage(
         text: responseText,
         conversationId: conversation.conversationId,
       });
-      conversation.traceEmitter.emit(
-        "message_complete",
-        "Clean slash command handled",
-        { requestId, status: "success" },
-      );
       onEvent({
         type: "message_complete",
         conversationId: conversation.conversationId,

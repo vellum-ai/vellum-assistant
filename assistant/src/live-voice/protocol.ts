@@ -11,12 +11,16 @@ type LiveVoiceClientFrameType = (typeof LIVE_VOICE_CLIENT_FRAME_TYPES)[number];
 const _LIVE_VOICE_SERVER_FRAME_TYPES = [
   "ready",
   "busy",
+  "speech_started",
+  "utterance_end",
+  "utterance_discarded",
   "stt_partial",
   "stt_final",
   "thinking",
   "assistant_text_delta",
   "tts_audio",
   "tts_done",
+  "turn_cancelled",
   "metrics",
   "archived",
   "error",
@@ -53,10 +57,21 @@ export interface LiveVoiceAudioConfig {
   readonly channels: 1;
 }
 
+const LIVE_VOICE_TURN_DETECTION_MODES = ["manual", "server_vad"] as const;
+
+export type LiveVoiceTurnDetectionMode =
+  (typeof LIVE_VOICE_TURN_DETECTION_MODES)[number];
+
 export interface LiveVoiceClientStartFrame {
   readonly type: "start";
   readonly conversationId?: string;
   readonly audio: LiveVoiceAudioConfig;
+  /**
+   * Turn-detection mode for the session. Absent means "manual" (push-to-talk).
+   * "server_vad" also implies a multi-turn session: the server detects
+   * utterance boundaries and runs repeated utterance→turn cycles.
+   */
+  readonly turnDetection?: LiveVoiceTurnDetectionMode;
 }
 
 export interface LiveVoiceClientAudioFrame {
@@ -97,11 +112,44 @@ export interface LiveVoiceReadyServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "ready";
   readonly sessionId: string;
   readonly conversationId: string;
+  /**
+   * Echoes the turn-detection mode the session is actually running, so
+   * clients can detect a daemon that ignored a requested mode. Absent
+   * (older daemons) means "manual".
+   */
+  readonly turnDetection?: LiveVoiceTurnDetectionMode;
 }
 
 export interface LiveVoiceBusyServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "busy";
   readonly activeSessionId: string;
+}
+
+/**
+ * Emitted when the server VAD detects user speech. The client MUST
+ * immediately stop local TTS playback — this doubles as the flush-tail-audio
+ * signal (the in-app analog of the phone stack's buffered-audio clear).
+ */
+export interface LiveVoiceSpeechStartedServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "speech_started";
+}
+
+/**
+ * Emitted when the server VAD closes the utterance and the turn's
+ * transcription begins (plays the role ptt_release plays in manual mode).
+ */
+export interface LiveVoiceUtteranceEndServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "utterance_end";
+  readonly reason: "silence" | "max-duration";
+}
+
+/**
+ * Emitted only in server_vad mode when the closed utterance produced no
+ * usable speech: it is dropped without an assistant turn and the client
+ * should return to listening.
+ */
+export interface LiveVoiceUtteranceDiscardedServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "utterance_discarded";
 }
 
 export interface LiveVoiceSttPartialServerFrame extends LiveVoiceServerFrameBase {
@@ -136,6 +184,15 @@ export interface LiveVoiceTtsDoneServerFrame extends LiveVoiceServerFrameBase {
   readonly turnId: string;
 }
 
+/**
+ * Emitted when an in-flight assistant turn is aborted by barge-in. The client
+ * must drop any buffered tts_audio for that turn; no tts_done will follow.
+ */
+export interface LiveVoiceTurnCancelledServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "turn_cancelled";
+  readonly turnId: string;
+}
+
 export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "metrics";
   readonly event?: string;
@@ -167,17 +224,27 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "error";
   readonly code: LiveVoiceProtocolErrorCode;
   readonly message: string;
+  /**
+   * True when the session continues past the error (e.g. a transient
+   * transcriber blip or one failed TTS segment). Absent (including on frames
+   * from older daemons) means the error is terminal for the session.
+   */
+  readonly recoverable?: boolean;
 }
 
 export type LiveVoiceServerFrame =
   | LiveVoiceReadyServerFrame
   | LiveVoiceBusyServerFrame
+  | LiveVoiceSpeechStartedServerFrame
+  | LiveVoiceUtteranceEndServerFrame
+  | LiveVoiceUtteranceDiscardedServerFrame
   | LiveVoiceSttPartialServerFrame
   | LiveVoiceSttFinalServerFrame
   | LiveVoiceThinkingServerFrame
   | LiveVoiceAssistantTextDeltaServerFrame
   | LiveVoiceTtsAudioServerFrame
   | LiveVoiceTtsDoneServerFrame
+  | LiveVoiceTurnCancelledServerFrame
   | LiveVoiceMetricsServerFrame
   | LiveVoiceArchivedServerFrame
   | LiveVoiceErrorServerFrame;
@@ -187,12 +254,16 @@ type WithoutSeq<T extends LiveVoiceServerFrameBase> = Omit<T, "seq">;
 export type LiveVoiceServerFramePayload =
   | WithoutSeq<LiveVoiceReadyServerFrame>
   | WithoutSeq<LiveVoiceBusyServerFrame>
+  | WithoutSeq<LiveVoiceSpeechStartedServerFrame>
+  | WithoutSeq<LiveVoiceUtteranceEndServerFrame>
+  | WithoutSeq<LiveVoiceUtteranceDiscardedServerFrame>
   | WithoutSeq<LiveVoiceSttPartialServerFrame>
   | WithoutSeq<LiveVoiceSttFinalServerFrame>
   | WithoutSeq<LiveVoiceThinkingServerFrame>
   | WithoutSeq<LiveVoiceAssistantTextDeltaServerFrame>
   | WithoutSeq<LiveVoiceTtsAudioServerFrame>
   | WithoutSeq<LiveVoiceTtsDoneServerFrame>
+  | WithoutSeq<LiveVoiceTurnCancelledServerFrame>
   | WithoutSeq<LiveVoiceMetricsServerFrame>
   | WithoutSeq<LiveVoiceArchivedServerFrame>
   | WithoutSeq<LiveVoiceErrorServerFrame>;
@@ -357,6 +428,18 @@ function validateStartFrame(
     );
   }
 
+  if (
+    "turnDetection" in value &&
+    !isLiveVoiceTurnDetectionMode(value.turnDetection)
+  ) {
+    return protocolError(
+      "invalid_field",
+      "start frame field turnDetection must be manual or server_vad",
+      "turnDetection",
+      "start",
+    );
+  }
+
   return {
     ok: true,
     frame: {
@@ -365,6 +448,9 @@ function validateStartFrame(
         ? { conversationId: value.conversationId }
         : {}),
       audio: audioConfig.frame,
+      ...(isLiveVoiceTurnDetectionMode(value.turnDetection)
+        ? { turnDetection: value.turnDetection }
+        : {}),
     },
   };
 }
@@ -466,6 +552,15 @@ function isLiveVoiceClientFrameType(
   value: string,
 ): value is LiveVoiceClientFrameType {
   return (LIVE_VOICE_CLIENT_FRAME_TYPES as readonly string[]).includes(value);
+}
+
+function isLiveVoiceTurnDetectionMode(
+  value: unknown,
+): value is LiveVoiceTurnDetectionMode {
+  return (
+    typeof value === "string" &&
+    (LIVE_VOICE_TURN_DETECTION_MODES as readonly string[]).includes(value)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

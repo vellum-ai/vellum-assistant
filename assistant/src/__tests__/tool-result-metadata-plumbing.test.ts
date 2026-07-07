@@ -79,7 +79,6 @@ function createCollectorDeps(): {
     ctx: {
       conversationId: "conv-meta",
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       streamThinking: false,
       emitActivityState: () => {},
       markWorkspaceTopLevelDirty: () => {},

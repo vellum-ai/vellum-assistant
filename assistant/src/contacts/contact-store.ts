@@ -14,12 +14,15 @@ import type {
   AssistantContactMetadata,
   Contact,
   ContactChannel,
-  ContactRole,
   ContactType,
   ContactWithChannels,
 } from "./types.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+type Db = ReturnType<typeof getDb>;
+/** Accepts the live connection or a transaction handle. */
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /** Strip LIKE metacharacters so user input is matched literally.
  * SQLite has no default escape character for LIKE, so we strip rather than escape. */
@@ -31,11 +34,7 @@ function escapeLike(value: string): string {
  * Find the first contact_channels row whose (type, address) matches.
  * Uses COLLATE NOCASE to find legacy lowercased rows (pre-migration 290).
  */
-function findConflictingChannel(
-  db: ReturnType<typeof getDb>,
-  type: string,
-  address: string,
-) {
+function findConflictingChannel(db: DbOrTx, type: string, address: string) {
   return db
     .select()
     .from(contactChannels)
@@ -46,6 +45,60 @@ function findConflictingChannel(
       ),
     )
     .get();
+}
+
+/** Merge notes concat: survivor notes first, donor appended with \n,
+ * empty result stored as null. */
+function concatMergedNotes(
+  keepNotes: string | null | undefined,
+  donorNotes: string | null,
+): string | null {
+  return [keepNotes ?? null, donorNotes].filter(Boolean).join("\n") || null;
+}
+
+/**
+ * Move donor channels onto the survivor, skipping any the survivor already
+ * holds by logical (type, address) key. COLLATE NOCASE catches legacy
+ * lowercased rows. `touchUpdatedAt` stamps updated_at on moved rows (the
+ * mirror op does; the local merge historically does not).
+ */
+function reparentDonorChannels(
+  tx: DbOrTx,
+  keepId: string,
+  mergeId: string,
+  touchUpdatedAt?: number,
+): void {
+  const donorChannels = tx
+    .select()
+    .from(contactChannels)
+    .where(eq(contactChannels.contactId, mergeId))
+    .all();
+
+  for (const ch of donorChannels) {
+    const exists = tx
+      .select()
+      .from(contactChannels)
+      .where(
+        and(
+          eq(contactChannels.contactId, keepId),
+          eq(contactChannels.type, ch.type),
+          sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
+        ),
+      )
+      .get();
+
+    if (!exists) {
+      tx.update(contactChannels)
+        .set({
+          contactId: keepId,
+          ...(touchUpdatedAt !== undefined
+            ? { updatedAt: touchUpdatedAt }
+            : {}),
+        })
+        .where(eq(contactChannels.id, ch.id))
+        .run();
+    }
+  }
 }
 
 /**
@@ -94,9 +147,6 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     id: row.id,
     displayName: row.displayName,
     notes: row.notes,
-    // gateway-owned; the serve layer stamps the real role from the gateway
-    // guardian id set.
-    role: "contact",
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     contactType: row.contactType,
@@ -159,9 +209,6 @@ export function getContact(id: string): ContactWithChannels | null {
   return withChannels(parseContact(row));
 }
 
-/** @deprecated Use {@link getContact} directly. */
-export const getContactInternal = getContact;
-
 /** INFO-only contact fields, joined locally by contact ID. */
 export interface ContactInfo {
   notes: string | null;
@@ -200,7 +247,6 @@ export function upsertContact(params: {
   id?: string;
   displayName: string;
   notes?: string | null;
-  role?: ContactRole;
   contactType?: ContactType;
   userFile?: string | null;
   /** userFile to seed ONLY when inserting a new contact; ignored on update so
@@ -260,7 +306,7 @@ export function upsertContact(params: {
       }
 
       notifyContactsChanged();
-      return { ...getContactInternal(contactId)!, created: false };
+      return { ...getContact(contactId)!, created: false };
     }
   }
 
@@ -287,7 +333,7 @@ export function upsertContact(params: {
 
         syncChannels(contactId, canonicalChannels, now);
         notifyContactsChanged();
-        return { ...getContactInternal(contactId)!, created: false };
+        return { ...getContact(contactId)!, created: false };
       }
     }
   }
@@ -322,7 +368,7 @@ export function upsertContact(params: {
   }
 
   notifyContactsChanged();
-  return { ...getContactInternal(contactId)!, created: true };
+  return { ...getContact(contactId)!, created: true };
 }
 
 /**
@@ -337,8 +383,9 @@ export function deleteContact(id: string): void {
 
 /**
  * Add new channels to a contact without removing existing ones.
- * When a channel already exists (same type+address), updates access/verification
- * fields if provided. Skips channels owned by a different contact.
+ * When a channel already exists (same type+address), refreshes its identity
+ * fields (address casing, isPrimary, externalChatId) if provided. Skips
+ * channels owned by a different contact unless reassignment is requested.
  */
 function syncChannels(
   contactId: string,
@@ -512,7 +559,7 @@ export function searchContacts(params: {
     const results: ContactWithChannels[] = [];
     for (const id of contactIds) {
       if (results.length >= limit) break;
-      const contact = getContactInternal(id);
+      const contact = getContact(id);
       if (
         contact &&
         (!params.contactType || contact.contactType === params.contactType) &&
@@ -541,7 +588,7 @@ export function searchContacts(params: {
     const results: ContactWithChannels[] = [];
     for (const id of contactIds) {
       if (results.length >= limit) break;
-      const contact = getContactInternal(id);
+      const contact = getContact(id);
       if (
         contact &&
         (!params.contactType || contact.contactType === params.contactType)
@@ -588,7 +635,7 @@ export function searchContacts(params: {
     const results: ContactWithChannels[] = [];
     for (const id of contactIds) {
       if (results.length >= limit) break;
-      const contact = getContactInternal(id);
+      const contact = getContact(id);
       if (contact) {
         results.push(contact);
       }
@@ -656,48 +703,224 @@ export function mergeContacts(
 
     tx.update(contacts)
       .set({
-        notes: [keep.notes, merge.notes].filter(Boolean).join("\n") || null,
+        notes: concatMergedNotes(keep.notes, merge.notes),
         updatedAt: now,
       })
       .where(eq(contacts.id, keepId))
       .run();
 
     // Move channels from donor to survivor, skipping duplicates
-    const donorChannels = tx
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.contactId, mergeId))
-      .all();
-
-    for (const ch of donorChannels) {
-      // COLLATE NOCASE catches legacy lowercased rows so we don't try to
-      // move a donor channel that collides with an existing survivor channel.
-      const exists = tx
-        .select()
-        .from(contactChannels)
-        .where(
-          and(
-            eq(contactChannels.contactId, keepId),
-            eq(contactChannels.type, ch.type),
-            sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
-          ),
-        )
-        .get();
-
-      if (!exists) {
-        tx.update(contactChannels)
-          .set({ contactId: keepId })
-          .where(eq(contactChannels.id, ch.id))
-          .run();
-      }
-    }
+    reparentDonorChannels(tx, keepId, mergeId);
 
     // Delete the donor contact (cascading deletes remaining channels)
     tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
   });
 
   notifyContactsChanged();
-  return getContactInternal(keepId)!;
+  return getContact(keepId)!;
+}
+
+/**
+ * Identity-mirror merge for the gateway's `contacts_mirror_merge_contact` op:
+ * concat donor notes onto the survivor (notes-only — never clobbers the
+ * survivor's display name), reparent donor channels by (type, address
+ * NOCASE), delete the donor. One transaction. A donor already gone is a no-op
+ * (idempotent gateway retry); a survivor missing from the mirror (mirror
+ * drift) is inserted with the combined notes so donor notes survive the
+ * delete.
+ */
+export function mergeContactMirror(params: {
+  keepContactId: string;
+  mergeContactId: string;
+  keepDisplayName: string;
+  resolvedUserFile?: string;
+}): void {
+  const db = getDb();
+
+  const applied = db.transaction((tx) => {
+    const donor = tx
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, params.mergeContactId))
+      .get();
+    if (!donor) return false;
+
+    const now = Date.now();
+    const survivor = tx
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, params.keepContactId))
+      .get();
+    const combined = concatMergedNotes(survivor?.notes, donor.notes);
+
+    if (survivor) {
+      tx.update(contacts)
+        .set({ notes: combined, updatedAt: now })
+        .where(eq(contacts.id, params.keepContactId))
+        .run();
+    } else {
+      tx.insert(contacts)
+        .values({
+          id: params.keepContactId,
+          displayName: params.keepDisplayName,
+          notes: combined,
+          contactType: "human",
+          userFile: params.resolvedUserFile ?? null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+
+    // Move donor channels to the survivor, skipping duplicates by logical key.
+    reparentDonorChannels(tx, params.keepContactId, params.mergeContactId, now);
+
+    // Delete the donor (cascade removes remaining duplicate channels).
+    tx.delete(contacts).where(eq(contacts.id, params.mergeContactId)).run();
+    return true;
+  });
+
+  if (applied) notifyContactsChanged();
+}
+
+/**
+ * Full identity-mirror upsert for the gateway's `contacts_mirror_upsert_full`
+ * op. One transaction:
+ *
+ * - Existing contact: sparse omit-to-preserve UPDATE — only provided fields
+ *   change (a partial upsert can't clobber notes/contact_type or revert a
+ *   curated display name).
+ * - Missing contact: INSERT with a generated collision-free user_file slug
+ *   (display name falls back to the first channel address, then "Unknown").
+ * - `assistant_contact_metadata` is upserted only for assistant-type contacts.
+ * - Channels: an existing (type, address NOCASE) row on this contact gets an
+ *   omit-to-preserve external_chat_id refresh; an address owned by ANOTHER
+ *   contact is skipped (never stolen); a new row adopts the gateway-minted
+ *   channel id so both stores share one canonical id.
+ */
+export function upsertContactMirrorFull(params: {
+  contactId: string;
+  displayName?: string;
+  notes?: string | null;
+  contactType?: ContactType;
+  assistantMetadata?: {
+    species: string;
+    metadata?: Record<string, unknown> | null;
+  };
+  channels?: {
+    id?: string;
+    type: string;
+    address: string;
+    isPrimary?: boolean;
+    externalChatId?: string | null;
+  }[];
+}): void {
+  const db = getDb();
+
+  db.transaction((tx) => {
+    const now = Date.now();
+    const existing = tx
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, params.contactId))
+      .get();
+
+    if (existing) {
+      const updateSet: Record<string, unknown> = { updatedAt: now };
+      if (params.displayName !== undefined) {
+        updateSet.displayName = params.displayName;
+      }
+      if (params.notes !== undefined) updateSet.notes = params.notes;
+      if (params.contactType !== undefined) {
+        updateSet.contactType = params.contactType;
+      }
+      tx.update(contacts)
+        .set(updateSet)
+        .where(eq(contacts.id, params.contactId))
+        .run();
+    } else {
+      const displayName =
+        params.displayName ?? params.channels?.[0]?.address ?? "Unknown";
+      tx.insert(contacts)
+        .values({
+          id: params.contactId,
+          displayName,
+          notes: params.notes ?? null,
+          contactType: params.contactType ?? "human",
+          userFile: generateUserFileSlug(displayName),
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+
+    if (params.contactType === "assistant" && params.assistantMetadata) {
+      const metadataJson =
+        params.assistantMetadata.metadata != null
+          ? JSON.stringify(params.assistantMetadata.metadata)
+          : null;
+      tx.insert(assistantContactMetadata)
+        .values({
+          contactId: params.contactId,
+          species: params.assistantMetadata.species,
+          metadata: metadataJson,
+        })
+        .onConflictDoUpdate({
+          target: assistantContactMetadata.contactId,
+          set: {
+            species: params.assistantMetadata.species,
+            metadata: metadataJson,
+          },
+        })
+        .run();
+    }
+
+    for (const ch of params.channels ?? []) {
+      const existingCh = tx
+        .select()
+        .from(contactChannels)
+        .where(
+          and(
+            eq(contactChannels.contactId, params.contactId),
+            eq(contactChannels.type, ch.type),
+            sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
+          ),
+        )
+        .get();
+
+      if (existingCh) {
+        // Omit-to-preserve external_chat_id; is_primary is never rewritten
+        // on an existing channel.
+        const updateSet: Record<string, unknown> = { updatedAt: now };
+        if (ch.externalChatId !== undefined) {
+          updateSet.externalChatId = ch.externalChatId;
+        }
+        tx.update(contactChannels)
+          .set(updateSet)
+          .where(eq(contactChannels.id, existingCh.id))
+          .run();
+        continue;
+      }
+
+      // Address owned by ANOTHER contact is never stolen.
+      if (findConflictingChannel(tx, ch.type, ch.address)) continue;
+
+      tx.insert(contactChannels)
+        .values({
+          id: ch.id ?? uuid(),
+          contactId: params.contactId,
+          type: ch.type,
+          address: ch.address,
+          isPrimary: ch.isPrimary ?? false,
+          externalChatId: ch.externalChatId ?? null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+  });
+
+  notifyContactsChanged();
 }
 
 /**
@@ -724,7 +947,7 @@ export function findContactByAddress(
     .get();
 
   if (!channel) return null;
-  return getContactInternal(channel.contactId);
+  return getContact(channel.contactId);
 }
 
 /**
@@ -750,7 +973,7 @@ function findContactByChannelExternalChatId(
     .orderBy(desc(contactChannels.updatedAt), desc(contactChannels.createdAt))
     .get();
   if (!channel) return null;
-  return getContactInternal(channel.contactId);
+  return getContact(channel.contactId);
 }
 
 /**
@@ -796,20 +1019,18 @@ export function findContactChannel(params: {
 }
 
 /**
- * Heal a guardian channel's identity address when the JWT principal no longer
- * matches the stored guardian binding after a DB reset. The principalId ACL
- * column is gateway-owned and no longer written here; only the channel identity
- * address is repaired.
+ * Repair a channel's identity address, e.g. when a guardian JWT principal no
+ * longer matches the stored channel address after a DB reset. Identity-only:
+ * the principalId ACL column is gateway-owned.
  *
  * Returns false if the update would violate the unique (type, address)
- * constraint on contact_channels — e.g. when the incoming principal already
+ * constraint on contact_channels — e.g. when the incoming address already
  * exists on another channel record (a revoked former guardian entry).
- * In that case the heal is skipped and trust stays `unknown`.
+ * In that case the repair is skipped and trust stays `unknown`.
  */
-export function updateContactPrincipalAndChannel(
-  _contactId: string,
+export function repairChannelAddress(
   channelId: string,
-  newPrincipalId: string,
+  newAddress: string,
 ): boolean {
   const db = getDb();
   const now = Date.now();
@@ -822,7 +1043,7 @@ export function updateContactPrincipalAndChannel(
   if (!channel) return false;
 
   // Guard: check if another channel row holds this canonical identity.
-  const conflicting = findConflictingChannel(db, channel.type, newPrincipalId);
+  const conflicting = findConflictingChannel(db, channel.type, newAddress);
 
   if (conflicting && conflicting.id !== channelId) {
     return false;
@@ -830,7 +1051,7 @@ export function updateContactPrincipalAndChannel(
 
   db.update(contactChannels)
     .set({
-      address: newPrincipalId,
+      address: newAddress,
       updatedAt: now,
     })
     .where(eq(contactChannels.id, channelId))

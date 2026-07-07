@@ -1,5 +1,6 @@
 /**
- * APNs remote-push device-token registration for the Capacitor iOS app.
+ * APNs remote-push device-token registration and tap routing for the
+ * Capacitor iOS app.
  *
  * The daemon's `platform` notification channel POSTs background notifications
  * (reminders, activity completions, etc.) to the Vellum platform's
@@ -22,6 +23,9 @@
  *   - {@link unregisterFromRemotePush} — call from the logout path BEFORE the
  *     session cookie is cleared (see `stores/auth-store.ts`) so the platform
  *     delete is authenticated. Removes the token for the bound assistant.
+ *   - Tap routing — a `pushNotificationActionPerformed` listener publishes
+ *     `deeplink.openThread` when the tapped notification carries a
+ *     conversation id.
  *
  * iOS-only and best-effort: no-ops on Electron, desktop browsers, and Android
  * (no native Capacitor Android shell ships today); registration/delete failures
@@ -39,6 +43,7 @@ import {
   assistantsPushTokensUpsert,
 } from "@/generated/api/sdk.gen";
 import type { ApnsEnvironmentEnum } from "@/generated/api/types.gen";
+import { publish } from "@/lib/event-bus";
 import { captureError } from "@/lib/sentry/capture-error";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { createStorageAccessor } from "@/utils/typed-storage";
@@ -68,7 +73,11 @@ function parseRegisteredToken(raw: string): RegisteredToken | null {
     typeof value.bundleId === "string" &&
     typeof value.assistantId === "string"
   ) {
-    return { token: value.token, bundleId: value.bundleId, assistantId: value.assistantId };
+    return {
+      token: value.token,
+      bundleId: value.bundleId,
+      assistantId: value.assistantId,
+    };
   }
   return null;
 }
@@ -179,10 +188,34 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
 }
 
 /**
- * Register the APNs `registration` / `registrationError` listeners exactly
- * once. The `registration` handler upserts the token under whichever assistant
- * is current when iOS delivers it (iOS may emit the token asynchronously, and
- * re-emits the cached token on subsequent `register()` calls).
+ * Conversation id a tapped push routes to: `data.deep_link.conversationId`
+ * (daemon `deep_link_metadata`, relayed by the platform into the APNs
+ * payload), falling back to a top-level `conversationId`. Undefined for
+ * absent/malformed shapes — the tap then just foregrounds the app.
+ */
+export function extractPushConversationId(data: unknown): string | undefined {
+  if (typeof data !== "object" || data === null) {
+    return undefined;
+  }
+  const record = data as Record<string, unknown>;
+  const deepLink = record.deep_link;
+  if (typeof deepLink === "object" && deepLink !== null) {
+    const conversationId = (deepLink as Record<string, unknown>).conversationId;
+    if (typeof conversationId === "string") {
+      return conversationId;
+    }
+  }
+  return typeof record.conversationId === "string"
+    ? record.conversationId
+    : undefined;
+}
+
+/**
+ * Register the APNs `registration` / `registrationError` / tap listeners
+ * exactly once. The `registration` handler upserts the token under whichever
+ * assistant is current when iOS delivers it (iOS may emit the token
+ * asynchronously, and re-emits the cached token on subsequent `register()`
+ * calls).
  */
 async function ensureListeners(): Promise<void> {
   if (listenersRegistered) return;
@@ -200,6 +233,17 @@ async function ensureListeners(): Promise<void> {
         level: "warning",
       });
     });
+    await PushNotifications.addListener(
+      "pushNotificationActionPerformed",
+      (action) => {
+        const conversationId = extractPushConversationId(
+          action.notification.data,
+        );
+        if (conversationId) {
+          publish("deeplink.openThread", { threadId: conversationId });
+        }
+      },
+    );
   } catch (err) {
     // Allow a later call to retry listener registration.
     listenersRegistered = false;
@@ -220,7 +264,9 @@ async function ensureListeners(): Promise<void> {
  * authorization backs the local-notification path, so this does not introduce a
  * second OS prompt.
  */
-export async function registerForRemotePush(assistantId: string): Promise<void> {
+export async function registerForRemotePush(
+  assistantId: string,
+): Promise<void> {
   if (!isRemotePushSupported()) return;
   currentAssistantId = assistantId;
 

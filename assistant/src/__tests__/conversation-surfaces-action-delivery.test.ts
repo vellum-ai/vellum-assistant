@@ -35,7 +35,6 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext & {
   const processMessageCalls: ProcessMessageCall[] = [];
   return {
     conversationId: "conv-1",
-    traceEmitter: { emit: () => {} },
     sendToClient: (msg: ServerMessage) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<

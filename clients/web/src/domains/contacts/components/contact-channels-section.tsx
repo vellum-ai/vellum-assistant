@@ -1,12 +1,13 @@
 import {
-    Bot,
-    CheckCircle,
-    Hash,
-    HelpCircle,
-    Mail,
-    MessageSquare,
-    Phone,
-    Send,
+  Bot,
+  CheckCircle,
+  Hash,
+  HelpCircle,
+  Link2,
+  Mail,
+  MessageSquare,
+  Phone,
+  Send,
 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useState } from "react";
@@ -14,9 +15,19 @@ import { useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
-import type {
-    ChannelInfo,
-    ContactChannelPayload,
+import {
+  isVerifiedContactChannel,
+  LINKABLE_CHANNEL_IDS,
+} from "@/domains/contacts/channel-linking";
+import {
+  ProvenancePill,
+  type CascadeProvenance,
+} from "@/domains/contacts/components/provenance-pill";
+import type { ChannelProvenanceMap } from "@/domains/contacts/hooks/use-channel-provenance";
+import {
+  isSetupChannelId,
+  type ChannelInfo,
+  type ContactChannelPayload,
 } from "@/domains/contacts/types";
 
 const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<ChannelInfo["id"]>([
@@ -55,9 +66,7 @@ export function getChannelActionState(
     return { kind: "setup" };
   }
 
-  const verified =
-    existing?.status === "verified" ||
-    (existing?.status === "active" && existing?.verifiedAt != null);
+  const verified = existing != null && isVerifiedContactChannel(existing);
 
   if (verified) {
     return { kind: "verified" };
@@ -115,12 +124,25 @@ interface ContactChannelsSectionProps {
   contactChannels: ContactChannelPayload[];
   availableChannels?: ChannelInfo[];
   a2aEnabled?: boolean;
+  /**
+   * Cascade provenance per setup channel. When provided, channel rows the
+   * contact is present on show a pill naming the layer their effective
+   * access comes from. Absent when the `channelTrustFloors` flag is off.
+   */
+  channelProvenance?: ChannelProvenanceMap;
   setupLabel?: string;
   verifyLoading?: boolean;
   verifySubject?: "self" | "contact";
   onSetupChannel?: (type: string) => void;
   onVerifyChannel?: (type: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
+  /**
+   * Opens the roster picker for a linkable channel row (see
+   * `LINKABLE_CHANNEL_IDS`). When provided, unlinked linkable rows render
+   * "Link account" as their primary action with Invite as the secondary.
+   * Non-linkable rows are unaffected.
+   */
+  onLinkAccount?: (channelId: string) => void;
 }
 
 function ChannelIcon({
@@ -154,12 +176,14 @@ export function ContactChannelsSection({
   contactChannels,
   availableChannels,
   a2aEnabled,
+  channelProvenance,
   setupLabel = "Invite",
   verifyLoading,
   verifySubject = "self",
   onSetupChannel,
   onVerifyChannel,
   onRevokeChannel,
+  onLinkAccount,
 }: ContactChannelsSectionProps) {
   const [verifyPending, setVerifyPending] = useState<ChannelInfo | null>(null);
   const [revokePending, setRevokePending] = useState<{
@@ -207,6 +231,11 @@ export function ContactChannelsSection({
               <ChannelRow
                 info={info}
                 existing={existing}
+                provenance={
+                  existing && isSetupChannelId(info.id)
+                    ? channelProvenance?.[info.id]
+                    : undefined
+                }
                 setupLabel={setupLabel}
                 verifyLoading={verifyLoading}
                 onSetup={
@@ -224,6 +253,11 @@ export function ContactChannelsSection({
                           channelId: existing.id,
                           channel: info,
                         })
+                    : undefined
+                }
+                onLinkAccount={
+                  onLinkAccount && LINKABLE_CHANNEL_IDS.has(info.id)
+                    ? () => onLinkAccount(info.id)
                     : undefined
                 }
               />
@@ -271,21 +305,25 @@ export function ContactChannelsSection({
 interface ChannelRowProps {
   info: ChannelInfo;
   existing: ContactChannelPayload | undefined;
+  provenance?: CascadeProvenance;
   setupLabel: string;
   verifyLoading?: boolean;
   onSetup?: () => void;
   onVerify?: () => void;
   onRevoke?: () => void;
+  onLinkAccount?: () => void;
 }
 
 function ChannelRow({
   info,
   existing,
+  provenance,
   setupLabel,
   verifyLoading,
   onSetup,
   onVerify,
   onRevoke,
+  onLinkAccount,
 }: ChannelRowProps) {
   const actionState = getChannelActionState(info, existing);
 
@@ -311,6 +349,7 @@ function ChannelRow({
         </span>
       ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-2">
+        {provenance ? <ProvenancePill provenance={provenance} /> : null}
         {actionState.kind === "connected" ? (
           <>
             <span className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md whitespace-nowrap select-none text-body-small-emphasised leading-none bg-[var(--content-default)] text-[var(--surface-base)]">
@@ -345,13 +384,17 @@ function ChannelRow({
           </Button>
         ) : actionState.kind === "setup" ? (
           info.id === "a2a" ? null : (
-            <Button
-              variant="outlined"
-              onClick={onSetup}
-              disabled={!onSetup}
-            >
-              {setupLabel}
-            </Button>
+            <>
+              {onLinkAccount ? (
+                <Button onClick={onLinkAccount}>
+                  <Link2 className="h-3.5 w-3.5" />
+                  Link account
+                </Button>
+              ) : null}
+              <Button variant="outlined" onClick={onSetup} disabled={!onSetup}>
+                {setupLabel}
+              </Button>
+            </>
           )
         ) : null}
       </div>

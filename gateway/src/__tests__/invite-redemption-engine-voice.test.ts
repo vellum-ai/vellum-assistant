@@ -22,9 +22,8 @@ import {
 
 // The engine's ACL side effect (upsertVerifiedContactChannel) dual-writes an
 // assistant-DB info mirror over IPC; stub it so tests never touch a socket.
-// Spread the actual module so untouched exports (assistantDbExec,
-// assistantDbTransaction) stay importable by later-loaded files when suites
-// share a bun process.
+// Spread the actual module so untouched exports (assistantDbExec) stay
+// importable by later-loaded files when suites share a bun process.
 const actualAssistantDbProxy = await import("../db/assistant-db-proxy.js");
 mock.module("../db/assistant-db-proxy.js", () => ({
   ...actualAssistantDbProxy,

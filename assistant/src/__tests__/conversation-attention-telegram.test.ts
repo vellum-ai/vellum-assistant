@@ -60,7 +60,6 @@ function resetTables(): void {
   resetTestTables(
     "conversation_attention_events",
     "conversation_assistant_attention_state",
-    "channel_verification_sessions",
     "conversation_keys",
     "message_runs",
     "channel_inbound_events",

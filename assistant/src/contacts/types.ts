@@ -1,3 +1,5 @@
+/** Gateway-sourced: carried on trust verdicts and stamped at the serve layer,
+ *  never persisted on the local {@link Contact}. */
 export type ContactRole = "guardian" | "contact";
 
 export type ContactType = "human" | "assistant";
@@ -30,7 +32,6 @@ export interface Contact {
   displayName: string;
   /** Free-text notes about this contact (e.g. relationship, communication preferences). */
   notes: string | null;
-  role: ContactRole;
   createdAt: number;
   updatedAt: number;
   contactType: ContactType;

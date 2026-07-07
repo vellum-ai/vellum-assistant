@@ -1,67 +1,52 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
 import {
-    MobileSidebarDrawer,
-    MobileSidebarTrigger,
+  MobileSidebarDrawer,
+  MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
-import {
-    AssistantChannelsDetail,
-    type SlackThreadMode,
-} from "@/domains/contacts/components/assistant-channels-detail";
+import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
 import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog";
 import { ContactsList } from "@/domains/contacts/components/contacts-list";
 import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog";
 import { GuardianDetailView } from "@/domains/contacts/components/guardian-detail-view";
+import { LinkAccountDialog } from "@/domains/contacts/components/link-account-dialog";
+import { slackRosterOptions } from "@/domains/contacts/slack-users-query";
 import {
-    deleteContact as gatewayDeleteContact,
-    upsertContact,
-    verifyContactChannel,
+  deleteContact as gatewayDeleteContact,
+  upsertContact,
+  verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
 import {
-    SETUP_CHANNEL_IDS,
-    isSetupChannelId,
-    type AssistantChannelState,
-    type ChannelInfo,
-    type ChannelReadinessSnapshot,
-    type ContactChannelPayload,
-    type ContactPayload,
-    type ContactSelection,
+  isSetupChannelId,
+  type ChannelInfo,
+  type ContactChannelPayload,
+  type ContactPayload,
+  type ContactSelection,
 } from "@/domains/contacts/types";
 import {
-    channelsAvailableGetOptions,
-    channelsReadinessGetOptions,
-    channelsReadinessGetQueryKey,
-    contactsGetOptions,
-    contactsGetQueryKey,
-    contactsGetSetQueryData,
-    integrationsSlackChannelConfigGetOptions,
-    integrationsSlackChannelConfigGetQueryKey,
-    integrationsSlackChannelConfigPatchMutation,
-    useContactchannelsByContactChannelIdPatchMutation,
-    useContactsMergePostMutation,
+  channelsAvailableGetOptions,
+  contactsGetOptions,
+  contactsGetQueryKey,
+  contactsGetSetQueryData,
+  useContactchannelsByContactChannelIdPatchMutation,
+  useContactsMergePostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import {
-    channelsAvailableGet,
-    integrationsSlackChannelConfigDelete,
-    integrationsTelegramConfigDelete,
-    integrationsTelegramConfigPost,
-    integrationsTwilioCredentialsDelete,
-    integrationsTwilioCredentialsPost,
-} from "@/generated/daemon/sdk.gen";
-import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
-import type {
-    ChannelsAvailableGetResponse,
-    IntegrationsSlackChannelConfigGetResponse,
-} from "@/generated/daemon/types.gen";
-import { useChannelTrustFloors } from "@/domains/contacts/hooks/use-channel-trust-floors";
+import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
+import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
+import { assistantDisplayName } from "@/domains/contacts/assistant-display-name";
+import { useAssistantChannels } from "@/domains/contacts/hooks/use-assistant-channels";
+import { useChannelProvenance } from "@/domains/contacts/hooks/use-channel-provenance";
+import { useInviteLinkDialog } from "@/domains/contacts/hooks/use-invite-link-dialog";
+import { useAccountLink } from "@/domains/contacts/hooks/use-account-link";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { toastOnError } from "@/utils/mutation-error";
+import { routes } from "@/utils/routes";
 
 /**
  * Hardcoded fallback for assistants that don't expose
@@ -110,14 +95,6 @@ const DEFAULT_CHANNELS: ChannelInfo[] = [
   },
 ];
 
-const ASSISTANT_SETUP_PROMPTS: Record<AssistantChannelState["key"], string> = {
-  slack: "I want to reach you on Slack. Let's set it up.",
-  telegram: "I want to reach you on Telegram. Let's set it up.",
-  phone: "I want to be able to call you. Let's set you up with a phone number.",
-};
-
-const READINESS_REFETCH_MS = 15000;
-
 const EMPTY_CHANNELS: ChannelInfo[] = [];
 
 export interface ContactsPageProps {
@@ -132,25 +109,24 @@ export function ContactsPage({
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
   const identityName = useAssistantIdentityStore.use.name();
   const queryClient = useQueryClient();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const rawSetup = searchParams.get("setup");
-  const setupChannel = rawSetup && isSetupChannelId(rawSetup) ? rawSetup : null;
-
-  // Consume the `?setup=` param once on mount so it doesn't persist across navigations.
-  useEffect(() => {
-    if (!setupChannel) return;
-    setSearchParams((prev) => { prev.delete("setup"); return prev; }, { replace: true });
-  }, [setupChannel, setSearchParams]);
+  // Legacy `?setup=<channel>` deep link. Setup used to continue on this
+  // page's assistant detail card; the credential forms now live only on the
+  // Channels tab, so the param is forwarded there (see the redirect below)
+  // instead of being consumed via `useSetupChannelParam`.
+  const [searchParams] = useSearchParams();
+  const rawSetupParam = searchParams.get("setup");
+  const setupChannel =
+    rawSetupParam && isSetupChannelId(rawSetupParam) ? rawSetupParam : null;
 
   const [selection, setSelection] = useState<ContactSelection>({
     kind: "assistant",
   });
 
-  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const inviteDialog = useInviteLinkDialog(assistantId);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
 
-  const assistantName = identityName ?? "your assistant";
+  const assistantName = assistantDisplayName(identityName);
 
   // ---------------------------------------------------------------------------
   // Queries
@@ -161,11 +137,6 @@ export function ContactsPage({
     [assistantId],
   );
   const contactsQueryKey = contactsGetQueryKey(contactsPathOpts);
-  const readinessPathOpts = useMemo(
-    () => ({ path: { assistant_id: assistantId } }),
-    [assistantId],
-  );
-  const readinessQueryKey = channelsReadinessGetQueryKey(readinessPathOpts);
 
   const contactsQuery = useQuery({
     ...contactsGetOptions(contactsPathOpts),
@@ -173,12 +144,12 @@ export function ContactsPage({
     select: (data) => data.contacts,
   });
 
-  const readinessQuery = useQuery({
-    ...channelsReadinessGetOptions(readinessPathOpts),
-    enabled: Boolean(assistantId),
-    refetchInterval: READINESS_REFETCH_MS,
-    select: (data) => data.snapshots,
+  const channelsController = useAssistantChannels({
+    assistantId,
+    onStartSetupConversation,
   });
+
+  const channelProvenance = useChannelProvenance(assistantId);
 
   const availabilityQuery = useQuery({
     ...channelsAvailableGetOptions({
@@ -192,7 +163,9 @@ export function ContactsPage({
         throwOnError: false,
       });
       if (!response || response.status === 404) {
-        return { channels: DEFAULT_CHANNELS } satisfies ChannelsAvailableGetResponse;
+        return {
+          channels: DEFAULT_CHANNELS,
+        } satisfies ChannelsAvailableGetResponse;
       }
       if (!response.ok) {
         throw error ?? new Error("Failed to fetch channel availability");
@@ -217,7 +190,6 @@ export function ContactsPage({
     if (selection.kind !== "contact") return null;
     return contactsData?.find((c) => c.id === selection.contactId) ?? null;
   }, [contactsData, selection]);
-  const readinessData = readinessQuery.data ?? [];
 
   const mergeCandidates = useMemo<ContactPayload[]>(() => {
     if (!contactsData || !selectedContact) return [];
@@ -235,32 +207,6 @@ export function ContactsPage({
     setSelection({ kind: "contact", contactId: guardian.id });
   }, [guardian]);
 
-  const channels = useMemo(
-    () => deriveChannelStates(readinessData),
-    [readinessData],
-  );
-
-  const slackConnected = channels.some(
-    (ch) => ch.key === "slack" && ch.status === "ready",
-  );
-
-  const slackConfigPathOpts = useMemo(
-    () => ({ path: { assistant_id: assistantId } }),
-    [assistantId],
-  );
-
-  const slackConfigQuery = useQuery({
-    ...integrationsSlackChannelConfigGetOptions(slackConfigPathOpts),
-    enabled: slackConnected,
-    select: (data: IntegrationsSlackChannelConfigGetResponse) => data.threadMode,
-  });
-
-  const slackThreadMode = slackConfigQuery.data;
-
-  // Per-channel trust floors (admission policy), shown inline on each connected
-  // channel when the `channelTrustFloors` flag is on.
-  const channelTrustFloors = useChannelTrustFloors(assistantId);
-
   // ---------------------------------------------------------------------------
   // Mutations
   // ---------------------------------------------------------------------------
@@ -268,11 +214,6 @@ export function ContactsPage({
   const invalidateContacts = useCallback(
     () => queryClient.invalidateQueries({ queryKey: contactsQueryKey }),
     [queryClient, contactsQueryKey],
-  );
-
-  const invalidateReadiness = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: readinessQueryKey }),
-    [queryClient, readinessQueryKey],
   );
 
   const createMutation = useMutation({
@@ -283,9 +224,7 @@ export function ContactsPage({
     },
     onSuccess: (contact) => {
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
-        prev
-          ? { ...prev, contacts: [...prev.contacts, contact] }
-          : undefined,
+        prev ? { ...prev, contacts: [...prev.contacts, contact] } : undefined,
       );
       setSelection({ kind: "contact", contactId: contact.id });
     },
@@ -354,9 +293,7 @@ export function ContactsPage({
                 ...prev,
                 contacts: prev.contacts
                   .filter((c) => c.id !== mergeId)
-                  .map((c) =>
-                    c.id === mergedContact.id ? mergedContact : c,
-                  ),
+                  .map((c) => (c.id === mergedContact.id ? mergedContact : c)),
               }
             : undefined,
         );
@@ -389,20 +326,6 @@ export function ContactsPage({
     mergeMutation.reset();
   }, [mergeMutation]);
 
-  const disconnectMutation = useMutation({
-    mutationFn: async (channelKey: AssistantChannelState["key"]) => {
-      const opts = { path: { assistant_id: assistantId }, throwOnError: true as const };
-      if (channelKey === "slack") {
-        await integrationsSlackChannelConfigDelete(opts);
-      } else if (channelKey === "telegram") {
-        await integrationsTelegramConfigDelete(opts);
-      } else if (channelKey === "phone") {
-        await integrationsTwilioCredentialsDelete(opts);
-      }
-    },
-    onSettled: () => invalidateReadiness(),
-  });
-
   const revokeMutation = useContactchannelsByContactChannelIdPatchMutation({
     onSuccess: () => invalidateContacts(),
   });
@@ -417,96 +340,10 @@ export function ContactsPage({
     [revokeMutation, assistantId],
   );
 
-  const saveTelegramMutation = useMutation({
-    mutationFn: (botToken: string) =>
-      integrationsTelegramConfigPost({
-        path: { assistant_id: assistantId },
-        body: { botToken },
-        throwOnError: true,
-      }),
-    onSettled: () => invalidateReadiness(),
-  });
-
-  const saveSlackMutation = useSaveSlackConfig({ assistantId });
-
-  const slackThreadModeMutation = useMutation({
-    ...integrationsSlackChannelConfigPatchMutation(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: integrationsSlackChannelConfigGetQueryKey(slackConfigPathOpts),
-      });
-    },
-  });
-
-  const saveTwilioMutation = useMutation({
-    mutationFn: ({ accountSid, authToken }: { accountSid: string; authToken: string }) =>
-      integrationsTwilioCredentialsPost({
-        path: { assistant_id: assistantId },
-        body: { accountSid, authToken },
-        throwOnError: true,
-      }),
-    onSettled: () => invalidateReadiness(),
-  });
-
-  const handleSaveTelegramToken = useCallback(
-    async (botToken: string): Promise<void> => {
-      await saveTelegramMutation.mutateAsync(botToken);
-    },
-    [saveTelegramMutation],
-  );
-
-  const handleSaveSlackConfig = useCallback(
-    (botToken: string, appToken: string) => {
-      saveSlackMutation.mutate({ botToken, appToken });
-    },
-    [saveSlackMutation],
-  );
-
-  const handleSlackThreadModeChange = useCallback(
-    (mode: SlackThreadMode) => {
-      slackThreadModeMutation.mutate({
-        path: { assistant_id: assistantId },
-        body: { threadMode: mode },
-      });
-    },
-    [slackThreadModeMutation, assistantId],
-  );
-
-  const handleSaveTwilioCredentials = useCallback(
-    async (accountSid: string, authToken: string): Promise<void> => {
-      await saveTwilioMutation.mutateAsync({ accountSid, authToken });
-    },
-    [saveTwilioMutation],
-  );
-
   const handleAddContact = useCallback(() => {
     if (createMutation.isPending) return;
     createMutation.mutate();
   }, [createMutation]);
-
-  const handleOpenInviteLink = useCallback(() => {
-    setInviteDialogOpen(true);
-  }, []);
-
-  const handleInviteClose = useCallback(() => {
-    setInviteDialogOpen(false);
-    invalidateContacts();
-  }, [invalidateContacts]);
-
-  const handleAssistantSetup = useCallback(
-    (channelKey: AssistantChannelState["key"]) => {
-      if (!onStartSetupConversation) return;
-      onStartSetupConversation(ASSISTANT_SETUP_PROMPTS[channelKey]);
-    },
-    [onStartSetupConversation],
-  );
-
-  const handleDisconnect = useCallback(
-    (channelKey: AssistantChannelState["key"]) => {
-      disconnectMutation.mutate(channelKey);
-    },
-    [disconnectMutation],
-  );
 
   const handleContactSetupChannel = useCallback(
     (type: string) => {
@@ -557,6 +394,38 @@ export function ContactsPage({
     [selectedContact, verifyChannelMutation],
   );
 
+  const slackLink = useAccountLink({
+    assistantId,
+    channelType: "slack",
+    contact: selectedContact
+      ? { id: selectedContact.id, displayName: selectedContact.displayName }
+      : null,
+    onLinked: invalidateContacts,
+  });
+
+  // Roster fetch is deferred until the picker opens.
+  const slackRosterQuery = useQuery({
+    ...slackRosterOptions(assistantId),
+    enabled: Boolean(assistantId) && slackLink.dialogOpen,
+    select: (data) => data.users,
+  });
+
+  // Without configured Slack credentials the roster can only 503, so the
+  // Link action is offered only when the Slack connection is ready —
+  // otherwise the row keeps Invite as its sole (working) action.
+  const slackReady = channelsController.channels.some(
+    (channel) => channel.key === "slack" && channel.status === "ready",
+  );
+
+  const handleLinkAccount = useCallback(
+    (channelId: string) => {
+      if (channelId === slackLink.channelType) {
+        slackLink.open();
+      }
+    },
+    [slackLink],
+  );
+
   // ---------------------------------------------------------------------------
   // Derived optimistic state
   // ---------------------------------------------------------------------------
@@ -583,6 +452,14 @@ export function ContactsPage({
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
+
+  // Old builds' mobile chat handoff (and saved links) deep-linked channel
+  // setup to this page. The forms it targeted moved to the Channels tab,
+  // so forward the link there rather than stranding it on the assistant
+  // card's plain connect/disconnect list.
+  if (setupChannel) {
+    return <Navigate to={`${routes.channels}?setup=${setupChannel}`} replace />;
+  }
 
   const contactsListProps = {
     loading: contactsQuery.isLoading,
@@ -635,29 +512,10 @@ export function ContactsPage({
           selection.contactId === deletingContactId) ? (
           <AssistantChannelsDetail
             assistantName={assistantName}
-            channels={channels}
-            pendingChannelKey={
-              disconnectMutation.isPending
-                ? disconnectMutation.variables ?? null
-                : null
-            }
-            slackThreadMode={slackThreadMode}
-            slackThreadModePending={slackThreadModeMutation.isPending}
-            channelPolicies={channelTrustFloors.policies}
-            policySavingKey={channelTrustFloors.savingKey}
-            policiesLoading={channelTrustFloors.isLoading}
-            policiesError={channelTrustFloors.isError}
-            onChannelPolicyChange={channelTrustFloors.onChange}
-            onSetup={onStartSetupConversation ? handleAssistantSetup : undefined}
-            onDisconnect={handleDisconnect}
-            onSaveTelegramToken={handleSaveTelegramToken}
-            onSaveSlackConfig={handleSaveSlackConfig}
-            slackSaveStatus={saveSlackMutation.status}
-            slackSaveError={saveSlackMutation.error?.message ?? null}
-            onSlackThreadModeChange={handleSlackThreadModeChange}
-            onSaveTwilioCredentials={handleSaveTwilioCredentials}
-            onGenerateInviteLink={a2aChannel ? handleOpenInviteLink : undefined}
-            initialExpandedChannel={setupChannel}
+            channels={channelsController.channels}
+            pendingChannelKey={channelsController.pendingChannelKey}
+            onConnect={channelsController.onSetup}
+            onDisconnect={channelsController.onDisconnect}
           />
         ) : optimisticContact ? (
           optimisticContact.role === "guardian" ? (
@@ -677,11 +535,13 @@ export function ContactsPage({
               }}
               onMerge={handleOpenMerge}
               onSetupChannel={
-                onStartSetupConversation ? handleGuardianEnableChannel : undefined
+                onStartSetupConversation
+                  ? handleGuardianEnableChannel
+                  : undefined
               }
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
-              onGenerateInviteLink={a2aChannel ? handleOpenInviteLink : undefined}
+              onGenerateInviteLink={a2aChannel ? inviteDialog.open : undefined}
             />
           ) : (
             <ContactDetailView
@@ -693,6 +553,7 @@ export function ContactsPage({
               canMerge={canMerge}
               availableChannels={availableChannels}
               a2aEnabled={a2aChannel}
+              channelProvenance={channelProvenance}
               onSave={(patch) => {
                 updateMutation.mutate({
                   contactId: optimisticContact.id,
@@ -708,6 +569,7 @@ export function ContactsPage({
               }
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
+              onLinkAccount={slackReady ? handleLinkAccount : undefined}
             />
           )
         ) : (
@@ -741,10 +603,34 @@ export function ContactsPage({
         />
       ) : null}
 
+      <LinkAccountDialog
+        open={slackLink.dialogOpen}
+        channelLabel="Slack"
+        contactName={selectedContact?.displayName ?? ""}
+        accounts={slackRosterQuery.data}
+        loading={slackRosterQuery.isLoading}
+        errorMessage={
+          slackRosterQuery.isError
+            ? "Couldn’t load the workspace roster. Check the Slack connection and try again."
+            : slackLink.linkErrorMessage
+        }
+        pendingAccountId={slackLink.pendingAccountId}
+        onPick={slackLink.pick}
+        onClose={slackLink.close}
+        onInviteInstead={
+          onStartSetupConversation
+            ? () => {
+                slackLink.close();
+                handleContactSetupChannel(slackLink.channelType);
+              }
+            : undefined
+        }
+      />
+
       <GenerateInviteLinkDialog
-        open={inviteDialogOpen}
+        open={inviteDialog.isOpen}
         assistantId={assistantId}
-        onClose={handleInviteClose}
+        onClose={inviteDialog.close}
       />
     </div>
   );
@@ -753,45 +639,14 @@ export function ContactsPage({
 function ContactsEmptyState() {
   return (
     <div className="flex h-full items-center justify-center py-16">
-      <p className="text-body-medium-lighter" style={{ color: "var(--content-tertiary)" }}>
+      <p
+        className="text-body-medium-lighter"
+        style={{ color: "var(--content-tertiary)" }}
+      >
         Select a contact
       </p>
     </div>
   );
-}
-
-function deriveChannelStates(
-  snapshots: ChannelReadinessSnapshot[],
-): AssistantChannelState[] {
-  const byChannel = new Map<ChannelReadinessSnapshot["channel"], ChannelReadinessSnapshot>();
-  for (const snap of snapshots) {
-    byChannel.set(snap.channel, snap);
-  }
-
-  return SETUP_CHANNEL_IDS.map((key) => {
-    const snap = byChannel.get(key);
-    const status = toChannelStatus(snap);
-    return {
-      key,
-      status,
-      address: snap?.channelHandle ?? undefined,
-    };
-  });
-}
-
-function toChannelStatus(
-  snap: ChannelReadinessSnapshot | undefined,
-): AssistantChannelState["status"] {
-  if (!snap) {
-    return "not_configured";
-  }
-  if (snap.ready || snap.setupStatus === "ready") {
-    return "ready";
-  }
-  if (snap.setupStatus === "incomplete") {
-    return "incomplete";
-  }
-  return "not_configured";
 }
 
 const CHANNEL_TYPE_LABEL: Record<string, string> = {

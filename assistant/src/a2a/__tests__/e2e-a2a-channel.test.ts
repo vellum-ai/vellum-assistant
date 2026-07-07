@@ -173,7 +173,6 @@ describe("e2e: trusted contact setup", () => {
     upsertContact({
       displayName: "Peer Assistant",
       contactType: "assistant",
-      role: "contact",
       channels: [
         {
           type: "a2a",

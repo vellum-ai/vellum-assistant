@@ -61,7 +61,7 @@ export function presetFromThreshold(threshold: string): ThresholdPreset {
 export function overrideAction(
   preset: ThresholdPreset,
   globalInteractive: string,
-): { action: "set"; threshold: string } | { action: "clear" } {
+): { action: "set"; threshold: RiskThreshold } | { action: "clear" } {
   if (preset.riskThreshold === globalInteractive) {
     return { action: "clear" };
   }

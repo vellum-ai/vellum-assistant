@@ -211,7 +211,6 @@ function makeDeps(
     ctx: {
       conversationId,
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       currentTurnSurfaces: [],
       trustContext: {
         sourceChannel: assistantMessageChannel,

@@ -4,7 +4,10 @@ import { useNavigate } from "react-router";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
+import { useConversationStore } from "@/stores/conversation-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
+import { useViewerStore } from "@/stores/viewer-store";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
 /**
@@ -16,15 +19,16 @@ import { routes } from "@/utils/routes";
  * Responsibilities:
  *
  * - `deeplink.openThread` → `ensureMainWindowVisible()` +
- *   `navigate(routes.conversation(threadId))`.
+ *   `navigateToConversation()`
  * - `deeplink.send` → `ensureMainWindowVisible()` + navigate to
  *   `/assistant` + park the message in `usePendingDeepLinkStore`
  *   for `ChatPage`'s composer-domain hook to consume on mount.
  * - `deeplink.unknown` → Sentry breadcrumb.
  *
  * The composer pre-fill itself stays in the chat domain
- * (`useDeepLinkConsumer`) because it owns `setInput`. This hook is
- * intentionally generic — it doesn't import chat-specific state.
+ * (`useDeepLinkConsumer`) because it owns `setInput`. This hook stays
+ * generic — chat-specific store handling lives in the shared
+ * `navigateToConversation` util.
  */
 
 export function useGlobalDeepLinkConsumer(): void {
@@ -42,7 +46,13 @@ export function useGlobalDeepLinkConsumer(): void {
 
   useBusSubscription("deeplink.openThread", ({ threadId }) => {
     void ensureMainWindowVisible();
-    navigateRef.current(routes.conversation(threadId));
+    // Same thread: skip store resets — the id doesn't change, so re-seed effects wouldn't re-run and live cards would vanish.
+    if (threadId === useConversationStore.getState().activeConversationId) {
+      useViewerStore.getState().setMainView("chat");
+      navigateRef.current(routes.conversation(threadId));
+      return;
+    }
+    navigateToConversation(navigateRef.current, threadId);
   });
 
   useBusSubscription("deeplink.unknown", ({ url }) => {

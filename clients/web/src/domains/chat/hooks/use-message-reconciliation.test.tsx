@@ -40,9 +40,17 @@ mock.module("@/domains/chat/utils/map-runtime-message", () => ({
 // Server fetch is driven per-test — spied (not module-mocked) so the rest of
 // the messages module's exports stay real for other importers in the graph.
 import * as messagesApi from "@/domains/chat/api/messages";
+import * as eventsTailApi from "@/domains/chat/api/events-tail";
 let fetchResult: unknown = undefined;
+/** Ordered trace of the reconcile's async steps, for ordering assertions. */
+const reconcileTrace: Array<{ step: string; args?: unknown[] }> = [];
 spyOn(messagesApi, "fetchConversationMessages").mockImplementation(
   async () => fetchResult as never,
+);
+spyOn(eventsTailApi, "ingestServerEventsTail").mockImplementation(
+  async (...args: unknown[]) => {
+    reconcileTrace.push({ step: "ingest-tail", args });
+  },
 );
 
 const { useMessageReconciliation } = await import(
@@ -99,6 +107,7 @@ function renderReconciliation() {
 }
 
 beforeEach(() => {
+  reconcileTrace.length = 0;
   __resetLocalSeqForTesting();
   useStreamStore.getState().setStreamContext({
     assistantId: ASSISTANT_ID,
@@ -159,4 +168,30 @@ describe("useMessageReconciliation — server processing flag drives reseed", ()
 
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
+});
+
+describe("useMessageReconciliation — server event-tail catch-up", () => {
+  test("pairs the snapshot with the tail from its anchor before reseeding", async () => {
+    // GIVEN a reconcile that will reseed (server cleared processing)
+    seedSnapshotProcessing(true);
+    seedServerFetch(false);
+    const { result, invalidateSpy } = renderReconciliation();
+    invalidateSpy.mockImplementation(async () => {
+      reconcileTrace.push({ step: "invalidate" });
+    });
+
+    // WHEN the active conversation reconciles
+    await result.current.reconcileActiveConversation();
+
+    // THEN the tail was fetched from the snapshot's anchor ...
+    const ingest = reconcileTrace.find((t) => t.step === "ingest-tail");
+    expect(ingest?.args).toEqual([ASSISTANT_ID, CONV_ID, 11]);
+    // ... and ingested BEFORE the history invalidation, so the reseed
+    // replay reads a primed event ring.
+    expect(reconcileTrace.map((t) => t.step)).toEqual([
+      "ingest-tail",
+      "invalidate",
+    ]);
+  });
+
 });

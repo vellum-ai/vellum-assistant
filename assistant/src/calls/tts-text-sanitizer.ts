@@ -55,9 +55,11 @@ export function sanitizeForTts(text: string): string {
   result = result.replace(/^[-*]\s+/gm, "");
 
   // 7. Italic: *text* or _text_ → text
-  //    Word-boundary-aware to preserve arithmetic like `5 * 3` and identifiers like `my_var`.
-  result = result.replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, "$1");
-  result = result.replace(/(?<!\w)_([^_]+)_(?!\w)/g, "$1");
+  //    Word-boundary-aware with non-whitespace content edges, so arithmetic
+  //    like `5 * 3 and 4 * 2` and identifiers like `my_var` survive. Mirrors
+  //    the open-span rule in tts/speakable-segments.ts.
+  result = result.replace(/(?<!\w)\*([^\s*](?:[^*]*[^\s*])?)\*(?!\w)/g, "$1");
+  result = result.replace(/(?<!\w)_([^\s_](?:[^_]*[^\s_])?)_(?!\w)/g, "$1");
 
   // 8. Emojis: strip extended pictographic characters, variation selectors,
   //    zero-width joiners, skin tone modifiers, and regional indicator symbols (flags).

@@ -46,7 +46,7 @@ import type {
   MessageProcessor,
   SlackInboundMessageMetadata,
 } from "../../http-types.js";
-import { hasDeliverableAssistantText } from "../../slack-no-response.js";
+import { hasDeliverableAssistantText } from "../../no-response.js";
 import { createSlackReplySession } from "../../slack-reply-session.js";
 import type { TaskProgressData } from "../../slack-task-progress.js";
 import {

@@ -1,23 +1,18 @@
 /**
- * ⚠️  TEMPORARY HACK — DO NOT EXTEND ⚠️
- *
- * IPC route that lets the gateway execute raw SQL against the assistant's
- * SQLite database. This exists solely because the gateway and assistant run
- * in separate containers on platform pods, and cross-container SQLite file
- * access causes database corruption (fcntl locks are not shared across
- * mount namespaces).
+ * IPC route that lets gateway one-time data migrations execute raw SQL
+ * against the assistant's SQLite database. Migrations (m0002, m0010, m0014,
+ * et al.) need raw read/drop access to legacy assistant tables on first boot
+ * of upgraded installs, and cross-container SQLite file access corrupts the
+ * DB on platform pods (fcntl locks are not shared across mount namespaces) —
+ * so they go through this route.
  *
  * This route is intentionally NOT in the shared ROUTES array — it is a
  * private implementation detail between the gateway and assistant IPC
  * servers and must not be discoverable by clients or the OpenAPI spec.
  *
- * The gateway callers are pinned by an allowlist guard
- * (gateway `__tests__/db-proxy-allowlist.test.ts`): verification-session +
- * rate-limit state, the contact-merge identity-mirror cluster (pending a
- * merge-shaped op), and one-time data migrations. Slated for removal with the
- * verification-session source-of-truth move.
- *
- * Tracking: ATL-XXX (gateway security migration)
+ * No runtime feature may use this surface: gateway callers are pinned to the
+ * proxy module (`db/assistant-db-proxy.ts`) plus `db/data-migrations/` by
+ * the allowlist guard (gateway `__tests__/db-proxy-allowlist.test.ts`).
  */
 
 import { getSqlite } from "../../persistence/db-connection.js";

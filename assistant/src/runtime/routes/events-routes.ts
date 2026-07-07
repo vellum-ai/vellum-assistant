@@ -53,6 +53,14 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("events-routes");
 
+const ALL_CAPABILITIES: HostProxyCapability[] = [
+  "host_bash",
+  "host_file",
+  "host_cu",
+  "host_app_control",
+  "host_browser",
+];
+
 /**
  * Resolution of the event-loop delay histogram, per
  * https://nodejs.org/api/perf_hooks.html#perf_hooksmonitoreventloopdelayoptions.
@@ -330,14 +338,6 @@ export function handleSubscribeAssistantEvents(
     options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
   const shedReporter = options?.shedReporter ?? defaultSseShedReporter;
 
-  const ALL_CAPABILITIES: HostProxyCapability[] = [
-    "host_bash",
-    "host_file",
-    "host_cu",
-    "host_app_control",
-    "host_browser",
-  ];
-
   // Resolve the scope. `conversationId` (when supplied) is the
   // assistant-minted internal id — looked up directly; 404 if absent.
   // Otherwise fall through to `conversationKey`, which is treated as an
@@ -557,6 +557,93 @@ export function handleSubscribeAssistantEvents(
   return stream;
 }
 
+/**
+ * Replay-by-request companion to the SSE `lastSeenSeq` resume: return the
+ * ring-buffered event tail for one conversation with `seq > fromSeq`.
+ *
+ * A client recovering from a delivery gap fetches the `/messages` snapshot
+ * (anchored at the seq of the last durably persisted event) and then this
+ * tail from that anchor, folding the returned envelopes through the same
+ * apply path as live SSE events. Snapshot-at-anchor plus tail-from-anchor
+ * is deterministically complete, without bouncing the live connection —
+ * the request/response twin of reconnecting with `lastSeenSeq`.
+ *
+ * `complete: false` means the ring no longer reaches back to `fromSeq`
+ * (eviction) and no contiguous tail can be served — the caller must treat
+ * the snapshot alone as the recovery, exactly as an out-of-ring reconnect
+ * does. Targeting filters are re-applied from the caller's client identity
+ * headers, mirroring the SSE replay path, so targeted events do not leak
+ * outside their delivery set.
+ */
+function handleEventsTail({
+  queryParams,
+  headers,
+}: RouteHandlerArgs): Record<string, unknown> {
+  const conversationId = queryParams?.conversationId?.trim();
+  if (!conversationId) {
+    throw new BadRequestError("conversationId query parameter is required");
+  }
+  const rawFromSeq = queryParams?.fromSeq;
+  if (rawFromSeq == null || rawFromSeq.trim() === "") {
+    throw new BadRequestError("fromSeq query parameter is required");
+  }
+  const fromSeq = Number(rawFromSeq);
+  if (!Number.isInteger(fromSeq) || fromSeq < 0) {
+    throw new BadRequestError("fromSeq must be a non-negative integer");
+  }
+  // Optional upper bound: a caller that already knows where its live
+  // delivery resumed (e.g. the seq-gap heal's first live event) can trim
+  // the response to exactly the hole. Purely a bandwidth trim — the
+  // client fold is seq-idempotent, so an unbounded overlap with live
+  // delivery is harmless.
+  const rawToSeq = queryParams?.toSeq;
+  let toSeq: number | null = null;
+  if (rawToSeq != null && rawToSeq.trim() !== "") {
+    const parsed = Number(rawToSeq);
+    if (!Number.isInteger(parsed) || parsed < fromSeq) {
+      throw new BadRequestError(
+        "toSeq must be an integer greater than or equal to fromSeq",
+      );
+    }
+    toSeq = parsed;
+  }
+
+  // Same client-identity resolution as the SSE subscribe handler, so the
+  // replay filter matches what a live subscription would have delivered.
+  const rawClientId = headers?.["x-vellum-client-id"];
+  const clientId = rawClientId?.trim() || null;
+  const interfaceId = clientId
+    ? parseInterfaceId(headers?.["x-vellum-interface-id"]?.trim())
+    : null;
+  const subscriber: ReplaySubscriber | undefined =
+    clientId && interfaceId
+      ? {
+          type: "client",
+          clientId,
+          interfaceId,
+          capabilities: ALL_CAPABILITIES.filter((cap) =>
+            supportsHostProxy(interfaceId, cap),
+          ),
+        }
+      : undefined;
+
+  const window = getReplayWindow(fromSeq, subscriber, conversationId);
+  if (window === null) {
+    return { events: [], complete: false, frontier: null };
+  }
+  const bounded =
+    toSeq === null
+      ? window
+      : window.filter((e) => typeof e.seq === "number" && e.seq <= toSeq);
+  const lastSeq =
+    bounded.length > 0 ? bounded[bounded.length - 1]?.seq : undefined;
+  return {
+    events: bounded,
+    complete: true,
+    frontier: typeof lastSeq === "number" ? lastSeq : fromSeq,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -622,5 +709,54 @@ export const ROUTES: RouteDefinition[] = [
       Connection: "keep-alive",
     },
     handler: (args) => handleSubscribeAssistantEvents(args),
+  },
+  {
+    operationId: "events_tail_get",
+    endpoint: "events/tail",
+    method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Fetch a conversation's buffered event tail",
+    description:
+      "Return the ring-buffered assistant events for one conversation with seq greater than fromSeq — the request/response twin of reconnecting the SSE stream with lastSeenSeq. A client recovering from a delivery gap fetches the /messages snapshot (anchored at its seq watermark) and then this tail from that anchor, folding the returned envelopes through the same apply path as live events; snapshot plus tail is deterministically complete. complete=false means the ring no longer reaches back to fromSeq and the snapshot alone must serve as the recovery.",
+    tags: ["events"],
+    queryParams: [
+      {
+        name: "conversationId",
+        description:
+          "Assistant-minted internal conversation id whose events to return. Required.",
+      },
+      {
+        name: "fromSeq",
+        description:
+          "Return buffered events with seq strictly greater than this value — typically the seq watermark of a just-fetched /messages snapshot. Must be a non-negative integer.",
+      },
+      {
+        name: "toSeq",
+        description:
+          "Optional inclusive upper bound on returned seqs. A caller that already knows where its live delivery resumed (e.g. the first live event after a gap) can trim the response to exactly the hole. Purely a bandwidth trim — client folds are seq-idempotent, so overlap with live delivery is harmless without it. Must be an integer >= fromSeq.",
+      },
+    ],
+    responseBody: z.object({
+      events: z
+        .array(z.unknown())
+        .describe(
+          "Buffered assistant event envelopes ({id, conversationId, emittedAt, seq, message}) with seq > fromSeq, ascending, filtered to the conversation and to the caller's delivery set (client identity headers). Same wire shape as the /events SSE data frames.",
+        ),
+      complete: z
+        .boolean()
+        .describe(
+          "True when the ring still covered fromSeq, so the returned events are the contiguous tail. False when eviction broke contiguity — events is empty and the caller must recover from the snapshot alone.",
+        ),
+      frontier: z
+        .number()
+        .nullable()
+        .describe(
+          "Seq of the last returned event (or fromSeq when the tail is empty but contiguous). Null when complete is false.",
+        ),
+    }),
+    handler: (args) => handleEventsTail(args),
   },
 ];

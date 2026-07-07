@@ -30,12 +30,14 @@ const realLocal = {
   generateLocalSigningKey: localModule.generateLocalSigningKey,
   startLocalDaemon: localModule.startLocalDaemon,
   startGateway: localModule.startGateway,
+  startCes: localModule.startCes,
 };
 const realExec = stepRunnerModule.exec;
 
-// Prevent real daemon / gateway from starting
+// Prevent real daemon / gateway / CES from starting
 const startLocalDaemonMock = mock(async () => {});
 const startGatewayMock = mock(async () => {});
+const startCesMock = mock(async () => {});
 
 // Capture exec calls without running real tar
 const execMock = mock(async (_cmd: string, _args: string[]) => {});
@@ -45,6 +47,7 @@ beforeAll(() => {
     generateLocalSigningKey: () => "deadbeefdeadbeefdeadbeefdeadbeef",
     startLocalDaemon: startLocalDaemonMock,
     startGateway: startGatewayMock,
+    startCes: startCesMock,
   }));
   mock.module("../lib/step-runner.js", () => ({ exec: execMock }));
 });
@@ -128,6 +131,7 @@ beforeEach(() => {
   execMock.mockClear();
   startLocalDaemonMock.mockClear();
   startGatewayMock.mockClear();
+  startCesMock.mockClear();
 });
 
 afterEach(() => {

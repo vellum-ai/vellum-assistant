@@ -649,7 +649,6 @@ describe("reaction access control (no verification handshake)", () => {
 
   beforeEach(() => {
     resetState();
-    getDb().run("DELETE FROM channel_verification_sessions");
     // The assistant has a guardian (as in production); the reactors below are
     // different users.
     seedGatewayGuardian({
@@ -694,8 +693,8 @@ describe("reaction access control (no verification handshake)", () => {
     expect(agentDispatched).toBe(false);
 
     // No verification handshake, and no side effects: a dropped reaction leaves
-    // no transcript row, no conversation, and no binding.
-    expect(tableCount("channel_verification_sessions")).toBe(0);
+    // no transcript row, no conversation, and no binding. (Sessions are
+    // gateway-owned; the absent challenge is asserted via the response above.)
     expect(readPersistedMessages().length).toBe(0);
     expect(tableCount("conversations")).toBe(0);
     expect(tableCount("external_conversation_bindings")).toBe(0);
@@ -724,7 +723,6 @@ describe("reaction access control (no verification handshake)", () => {
 
     expect(json.denied).not.toBe(true);
     expect(json.reason).not.toBe("verification_challenge_sent");
-    expect(tableCount("channel_verification_sessions")).toBe(0);
 
     const rows = readPersistedMessages();
     expect(rows.length).toBe(1);

@@ -9,7 +9,9 @@
  *    resolving into guaranteed media-stream silence.
  * 3. `speakSystemPrompt` on a WAV-requiring transport — synthesis failure
  *    retries once via the fallback provider before degrading to an
- *    end-of-turn-only signal.
+ *    end-of-turn-only signal; a mid-stream failure after the play URL went
+ *    out skips all fallback (the truncated prompt stands); aborted
+ *    synthesis short-circuits with no fallback and no end-of-turn token.
  *
  * The provider catalog, config loader, credential store, provider registry,
  * audio store, and ingress URL modules are all mocked so the tests exercise
@@ -178,7 +180,7 @@ mock.module("../security/secure-keys.js", () => ({
       : realSecureKeysModule.getSecureKeyAsync(key),
 }));
 
-// -- Audio store + ingress URL (used by call-speech-output) ---------------------
+// -- Audio store + ingress URL (used by the tts/synthesis-stream sink) ----------
 
 const finalizeCalls: string[] = [];
 let audioEntryCounter = 0;
@@ -234,6 +236,22 @@ function registerStubProvider(
     id,
     capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
     synthesize,
+  };
+  registeredProviders.set(id, provider);
+  return provider;
+}
+
+function registerStreamingStubProvider(
+  id: string,
+  synthesizeStream: NonNullable<TtsProvider["synthesizeStream"]>,
+): TtsProvider {
+  const provider: TtsProvider = {
+    id,
+    capabilities: { supportsStreaming: true, supportedFormats: ["mp3"] },
+    synthesize: async () => {
+      throw new Error("buffer path should not be used");
+    },
+    synthesizeStream,
   };
   registeredProviders.set(id, provider);
   return provider;
@@ -527,5 +545,219 @@ describe("speakSystemPrompt on a WAV-requiring transport", () => {
     expect(elevenlabsSynthesize).toHaveBeenCalledTimes(1);
     expect(sentPlayUrls.length).toBe(0);
     expect(sentTokens).toEqual([{ token: "", last: true }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// speakSystemPrompt — mid-stream failure after audio started skips fallback
+// ---------------------------------------------------------------------------
+
+describe("speakSystemPrompt mid-stream failure after audio started", () => {
+  /** Streaming stub that emits one chunk, lets it flush, then fails. */
+  function failAfterFirstChunk(): NonNullable<TtsProvider["synthesizeStream"]> {
+    return async (_request, emit) => {
+      emit(Buffer.from("pcm-chunk"));
+      // Let the queued emit flush so the play URL goes out before the failure.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      throw new Error("stream died mid-flight");
+    };
+  }
+
+  test("WAV transport: skips the fallback retry — the truncated prompt stands", async () => {
+    testConfig.services.tts.provider = "deepgram";
+    storedKeys["deepgram"] = "dg-key";
+    storedKeys["elevenlabs"] = "el-key";
+
+    const deepgramStream = jest.fn(failAfterFirstChunk());
+    const elevenlabsSynthesize = jest.fn(async () => {
+      return { audio: Buffer.from("pcm-bytes"), contentType: "audio/pcm" };
+    });
+    registerStreamingStubProvider("deepgram", deepgramStream);
+    registerStubProvider("elevenlabs", elevenlabsSynthesize);
+
+    const { relay, sentTokens, sentPlayUrls } = createRelay(true);
+    await speakSystemPrompt(relay, "Your verification code is 123456.");
+
+    expect(deepgramStream).toHaveBeenCalledTimes(1);
+    expect(elevenlabsSynthesize).not.toHaveBeenCalled();
+    expect(sentPlayUrls.length).toBe(1);
+    expect(sentTokens).toEqual([{ token: "", last: true }]);
+  });
+
+  test("non-WAV transport: skips the native text fallback — no full-prompt re-speak", async () => {
+    testConfig.services.tts.provider = "fish-audio";
+    testConfig.services.tts.providers["fish-audio"].referenceId = "ref-123";
+
+    const fishStream = jest.fn(failAfterFirstChunk());
+    registerStreamingStubProvider("fish-audio", fishStream);
+
+    const { relay, sentTokens, sentPlayUrls } = createRelay(false);
+    await speakSystemPrompt(relay, "You have a new message.");
+
+    expect(fishStream).toHaveBeenCalledTimes(1);
+    expect(sentPlayUrls.length).toBe(1);
+    expect(sentTokens).toEqual([{ token: "", last: true }]);
+  });
+
+  test("streaming failure before any chunk still retries the fallback provider", async () => {
+    testConfig.services.tts.provider = "deepgram";
+    storedKeys["deepgram"] = "dg-key";
+    storedKeys["elevenlabs"] = "el-key";
+
+    const deepgramStream = jest.fn(async () => {
+      throw new Error("stream refused before first chunk");
+    });
+    const elevenlabsSynthesize = jest.fn(async () => {
+      return { audio: Buffer.from("pcm-bytes"), contentType: "audio/pcm" };
+    });
+    registerStreamingStubProvider("deepgram", deepgramStream);
+    registerStubProvider("elevenlabs", elevenlabsSynthesize);
+
+    const { relay, sentTokens, sentPlayUrls } = createRelay(true);
+    await speakSystemPrompt(relay, "Your verification code is 123456.");
+
+    expect(deepgramStream).toHaveBeenCalledTimes(1);
+    expect(elevenlabsSynthesize).toHaveBeenCalledTimes(1);
+    expect(sentPlayUrls.length).toBe(1);
+    expect(sentTokens).toEqual([{ token: "", last: true }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// speakSystemPrompt — aborted synthesis short-circuits without fallback
+// ---------------------------------------------------------------------------
+
+describe("speakSystemPrompt aborted synthesis", () => {
+  test("WAV transport: abort mid-flight skips the fallback retry and end-of-turn", async () => {
+    testConfig.services.tts.provider = "deepgram";
+    storedKeys["deepgram"] = "dg-key";
+    storedKeys["elevenlabs"] = "el-key";
+
+    const controller = new AbortController();
+    const deepgramSynthesize = jest.fn(async () => {
+      controller.abort();
+      throw new DOMException("Synthesis aborted", "AbortError");
+    });
+    const elevenlabsSynthesize = jest.fn(async () => {
+      return { audio: Buffer.from("pcm-bytes"), contentType: "audio/pcm" };
+    });
+    registerStubProvider("deepgram", deepgramSynthesize);
+    registerStubProvider("elevenlabs", elevenlabsSynthesize);
+
+    const { relay, sentTokens, sentPlayUrls } = createRelay(true);
+    await speakSystemPrompt(
+      relay,
+      "You have a new message.",
+      controller.signal,
+    );
+
+    expect(deepgramSynthesize).toHaveBeenCalledTimes(1);
+    expect(elevenlabsSynthesize).not.toHaveBeenCalled();
+    expect(sentPlayUrls).toEqual([]);
+    expect(sentTokens).toEqual([]);
+  });
+
+  test("non-WAV transport with native-fallback provider: abort skips the text fallback and end-of-turn", async () => {
+    testConfig.services.tts.provider = "fish-audio";
+    testConfig.services.tts.providers["fish-audio"].referenceId = "ref-123";
+
+    const controller = new AbortController();
+    controller.abort();
+    const fishSynthesize = jest.fn(async () => {
+      throw new DOMException("Synthesis aborted", "AbortError");
+    });
+    registerStubProvider("fish-audio", fishSynthesize);
+
+    const { relay, sentTokens, sentPlayUrls } = createRelay(false);
+    await speakSystemPrompt(
+      relay,
+      "You have a new message.",
+      controller.signal,
+    );
+
+    expect(fishSynthesize).toHaveBeenCalledTimes(1);
+    expect(sentPlayUrls).toEqual([]);
+    expect(sentTokens).toEqual([]);
+  });
+
+  test("abort at provider resolution (silent, no throw) skips the end-of-turn token", async () => {
+    testConfig.services.tts.provider = "deepgram";
+    storedKeys["deepgram"] = "dg-key";
+    storedKeys["elevenlabs"] = "el-key";
+
+    // synthesizeAndEmit does NOT throw when the signal aborts after the
+    // provider resolves but before queued emits run — it resolves normally
+    // with zero emitted chunks. The success path must still honor the abort.
+    const controller = new AbortController();
+    const deepgramSynthesize = jest.fn(async () => {
+      controller.abort();
+      return { audio: Buffer.from("pcm-bytes"), contentType: "audio/pcm" };
+    });
+    const elevenlabsSynthesize = jest.fn(async () => {
+      return { audio: Buffer.from("pcm-bytes"), contentType: "audio/pcm" };
+    });
+    registerStubProvider("deepgram", deepgramSynthesize);
+    registerStubProvider("elevenlabs", elevenlabsSynthesize);
+
+    const { relay, sentTokens, sentPlayUrls } = createRelay(true);
+    await speakSystemPrompt(
+      relay,
+      "You have a new message.",
+      controller.signal,
+    );
+
+    expect(deepgramSynthesize).toHaveBeenCalledTimes(1);
+    expect(elevenlabsSynthesize).not.toHaveBeenCalled();
+    expect(sentPlayUrls).toEqual([]);
+    expect(sentTokens).toEqual([]);
+  });
+
+  test("provider AbortError without our signal aborted is a failure — WAV fallback retry still runs", async () => {
+    testConfig.services.tts.provider = "deepgram";
+    storedKeys["deepgram"] = "dg-key";
+    storedKeys["elevenlabs"] = "el-key";
+
+    // Provider-internal network abort: it throws AbortError, but the
+    // caller's signal was never aborted — not a cancellation.
+    const controller = new AbortController();
+    const deepgramSynthesize = jest.fn(async () => {
+      throw new DOMException("socket torn down", "AbortError");
+    });
+    const elevenlabsSynthesize = jest.fn(async () => {
+      return { audio: Buffer.from("pcm-bytes"), contentType: "audio/pcm" };
+    });
+    registerStubProvider("deepgram", deepgramSynthesize);
+    registerStubProvider("elevenlabs", elevenlabsSynthesize);
+
+    const { relay, sentTokens, sentPlayUrls } = createRelay(true);
+    await speakSystemPrompt(
+      relay,
+      "You have a new message.",
+      controller.signal,
+    );
+
+    expect(deepgramSynthesize).toHaveBeenCalledTimes(1);
+    expect(elevenlabsSynthesize).toHaveBeenCalledTimes(1);
+    expect(sentPlayUrls.length).toBe(1);
+    expect(sentTokens).toEqual([{ token: "", last: true }]);
+  });
+
+  test("provider AbortError without any signal is a failure — non-WAV native fallback still runs", async () => {
+    testConfig.services.tts.provider = "fish-audio";
+    testConfig.services.tts.providers["fish-audio"].referenceId = "ref-123";
+
+    const fishSynthesize = jest.fn(async () => {
+      throw new DOMException("socket torn down", "AbortError");
+    });
+    registerStubProvider("fish-audio", fishSynthesize);
+
+    const { relay, sentTokens, sentPlayUrls } = createRelay(false);
+    await speakSystemPrompt(relay, "You have a new message.");
+
+    expect(fishSynthesize).toHaveBeenCalledTimes(1);
+    expect(sentPlayUrls).toEqual([]);
+    expect(sentTokens).toEqual([
+      { token: "You have a new message.", last: true },
+    ]);
   });
 });

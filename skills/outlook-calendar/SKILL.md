@@ -9,6 +9,10 @@ metadata:
     category: "calendar"
     display-name: "Outlook Calendar"
     user-invocable: true
+    activation-hints:
+      - "check my availability this week"
+      - "find open time slots / when am I free"
+      - "cross-calendar free/busy across my connected accounts"
 ---
 
 ## Script Reference
@@ -46,11 +50,17 @@ bun scripts/outlook-cal.ts availability --start "2024-01-15T00:00:00Z" --end "20
 
 # RSVP to an event invitation
 bun scripts/outlook-cal.ts rsvp --event-id "AAMkAD..." --response accepted
+
+# Target a specific connected account (see "Multiple Accounts" below)
+bun scripts/outlook-cal.ts list --start-date-time "2024-01-15T00:00:00Z" --end-date-time "2024-01-22T00:00:00Z" --account "work@example.com"
 ```
+
+Every subcommand accepts `--account <email>` to select which connected Outlook/Microsoft account the request runs against. When omitted, the request runs against a single account chosen automatically — safe only when exactly one Outlook account is connected. Each JSON envelope echoes the queried account in an `account` field when it is reported by the OAuth layer, so an empty result is self-describing (e.g. `No events found in the specified time range for work@example.com.`).
 
 ## Connection Setup
 
 1. **Check connection health first.** Run `assistant oauth status outlook`. This checks whether the user's Outlook/Microsoft account is connected and the token is valid. Outlook Calendar shares the same OAuth connection as Outlook email — if the user already connected Outlook email, calendar access is included.
+   - **If the status output shows more than one active connection, you MUST pass `--account <email>` on every `scripts/outlook-cal.ts` invocation**, matching the calendar the user is asking about. When the user references a calendar by name or company (e.g. "my Acme calendar"), map it to the connected account email before querying. **Omitting `--account` with multiple connections silently queries one arbitrary account** — an empty or partial result then looks like a genuinely free calendar when it is really the wrong account. Confirm the `account` field in each response matches the account you intended.
 2. **If no connection is found or the status check fails:** Load the `vellum-oauth-integrations` skill. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
 
 ## Scheduling Playbook

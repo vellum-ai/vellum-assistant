@@ -126,12 +126,12 @@ export function createTwilioVoiceVerifyCallbackHandler(
       try {
         // Resolve the canonical principal from the gateway DB (ACL source of
         // truth) via the vellum channel guardian binding.
-        const canonicalPrincipal = await resolveCanonicalPrincipal(fromNumber);
+        const canonicalPrincipal = resolveCanonicalPrincipal(fromNumber);
 
         // Check for an existing phone guardian binding conflict against the
         // gateway DB so the revoke below never displaces a real gateway
         // binding based on a stale assistant mirror.
-        const existingGuardian = await getExistingGuardianBinding("phone");
+        const existingGuardian = getExistingGuardianBinding("phone");
         if (existingGuardian && existingGuardian.address !== fromNumber) {
           log.warn(
             {
@@ -144,7 +144,7 @@ export function createTwilioVoiceVerifyCallbackHandler(
         } else {
           // Revoke existing phone guardian binding before creating new one
           if (existingGuardian) {
-            await revokeExistingChannelGuardian("phone");
+            revokeExistingChannelGuardian("phone");
           }
 
           await createGuardianBinding({

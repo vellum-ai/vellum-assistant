@@ -98,7 +98,8 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `src/runtime/auth/route-policy.ts`                | Route-level scope/principal enforcement                                                       |
 | `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/guardian/init` (initial JWT issuance)                                               |
 | `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/guardian/refresh` (token rotation)                                                  |
-| `src/runtime/local-actor-identity.ts`             | `resolveLocalGuardianContext` — deterministic local identity                                  |
+| `src/runtime/local-actor-identity.ts`             | `resolveLocalAuthContext` — synthetic local AuthContext + guardian principal lookup           |
+| `src/runtime/local-principal-trust.ts`            | `resolveLocalPrincipalTrustContext` — local-principal trust from the gateway guardian binding |
 | `src/channels/channel-verification-sessions.ts`   | Guardian binding types, verification session management                                       |
 
 ### Channel-Agnostic Scoped Approval Grants
@@ -423,18 +424,18 @@ External users who are not the guardian can gain access to the assistant through
 
 **Key source files:**
 
-| File                                                   | Purpose                                                                       |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| `src/runtime/routes/inbound-message-handler.ts`        | Ingress ACL, unknown-contact rejection, verification code interception        |
-| `src/runtime/routes/access-request-decision.ts`        | Guardian decision → verification session creation                             |
-| `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler |
-| `src/runtime/channel-verification-service.ts`          | Verification session lifecycle, identity binding, rate limiting               |
-| `src/runtime/routes/contact-routes.ts`                 | HTTP/IPC handlers for contacts, channels, and invites (invite ops relay to gateway IPC) |
+| File                                                   | Purpose                                                                                         |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `src/runtime/routes/inbound-message-handler.ts`        | Ingress ACL, unknown-contact rejection, verification code interception                          |
+| `src/runtime/routes/access-request-decision.ts`        | Guardian decision → verification session creation                                               |
+| `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler                   |
+| `src/runtime/channel-verification-service.ts`          | Verification session lifecycle, identity binding, rate limiting                                 |
+| `src/runtime/routes/contact-routes.ts`                 | HTTP/IPC handlers for contacts, channels, and invites (invite ops relay to gateway IPC)         |
 | `src/runtime/invite-service.ts`                        | Daemon-owned invite presentation (share link, guardian instruction) over gateway-minted invites |
-| `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
-| `src/memory/guardian-approvals.ts`                     | Approval request persistence                                                  |
-| `src/channels/channel-verification-sessions.ts`        | Verification challenge persistence                                            |
-| `src/config/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links        |
+| `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations                             |
+| `src/memory/guardian-approvals.ts`                     | Approval request persistence                                                                    |
+| `src/channels/channel-verification-sessions.ts`        | Verification challenge persistence                                                              |
+| `src/config/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links                          |
 
 ### Guardian-Initiated Invite Links
 
@@ -480,11 +481,11 @@ A complementary access-granting flow where the guardian proactively creates a sh
 
 **Channel adapter status:**
 
-| Channel  | Status   | Prerequisites                                                                                                                                                 |
-| -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Telegram | Shipped  | Bot username resolved from credential metadata or config                                                                                                      |
+| Channel  | Status   | Prerequisites                                                                                                                                             |
+| -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telegram | Shipped  | Bot username resolved from credential metadata or config                                                                                                  |
 | Voice    | Shipped  | Identity-bound voice code redemption via DTMF/speech in the call setup flow. Always-on canonical behavior with personalized friend/guardian name prompts. |
-| Slack    | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing                                                       |
+| Slack    | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing                                                   |
 
 ### Voice Invite Flow (invite_redemption)
 
@@ -499,7 +500,7 @@ Voice invites use a short numeric code (6 digits) instead of a URL token. The gu
 
 **Call-time redemption subflow (`invite_redemption`):**
 
-1. Unknown caller dials in. The media-stream server resolves trust (gateway trust verdict first, `resolveActorTrust` fallback inside `routeSetup`). Caller is `unknown`, no pending guardian challenge.
+1. Unknown caller dials in. The media-stream server resolves trust from the gateway trust verdict (a missing/failed verdict denies fail-closed). Caller is `unknown`, no pending guardian challenge.
 2. `routeSetup` asks the gateway for the active voice invite bound to the caller's phone number (`get_active_voice_invite` IPC via `calls/gateway-invite-reader.ts`; fail-soft — any gateway failure falls through to the unverified path).
 3. If an active, non-expired invite exists, the `CallSetupFlow` runs the `invite_redemption` sub-flow (collecting the code via DTMF or spoken digits) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
 4. The gateway's `redeem_voice_invite` engine validates: identity match, code hash match, expiry, use count. On success, the phone channel is activated in the gateway ACL and the call transitions to the normal call flow.
@@ -514,17 +515,17 @@ Voice invites use a short numeric code (6 digits) instead of a URL token. The gu
 
 **Key source files:**
 
-| File                                                | Purpose                                                                                                            |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `gateway/src/verification/invite-redemption.ts` (gateway) | Core redemption engine + gateway-ingress token/code intercept — validation, atomic claim, ACL activation, discriminated-union outcomes  |
-| `src/runtime/channel-invite-transport.ts`           | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                           |
-| `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                        |
-| `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                           |
-| `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the contacts skill                                      |
-| `src/runtime/invite-service.ts`                     | Daemon-owned invite presentation (share link, guardian instruction, channel handle) over gateway-minted invites    |
-| `src/runtime/routes/contact-routes.ts`              | HTTP/IPC invite handlers — relay mint/list/revoke/redeem to the gateway's invite IPC routes                        |
-| `src/calls/call-setup-flow.ts`                      | Transport-agnostic call setup flow — `invite_redemption` sub-flow (always-on canonical behavior)                   |
-| `src/calls/gateway-invite-reader.ts`                | Gateway IPC read of the active voice invite for a caller identity                                                  |
+| File                                                      | Purpose                                                                                                                                |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `gateway/src/verification/invite-redemption.ts` (gateway) | Core redemption engine + gateway-ingress token/code intercept — validation, atomic claim, ACL activation, discriminated-union outcomes |
+| `src/runtime/channel-invite-transport.ts`                 | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                                               |
+| `src/runtime/channel-invite-transports/telegram.ts`       | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                                            |
+| `src/runtime/channel-invite-transports/voice.ts`          | Voice transport adapter — code-based redemption metadata                                                                               |
+| `src/daemon/guardian-invite-intent.ts`                    | Intent detection — routes create/list/revoke requests into the contacts skill                                                          |
+| `src/runtime/invite-service.ts`                           | Daemon-owned invite presentation (share link, guardian instruction, channel handle) over gateway-minted invites                        |
+| `src/runtime/routes/contact-routes.ts`                    | HTTP/IPC invite handlers — relay mint/list/revoke/redeem to the gateway's invite IPC routes                                            |
+| `src/calls/call-setup-flow.ts`                            | Transport-agnostic call setup flow — `invite_redemption` sub-flow (always-on canonical behavior)                                       |
+| `src/calls/gateway-invite-reader.ts`                      | Gateway IPC read of the active voice invite for a caller identity                                                                      |
 
 ### Voice Inbound Security Model (Canonical)
 
@@ -536,7 +537,7 @@ The voice inbound security model determines how unknown callers are handled when
 Unknown caller dials in
         |
         v
-resolveActorTrust() → trustClass
+gateway trust verdict → trustClass
         |
         ├── guardian / trusted_contact → normal call flow
         ├── blocked → immediate denial + disconnect
@@ -586,13 +587,13 @@ All guardian decisions for voice access requests flow through:
 
 | File                                           | Purpose                                                                                |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `src/calls/call-setup-router.ts`              | Inbound call decision tree (`routeSetup`)                                               |
-| `src/calls/call-setup-flow.ts`                 | Name capture, verification, and invite sub-flows over the media-stream transport        |
-| `src/calls/guardian-wait-controller.ts`        | Guardian approval wait — hold messaging, heartbeats, poll/timeout                       |
+| `src/calls/call-setup-router.ts`               | Inbound call decision tree (`routeSetup`)                                              |
+| `src/calls/call-setup-flow.ts`                 | Name capture, verification, and invite sub-flows over the media-stream transport       |
+| `src/calls/guardian-wait-controller.ts`        | Guardian approval wait — hold messaging, heartbeats, poll/timeout                      |
 | `src/runtime/access-request-helper.ts`         | Creates canonical access request and notifies guardian                                 |
 | `src/approvals/guardian-decision-primitive.ts` | `applyCanonicalGuardianDecision` — unified decision primitive                          |
 | `src/approvals/guardian-request-resolvers.ts`  | `access_request` resolver — voice direct activation, text-channel verification session |
-| `src/runtime/actor-trust-resolver.ts`          | `resolveActorTrust` — caller trust classification                                      |
+| `src/runtime/trust-verdict-consumer.ts`        | Gateway verdict → caller trust classification (`actorTrustContextFromVerdict`)        |
 | `src/contacts/canonical-guardian-store.ts`     | Canonical request persistence and CAS resolution                                       |
 
 ### Speech-to-Text (STT) Boundaries
@@ -603,13 +604,13 @@ Audio-to-text conversion occurs in six distinct runtime boundaries, each with it
 
 **Boundary overview:**
 
-| Boundary                   | Runtime                                                                       | Provider (current)                           | Adapter module                                                                                                                                                                                                                                             | Caller                                                  |
-| -------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| **Telephony (media-stream)** | Daemon process (Twilio Media Streams WebSocket)                             | Configured STT provider (via `services.stt`) | `src/calls/media-stream-stt-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                                                                                                            | `src/calls/media-stream-server.ts`                      |
-| **Daemon batch**           | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts` |
-| **Conversation streaming** | Daemon process (WebSocket-based)                                              | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | Web/Electron dictation client via gateway WS proxy      |
-| **Live voice channel**     | Assistant process (gateway-authenticated WebSocket)                           | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                               | Web/Electron live voice client via `/v1/live-voice`     |
-| **Client service-first**   | Web/Electron via gateway → daemon                                             | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`                                                                                                                                                                                                                         | Web/Electron dictation and voice clients                |
+| Boundary                     | Runtime                                             | Provider (current)                           | Adapter module                                                                                                                                                                                                                                             | Caller                                                  |
+| ---------------------------- | --------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| **Telephony (media-stream)** | Daemon process (Twilio Media Streams WebSocket)     | Configured STT provider (via `services.stt`) | `src/calls/media-stream-stt-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                                                                                                            | `src/calls/media-stream-server.ts`                      |
+| **Daemon batch**             | Daemon process (REST API to provider)               | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts` |
+| **Conversation streaming**   | Daemon process (WebSocket-based)                    | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | Web/Electron dictation client via gateway WS proxy      |
+| **Live voice channel**       | Assistant process (gateway-authenticated WebSocket) | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                               | Web/Electron live voice client via `/v1/live-voice`     |
+| **Client service-first**     | Web/Electron via gateway → daemon                   | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`                                                                                                                                                                                                                         | Web/Electron dictation and voice clients                |
 
 **Telephony boundary (media-stream):**
 
@@ -624,18 +625,18 @@ A credential preflight (`resolveTelephonyCredentialReadiness()` in `src/calls/te
 
 Key modules:
 
-| Module                                              | Purpose                                                                          |
-| --------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Module                                              | Purpose                                                                                               |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `src/calls/twilio-routes.ts`                        | Voice webhook handler; generates `<Connect><Stream>` TwiML, enforces the inbound credential preflight |
-| `src/calls/telephony-credential-preflight.ts`       | Combined STT + TTS credential-readiness resolver                                 |
-| `src/calls/media-stream-parser.ts`                  | Twilio Media Streams protocol parser                                             |
-| `src/calls/media-turn-detector.ts`                  | Energy-based VAD turn detector for raw audio (batch mode)                        |
-| `src/calls/media-stream-stt-session.ts`             | STT session — streaming/batch mode selection and transcription via `services.stt` |
-| `src/calls/media-stream-audio-transcode.ts`         | Mu-law ↔ PCM16 codecs and resampling                                             |
-| `src/calls/call-transport.ts`                       | Transport interface decoupling CallController from wire protocol                 |
-| `src/calls/media-stream-output.ts`                  | Output adapter for sending TTS audio back via Media Streams                      |
-| `src/calls/media-stream-server.ts`                  | WebSocket server binding media-stream lifecycle to call sessions and setup flows |
-| `gateway/src/http/routes/twilio-media-websocket.ts` | Gateway WebSocket proxy for Media Streams frames                                 |
+| `src/calls/telephony-credential-preflight.ts`       | Combined STT + TTS credential-readiness resolver                                                      |
+| `src/calls/media-stream-parser.ts`                  | Twilio Media Streams protocol parser                                                                  |
+| `src/calls/media-turn-detector.ts`                  | Energy-based VAD turn detector for raw audio (batch mode)                                             |
+| `src/calls/media-stream-stt-session.ts`             | STT session — streaming/batch mode selection and transcription via `services.stt`                     |
+| `src/calls/media-stream-audio-transcode.ts`         | Mu-law ↔ PCM16 codecs and resampling                                                                  |
+| `src/calls/call-transport.ts`                       | Transport interface decoupling CallController from wire protocol                                      |
+| `src/calls/media-stream-output.ts`                  | Output adapter for sending TTS audio back via Media Streams                                           |
+| `src/calls/media-stream-server.ts`                  | WebSocket server binding media-stream lifecycle to call sessions and setup flows                      |
+| `gateway/src/http/routes/twilio-media-websocket.ts` | Gateway WebSocket proxy for Media Streams frames                                                      |
 
 Guard tests in `__tests__/twilio-routes-twiml.test.ts` and `__tests__/twilio-routes.test.ts` assert that every supported STT provider yields `<Connect><Stream>` TwiML for both inbound and outbound calls.
 
@@ -1770,99 +1771,6 @@ sequenceDiagram
 
 ---
 
-## Trace System — Debug Panel Data Flow
-
-The trace system provides real-time observability of daemon conversation internals. Each conversation creates a `TraceEmitter` that emits structured `trace_event` SSE events as the conversation processes requests, makes LLM calls, and executes tools.
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Chat as ChatView
-    participant DC as DaemonClient
-    participant Daemon as Session (Daemon)
-    participant TE as TraceEmitter
-    participant EB as EventBus
-    participant TTL as ToolTraceListener
-    participant LLM as LLM Provider
-    participant TS as TraceStore (Swift)
-    participant DP as DebugPanel
-
-    User->>Chat: send message
-    Chat->>DC: user_message
-    DC->>Daemon: HTTP
-
-    Daemon->>TE: emit(request_received)
-    TE-->>DC: trace_event (request_received)
-    DC-->>TS: onTraceEvent → ingest()
-
-    Daemon->>LLM: API call
-    Daemon->>TE: emit(llm_call_started)
-    TE-->>DC: trace_event (llm_call_started)
-    DC-->>TS: ingest()
-
-    LLM-->>Daemon: streaming response
-    Daemon->>TE: emit(llm_call_finished, tokens + latency)
-    TE-->>DC: trace_event (llm_call_finished)
-    DC-->>TS: ingest()
-
-    Note over Daemon,EB: Tool execution triggers domain events
-
-    Daemon->>EB: tool.execution.started
-    EB->>TTL: onAny(event)
-    TTL->>TE: emit(tool_started)
-    TE-->>DC: trace_event (tool_started)
-    DC-->>TS: ingest()
-
-    Daemon->>EB: tool.execution.finished
-    EB->>TTL: onAny(event)
-    TTL->>TE: emit(tool_finished, durationMs)
-    TE-->>DC: trace_event (tool_finished)
-    DC-->>TS: ingest()
-
-    Daemon->>TE: emit(message_complete)
-    TE-->>DC: trace_event (message_complete)
-    DC-->>TS: ingest()
-
-    Note over TS: Events deduplicated by eventId,<br/>ordered by sequence + timestampMs,<br/>grouped by conversation and requestId,<br/>capped at 5000 per conversation
-
-    TS-->>DP: @Published eventsByConversation
-    Note over DP: Metrics strip: requests, LLM calls,<br/>tokens (in/out), avg latency, failures<br/>Timeline: events grouped by requestId
-```
-
-### Trace Event Kinds
-
-Events emitted during a conversation lifecycle:
-
-| Kind                        | Emitted by              | When                                                                                            |
-| --------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------- |
-| `request_received`          | Handlers / Conversation | User message or surface action arrives                                                          |
-| `request_queued`            | Handlers / Conversation | Message queued while conversation is busy                                                       |
-| `request_dequeued`          | Conversation            | Queued message begins processing                                                                |
-| `llm_call_started`          | Conversation            | LLM API call initiated                                                                          |
-| `llm_call_finished`         | Conversation            | LLM API call completed (carries `inputTokens`, `outputTokens`, `latencyMs`)                     |
-| `assistant_message`         | Conversation            | Assistant response assembled (carries `toolUseCount`)                                           |
-| `tool_started`              | ToolTraceListener       | Tool execution begins                                                                           |
-| `tool_permission_requested` | ToolTraceListener       | Permission check needed (carries `riskLevel`)                                                   |
-| `tool_permission_decided`   | ToolTraceListener       | Permission granted or denied (carries `decision`)                                               |
-| `tool_finished`             | ToolTraceListener       | Tool execution completed (carries `durationMs`)                                                 |
-| `tool_failed`               | ToolTraceListener       | Tool execution failed (carries `durationMs`)                                                    |
-| `generation_handoff`        | Conversation            | Yielding to next queued message                                                                 |
-| `message_complete`          | Conversation            | Full request processing finished                                                                |
-| `generation_cancelled`      | Conversation            | User cancelled the generation                                                                   |
-| `request_error`             | Handlers / Conversation | Unrecoverable error during processing (includes queue-full rejection and persist-failure paths) |
-
-### Architecture
-
-- **TraceEmitter** (daemon, per-conversation): Constructed with a `conversationId` and a `sendToClient` callback. Maintains a monotonic sequence counter for stable ordering. Truncates summaries to 200 chars and attribute values to 500 chars. Each call to `emit()` sends a `trace_event` SSE event to connected clients.
-- **ToolTraceListener** (daemon): Subscribes to the conversation's `EventBus` via `onAny()` and translates tool domain events (`tool.execution.started`, `tool.execution.finished`, `tool.execution.failed`, `tool.permission.requested`, `tool.permission.decided`) into trace events through the `TraceEmitter`.
-- **DaemonClient** (Swift, shared): Decodes `trace_event` SSE events into `TraceEventMessage` structs and invokes the `onTraceEvent` callback.
-- **TraceStore** (Swift, macOS): `@MainActor ObservableObject` that ingests `TraceEventMessage` structs. Deduplicates by `eventId`, maintains stable sort order (sequence, then timestampMs, then insertion order), groups events by conversation and requestId, and enforces a retention cap of 5,000 events per conversation. Each request group is classified with a terminal status: `completed` (via `message_complete`), `cancelled` (via `generation_cancelled`), `handedOff` (via `generation_handoff`), `error` (via `request_error` or any event with `status == "error"`), or `active` (no terminal event yet).
-- **DebugPanel** (Swift, macOS): SwiftUI view that observes `TraceStore`. Displays a metrics strip (request count, LLM calls, total tokens, average latency, tool failures) and a `TraceTimelineView` showing events grouped by requestId with color-coded status indicators. The timeline auto-scrolls to new events while the user is at the bottom; scrolling up pauses auto-scroll and shows a "Jump to bottom" button that resumes it.
-
----
-
----
-
 ## Assistant Events — SSE Transport Layer
 
 The assistant-events system provides a single, shared publish path that fans out to all connected clients via HTTP SSE. The `ServerMessage` payload is wrapped in an `AssistantEvent` envelope and serialised as JSON.
@@ -2096,7 +2004,6 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | Sandbox filesystem                       | `$VELLUM_WORKSPACE_DIR`                                | Real filesystem tree                | Node FS APIs                       | Persistent across sessions                              |
 | Tool permission rules                    | `~/.vellum/protected/trust.json`                       | JSON                                | File I/O                           | Permanent                                               |
 | Web users & assistants                   | PostgreSQL                                             | Relational                          | Drizzle ORM (pg)                   | Permanent                                               |
-| Trace events                             | In-memory (TraceStore)                                 | Structured events                   | Swift ObservableObject             | Max 5,000 per session, ephemeral                        |
 | Media embed settings                     | `$VELLUM_WORKSPACE_DIR/config.json` (`ui.mediaEmbeds`) | JSON                                | `WorkspaceConfigIO` (atomic merge) | Permanent                                               |
 | Media embed MIME cache                   | In-memory (`ImageMIMEProbe`)                           | `NSCache` (500 entries)             | HTTP HEAD                          | Ephemeral; cleared on app restart                       |
 | Tasks & task runs                        | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |

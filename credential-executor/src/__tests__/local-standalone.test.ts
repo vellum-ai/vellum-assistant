@@ -1,9 +1,8 @@
 /**
- * Local CES standalone-sibling test (real entrypoint subprocess).
+ * Local CES sibling test (real entrypoint subprocess).
  *
- * Spawns the actual `main.ts` entrypoint with `CES_STANDALONE=1` and **stdin
- * closed** — the way the CLI launches the sibling (the `CES_STANDALONE`
- * opt-in) — and verifies that CES:
+ * Spawns the actual `main.ts` entrypoint with **stdin closed** — the way the
+ * CLI launches the sibling — and verifies that CES:
  *
  *   1. binds its Unix socket and serves RPC despite having no stdio parent
  *      (lifecycle anchored to SIGTERM, not stdin), and
@@ -145,12 +144,12 @@ describe("local CES standalone sibling (real entrypoint)", () => {
 
     const localMain = resolve(__dirname, "..", "main.ts");
 
-    // CES_STANDALONE=1 + stdin closed is how the CLI launches the sibling.
+    // stdin closed is how the CLI launches the sibling — CES serves over a
+    // Unix socket, not stdio.
     proc = Bun.spawn({
       cmd: [process.execPath, localMain],
       env: {
         ...process.env,
-        CES_STANDALONE: "1",
         CES_LOCAL_SOCKET: socketPath,
         CREDENTIAL_SECURITY_DIR: securityDir,
         VELLUM_WORKSPACE_DIR: workspaceDir,
@@ -200,34 +199,4 @@ describe("local CES standalone sibling (real entrypoint)", () => {
     ]);
     expect(exited).toBe(true);
   }, 30_000);
-
-  test("without CES_STANDALONE, exits when stdin closes (stdio child)", async () => {
-    tmpDir = mkdtempSync(join(tmpdir(), "ces-stdio-"));
-    const securityDir = join(tmpDir, "protected");
-    const workspaceDir = join(tmpDir, "workspace");
-    mkdirSync(securityDir, { recursive: true });
-    mkdirSync(workspaceDir, { recursive: true });
-
-    const localMain = resolve(__dirname, "..", "main.ts");
-
-    // Default mode: stdin "ignore" EOFs immediately, so the stdio server's
-    // input stream ends and CES shuts down on its own — the today behavior.
-    proc = Bun.spawn({
-      cmd: [process.execPath, localMain],
-      env: {
-        ...process.env,
-        CREDENTIAL_SECURITY_DIR: securityDir,
-        VELLUM_WORKSPACE_DIR: workspaceDir,
-      },
-      stdin: "ignore",
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-
-    const exited = await Promise.race([
-      proc.exited.then(() => true),
-      delay(10_000).then(() => false),
-    ]);
-    expect(exited).toBe(true);
-  }, 20_000);
 });

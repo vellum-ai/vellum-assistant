@@ -284,7 +284,10 @@ export function createSseEventConsumer(
 
       // Stage 2: dispatch filter. Global events pass through
       // unconditionally; conversation-scoped events need an exact match
-      // against the active conversation.
+      // against the active conversation. Conversationless `open_url`
+      // directives are deliberately NOT special-cased here: this consumer
+      // only mounts with an active persisted conversation, so they are
+      // handled by the always-mounted `useOpenUrlDirectives` instead.
       if (!isConversationScopedStreamEvent(event)) {
         deps.handleStreamEvent(event, useStreamStore.getState().streamEpoch);
       } else if (

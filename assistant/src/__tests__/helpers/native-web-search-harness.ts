@@ -55,7 +55,6 @@ export function createHandlerDeps(reqId = "req-web-search"): HandlerHarness {
     ctx: {
       conversationId: "conv-web-search",
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       streamThinking: false,
       emitActivityState: () => {},
       markWorkspaceTopLevelDirty: () => {},

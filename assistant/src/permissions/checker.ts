@@ -21,6 +21,7 @@ import { resolveRealPath } from "../tools/shared/filesystem/path-policy.js";
 import type { Tool } from "../tools/types.js";
 import {
   getDeprecatedDir,
+  getMonitoringDataDir,
   getProtectedDir,
   getWorkspaceDir,
   getWorkspaceHooksDir,
@@ -33,6 +34,7 @@ import {
   type ApprovalContext,
   DefaultApprovalPolicy,
 } from "./approval-policy.js";
+import { buildChannelPermissionCellQuery } from "./channel-permission-query.js";
 import {
   getAutoApproveThreshold,
   refreshAutoApproveThreshold,
@@ -322,6 +324,7 @@ function buildFileContext(): FileContext {
     toolsDir: resolveRealPath(getWorkspaceToolsDir()),
     routesDir: resolveRealPath(getWorkspaceRoutesDir()),
     workflowsDir: resolveRealPath(getWorkspaceWorkflowsDir()),
+    monitoringDir: resolveRealPath(getMonitoringDataDir()),
     actorTokenSigningKeyPath: join(protectedDir, "actor-token-signing-key"),
     skillSourceDirs: getSkillRoots(config.skills.load.extraDirs).map(
       resolveRealPath,
@@ -811,9 +814,11 @@ export async function check(
 
   // Build approval context from local variables
   const tool = getTool(toolName);
+  const cellQuery = buildChannelPermissionCellQuery(policyContext);
   const threshold = await getAutoApproveThreshold(
     policyContext?.conversationId,
     policyContext?.executionContext,
+    cellQuery,
   );
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
@@ -844,6 +849,7 @@ export async function check(
     const freshThreshold = await refreshAutoApproveThreshold(
       policyContext?.conversationId,
       policyContext?.executionContext,
+      cellQuery,
     );
     if (freshThreshold !== null && freshThreshold !== threshold) {
       approvalDecision = defaultApprovalPolicy.evaluate({

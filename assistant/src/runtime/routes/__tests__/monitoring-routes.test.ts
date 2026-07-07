@@ -14,7 +14,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import * as actualLoader from "../../../config/loader.js";
-import type { ResourceSample } from "../../../monitoring/resource-sampler.js";
+import type { ResourceSample } from "../../../monitoring/resource-sample-types.js";
 import { getMonitoringPidPath } from "../../../util/platform.js";
 
 class FakeSpawnError extends Error {}

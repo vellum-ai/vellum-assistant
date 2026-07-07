@@ -1177,7 +1177,7 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         }
         lines.push(
           "",
-          "Resolve the conflicts, then restart the assistant to pick up the upgrade.",
+          "Resolve the conflicts, then the upgrade will be picked up live on the next read (no restart required).",
         );
         if (provenanceNote) lines.push(provenanceNote);
         return lines;

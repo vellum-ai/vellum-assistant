@@ -25,6 +25,7 @@ mock.module("@/domains/onboarding/prefs", () => ({
   readPrivacyConsent: () => true,
   readAnalyticsConsentCurrent: () => true,
   readDiagnosticsConsentCurrent: () => true,
+  readConsentHydrated: () => true,
 }));
 
 const { buildNavigationState } = await import("./build-state");

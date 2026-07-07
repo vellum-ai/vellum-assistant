@@ -560,11 +560,7 @@ describe("PATCH with label", () => {
 // ── Managed-connection write protection ──────────────────────────────────────
 
 describe("Managed connection write protection", () => {
-  const MANAGED_NAMES = [
-    "anthropic-managed",
-    "openai-managed",
-    "gemini-managed",
-  ] as const;
+  const MANAGED_NAMES = ["vellum"] as const;
 
   describe("DELETE", () => {
     for (const name of MANAGED_NAMES) {
@@ -590,21 +586,21 @@ describe("Managed connection write protection", () => {
       // Even though a profile references the managed connection, the error
       // should be the managed-protection 400, not the references-409.
       seedConnection({
-        name: "anthropic-managed",
+        name: "vellum",
         provider: "anthropic",
         auth: { type: "platform" },
       });
       fakeConfig = {
         llm: {
           profiles: {
-            balanced: { provider_connection: "anthropic-managed" },
+            balanced: { provider_connection: "vellum" },
           },
         },
       };
 
       const err = await call(
         findHandler("inference_provider_connections_delete"),
-        { pathParams: { name: "anthropic-managed" } },
+        { pathParams: { name: "vellum" } },
       ).catch((e: unknown) => e);
 
       expect(err).toBeInstanceOf(BadRequestError);
@@ -656,7 +652,7 @@ describe("Managed connection write protection", () => {
 
     test("allows PATCH with auth still set to platform (no-op auth change)", async () => {
       seedConnection({
-        name: "anthropic-managed",
+        name: "vellum",
         provider: "anthropic",
         auth: { type: "platform" },
       });
@@ -664,7 +660,7 @@ describe("Managed connection write protection", () => {
       const result = (await call(
         findHandler("inference_provider_connections_update"),
         {
-          pathParams: { name: "anthropic-managed" },
+          pathParams: { name: "vellum" },
           body: {
             auth: { type: "platform" },
             label: "Vellum-managed Anthropic",
@@ -678,7 +674,7 @@ describe("Managed connection write protection", () => {
   describe("PATCH label (allowed)", () => {
     test("allows relabeling a managed connection", async () => {
       seedConnection({
-        name: "openai-managed",
+        name: "vellum",
         provider: "openai",
         auth: { type: "platform" },
       });
@@ -686,7 +682,7 @@ describe("Managed connection write protection", () => {
       const result = (await call(
         findHandler("inference_provider_connections_update"),
         {
-          pathParams: { name: "openai-managed" },
+          pathParams: { name: "vellum" },
           body: { auth: { type: "platform" }, label: "Custom Label" },
         },
       )) as { label: string | null };
@@ -698,11 +694,7 @@ describe("Managed connection write protection", () => {
 // ── isManaged response flag ───────────────────────────────────────────────────
 
 describe("isManaged flag on connection responses", () => {
-  const MANAGED_NAMES = [
-    "anthropic-managed",
-    "openai-managed",
-    "gemini-managed",
-  ] as const;
+  const MANAGED_NAMES = ["vellum"] as const;
 
   describe("GET list", () => {
     test("returns isManaged: true for canonical names and false for user-created rows", async () => {
@@ -727,24 +719,69 @@ describe("isManaged flag on connection responses", () => {
       const byName = Object.fromEntries(
         result.connections.map((c) => [c.name, c.isManaged]),
       );
-      expect(byName["anthropic-managed"]).toBe(true);
-      expect(byName["openai-managed"]).toBe(true);
-      expect(byName["gemini-managed"]).toBe(true);
+      expect(byName["vellum"]).toBe(true);
       expect(byName["my-custom-anthropic"]).toBe(false);
+    });
+
+    test("hides orphaned legacy *-managed rows from the list", async () => {
+      // Existing installs (and fresh installs via migration 243) may still
+      // carry the pre-consolidation rows until a follow-up migration deletes
+      // them; they must not surface in the UI alongside `vellum`.
+      for (const name of [
+        "anthropic-managed",
+        "openai-managed",
+        "gemini-managed",
+        "fireworks-managed",
+        "together-managed",
+      ]) {
+        seedConnection({
+          name,
+          provider: name.replace("-managed", ""),
+          auth: { type: "platform" },
+        });
+      }
+      seedConnection({
+        name: "vellum",
+        provider: "vellum",
+        auth: { type: "platform" },
+      });
+      seedConnection({
+        name: "my-openai",
+        provider: "openai",
+        auth: { type: "api_key", credential: "ref/k" },
+      });
+
+      const result = (await call(
+        findHandler("inference_provider_connections_list"),
+        {},
+      )) as { connections: Array<{ name: string }> };
+      const names = result.connections.map((c) => c.name);
+
+      expect(names).toContain("vellum");
+      expect(names).toContain("my-openai");
+      for (const legacy of [
+        "anthropic-managed",
+        "openai-managed",
+        "gemini-managed",
+        "fireworks-managed",
+        "together-managed",
+      ]) {
+        expect(names).not.toContain(legacy);
+      }
     });
   });
 
   describe("GET single", () => {
     test("returns isManaged: true for a managed name", async () => {
       seedConnection({
-        name: "anthropic-managed",
+        name: "vellum",
         provider: "anthropic",
         auth: { type: "platform" },
       });
 
       const result = (await call(
         findHandler("inference_provider_connections_get"),
-        { pathParams: { name: "anthropic-managed" } },
+        { pathParams: { name: "vellum" } },
       )) as { name: string; isManaged: boolean };
 
       expect(result.isManaged).toBe(true);
@@ -786,7 +823,7 @@ describe("isManaged flag on connection responses", () => {
   describe("PATCH update", () => {
     test("returns isManaged: true after relabeling a managed connection", async () => {
       seedConnection({
-        name: "anthropic-managed",
+        name: "vellum",
         provider: "anthropic",
         auth: { type: "platform" },
       });
@@ -794,7 +831,7 @@ describe("isManaged flag on connection responses", () => {
       const result = (await call(
         findHandler("inference_provider_connections_update"),
         {
-          pathParams: { name: "anthropic-managed" },
+          pathParams: { name: "vellum" },
           body: { auth: { type: "platform" }, label: "Vellum Anthropic" },
         },
       )) as { name: string; isManaged: boolean };

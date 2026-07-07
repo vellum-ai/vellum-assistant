@@ -53,7 +53,6 @@ import { ToolOutputChunkEventSchema } from "./events/tool-output-chunk.js";
 import { ToolResultEventSchema } from "./events/tool-result.js";
 import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
-import { TraceEventSchema } from "./events/trace-event.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
@@ -350,14 +349,6 @@ export {
   ToolUseStartEventSchema,
 } from "./events/tool-use-start.js";
 export {
-  type TraceEvent,
-  type TraceEventKind,
-  TraceEventKindSchema,
-  TraceEventSchema,
-  type TraceEventStatus,
-  TraceEventStatusSchema,
-} from "./events/trace-event.js";
-export {
   type UISurfaceCompleteEvent,
   UISurfaceCompleteEventSchema,
 } from "./events/ui-surface-complete.js";
@@ -613,7 +604,6 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ToolResultEventSchema,
   ToolUsePreviewStartEventSchema,
   ToolUseStartEventSchema,
-  TraceEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,

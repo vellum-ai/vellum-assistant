@@ -39,16 +39,10 @@ import {
   TRANSPORT_ERROR_MESSAGE,
 } from "@/assistant/lifecycle";
 import { subscribe } from "@/lib/event-bus";
-import {
-  ASSISTANT_QUERY_KEY,
-  assistantQueryKey,
-} from "@/assistant/queries";
+import { ASSISTANT_QUERY_KEY, assistantQueryKey } from "@/assistant/queries";
 import { deriveLocalAssistantHealth } from "@/assistant/local-health";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import type {
-  AssistantState,
-  LocalAssistantHealth,
-} from "@/assistant/types";
+import type { AssistantState, LocalAssistantHealth } from "@/assistant/types";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import {
   getSelectedAssistant,
@@ -259,7 +253,10 @@ class AssistantLifecycleService {
    */
   async applyServerResult(result: GetAssistantResult): Promise<void> {
     if (!this.ready) return;
-    if (this.state.kind !== "initializing" && this.state.kind !== "cleaning_up") {
+    if (
+      this.state.kind !== "initializing" &&
+      this.state.kind !== "cleaning_up"
+    ) {
       return;
     }
     await this.applyServerStateUpdate(result);
@@ -496,9 +493,7 @@ class AssistantLifecycleService {
    * the unreachable-bus interceptor have a target on first
    * `kind === "active"` render, then transitions.
    */
-  private projectActive(
-    result: GetAssistantResult & { ok: true },
-  ): void {
+  private projectActive(result: GetAssistantResult & { ok: true }): void {
     const mm = result.data.maintenance_mode;
     const isLocal = result.data.is_local ?? false;
     setSelfHostedConnection(null);
@@ -536,9 +531,7 @@ class AssistantLifecycleService {
    *     request fires unauthenticated, the gateway responds 401,
    *     and the chat surface lands on its error state.
    */
-  private projectSelfHosted(
-    result: GetAssistantResult & { ok: true },
-  ): void {
+  private projectSelfHosted(result: GetAssistantResult & { ok: true }): void {
     this.setOperationalStatusAssistantId(null);
     setSelfHostedConnection({
       url: result.data.ingress_url,
@@ -632,11 +625,12 @@ class AssistantLifecycleService {
       const localStatusAssistantId = isLocalLifecycleState
         ? (getSelectedAssistant()?.assistantId ?? assistantId)
         : assistantId;
-      let localStatus = !isRemoteGatewayMode() && isLocalLifecycleState
-        ? await getLocalAssistantStatusHost(localStatusAssistantId).catch(
-            () => null,
-          )
-        : null;
+      let localStatus =
+        !isRemoteGatewayMode() && isLocalLifecycleState
+          ? await getLocalAssistantStatusHost(localStatusAssistantId).catch(
+              () => null,
+            )
+          : null;
       let health: LocalAssistantHealth =
         localStatus?.ok && localStatus.state === "upgrading"
           ? "upgrading"
@@ -664,6 +658,7 @@ class AssistantLifecycleService {
           case "sleeping":
           case "starting":
           case "upgrading":
+          case "unhealthy":
           case "crashed":
             health = localStatus.state;
             break;
@@ -684,6 +679,12 @@ class AssistantLifecycleService {
         return;
       }
       if (this.state.kind !== "active") return;
+      // A migrating daemon answers health checks but refuses every DB-backed
+      // route with 503 — statuses the unreachable interceptor treats as
+      // unreachable. Counting migrating as reachable would therefore
+      // oscillate (each gated request flips reachable off, each probe flips
+      // it back on); keeping it unreachable gives a steady connecting
+      // overlay while the migrating status banner explains why.
       const reachable = health === "healthy" || health === "unhealthy";
       // Heartbeat ticks re-confirm the same answer most of the time —
       // don't wake every store subscriber for a no-op.
@@ -788,8 +789,7 @@ class AssistantLifecycleService {
    */
   triggerReachabilityProbe(): void {
     if (this.state.kind !== "active") return;
-    const assistantId =
-      useResolvedAssistantsStore.getState().activeAssistantId;
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
     if (!assistantId) return;
     this.transition({ ...this.state, reachable: false });
     if (this.healthHeartbeatId === assistantId) {

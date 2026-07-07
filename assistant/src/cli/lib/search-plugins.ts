@@ -16,17 +16,13 @@
  * retry-decorated client, or a test fixture).
  */
 
-import type { FetchLike } from "./install-from-github.js";
+import type { FetchLike } from "./fetch-like.js";
 import { DEFAULT_PLUGIN_REF } from "./install-from-github.js";
 import {
   fetchMarketplaceEntries,
   type MarketplaceEntry,
   MarketplaceFetchError,
 } from "./plugin-marketplace.js";
-
-// Re-export the dep-injection type so callers can grab everything they need
-// from one module rather than reaching into `install-from-github.js`.
-export type { FetchLike } from "./install-from-github.js";
 
 /** Options that control the search. */
 export interface SearchPluginsOptions {

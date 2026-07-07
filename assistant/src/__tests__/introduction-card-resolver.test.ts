@@ -72,16 +72,24 @@ mock.module("../contacts/member-write-relay.js", () => ({
     blockCalls.push(params);
     return blockOutcome;
   },
-  revokeMemberChannel: async () => null,
 }));
 
-// Verification sessions: record mints instead of writing session state.
+// Verification sessions: record mints instead of writing session state. The
+// resolver mints via the gateway session client.
 const sessionMints: Array<Record<string, unknown>> = [];
 mock.module("../runtime/channel-verification-service.js", () => ({
   CHALLENGE_TTL_MS: 10 * 60 * 1000,
-  createOutboundSession: (params: Record<string, unknown>) => {
+}));
+mock.module("../channels/gateway-verification-sessions.js", () => ({
+  createOutboundSession: async (params: Record<string, unknown>) => {
     sessionMints.push(params);
-    return { sessionId: "session-1", secret: "123456" };
+    return {
+      sessionId: "session-1",
+      secret: "123456",
+      challengeHash: "hash",
+      expiresAt: Date.now() + 600_000,
+      ttlSeconds: 600,
+    };
   },
 }));
 

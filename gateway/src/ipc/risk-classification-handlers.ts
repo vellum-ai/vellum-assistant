@@ -64,6 +64,7 @@ const ClassifyRiskSchema = z.object({
       toolsDir: z.string().optional(),
       routesDir: z.string().optional(),
       workflowsDir: z.string().optional(),
+      monitoringDir: z.string().optional(),
       actorTokenSigningKeyPath: z.string(),
       skillSourceDirs: z.array(z.string()),
     })
@@ -485,6 +486,7 @@ export async function handleClassifyRisk(
         toolsDir: fileCtx?.toolsDir ?? SENTINEL,
         routesDir: fileCtx?.routesDir ?? SENTINEL,
         workflowsDir: fileCtx?.workflowsDir ?? SENTINEL,
+        monitoringDir: fileCtx?.monitoringDir ?? SENTINEL,
         skillSourceDirs: fileCtx?.skillSourceDirs ?? [],
       };
 

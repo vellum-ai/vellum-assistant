@@ -6,29 +6,14 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import type {
+  SecretDelivery,
+  SecretPromptResult,
+} from "./secret-prompt-types.js";
 
 type SecretRequestMessage = Extract<ServerMessage, { type: "secret_request" }>;
 
 const log = getLogger("secret-prompter");
-
-export type SecretDelivery = "store" | "transient_send";
-
-export interface SecretPromptResult {
-  value: string | null;
-  delivery: SecretDelivery;
-  /** When set, the prompt could not be delivered and the value is null due to a delivery failure (not user cancellation). */
-  error?: "unsupported_channel";
-  /**
-   * Why `value` is null. `"cancelled"` = the user explicitly dismissed the
-   * prompt (a valid flow, not a failure); `"timed_out"` = no response within
-   * the permission-timeout window; `"superseded"` = a newer message in the
-   * conversation auto-denied the pending prompt before anyone answered it.
-   * Only meaningful when `value` is null and `error` is unset. Lets callers
-   * distinguish a deliberate cancel from a genuine failure instead of
-   * treating both as an error.
-   */
-  reason?: "cancelled" | "timed_out" | "superseded";
-}
 
 export interface SecretPrompterChannelContext {
   /** The channel the conversation was initiated from (e.g. "slack", "macos"). */

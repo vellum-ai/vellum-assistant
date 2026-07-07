@@ -19,6 +19,7 @@
  */
 
 export * from "./channels.js";
+export * from "./client-metadata.js";
 export * from "./transport.js";
 export * from "./error.js";
 export * from "./handles.js";

@@ -1,21 +1,12 @@
 #!/usr/bin/env bun
 /**
- * Local CES entrypoint. Two run modes:
+ * Local CES entrypoint. Serves RPC over a Unix socket (`getLocalSocketPath()`),
+ * launched independently by the CLI as a sibling process. Runs until SIGTERM.
  *
- * - **stdio child (default):** the assistant spawns CES as a child process and
- *   communicates over stdin/stdout. CES shuts down when stdin closes (parent
- *   exit) or on SIGTERM. This is today's behavior.
- *
- * - **standalone sibling (`CES_STANDALONE=1`):** CES is launched independently
- *   by the CLI (the opt-in), serves RPC over a
- *   Unix socket (`getLocalSocketPath()`), and runs until SIGTERM — no stdio.
- *   This is the direction local CES is converging on; the socket-serving here
- *   is temporary scaffolding to be folded into a single unified CES entrypoint.
- *
- * Local mode never opens a TCP listener. Neither the stdio transport nor the
- * Unix socket's listening fd is inherited by shell subprocesses spawned by CES
- * (e.g. for `run_authenticated_command`): Bun's `Bun.spawn` defaults to "pipe"
- * for stdio, and the listening socket is not passed to those subprocesses.
+ * Local mode never opens a TCP listener. The Unix socket's listening fd is not
+ * inherited by shell subprocesses spawned by CES (e.g. for
+ * `run_authenticated_command`): Bun's `Bun.spawn` defaults to "pipe" for
+ * stdio, and the listening socket is not passed to those subprocesses.
  */
 
 import { mkdirSync, unlinkSync } from "node:fs";
@@ -351,12 +342,11 @@ function buildHandlers(secureKeyBackend: SecureKeyBackend): RpcHandlerRegistry {
 // ---------------------------------------------------------------------------
 
 /**
- * Serve RPC over a Unix socket for standalone-sibling mode.
+ * Serve RPC over a Unix socket.
  *
  * Binds the socket, accepts connections concurrently (each served by its own
  * CesRpcServer over the shared handler registry), and unlinks the socket when
- * the signal aborts. Temporary scaffolding — this serving path will be folded
- * into a single unified CES entrypoint shared with the managed sidecar.
+ * the signal aborts.
  */
 function serveStandaloneSocket(opts: {
   socketPath: string;
@@ -439,14 +429,8 @@ async function main(): Promise<void> {
   initLogger({ dir: getCesLogDir(), retentionDays: 30 });
   const log = getLogger("main");
 
-  // `CES_STANDALONE=1` runs CES as an independent, CLI-launched sibling over a
-  // Unix socket; otherwise CES is the assistant's stdio child, as today.
-  const standalone = process.env["CES_STANDALONE"] === "1";
-
   log.info(
-    `Starting CES v${CES_PROTOCOL_VERSION} (local mode, ${
-      standalone ? "standalone socket" : "stdio"
-    } transport)`,
+    `Starting CES v${CES_PROTOCOL_VERSION} (local mode, socket transport)`,
   );
 
   const controller = new AbortController();
@@ -485,43 +469,23 @@ async function main(): Promise<void> {
     error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
   };
 
-  if (standalone) {
-    // Serve over a Unix socket and run until a shutdown signal — no stdio
-    // parent to anchor the lifecycle.
-    serveStandaloneSocket({
-      socketPath: getLocalSocketPath(),
-      handlers,
-      signal: controller.signal,
-      logger: rpcLogger,
-      log,
-    });
-    await new Promise<void>((resolve) => {
-      if (controller.signal.aborted) {
-        resolve();
-        return;
-      }
-      controller.signal.addEventListener("abort", () => resolve(), {
-        once: true,
-      });
-    });
-    log.info("Server stopped.");
-    return;
-  }
-
-  // Default: serve the spawning assistant over stdio. stdin closing (parent
-  // exit) or SIGTERM shuts CES down.
-  const server = new CesRpcServer({
-    input: process.stdin,
-    output: process.stdout,
+  // Serve over a Unix socket and run until a shutdown signal.
+  serveStandaloneSocket({
+    socketPath: getLocalSocketPath(),
     handlers,
-    logger: rpcLogger,
     signal: controller.signal,
-    // Local mode reads API keys from env/store directly — no-op handler so
-    // update_managed_credential is still registered and returns success.
-    onApiKeyUpdate: () => {},
+    logger: rpcLogger,
+    log,
   });
-
-  await server.serve();
+  await new Promise<void>((resolve) => {
+    if (controller.signal.aborted) {
+      resolve();
+      return;
+    }
+    controller.signal.addEventListener("abort", () => resolve(), {
+      once: true,
+    });
+  });
   log.info("Server stopped.");
 }
 

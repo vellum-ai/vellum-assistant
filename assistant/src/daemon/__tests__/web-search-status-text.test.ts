@@ -80,7 +80,6 @@ function createCollectorDeps(): {
     ctx: {
       conversationId: "conv-status-text",
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       streamThinking: false,
       emitActivityState: (
         phase: string,

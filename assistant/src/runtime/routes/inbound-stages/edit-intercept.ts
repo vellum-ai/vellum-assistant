@@ -160,9 +160,9 @@ export async function handleEditIntercept(
       updateMessageContent(original.messageId, newContent);
     }
     // The edit changed searchable text (the no-op guard above already returned
-    // for identical content) and this path bypasses `onMessagePersisted`, so
-    // reindex the message into the lexical index — the idempotent upsert
-    // replaces the stale Qdrant point with the edited content.
+    // for identical content) and this path bypasses the `addMessage` persist
+    // path, so reindex the message into the lexical index — the idempotent
+    // upsert replaces the stale Qdrant point with the edited content.
     enqueueLexicalIndexForMessage(original.messageId);
     log.info(
       { assistantId, sourceMessageId, messageId: original.messageId },

@@ -2,23 +2,1207 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Vellum Gateway API",
-    "version": "0.8.12",
+    "version": "0.10.6",
     "description": "Auto-generated OpenAPI specification for the Vellum Gateway HTTP endpoints."
   },
-  "servers": [
-    {
-      "url": "",
-      "description": "Same-origin (gateway)"
-    }
-  ],
+  "servers": [{ "url": "", "description": "Same-origin (gateway)" }],
   "paths": {
+    "/v1/permissions/thresholds": {
+      "get": {
+        "operationId": "permissionsThresholdsGet",
+        "summary": "Get global auto-approve thresholds",
+        "tags": ["permissions"],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "interactive": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    },
+                    "autonomous": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    },
+                    "headless": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    }
+                  },
+                  "required": ["interactive", "autonomous", "headless"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "permissionsThresholdsPut",
+        "summary": "Update global auto-approve thresholds",
+        "tags": ["permissions"],
+        "description": "Partial update — omitted modes keep their current value. Returns the full post-update set.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "interactive": {
+                    "type": "string",
+                    "enum": ["none", "low", "medium", "high"]
+                  },
+                  "autonomous": {
+                    "type": "string",
+                    "enum": ["none", "low", "medium", "high"]
+                  },
+                  "headless": {
+                    "type": "string",
+                    "enum": ["none", "low", "medium", "high"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "interactive": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    },
+                    "autonomous": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    },
+                    "headless": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    }
+                  },
+                  "required": ["interactive", "autonomous", "headless"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/permissions/thresholds/conversations/{conversation_id}": {
+      "get": {
+        "operationId": "conversationThresholdGet",
+        "summary": "Get a conversation's threshold override",
+        "tags": ["permissions"],
+        "description": "Returns { threshold: null } when no override exists. (Gateways predating that behavior returned 404 for the same condition; clients tolerate both during rollout.)",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The conversation id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "threshold": {
+                      "anyOf": [{ "type": "string" }, { "type": "null" }]
+                    }
+                  },
+                  "required": ["threshold"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "conversationThresholdPut",
+        "summary": "Set a conversation's threshold override",
+        "tags": ["permissions"],
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The conversation id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "threshold": {
+                    "type": "string",
+                    "enum": ["none", "low", "medium", "high"]
+                  }
+                },
+                "required": ["threshold"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "conversationId": { "type": "string" },
+                    "threshold": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    }
+                  },
+                  "required": ["conversationId", "threshold"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "conversationThresholdDelete",
+        "summary": "Clear a conversation's threshold override",
+        "tags": ["permissions"],
+        "description": "Idempotent — succeeds even when no override exists.",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The conversation id"
+          }
+        ],
+        "responses": { "204": { "description": "Successful response" } }
+      }
+    },
+    "/v1/channel-admission-policy": {
+      "get": {
+        "operationId": "channelAdmissionPolicyList",
+        "summary": "List per-channel admission floors",
+        "tags": ["channel-admission-policy"],
+        "description": "Returns one entry per enforced channel (exempt and hidden channels are omitted), seeded with defaults for channels without a stored row.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "policies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "channelType": { "type": "string" },
+                          "policy": {
+                            "type": "string",
+                            "enum": [
+                              "no_one",
+                              "guardian_only",
+                              "trusted_contacts",
+                              "any_contact",
+                              "strangers"
+                            ]
+                          },
+                          "note": {
+                            "anyOf": [{ "type": "string" }, { "type": "null" }]
+                          },
+                          "updatedAt": {
+                            "anyOf": [{ "type": "number" }, { "type": "null" }]
+                          }
+                        },
+                        "required": [
+                          "channelType",
+                          "policy",
+                          "note",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["policies"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/channel-admission-policy/{channel_type}": {
+      "put": {
+        "operationId": "channelAdmissionPolicySet",
+        "summary": "Set a channel's admission floor",
+        "tags": ["channel-admission-policy"],
+        "description": "Upserts the channel's admission policy. Exempt and hidden channels return 403.",
+        "parameters": [
+          {
+            "name": "channel_type",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The channel type (e.g. slack)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "policy": {
+                    "type": "string",
+                    "enum": [
+                      "no_one",
+                      "guardian_only",
+                      "trusted_contacts",
+                      "any_contact",
+                      "strangers"
+                    ]
+                  },
+                  "note": {
+                    "anyOf": [{ "type": "string" }, { "type": "null" }]
+                  }
+                },
+                "required": ["policy"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "policy": {
+                      "type": "object",
+                      "properties": {
+                        "channelType": { "type": "string" },
+                        "policy": {
+                          "type": "string",
+                          "enum": [
+                            "no_one",
+                            "guardian_only",
+                            "trusted_contacts",
+                            "any_contact",
+                            "strangers"
+                          ]
+                        },
+                        "note": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "updatedAt": {
+                          "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        }
+                      },
+                      "required": [
+                        "channelType",
+                        "policy",
+                        "note",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["policy"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/channel-permission-overrides": {
+      "get": {
+        "operationId": "channelPermissionOverridesList",
+        "summary": "List channel-permission matrix cells",
+        "tags": ["channel-permission-overrides"],
+        "description": "Returns every persisted cell (cascade selector × contact-type → RiskThreshold). Unset cells fall through the cascade; the list contains only explicit overrides.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cells": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "selector": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "scope": {
+                                    "type": "string",
+                                    "const": "workspace"
+                                  }
+                                },
+                                "required": ["scope"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "scope": {
+                                    "type": "string",
+                                    "const": "adapter"
+                                  },
+                                  "adapter": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": ["scope", "adapter"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "scope": {
+                                    "type": "string",
+                                    "const": "channel_type"
+                                  },
+                                  "adapter": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "channelType": {
+                                    "type": "string",
+                                    "enum": ["dm", "private", "public"]
+                                  }
+                                },
+                                "required": ["scope", "adapter", "channelType"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "scope": {
+                                    "type": "string",
+                                    "const": "channel"
+                                  },
+                                  "adapter": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "channelExternalId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "scope",
+                                  "adapter",
+                                  "channelExternalId"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ],
+                            "type": "object"
+                          },
+                          "contactType": {
+                            "type": "string",
+                            "enum": [
+                              "guardian",
+                              "trusted_contact",
+                              "unverified_contact",
+                              "unknown"
+                            ]
+                          },
+                          "threshold": {
+                            "type": "string",
+                            "enum": ["none", "low", "medium", "high"]
+                          },
+                          "note": {
+                            "anyOf": [{ "type": "string" }, { "type": "null" }]
+                          },
+                          "updatedAt": { "type": "number" }
+                        },
+                        "required": [
+                          "selector",
+                          "contactType",
+                          "threshold",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["cells"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "channelPermissionOverrideSet",
+        "summary": "Upsert a channel-permission matrix cell",
+        "tags": ["channel-permission-overrides"],
+        "description": "Upserts one cell, identified by the selector × contact-type in the body. The adapter must be a known channel id.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "selector": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": { "type": "string", "const": "workspace" }
+                        },
+                        "required": ["scope"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": { "type": "string", "const": "adapter" },
+                          "adapter": { "type": "string", "minLength": 1 }
+                        },
+                        "required": ["scope", "adapter"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": {
+                            "type": "string",
+                            "const": "channel_type"
+                          },
+                          "adapter": { "type": "string", "minLength": 1 },
+                          "channelType": {
+                            "type": "string",
+                            "enum": ["dm", "private", "public"]
+                          }
+                        },
+                        "required": ["scope", "adapter", "channelType"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": { "type": "string", "const": "channel" },
+                          "adapter": { "type": "string", "minLength": 1 },
+                          "channelExternalId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": ["scope", "adapter", "channelExternalId"],
+                        "additionalProperties": false
+                      }
+                    ],
+                    "type": "object"
+                  },
+                  "contactType": {
+                    "type": "string",
+                    "enum": [
+                      "guardian",
+                      "trusted_contact",
+                      "unverified_contact",
+                      "unknown"
+                    ]
+                  },
+                  "threshold": {
+                    "type": "string",
+                    "enum": ["none", "low", "medium", "high"]
+                  },
+                  "note": {
+                    "anyOf": [{ "type": "string" }, { "type": "null" }]
+                  }
+                },
+                "required": ["selector", "contactType", "threshold"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cell": {
+                      "type": "object",
+                      "properties": {
+                        "selector": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "scope": {
+                                  "type": "string",
+                                  "const": "workspace"
+                                }
+                              },
+                              "required": ["scope"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "scope": {
+                                  "type": "string",
+                                  "const": "adapter"
+                                },
+                                "adapter": { "type": "string", "minLength": 1 }
+                              },
+                              "required": ["scope", "adapter"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "scope": {
+                                  "type": "string",
+                                  "const": "channel_type"
+                                },
+                                "adapter": { "type": "string", "minLength": 1 },
+                                "channelType": {
+                                  "type": "string",
+                                  "enum": ["dm", "private", "public"]
+                                }
+                              },
+                              "required": ["scope", "adapter", "channelType"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "scope": {
+                                  "type": "string",
+                                  "const": "channel"
+                                },
+                                "adapter": { "type": "string", "minLength": 1 },
+                                "channelExternalId": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              },
+                              "required": [
+                                "scope",
+                                "adapter",
+                                "channelExternalId"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ],
+                          "type": "object"
+                        },
+                        "contactType": {
+                          "type": "string",
+                          "enum": [
+                            "guardian",
+                            "trusted_contact",
+                            "unverified_contact",
+                            "unknown"
+                          ]
+                        },
+                        "threshold": {
+                          "type": "string",
+                          "enum": ["none", "low", "medium", "high"]
+                        },
+                        "note": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "updatedAt": { "type": "number" }
+                      },
+                      "required": [
+                        "selector",
+                        "contactType",
+                        "threshold",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["cell"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/channel-permission-overrides/delete": {
+      "post": {
+        "operationId": "channelPermissionOverrideDelete",
+        "summary": "Delete a channel-permission matrix cell",
+        "tags": ["channel-permission-overrides"],
+        "description": "Removes one cell by its composite key (selector × contact-type), letting the next cascade tier up win. Returns whether a cell was removed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "selector": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": { "type": "string", "const": "workspace" }
+                        },
+                        "required": ["scope"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": { "type": "string", "const": "adapter" },
+                          "adapter": { "type": "string", "minLength": 1 }
+                        },
+                        "required": ["scope", "adapter"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": {
+                            "type": "string",
+                            "const": "channel_type"
+                          },
+                          "adapter": { "type": "string", "minLength": 1 },
+                          "channelType": {
+                            "type": "string",
+                            "enum": ["dm", "private", "public"]
+                          }
+                        },
+                        "required": ["scope", "adapter", "channelType"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": { "type": "string", "const": "channel" },
+                          "adapter": { "type": "string", "minLength": 1 },
+                          "channelExternalId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": ["scope", "adapter", "channelExternalId"],
+                        "additionalProperties": false
+                      }
+                    ],
+                    "type": "object"
+                  },
+                  "contactType": {
+                    "type": "string",
+                    "enum": [
+                      "guardian",
+                      "trusted_contact",
+                      "unverified_contact",
+                      "unknown"
+                    ]
+                  }
+                },
+                "required": ["selector", "contactType"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "removed": { "type": "boolean" } },
+                  "required": ["removed"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contacts": {
+      "post": {
+        "operationId": "contactsUpsert",
+        "summary": "Create or update a contact",
+        "tags": ["contacts"],
+        "description": "Gateway-native contact upsert (dual-writes the gateway ACL store and the assistant info mirror). Matches by id, then by any provided (type, address) channel, else creates.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "description": "Existing contact id to update; omit to create or match by channel",
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Required on every upsert, including updates by id"
+                  },
+                  "notes": {
+                    "anyOf": [{ "type": "string" }, { "type": "null" }]
+                  },
+                  "contactType": { "type": "string" },
+                  "assistantMetadata": {
+                    "description": "Required when contactType is 'assistant'",
+                    "type": "object",
+                    "properties": {
+                      "species": { "type": "string" },
+                      "metadata": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "propertyNames": { "type": "string" },
+                            "additionalProperties": {}
+                          },
+                          { "type": "null" }
+                        ]
+                      }
+                    },
+                    "required": ["species"]
+                  },
+                  "channels": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": { "type": "string" },
+                        "address": { "type": "string" },
+                        "isPrimary": { "type": "boolean" },
+                        "externalChatId": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "status": { "type": "string" },
+                        "policy": { "type": "string" }
+                      },
+                      "required": ["type", "address"]
+                    }
+                  }
+                },
+                "required": ["displayName"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "contact": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string" },
+                        "displayName": { "type": "string" },
+                        "role": { "type": "string" },
+                        "notes": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "contactType": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "principalId": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "userFile": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "createdAt": { "type": "number" },
+                        "updatedAt": { "type": "number" },
+                        "interactionCount": { "type": "number" },
+                        "lastInteraction": {
+                          "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        },
+                        "assistantMetadata": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "species": { "type": "string" },
+                                "metadata": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "propertyNames": { "type": "string" },
+                                      "additionalProperties": {}
+                                    },
+                                    { "type": "null" }
+                                  ]
+                                }
+                              },
+                              "required": ["species", "metadata"],
+                              "additionalProperties": false
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "channels": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": { "type": "string" },
+                              "contactId": { "type": "string" },
+                              "type": { "type": "string" },
+                              "address": { "type": "string" },
+                              "isPrimary": { "type": "boolean" },
+                              "externalChatId": {
+                                "anyOf": [
+                                  { "type": "string" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "externalUserId": {
+                                "type": "string",
+                                "description": "Compat alias for address (older macOS clients)"
+                              },
+                              "status": {
+                                "anyOf": [
+                                  { "type": "string" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "policy": {
+                                "anyOf": [
+                                  { "type": "string" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "verifiedAt": {
+                                "anyOf": [
+                                  { "type": "number" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "verifiedVia": {
+                                "anyOf": [
+                                  { "type": "string" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "inviteId": {
+                                "anyOf": [
+                                  { "type": "string" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "revokedReason": {
+                                "anyOf": [
+                                  { "type": "string" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "blockedReason": {
+                                "anyOf": [
+                                  { "type": "string" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "lastSeenAt": {
+                                "anyOf": [
+                                  { "type": "number" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "interactionCount": { "type": "number" },
+                              "lastInteraction": {
+                                "anyOf": [
+                                  { "type": "number" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "createdAt": {
+                                "anyOf": [
+                                  { "type": "number" },
+                                  { "type": "null" }
+                                ]
+                              },
+                              "updatedAt": {
+                                "anyOf": [
+                                  { "type": "number" },
+                                  { "type": "null" }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "contactId",
+                              "type",
+                              "address",
+                              "isPrimary",
+                              "externalChatId",
+                              "externalUserId",
+                              "status",
+                              "policy",
+                              "verifiedAt",
+                              "verifiedVia",
+                              "inviteId",
+                              "revokedReason",
+                              "blockedReason",
+                              "lastSeenAt",
+                              "interactionCount",
+                              "lastInteraction",
+                              "createdAt",
+                              "updatedAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "displayName",
+                        "role",
+                        "notes",
+                        "contactType",
+                        "principalId",
+                        "userFile",
+                        "createdAt",
+                        "updatedAt",
+                        "interactionCount",
+                        "lastInteraction",
+                        "assistantMetadata",
+                        "channels"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["ok", "contact"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contacts/{contact_id}": {
+      "delete": {
+        "operationId": "contactDelete",
+        "summary": "Delete a contact",
+        "tags": ["contacts"],
+        "description": "Deletes a non-guardian contact from the gateway ACL store and the assistant mirror. 404 when the contact exists in neither; 403 for guardian contacts.",
+        "parameters": [
+          {
+            "name": "contact_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The contact id"
+          }
+        ],
+        "responses": { "204": { "description": "Successful response" } }
+      }
+    },
+    "/v1/contacts/prompt/submit": {
+      "post": {
+        "operationId": "contactsPromptSubmit",
+        "summary": "Submit a contact-prompt address",
+        "tags": ["contacts"],
+        "description": "Completes a daemon-broadcast contact_request: writes the contact and channel gateway-first, then unblocks the waiting prompt via daemon IPC.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "requestId": {
+                    "type": "string",
+                    "description": "The contact_request id broadcast by the daemon"
+                  },
+                  "address": { "type": "string" },
+                  "channelType": { "type": "string" },
+                  "role": { "type": "string" },
+                  "displayName": { "type": "string" }
+                },
+                "required": ["requestId", "address", "channelType"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accepted": { "type": "boolean" },
+                    "error": { "type": "string" }
+                  },
+                  "required": ["accepted"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contact-channels/{channel_id}/verify": {
+      "post": {
+        "operationId": "contactChannelVerify",
+        "summary": "Manually verify a contact channel",
+        "tags": ["contacts"],
+        "description": "Guardian-only manual attestation: marks the channel active/verified in the gateway store (source of truth) with a best-effort assistant mirror. Idempotent.",
+        "parameters": [
+          {
+            "name": "channel_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The contact-channel id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "channel": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string" },
+                        "contactId": { "type": "string" },
+                        "type": { "type": "string" },
+                        "address": { "type": "string" },
+                        "isPrimary": { "type": "boolean" },
+                        "externalChatId": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "status": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "policy": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "verifiedAt": {
+                          "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        },
+                        "verifiedVia": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "inviteId": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "revokedReason": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "blockedReason": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "lastSeenAt": {
+                          "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        },
+                        "interactionCount": { "type": "number" },
+                        "lastInteraction": {
+                          "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        },
+                        "createdAt": {
+                          "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        },
+                        "updatedAt": {
+                          "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "contactId",
+                        "type",
+                        "address",
+                        "isPrimary",
+                        "externalChatId",
+                        "status",
+                        "policy",
+                        "verifiedAt",
+                        "verifiedVia",
+                        "inviteId",
+                        "revokedReason",
+                        "blockedReason",
+                        "lastSeenAt",
+                        "interactionCount",
+                        "lastInteraction",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["ok", "channel"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/feature-flags": {
       "get": {
         "operationId": "featureFlagsGet",
         "summary": "List all feature flags",
-        "tags": [
-          "feature-flags"
-        ],
+        "tags": ["feature-flags"],
         "description": "Returns all feature flags with their current values.",
         "responses": {
           "200": {
@@ -33,35 +1217,21 @@
                       "items": {
                         "type": "object",
                         "properties": {
-                          "key": {
-                            "type": "string"
-                          },
-                          "label": {
-                            "type": "string"
-                          },
+                          "key": { "type": "string" },
+                          "label": { "type": "string" },
                           "enabled": {
                             "anyOf": [
-                              {
-                                "type": "boolean"
-                              },
-                              {
-                                "type": "string"
-                              }
+                              { "type": "boolean" },
+                              { "type": "string" }
                             ]
                           },
                           "defaultEnabled": {
                             "anyOf": [
-                              {
-                                "type": "boolean"
-                              },
-                              {
-                                "type": "string"
-                              }
+                              { "type": "boolean" },
+                              { "type": "string" }
                             ]
                           },
-                          "description": {
-                            "type": "string"
-                          }
+                          "description": { "type": "string" }
                         },
                         "required": [
                           "key",
@@ -74,9 +1244,7 @@
                       }
                     }
                   },
-                  "required": [
-                    "flags"
-                  ],
+                  "required": ["flags"],
                   "additionalProperties": false
                 }
               }
@@ -89,18 +1257,14 @@
       "patch": {
         "operationId": "featureFlagsPatch",
         "summary": "Update a feature flag",
-        "tags": [
-          "feature-flags"
-        ],
+        "tags": ["feature-flags"],
         "description": "Set the enabled state of a single feature flag.",
         "parameters": [
           {
             "name": "flag_key",
             "in": "path",
             "required": true,
-            "schema": {
-              "type": "string"
-            },
+            "schema": { "type": "string" },
             "description": "The kebab-case flag identifier"
           }
         ],
@@ -112,18 +1276,272 @@
                 "type": "object",
                 "properties": {
                   "enabled": {
-                    "anyOf": [
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "string"
+                    "anyOf": [{ "type": "boolean" }, { "type": "string" }]
+                  }
+                },
+                "required": ["enabled"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "key": { "type": "string" },
+                    "enabled": {
+                      "anyOf": [{ "type": "boolean" }, { "type": "string" }]
+                    }
+                  },
+                  "required": ["key", "enabled"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trust-rules": {
+      "get": {
+        "operationId": "trustRulesList",
+        "summary": "List trust rules",
+        "tags": ["trust-rules"],
+        "description": "Returns trust rules, filtered to user-relevant rules by default. Pass include_all=true for the full set or origin/tool to filter.",
+        "parameters": [
+          {
+            "name": "origin",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Filter by origin (default | user_defined)"
+          },
+          {
+            "name": "tool",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Filter by tool name"
+          },
+          {
+            "name": "include_deleted",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "\"true\" to include soft-deleted rules"
+          },
+          {
+            "name": "include_all",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "\"true\" to disable the user-relevant filter"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rules": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "string" },
+                          "tool": { "type": "string" },
+                          "pattern": { "type": "string" },
+                          "risk": {
+                            "type": "string",
+                            "enum": ["low", "medium", "high"]
+                          },
+                          "description": { "type": "string" },
+                          "origin": {
+                            "type": "string",
+                            "enum": ["default", "user_defined"]
+                          },
+                          "userModified": { "type": "boolean" },
+                          "deleted": { "type": "boolean" },
+                          "createdAt": { "type": "string" },
+                          "updatedAt": { "type": "string" }
+                        },
+                        "required": [
+                          "id",
+                          "tool",
+                          "pattern",
+                          "risk",
+                          "description",
+                          "origin",
+                          "userModified",
+                          "deleted",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false
                       }
-                    ]
+                    }
+                  },
+                  "required": ["rules"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "trustRuleCreate",
+        "summary": "Create a trust rule",
+        "tags": ["trust-rules"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tool": { "type": "string", "minLength": 1 },
+                  "pattern": { "type": "string", "minLength": 1 },
+                  "risk": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"]
+                  },
+                  "description": { "type": "string", "minLength": 1 },
+                  "scope": {
+                    "description": "Directory scope selected in the rule editor. Accepted on the wire but not yet persisted by the gateway.",
+                    "type": "string"
+                  }
+                },
+                "required": ["tool", "pattern", "risk", "description"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string" },
+                        "tool": { "type": "string" },
+                        "pattern": { "type": "string" },
+                        "risk": {
+                          "type": "string",
+                          "enum": ["low", "medium", "high"]
+                        },
+                        "description": { "type": "string" },
+                        "origin": {
+                          "type": "string",
+                          "enum": ["default", "user_defined"]
+                        },
+                        "userModified": { "type": "boolean" },
+                        "deleted": { "type": "boolean" },
+                        "createdAt": { "type": "string" },
+                        "updatedAt": { "type": "string" }
+                      },
+                      "required": [
+                        "id",
+                        "tool",
+                        "pattern",
+                        "risk",
+                        "description",
+                        "origin",
+                        "userModified",
+                        "deleted",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["rule"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trust-rules/suggest": {
+      "post": {
+        "operationId": "trustRuleSuggest",
+        "summary": "Generate a trust-rule suggestion",
+        "tags": ["trust-rules"],
+        "description": "LLM-backed suggestion for a rule matching the given tool invocation. Returns 503 when the daemon suggestion relay is unavailable.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tool": { "type": "string", "minLength": 1 },
+                  "command": { "type": "string", "minLength": 1 },
+                  "riskAssessment": {
+                    "type": "object",
+                    "properties": {
+                      "risk": { "type": "string" },
+                      "reasoning": { "type": "string" },
+                      "reasonDescription": { "type": "string" }
+                    },
+                    "required": ["risk", "reasoning", "reasonDescription"]
+                  },
+                  "scopeOptions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "pattern": { "type": "string" },
+                        "label": { "type": "string" }
+                      },
+                      "required": ["pattern", "label"]
+                    }
+                  },
+                  "directoryScopeOptions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "scope": { "type": "string" },
+                        "label": { "type": "string" }
+                      },
+                      "required": ["scope", "label"]
+                    }
+                  },
+                  "intent": {
+                    "type": "string",
+                    "enum": ["auto_approve", "escalate"]
+                  },
+                  "existingRule": {
+                    "type": "object",
+                    "properties": {
+                      "id": { "type": "string" },
+                      "pattern": { "type": "string" },
+                      "risk": { "type": "string" }
+                    },
+                    "required": ["id", "pattern", "risk"]
                   }
                 },
                 "required": [
-                  "enabled"
+                  "tool",
+                  "command",
+                  "riskAssessment",
+                  "scopeOptions",
+                  "intent"
                 ]
               }
             }
@@ -137,24 +1555,237 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "key": {
-                      "type": "string"
-                    },
-                    "enabled": {
-                      "anyOf": [
-                        {
-                          "type": "boolean"
+                    "suggestion": {
+                      "type": "object",
+                      "properties": {
+                        "pattern": { "type": "string" },
+                        "risk": { "type": "string" },
+                        "scope": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
                         },
-                        {
-                          "type": "string"
+                        "description": { "type": "string" },
+                        "scopeOptions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "pattern": { "type": "string" },
+                              "label": { "type": "string" }
+                            },
+                            "required": ["pattern", "label"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "directoryScopeOptions": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "scope": { "type": "string" },
+                                  "label": { "type": "string" }
+                                },
+                                "required": ["scope", "label"],
+                                "additionalProperties": false
+                              }
+                            },
+                            { "type": "null" }
+                          ]
                         }
-                      ]
+                      },
+                      "required": [
+                        "pattern",
+                        "risk",
+                        "scope",
+                        "description",
+                        "scopeOptions"
+                      ],
+                      "additionalProperties": false
                     }
                   },
-                  "required": [
-                    "key",
-                    "enabled"
-                  ],
+                  "required": ["suggestion"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trust-rules/{rule_id}": {
+      "patch": {
+        "operationId": "trustRuleUpdate",
+        "summary": "Update a trust rule",
+        "tags": ["trust-rules"],
+        "description": "Updates risk and/or description. Updating a default-origin rule marks it userModified.",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The trust rule id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "risk": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"]
+                  },
+                  "description": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string" },
+                        "tool": { "type": "string" },
+                        "pattern": { "type": "string" },
+                        "risk": {
+                          "type": "string",
+                          "enum": ["low", "medium", "high"]
+                        },
+                        "description": { "type": "string" },
+                        "origin": {
+                          "type": "string",
+                          "enum": ["default", "user_defined"]
+                        },
+                        "userModified": { "type": "boolean" },
+                        "deleted": { "type": "boolean" },
+                        "createdAt": { "type": "string" },
+                        "updatedAt": { "type": "string" }
+                      },
+                      "required": [
+                        "id",
+                        "tool",
+                        "pattern",
+                        "risk",
+                        "description",
+                        "origin",
+                        "userModified",
+                        "deleted",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["rule"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "trustRuleDelete",
+        "summary": "Delete a trust rule",
+        "tags": ["trust-rules"],
+        "description": "Soft-deletes the rule. Default-origin rules can be reset later.",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The trust rule id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "success": { "type": "boolean" } },
+                  "required": ["success"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trust-rules/{rule_id}/reset": {
+      "post": {
+        "operationId": "trustRuleReset",
+        "summary": "Reset a default trust rule",
+        "tags": ["trust-rules"],
+        "description": "Restores a default-origin rule to its registry risk and description, clearing userModified and deleted.",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The trust rule id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string" },
+                        "tool": { "type": "string" },
+                        "pattern": { "type": "string" },
+                        "risk": {
+                          "type": "string",
+                          "enum": ["low", "medium", "high"]
+                        },
+                        "description": { "type": "string" },
+                        "origin": {
+                          "type": "string",
+                          "enum": ["default", "user_defined"]
+                        },
+                        "userModified": { "type": "boolean" },
+                        "deleted": { "type": "boolean" },
+                        "createdAt": { "type": "string" },
+                        "updatedAt": { "type": "string" }
+                      },
+                      "required": [
+                        "id",
+                        "tool",
+                        "pattern",
+                        "risk",
+                        "description",
+                        "origin",
+                        "userModified",
+                        "deleted",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["rule"],
                   "additionalProperties": false
                 }
               }

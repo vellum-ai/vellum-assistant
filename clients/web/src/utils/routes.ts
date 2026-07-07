@@ -77,7 +77,6 @@ export const routes = {
     `${dyn(r("/assistant/conversations"), conversationId)}/inspect`,
   logs: {
     root: r("/assistant/logs"),
-    trace: r("/assistant/logs/trace"),
     usage: LOGS_USAGE_PATH,
     usageForSchedule: (scheduleId: string) => {
       const params = new URLSearchParams({
@@ -144,6 +143,8 @@ export const routes = {
 
   connect: r("/assistant/connect"),
 
+  channels: r("/assistant/channels"),
+
   contacts: {
     root: r("/assistant/contacts"),
   },
@@ -160,6 +161,7 @@ export const routes = {
     voice: r("/assistant/settings/voice"),
     devices: r("/assistant/settings/devices"),
     privacy: r("/assistant/settings/privacy"),
+    security: r("/assistant/settings/security"),
     archive: r("/assistant/settings/archive"),
     bookmarks: r("/assistant/settings/bookmarks"),
     billing: r("/assistant/settings/billing"),
@@ -189,6 +191,27 @@ export const routes = {
     },
   },
 } as const;
+
+/**
+ * Path prefixes of the "About Assistant" section — the routes mounted under
+ * `IntelligenceLayout`'s tab bar. Sub-paths (e.g. `/assistant/plugins/:name`)
+ * count as inside the section.
+ */
+const ABOUT_ASSISTANT_PATHS: readonly string[] = [
+  routes.identity,
+  routes.plugins,
+  routes.skills,
+  routes.workspace,
+  routes.contacts.root,
+  routes.channels,
+];
+
+/** Whether `pathname` falls inside the About Assistant section. */
+export function isAboutAssistantPath(pathname: string): boolean {
+  return ABOUT_ASSISTANT_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  );
+}
 
 const WWW_DOMAIN = "vellum.ai";
 
