@@ -14,11 +14,47 @@
  * `provider-create-form.test.tsx`.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 let nativeDictationSupported = false;
 mock.module("@/runtime/native-dictation-partials", () => ({
   isNativeDictationSupported: () => nativeDictationSupported,
+}));
+
+const ASSISTANT_ID = "asst-test";
+// SpeechToTextCard reads the active assistant id (throws outside the gate);
+// seed a fixed id, and stub toast so the barrel render stays inert.
+mock.module("@/assistant/use-active-assistant-id", () => ({
+  useActiveAssistantId: () => ASSISTANT_ID,
+}));
+mock.module("@vellumai/design-library/components/toast", () => ({
+  toast: { success: () => {}, error: () => {} },
+  Toaster: () => null,
+  ToastContent: () => null,
+}));
+
+// Capture the daemon writes Save now performs (CES key + services.stt config).
+interface SdkCall {
+  path?: unknown;
+  body?: unknown;
+}
+const credentialsSetCalls: SdkCall[] = [];
+const configPatchCalls: SdkCall[] = [];
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  credentialsSetPost: (opts: SdkCall) => {
+    credentialsSetCalls.push(opts);
+    return Promise.resolve({ response: { ok: true, status: 200 } });
+  },
+  configPatch: (opts: SdkCall) => {
+    configPatchCalls.push(opts);
+    return Promise.resolve({ response: { ok: true, status: 200 } });
+  },
 }));
 
 const { SpeechToTextCard } = await import(
@@ -30,7 +66,7 @@ function openProviderDropdown(): void {
   const trigger = document.querySelector<HTMLButtonElement>(
     'button[role="combobox"][aria-label="STT provider"]',
   );
-  if (!trigger) throw new Error("expected the STT provider dropdown trigger");
+  if (!trigger) {throw new Error("expected the STT provider dropdown trigger");}
   fireEvent.click(trigger);
 }
 
@@ -57,6 +93,8 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
   beforeEach(() => {
     localStorage.clear();
     nativeDictationSupported = false;
+    credentialsSetCalls.length = 0;
+    configPatchCalls.length = 0;
   });
 
   afterEach(() => {
@@ -87,6 +125,30 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(localStorage.getItem(LS_STT_PROVIDER)).toBe("macos-native");
+    // macOS native dictation is client-only — Save must not touch the daemon.
+    expect(credentialsSetCalls.length).toBe(0);
+    expect(configPatchCalls.length).toBe(0);
+  });
+
+  test("selecting Deepgram and saving provisions the daemon (CES key + services.stt)", async () => {
+    render(<SpeechToTextCard />);
+
+    // Deepgram is the default provider; a new key enables Save.
+    const keyInput = screen.getByPlaceholderText(/Enter your Deepgram API key/);
+    fireEvent.change(keyInput, { target: { value: "dg-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(credentialsSetCalls).toHaveLength(1);
+    expect(credentialsSetCalls[0]!.path).toEqual({ assistant_id: ASSISTANT_ID });
+    expect(credentialsSetCalls[0]!.body).toMatchObject({
+      service: "deepgram",
+      field: "api_key",
+      value: "dg-secret",
+    });
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { provider: "deepgram" } },
+    });
   });
 
   test("a stored native choice falls back to the default provider off Electron", () => {
