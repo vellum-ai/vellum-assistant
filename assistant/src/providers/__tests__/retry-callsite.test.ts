@@ -247,6 +247,8 @@ describe("RetryProvider — callSite resolution", () => {
         maxTokens: 32000,
       },
       // No `callSites.memoryRetrieval` entry.
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
 
     let seen: SendMessageOptions | undefined;

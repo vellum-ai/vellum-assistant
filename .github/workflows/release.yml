@@ -1826,7 +1826,22 @@ jobs:
   deploy-web-spa-staging:
     name: Deploy Web SPA (staging)
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, ci-web, register-release]
-    if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
+    # register-release is gated with `always()`; a downstream job that needs an
+    # always()-gated job must gate on its needs' results explicitly, or the
+    # runner inherits the upstream conditional and skips this job even when every
+    # dependency succeeded. Mirror deploy-web-spa-production's explicit gating.
+    if: >-
+      ${{
+        always() && !cancelled()
+        && needs.extract-version.outputs.is_staging == 'true'
+        && needs.extract-version.result == 'success'
+        && needs.ci-assistant.result == 'success'
+        && needs.ci-cli.result == 'success'
+        && needs.ci-gateway.result == 'success'
+        && needs.ci-credential-executor.result == 'success'
+        && needs.ci-web.result == 'success'
+        && needs.register-release.result == 'success'
+      }}
     permissions:
       contents: read
       id-token: write

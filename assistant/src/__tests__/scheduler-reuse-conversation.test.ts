@@ -1,12 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -110,7 +102,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { createSchedule, getScheduleRuns } from "../schedule/schedule-store.js";
-import { startScheduler } from "../schedule/scheduler.js";
+import { runScheduleDueWorkOnce } from "../schedule/scheduler.js";
 
 await initializeDb();
 
@@ -146,26 +138,7 @@ function buildEveryMinuteRrule(dtstart: Date = new Date()): string {
   return `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1`;
 }
 
-// Replace setTimeout with a zero-delay version so the 500ms scheduler
-// wait calls fire instantly instead of waiting real time.
-let origSetTimeout: typeof globalThis.setTimeout;
-
 describe("scheduler conversation reuse", () => {
-  beforeAll(() => {
-    origSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = ((
-      fn: TimerHandler,
-      _ms?: number,
-      ...args: unknown[]
-    ) => {
-      return origSetTimeout(fn, 200, ...args);
-    }) as typeof setTimeout;
-  });
-
-  afterAll(() => {
-    globalThis.setTimeout = origSetTimeout;
-  });
-
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM cron_runs");
@@ -201,9 +174,7 @@ describe("scheduler conversation reuse", () => {
     // WHEN the schedule fires for the first time
     forceScheduleDue(schedule.id);
 
-    const scheduler1 = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler1.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN a conversation is created and recorded
     expect(processedMessages).toHaveLength(1);
@@ -220,9 +191,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    const scheduler2 = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler2.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN the same conversation is reused
     expect(processedMessages).toHaveLength(1);
@@ -257,9 +226,7 @@ describe("scheduler conversation reuse", () => {
     // WHEN the schedule fires for the first time
     forceScheduleDue(schedule.id);
 
-    const scheduler1 = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler1.stop();
+    await runScheduleDueWorkOnce();
 
     expect(processedMessages).toHaveLength(1);
     const firstConversationId = processedMessages[0].conversationId;
@@ -269,9 +236,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    const scheduler2 = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler2.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN a fresh conversation is created instead of reusing the first
     expect(processedMessages).toHaveLength(1);
@@ -297,9 +262,7 @@ describe("scheduler conversation reuse", () => {
     // WHEN the schedule fires for the first time
     forceScheduleDue(schedule.id);
 
-    const scheduler1 = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler1.stop();
+    await runScheduleDueWorkOnce();
 
     expect(processedMessages).toHaveLength(1);
     const firstConversationId = processedMessages[0].conversationId;
@@ -308,9 +271,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    const scheduler2 = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler2.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN a different conversation is created
     expect(processedMessages).toHaveLength(1);
@@ -336,9 +297,7 @@ describe("scheduler conversation reuse", () => {
 
     forceScheduleDue(schedule.id);
 
-    const scheduler1 = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler1.stop();
+    await runScheduleDueWorkOnce();
 
     expect(processedMessages).toHaveLength(1);
     const firstConversationId = processedMessages[0].conversationId;
@@ -350,9 +309,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    const scheduler2 = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler2.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN a new conversation is created (not the deleted one)
     expect(processedMessages).toHaveLength(1);
@@ -376,9 +333,7 @@ describe("scheduler conversation reuse", () => {
     });
 
     // WHEN the schedule fires
-    const scheduler = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN the message is processed with a new conversation
     expect(processedMessages).toHaveLength(1);
@@ -416,9 +371,7 @@ describe("scheduler conversation reuse", () => {
       if (shouldFail) throw new Error("Simulated failure");
     };
 
-    const scheduler1 = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler1.stop();
+    await runScheduleDueWorkOnce();
 
     expect(processedMessages).toHaveLength(1);
     const successConversationId = processedMessages[0].conversationId;
@@ -428,9 +381,7 @@ describe("scheduler conversation reuse", () => {
     processedMessages.length = 0;
     shouldFail = true;
 
-    const scheduler2 = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler2.stop();
+    await runScheduleDueWorkOnce();
 
     // The failed run created a different conversation (since it failed
     // before the run could reuse — actually it does reuse the same one
@@ -442,9 +393,7 @@ describe("scheduler conversation reuse", () => {
     processedMessages.length = 0;
     shouldFail = false;
 
-    const scheduler3 = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler3.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN the third run reuses the conversation from the first successful run
     // (the lookup queries for status="ok", so it picks the first run's conversation)
@@ -479,9 +428,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     });
     forceScheduleDue(schedule.id);
 
-    const scheduler = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     expect(runBackgroundJobOptions).toHaveLength(1);
     const opts = runBackgroundJobOptions[0]!;
@@ -503,9 +450,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     });
     forceScheduleDue(schedule.id);
 
-    const scheduler = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     expect(runBackgroundJobOptions).toHaveLength(1);
     expect(runBackgroundJobOptions[0]!.suppressFailureNotifications).toBe(
@@ -531,9 +476,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     forceScheduleDue(schedule.id);
     runBackgroundJobBootstrapFails = true;
 
-    const scheduler = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     const runs = getScheduleRuns(schedule.id);
     expect(runs.length).toBe(1);
@@ -572,9 +515,7 @@ describe("scheduler talk-mode runner option propagation", () => {
         }
       },
     });
-    const scheduler = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
     subscription.dispose();
 
     expect(sseCalls).toHaveLength(1);

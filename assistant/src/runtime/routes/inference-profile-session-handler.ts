@@ -14,6 +14,7 @@
 
 import { randomUUID } from "node:crypto";
 
+import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
 import { loadConfig } from "../../config/loader.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
@@ -144,7 +145,7 @@ export async function setInferenceProfileSession({
   }
 
   // --- Validate profile ---
-  const profiles = loadConfig().llm?.profiles ?? {};
+  const profiles = getEffectiveProfiles(loadConfig().llm?.profiles);
   if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
     throw new BadRequestError(
       `Profile "${profile}" is not defined in llm.profiles`,

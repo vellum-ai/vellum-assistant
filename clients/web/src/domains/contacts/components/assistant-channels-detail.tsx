@@ -1,24 +1,27 @@
 import { DetailCard } from "@/components/detail-card";
 import { assistantDisplayName } from "@/domains/contacts/assistant-display-name";
-import { AssistantChannelsList, type AssistantChannelsListProps } from "@/domains/contacts/components/assistant-channels-list";
+import {
+    AssistantContactChannels,
+    type AssistantContactChannelsProps,
+} from "@/domains/contacts/components/assistant-contact-channels";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
-import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
 
-interface AssistantChannelsDetailProps extends AssistantChannelsListProps {
-  onGenerateInviteLink?: () => void;
+interface AssistantChannelsDetailProps extends AssistantContactChannelsProps {
+  assistantName: string;
 }
 
 /**
  * The assistant's entry in the Contacts detail pane: the contact-style
- * identity header card followed by the channel sub-tabs in a "Channels" card.
- * The standalone Channels tab renders the same `AssistantChannelsList`
- * under its own page subtitle instead.
+ * identity header card followed by a per-adapter connected/disconnected
+ * summary in a "Channels" card. Channel management — credential forms,
+ * trust floors, Slack settings — lives in the standalone Channels tab
+ * (`AssistantChannelsList`), not here.
  */
 export function AssistantChannelsDetail({
-  onGenerateInviteLink,
-  ...listProps
+  assistantName,
+  ...channelsProps
 }: AssistantChannelsDetailProps) {
-  const displayName = assistantDisplayName(listProps.assistantName);
+  const displayName = assistantDisplayName(assistantName);
 
   return (
     <div className="flex flex-col gap-6">
@@ -30,12 +33,10 @@ export function AssistantChannelsDetail({
 
       <DetailCard
         title="Channels"
-        subtitle={`Manage where ${displayName} can be reached.`}
+        subtitle={`Where ${displayName} can be reached.`}
       >
-        <AssistantChannelsList {...listProps} />
+        <AssistantContactChannels {...channelsProps} />
       </DetailCard>
-
-      {onGenerateInviteLink ? <ShareConnectionLinkButton onClick={onGenerateInviteLink} /> : null}
     </div>
   );
 }

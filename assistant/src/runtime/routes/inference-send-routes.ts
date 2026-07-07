@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 
+import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import {
   extractAllText,
@@ -34,7 +35,7 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
 
   // Validate --profile against the configured profile catalog.
   if (profile !== undefined) {
-    const profiles = getConfigReadOnly().llm?.profiles ?? {};
+    const profiles = getEffectiveProfiles(getConfigReadOnly().llm?.profiles);
     if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
       const available = Object.keys(profiles).sort();
       const hint =

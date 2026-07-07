@@ -32,7 +32,13 @@ const conversationDiskViewRealSnapshot = {
   ) as Record<string, unknown>),
 };
 let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
-let mockLlmProfiles: Record<string, unknown> = {};
+// Disable the catalog default so resolution lands on llm.default.
+const disabledCatalogDefaultProfiles: Record<string, unknown> = {
+  balanced: { source: "managed", status: "disabled" },
+};
+let mockLlmProfiles: Record<string, unknown> = {
+  ...disabledCatalogDefaultProfiles,
+};
 let mockLlmActiveProfile: string | undefined;
 
 // ── Module mocks (must precede imports of the module under test) ─────
@@ -832,7 +838,7 @@ function makeCompactionResult(
 
 beforeEach(() => {
   mockUiConfig = {};
-  mockLlmProfiles = {};
+  mockLlmProfiles = { ...disabledCatalogDefaultProfiles };
   mockLlmActiveProfile = undefined;
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;

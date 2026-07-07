@@ -262,7 +262,7 @@ describe("plugin mtime cache (per-surface)", () => {
 
     expect(
       _inspectHookCacheForTests().find((key) =>
-        key.startsWith("deletable-plugin/"),
+        key.startsWith("plugin:deletable-plugin/"),
       ),
     ).toBeUndefined();
   });
@@ -479,6 +479,34 @@ describe("workspace hooks (<workspace>/hooks/)", () => {
     const hooks = await getUserHooksFor("post-tool-use");
     expect(hooks).toHaveLength(1);
     expect(getCachedUserTools()).toHaveLength(0);
+  });
+
+  test("a plugin named like the workspace owner does not collide with it", async () => {
+    // Load-time discovery doesn't reject a plugin whose manifest name equals
+    // the synthetic workspace owner. The cache key is scoped by owner kind, so
+    // `plugin:__workspace__/…` and `workspace:__workspace__/…` stay distinct
+    // and both hooks run.
+    const dir = freshPluginDir("shadow");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "__workspace__" });
+    writeHook(
+      dir,
+      "pre-model-call",
+      `export default () => ({ from: "plugin" });`,
+    );
+    writeWorkspaceHook(
+      "pre-model-call",
+      `export default () => ({ from: "workspace" });`,
+    );
+
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("pre-model-call");
+    expect(hooks).toHaveLength(2);
+    const froms = hooks.map(
+      (fn) => (fn as unknown as () => { from: string })().from,
+    );
+    // Plugin runs first (install-date order), workspace last.
+    expect(froms).toEqual(["plugin", "workspace"]);
   });
 
   // NB: each test below uses a distinct hook event name so the workspace

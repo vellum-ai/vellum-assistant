@@ -42,8 +42,8 @@
  *
  * Plugin *discovery* (which plugin directories exist, in what order) lives in
  * `../plugins/mtime-cache.ts`; the orchestrator there passes the discovered
- * directories into {@link collectUserHooks}. Keeping discovery out of this
- * module lets it sit below the plugin cache with no import cycle.
+ * directories into {@link collectUserHookEntries}. Keeping discovery out of
+ * this module lets it sit below the plugin cache with no import cycle.
  */
 
 import {
@@ -84,20 +84,37 @@ const log = getLogger("hook-loader");
 export const WORKSPACE_HOOKS_OWNER = "__workspace__";
 
 /**
- * Per-hook resolution memo keyed by `${ownerName}/${hookName}`. The key
- * includes the owner (plugin name, or {@link WORKSPACE_HOOKS_OWNER}) so hooks
- * from different owners don't collide. Each value is the promise that resolved
- * (or is resolving) that one hook: it settles to the imported function, or to
- * `null` when the owner doesn't define it (a negative cache entry). Storing the
+ * Whether a hook's owner is a user plugin or the standalone workspace surface.
+ * Threaded into the cache key so the two owner namespaces can't collide even if
+ * a plugin's manifest name happens to equal {@link WORKSPACE_HOOKS_OWNER}.
+ */
+type HookOwnerKind = "plugin" | "workspace";
+
+/**
+ * Per-hook resolution memo keyed by `${kind}:${ownerName}/${hookName}`. The key
+ * includes the owner kind and name (plugin name, or {@link WORKSPACE_HOOKS_OWNER})
+ * so hooks from different owners — even a plugin and the workspace that share a
+ * name — never collide. Each value is the promise that resolved (or is
+ * resolving) that one hook: it settles to the imported function, or to `null`
+ * when the owner doesn't define it (a negative cache entry). Storing the
  * promise, not the settled value, means concurrent first-readers of the same
  * hook share one import. An index over the filesystem, never the source of
  * truth.
  */
 const hookCache = new Map<string, Promise<HookFunction | null>>();
 
-/** Cache key for a hook: `${ownerName}/${hookName}`. */
-function hookKey(ownerName: string, hookName: string): string {
-  return `${ownerName}/${hookName}`;
+/** Cache key for a hook: `${kind}:${ownerName}/${hookName}`. */
+function hookKey(
+  kind: HookOwnerKind,
+  ownerName: string,
+  hookName: string,
+): string {
+  return `${kind}:${ownerName}/${hookName}`;
+}
+
+/** Key prefix for every hook owned by `(kind, ownerName)`. */
+function ownerKeyPrefix(kind: HookOwnerKind, ownerName: string): string {
+  return `${kind}:${ownerName}/`;
 }
 
 /**
@@ -120,11 +137,12 @@ function ownerHooksDir(pluginDir: string | null): string {
  * ({@link runInitHook} / {@link runShutdownHook}).
  */
 function resolveHook(
+  kind: HookOwnerKind,
   hooksDir: string,
   ownerName: string,
   hookName: string,
 ): Promise<HookFunction | null> {
-  const key = hookKey(ownerName, hookName);
+  const key = hookKey(kind, ownerName, hookName);
   let entry = hookCache.get(key);
   if (entry === undefined) {
     entry = importHook(hooksDir, ownerName, hookName);
@@ -217,7 +235,12 @@ export async function collectUserHookEntries<TCtx = unknown>(
     }
     pending.push({
       owner: { kind: "plugin", id: pluginName },
-      hook: resolveHook(ownerHooksDir(pluginDir), pluginName, hookName),
+      hook: resolveHook(
+        "plugin",
+        ownerHooksDir(pluginDir),
+        pluginName,
+        hookName,
+      ),
     });
   }
 
@@ -225,7 +248,12 @@ export async function collectUserHookEntries<TCtx = unknown>(
   // that are not part of any plugin (no package.json, no tools — just hooks).
   pending.push({
     owner: { kind: "workspace", id: WORKSPACE_HOOKS_OWNER },
-    hook: resolveHook(ownerHooksDir(null), WORKSPACE_HOOKS_OWNER, hookName),
+    hook: resolveHook(
+      "workspace",
+      ownerHooksDir(null),
+      WORKSPACE_HOOKS_OWNER,
+      hookName,
+    ),
   });
 
   const out: HookEntry<TCtx>[] = [];
@@ -236,24 +264,6 @@ export async function collectUserHookEntries<TCtx = unknown>(
     }
   }
   return out;
-}
-
-/**
- * {@link collectUserHookEntries} without owner attribution — returns just the
- * hook functions in the same order. For callers that only dispatch the chain
- * and don't attribute per-hook side effects.
- */
-export async function collectUserHooks<TCtx = unknown>(
-  hookName: string,
-  pluginDirs: Iterable<readonly [string, string]>,
-  effectiveEnabledPlugins?: Set<string> | null,
-): Promise<HookFunction<TCtx>[]> {
-  const entries = await collectUserHookEntries<TCtx>(
-    hookName,
-    pluginDirs,
-    effectiveEnabledPlugins,
-  );
-  return entries.map((e) => e.fn);
 }
 
 /**
@@ -295,14 +305,16 @@ export async function runInitHook(
   ownerName: string,
   pluginDir: string | null = null,
 ): Promise<void> {
+  // A plugin always has a directory; only the workspace owner passes `null`.
+  const kind: HookOwnerKind = pluginDir === null ? "workspace" : "plugin";
   const hooksDir = ownerHooksDir(pluginDir);
 
   // Resolve `shutdown` now, while the directory is present, so it's cached for
   // teardown even after an uninstall removes the directory (runShutdownHook
   // reads the cache, never disk). The result is discarded here — this is a warm.
-  await resolveHook(hooksDir, ownerName, HOOKS.SHUTDOWN);
+  await resolveHook(kind, hooksDir, ownerName, HOOKS.SHUTDOWN);
 
-  const initHook = await resolveHook(hooksDir, ownerName, HOOKS.INIT);
+  const initHook = await resolveHook(kind, hooksDir, ownerName, HOOKS.INIT);
   if (initHook === null) {
     return;
   }
@@ -334,13 +346,14 @@ export async function runInitHook(
  * swallowed. `reason` is threaded into the log for attribution only.
  */
 export async function runShutdownHook(
+  kind: HookOwnerKind,
   ownerName: string,
   context: ShutdownContext,
   reason: string,
 ): Promise<void> {
   // Read from the cache (resolved at activation, while the directory existed) —
   // never re-resolve here, since an uninstall may have already removed it.
-  const entry = hookCache.get(hookKey(ownerName, HOOKS.SHUTDOWN));
+  const entry = hookCache.get(hookKey(kind, ownerName, HOOKS.SHUTDOWN));
   if (entry === undefined) {
     return;
   }
@@ -360,12 +373,16 @@ export async function runShutdownHook(
 }
 
 /**
- * Evict every cached resolution owned by `ownerName` — positive and negative —
- * so the next read re-resolves fresh. Called by the reconcile after the owner's
- * `shutdown` has already run. No-op when the owner has no cached state.
+ * Evict every cached resolution owned by `(kind, ownerName)` — positive and
+ * negative — so the next read re-resolves fresh. Called by the reconcile after
+ * the owner's `shutdown` has already run. No-op when the owner has no cached
+ * state.
  */
-export function evictHooksForOwner(ownerName: string): void {
-  const prefix = `${ownerName}/`;
+export function evictHooksForOwner(
+  kind: HookOwnerKind,
+  ownerName: string,
+): void {
+  const prefix = ownerKeyPrefix(kind, ownerName);
   for (const key of hookCache.keys()) {
     if (key.startsWith(prefix)) {
       hookCache.delete(key);
@@ -380,7 +397,7 @@ export function evictHooksForOwner(ownerName: string): void {
  */
 export function clearPluginHooks(): void {
   for (const key of hookCache.keys()) {
-    if (!key.startsWith(`${WORKSPACE_HOOKS_OWNER}/`)) {
+    if (key.startsWith("plugin:")) {
       hookCache.delete(key);
     }
   }

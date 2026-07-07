@@ -125,9 +125,12 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
 };
 
 import {
+  getEffectiveProfile,
+  getEffectiveProfiles,
   INVARIANT_PROFILE_NAMES,
   MANAGED_PROFILE_NAMES,
-} from "../../config/seed-inference-profiles.js";
+} from "../../config/default-profile-catalog.js";
+import { DEFAULT_PROFILE_KEYS } from "../../config/default-profile-names.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 
 const RESERVED_PROFILE_NAMES = new Set([
@@ -784,12 +787,36 @@ function handleGetConfig() {
   try {
     const config = applyContextDefaultsToRawConfig(loadRawConfig());
     sanitizeMcpTransportHeadersForSettingsRead(config);
+    overlayEffectiveProfilesForWire(config);
     enrichProfilesForWire(config);
     return config;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new InternalError(`Failed to read config: ${message}`);
   }
+}
+
+/**
+ * Replace `llm.profiles` in an outgoing config response with the effective
+ * profile view (code-catalog default bodies + workspace overlays). Default
+ * profile CONTENT is code-owned and the workspace holds at most a thin stub,
+ * but clients (settings UI, sticky-profile pickers) need the full bodies to
+ * render labels/models — so the wire view materializes them. Wire-only:
+ * `normalizeManagedProfileWrites` reduces echoed bodies back to the
+ * workspace-owned fields on the write paths, so a `config get` →
+ * `config set` round-trip never persists catalog content.
+ */
+function overlayEffectiveProfilesForWire(config: unknown): void {
+  const root = readPlainObject(config);
+  if (!root) return;
+  const existingLlm = readPlainObject(root.llm);
+  const llm = existingLlm ?? {};
+  if (!existingLlm) {
+    root.llm = llm;
+  }
+  llm.profiles = getEffectiveProfiles(
+    readPlainObject(llm.profiles) as Record<string, ProfileEntry> | undefined,
+  );
 }
 
 /**
@@ -820,6 +847,116 @@ function stripWireOnlyProfileKeys(patch: unknown): void {
     for (const key of WIRE_ONLY_PROFILE_KEYS) {
       delete entry[key];
     }
+  }
+}
+
+/**
+ * Normalize managed default-profile entries in a config-write fragment, in
+ * place, so a `config get` → write round-trip of the enriched wire view is a
+ * no-op while genuine edit attempts still reach the invariant guard's
+ * precise rejections:
+ *
+ * - A default name backed by a user-source on-disk entry is a legacy shadow
+ *   and stays fully editable — left untouched here.
+ * - Echo-stripping: any field whose incoming value equals the current
+ *   effective (wire) value is deleted from the fragment — it is catalog
+ *   content the client read from us, not user input. Values that DIFFER stay
+ *   in the fragment for {@link assertInvariantProfilesPreserved} to reject
+ *   (or, for `status`, to judge as the one legal transition).
+ * - A default name with NO on-disk entry is catalog-owned: after
+ *   echo-stripping, any remaining content field, a `disabled` status, or a
+ *   non-managed `source` is rejected — default names cannot be newly
+ *   shadowed or given content. A clean echo reduces to a no-op
+ *   `{source: "managed"}` stub.
+ *
+ * Entries are mutated (never replaced) so the normalization also reaches
+ * `handleSetConfig`'s `raw` write, which shares object references with the
+ * inspected patch shape.
+ */
+function normalizeManagedProfileWrites(patch: unknown): void {
+  const root = readPlainObject(patch);
+  const llm = readPlainObject(root?.llm);
+  const profiles = readPlainObject(llm?.profiles);
+  if (!profiles) {
+    return;
+  }
+
+  const currentProfiles = readPlainObject(
+    readPlainObject(loadRawConfig().llm)?.profiles,
+  ) as Record<string, ProfileEntry> | undefined;
+
+  for (const name of Object.keys(profiles)) {
+    if (!MANAGED_PROFILE_NAMES.has(name)) continue;
+    const entry = readPlainObject(profiles[name]);
+    if (!entry) continue;
+
+    const current = readPlainObject(currentProfiles?.[name]);
+    if (current && current.source !== "managed") {
+      // Legacy user-owned shadow: fully editable, normal custom-profile rules.
+      continue;
+    }
+
+    const effective = readPlainObject(
+      getEffectiveProfile(currentProfiles, name),
+    );
+    for (const key of Object.keys(entry)) {
+      if (key === "source" || key === "status") continue;
+      const matchesEffective =
+        effective != null &&
+        key in effective &&
+        isDeepStrictEqual(entry[key], effective[key]);
+      if (current == null || !(key in current)) {
+        // Not on disk: a value matching the wire view is a client echo of
+        // catalog content — drop it. Anything else stays for the guard.
+        if (matchesEffective) {
+          delete entry[key];
+        }
+        continue;
+      }
+      // The key exists on disk (a frozen overlay field, or stale content an
+      // overlay persisted). Deleting it would read as a key removal on a
+      // full-entry SET, so instead: an echo of the wire value that differs
+      // from disk is pinned back to the on-disk value (no change for the
+      // guard to reject); everything else is left for the guard's
+      // frozen-field comparison.
+      if (matchesEffective && !isDeepStrictEqual(entry[key], current[key])) {
+        entry[key] = current[key];
+      }
+    }
+
+    if (current) {
+      // Existing stub: the guard compares the merged result against it and
+      // rejects everything but the status re-enable.
+      if (entry.source === undefined) {
+        entry.source = "managed";
+      }
+      continue;
+    }
+
+    // No on-disk entry: the name is catalog-owned. Nothing but a clean echo
+    // (which reduced to source/status above) may pass.
+    if ("source" in entry && entry.source !== "managed") {
+      throw new BadRequestError(
+        `Cannot create profile "${name}" — the name is reserved for a code-defined default profile.`,
+      );
+    }
+    if (
+      "status" in entry &&
+      entry.status != null &&
+      entry.status !== "active"
+    ) {
+      throw new BadRequestError(`Cannot disable managed profile "${name}".`);
+    }
+    const residual = Object.keys(entry).filter(
+      (key) => key !== "source" && key !== "status",
+    );
+    if (residual.length > 0) {
+      throw new BadRequestError(
+        `Cannot edit managed profile "${name}" fields [${residual.join(", ")}]. ` +
+          `Managed profiles are read-only; duplicate to a custom profile to customize.`,
+      );
+    }
+    entry.source = "managed";
   }
 }
 
@@ -918,11 +1055,11 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
 /**
  * Enforce the managed-profile invariants at the config-write choke point.
  *
- * Protects the *seeded* managed profiles (`INVARIANT_PROFILE_NAMES`) that
- * live in workspace config. The guard only has an effect while managed
- * profiles are seeded there: it checks entries present in the OLD config, so
- * if they stop being stored in workspace config it has nothing to protect
- * and can be deleted along with the seeding.
+ * Protects the thin managed stubs (`INVARIANT_PROFILE_NAMES`) that live in
+ * workspace config. Default profile CONTENT is code-owned and only exists on
+ * the wire, so the guard's job is the stub itself: it checks entries present
+ * in the OLD config, and `normalizeManagedProfileWrites` reduces incoming
+ * managed entries to the workspace-owned fields before this comparison runs.
  *
  * Invariance is gated on managed ownership: a name is enforced only when the
  * OLD entry's `source` is `"managed"`. A user-owned profile sharing a
@@ -1080,6 +1217,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
     throw new BadRequestError("Body must be a non-empty JSON object");
   }
   stripWireOnlyProfileKeys(body);
+  normalizeManagedProfileWrites(body);
   rejectManagedProfileDeletion(body as Record<string, unknown>);
   rejectMcpTransportHeaderWrite(body);
 
@@ -1091,6 +1229,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
 
   const merged = applyContextDefaultsToRawConfig(loadRawConfig());
   sanitizeMcpTransportHeadersForSettingsRead(merged);
+  overlayEffectiveProfilesForWire(merged);
   enrichProfilesForWire(merged);
   return merged;
 }
@@ -1149,11 +1288,41 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   const patchShape: Record<string, unknown> = {};
   setNestedValue(patchShape, path, value);
   stripWireOnlyProfileKeys(patchShape);
+  normalizeManagedProfileWrites(patchShape);
   rejectManagedProfileDeletion(patchShape);
   rejectMcpTransportHeaderWrite(patchShape);
 
   const raw = loadRawConfig();
+  // A SET below the entry level (`llm.profiles.<name>.<leaf>`) writes the
+  // primitive leaf directly into `raw`, bypassing the by-reference
+  // normalization above — creating an entry for a managed-owned name would
+  // leave it source-less, and a source-less entry reads as a user shadow
+  // that blocks the catalog body. Stamp the managed marker onto the written
+  // entry when the name was absent or managed-owned before this write.
+  const managedEntryName =
+    pathSegments[0] === "llm" &&
+    pathSegments[1] === "profiles" &&
+    pathSegments.length >= 3 &&
+    MANAGED_PROFILE_NAMES.has(pathSegments[2]!)
+      ? pathSegments[2]!
+      : undefined;
+  const priorManagedEntry = managedEntryName
+    ? readPlainObject(
+        readPlainObject(readPlainObject(raw.llm)?.profiles)?.[managedEntryName],
+      )
+    : undefined;
   setNestedValue(raw, path, value);
+  if (
+    managedEntryName &&
+    (priorManagedEntry == null || priorManagedEntry.source === "managed")
+  ) {
+    const written = readPlainObject(
+      readPlainObject(readPlainObject(raw.llm)?.profiles)?.[managedEntryName],
+    );
+    if (written && written.source === undefined) {
+      written.source = "managed";
+    }
+  }
 
   await commitConfigWrite(raw, "set");
   return { ok: true };
@@ -1213,11 +1382,16 @@ async function handleReplaceInferenceProfile({
   const isManaged =
     MANAGED_PROFILE_NAMES.has(name) &&
     (existingProfile == null || existingProfile.source === "managed");
-  // A managed profile name with no materialized entry (e.g. a flag-gated profile
-  // whose flag is off) cannot be patched: writing label/status here would persist
-  // a source-less stub that later blocks the real managed profile from being
-  // seeded. Reject rather than create a placeholder.
-  if (MANAGED_PROFILE_NAMES.has(name) && existingProfile == null) {
+  // A flag-gated managed name (`os-beta`) with no materialized entry cannot
+  // be patched: it only resolves while the flag reconcile has created its
+  // stub, so writing status here would persist an entry that fights the
+  // reconcile. The always-available defaults are catalog-owned even when
+  // absent — a status re-enable on them just creates the thin stub.
+  if (
+    MANAGED_PROFILE_NAMES.has(name) &&
+    existingProfile == null &&
+    !(DEFAULT_PROFILE_KEYS as readonly string[]).includes(name)
+  ) {
     throw new BadRequestError(
       `Profile "${name}" is not currently available and cannot be edited.`,
     );
@@ -1268,7 +1442,9 @@ async function handleReplaceInferenceProfile({
         `Mix profile "${name}" cannot also set [${extraneous.join(", ")}] — a mix only references other profiles plus metadata (label, description, status).`,
       );
     }
-    const existingProfiles = getConfig().llm.profiles ?? {};
+    // Validate arms against the effective view (matches the resolver and
+    // `LLMSchema.superRefine`), not the raw workspace record.
+    const existingProfiles = getEffectiveProfiles(getConfig().llm.profiles);
     parsed.data.mix.forEach((arm, index) => {
       if (arm.profile === name) {
         throw new BadRequestError(
@@ -1384,6 +1560,10 @@ function applyManagedProfileReenable(
   const nextProfile: Record<string, unknown> = {
     ...(asMutablePlainObject(profiles[name]) ?? {}),
   };
+  // Only reached for managed-owned names (the route's managed gate), so a
+  // freshly created stub must carry the managed marker the effective view
+  // and write guards key on.
+  nextProfile.source = "managed";
   if (status === null) {
     delete nextProfile.status;
   } else {
