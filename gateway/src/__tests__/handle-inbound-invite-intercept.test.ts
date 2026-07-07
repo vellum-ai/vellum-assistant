@@ -119,20 +119,23 @@ const { handleInbound } = await import("../handlers/handle-inbound.js");
 const { inviteRow, seedInvite } = await import(
   "./helpers/contact-fixtures.js"
 );
+const { bustGuardianIntegrityCache } = await import(
+  "../auth/guardian-integrity.js"
+);
 
 const CHANNEL = "telegram";
 const CODE = "123456";
 const TOKEN = "tok_raw_abc123";
 const REPLY_URL = "http://127.0.0.1:7830/deliver/telegram";
 
-function seedContact(id: string): void {
+function seedContact(id: string, role = "contact"): void {
   const now = Date.now();
   getGatewayDb()
     .insert(contacts)
     .values({
       id,
       displayName: `name-${id}`,
-      role: "contact",
+      role,
       createdAt: now,
       updatedAt: now,
     })
@@ -213,6 +216,11 @@ beforeEach(async () => {
   getGatewayDb().delete(ingressInvites).run();
   getGatewayDb().delete(contactChannels).run();
   getGatewayDb().delete(contacts).run();
+  // Invites are guardian-issued: a healthy install always has a guardian row.
+  // Without it the resolver stamps resolutionFailed and the intercept fails
+  // closed. Bust the TTL cache in case another suite computed state first.
+  seedContact("guardian-owner", "guardian");
+  bustGuardianIntegrityCache();
   initAdmissionPolicyCache();
   runtimePayloads = [];
   fetchCalls = [];
