@@ -3,6 +3,11 @@ import { isDeepStrictEqual } from "node:util";
 import { getLogger } from "../util/logger.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import {
+  materializeProfile,
+  OS_BETA_PROFILE_TEMPLATE,
+} from "./default-profile-catalog.js";
+import { OS_BETA_PROFILE_KEY } from "./default-profile-names.js";
+import {
   getConfigReadOnly,
   invalidateConfigCache,
   loadRawConfig,
@@ -10,10 +15,7 @@ import {
 } from "./loader.js";
 import type { ProfileEntry } from "./schemas/llm.js";
 import {
-  materializeProfile,
   OS_BETA_FEATURE_FLAG_KEY,
-  OS_BETA_PROFILE_KEY,
-  OS_BETA_PROFILE_TEMPLATE,
   readObject,
 } from "./seed-inference-profiles.js";
 

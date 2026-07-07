@@ -125,9 +125,10 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
 };
 
 import {
+  getEffectiveProfiles,
   INVARIANT_PROFILE_NAMES,
   MANAGED_PROFILE_NAMES,
-} from "../../config/seed-inference-profiles.js";
+} from "../../config/default-profile-catalog.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 
 const RESERVED_PROFILE_NAMES = new Set([
@@ -1268,7 +1269,9 @@ async function handleReplaceInferenceProfile({
         `Mix profile "${name}" cannot also set [${extraneous.join(", ")}] — a mix only references other profiles plus metadata (label, description, status).`,
       );
     }
-    const existingProfiles = getConfig().llm.profiles ?? {};
+    // Validate arms against the effective view (matches the resolver and
+    // `LLMSchema.superRefine`), not the raw workspace record.
+    const existingProfiles = getEffectiveProfiles(getConfig().llm.profiles);
     parsed.data.mix.forEach((arm, index) => {
       if (arm.profile === name) {
         throw new BadRequestError(

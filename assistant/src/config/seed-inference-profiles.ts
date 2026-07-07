@@ -4,189 +4,24 @@ import {
   createConnection,
   getConnection,
   MANAGED_CONNECTION_NAMES,
-  VELLUM_MANAGED_CONNECTION_NAME,
 } from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
-import { resolveModelIntent } from "../providers/model-intents.js";
-import type { ModelIntent } from "../providers/types.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getLogger } from "../util/logger.js";
+import {
+  type DefaultProfileTemplate,
+  MANAGED_PROFILE_NAMES,
+  MANAGED_PROFILE_TEMPLATES,
+  materializeProfile,
+  USER_PROFILE_TEMPLATES,
+} from "./default-profile-catalog.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
 import { isDispatchableProfile } from "./profile-dispatchability.js";
-import {
-  DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
-  type ProfileEntry,
-} from "./schemas/llm.js";
+import type { ProfileEntry } from "./schemas/llm.js";
 
 const log = getLogger("seed-inference-profiles");
 
-/**
- * Template for a daemon-managed inference profile. The profile's model is
- * resolved at seed time from `PROVIDER_MODEL_INTENTS` so the catalog stays the
- * single source of truth for "which model does this intent map to?".
- */
-type ManagedProfileTemplate = Omit<
-  ProfileEntry,
-  "provider" | "model" | "provider_connection"
-> & {
-  // Exactly one of `intent` or `model` must be set. `intent` resolves the
-  // model from the catalog at seed time; `model` pins an explicit model id.
-  intent?: ModelIntent;
-  model?: string;
-  provider: NonNullable<ProfileEntry["provider"]>;
-  connectionName: string;
-};
-
-/**
- * Managed profiles. Overwritten on every daemon boot so Vellum can push
- * model/config updates to customers in new releases. Platform overlays
- * (`preserveProfileNames`) take precedence when present.
- */
-const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
-  // Served by GLM 5.2 on Fireworks via managed platform inference: a leading
-  // open model at a balanced price point. `model` is pinned explicitly rather
-  // than resolved via the `balanced` intent (which still maps to MiniMax M3 on
-  // Together for `custom-balanced` and OS beta).
-  balanced: {
-    model: "accounts/fireworks/models/glm-5p2",
-    provider: "fireworks",
-    connectionName: VELLUM_MANAGED_CONNECTION_NAME,
-    source: "managed",
-    label: "Balanced",
-    description: "Good balance of quality, cost, and speed",
-    maxTokens: 32000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  // Served by Anthropic via managed platform inference — the most capable
-  // managed profile. The `quality-optimized` intent resolves to Fable for the
-  // `anthropic` provider.
-  "quality-optimized": {
-    intent: "quality-optimized",
-    provider: "anthropic",
-    connectionName: VELLUM_MANAGED_CONNECTION_NAME,
-    source: "managed",
-    label: "Quality",
-    description: "High-quality results with the most capable model",
-    maxTokens: 32000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  // Served by DeepSeek V4 Flash on Fireworks via managed platform inference: a
-  // fast, low-cost open model. `model` is pinned explicitly rather than
-  // resolved via the `latency-optimized` intent (which still maps to Kimi K2.5
-  // on Fireworks and Anthropic Haiku elsewhere).
-  //
-  // `effort: "none"` (not "low") because Fireworks is not thinking-aware: the
-  // disabled `thinking` config is stripped before the request, so a non-"none"
-  // effort would be sent as `reasoning_effort` and make this profile pay for
-  // reasoning despite thinking being off. "none" keeps Speed non-reasoning.
-  "cost-optimized": {
-    model: "accounts/fireworks/models/deepseek-v4-flash",
-    provider: "fireworks",
-    connectionName: VELLUM_MANAGED_CONNECTION_NAME,
-    source: "managed",
-    label: "Speed",
-    description: "Fastest responses at lower cost (DeepSeek V4 Flash)",
-    maxTokens: 8192,
-    effort: "none",
-    thinking: { enabled: false, streamThinking: false },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-};
-
-/**
- * User profile templates. Materialized at hatch time for off-platform
- * installations. Each points at the user's personal provider connection
- * (backed by their API key in CES). The `provider` and `connectionName`
- * fields are placeholders — they are overridden at hatch time with the
- * user's chosen provider and personal connection name.
- */
-const USER_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
-  "custom-balanced": {
-    intent: "balanced",
-    provider: "anthropic",
-    connectionName: "",
-    source: "user",
-    label: "Balanced",
-    description: "Good balance of quality, cost, and speed",
-    maxTokens: 16000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  "custom-quality-optimized": {
-    intent: "quality-optimized",
-    provider: "anthropic",
-    connectionName: "",
-    source: "user",
-    label: "Quality",
-    description: "Best results with the most capable model",
-    maxTokens: 32000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  "custom-cost-optimized": {
-    intent: "latency-optimized",
-    provider: "anthropic",
-    connectionName: "",
-    source: "user",
-    label: "Speed",
-    description: "Fastest responses at lower cost",
-    maxTokens: 8192,
-    effort: "low",
-    thinking: { enabled: false, streamThinking: false },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-};
-
-export const OS_BETA_PROFILE_KEY = "os-beta";
 export const OS_BETA_FEATURE_FLAG_KEY = "os-beta";
-
-/**
- * Flag-gated managed profile. NOT in MANAGED_PROFILE_TEMPLATES, so the
- * unconditional boot seed never creates it. Reconciled in/out by
- * the flag-gated profile reconcile based on the `os-beta` feature flag.
- * Balanced defaults, with lower reasoning effort while the profile is in beta.
- */
-export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
-  intent: "balanced",
-  provider: "together",
-  connectionName: VELLUM_MANAGED_CONNECTION_NAME,
-  source: "managed",
-  label: "OS Beta",
-  description: "Good balance of quality, cost, and speed, in beta",
-  maxTokens: 32000,
-  effort: "low",
-  thinking: { enabled: true, streamThinking: true },
-  contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  topP: 0.95,
-};
-
-// All managed profiles, including the flag-gated os-beta, are invariant:
-// their MANAGED-SOURCE entries are read-only to user-facing writes except
-// re-enabling a disabled one (enforced at commitConfigWrite). A user-owned
-// profile sharing one of these names is NOT locked — invariance is gated on
-// the on-disk entry's `source` being `managed`.
-export const INVARIANT_PROFILE_NAMES = new Set([
-  ...Object.keys(MANAGED_PROFILE_TEMPLATES),
-  OS_BETA_PROFILE_KEY,
-]);
-
-// Membership here marks a name as managed. The route layer applies managed
-// restrictions (blocking model/provider edits and deletion) only to entries
-// whose on-disk `source` is `managed`; `INVARIANT_PROFILE_NAMES` marks the
-// names whose managed-source entries are additionally frozen at the
-// `commitConfigWrite` choke point. `OS_BETA_PROFILE_KEY` is flag-gated: it is
-// materialized by the flag-gated profile reconcile, which refuses to touch a
-// same-named user profile.
-export const MANAGED_PROFILE_NAMES = new Set([
-  ...Object.keys(MANAGED_PROFILE_TEMPLATES),
-  OS_BETA_PROFILE_KEY,
-]);
 
 const MIX_MIN_ARMS = 2;
 
@@ -256,10 +91,10 @@ export function seedInferenceProfiles(
 
   // 1. Managed profiles. Reconciled from the code templates on every boot —
   //    on-platform and off-platform alike — so Vellum can push model/config
-  //    updates in new releases just by editing `MANAGED_PROFILE_TEMPLATES` /
-  //    `model-intents.ts` and shipping a release, with no workspace migration.
-  //    The templates are the single source of truth for profile *content*
-  //    (model, maxTokens, effort, thinking, description, provider/connection).
+  //    updates in new releases just by editing `default-profile-catalog.ts`
+  //    and shipping a release, with no workspace migration. The catalog is
+  //    the single source of truth for profile *content* (model, maxTokens,
+  //    effort, thinking, description, provider/connection).
   //
   //    Platform overlays (`preserveProfileNames`) still take precedence for the
   //    boot they are supplied: a profile named in the overlay is skipped here so
@@ -301,7 +136,7 @@ export function seedInferenceProfiles(
     if (preservedProfileNames.has(name)) continue;
 
     const previous = readObject(profiles[name]);
-    const effectiveTemplate: ManagedProfileTemplate = isByokMode
+    const effectiveTemplate: DefaultProfileTemplate = isByokMode
       ? { ...template, label: `${template.label} (Managed)` }
       : template;
     const next = materializeProfile(
@@ -465,25 +300,6 @@ export function seedInferenceProfiles(
   }
 
   saveRawConfig(config);
-}
-
-export function materializeProfile(
-  template: ManagedProfileTemplate,
-  provider: NonNullable<ProfileEntry["provider"]>,
-  connectionName: string,
-): ProfileEntry {
-  const { intent, model, provider: _p, connectionName: _c, ...rest } = template;
-  const resolvedModel =
-    model ?? (intent ? resolveModelIntent(provider, intent) : undefined);
-  if (!resolvedModel) {
-    throw new Error("ManagedProfileTemplate requires `intent` or `model`");
-  }
-  return {
-    ...rest,
-    provider,
-    provider_connection: connectionName,
-    model: resolvedModel,
-  };
 }
 
 export function readObject(value: unknown): Record<string, unknown> | null {
