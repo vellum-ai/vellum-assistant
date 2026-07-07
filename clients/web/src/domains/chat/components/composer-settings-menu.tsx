@@ -484,9 +484,10 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           <BottomSheet.Header className="sr-only">
             <BottomSheet.Title>Conversation settings</BottomSheet.Title>
           </BottomSheet.Header>
-          {/* Wrap in Body so a long profile list scrolls when the sheet
-              hits its 50dvh cap. `pt-0` because the Header is sr-only. */}
-          <BottomSheet.Body className="pt-0">
+          {/* `pt-0` because the Header is sr-only. `overflow-hidden` —
+              the panel content is short enough that scrolling is not needed
+              and should not be permitted (Figma review: node 6599-6728). */}
+          <BottomSheet.Body className="overflow-hidden pt-0">
             <SectionLabel>Assistant Access</SectionLabel>
             {THRESHOLD_PRESETS.map((preset) => {
               const isActive = preset.id === activePreset.id;
@@ -500,9 +501,10 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
                   icon={preset.icon}
                   label={isDefault ? `${preset.label} (default)` : preset.label}
                   active={isActive}
+                  className="[&>span:first-child]:gap-[11px]"
                   trailingAction={
                     isActive ? (
-                      <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
+                      <Check className="h-4 w-4 text-[var(--system-positive-strong)]" />
                     ) : undefined
                   }
                   onSelect={() => {
@@ -524,9 +526,10 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
                   icon={Sparkles}
                   label={profilePickerLabel(entry)}
                   active={isActive}
+                  className="[&>span:first-child]:gap-[11px]"
                   trailingAction={
                     isActive ? (
-                      <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
+                      <Check className="h-4 w-4 text-[var(--system-positive-strong)]" />
                     ) : undefined
                   }
                   onSelect={() => {
@@ -625,7 +628,7 @@ function SectionLabel({
   return (
     <div className="flex items-center justify-between gap-2 px-[8px] pt-2.5 pb-2 text-body-small-default text-[var(--content-tertiary)]">
       <span>{children}</span>
-      {trailingAction}
+      {trailingAction ? <span className="-mr-2">{trailingAction}</span> : null}
     </div>
   );
 }
