@@ -346,9 +346,11 @@ mock.module("@/runtime/platform-detection", () => ({
   useIsIOSWeb: () => isIOSWeb,
   useIsMacOSWeb: () => isMacOSWeb,
   // `messages`/`research-runner` (pulled in transitively) import
-  // `detectClientOs`; this onboarding test doesn't exercise the OS surface, so
-  // stub the web default to keep the partial module mock complete.
+  // `detectClientOs`, and `client-identity` imports `detectBrowserInfo`;
+  // this onboarding test doesn't exercise the OS/browser surface, so stub
+  // the web defaults to keep the partial module mock complete.
   detectClientOs: () => "web",
+  detectBrowserInfo: () => ({}),
 }));
 
 mock.module("@/hooks/use-ios-app-nudge", () => ({

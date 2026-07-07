@@ -187,6 +187,32 @@ describe("client-identity", () => {
     expect(headers["x-vellum-client-os"]).toBe("web");
   });
 
+  test("WKWebView-style shell UA degrades to OS-only metadata", async () => {
+    const mod = await freshImport();
+    const headers = withNavigatorValues(
+      {
+        // Embedded WKWebView (Capacitor iOS shell) UA: no `Version/` or
+        // `Safari/` tokens and no `userAgentData`, so browser family/version
+        // don't resolve. The behavior is defined: those headers are omitted
+        // and the OS surface still reports through `detectClientOs()`.
+        userAgent:
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) " +
+          "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+        platform: "iPhone",
+        maxTouchPoints: 5,
+        userAgentData: undefined,
+      },
+      () => mod.getClientRegistrationHeaders(),
+    );
+
+    expect(Object.keys(headers).sort()).toEqual([
+      "X-Vellum-Client-Id",
+      "X-Vellum-Interface-Id",
+      "x-vellum-client-os",
+    ]);
+    expect(headers["x-vellum-client-os"]).toBe("ios");
+  });
+
   test("browser detection prefers userAgentData brands over the UA string", async () => {
     const mod = await freshImport();
     const headers = withNavigatorValues(
