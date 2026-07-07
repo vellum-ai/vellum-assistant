@@ -31,6 +31,9 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
   const [code, setCode] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
   const completedRef = useRef(false);
+  // Latest open state for mutation callbacks, which outlive a close.
+  const openRef = useRef(open);
+  openRef.current = open;
 
   const invalidateFactors = () =>
     queryClient.invalidateQueries({ queryKey: userMfaFactorsListQueryKey() });
@@ -43,6 +46,12 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
 
   const enrollMutation = useUserMfaFactorsCreateMutation({
     onSuccess: (data) => {
+      // Enrollment that resolves after the modal closed would dangle
+      // unreferenced; nothing else can clean it up.
+      if (!openRef.current) {
+        discardFactor(data.factor_id);
+        return;
+      }
       setEnrollment(data);
     },
     onError: (error) => {

@@ -19,6 +19,8 @@ const ENROLLMENT: MfaEnrollResponse = {
 
 let enrollCalls = 0;
 let enrollError: unknown = null;
+let enrollDeferred = false;
+let fireEnrollSuccess: (() => void) | null = null;
 let verifyCalls: { challenge_id: string; code: string }[] = [];
 let verifyOutcome: { valid?: boolean; error?: unknown } = { valid: true };
 let verifyPending = false;
@@ -35,6 +37,8 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
       enrollCalls += 1;
       if (enrollError) {
         options?.onError?.(enrollError);
+      } else if (enrollDeferred) {
+        fireEnrollSuccess = () => options?.onSuccess?.(ENROLLMENT);
       } else {
         options?.onSuccess?.(ENROLLMENT);
       }
@@ -80,6 +84,8 @@ afterEach(() => {
   cleanup();
   enrollCalls = 0;
   enrollError = null;
+  enrollDeferred = false;
+  fireEnrollSuccess = null;
   verifyCalls = [];
   verifyOutcome = { valid: true };
   verifyPending = false;
@@ -169,6 +175,27 @@ describe("EnrollTotpModal", () => {
 
     expect(openState).toBe(true);
     expect(sdkDestroyCalls).toHaveLength(0);
+  });
+
+  test("discards an enrollment that resolves after the modal closed", async () => {
+    enrollDeferred = true;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <EnrollTotpModal open onOpenChange={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <EnrollTotpModal open={false} onOpenChange={() => {}} />
+      </QueryClientProvider>,
+    );
+    fireEnrollSuccess?.();
+
+    await waitFor(() => expect(sdkDestroyCalls).toEqual(["auth_factor_01ABC"]));
   });
 
   test("discards the unverified factor when the modal is cancelled", async () => {
