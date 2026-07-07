@@ -85,11 +85,11 @@ function findSpeakableBoundary(
     if (!char) {
       continue;
     }
-    if (char === "\n") {
+    const inOpenSpan = inBacktick || inBold || inItalic || inUnderscore;
+
+    if (!inOpenSpan && char === "\n") {
       return index + 1;
     }
-
-    const inOpenSpan = inBacktick || inBold || inItalic || inUnderscore;
 
     if (
       !inOpenSpan &&

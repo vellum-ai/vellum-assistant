@@ -364,6 +364,55 @@ describe("extractSpeakableSegments", () => {
       expect(remainder).toBe("**important note. still inside the span");
     });
 
+    test("does not split at the newline after an opening code fence", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "```ts\ncode here``` done. And more",
+        false,
+      );
+
+      expect(segments).toEqual(["```ts\ncode here``` done."]);
+      expect(remainder).toBe(" And more");
+    });
+
+    test("does not split at a newline inside an open backtick span", () => {
+      const text = "`code that spans\nlines and keeps going";
+
+      const { segments, remainder } = extractSpeakableSegments(text, false);
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe(text);
+    });
+
+    test("splits at the newline once the backtick span closes", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "`code that spans\nlines` done\nnext line",
+        false,
+      );
+
+      expect(segments).toEqual(["`code that spans\nlines` done"]);
+      expect(remainder).toBe("next line");
+    });
+
+    test("an unclosed span with newlines still flushes when forced", () => {
+      const text = "```ts\nconst x = 1;";
+
+      const { segments, remainder } = extractSpeakableSegments(text, true);
+
+      expect(segments).toEqual([text]);
+      expect(remainder).toBe("");
+    });
+
+    test("an unclosed span with newlines still flushes at the hard cap", () => {
+      const text = `\`\`\`ts\n${"steady ".repeat(40)}`;
+
+      const { segments } = extractSpeakableSegments(text, false);
+
+      expect(segments).toHaveLength(1);
+      expect((segments[0] ?? "").length).toBeLessThanOrEqual(
+        DEFAULT_CHAR_THRESHOLD,
+      );
+    });
+
     test("an open span still flushes at the length-threshold hard cap", () => {
       const text = `**${"steady ".repeat(40)}`;
 
