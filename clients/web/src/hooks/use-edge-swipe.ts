@@ -94,6 +94,18 @@ export function computeVisualOffset(dx: number, threshold: number): number {
   return threshold + (dx - threshold) * OVERDRAG_DAMPING;
 }
 
+/**
+ * Resting-closed translateX (px, ≤ 0) for a full-width drawer panel that
+ * slides in from off-screen-left, given the touch's absolute viewport `x`.
+ * Anchoring the panel's right edge to the finger's absolute position (rather
+ * than the drag delta) keeps the drawer under the finger no matter where in
+ * the activation band the swipe began — a delta-based reveal would trail a
+ * mid-screen start by the start offset.
+ */
+export function computeDrawerOffset(x: number, viewportWidth: number): number {
+  return Math.min(0, x - viewportWidth);
+}
+
 /** Whether a finished gesture traveled far enough to commit. */
 export function isCommitted(finalDx: number, threshold: number): boolean {
   return finalDx >= threshold;
@@ -112,11 +124,12 @@ export interface UseEdgeSwipeCallbacks {
   onConfirm?: () => void;
   /**
    * Fired on every confirmed drag frame with the raw horizontal delta (`dx`,
-   * always > 0) and the current commit `threshold`. Consumers own the visual
-   * mapping — use `computeVisualOffset` for a damped translateX, or map `dx`
-   * to any other transform.
+   * always > 0), the current commit `threshold`, and the touch's absolute
+   * viewport position (`x`, i.e. `clientX`). Consumers own the visual mapping —
+   * use `dx` with `computeVisualOffset` for a delta-tracked translateX, or `x`
+   * with `computeDrawerOffset` to anchor an element to the finger.
    */
-  onMove: (dx: number, threshold: number) => void;
+  onMove: (dx: number, threshold: number, x: number) => void;
   /** Fired when a confirmed gesture is released past the commit threshold. */
   onCommit: (finalDx: number, threshold: number) => void;
   /**
@@ -257,7 +270,7 @@ export function useEdgeSwipe({
         void haptic.light();
       }
 
-      callbacksRef.current.onMove(dx, threshold);
+      callbacksRef.current.onMove(dx, threshold, touch.clientX);
     };
 
     const handleTouchEnd = (event: TouchEvent) => {

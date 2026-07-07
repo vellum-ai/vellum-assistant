@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   activationZonePx,
   commitThresholdPx,
+  computeDrawerOffset,
   computeVisualOffset,
   decideDirection,
   isCommitted,
@@ -13,6 +14,19 @@ describe("activationZonePx", () => {
   test("spans the left half of the viewport", () => {
     expect(activationZonePx(390)).toBe(195);
     expect(activationZonePx(1000)).toBe(500);
+  });
+});
+
+describe("computeDrawerOffset", () => {
+  test("anchors the panel's right edge to the finger's absolute position", () => {
+    // At x, a full-width panel resting closed at -viewportWidth is revealed to
+    // width x, so its translateX is x - viewportWidth.
+    expect(computeDrawerOffset(150, 390)).toBe(-240);
+    expect(computeDrawerOffset(390, 390)).toBe(0);
+  });
+
+  test("never exceeds fully open (clamps at 0)", () => {
+    expect(computeDrawerOffset(500, 390)).toBe(0);
   });
 });
 
