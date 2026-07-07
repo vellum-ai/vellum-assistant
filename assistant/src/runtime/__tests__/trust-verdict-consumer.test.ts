@@ -14,9 +14,7 @@ import { toTrustContext } from "../actor-trust-resolver.js";
 import {
   actorTrustContextFromVerdict,
   trustContextFromVerdict,
-  verdictHasMemberIdentity,
   verdictMemberFromVerdict,
-  verdictMemberUnresolvable,
   verdictUsability,
 } from "../trust-verdict-consumer.js";
 
@@ -661,65 +659,56 @@ describe("verdictMemberFromVerdict", () => {
   });
 });
 
-describe("verdict predicates", () => {
-  test("verdictHasMemberIdentity is true with contactId or channelId", () => {
+// Member-identity handling is module-private; exercised via verdictUsability's
+// "member unresolvable" reason.
+describe("verdict member-identity handling (via verdictUsability)", () => {
+  test("partial member identity (contactId or channelId alone) is member unresolvable", () => {
     expect(
-      verdictHasMemberIdentity({
+      verdictUsability({
         trustClass: "unknown",
         canonicalSenderId: "u-1",
         contactId: "contact-1",
       } satisfies TrustVerdict),
-    ).toBe(true);
+    ).toEqual({ usable: false, reason: "member unresolvable" });
     expect(
-      verdictHasMemberIdentity({
+      verdictUsability({
         trustClass: "unknown",
         canonicalSenderId: "u-1",
         channelId: "channel-1",
       } satisfies TrustVerdict),
-    ).toBe(true);
+    ).toEqual({ usable: false, reason: "member unresolvable" });
   });
 
-  test("verdictHasMemberIdentity is false for a memberless verdict", () => {
+  test("member identity with unsynthesizable ACL is member unresolvable", () => {
     expect(
-      verdictHasMemberIdentity({
-        trustClass: "unknown",
-        canonicalSenderId: "u-1",
-      } satisfies TrustVerdict),
-    ).toBe(false);
-  });
-
-  test("verdictMemberUnresolvable is true when member identity present but ACL unsynthesizable", () => {
-    expect(
-      verdictMemberUnresolvable({
+      verdictUsability({
         trustClass: "trusted_contact",
         canonicalSenderId: "u-1",
         contactId: "contact-1",
         channelId: "channel-1",
         policy: "allow",
       } satisfies TrustVerdict),
-    ).toBe(true);
+    ).toEqual({ usable: false, reason: "member unresolvable" });
   });
 
-  test("verdictMemberUnresolvable is false for a usable member verdict", () => {
-    expect(
-      verdictMemberUnresolvable({
-        trustClass: "trusted_contact",
-        canonicalSenderId: "u-1",
-        contactId: "contact-1",
-        channelId: "channel-1",
-        status: "active",
-        policy: "allow",
-      } satisfies TrustVerdict),
-    ).toBe(false);
+  test("resolvable member verdict is usable, not member unresolvable", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-1",
+      contactId: "contact-1",
+      channelId: "channel-1",
+      status: "active",
+      policy: "allow",
+    } satisfies TrustVerdict;
+    expect(verdictUsability(verdict)).toEqual({ usable: true, verdict });
   });
 
-  test("verdictMemberUnresolvable is false for a memberless verdict", () => {
-    expect(
-      verdictMemberUnresolvable({
-        trustClass: "unknown",
-        canonicalSenderId: "u-1",
-      } satisfies TrustVerdict),
-    ).toBe(false);
+  test("memberless verdict is usable, not member unresolvable", () => {
+    const verdict = {
+      trustClass: "unknown",
+      canonicalSenderId: "u-1",
+    } satisfies TrustVerdict;
+    expect(verdictUsability(verdict)).toEqual({ usable: true, verdict });
   });
 });
 
