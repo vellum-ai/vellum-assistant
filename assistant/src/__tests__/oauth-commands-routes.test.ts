@@ -111,14 +111,23 @@ mock.module("../oauth/oauth-store.js", () => ({
   listConnections: (provider: string) => mockAllConnections[provider] ?? [],
 }));
 
-mock.module("../oauth/connection-resolver.js", () => ({
-  resolveOAuthConnection: async (_provider: string) => ({
+mock.module("../oauth/connection-resolver.js", () => {
+  const makeConnection = () => ({
+    accountInfo: "user@example.com",
     request: async (req: unknown) => {
       mockResolveRequests.push(req);
       return mockResolveResponse;
     },
-  }),
-}));
+  });
+  return {
+    resolveOAuthConnection: async (_provider: string) => makeConnection(),
+    resolveOAuthConnectionWithMeta: async (_provider: string) => ({
+      connection: makeConnection(),
+      ambiguous: false,
+      allAccounts: ["user@example.com"],
+    }),
+  };
+});
 
 mock.module("../oauth/manual-token-connection.js", () => ({
   syncManualTokenConnection: async (provider: string) => {

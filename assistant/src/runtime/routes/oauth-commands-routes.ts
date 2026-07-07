@@ -22,6 +22,7 @@ import type { OAuthConnectionRequest } from "../../oauth/connection.js";
 import {
   resolveOAuthConnection,
   type ResolveOAuthConnectionOptions,
+  resolveOAuthConnectionWithMeta,
 } from "../../oauth/connection-resolver.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
@@ -863,7 +864,8 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
     resolveOptions.account = b.account;
   }
 
-  const connection = await resolveOAuthConnection(b.provider, resolveOptions);
+  const { connection, ambiguous, allAccounts } =
+    await resolveOAuthConnectionWithMeta(b.provider, resolveOptions);
 
   const headers = b.headers ?? {};
 
@@ -883,7 +885,20 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
     status: response.status,
     headers: response.headers,
     body: response.body,
+    // Which connected account actually served the request, so the caller can
+    // tell whether the intended account was used.
+    account: connection.accountInfo,
   };
+
+  // Surface a caller-visible warning when the provider had several active
+  // connections and no account was pinned — the model must see that a
+  // silent pick happened, not just the daemon log.
+  if (ambiguous && allAccounts.length > 1) {
+    const selected = allAccounts[0];
+    result.accountWarning =
+      `Multiple ${b.provider} accounts are connected (${allAccounts.join(", ")}); ` +
+      `used "${selected}". Pass --account to select a specific one.`;
+  }
 
   if (response.status === 401 || response.status === 403) {
     result.hint = managed
