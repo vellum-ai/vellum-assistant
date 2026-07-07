@@ -10,6 +10,8 @@ import {
   test,
 } from "bun:test";
 
+import { z } from "zod";
+
 const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 const CONFIG_PATH = join(WORKSPACE_DIR, "config.json");
 
@@ -59,7 +61,8 @@ import {
   setDefaultProvider,
 } from "../default-provider.js";
 import { invalidateConfigCache, loadRawConfig } from "../loader.js";
-import { LLMSchema } from "../schemas/llm.js";
+import { getSchemaAtPath } from "../schema-utils.js";
+import { DefaultProviderSchema, LLMSchema } from "../schemas/llm.js";
 
 function readConfig(): Record<string, unknown> {
   return JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
@@ -82,23 +85,27 @@ describe("LLMSchema.defaultProvider", () => {
     });
   });
 
+  // Writes go through the strict `DefaultProviderSchema`, which rejects
+  // invalid values loudly (the `.catch` on the field only applies when
+  // reading persisted config).
   test("rejects an unknown provider", () => {
     expect(() =>
-      LLMSchema.parse({ defaultProvider: { provider: "not-a-provider" } }),
+      DefaultProviderSchema.parse({ provider: "not-a-provider" }),
     ).toThrow();
   });
 
   test("rejects an empty connectionName", () => {
     expect(() =>
-      LLMSchema.parse({
-        defaultProvider: { provider: "anthropic", connectionName: "" },
+      DefaultProviderSchema.parse({
+        provider: "anthropic",
+        connectionName: "",
       }),
     ).toThrow();
   });
 
   test("rejects a missing provider", () => {
     expect(() =>
-      LLMSchema.parse({ defaultProvider: { connectionName: "x" } }),
+      DefaultProviderSchema.parse({ connectionName: "x" }),
     ).toThrow();
   });
 
@@ -107,41 +114,57 @@ describe("LLMSchema.defaultProvider", () => {
     expect(parsed.defaultProvider).toBeUndefined();
   });
 
-  // The loader's recovery pass deletes the key at each issue path and
-  // re-parses. Every defaultProvider failure must therefore be reported at
-  // the `defaultProvider` path itself (never a nested leaf), so recovery
-  // drops the whole object instead of leaving a fragment like
-  // `{ connectionName }` that fails the re-parse and escalates to a full
-  // config-defaults fallback.
-  test("reports failures atomically at the defaultProvider path", () => {
+  // The loader's recovery pass deletes the exact key at each issue path and
+  // re-parses, so a nested failure (invalid `provider` next to a valid
+  // `connectionName`) would strand a `{ connectionName }` fragment that
+  // fails the re-parse and escalates to a full config-defaults fallback.
+  // The field's `.catch` avoids that entirely: an invalid value drops the
+  // whole object at parse time and the surrounding config is untouched.
+  test("an invalid defaultProvider is dropped atomically", () => {
     const result = LLMSchema.safeParse({
-      profiles: {},
+      profiles: { "my-profile": {} },
+      activeProfile: "my-profile",
       defaultProvider: { provider: "not-a-provider", connectionName: "x" },
     });
-    expect(result.success).toBe(false);
-    if (result.success) {
+    expect(result.success).toBe(true);
+    if (!result.success) {
       return;
     }
-    const dpIssues = result.error.issues.filter(
-      (i) => i.path[0] === "defaultProvider",
-    );
-    expect(dpIssues.length).toBeGreaterThan(0);
-    for (const issue of dpIssues) {
-      expect(issue.path).toEqual(["defaultProvider"]);
-    }
+    expect(result.data.defaultProvider).toBeUndefined();
+    expect(result.data.activeProfile).toBe("my-profile");
   });
 
-  test("recovery deleting defaultProvider yields a valid config", () => {
-    const raw: Record<string, unknown> = {
-      activeProfile: undefined,
-      defaultProvider: { provider: "not-a-provider", connectionName: "x" },
+  test("a non-object defaultProvider is dropped, not fatal", () => {
+    const result = LLMSchema.safeParse({ defaultProvider: "anthropic" });
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      return;
+    }
+    expect(result.data.defaultProvider).toBeUndefined();
+  });
+
+  // The config-schema API resolves dotted paths via `getSchemaAtPath` and
+  // emits JSON Schema with `io: "input"`; both must see through the field's
+  // wrappers to the object shape so clients can discover and validate it.
+  test("schema introspection reaches the object shape and provider enum", () => {
+    const atField = getSchemaAtPath(LLMSchema, "defaultProvider");
+    expect(atField).not.toBeNull();
+    const atProvider = getSchemaAtPath(LLMSchema, "defaultProvider.provider");
+    expect(atProvider).not.toBeNull();
+    expect(atProvider?.safeParse("anthropic").success).toBe(true);
+    expect(atProvider?.safeParse("not-a-provider").success).toBe(false);
+  });
+
+  test("JSON Schema emission includes the field's object shape", () => {
+    // Same options `handleGetConfigSchema` uses.
+    const json = z.toJSONSchema(LLMSchema, {
+      unrepresentable: "any",
+      io: "input",
+    }) as {
+      properties?: Record<string, { properties?: Record<string, unknown> }>;
     };
-    const first = LLMSchema.safeParse(raw);
-    expect(first.success).toBe(false);
-    // Simulate the loader: delete the exact key at the issue path.
-    delete raw.defaultProvider;
-    const second = LLMSchema.safeParse(raw);
-    expect(second.success).toBe(true);
+    const field = json.properties?.defaultProvider;
+    expect(field?.properties?.provider).toBeDefined();
   });
 });
 
