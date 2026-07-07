@@ -194,10 +194,10 @@ export class AssistantIpcServer {
       this.methods.set(route.operationId, route.handler);
     }
 
-    // ⚠️  TEMPORARY — gateway→assistant DB proxy (see ipc/routes/db-proxy.ts).
+    // Gateway→assistant DB proxy — one-time gateway data migrations only,
+    // never runtime features (see ipc/routes/db-proxy.ts; allowlist-guarded).
     // This is the ONLY route defined directly here; all other routes go in
-    // ROUTES. Remove once contacts/guardian-binding logic is fully migrated
-    // to the gateway's own database.
+    // ROUTES.
     this.methods.set("db_proxy", (params) =>
       handleDbProxy(params as unknown as DbProxyParams),
     );

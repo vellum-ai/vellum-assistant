@@ -162,9 +162,9 @@ export type InviteRedemptionOutcome = z.infer<
 // The schemas below define the gateway-native invite redemption IPC surface.
 // Schema-to-method mapping:
 //
-// - `RedeemInviteByCodeRequestSchema` / `RedeemInviteByTokenRequestSchema` —
-//   request shapes for the gateway redemption engine (code and link-token
-//   redemption).
+// - `RedeemInviteByCodeRequest` (plain type) /
+//   `RedeemInviteByTokenRequestSchema` — request shapes for the gateway
+//   redemption engine (code and link-token redemption).
 // - `RedeemVoiceInviteRequestSchema` — gateway IPC `redeem_voice_invite`.
 // - `GetActiveVoiceInviteRequestSchema` — gateway IPC
 //   `get_active_voice_invite`.
@@ -177,20 +177,17 @@ export type InviteRedemptionOutcome = z.infer<
 /**
  * Gateway redemption-engine request for code redemption (6-digit code).
  * Not an `invites_redeem` wire shape: bare-code redemption only happens via
- * the gateway inbound intercept, which supplies the sender identity itself.
+ * the gateway inbound intercept, which supplies the sender identity itself —
+ * a plain type, never schema-parsed off a wire.
  */
-export const RedeemInviteByCodeRequestSchema = z.object({
-  code: z.string().min(1),
-  sourceChannel: z.string().trim().min(1),
-  externalUserId: z.string().optional(),
-  externalChatId: z.string().optional(),
-  displayName: z.string().optional(),
-  username: z.string().optional(),
-});
-
-export type RedeemInviteByCodeRequest = z.infer<
-  typeof RedeemInviteByCodeRequestSchema
->;
+export interface RedeemInviteByCodeRequest {
+  code: string;
+  sourceChannel: string;
+  externalUserId?: string;
+  externalChatId?: string;
+  displayName?: string;
+  username?: string;
+}
 
 /**
  * Gateway redemption-engine request for token redemption. `token` is the raw

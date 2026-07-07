@@ -21,7 +21,6 @@ import {
   InviteRedemptionOutcomeSchema,
   isInviteCodeRedemptionEnabled,
   isValidE164,
-  RedeemInviteByCodeRequestSchema,
   RedeemInviteByTokenRequestSchema,
   RedeemVoiceInviteRequestSchema,
   type InviteRedemptionOutcome,
@@ -153,23 +152,6 @@ describe("InviteRedemptionOutcomeSchema", () => {
 });
 
 describe("invite IPC request schemas", () => {
-  test("RedeemInviteByCodeRequestSchema round-trips full and minimal requests", () => {
-    const full = {
-      code: "123456",
-      sourceChannel: "telegram",
-      externalUserId: "tg-user-1",
-      externalChatId: "tg-chat-1",
-      displayName: "Member Name",
-      username: "member",
-    };
-    expect(RedeemInviteByCodeRequestSchema.parse(full)).toEqual(full);
-    const minimal = { code: "123456", sourceChannel: "email" };
-    expect(RedeemInviteByCodeRequestSchema.parse(minimal)).toEqual(minimal);
-    expect(() =>
-      RedeemInviteByCodeRequestSchema.parse({ code: "", sourceChannel: "" }),
-    ).toThrow();
-  });
-
   test("RedeemInviteByTokenRequestSchema round-trips full and minimal requests", () => {
     const full = {
       token: "raw-token",
