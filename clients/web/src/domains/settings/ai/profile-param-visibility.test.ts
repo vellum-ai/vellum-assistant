@@ -67,6 +67,40 @@ describe("resolveProfileParamVisibility", () => {
     expect(vis.thinking).toBe(false);
   });
 
+  test("vercel-ai-gateway anthropic sonnet/opus enable thinking and effort", () => {
+    for (const model of ["anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.8"]) {
+      const vis = resolveProfileParamVisibility("vercel-ai-gateway", model);
+      expect(vis.thinking).toBe(true);
+      expect(vis.effort).toBe(true);
+    }
+  });
+
+  test("vercel-ai-gateway anthropic haiku supports thinking but not effort", () => {
+    const vis = resolveProfileParamVisibility("vercel-ai-gateway", "anthropic/claude-haiku-4.5");
+    expect(vis.thinking).toBe(true);
+    expect(vis.effort).toBe(false);
+  });
+
+  test("vercel-ai-gateway anthropic fable hides the thinking toggle but keeps effort", () => {
+    const vis = resolveProfileParamVisibility("vercel-ai-gateway", "anthropic/claude-fable-5");
+    expect(vis.effort).toBe(true);
+    expect(vis.thinking).toBe(false);
+  });
+
+  test("vercel-ai-gateway non-anthropic catalog reasoning model gets thinking with effort following", () => {
+    // xai/grok-4.3 is supportsThinking in the catalog; effort follows thinking
+    // for non-anthropic gateway models (same rule as openrouter).
+    const vis = resolveProfileParamVisibility("vercel-ai-gateway", "xai/grok-4.3");
+    expect(vis.thinking).toBe(true);
+    expect(vis.effort).toBe(true);
+  });
+
+  test("vercel-ai-gateway unknown non-anthropic model gets no thinking or effort", () => {
+    const vis = resolveProfileParamVisibility("vercel-ai-gateway", "mistral/mistral-large");
+    expect(vis.thinking).toBe(false);
+    expect(vis.effort).toBe(false);
+  });
+
   test("together MiniMax M3 enables effort and topP", () => {
     const vis = resolveProfileParamVisibility("together", "MiniMaxAI/MiniMax-M3");
     // Together is an OpenAI-compatible endpoint whose chat-completions client
@@ -121,6 +155,11 @@ describe("modelSupportsThinking", () => {
     expect(modelSupportsThinking("minimax", "minimax-m3")).toBe(true);
     expect(modelSupportsThinking("minimax", "MiniMax-M2.7")).toBe(true);
     expect(modelSupportsThinking("minimax", "minimax-unknown")).toBe(false);
+  });
+
+  test("vercel-ai-gateway falls back to the anthropic/ prefix heuristic off-catalog", () => {
+    expect(modelSupportsThinking("vercel-ai-gateway", "anthropic/claude-next")).toBe(true);
+    expect(modelSupportsThinking("vercel-ai-gateway", "mistral/mistral-large")).toBe(false);
   });
 });
 
