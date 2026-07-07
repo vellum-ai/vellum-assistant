@@ -2,9 +2,11 @@
  * Unit tests for the CLI invite relay routes.
  *
  * Three CLI invite handlers (list/create/revoke) are thin relays to the gateway
- * IPC methods via `ipcCallPersistent`. These tests assert each relays with the
- * correct method + params, returns the parsed gateway response, and surfaces a
- * relayed IpcCallError with its statusCode. `invites_redeem` and `invites_trigger_call` stay daemon-local: the
+ * IPC methods via the typed `channels/gateway-invites` client (transport:
+ * `ipcCallPersistent`, responses contract-schema-validated). These tests
+ * assert each relays with the correct wire method + params, returns the
+ * parsed gateway response, and surfaces a relayed IpcCallError with its
+ * statusCode. `invites_redeem` and `invites_trigger_call` stay daemon-local: the
  * gateway delegates the actual provider call to the daemon-local handler, so
  * relaying it back would loop gateway→assistant→gateway.
  */
@@ -99,7 +101,9 @@ describe("invite relay routes", () => {
 
   describe("handleListInvites", () => {
     test("relays invites_list with filters from queryParams", async () => {
-      ipcResult = { invites: [{ id: "i1" }] };
+      ipcResult = {
+        invites: [{ id: "i1", sourceChannel: "telegram", status: "active" }],
+      };
       const result = await handleListInvites({
         queryParams: { sourceChannel: "telegram", status: "active" },
       });
@@ -112,7 +116,10 @@ describe("invite relay routes", () => {
           timeoutMs: undefined,
         },
       ]);
-      expect(result).toEqual({ ok: true, invites: [{ id: "i1" }] });
+      expect(result).toEqual({
+        ok: true,
+        invites: [{ id: "i1", sourceChannel: "telegram", status: "active" }],
+      });
     });
 
     test("omits absent filters", async () => {
@@ -127,7 +134,15 @@ describe("invite relay routes", () => {
 
   describe("handleCreateInvite", () => {
     test("relays invites_create with mapped body and returns invite + rawToken", async () => {
-      ipcResult = { invite: { id: "i9", token: "tok-9" }, rawToken: "tok-9" };
+      ipcResult = {
+        invite: {
+          id: "i9",
+          sourceChannel: "telegram",
+          status: "active",
+          token: "tok-9",
+        },
+        rawToken: "tok-9",
+      };
       const result = await handleCreateInvite({
         body: {
           contactId: "c1",
@@ -155,13 +170,26 @@ describe("invite relay routes", () => {
       ]);
       expect(result).toEqual({
         ok: true,
-        invite: { id: "i9", token: "tok-9" },
+        invite: {
+          id: "i9",
+          sourceChannel: "telegram",
+          status: "active",
+          token: "tok-9",
+        },
         rawToken: "tok-9",
       });
     });
 
     test("composes presentation daemon-side exactly once on the relayed mint payload", async () => {
-      ipcResult = { invite: { id: "i9", token: "tok-9" }, rawToken: "tok-9" };
+      ipcResult = {
+        invite: {
+          id: "i9",
+          sourceChannel: "telegram",
+          status: "active",
+          token: "tok-9",
+        },
+        rawToken: "tok-9",
+      };
       composeInvitePresentationResult = (params) => ({
         ...params.invite,
         share: { url: "https://t.me/example_bot?start=tok-9" },
@@ -175,13 +203,20 @@ describe("invite relay routes", () => {
       expect(composeInvitePresentationMock).toHaveBeenCalledTimes(1);
       expect(composeInvitePresentationMock.mock.calls[0][0]).toEqual({
         contactId: "c1",
-        invite: { id: "i9", token: "tok-9" },
+        invite: {
+          id: "i9",
+          sourceChannel: "telegram",
+          status: "active",
+          token: "tok-9",
+        },
         rawToken: "tok-9",
       });
       expect(result).toEqual({
         ok: true,
         invite: {
           id: "i9",
+          sourceChannel: "telegram",
+          status: "active",
           token: "tok-9",
           share: { url: "https://t.me/example_bot?start=tok-9" },
           guardianInstruction: "Send the link to your friend.",
@@ -191,16 +226,23 @@ describe("invite relay routes", () => {
     });
 
     test("omits rawToken when the gateway returns none", async () => {
-      ipcResult = { invite: { id: "i9" } };
+      ipcResult = {
+        invite: { id: "i9", sourceChannel: "phone", status: "active" },
+      };
       const result = await handleCreateInvite({
         body: { contactId: "c1", sourceChannel: "phone" },
       });
 
-      expect(result).toEqual({ ok: true, invite: { id: "i9" } });
+      expect(result).toEqual({
+        ok: true,
+        invite: { id: "i9", sourceChannel: "phone", status: "active" },
+      });
     });
 
     test("supplies guardianName (voice) and sourceConversationId passthrough", async () => {
-      ipcResult = { invite: { id: "iv" } };
+      ipcResult = {
+        invite: { id: "iv", sourceChannel: "phone", status: "active" },
+      };
       await handleCreateInvite({
         body: {
           contactId: "c1",
@@ -220,7 +262,9 @@ describe("invite relay routes", () => {
     });
 
     test("omits guardianName for non-voice creates", async () => {
-      ipcResult = { invite: { id: "i9" } };
+      ipcResult = {
+        invite: { id: "i9", sourceChannel: "telegram", status: "active" },
+      };
       await handleCreateInvite({
         body: { contactId: "c1", sourceChannel: "telegram" },
       });
@@ -231,7 +275,9 @@ describe("invite relay routes", () => {
 
   describe("handleRevokeInvite", () => {
     test("relays invites_revoke with id from pathParams", async () => {
-      ipcResult = { invite: { id: "i3", status: "revoked" } };
+      ipcResult = {
+        invite: { id: "i3", sourceChannel: "telegram", status: "revoked" },
+      };
       const result = await handleRevokeInvite({ pathParams: { id: "i3" } });
 
       expect(ipcCalls).toEqual([
@@ -243,7 +289,7 @@ describe("invite relay routes", () => {
       ]);
       expect(result).toEqual({
         ok: true,
-        invite: { id: "i3", status: "revoked" },
+        invite: { id: "i3", sourceChannel: "telegram", status: "revoked" },
       });
     });
   });
@@ -307,6 +353,15 @@ describe("invite relay routes", () => {
   });
 
   describe("error propagation", () => {
+    test("a schema-invalid gateway response fails closed (throws, no partial result)", async () => {
+      // Missing the pinned id/status fields.
+      ipcResult = { invites: [{ sourceChannel: "telegram" }] };
+
+      await expect(handleListInvites({ queryParams: {} })).rejects.toThrow(
+        "malformed invites_list response",
+      );
+    });
+
     test("relayed IpcCallError surfaces with its statusCode/errorCode", async () => {
       ipcError = new IpcCallError("Invite not found", {
         statusCode: 404,

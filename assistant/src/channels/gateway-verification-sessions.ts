@@ -36,7 +36,7 @@ import {
 } from "@vellumai/gateway-client";
 import type { ZodType } from "zod";
 
-import { ipcCallPersistent } from "../ipc/gateway-client.js";
+import { ipcCallPersistentValidated } from "../ipc/gateway-validated-call.js";
 import { composeApprovalMessage } from "../runtime/approval-message-composer.js";
 
 export type { VerificationSessionWire } from "@vellumai/gateway-client";
@@ -57,19 +57,15 @@ export type ValidateVerificationResult = ValidateConsumeSessionIpcResponse;
 
 /**
  * Call a gateway session route and validate the response against its
- * contract schema. Throws on transport failure or a malformed response.
+ * contract schema. Throws on transport failure or a malformed response
+ * (shared helper; typed to the session method union).
  */
 async function callGateway<T>(
   method: VerificationSessionsIpcMethod,
   params: Record<string, unknown>,
   responseSchema: ZodType<T>,
 ): Promise<T> {
-  const result = await ipcCallPersistent(method, params);
-  const parsed = responseSchema.safeParse(result);
-  if (!parsed.success) {
-    throw new Error(`Gateway returned a malformed ${method} response`);
-  }
-  return parsed.data;
+  return ipcCallPersistentValidated(method, params, responseSchema);
 }
 
 /** Call a mutation route; throws unless the gateway acks `{ ok: true }`. */
