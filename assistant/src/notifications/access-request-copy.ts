@@ -68,9 +68,28 @@ export function parseAccessRequestPayload(
   return AccessRequestPayloadSchema.parse(payload);
 }
 
-/** Whether the payload is an admitted-mode introduction nudge. */
-export function isAdmittedIntroduction(p: ParsedAccessRequestPayload): boolean {
+/**
+ * Whether the payload is an admitted-mode introduction nudge. Accepts both
+ * parsed payloads and the raw `contextPayload` record so every render surface
+ * shares one predicate.
+ */
+export function isAdmittedIntroduction(p: { trigger?: unknown }): boolean {
   return p.trigger === "admitted";
+}
+
+/** Card/notification title, shared by every render surface. */
+export function accessRequestCardTitle(admitted: boolean): string {
+  return admitted ? "New Contact" : "Access Request";
+}
+
+/**
+ * Card subtitle (also the Slack card's no-preview body label), shared by
+ * every render surface.
+ */
+export function accessRequestCardSubtitle(admitted: boolean): string {
+  return admitted
+    ? "Messaged your assistant — set their trust level"
+    : "Requesting access to the assistant";
 }
 
 // ── Warnings ────────────────────────────────────────────────────────────────

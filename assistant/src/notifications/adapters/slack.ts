@@ -18,6 +18,8 @@ import { sendSlackReply } from "../../messaging/providers/slack/send.js";
 import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
 import { getLogger } from "../../util/logger.js";
 import {
+  accessRequestCardSubtitle,
+  accessRequestCardTitle,
   type AccessRequestCardView,
   buildAccessRequestCardView,
   buildAccessRequestInviteDirective,
@@ -105,9 +107,7 @@ function buildAccessRequestBody(view: AccessRequestCardView): string {
     const trimmed = truncate(view.messagePreview, 200 - 6);
     return `> _"${trimmed}"_`;
   }
-  return view.admitted
-    ? "Messaged your assistant — set their trust level"
-    : "Requesting access to the assistant";
+  return accessRequestCardSubtitle(view.admitted);
 }
 
 /** Source-channel context block with Slack permalink when available. */
@@ -186,7 +186,7 @@ function buildAccessRequestCardBlocks(
     type: "card",
     title: {
       type: "mrkdwn",
-      text: view.admitted ? "New Contact" : "Access Request",
+      text: accessRequestCardTitle(view.admitted),
     },
     subtitle: { type: "mrkdwn", text: subtitle },
     body: { type: "mrkdwn", text: body },
