@@ -124,6 +124,7 @@ import { swapQualityProfileToFableMigration } from "./123-swap-quality-profile-t
 import { correctDefaultUserBoundaryCommentsMigration } from "./124-correct-default-user-boundary-comments.js";
 import { repointManagedConnectionsToVellumMigration } from "./125-repoint-managed-connections-to-vellum.js";
 import { stripManagedProfileBodiesMigration } from "./126-strip-managed-profile-bodies.js";
+import { backfillDefaultProviderMigration } from "./127-backfill-default-provider.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -259,4 +260,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   correctDefaultUserBoundaryCommentsMigration,
   repointManagedConnectionsToVellumMigration,
   stripManagedProfileBodiesMigration,
+  backfillDefaultProviderMigration,
 ];

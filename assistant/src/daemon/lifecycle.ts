@@ -58,6 +58,7 @@ import {
 } from "../work-items/work-item-store.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
+import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
@@ -456,6 +457,20 @@ export async function runDaemon(): Promise<void> {
         "Post-overlay adaptive thinking repair failed — continuing startup",
       );
     }
+  }
+
+  // Runs on every boot (unlike the repair above, not gated on hadOverlay) so
+  // it also covers hand-deleted fields and configs restored from backups
+  // that predate the field. See workspace/default-provider-ensure.ts for the
+  // full rationale.
+  try {
+    await ensureDefaultProvider(getWorkspaceDir());
+    log.info("Default provider ensure pass complete");
+  } catch (err) {
+    log.warn(
+      { err },
+      "Default provider ensure pass failed — continuing startup",
+    );
   }
 
   log.info("Daemon startup: loading config");
