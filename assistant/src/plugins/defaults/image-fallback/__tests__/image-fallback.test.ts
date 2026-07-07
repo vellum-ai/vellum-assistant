@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
@@ -5,6 +6,7 @@ import type {
   ImageContent,
   Message,
   ModelProfileInfo,
+  PostCompactContext,
   PostToolUseContext,
   ToolResultContent,
   UserPromptSubmitContext,
@@ -48,13 +50,25 @@ mock.module("../src/image-persist.js", () => ({
   persistImage: () => mockPersistPath,
 }));
 
+// Back the caption cache's durable layer with an in-memory DB so tests stay
+// hermetic. The migration runs through the mocked connection below.
+const testSqlite = new Database(":memory:");
+mock.module("../../../../persistence/db-connection.js", () => ({
+  getDb: () => ({}),
+  getSqliteFrom: () => testSqlite,
+}));
+
 // ─── Imports (after mocks are registered) ───────────────────────────────────
 
 const userPromptSubmit = (await import("../hooks/user-prompt-submit.js"))
   .default;
 const postToolUse = (await import("../hooks/post-tool-use.js")).default;
+const postCompact = (await import("../hooks/post-compact.js")).default;
 const { findVisionProfile } = await import("../src/vision-caption.js");
 const { resetCaptionCacheForTests } = await import("../src/caption-cache.js");
+const { migrateCreateImageCaptionCache } =
+  await import("../../../../persistence/migrations/321-create-image-caption-cache.js");
+migrateCreateImageCaptionCache({} as never);
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -120,6 +134,20 @@ function toolResult(contentBlocks?: ContentBlock[]): ToolResultContent {
     content: "Took a screenshot.",
     ...(contentBlocks ? { contentBlocks } : {}),
   };
+}
+
+function makeCompactCtx(
+  overrides: Partial<PostCompactContext> = {},
+): PostCompactContext {
+  return {
+    history: [],
+    requestId: "r1",
+    conversationId: "c1",
+    isNonInteractive: false,
+    modelProfileKey: "text-only",
+    logger,
+    ...overrides,
+  } as unknown as PostCompactContext;
 }
 
 function makeToolCtx(
@@ -317,6 +345,23 @@ describe("image-fallback user-prompt-submit hook", () => {
     }));
   });
 
+  test("captions images nested in a historical tool_result's contentBlocks", async () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [toolResult([imageBlock("nested-shot")])],
+      },
+    ];
+    const ctx = makeCtx({ latestMessages: messages });
+    await userPromptSubmit(ctx);
+    const result = ctx.latestMessages[0].content[0] as ToolResultContent;
+    expect(result.type).toBe("tool_result");
+    expect(result.contentBlocks![0].type).toBe("text");
+    expect((result.contentBlocks![0] as { text: string }).text).toContain(
+      "[Image auto-described",
+    );
+  });
+
   test("handles multiple images across multiple messages", async () => {
     const messages: Message[] = [
       imageMsg("img-a"),
@@ -451,5 +496,105 @@ describe("image-fallback post-tool-use hook", () => {
     });
     await postToolUse(ctx);
     expect(ctx.toolResponse.contentBlocks![0].type).toBe("text");
+  });
+});
+
+describe("image-fallback post-compact hook", () => {
+  test("is a no-op when the compacted turn's model supports vision", async () => {
+    visionProfiles = new Set(["text-only"]); // active profile supports vision
+    const history = [imageMsg("retained")];
+    const ctx = makeCompactCtx({ history });
+    await postCompact(ctx);
+    expect(ctx.history[0].content[0].type).toBe("image");
+  });
+
+  test("captions retained top-level image blocks for a text-only model", async () => {
+    const history: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Images retained from the compacted portion of the conversation:",
+          },
+          imageBlock("retained-shot"),
+        ],
+      },
+    ];
+    const ctx = makeCompactCtx({ history });
+    await postCompact(ctx);
+    expect(ctx.history[0].content[1].type).toBe("text");
+    expect((ctx.history[0].content[1] as { text: string }).text).toBe(
+      "[Image auto-described for text-only model: A red chart showing Q3 revenue.]",
+    );
+  });
+
+  test("captions images nested in restored tool_result contentBlocks", async () => {
+    const history: Message[] = [
+      textMsg("earlier turn"),
+      {
+        role: "user",
+        content: [toolResult([imageBlock("tail-shot")])],
+      },
+    ];
+    const ctx = makeCompactCtx({ history });
+    await postCompact(ctx);
+    const result = ctx.history[1].content[0] as ToolResultContent;
+    expect(result.contentBlocks![0].type).toBe("text");
+    expect((result.contentBlocks![0] as { text: string }).text).toContain(
+      "[Image auto-described",
+    );
+  });
+
+  test("reuses captions generated earlier in the conversation — no new vision call", async () => {
+    let callCount = 0;
+    const trackingProvider = {
+      name: "mock-vision-provider",
+      async sendMessage() {
+        callCount++;
+        return sendMessageResponse;
+      },
+    };
+    mock.module("@vellumai/plugin-api", () => ({
+      doesSupportVision: (arg: ModelProfileInfo | string) =>
+        typeof arg === "string"
+          ? visionModels.has(arg)
+          : visionProfiles.has(arg.key),
+      getModelProfiles: () => mockProfiles,
+      getConfiguredProvider: async () => trackingProvider,
+    }));
+
+    // The image is captioned once at ingestion (turn-start sweep)...
+    const ctx1 = makeCtx({ latestMessages: [imageMsg("compacted-image")] });
+    await userPromptSubmit(ctx1);
+    expect(callCount).toBe(1);
+
+    // ...then compaction re-attaches the same raw image from persistence; the
+    // post-compact sweep must resolve it from the cache without a vision call.
+    const ctx2 = makeCompactCtx({ history: [imageMsg("compacted-image")] });
+    await postCompact(ctx2);
+    expect(callCount).toBe(1); // still 1 — cache hit
+    expect(ctx2.history[0].content[0].type).toBe("text");
+
+    // Restore the original mock for other tests.
+    mock.module("@vellumai/plugin-api", () => ({
+      doesSupportVision: (arg: ModelProfileInfo | string) =>
+        typeof arg === "string"
+          ? visionModels.has(arg)
+          : visionProfiles.has(arg.key),
+      getModelProfiles: () => mockProfiles,
+      getConfiguredProvider: async () =>
+        providerResolves ? fakeProvider : null,
+    }));
+  });
+
+  test("uses fail-open placeholder when no vision profile is configured", async () => {
+    visionProfiles = new Set<string>(); // no vision profiles
+    const ctx = makeCompactCtx({ history: [imageMsg("retained")] });
+    await postCompact(ctx);
+    expect(ctx.history[0].content[0].type).toBe("text");
+    expect((ctx.history[0].content[0] as { text: string }).text).toContain(
+      "no vision-capable model",
+    );
   });
 });
