@@ -10,7 +10,7 @@ import { AssistantChannelsList } from "./assistant-channels-list";
  * wiring): a borderless page subtitle, then the channel sub-tabs in a card —
  * matching the sibling About Assistant tabs rather than the boxed
  * "Channels" card used inside the Contacts detail view. (The Channels tab
- * itself lives in the About
+ * itself is gated on the `channel-trust-floors` flag in the About
  * Assistant nav.)
  */
 // The Slack panel owns its own queries (`SlackChannelSection`), so stories

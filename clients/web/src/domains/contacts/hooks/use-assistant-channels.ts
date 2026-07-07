@@ -97,7 +97,7 @@ export function useAssistantChannels({
   });
 
   // Per-channel trust floors (admission policy), shown inline on each connected
-  // channel.
+  // channel when the `channelTrustFloors` flag is on.
   const channelTrustFloors = useChannelTrustFloors(assistantId);
 
   const invalidateReadiness = useCallback(

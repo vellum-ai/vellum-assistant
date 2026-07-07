@@ -127,7 +127,7 @@ interface ContactChannelsSectionProps {
   /**
    * Cascade provenance per setup channel. When provided, channel rows the
    * contact is present on show a pill naming the layer their effective
-   * access comes from. Absent while the provenance data hasn't loaded.
+   * access comes from. Absent when the `channelTrustFloors` flag is off.
    */
   channelProvenance?: ChannelProvenanceMap;
   setupLabel?: string;

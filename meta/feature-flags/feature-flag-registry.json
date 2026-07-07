@@ -383,8 +383,8 @@
       "scope": "assistant",
       "key": "channel-trust-floors",
       "label": "Channel Trust Floors",
-      "description": "Runtime enforcement gate for per-channel admission floors (gateway admission-policy-cache and the runtime inbound floor check). GA: enabled by default. The web UI no longer reads this flag; it remains declared because undeclared flags fail closed, which would silently skip every saved floor. Remove together with the backend gates.",
-      "defaultEnabled": true
+      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. Off by default while the feature is in development.",
+      "defaultEnabled": false
     },
     {
       "id": "mcp-add-server",

@@ -18,6 +18,7 @@ import {
 } from "@/generated/gateway/sdk.gen";
 import type { AssistantChannelPermissionOverridesListResponse } from "@/generated/gateway/types.gen";
 import { useSupportsChannelAccessControls } from "@/lib/backwards-compat/channel-access-controls";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { toastOnError } from "@/utils/mutation-error";
 
 type CellList = AssistantChannelPermissionOverridesListResponse;
@@ -82,9 +83,11 @@ function isChannelCell(
  * list: reads the gateway's channel-permission cells and writes/deletes
  * channel-ID-tier cells (one per non-guardian contact-type). Optimistic —
  * the cell cache is patched immediately, rolled back and toasted on
- * failure, and revalidated on settle. Version-gated itself (see
- * `lib/backwards-compat/channel-access-controls.ts`); against an older
- * assistant it reports `supported: false` with no overrides or handlers.
+ * failure, and revalidated on settle. Gated on two independent axes: the
+ * `channelTrustFloors` flag (who sees the surface) and the version gate in
+ * `lib/backwards-compat/channel-access-controls.ts` (whether the connected
+ * assistant can serve it); either off reports `supported: false` with no
+ * overrides or handlers.
  *
  * The adapter is a parameter so Telegram/Phone room lists reuse this hook
  * unchanged when they land.
@@ -97,7 +100,9 @@ export function useChannelPermissionOverrides({
   adapter: string;
 }): ChannelPermissionOverridesController {
   const queryClient = useQueryClient();
-  const supported = useSupportsChannelAccessControls();
+  const flagOn = useAssistantFeatureFlagStore.use.channelTrustFloors();
+  const versionSupported = useSupportsChannelAccessControls();
+  const supported = flagOn && versionSupported;
   const enabled = supported && Boolean(assistantId);
 
   const pathOptions = useMemo(
