@@ -130,6 +130,17 @@ mock.module("../calls/inbound-trust-reader.js", () => ({
     };
     return mockInboundVerdict;
   },
+  readPhoneCallerTrust: async (otherPartyNumber: string | undefined) => {
+    lastInboundVerdictArgs = {
+      channelType: "phone",
+      actorExternalId: otherPartyNumber || undefined,
+    };
+    return {
+      ok: true as const,
+      verdict: mockInboundVerdict,
+      admissionPolicy: mockAdmissionPolicy,
+    };
+  },
 }));
 
 // Mock the STT+TTS credential-readiness preflight consulted at TwiML time.

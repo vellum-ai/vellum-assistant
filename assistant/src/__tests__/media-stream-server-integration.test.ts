@@ -176,35 +176,33 @@ mock.module("../calls/call-setup-router.js", () => ({
   }),
 }));
 
-// Mock the channel admission reader. handleStart awaits this before routing;
-// tests override mockAdmissionPolicy to exercise floor enforcement, or set
-// mockAdmissionUnavailable to exercise the fail-closed deny (the reader
-// resolves { ok: false } when the gateway is unreachable). Returning a
-// resolved promise introduces a microtask hop, so tests await
+// Mock the inbound trust reader. handleStart awaits the combined
+// verdict + admission-policy read (one gateway round-trip) and threads both
+// into routeSetup so the media-stream transport enforces the gateway ACL and
+// the admission floor. Tests override mockInboundVerdict /
+// mockAdmissionPolicy, or set mockTrustReadUnavailable to exercise the
+// fail-closed deny ({ ok: false } when the gateway is unreachable).
+// Returning a resolved promise introduces a microtask hop, so tests await
 // session.whenSetupSettled() after sending the start frame.
-let mockAdmissionPolicy: unknown = null;
-let mockAdmissionUnavailable = false;
-// Optional gate: when set, getChannelAdmissionPolicy awaits this promise before
-// resolving, letting a test dispose the session mid-read (simulating a WS close
-// while the admission IPC read is pending).
-let mockAdmissionGate: Promise<void> | null = null;
-const mockGetChannelAdmissionPolicy = jest.fn(async () => {
-  if (mockAdmissionGate) {await mockAdmissionGate;}
-  return mockAdmissionUnavailable
-    ? { ok: false as const }
-    : { ok: true as const, policy: mockAdmissionPolicy };
+//
+// The default verdict carries the guardian label the gateway stamps for the
+// phone channel; setup-flow copy reads it via the primed displayName.
+const defaultInboundVerdict = () => ({
+  trustClass: "unknown",
+  canonicalSenderId: null,
+  guardianDisplayName: "Alex",
 });
-mock.module("../calls/channel-admission-reader.js", () => ({
-  getChannelAdmissionPolicy: mockGetChannelAdmissionPolicy,
-}));
-
-// Mock the inbound trust reader. handleStart awaits this and threads the
-// verdict into routeSetup so the media-stream transport enforces the
-// gateway ACL. Tests override mockInboundVerdict.
-// The optional gate lets a test hold mid-setup trust re-resolution open
-// (the setup flow's default resolver reads the verdict first) so it can
-// deliver transcripts during the deferral window.
-let mockInboundVerdict: unknown = null;
+let mockAdmissionPolicy: unknown = null;
+let mockTrustReadUnavailable = false;
+// Optional gate: when set, the trust read awaits this promise before
+// resolving, letting a test dispose the session mid-read (simulating a WS
+// close while the gateway IPC read is pending) or deliver frames during the
+// setup-routing window.
+let mockTrustReadGate: Promise<void> | null = null;
+// The verdict gate lets a test hold mid-setup trust RE-resolution open (the
+// setup flow's default resolver reads the verdict) so it can deliver
+// transcripts during the deferral window.
+let mockInboundVerdict: unknown = defaultInboundVerdict();
 let mockVerdictGate: Promise<void> | null = null;
 const mockGetInboundTrustVerdict = jest.fn(
   async (_args?: Record<string, unknown>) => {
@@ -214,7 +212,27 @@ const mockGetInboundTrustVerdict = jest.fn(
     return mockInboundVerdict;
   },
 );
+const mockReadPhoneCallerTrust = jest.fn(
+  async (otherPartyNumber: string | undefined) => {
+    if (mockTrustReadGate) {
+      await mockTrustReadGate;
+    }
+    if (mockTrustReadUnavailable) {
+      return { ok: false as const };
+    }
+    const verdict = await mockGetInboundTrustVerdict({
+      channelType: "phone",
+      actorExternalId: otherPartyNumber || undefined,
+    });
+    return {
+      ok: true as const,
+      verdict,
+      admissionPolicy: mockAdmissionPolicy,
+    };
+  },
+);
 mock.module("../calls/inbound-trust-reader.js", () => ({
+  readPhoneCallerTrust: mockReadPhoneCallerTrust,
   getInboundTrustVerdict: mockGetInboundTrustVerdict,
   getPhoneCallerVerdict: (otherPartyNumber: string | undefined) =>
     mockGetInboundTrustVerdict({
@@ -283,12 +301,17 @@ mock.module("../calls/call-constants.js", () => ({
   getEndCallListenWindowMs: jest.fn(() => 15_000),
 }));
 
-// Guardian delivery reader (IPC-backed): label priming + cache warming.
+// Guardian delivery reader (IPC-backed). The setup path no longer reads it —
+// the guardian label comes off the verdict — so tests assert these stay
+// uncalled during handleStart; the mock also keeps transitive importers off
+// the real IPC.
+const mockGetGuardianDelivery = jest.fn(async () => [
+  { channelType: "phone", status: "active", displayName: "Alex" },
+]);
+const mockGetGuardianDeliveryFresh = jest.fn(async () => []);
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
-  getGuardianDelivery: jest.fn(async () => [
-    { channelType: "phone", status: "active", displayName: "Alex" },
-  ]),
-  getGuardianDeliveryFresh: jest.fn(async () => []),
+  getGuardianDelivery: mockGetGuardianDelivery,
+  getGuardianDeliveryFresh: mockGetGuardianDeliveryFresh,
   peekCachedGuardianDelivery: jest.fn(() => null),
   voiceGuardianDisplayName: jest.fn(() => "Alex"),
   guardianForChannel: jest.fn(),
@@ -547,13 +570,15 @@ beforeEach(() => {
   (postPointerMessageSafe as jest.Mock).mockClear();
   (routeSetup as jest.Mock).mockClear();
   mockRouteSetupError = null;
-  mockGetChannelAdmissionPolicy.mockClear();
+  mockReadPhoneCallerTrust.mockClear();
   mockAdmissionPolicy = null;
-  mockAdmissionUnavailable = false;
-  mockAdmissionGate = null;
+  mockTrustReadUnavailable = false;
+  mockTrustReadGate = null;
   mockGetInboundTrustVerdict.mockClear();
-  mockInboundVerdict = null;
+  mockInboundVerdict = defaultInboundVerdict();
   mockVerdictGate = null;
+  mockGetGuardianDelivery.mockClear();
+  mockGetGuardianDeliveryFresh.mockClear();
   mockAddMessage.mockClear();
   mockAttemptVerificationCode.mockClear();
   mockVerificationResult = {
@@ -1380,12 +1405,13 @@ describe("media-stream setup outcome scenarios", () => {
   // The phone channel is no longer exempt from per-channel admission, so the
   // trust floor must be enforced on this transport too — not just the
   // gateway's no_one kill switch. handleStart resolves the phone admission
-  // policy and threads it into routeSetup; a floor-denied caller (e.g.
-  // guardian_only vs a trusted_contact) produces a `deny` outcome here, which
-  // speaks a denial + tears down and never starts a normal call.
+  // policy (riding the caller-trust verdict read — one gateway round-trip)
+  // and threads it into routeSetup; a floor-denied caller (e.g. guardian_only
+  // vs a trusted_contact) produces a `deny` outcome here, which speaks a
+  // denial + tears down and never starts a normal call.
 
   describe("admission floor enforcement", () => {
-    test("resolves the phone admission policy and threads it into routeSetup", async () => {
+    test("resolves the phone admission policy on the single trust read and threads it into routeSetup", async () => {
       mockAdmissionPolicy = "guardian_only";
 
       const mockWs = createMockWs();
@@ -1406,7 +1432,13 @@ describe("media-stream setup outcome scenarios", () => {
       session.handleMessage(makeStartMessage());
       await session.whenSetupSettled();
 
-      expect(mockGetChannelAdmissionPolicy).toHaveBeenCalledWith("phone");
+      // Exactly one gateway read on the setup path: the combined verdict +
+      // admission-policy IPC. No separate guardian display-name prime or
+      // delivery cache warm.
+      expect(mockReadPhoneCallerTrust).toHaveBeenCalledTimes(1);
+      expect(mockReadPhoneCallerTrust).toHaveBeenCalledWith("+14155550000");
+      expect(mockGetGuardianDelivery).not.toHaveBeenCalled();
+      expect(mockGetGuardianDeliveryFresh).not.toHaveBeenCalled();
       expect(routeSetup).toHaveBeenCalledWith(
         expect.objectContaining({
           callSessionId: "call-floor-thread-1",
@@ -1513,7 +1545,7 @@ describe("media-stream setup outcome scenarios", () => {
     });
 
     test("unreachable gateway fails closed — inbound setup denied without routing", async () => {
-      mockAdmissionUnavailable = true;
+      mockTrustReadUnavailable = true;
 
       const mockWs = createMockWs();
       mockSessions.set("call-floor-unavail-1", {
@@ -1533,9 +1565,8 @@ describe("media-stream setup outcome scenarios", () => {
       session.handleMessage(makeStartMessage());
       await session.whenSetupSettled();
 
-      // Fail closed promptly: no routing, no verdict read.
+      // Fail closed promptly: no routing.
       expect(routeSetup).not.toHaveBeenCalled();
-      expect(mockGetInboundTrustVerdict).not.toHaveBeenCalled();
 
       // Standard deny teardown: unavailable copy spoken, session failed,
       // no controller, finalization ran.
@@ -1559,7 +1590,7 @@ describe("media-stream setup outcome scenarios", () => {
     });
 
     test("unreachable gateway does not affect an outbound call (admission not consulted)", async () => {
-      mockAdmissionUnavailable = true;
+      mockTrustReadUnavailable = true;
       mockRouteSetupResult = {
         outcome: { action: "normal_call", isInbound: false },
         resolved: {
@@ -1590,9 +1621,10 @@ describe("media-stream setup outcome scenarios", () => {
       await session.whenSetupSettled();
 
       // Outbound routes normally; the failed read degrades to a null policy
-      // (the router ignores admission on outbound).
+      // and a null verdict (the router ignores admission on outbound and owns
+      // the missing-verdict abort posture).
       expect(routeSetup).toHaveBeenCalledWith(
-        expect.objectContaining({ admissionPolicy: null }),
+        expect.objectContaining({ admissionPolicy: null, verdict: null }),
       );
       expect(registerCallController).toHaveBeenCalledWith(
         "call-outbound-unavail-1",
@@ -1650,10 +1682,10 @@ describe("media-stream setup outcome scenarios", () => {
     });
 
     test("a DTMF digit received during setup routing is dropped", async () => {
-      // Gate the admission read so setupRouting is still true when the DTMF
-      // frame arrives (simulating a digit during the admission IPC read).
+      // Gate the trust read so setupRouting is still true when the DTMF
+      // frame arrives (simulating a digit during the gateway IPC read).
       let releaseGate!: () => void;
-      mockAdmissionGate = new Promise<void>((resolve) => {
+      mockTrustReadGate = new Promise<void>((resolve) => {
         releaseGate = resolve;
       });
 
@@ -1671,7 +1703,7 @@ describe("media-stream setup outcome scenarios", () => {
       const session = new MediaStreamCallSession(mockWs.ws, "call-dtmf-drop-1");
       session.handleMessage(makeStartMessage());
 
-      // DTMF arrives while the admission read is still pending.
+      // DTMF arrives while the trust read is still pending.
       session.handleMessage(makeDtmfMessage("5"));
 
       releaseGate();
@@ -1688,11 +1720,11 @@ describe("media-stream setup outcome scenarios", () => {
       expect(mockHandleCallerUtterance).not.toHaveBeenCalled();
     });
 
-    test("session disposed during the admission read aborts setup — no controller, no greeting", async () => {
-      // Gate the admission read so the session can be disposed (as the WS
+    test("session disposed during the trust read aborts setup — no controller, no greeting", async () => {
+      // Gate the trust read so the session can be disposed (as the WS
       // close handler does) while handleStart is awaiting it.
       let releaseGate!: () => void;
-      mockAdmissionGate = new Promise<void>((resolve) => {
+      mockTrustReadGate = new Promise<void>((resolve) => {
         releaseGate = resolve;
       });
 
@@ -1713,7 +1745,7 @@ describe("media-stream setup outcome scenarios", () => {
       // Twilio closes the WebSocket mid-read: the server disposes the session.
       session.destroy();
 
-      // Now let the admission read resolve and setup routing resume.
+      // Now let the trust read resolve and setup routing resume.
       releaseGate();
       await session.whenSetupSettled();
 

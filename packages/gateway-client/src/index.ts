@@ -81,6 +81,7 @@ export {
   makeResolutionFailedVerdict,
   makeUnauthenticatedSenderVerdict,
   ResolveInboundTrustRequestSchema,
+  ResolveInboundTrustResponseSchema,
   TRUST_CLASS_VALUES,
   TrustClassSchema,
   TrustVerdictSchema,
@@ -88,6 +89,7 @@ export {
 
 export type {
   ResolveInboundTrustRequest,
+  ResolveInboundTrustResponse,
   TrustClass,
   TrustVerdict,
 } from "./trust-verdict-contract.js";

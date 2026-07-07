@@ -16,6 +16,8 @@
 
 import { z } from "zod";
 
+import { AdmissionPolicySchema } from "./admission-policy-contract.js";
+
 /**
  * Verification-purpose trust classification. Mirrors the daemon's
  * `TrustClass` union (`actor-trust-resolver.ts`), ordered most- to
@@ -124,8 +126,7 @@ export function makeUnauthenticatedSenderVerdict(
 
 /**
  * IPC request for `resolve_inbound_trust`. Per-actor identity keys the
- * gateway resolver needs to classify the inbound sender. The response reuses
- * {@link TrustVerdictSchema}.
+ * gateway resolver needs to classify the inbound sender.
  */
 export const ResolveInboundTrustRequestSchema = z.object({
   channelType: z.string().min(1),
@@ -134,4 +135,20 @@ export const ResolveInboundTrustRequestSchema = z.object({
 
 export type ResolveInboundTrustRequest = z.infer<
   typeof ResolveInboundTrustRequestSchema
+>;
+
+/**
+ * IPC response for `resolve_inbound_trust`. The channel admission policy is
+ * an ENVELOPE field, not a {@link TrustVerdictSchema} field: the verdict is
+ * also stamped on every text relay's `sourceMetadata`, which must not carry
+ * this voice-setup-only companion. `admissionPolicy: null` is the gateway's
+ * explicit "no enforcement configured" answer (an admit).
+ */
+export const ResolveInboundTrustResponseSchema = z.object({
+  verdict: TrustVerdictSchema,
+  admissionPolicy: AdmissionPolicySchema.nullable(),
+});
+
+export type ResolveInboundTrustResponse = z.infer<
+  typeof ResolveInboundTrustResponseSchema
 >;
