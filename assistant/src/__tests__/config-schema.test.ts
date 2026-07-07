@@ -915,6 +915,37 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.safety.denyCategories).toEqual(["spam"]);
   });
 
+  // ── Live voice config ───────────────────────────────────────────────
+
+  test("applies liveVoice defaults", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.liveVoice).toEqual({
+      mode: "ptt",
+      vad: {
+        speechEnergyThreshold: 800,
+        silenceThresholdMs: 800,
+        maxTurnDurationMs: 30000,
+      },
+      maxSessionDurationSeconds: 1800,
+    });
+  });
+
+  test("accepts valid liveVoice config overrides", () => {
+    const result = AssistantConfigSchema.parse({
+      liveVoice: {
+        mode: "open-mic",
+        vad: { speechEnergyThreshold: 1500, silenceThresholdMs: 1000 },
+        maxSessionDurationSeconds: 900,
+      },
+    });
+    expect(result.liveVoice.mode).toBe("open-mic");
+    expect(result.liveVoice.vad.speechEnergyThreshold).toBe(1500);
+    expect(result.liveVoice.vad.silenceThresholdMs).toBe(1000);
+    // Unspecified vad fields still get defaults
+    expect(result.liveVoice.vad.maxTurnDurationMs).toBe(30000);
+    expect(result.liveVoice.maxSessionDurationSeconds).toBe(900);
+  });
+
   test("accepts partial calls config with defaults for missing fields", () => {
     const result = AssistantConfigSchema.parse({
       calls: { maxDurationSeconds: 600 },
