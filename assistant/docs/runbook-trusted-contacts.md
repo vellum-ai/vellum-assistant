@@ -7,7 +7,7 @@ Two databases hold this state — pick the right one before reaching for SQL:
 | Data                                                                                                                | Database                    | Location                                                                                                 |
 | ------------------------------------------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | Contact ACL (`contacts` role, `contact_channels` status/policy/reasons), verification sessions, rate limits, invites | Gateway DB (`gateway.sqlite`) | `$GATEWAY_SECURITY_DIR/gateway.sqlite` (Docker: the `/gateway-security` volume; local fallback: `~/.vellum/protected/`) |
-| Access requests (`canonical_guardian_requests`), notification pipeline, contact info/identity mirror                 | Assistant DB (`assistant.db`) | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`                                                                 |
+| Access requests (`canonical_guardian_requests`), notification pipeline, contact info/identity mirror                 | Assistant DB (`assistant.db`) | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db` (local fallback: `~/.vellum/workspace/`)                                                                 |
 
 Prefer the CLI and HTTP surfaces below over raw SQL — they go through the gateway's validation (status vocabulary, revoke-of-blocked guard) and emit the change events clients rely on. Raw SQL is break-glass only.
 
@@ -23,9 +23,9 @@ BASE=http://localhost:7830
 # or use `assistant` CLI commands which handle auth automatically over IPC.
 TOKEN=<your-bearer-token>
 
-# Break-glass DB paths
-GW_DB="$GATEWAY_SECURITY_DIR/gateway.sqlite"          # local default: ~/.vellum/protected/gateway.sqlite
-AST_DB="$VELLUM_WORKSPACE_DIR/data/db/assistant.db"
+# Break-glass DB paths (fall back to the services' defaults when the env vars are unset)
+GW_DB="${GATEWAY_SECURITY_DIR:-$HOME/.vellum/protected}/gateway.sqlite"
+AST_DB="${VELLUM_WORKSPACE_DIR:-$HOME/.vellum/workspace}/data/db/assistant.db"
 ```
 
 ## 1. Inspect Trusted Contacts
