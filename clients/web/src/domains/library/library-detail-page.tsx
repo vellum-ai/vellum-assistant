@@ -1,11 +1,13 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 
 import { DeployDialogs } from "@/components/deploy-dialogs";
 import { toast } from "@vellumai/design-library";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { appsByIdOpenPost } from "@/generated/daemon/sdk.gen";
 import { useEditApp } from "@/hooks/use-edit-app";
@@ -26,7 +28,10 @@ export function LibraryDetailPage() {
   const { appId } = useParams<{ appId: string }>();
   const assistantId = useActiveAssistantId();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isMobile = useIsMobile();
   const isDeploying = useDeployStore.use.isDeploying();
+  const swipeContainerRef = useRef<HTMLDivElement>(null);
 
   const [app, setApp] = useState<LoadedApp | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +39,7 @@ export function LibraryDetailPage() {
   const requestRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!appId) return;
+    if (!appId) {return;}
     requestRef.current = appId;
     setApp(null);
     setError(null);
@@ -44,7 +49,7 @@ export function LibraryDetailPage() {
       throwOnError: true,
     })
       .then(({ data: result }) => {
-        if (requestRef.current !== appId) return;
+        if (requestRef.current !== appId) {return;}
         primeAppHtmlCache(assistantId, result.appId, result.html);
         setApp({
           appId: result.appId,
@@ -54,7 +59,7 @@ export function LibraryDetailPage() {
         });
       })
       .catch((err) => {
-        if (requestRef.current !== appId) return;
+        if (requestRef.current !== appId) {return;}
         setError(err instanceof Error ? err.message : "Failed to open app");
       });
 
@@ -67,13 +72,20 @@ export function LibraryDetailPage() {
     void navigate(routes.library.root);
   }, [navigate]);
 
+  useEdgeSwipeBack({
+    containerRef: swipeContainerRef,
+    onBack: handleClose,
+    enabled: isMobile,
+    navKey: pathname,
+  });
+
   const editApp = useEditApp();
   const handleEdit = useCallback(() => {
-    if (app) editApp(app);
+    if (app) {editApp(app);}
   }, [app, editApp]);
 
   const handleShare = useCallback(async () => {
-    if (!app || isSharing) return;
+    if (!app || isSharing) {return;}
     setIsSharing(true);
     try {
       await shareApp(assistantId, app.appId, app.name);
@@ -88,7 +100,7 @@ export function LibraryDetailPage() {
   }, [assistantId, app, isSharing]);
 
   const handleDeploy = useCallback(() => {
-    if (!app) return;
+    if (!app) {return;}
     void useDeployStore
       .getState()
       .deployApp(assistantId, app.appId, app.name, app.html);
@@ -107,7 +119,7 @@ export function LibraryDetailPage() {
     [navigate],
   );
 
-  if (!appId) return null;
+  if (!appId) {return null;}
 
   if (error) {
     return (
@@ -136,19 +148,21 @@ export function LibraryDetailPage() {
 
   return (
     <>
-      <AppViewerContainer
-        appId={app.appId}
-        appName={app.name}
-        html={app.html}
-        assistantId={assistantId}
-        onClose={handleClose}
-        onEdit={handleEdit}
-        onShare={handleShare}
-        isSharing={isSharing}
-        onDeploy={handleDeploy}
-        isDeploying={isDeploying}
-        enableFullscreen
-      />
+      <div ref={swipeContainerRef} className="flex min-h-0 flex-1 flex-col">
+        <AppViewerContainer
+          appId={app.appId}
+          appName={app.name}
+          html={app.html}
+          assistantId={assistantId}
+          onClose={handleClose}
+          onEdit={handleEdit}
+          onShare={handleShare}
+          isSharing={isSharing}
+          onDeploy={handleDeploy}
+          isDeploying={isDeploying}
+          enableFullscreen
+        />
+      </div>
       <DeployDialogs
           assistantId={assistantId}
           onStartConversation={handleStartConversation}

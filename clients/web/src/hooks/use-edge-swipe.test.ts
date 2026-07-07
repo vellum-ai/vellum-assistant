@@ -6,7 +6,7 @@ import {
   decideDirection,
   isCommitted,
   isVerticalEscape,
-} from "@/hooks/use-edge-swipe-back";
+} from "@/hooks/use-edge-swipe";
 
 describe("commitThresholdPx", () => {
   test("uses the fixed px ceiling on wide viewports", () => {
