@@ -11320,6 +11320,76 @@ paths:
       responses:
         "204":
           description: Successful response
+  /v1/events/tail:
+    get:
+      operationId: events_tail_get
+      summary: Fetch a conversation's buffered event tail
+      description:
+        Return the ring-buffered assistant events for one conversation with seq greater than fromSeq — the
+        request/response twin of reconnecting the SSE stream with lastSeenSeq. A client recovering from a delivery gap
+        fetches the /messages snapshot (anchored at its seq watermark) and then this tail from that anchor, folding the
+        returned envelopes through the same apply path as live events; snapshot plus tail is deterministically complete.
+        complete=false means the ring no longer reaches back to fromSeq and the snapshot alone must serve as the
+        recovery.
+      tags:
+        - events
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Assistant-minted internal conversation id whose events to return. Required.
+        - name: fromSeq
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            Return buffered events with seq strictly greater than this value — typically the seq watermark of a
+            just-fetched /messages snapshot. Must be a non-negative integer.
+        - name: toSeq
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            Optional inclusive upper bound on returned seqs. A caller that already knows where its live delivery
+            resumed (e.g. the first live event after a gap) can trim the response to exactly the hole. Purely a
+            bandwidth trim — client folds are seq-idempotent, so overlap with live delivery is harmless without it. Must
+            be an integer >= fromSeq.
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items: {}
+                    description:
+                      Buffered assistant event envelopes ({id, conversationId, emittedAt, seq, message}) with seq > fromSeq,
+                      ascending, filtered to the conversation and to the caller's delivery set (client identity
+                      headers). Same wire shape as the /events SSE data frames.
+                  complete:
+                    type: boolean
+                    description:
+                      True when the ring still covered fromSeq, so the returned events are the contiguous tail. False when
+                      eviction broke contiguity — events is empty and the caller must recover from the snapshot alone.
+                  frontier:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Seq of the last returned event (or fromSeq when the tail is empty but contiguous). Null when complete is
+                      false.
+                required:
+                  - events
+                  - complete
+                  - frontier
+                additionalProperties: false
   /v1/export:
     post:
       operationId: export_post
@@ -28597,7 +28667,8 @@ paths:
         skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present
         but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools
         available to that conversation as of its most recent turn (including skill/MCP tools registered over its
-        lifecycle); 404 if no such conversation is active."
+        lifecycle); 404 if no such conversation is active. With `agent`, simulates the subagent tool projection for a
+        given role or resolves a live subagent's conversation."
       tags:
         - tools
       parameters:
@@ -28607,6 +28678,14 @@ paths:
           schema:
             type: string
           description: When set, scope the tool inventory to this conversation's most recent turn instead of the global registry.
+        - name: agent
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            A subagent role name or a live subagent id. Simulates the subagent tool projection for that role or
+            resolves the live subagent's conversation.
       responses:
         "200":
           description: Successful response

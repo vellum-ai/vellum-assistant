@@ -1,12 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -36,7 +28,7 @@ import { loadRawConfig, saveRawConfig } from "../config/loader.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
-import { startScheduler } from "../schedule/scheduler.js";
+import { runScheduleDueWorkOnce } from "../schedule/scheduler.js";
 
 await initializeDb();
 
@@ -61,26 +53,7 @@ function forceScheduleDue(scheduleId: string): void {
   ]);
 }
 
-// Replace setTimeout with a fast-forward version so the scheduler
-// wait calls fire quickly instead of waiting real time.
-let origSetTimeout: typeof globalThis.setTimeout;
-
 describe("scheduler wake mode", () => {
-  beforeAll(() => {
-    origSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = ((
-      fn: TimerHandler,
-      _ms?: number,
-      ...args: unknown[]
-    ) => {
-      return origSetTimeout(fn, 200, ...args);
-    }) as typeof setTimeout;
-  });
-
-  afterAll(() => {
-    globalThis.setTimeout = origSetTimeout;
-  });
-
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM cron_runs");
@@ -105,9 +78,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    const scheduler = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN wakeAgentForOpportunity is called with the correct arguments
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
@@ -140,9 +111,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    const scheduler = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN wakeAgentForOpportunity is NOT called
     expect(mockWakeAgentForOpportunity).not.toHaveBeenCalled();
@@ -171,9 +140,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    const scheduler = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN the one-shot is marked as completed (status = 'fired')
     const row = getRawDb()
@@ -196,9 +163,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    const scheduler = startScheduler();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN the one-shot is reverted to 'active' for retry (failOneShot behavior)
     const row = getRawDb()
@@ -229,10 +194,8 @@ describe("scheduler wake mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    const scheduler = startScheduler();
-
-    // WHEN the first tick runs (fires immediately from startScheduler)
-    await new Promise((resolve) => origSetTimeout(resolve, 600));
+    // WHEN the first tick runs
+    await runScheduleDueWorkOnce();
 
     // THEN the job is NOT completed — it's reverted to 'active' for retry
     const rowAfterFirst = getRawDb()
@@ -241,9 +204,8 @@ describe("scheduler wake mode", () => {
     expect(rowAfterFirst?.status).toBe("active");
     expect(rowAfterFirst?.retry_count).toBe(1);
 
-    // WHEN the second tick fires (call runOnce directly to avoid waiting for setInterval)
-    await scheduler.runOnce();
-    scheduler.stop();
+    // WHEN the second tick fires
+    await runScheduleDueWorkOnce();
 
     // THEN the job IS completed (status = 'fired')
     const rowAfterSecond = getRawDb()
@@ -277,10 +239,8 @@ describe("scheduler wake mode", () => {
       schedule.id,
     ]);
 
-    // WHEN the scheduler fires (first tick runs immediately from startScheduler)
-    const scheduler = startScheduler();
-    await new Promise((resolve) => origSetTimeout(resolve, 600));
-    scheduler.stop();
+    // WHEN the scheduler fires
+    await runScheduleDueWorkOnce();
 
     // THEN the job is permanently failed (status = 'cancelled', enabled = false)
     const row = getRawDb()

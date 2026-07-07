@@ -1,11 +1,10 @@
 /**
  * Pins the eviction primitives hook live-reload is built on, driven through
- * the production import machinery (`preImportHooksDir` →
- * `collectUserHookEntries`), one layer below the sentinel-driven reconcile
- * that orchestrates them in production (see `../../plugins/mtime-cache.ts`
- * and its end-to-end suite).
+ * the production resolution path (`resolveHook` behind `collectUserHookEntries`),
+ * one layer below the sentinel-driven reconcile that orchestrates them in
+ * production (see `../../plugins/mtime-cache.ts` and its end-to-end suite).
  *
- * Two invariants live here:
+ * Three invariants live here:
  *
  * 1. **The Bun primitive.** Deleting a file's `require.cache` entry makes
  *    the next dynamic `import()` re-evaluate it from disk. This is
@@ -14,10 +13,15 @@
  *    Bun upgrade that breaks it must fail here rather than silently degrade
  *    hook edits back to restart-required.
  *
- * 2. **Whole-owner eviction.** Evicting only a hook's own module re-binds
+ * 2. **Whole-plugin module sweep.** Evicting only a hook's own module re-binds
  *    the re-imported hook to its stale cached helpers. The reconcile sweeps
  *    every path in the plugin for exactly this reason, and this suite pins
  *    the failure mode that rule prevents.
+ *
+ * 3. **Negative caching.** A hook an owner doesn't define resolves to a cached
+ *    absence, so it is stat'd once rather than re-stat'd every dispatch; the
+ *    absence only lifts when the owner is evicted (as the reconcile does on a
+ *    source change).
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -30,7 +34,6 @@ import type { HookEntry } from "../../plugins/types.js";
 import {
   collectUserHookEntries,
   evictHooksForOwner,
-  preImportHooksDir,
   resetHookCacheForTests,
 } from "../hook-loader.js";
 
@@ -58,18 +61,15 @@ function makePlugin(): { dir: string; hooksDir: string; name: string } {
 }
 
 /**
- * Redeploy an owner's hooks the way the reconcile does: drop its cache
- * entries, sweep the given module paths, and re-import from disk.
+ * Redeploy an owner's hooks the way the reconcile does: drop its cached
+ * resolutions and sweep the given module paths. The next read re-resolves
+ * from disk.
  */
-async function redeploy(
-  plugin: { hooksDir: string; name: string },
-  modulePaths: string[],
-): Promise<void> {
-  evictHooksForOwner(plugin.name);
+function redeploy(plugin: { name: string }, modulePaths: string[]): void {
+  evictHooksForOwner("plugin", plugin.name);
   for (const path of modulePaths) {
     evictModule(path);
   }
-  await preImportHooksDir(plugin.hooksDir, plugin.name);
 }
 
 /** Collect and run the single expected hook, returning its result. */
@@ -89,7 +89,6 @@ describe("hook reload primitives", () => {
     const plugin = makePlugin();
     const hookPath = join(plugin.hooksDir, `${HOOK_NAME}.ts`);
     writeFileSync(hookPath, `export default () => "v1";\n`);
-    await preImportHooksDir(plugin.hooksDir, plugin.name);
     expect(await dispatchOne(plugin)).toBe("v1");
 
     // Two edit → redeploy cycles: the first proves the primitive, the
@@ -99,7 +98,7 @@ describe("hook reload primitives", () => {
         hookPath,
         `export default () => ${JSON.stringify(marker)};\n`,
       );
-      await redeploy(plugin, [hookPath]);
+      redeploy(plugin, [hookPath]);
       expect(await dispatchOne(plugin)).toBe(marker);
     }
   });
@@ -110,7 +109,6 @@ describe("hook reload primitives", () => {
       join(plugin.hooksDir, `${HOOK_NAME}.ts`),
       `export default () => "stable";\n`,
     );
-    await preImportHooksDir(plugin.hooksDir, plugin.name);
 
     const first = await collectUserHookEntries(HOOK_NAME, [
       [plugin.dir, plugin.name],
@@ -119,7 +117,8 @@ describe("hook reload primitives", () => {
       [plugin.dir, plugin.name],
     ]);
 
-    // Same function instance: dispatch is a map lookup, not an import.
+    // Same function instance: the second dispatch is a map lookup, not an
+    // import.
     expect(second[0]!.fn).toBe(first[0]!.fn);
   });
 
@@ -132,7 +131,6 @@ describe("hook reload primitives", () => {
       hookPath,
       `import { value } from "../lib/helper.ts";\nexport default () => value;\n`,
     );
-    await preImportHooksDir(plugin.hooksDir, plugin.name);
     expect(await dispatchOne(plugin)).toBe("h1");
 
     writeFileSync(helperPath, `export const value = "h2";\n`);
@@ -140,25 +138,25 @@ describe("hook reload primitives", () => {
     // Partial eviction — the hook file only. The re-evaluated hook binds to
     // the helper module still cached at h1: the version-skew failure mode
     // whole-plugin sweeping exists to prevent.
-    await redeploy(plugin, [hookPath]);
+    redeploy(plugin, [hookPath]);
     expect(await dispatchOne(plugin)).toBe("h1");
 
     // The full sweep (hook + helper, as the reconcile's eviction list would
     // carry) brings the edit through.
-    await redeploy(plugin, [hookPath, helperPath]);
+    redeploy(plugin, [hookPath, helperPath]);
     expect(await dispatchOne(plugin)).toBe("h2");
   });
 
-  test("concurrent first reads of an owner share one load, not an empty cache", async () => {
+  test("concurrent first reads of a hook share one import", async () => {
     const plugin = makePlugin();
     writeFileSync(
       join(plugin.hooksDir, `${HOOK_NAME}.ts`),
       `export default () => "shared";\n`,
     );
 
-    // Two reads race before the owner is loaded. The load memo must make the
-    // second await the first's import instead of seeing "loaded" and reading a
-    // half-filled cache — otherwise the second read returns zero hooks.
+    // Two reads race before the hook is resolved. The resolution memo must make
+    // both await one import and get the same function instance — not import
+    // twice, and not have one read a not-yet-populated entry.
     const [first, second] = await Promise.all([
       collectUserHookEntries(HOOK_NAME, [[plugin.dir, plugin.name]]),
       collectUserHookEntries(HOOK_NAME, [[plugin.dir, plugin.name]]),
@@ -169,15 +167,37 @@ describe("hook reload primitives", () => {
     expect(second[0]!.fn).toBe(first[0]!.fn);
   });
 
-  test("re-import after owner eviction drops hooks whose files are gone", async () => {
+  test("an absent hook is cached negative until the owner is evicted", async () => {
+    const plugin = makePlugin();
+    const hookPath = join(plugin.hooksDir, `${HOOK_NAME}.ts`);
+
+    // Owner defines no such hook yet — resolves absent, and the absence is
+    // cached.
+    expect(
+      await collectUserHookEntries(HOOK_NAME, [[plugin.dir, plugin.name]]),
+    ).toHaveLength(0);
+
+    // Adding the file without an eviction does not lift the cached absence:
+    // the negative entry is a hit, so the new file is not re-stat'd.
+    writeFileSync(hookPath, `export default () => "added";\n`);
+    expect(
+      await collectUserHookEntries(HOOK_NAME, [[plugin.dir, plugin.name]]),
+    ).toHaveLength(0);
+
+    // Evicting the owner (as the reconcile does on a source change) clears the
+    // negative entry, so the next read picks the hook up.
+    evictHooksForOwner("plugin", plugin.name);
+    expect(await dispatchOne(plugin)).toBe("added");
+  });
+
+  test("re-resolve after owner eviction drops hooks whose files are gone", async () => {
     const plugin = makePlugin();
     const hookPath = join(plugin.hooksDir, `${HOOK_NAME}.ts`);
     writeFileSync(hookPath, `export default () => "here";\n`);
-    await preImportHooksDir(plugin.hooksDir, plugin.name);
     expect(await dispatchOne(plugin)).toBe("here");
 
     rmSync(hookPath);
-    await redeploy(plugin, [hookPath]);
+    redeploy(plugin, [hookPath]);
 
     const entries = await collectUserHookEntries(HOOK_NAME, [
       [plugin.dir, plugin.name],

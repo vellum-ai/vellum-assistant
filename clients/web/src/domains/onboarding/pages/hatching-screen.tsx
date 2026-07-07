@@ -19,7 +19,7 @@ import {
     writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
-import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant } from "@/lib/local-mode";
+import { getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
@@ -350,27 +350,11 @@ export function HatchingScreen() {
           transitionPhase("connecting");
           let gatewayReady = false;
           while (!cancelled && !gatewayReady) {
-            const gatewayUrl = getLocalGatewayUrl();
-            if (gatewayUrl) {
-              try {
-                const res = await fetch(`${gatewayUrl}/readyz`);
-                if (res.ok) {
-                  const body: unknown = await res.json();
-                  if (
-                    body &&
-                    typeof body === "object" &&
-                    "status" in body &&
-                    body.status === "ok"
-                  ) {
-                    clearGatewayToken();
-                    await primeLocalGatewayConnection();
-                    gatewayReady = true;
-                    break;
-                  }
-                }
-              } catch {
-                // Gateway not ready yet
-              }
+            if (await probeLocalGatewayReady()) {
+              clearGatewayToken();
+              await primeLocalGatewayConnection();
+              gatewayReady = true;
+              break;
             }
             if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
               // The hatch succeeded but the gateway never went healthy. We never

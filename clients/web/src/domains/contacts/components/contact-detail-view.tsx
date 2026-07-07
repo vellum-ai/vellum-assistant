@@ -7,6 +7,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { DetailCard } from "@/components/detail-card";
 import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
+import type { ChannelProvenanceMap } from "@/domains/contacts/hooks/use-channel-provenance";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
 
 interface ContactDetailViewProps {
@@ -18,6 +19,7 @@ interface ContactDetailViewProps {
   canMerge?: boolean;
   availableChannels?: ChannelInfo[];
   a2aEnabled?: boolean;
+  channelProvenance?: ChannelProvenanceMap;
   onSave: (patch: { displayName: string; notes: string }) => void;
   onDelete: () => void;
   onMerge?: () => void;
@@ -39,6 +41,7 @@ function ContactDetailViewInner({
   canMerge = false,
   availableChannels,
   a2aEnabled,
+  channelProvenance,
   onSave,
   onDelete,
   onMerge,
@@ -162,6 +165,7 @@ function ContactDetailViewInner({
           contactChannels={contact.channels}
           availableChannels={availableChannels}
           a2aEnabled={a2aEnabled}
+          channelProvenance={channelProvenance}
           verifyLoading={verifyPending}
           verifySubject="contact"
           onSetupChannel={onSetupChannel}

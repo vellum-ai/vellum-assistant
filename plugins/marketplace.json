@@ -172,6 +172,18 @@
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/travel-planner",
       "license": "MIT"
+    },
+    {
+      "name": "astrology-horoscope",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/astrology-horoscope",
+        "ref": "d226ce2e0a021e12cbf89ca7313f7c76a0bd8e39"
+      },
+      "description": "Western tropical natal chart and transit computation. Local ephemeris (astronomy-engine, no API keys) for planet positions, ascendant/midheaven, whole-sign houses, and aspects, plus a natal-reading skill that interprets the raw chart into a readable report.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/astrology-horoscope",
+      "license": "MIT"
     }
   ]
 }

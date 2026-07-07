@@ -67,6 +67,11 @@ afterAll(() => {
   mock.restore();
 });
 
+import {
+  MANAGED_PROFILE_NAMES,
+  materializeProfile,
+  OS_BETA_PROFILE_TEMPLATE,
+} from "../config/default-profile-catalog.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import {
   deepMergeOverwrite,
@@ -75,12 +80,7 @@ import {
   loadConfig,
   mergeDefaultWorkspaceConfig,
 } from "../config/loader.js";
-import {
-  MANAGED_PROFILE_NAMES,
-  materializeProfile,
-  OS_BETA_PROFILE_TEMPLATE,
-  seedInferenceProfiles,
-} from "../config/seed-inference-profiles.js";
+import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import type { DrizzleDb } from "../persistence/db-connection.js";
 import { migrateCreateProviderConnections } from "../persistence/migrations/243-provider-connections.js";
 import { migrateProviderConnectionStatusLabel } from "../persistence/migrations/244-provider-connection-status-label.js";
@@ -1191,7 +1191,8 @@ describe("loadConfig startup behavior", () => {
     const config = loadConfig();
     const mainAgentConfig = resolveCallSiteConfig("mainAgent", config.llm);
 
-    // Hatch boot: overlay fragment is preserved verbatim (preserveProfileNames).
+    // Hatch boot: overlay fragment is preserved verbatim on disk
+    // (preserveProfileNames).
     expect(config.llm.activeProfile).toBe("balanced");
     expect(config.llm.profiles.balanced).toEqual({
       source: "managed",
@@ -1199,8 +1200,13 @@ describe("loadConfig startup behavior", () => {
       model: "gpt-5.4",
       label: "Platform Balanced",
     });
-    expect(mainAgentConfig.provider).toBe("openai");
-    expect(mainAgentConfig.model).toBe("gpt-5.4");
+    // Resolution serves default-profile CONTENT from the code catalog: a
+    // managed-source workspace entry contributes only label/status/topP, so
+    // the overlay's provider/model never reach the resolver — even on the
+    // overlay boot. The overlay-set label is what survives into the
+    // effective view.
+    expect(mainAgentConfig.provider).toBe("fireworks");
+    expect(mainAgentConfig.model).toBe("accounts/fireworks/models/glm-5p2");
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     expect(raw.llm.profiles.balanced).toEqual({

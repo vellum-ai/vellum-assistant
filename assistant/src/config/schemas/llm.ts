@@ -498,6 +498,10 @@ export const LLMSchema = z
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {
+    // Default profile CONTENT is code-defined (`default-profile-catalog.ts`),
+    // but a default resolves only while the seeder has materialized its
+    // workspace entry — so references are validated against `llm.profiles`
+    // alone.
     const profileNames = new Set(Object.keys(config.profiles ?? {}));
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
       if (siteConfig?.profile == null) continue;
