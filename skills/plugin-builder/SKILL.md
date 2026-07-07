@@ -125,7 +125,7 @@ Below the header, write whatever sections make sense for your plugin. The header
 
 ### Example
 
-See the [travel-planner README](https://github.com/AnitaKirkovska/travel-planner#readme) for a reference implementation.
+See the [travel-planner README](https://example.com/your-plugin#readme) for a reference implementation.
 
 ## Verify before shipping## Verify before shipping
 
