@@ -31,8 +31,8 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import type { ConversationDeletedInputContext } from "../hooks/types.js";
 import { HOOKS } from "../plugin-api/constants.js";
+import { forkConversationMemory } from "../plugins/defaults/memory/fork-conversation-memory.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
-import { memoryPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks.js";
 import { runHook } from "../plugins/pipeline.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
@@ -1225,7 +1225,7 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
   // Carry the parent's per-conversation memory state into the child (activation
   // and injection logs, graph state, retrospective state). Runs synchronously
   // inside the fork transaction; a no-op when memory is absent or disabled.
-  memoryPersistenceHooks.onConversationForked({
+  forkConversationMemory({
     db,
     sourceConversationId,
     forkId: fork.id,
