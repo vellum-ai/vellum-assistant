@@ -121,12 +121,13 @@ describe("ElevenLabs catalog entry", () => {
     expect(entry.callMode).toBe("native-twilio");
   });
 
-  test("does not support streaming", () => {
-    expect(entry.capabilities.supportsStreaming).toBe(false);
+  test("supports streaming", () => {
+    expect(entry.capabilities.supportsStreaming).toBe(true);
   });
 
-  test("supports mp3 format", () => {
+  test("supports mp3 and pcm formats", () => {
     expect(entry.capabilities.supportedFormats).toContain("mp3");
+    expect(entry.capabilities.supportedFormats).toContain("pcm");
   });
 
   test("plays over media-stream via PCM output", () => {

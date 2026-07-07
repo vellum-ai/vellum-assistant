@@ -209,10 +209,15 @@ describe("ElevenLabs TTS provider adapter", () => {
     expect(provider.id).toBe("elevenlabs");
   });
 
-  test("advertises mp3 and pcm format support without streaming", () => {
+  test("advertises mp3 and pcm format support with streaming", () => {
     const provider = createElevenLabsProvider();
-    expect(provider.capabilities.supportsStreaming).toBe(false);
+    expect(provider.capabilities.supportsStreaming).toBe(true);
     expect(provider.capabilities.supportedFormats).toEqual(["mp3", "pcm"]);
+  });
+
+  test("implements synthesizeStream", () => {
+    const provider = createElevenLabsProvider();
+    expect(typeof provider.synthesizeStream).toBe("function");
   });
 
   // -- Request mapping -----------------------------------------------------
@@ -300,6 +305,226 @@ describe("ElevenLabs TTS provider adapter", () => {
 
     const body = JSON.parse(capturedBody);
     expect(body.model_id).toBe("eleven_turbo_v2_5");
+  });
+
+  test("synthesize defaults to eleven_multilingual_v2 model", async () => {
+    const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesize(makeRequest());
+
+    const body = JSON.parse(capturedBody);
+    expect(body.model_id).toBe("eleven_multilingual_v2");
+  });
+
+  // -- PCM sample-rate mapping ----------------------------------------------
+
+  test("pcm output with sampleRateHz 24000 requests pcm_24000", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    const result = await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 24000 }),
+    );
+
+    expect(capturedUrl).toContain("output_format=pcm_24000");
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("pcm output without sampleRateHz defaults to pcm_16000", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesize(makeRequest({ outputFormat: "pcm" }));
+
+    expect(capturedUrl).toContain("output_format=pcm_16000");
+  });
+
+  test("pcm output with unmatched sampleRateHz falls back to pcm_16000", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 8000 }),
+    );
+
+    expect(capturedUrl).toContain("output_format=pcm_16000");
+  });
+
+  // -- Streaming -------------------------------------------------------------
+
+  function streamOf(...parts: Uint8Array[]): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(part);
+        controller.close();
+      },
+    });
+  }
+
+  test("synthesizeStream reads chunks from the /stream endpoint and concatenates them", async () => {
+    const part1 = new Uint8Array([0x01, 0x02]);
+    const part2 = new Uint8Array([0x03]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(streamOf(part1, part2), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const received: Uint8Array[] = [];
+    const provider = createElevenLabsProvider();
+    const result = await provider.synthesizeStream!(
+      makeRequest({ outputFormat: "pcm" }),
+      (chunk) => received.push(chunk),
+    );
+
+    expect(capturedUrl).toContain(
+      "/v1/text-to-speech/test-voice-id/stream?output_format=pcm_16000",
+    );
+    expect(received).toEqual([part1, part2]);
+    expect(result.audio).toEqual(Buffer.from([0x01, 0x02, 0x03]));
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("synthesizeStream defaults to eleven_flash_v2_5 model", async () => {
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(streamOf(new Uint8Array([0x01])), { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesizeStream!(makeRequest(), () => {});
+
+    const body = JSON.parse(capturedBody);
+    expect(body.model_id).toBe("eleven_flash_v2_5");
+  });
+
+  test("synthesizeStream respects configured voiceModelId over flash default", async () => {
+    mockElevenLabsConfig.voiceModelId = "eleven_turbo_v2_5";
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(streamOf(new Uint8Array([0x01])), { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesizeStream!(makeRequest(), () => {});
+
+    const body = JSON.parse(capturedBody);
+    expect(body.model_id).toBe("eleven_turbo_v2_5");
+  });
+
+  test("synthesizeStream throws ELEVENLABS_TTS_EMPTY_RESPONSE on null body", async () => {
+    globalThis.fetch = mock(
+      async () => new Response(null, { status: 200 }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+
+    try {
+      await provider.synthesizeStream!(makeRequest(), () => {});
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ElevenLabsTtsError);
+      expect((err as ElevenLabsTtsError).code).toBe(
+        "ELEVENLABS_TTS_EMPTY_RESPONSE",
+      );
+    }
+  });
+
+  test("synthesizeStream throws ELEVENLABS_TTS_EMPTY_RESPONSE on zero-byte stream", async () => {
+    globalThis.fetch = mock(
+      async () => new Response(streamOf(), { status: 200 }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+
+    try {
+      await provider.synthesizeStream!(makeRequest(), () => {});
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ElevenLabsTtsError);
+      expect((err as ElevenLabsTtsError).code).toBe(
+        "ELEVENLABS_TTS_EMPTY_RESPONSE",
+      );
+    }
+  });
+
+  test("synthesizeStream surfaces upstream error message on HTTP error", async () => {
+    mockFetchError(
+      402,
+      JSON.stringify({ detail: { message: "Quota exceeded" } }),
+    );
+
+    const provider = createElevenLabsProvider();
+
+    try {
+      await provider.synthesizeStream!(makeRequest(), () => {});
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ElevenLabsTtsError);
+      expect((err as ElevenLabsTtsError).code).toBe(
+        "ELEVENLABS_TTS_HTTP_ERROR",
+      );
+      expect((err as ElevenLabsTtsError).statusCode).toBe(402);
+      expect((err as ElevenLabsTtsError).message).toBe("Quota exceeded");
+    }
+  });
+
+  test("synthesizeStream propagates AbortError unmodified", async () => {
+    globalThis.fetch = mock(async () => {
+      const abortError = new Error("The operation was aborted");
+      abortError.name = "AbortError";
+      throw abortError;
+    }) as unknown as typeof globalThis.fetch;
+
+    const controller = new AbortController();
+    const provider = createElevenLabsProvider();
+
+    try {
+      await provider.synthesizeStream!(
+        makeRequest({ signal: controller.signal }),
+        () => {},
+      );
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).not.toBeInstanceOf(ElevenLabsTtsError);
+      expect((err as Error).name).toBe("AbortError");
+    }
   });
 
   // -- Content type / format -----------------------------------------------
