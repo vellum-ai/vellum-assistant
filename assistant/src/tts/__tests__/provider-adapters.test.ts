@@ -343,7 +343,6 @@ describe("ElevenLabs TTS provider adapter", () => {
 
     expect(capturedUrl).toContain("output_format=pcm_24000");
     expect(result.contentType).toBe("audio/pcm");
-    expect(result.sampleRateHz).toBe(24000);
   });
 
   test("pcm output without sampleRateHz defaults to pcm_16000", async () => {
@@ -376,17 +375,6 @@ describe("ElevenLabs TTS provider adapter", () => {
     );
 
     expect(capturedUrl).toContain("output_format=pcm_16000");
-  });
-
-  test("pcm request at an unsupported 48000 Hz reports the actual 16000 Hz output rate", async () => {
-    mockFetchReturning(new Uint8Array([0x00, 0x01]));
-
-    const provider = createElevenLabsProvider();
-    const result = await provider.synthesize(
-      makeRequest({ outputFormat: "pcm", sampleRateHz: 48000 }),
-    );
-
-    expect(result.sampleRateHz).toBe(16000);
   });
 
   test("resolveOutputSampleRateHz reports the actual PCM rate without synthesis", () => {
@@ -439,7 +427,6 @@ describe("ElevenLabs TTS provider adapter", () => {
     expect(received).toEqual([part1, part2]);
     expect(result.audio).toEqual(Buffer.from([0x01, 0x02, 0x03]));
     expect(result.contentType).toBe("audio/pcm");
-    expect(result.sampleRateHz).toBe(16000);
   });
 
   test("synthesizeStream rejects after the first-chunk timeout when the stream never produces audio", async () => {
@@ -611,7 +598,7 @@ describe("ElevenLabs TTS provider adapter", () => {
 
   // -- Content type / format -----------------------------------------------
 
-  test("returns audio/mpeg content type for mp3 format without a sample rate", async () => {
+  test("returns audio/mpeg content type for mp3 format", async () => {
     const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
     mockFetchReturning(audioPayload);
 
@@ -620,7 +607,6 @@ describe("ElevenLabs TTS provider adapter", () => {
 
     expect(result.contentType).toBe("audio/mpeg");
     expect(result.audio.byteLength).toBeGreaterThan(0);
-    expect(result.sampleRateHz).toBeUndefined();
   });
 
   // -- Required config validation ------------------------------------------
@@ -850,12 +836,11 @@ describe("Fish Audio TTS provider adapter", () => {
       16000,
     );
     expect(result.contentType).toBe("audio/pcm");
-    expect(result.sampleRateHz).toBe(16000);
   });
 
   test("pcm output request honors the sampleRateHz hint", async () => {
     const provider = createFishAudioProvider();
-    const result = await provider.synthesize(
+    await provider.synthesize(
       makeRequest({ outputFormat: "pcm", sampleRateHz: 24000 }),
     );
 
@@ -864,7 +849,6 @@ describe("Fish Audio TTS provider adapter", () => {
     expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
       24000,
     );
-    expect(result.sampleRateHz).toBe(24000);
   });
 
   test("synthesizeStream pcm output request maps to raw pcm honoring the hint", async () => {
@@ -880,7 +864,6 @@ describe("Fish Audio TTS provider adapter", () => {
       24000,
     );
     expect(result.contentType).toBe("audio/pcm");
-    expect(result.sampleRateHz).toBe(24000);
   });
 
   test("resolveOutputSampleRateHz passes the pcm hint through and is undefined otherwise", () => {
@@ -964,12 +947,11 @@ describe("Fish Audio TTS provider adapter", () => {
     expect(result.contentType).toBe("audio/mpeg");
   });
 
-  test("returns audio/wav content type for wav format without a sample rate", async () => {
+  test("returns audio/wav content type for wav format", async () => {
     mockFishAudioConfig.format = "wav";
     const provider = createFishAudioProvider();
     const result = await provider.synthesize(makeRequest());
     expect(result.contentType).toBe("audio/wav");
-    expect(result.sampleRateHz).toBeUndefined();
   });
 
   test("returns audio/opus content type for opus format", async () => {

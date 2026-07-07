@@ -148,7 +148,7 @@ async function performSynthesis(
 
   const contentType = FORMAT_CONTENT_TYPE[effectiveFormat] ?? "audio/mpeg";
 
-  return { audio, contentType, sampleRateHz };
+  return { audio, contentType };
 }
 
 export function createFishAudioProvider(): TtsProvider {

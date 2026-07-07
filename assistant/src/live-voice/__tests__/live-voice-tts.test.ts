@@ -348,7 +348,6 @@ describe("streamLiveVoiceTtsAudio", () => {
         return {
           audio: Buffer.from("pcm-one!"),
           contentType: "audio/pcm",
-          sampleRateHz: 16_000,
         };
       },
     });
