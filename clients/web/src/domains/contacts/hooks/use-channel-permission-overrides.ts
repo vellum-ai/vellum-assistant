@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   CHANNEL_TIER_CONTACT_TYPES,
-  defaultTierFromCells,
   tierOverridesFromCells,
   type SlackCapabilityTier,
 } from "@/domains/contacts/slack-channel-overrides";
@@ -15,9 +14,10 @@ import {
 import {
   assistantChannelPermissionOverrideDelete,
   assistantChannelPermissionOverrideSet,
+  assistantChannelPermissionResolve,
 } from "@/generated/gateway/sdk.gen";
 import type { AssistantChannelPermissionOverridesListResponse } from "@/generated/gateway/types.gen";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useSupportsChannelAccessControls } from "@/lib/backwards-compat/channel-access-controls";
 import { toastOnError } from "@/utils/mutation-error";
 
 type CellList = AssistantChannelPermissionOverridesListResponse;
@@ -25,20 +25,28 @@ type Cell = CellList["cells"][number];
 type WireCell = Omit<Cell, "updatedAt">;
 
 export interface ChannelPermissionOverridesController {
-  /** Persisted tier per channel external id, or `undefined` while the feature is off. */
+  /**
+   * False when the connected assistant predates the gateway's
+   * channel-permission routes — the caller renders without access
+   * controls instead of a dead error state.
+   */
+  supported: boolean;
+  /** Persisted tier per channel external id, or `undefined` while unsupported. */
   tierOverrides?: Record<string, SlackCapabilityTier>;
   /**
-   * Winning broader-scope cell per room kind (the default a cell-less
-   * channel of that type resolves to before the global thresholds).
-   * `null` per kind when no broader cell exists.
+   * The gateway-resolved default for cell-less rooms: the winning
+   * broader-scope cell's threshold, queried with the same coordinates the
+   * runtime evaluator uses for this adapter's rooms (no conversation
+   * type). `null` when no cell matches (the global thresholds apply);
+   * `undefined` while loading or unsupported.
    */
-  typeDefaults?: Record<"public" | "private", SlackCapabilityTier | null>;
+  defaultCellTier?: SlackCapabilityTier | null;
   /** Channels with a cell write/delete in flight. */
   pendingChannelIds: ReadonlySet<string>;
   /** True until the cells have loaded at least once. */
   isLoading: boolean;
   isError: boolean;
-  /** Persist a tier as channel-ID cells, or `undefined` when the feature is off. */
+  /** Persist a tier as channel-ID cells, or `undefined` while unsupported. */
   onTierChange?: (channelExternalId: string, tier: SlackCapabilityTier) => void;
   /** Delete the channel's cells so the next cascade tier up wins. */
   onTierReset?: (channelExternalId: string) => void;
@@ -74,8 +82,9 @@ function isChannelCell(
  * list: reads the gateway's channel-permission cells and writes/deletes
  * channel-ID-tier cells (one per non-guardian contact-type). Optimistic —
  * the cell cache is patched immediately, rolled back and toasted on
- * failure, and revalidated on settle. Reads the `channelTrustFloors` flag
- * itself; when off it returns no overrides and no handlers.
+ * failure, and revalidated on settle. Version-gated itself (see
+ * `lib/backwards-compat/channel-access-controls.ts`); against an older
+ * assistant it reports `supported: false` with no overrides or handlers.
  *
  * The adapter is a parameter so Telegram/Phone room lists reuse this hook
  * unchanged when they land.
@@ -88,7 +97,8 @@ export function useChannelPermissionOverrides({
   adapter: string;
 }): ChannelPermissionOverridesController {
   const queryClient = useQueryClient();
-  const enabled = useAssistantFeatureFlagStore.use.channelTrustFloors();
+  const supported = useSupportsChannelAccessControls();
+  const enabled = supported && Boolean(assistantId);
 
   const pathOptions = useMemo(
     () => ({ path: { assistant_id: assistantId } }),
@@ -101,14 +111,28 @@ export function useChannelPermissionOverrides({
 
   const query = useQuery({
     ...assistantChannelPermissionOverridesListOptions(pathOptions),
-    enabled: enabled && Boolean(assistantId),
-    select: (data) => ({
-      tierOverrides: tierOverridesFromCells(data.cells, adapter),
-      typeDefaults: {
-        public: defaultTierFromCells(data.cells, adapter, "public"),
-        private: defaultTierFromCells(data.cells, adapter, "private"),
-      },
-    }),
+    enabled,
+    select: (data) => tierOverridesFromCells(data.cells, adapter),
+  });
+
+  // The default a cell-less room falls through to, resolved by the gateway
+  // (the same resolver the runtime evaluator uses over IPC) with the same
+  // coordinates the evaluator queries for this adapter's rooms — no
+  // conversation type, so broader-scope cells apply exactly as they would
+  // at tool time. POST-with-body read; the generated SDK has no query
+  // factory for it, so the queryFn calls the SDK directly.
+  const defaultQuery = useQuery({
+    queryKey: ["channel-permission-resolve", assistantId, adapter],
+    queryFn: async () => {
+      const { data } = await assistantChannelPermissionResolve({
+        ...pathOptions,
+        body: { adapter, contactType: "trusted_contact" },
+        throwOnError: true,
+      });
+      return data.resolved?.threshold ?? null;
+    },
+    enabled,
+    staleTime: 30_000,
   });
 
   // Optimistically replace the channel's cells in the cached list, snapshot
@@ -210,8 +234,9 @@ export function useChannelPermissionOverrides({
 
   if (!enabled) {
     return {
+      supported: false,
       tierOverrides: undefined,
-      typeDefaults: undefined,
+      defaultCellTier: undefined,
       pendingChannelIds: new Set(),
       isLoading: false,
       isError: false,
@@ -221,8 +246,9 @@ export function useChannelPermissionOverrides({
   }
 
   return {
-    tierOverrides: query.data?.tierOverrides,
-    typeDefaults: query.data?.typeDefaults,
+    supported: true,
+    tierOverrides: query.data,
+    defaultCellTier: defaultQuery.data,
     pendingChannelIds,
     isLoading: query.isPending,
     isError: query.isError,
@@ -230,7 +256,7 @@ export function useChannelPermissionOverrides({
       setMutation.mutate({ channelExternalId, tier }),
     onTierReset: (channelExternalId) => {
       // Skip the round-trip when nothing is persisted for the channel.
-      if (query.data?.tierOverrides[channelExternalId] === undefined) {
+      if (query.data?.[channelExternalId] === undefined) {
         return;
       }
       deleteMutation.mutate({ channelExternalId });

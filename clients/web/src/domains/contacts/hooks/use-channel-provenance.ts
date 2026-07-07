@@ -9,7 +9,6 @@ import {
   type ChannelPolicyView,
 } from "@/lib/channel-admission-policy/types";
 import { toChannelPolicyViews } from "@/lib/channel-admission-policy/api";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 export type ChannelProvenanceMap = Partial<
   Record<SetupChannelId, CascadeProvenance>
@@ -51,9 +50,7 @@ function selectChannelProvenance(
  * Per-channel cascade provenance for the contact detail's channel rows —
  * whether each setup channel's admission floor comes from the global default
  * or a channel-level default set on the Channels tab (see
- * {@link deriveChannelProvenance} for the decision rule). Reads the
- * `channelTrustFloors` flag itself; when off it returns `undefined`, which
- * hides the provenance pill entirely.
+ * {@link deriveChannelProvenance} for the decision rule).
  *
  * Spreads the generated `assistantChannelAdmissionPolicyListOptions` so it
  * shares the generated query key — and one raw cache entry — with
@@ -62,7 +59,7 @@ function selectChannelProvenance(
 export function useChannelProvenance(
   assistantId: string,
 ): ChannelProvenanceMap | undefined {
-  const enabled = useAssistantFeatureFlagStore.use.channelTrustFloors();
+  const enabled = Boolean(assistantId);
 
   const query = useQuery({
     ...assistantChannelAdmissionPolicyListOptions({

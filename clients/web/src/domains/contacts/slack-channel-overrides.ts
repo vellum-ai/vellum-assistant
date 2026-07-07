@@ -124,58 +124,12 @@ export function tierOverridesFromCells(
   return overrides;
 }
 
-/**
- * The default tier for a cell-less channel of the given type: the winning
- * broader-scope cell, walking the same cascade as the runtime resolver —
- * `ChannelPermissionStore.resolve()` in
- * `gateway/src/db/channel-permission-store.ts` (channel → channel_type →
- * adapter → workspace) — minus the channel level, which is the override
- * itself. The gateway intentionally serves resolve over IPC only
- * ("a runtime-evaluator concern"), so configuration clients mirror the
- * walk over the cells list they already fetch; keep the two in step.
- * The trusted_contact cell is the representative (same rule as the write
- * fan-out). Returns `null` when no broader cell exists — the owner's
- * global interactive threshold applies then, which the caller supplies
- * from its thresholds query.
- */
-export function defaultTierFromCells(
-  cells: ChannelTierCell[],
-  adapter: string,
-  channelType: "public" | "private",
-): SlackCapabilityTier | null {
-  const matchesScope = (cell: ChannelTierCell, scope: string): boolean => {
-    if (cell.selector.scope !== scope) {
-      return false;
-    }
-    if (scope === "workspace") {
-      return true;
-    }
-    if (cell.selector.adapter !== adapter) {
-      return false;
-    }
-    return scope === "adapter" || cell.selector.channelType === channelType;
-  };
-  for (const scope of ["channel_type", "adapter", "workspace"]) {
-    const scoped = cells.filter((cell) => matchesScope(cell, scope));
-    if (scoped.length === 0) {
-      continue;
-    }
-    const representative =
-      scoped.find((cell) => cell.contactType === "trusted_contact") ??
-      scoped[0]!;
-    return representative.threshold;
-  }
-  return null;
-}
-
 /** The row's resolved tier plus whether a persisted cell backs it. */
 export interface SlackChannelTierSettings {
   /**
-   * The persisted tier, or `null` when no cell exists. There is no
-   * presentation default: without a cell the runtime falls through to the
-   * owner's global Assistant Access setting, so pretending a tier is set
-   * (the old hardcoded "Full access") overclaimed whenever the global
-   * setting was stricter.
+   * The persisted tier, or `null` when no cell exists — the runtime then
+   * falls through to broader-scope cells and the owner's global Assistant
+   * Access setting, so the UI must not present a tier as set.
    */
   tier: SlackCapabilityTier | null;
   /**

@@ -40,9 +40,9 @@ const meta: Meta<typeof SlackChannelList> = {
     assistantDisplayName: "Example Assistant",
     slackHandle: "@example-assistant",
     channels: MIXED_CHANNELS,
-    // Live-resolved fall-through (no broader-scope cells → the owner's
+    // Gateway-resolved fall-through (no broader-scope cells → the owner's
     // global interactive threshold, Conservative here).
-    defaultTiers: { public: "low", private: "low" },
+    defaultTier: "low",
   },
   decorators: [
     // Mirrors the Slack sub-tab's card column (flex flex-col gap-4 in

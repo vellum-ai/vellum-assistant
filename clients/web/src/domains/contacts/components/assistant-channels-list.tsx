@@ -74,7 +74,7 @@ export interface AssistantChannelsListProps {
   /**
    * Per-channel admission floor, keyed by channel. Omit (or pass no
    * `onChannelPolicyChange`) to hide the trust-floor control entirely —
-   * `useChannelTrustFloors` does so while the `channelTrustFloors` flag is
+   * `useChannelTrustFloors` does so while the admission-policy data is
    * off.
    */
   channelPolicies?: Partial<Record<ChannelKey, AdmissionPolicy>>;
@@ -142,7 +142,7 @@ const CHANNEL_META: Record<
  * trust-floor confirmation dialogs, rendered by the Channels tab
  * (`ChannelsPage`). Owns which sub-tab is active and which confirmations
  * are pending; the queries and mutations behind the props live in
- * `useAssistantChannels`. The `channel-trust-floors` flag gates the
+ * `useAssistantChannels`. The Channels tab hosts the
  * Channels tab itself (in `IntelligenceLayout`), not anything in here.
  */
 export function AssistantChannelsList({

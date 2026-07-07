@@ -130,16 +130,22 @@ export interface SlackChannelListProps {
   /**
    * Persisted capabilities-tier override per channel id (from the gateway's
    * channel-permission cells). Channels absent from the map fall through to
-   * the owner's global interactive threshold ({@link defaultTiers}).
+   * the owner's global interactive threshold ({@link defaultTier}).
    */
   tierOverrides?: Record<string, SlackCapabilityTier>;
   /**
-   * The resolved default per room kind for cell-less rows: the winning
-   * broader-scope matrix cell for that channel type, else the owner's
-   * global interactive threshold. `null` while unknown (loading/error) —
-   * rows then show a plain "Default" badge rather than guessing a tier.
+   * The resolved default for cell-less rows: the gateway-resolved
+   * broader-scope cell, else the owner's global interactive threshold.
+   * `null` while unknown (loading/error) — rows then show a plain
+   * "Default" badge rather than guessing a tier.
    */
-  defaultTiers?: Record<SlackRoomKind, SlackCapabilityTier | null>;
+  defaultTier?: SlackCapabilityTier | null;
+  /**
+   * False when the connected assistant predates the channel-permission
+   * routes: rows render without tier badges or pickers and the legend
+   * card is hidden (see `lib/backwards-compat/channel-access-controls.ts`).
+   */
+  accessControlsSupported?: boolean;
   /**
    * True until persisted overrides have loaded — expanded rows hold their
    * tier picker disabled so stored overrides can't be misread as defaults.
@@ -174,7 +180,8 @@ export function SlackChannelList({
   loading = false,
   error = false,
   tierOverrides,
-  defaultTiers,
+  defaultTier = null,
+  accessControlsSupported = true,
   tierOverridesLoading = false,
   tierOverridesError = false,
   pendingChannelIds = EMPTY_PENDING_IDS,
@@ -342,7 +349,8 @@ export function SlackChannelList({
                             pending={pendingChannelIds.has(channel.id)}
                             overridesLoading={tierOverridesLoading}
                             overridesError={tierOverridesError}
-                            defaultTiers={defaultTiers}
+                            defaultTier={defaultTier}
+                            accessControls={accessControlsSupported}
                             tierOverride={tierOverrides?.[channel.id]}
                             onTierChange={(tier) =>
                               onTierChange?.(channel.id, tier)
@@ -363,7 +371,8 @@ export function SlackChannelList({
                         pending={pendingChannelIds.has(channel.id)}
                         overridesLoading={tierOverridesLoading}
                         overridesError={tierOverridesError}
-                        defaultTiers={defaultTiers}
+                        defaultTier={defaultTier}
+                        accessControls={accessControlsSupported}
                         tierOverride={tierOverrides?.[channel.id]}
                         onTierChange={(tier) =>
                           onTierChange?.(channel.id, tier)
@@ -394,7 +403,9 @@ export function SlackChannelList({
           </Card.Footer>
         ) : null}
       </Card.Root>
-      <SlackChannelTierLegend assistantName={assistantDisplayName} />
+      {accessControlsSupported && !loading && !error && allChannels.length > 0 ? (
+        <SlackChannelTierLegend assistantName={assistantDisplayName} />
+      ) : null}
     </>
   );
 }
@@ -405,7 +416,8 @@ function SlackChannelRow({
   pending,
   overridesLoading,
   overridesError,
-  defaultTiers,
+  defaultTier,
+  accessControls,
   tierOverride,
   onToggle,
   onTierChange,
@@ -416,7 +428,8 @@ function SlackChannelRow({
   pending: boolean;
   overridesLoading: boolean;
   overridesError: boolean;
-  defaultTiers: Record<SlackRoomKind, SlackCapabilityTier | null> | undefined;
+  defaultTier: SlackCapabilityTier | null;
+  accessControls: boolean;
   tierOverride: SlackCapabilityTier | undefined;
   onToggle: () => void;
   onTierChange: (tier: SlackCapabilityTier) => void;
@@ -430,14 +443,31 @@ function SlackChannelRow({
   const Icon = CHANNEL_KIND_ICONS[kind];
   const metaLabel = slackChannelMetaLabel(channel);
   const settings = resolveChannelTier(tierOverride);
-  // No cell → the row shows the resolved fall-through tier for its kind
-  // (broader-scope matrix cell, else the owner's global interactive
-  // threshold) marked "default", never a hardcoded one.
+  // No cell → the row shows the gateway-resolved fall-through tier marked
+  // "default", never a hardcoded one.
   const tierMeta =
     settings.tier !== null ? CAPABILITY_TIER_META[settings.tier] : null;
-  const defaultTier = defaultTiers?.[kind] ?? null;
   const defaultMeta =
     defaultTier !== null ? CAPABILITY_TIER_META[defaultTier] : null;
+
+  // Older assistant without the channel-permission routes: a plain
+  // presence row — no badge, no expansion, nothing to configure.
+  if (!accessControls) {
+    return (
+      <ListRow
+        leading={<Icon className="h-4 w-4 text-[var(--content-tertiary)]" />}
+        title={channel.name}
+        trailing={
+          metaLabel != null ? (
+            <span className="text-body-small-default text-[color:var(--content-tertiary)]">
+              {metaLabel}
+            </span>
+          ) : undefined
+        }
+      />
+    );
+  }
+
   return (
     <Collapsible.Item
       value={channel.id}
