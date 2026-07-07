@@ -26,7 +26,7 @@
  * reads it on every dispatch via {@link getUserHookEntriesFor}.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -284,6 +284,41 @@ async function maybeReconcileFromSentinel(): Promise<void> {
 }
 
 /**
+ * Validate that a directory path from the sentinel is an allowed plugin
+ * source: either under the workspace plugins directory or the standalone
+ * workspace hooks directory. The sentinel file lives under
+ * `<workspace>/data/monitoring/` which is not protected by the file-risk
+ * classifier, so a forged sentinel could point at arbitrary directories
+ * containing attacker-controlled TypeScript. This check ensures
+ * `bringUpPlugin` never dynamically imports code from outside the
+ * designated plugin roots, regardless of what the sentinel contains.
+ *
+ * Uses `realpathSync` to resolve symlinks before the prefix check, so a
+ * symlinked path that looks like it's under the plugins dir but points
+ * elsewhere is rejected.
+ */
+function isAllowedPluginDir(dir: string, pluginsDir: string, hooksDir: string): boolean {
+  let resolved: string;
+  try {
+    resolved = realpathSync(dir);
+  } catch {
+    // Directory doesn't exist or is inaccessible — allow it through so
+    // bringUpPlugin/parsePluginManifest can log the normal failure. The
+    // danger is importing code from an unexpected location, not a missing
+    // directory.
+    return true;
+  }
+  const normalizedPluginsDir = pluginsDir + "/";
+  const normalizedHooksDir = hooksDir + "/";
+  return (
+    resolved === pluginsDir ||
+    resolved.startsWith(normalizedPluginsDir) ||
+    resolved === hooksDir ||
+    resolved.startsWith(normalizedHooksDir)
+  );
+}
+
+/**
  * Apply a published source-versions map: diff it against the state last
  * applied and redeploy exactly what changed. Never throws — a failed apply
  * is logged and the next publication retries from the sentinel's truth.
@@ -304,12 +339,24 @@ async function applySourceVersions(
 ): Promise<void> {
   try {
     const workspaceHooksDir = getWorkspaceHooksDir();
+    const pluginsDir = getWorkspacePluginsDir();
     const prev = lastVersions;
     const dirs = new Set([...Object.keys(prev), ...Object.keys(next)]);
     let membershipChanged = false;
 
     for (const dir of dirs) {
       if (dir === workspaceHooksDir) {
+        continue;
+      }
+      // Reject directories from the sentinel that are outside the allowed
+      // plugin roots. A forged sentinel could point at arbitrary paths;
+      // without this check, bringUpPlugin would dynamic-import attacker
+      // code from anywhere on the filesystem.
+      if (!isAllowedPluginDir(dir, pluginsDir, workspaceHooksDir)) {
+        log.warn(
+          { dir },
+          "sentinel references directory outside allowed plugin roots — skipping",
+        );
         continue;
       }
       const before = prev[dir];

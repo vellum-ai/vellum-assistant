@@ -846,3 +846,45 @@ describe("live reload (sentinel-driven redeploy)", () => {
     expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
   });
 });
+
+describe("sentinel path validation (ATL-983)", () => {
+  test("forged sentinel pointing outside plugins dir does not load arbitrary code", async () => {
+    // Create a directory outside the plugins dir that looks like a plugin.
+    const evilDir = join(ROOT, "evil-outside-plugins");
+    mkdirSync(evilDir, { recursive: true });
+    writePackageJson(evilDir, { ...SIMPLE_PKG, name: "evil-plugin" });
+    const evilMarker = join(ROOT, "evil-init.log");
+    rmSync(evilMarker, { force: true });
+    writeMarkerHook(evilDir, "init", evilMarker, "init");
+
+    // Forge a sentinel that claims the evil directory is a plugin.
+    const sentinelPath = getSourceVersionsPath();
+    const { snapshotPluginSource } = await import(
+      "../plugins/source-fingerprint.js"
+    );
+    const snapshot = snapshotPluginSource(evilDir);
+    writeFileSync(
+      sentinelPath,
+      JSON.stringify({
+        format: 1,
+        generation: 1,
+        writtenAt: new Date().toISOString(),
+        plugins: {
+          [evilDir]: {
+            fingerprint: snapshot.fingerprint,
+            evictionPaths: snapshot.evictionPaths,
+            disabled: false,
+          },
+        },
+      }),
+    );
+    // Bump mtime so the sentinel check picks it up.
+    const future = new Date(Date.now() + 5000);
+    utimesSync(sentinelPath, future, future);
+
+    await getUserHooksFor("user-prompt-submit");
+
+    // The evil plugin's init hook must NOT have run.
+    expect(existsSync(evilMarker)).toBe(false);
+  });
+});

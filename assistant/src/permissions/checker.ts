@@ -21,6 +21,7 @@ import { resolveRealPath } from "../tools/shared/filesystem/path-policy.js";
 import type { Tool } from "../tools/types.js";
 import {
   getDeprecatedDir,
+  getMonitoringDataDir,
   getProtectedDir,
   getWorkspaceDir,
   getWorkspaceHooksDir,
@@ -323,6 +324,7 @@ function buildFileContext(): FileContext {
     toolsDir: resolveRealPath(getWorkspaceToolsDir()),
     routesDir: resolveRealPath(getWorkspaceRoutesDir()),
     workflowsDir: resolveRealPath(getWorkspaceWorkflowsDir()),
+    monitoringDir: resolveRealPath(getMonitoringDataDir()),
     actorTokenSigningKeyPath: join(protectedDir, "actor-token-signing-key"),
     skillSourceDirs: getSkillRoots(config.skills.load.extraDirs).map(
       resolveRealPath,
