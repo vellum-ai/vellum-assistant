@@ -116,6 +116,11 @@ export type LiveVoiceTransportFactory = (
 export interface LiveVoiceSessionController {
   handleCallerUtterance(transcript: string): Promise<void>;
   handleBargeIn(onAccepted?: () => void): boolean;
+  /**
+   * Hard interrupt: aborts the in-flight run in any controller state
+   * (unlike {@link handleBargeIn}, which gates on `speaking`).
+   */
+  handleInterrupt(): void;
   getState(): "idle" | "processing" | "speaking";
   destroy(): void;
 }
@@ -506,24 +511,37 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           return;
         }
         log.warn({ category }, `Live voice transcription error: ${message}`);
-        // A transcription error is turn-scoped whenever a user turn is in
-        // flight: retire that turn with a machine reason so the client
-        // resumes listening instead of treating the session as dead.
         const turn = this.currentTurn;
-        if (turn?.phase === "listening") {
-          this.cancelTurnWithNotice(turn, LiveVoiceProtocolErrorCode.SttFailed);
-          return;
-        }
-        // No user turn to retire. "unconfigured" means no transcriber can
-        // be resolved at all — every future turn would fail the same way,
-        // so that one is session-fatal; other categories are transient
-        // (the ingest keeps running or falls back to batch STT).
+        // "unconfigured" means no transcriber can be resolved at all —
+        // every future turn would fail the same way — so it is
+        // session-fatal regardless of turn state. It fires from a turn's
+        // transcription attempt, i.e. normally WITH a listening turn in
+        // flight; checking the turn-scoped branch first would swallow the
+        // fatality into an endless per-utterance cancellation loop.
+        // Retire the in-flight turn (so the client's turn state machine
+        // settles), then send the fatal error frame.
         if (category === "unconfigured") {
+          if (turn?.phase === "listening") {
+            this.cancelTurnWithNotice(
+              turn,
+              LiveVoiceProtocolErrorCode.SttFailed,
+            );
+          }
           void this.sendFrame({
             type: "error",
             code: LiveVoiceProtocolErrorCode.SttFailed,
             message: `Live voice transcription error (${category}): ${message}`,
           });
+          return;
+        }
+        // Other categories are transient (the ingest keeps running or
+        // falls back to batch STT) and turn-scoped whenever a user turn
+        // is in flight: retire that turn with a machine reason so the
+        // client resumes listening instead of treating the session as
+        // dead. With no turn in flight there is nothing client-visible
+        // to do.
+        if (turn?.phase === "listening") {
+          this.cancelTurnWithNotice(turn, LiveVoiceProtocolErrorCode.SttFailed);
         }
       },
     };
@@ -671,8 +689,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (this.controller?.handleBargeIn(cancelTurn)) {
       return;
     }
-    this.transport?.discardPendingText?.();
+    // The speaking-gated barge-in was rejected: the controller is either
+    // still `processing` (the failed job was the turn's first synthesis —
+    // the generation is still running with no audio out) or already
+    // `idle` (only the synthesis tail was live). Order the cancellation
+    // notice first, as the accepted path does, then hard-abort the run:
+    // handleInterrupt works in any state and bumps the run version so no
+    // assistant_text_delta/tts_audio from this run can follow the
+    // turn_cancelled notice (with no audio started it emits no
+    // end-of-turn marker either).
     cancelTurn();
+    this.controller?.handleInterrupt();
+    this.transport?.discardPendingText?.();
   }
 
   // ── Assistant output ─────────────────────────────────────────────────

@@ -152,6 +152,7 @@ export class FakeController {
   state: "idle" | "processing" | "speaking" = "idle";
   readonly utterances: string[] = [];
   bargeInCount = 0;
+  interruptCount = 0;
   destroyed = false;
 
   async handleCallerUtterance(transcript: string): Promise<void> {
@@ -167,6 +168,11 @@ export class FakeController {
     this.bargeInCount += 1;
     this.state = "idle";
     return true;
+  }
+
+  handleInterrupt(): void {
+    this.interruptCount += 1;
+    this.state = "idle";
   }
 
   getState(): "idle" | "processing" | "speaking" {
