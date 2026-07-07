@@ -15,7 +15,10 @@ import type { TtsDeepgramProviderConfig } from "../../config/schemas/tts.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
-import { readChunkedBody } from "../stream-read.js";
+import {
+  consumeSynthesisResponse,
+  type StreamReadTimeouts,
+} from "../stream-read.js";
 import type {
   TtsProvider,
   TtsProviderCapabilities,
@@ -249,12 +252,6 @@ async function performTtsRequest(
   return { response, contentType };
 }
 
-/** Stream-stall timeouts, injectable for tests. */
-export interface DeepgramStreamTimeouts {
-  firstChunkTimeoutMs?: number;
-  idleTimeoutMs?: number;
-}
-
 /**
  * Issue the TTS request and consume the response into a complete result.
  * The streaming path forwards chunks via `onChunk` as they arrive, guarded
@@ -265,38 +262,25 @@ async function performSynthesis(
   options: {
     stream: boolean;
     onChunk?: (chunk: Uint8Array) => void;
-  } & DeepgramStreamTimeouts,
+  } & StreamReadTimeouts,
 ): Promise<TtsSynthesisResult> {
   const { response, contentType } = await performTtsRequest(request);
 
-  let audio: Buffer;
-  if (options.stream) {
-    if (!response.body) {
-      throw new DeepgramTtsError(
+  const audio = await consumeSynthesisResponse(response, {
+    ...options,
+    makeTimeoutError: (timeoutMs) =>
+      new DeepgramTtsError(
+        "DEEPGRAM_TTS_STREAM_TIMEOUT",
+        `Deepgram streaming TTS read timed out after ${timeoutMs}ms`,
+      ),
+    makeEmptyError: (kind) =>
+      new DeepgramTtsError(
         "DEEPGRAM_TTS_EMPTY_RESPONSE",
-        "Deepgram streaming TTS returned no response body",
-      );
-    }
-    audio = await readChunkedBody(response.body, {
-      onChunk: options.onChunk,
-      firstChunkTimeoutMs: options.firstChunkTimeoutMs,
-      idleTimeoutMs: options.idleTimeoutMs,
-      makeTimeoutError: (timeoutMs) =>
-        new DeepgramTtsError(
-          "DEEPGRAM_TTS_STREAM_TIMEOUT",
-          `Deepgram streaming TTS read timed out after ${timeoutMs}ms`,
-        ),
-    });
-  } else {
-    audio = Buffer.from(await response.arrayBuffer());
-  }
-
-  if (audio.byteLength === 0) {
-    throw new DeepgramTtsError(
-      "DEEPGRAM_TTS_EMPTY_RESPONSE",
-      "Deepgram TTS returned an empty audio response",
-    );
-  }
+        kind === "no-body"
+          ? "Deepgram streaming TTS returned no response body"
+          : "Deepgram TTS returned an empty audio response",
+      ),
+  });
 
   log.debug(
     { bytes: audio.byteLength, stream: options.stream },
@@ -307,7 +291,7 @@ async function performSynthesis(
 }
 
 export function createDeepgramProvider(
-  streamTimeouts: DeepgramStreamTimeouts = {},
+  streamTimeouts: StreamReadTimeouts = {},
 ): TtsProvider {
   const capabilities: TtsProviderCapabilities = {
     supportsStreaming: true,
