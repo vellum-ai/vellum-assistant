@@ -11,6 +11,10 @@
 import { z } from "zod";
 
 import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
+import {
+  getDefaultProvider,
+  resolveDefaultConnectionName,
+} from "../../config/default-provider.js";
 import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../persistence/db-connection.js";
@@ -350,6 +354,31 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
       `Connection "${name}" is referenced by llm.default. Update llm.default.provider_connection before deleting.`,
       { referencedBy: ["llm.default"] },
     );
+  }
+
+  // llm.defaultProvider: guards both the resolved connection name (explicit
+  // `connectionName` or the `<provider>-personal` convention) and the case
+  // where that resolved name is dangling but this is the last remaining
+  // connection for the default's provider — resolution treats a dangling
+  // default as an explainable error; this guard keeps UI deletes from
+  // orphaning it silently.
+  const dp = getDefaultProvider(config);
+  if (dp) {
+    if (name === resolveDefaultConnectionName(dp)) {
+      throw new ConflictError(
+        `Connection "${name}" is referenced by llm.defaultProvider. Update llm.defaultProvider before deleting.`,
+        { referencedBy: ["llm.defaultProvider"] },
+      );
+    }
+    if (
+      existing.provider === dp.provider &&
+      listConnections(getDb(), { provider: dp.provider }).length === 1
+    ) {
+      throw new ConflictError(
+        `Connection "${name}" is the only connection for provider "${dp.provider}", which llm.defaultProvider depends on. Update llm.defaultProvider or add another connection for provider "${dp.provider}" before deleting.`,
+        { referencedBy: ["llm.defaultProvider"] },
+      );
+    }
   }
 
   // llm.profiles.*: only ProfileEntry has provider_connection.
