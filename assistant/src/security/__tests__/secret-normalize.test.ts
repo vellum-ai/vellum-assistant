@@ -25,16 +25,28 @@ describe("normalizeSecretValue", () => {
     );
   });
 
-  test("trims leading spaces", () => {
-    expect(normalizeSecretValue("  sk-ant-oat01-token")).toBe(
+  test("trims leading newlines", () => {
+    expect(normalizeSecretValue("\n\nsk-ant-oat01-token")).toBe(
       "sk-ant-oat01-token",
     );
   });
 
-  test("trims tabs and mixed edge whitespace", () => {
-    expect(normalizeSecretValue("\t sk-ant-oat01-token \r\n")).toBe(
+  test("trims multiple trailing newlines", () => {
+    expect(normalizeSecretValue("sk-ant-oat01-token\n\r\n")).toBe(
       "sk-ant-oat01-token",
     );
+  });
+
+  test("preserves leading and trailing spaces (passwords may need them)", () => {
+    expect(normalizeSecretValue(" hunter2 ")).toBe(" hunter2 ");
+  });
+
+  test("preserves edge tabs", () => {
+    expect(normalizeSecretValue("\thunter2\t")).toBe("\thunter2\t");
+  });
+
+  test("trims edge newlines but keeps adjacent edge spaces", () => {
+    expect(normalizeSecretValue(" hunter2 \r\n")).toBe(" hunter2 ");
   });
 
   test("preserves interior whitespace in multi-line PEM keys", () => {
@@ -52,12 +64,12 @@ describe("normalizeSecretValue", () => {
   });
 
   test("is idempotent", () => {
-    const once = normalizeSecretValue(" token \n");
+    const once = normalizeSecretValue("token\r\n");
     expect(normalizeSecretValue(once)).toBe(once);
   });
 
-  test("trims whitespace-only values to empty string", () => {
-    expect(normalizeSecretValue("  \r\n\t ")).toBe("");
+  test("trims newline-only values to empty string", () => {
+    expect(normalizeSecretValue("\r\n\n")).toBe("");
   });
 
   test("trims empty string to empty string", () => {
