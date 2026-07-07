@@ -407,6 +407,13 @@ export function getSelectedAssistant(): LockfileAssistant | undefined {
   return getActiveAssistant();
 }
 
+/** The lockfile entry for a specific assistant id, if one exists. */
+export function getLockfileAssistant(
+  assistantId: string,
+): LockfileAssistant | undefined {
+  return getLockfile().assistants.find((a) => a.assistantId === assistantId);
+}
+
 /**
  * Reconcile the selection key against the lockfile registry: if the selected id
  * no longer names a lockfile entry, clear it so `getSelectedAssistant` falls
