@@ -208,6 +208,15 @@ export function useLiveVoice(
   // newer session started in the meantime — the per-session `generation`
   // can't cover this because `stop()` nulls `sessionRef` synchronously, so
   // the racing session is a different context object entirely.
+  //
+  // Considered and rejected: guarding the trailing reset with
+  // `if (sessionRef.current !== null)` instead. That is behaviorally
+  // equivalent *today* only because `start()` assigns `sessionRef`
+  // synchronously; a refactor that introduces an await before that
+  // assignment would silently reopen the race — the null-check would see no
+  // session yet and wrongly reset the newer session's store state. The
+  // counter increments synchronously at `start()`'s entry, so it stays
+  // correct regardless of where awaits land later.
   const startGenerationRef = useRef(0);
 
   // Keep the factories in a ref so start()/stop() stay stable across renders

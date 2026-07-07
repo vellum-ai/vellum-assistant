@@ -328,6 +328,19 @@ export function releaseLiveVoiceTurn(): void {
 }
 
 /**
+ * Dismiss a surfaced live-voice failure by resetting the store back to idle.
+ * `failed` is terminal for the session, so this only clears the surfaced
+ * error (the mount-scoped `starter` survives, as with any reset). Module-level
+ * for the same stable-identity reasons as {@link endLiveVoiceSession}: both
+ * failure surfaces — the composer's error `Notice` and the title-bar
+ * `VoiceSessionErrorChip` — share this one reference, keeping their dismiss
+ * behavior identical by construction.
+ */
+export function dismissLiveVoiceFailure(): void {
+  useLiveVoiceStore.getState().reset();
+}
+
+/**
  * Reactive form of {@link isLiveVoiceSessionOwnedBy} for components: whether
  * the active session is owned by the composer bound to
  * `composerConversationId`. Boolean-valued so per-field session churn never

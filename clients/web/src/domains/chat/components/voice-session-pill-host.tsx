@@ -67,6 +67,7 @@ import {
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import {
   LIVE_VOICE_STATE_LABELS,
+  dismissLiveVoiceFailure,
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   isLiveVoiceSessionActive,
@@ -137,16 +138,10 @@ export function VoiceSessionPillHost({
     }
   }, [navigate, sessionConversationId]);
 
-  // Mirrors the composer Notice's dismiss: `failed` is terminal for the
-  // session, so resetting only clears the surfaced error.
-  const handleDismissError = useCallback(() => {
-    useLiveVoiceStore.getState().reset();
-  }, []);
-
   let content: ReactNode = null;
   if (showFailure) {
     content = (
-      <VoiceSessionErrorChip message={error} onDismiss={handleDismissError} />
+      <VoiceSessionErrorChip message={error} onDismiss={dismissLiveVoiceFailure} />
     );
   } else if (visible) {
     content = (

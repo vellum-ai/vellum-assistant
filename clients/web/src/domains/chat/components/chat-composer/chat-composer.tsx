@@ -34,6 +34,7 @@ import {
 } from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import {
+    dismissLiveVoiceFailure,
     endLiveVoiceSession,
     getLiveVoiceInputAmplitude,
     isLiveVoiceSessionActive,
@@ -284,11 +285,6 @@ export function ChatComposer({
     }
     useLiveVoiceStore.getState().starter?.(assistantId, conversationId ?? null);
   }, [assistantId, conversationId]);
-  // Dismissing the failure notice resets the store back to idle — `failed` is
-  // terminal for the session, so this only clears the surfaced error.
-  const dismissLiveVoiceError = useCallback(() => {
-    useLiveVoiceStore.getState().reset();
-  }, []);
 
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   const isMobile = useIsMobile();
@@ -400,7 +396,7 @@ export function ChatComposer({
           eligibility drop must still surface its error. */}
       {showVoiceInput && liveVoiceState === "failed" && liveVoiceError && (
         <div className="mb-2">
-          <Notice tone="error" onDismiss={dismissLiveVoiceError}>
+          <Notice tone="error" onDismiss={dismissLiveVoiceFailure}>
             {liveVoiceError}
           </Notice>
         </div>

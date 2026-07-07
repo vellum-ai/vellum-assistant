@@ -14,6 +14,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
+  VoiceSessionErrorChip,
   VoiceSessionPill,
   type VoiceSessionPillProps,
 } from "@/domains/chat/components/voice-session-pill";
@@ -156,5 +157,42 @@ describe("VoiceSessionPill — navigation", () => {
     expect(onStop).not.toHaveBeenCalled();
     expect(onEnd).not.toHaveBeenCalled();
     expect(onSend).not.toHaveBeenCalled();
+  });
+});
+
+describe("VoiceSessionErrorChip", () => {
+  function renderChip() {
+    const onDismiss = mock(() => {});
+    render(
+      <VoiceSessionErrorChip
+        message="Microphone capture could not start."
+        onDismiss={onDismiss}
+      />,
+    );
+    return onDismiss;
+  }
+
+  test("announces the failure as an alert carrying the message", () => {
+    renderChip();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("Microphone capture could not start.");
+    expect(alert.className).toContain("[-webkit-app-region:no-drag]");
+    expect(alert.className).toContain("h-8");
+  });
+
+  test("dismiss button fires onDismiss", () => {
+    const onDismiss = renderChip();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  test("dismiss button carries the Tag primitive's keyboard focus ring", () => {
+    // The chip composes the design-library Tag; its remove button must keep a
+    // keyboard focus affordance (matching Notice's dismiss button), not a
+    // bare outline-none.
+    renderChip();
+    const dismiss = screen.getByRole("button", { name: "Dismiss" });
+    expect(dismiss.className).toContain("keyboard-focus:ring-2");
+    expect(dismiss.className).toContain("keyboard-focus:ring-[var(--ring)]");
   });
 });
