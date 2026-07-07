@@ -1,22 +1,15 @@
 /**
- * ⚠️  TEMPORARY HACK — DO NOT EXTEND ⚠️
+ * Data-migrations-only bridge for executing SQL against the assistant's
+ * SQLite database via IPC. Gateway one-time data migrations (m0002, m0010,
+ * m0014, et al.) need raw read/drop access to the assistant DB on first boot
+ * of upgraded installs, and direct cross-container file access corrupts the
+ * DB on platform pods (fcntl locks are not shared across mount namespaces +
+ * a SQLite WAL-reset bug in ≤3.51.2) — so migrations reach the assistant DB
+ * only through this route.
  *
- * Proxy for executing SQL against the assistant's SQLite database via IPC.
- * Direct cross-container file access corrupts the DB on platform pods (fcntl
- * locks are not shared across mount namespaces + a SQLite WAL-reset bug in
- * ≤3.51.2), so the gateway reaches the assistant DB only through this route.
- *
- * The caller allowlist is pinned by `__tests__/db-proxy-allowlist.test.ts`.
- * The surface serves exactly three groups:
- *   (a) the contact-merge identity-mirror cluster in `db/contact-store.ts` —
- *       pending a merge-shaped op that expresses a notes-only survivor UPDATE
- *       and a resolved-slug dual-write INSERT the typed mirror ops cannot,
- *   (b) data migrations (one-time backfills and drops), and
- *   (c) residual raw-SQL contact reads in `verification/contact-helpers.ts`
- *       (deferred cleanup).
- *
- * NOT a general-purpose query layer. Slated for removal once the
- * contact-merge cluster gets typed mirror ops.
+ * No runtime feature may use this surface. The caller allowlist — this
+ * module plus `db/data-migrations/` — is enforced by
+ * `__tests__/db-proxy-allowlist.test.ts`.
  */
 
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
