@@ -409,6 +409,14 @@
       "label": "New-thread suggestions library",
       "description": "Replace the empty-state conversation-starter chips with the scrollable, categorized suggestions library and detail drawer (currently mocked data).",
       "defaultEnabled": false
+    },
+    {
+      "id": "account-mfa",
+      "scope": "client",
+      "key": "account-mfa",
+      "label": "Account MFA",
+      "description": "Surface the Security settings page where users enroll and manage TOTP two-factor authentication for their Vellum (WorkOS) account. Applies to email/password sign-in only.",
+      "defaultEnabled": false
     }
   ]
 }
