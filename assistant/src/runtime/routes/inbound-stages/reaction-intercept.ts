@@ -17,8 +17,7 @@
  * `sourceMetadata`; a missing/failed/contradictory verdict fails closed to
  * `unknown` (drop). Reactions never drive an agent turn.
  */
-import type { SourceMetadata, TrustVerdict } from "@vellumai/gateway-client";
-import { isTrustClass } from "@vellumai/gateway-client";
+import type { SourceMetadata } from "@vellumai/gateway-client";
 
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
@@ -40,8 +39,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";
 import {
   actorTrustContextFromVerdict,
-  verdictMemberFromVerdict,
-  verdictMemberUnresolvable,
+  verdictUsability,
 } from "../../trust-verdict-consumer.js";
 import { handleGuardianReplyIntercept } from "./guardian-reply-intercept.js";
 
@@ -89,25 +87,6 @@ export function parseSlackReactionCallbackData(
   return { op, emoji };
 }
 
-/**
- * The gateway-stamped verdict, or `null` when it can't be trusted: missing,
- * `resolutionFailed`, an unrecognized trust class, a partial member ACL, or a
- * memberless guardian claim (contradictory — the gateway proves guardian
- * identity via a same-channel member row). Matches acl-enforcement's
- * fail-closed posture; the caller treats `null` as `unknown` and drops.
- */
-function usableReactionVerdict(
-  verdict: TrustVerdict | undefined,
-): TrustVerdict | null {
-  if (!verdict || verdict.resolutionFailed === true) return null;
-  if (!isTrustClass(verdict.trustClass)) return null;
-  if (verdictMemberUnresolvable(verdict)) return null;
-  if (verdict.trustClass === "guardian" && !verdictMemberFromVerdict(verdict)) {
-    return null;
-  }
-  return verdict;
-}
-
 export interface ReactionInterceptParams {
   /** The reaction callbackData (`reaction:<emoji>` / `reaction_removed:<emoji>`). */
   callbackData: string;
@@ -153,11 +132,13 @@ export async function handleSlackReactionIntercept(
   } = params;
 
   // Classify the reactor from the gateway-stamped verdict — the same source
-  // acl-enforcement reads. No local resolver, cache warm, or IPC reads; only
-  // the trust class / guardian principal matter for a reaction.
-  const verdict = usableReactionVerdict(sourceMetadata?.trustVerdict);
-  const trustCtx = verdict
-    ? actorTrustContextFromVerdict(verdict, {
+  // acl-enforcement reads, gated by the same shared usability predicate. No
+  // local resolver, cache warm, or IPC reads; only the trust class / guardian
+  // principal matter for a reaction. An unusable verdict fails closed: the
+  // caller treats `null` as `unknown` and drops.
+  const usability = verdictUsability(sourceMetadata?.trustVerdict);
+  const trustCtx = usability.usable
+    ? actorTrustContextFromVerdict(usability.verdict, {
         sourceChannel,
         conversationExternalId,
         actorUsername,

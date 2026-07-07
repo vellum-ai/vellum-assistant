@@ -4,7 +4,9 @@
  * The combined read reports `{ ok: false }` on ANY failure (transport
  * failure, undefined, malformed shape, thrown error); the consumer decides
  * fail-open vs fail-closed. These tests pin that contract, the envelope's
- * admission-policy passthrough, and the forwarded method + params.
+ * admission-policy passthrough, the pre-envelope-gateway fallback (absent
+ * `admissionPolicy` key → standalone policy read, fail-closed composition),
+ * and the forwarded method + params.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -36,13 +38,14 @@ mock.module("../../ipc/gateway-client.js", () => ({
 
 import type { TrustVerdict } from "@vellumai/gateway-client";
 
+import { _clearCacheForTesting } from "../channel-admission-reader.js";
 import {
-  getInboundTrustVerdict,
   readInboundTrust,
   readPhoneCallerTrust,
 } from "../inbound-trust-reader.js";
 
 const METHOD = "resolve_inbound_trust";
+const FALLBACK_METHOD = "get_channel_admission_policy";
 
 const VALID_VERDICT = {
   trustClass: "trusted_contact",
@@ -54,6 +57,7 @@ const VALID_VERDICT = {
 beforeEach(() => {
   ipcHandlers.clear();
   ipcCallLog.length = 0;
+  _clearCacheForTesting();
 });
 
 describe("readInboundTrust", () => {
@@ -75,7 +79,7 @@ describe("readInboundTrust", () => {
     });
   });
 
-  test("an explicit null admission policy is a successful read (admit, no enforcement)", async () => {
+  test("an explicit null admission policy is a successful read (admit, no enforcement) — no fallback read", async () => {
     ipcHandlers.set(METHOD, () => ({
       verdict: VALID_VERDICT,
       admissionPolicy: null,
@@ -88,6 +92,9 @@ describe("readInboundTrust", () => {
       verdict: VALID_VERDICT,
       admissionPolicy: null,
     });
+    expect(
+      ipcCallLog.some((c) => c.method === FALLBACK_METHOD),
+    ).toBe(false);
   });
 
   test("forwards the correct method, params, and timeout to ipcCall", async () => {
@@ -124,11 +131,40 @@ describe("readInboundTrust", () => {
     });
   });
 
-  test("returns { ok: false } when the admission policy field is missing", async () => {
+  test("absent admission policy key (pre-envelope gateway) keeps the verdict and reads the policy via the fallback", async () => {
     ipcHandlers.set(METHOD, () => ({ verdict: VALID_VERDICT }));
+    ipcHandlers.set(FALLBACK_METHOD, () => ({ policy: "trusted_contacts" }));
+
+    const result = await readInboundTrust({ channelType: "telegram" });
+
+    expect(result).toEqual({
+      ok: true,
+      verdict: VALID_VERDICT,
+      admissionPolicy: "trusted_contacts",
+    });
+    const fallbackCall = ipcCallLog.find((c) => c.method === FALLBACK_METHOD);
+    expect(fallbackCall?.params).toEqual({ channelType: "telegram" });
+  });
+
+  test("absent admission policy key with an explicit-null fallback answer admits with no enforcement", async () => {
+    ipcHandlers.set(METHOD, () => ({ verdict: VALID_VERDICT }));
+    ipcHandlers.set(FALLBACK_METHOD, () => ({ policy: null }));
+
+    expect(await readInboundTrust({ channelType: "telegram" })).toEqual({
+      ok: true,
+      verdict: VALID_VERDICT,
+      admissionPolicy: null,
+    });
+  });
+
+  test("absent admission policy key + failed fallback read composes fail-closed ({ ok: false })", async () => {
+    ipcHandlers.set(METHOD, () => ({ verdict: VALID_VERDICT }));
+    ipcHandlers.set(FALLBACK_METHOD, () => undefined);
+
     expect(await readInboundTrust({ channelType: "telegram" })).toEqual({
       ok: false,
     });
+    expect(ipcCallLog.some((c) => c.method === FALLBACK_METHOD)).toBe(true);
   });
 
   test("returns { ok: false } for an out-of-vocabulary admission policy", async () => {
@@ -195,25 +231,3 @@ describe("readPhoneCallerTrust", () => {
   });
 });
 
-describe("getInboundTrustVerdict", () => {
-  test("returns the gateway-resolved verdict on a valid response", async () => {
-    ipcHandlers.set(METHOD, () => ({
-      verdict: VALID_VERDICT,
-      admissionPolicy: null,
-    }));
-
-    const verdict = await getInboundTrustVerdict({
-      channelType: "telegram",
-      actorExternalId: "U_MEMBER",
-    });
-
-    expect(verdict).toEqual(VALID_VERDICT);
-  });
-
-  test("returns null on any read failure", async () => {
-    ipcHandlers.set(METHOD, () => undefined);
-    expect(
-      await getInboundTrustVerdict({ channelType: "telegram" }),
-    ).toBeNull();
-  });
-});

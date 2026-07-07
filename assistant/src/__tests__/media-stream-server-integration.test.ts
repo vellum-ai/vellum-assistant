@@ -233,7 +233,6 @@ const mockReadPhoneCallerTrust = jest.fn(
 );
 mock.module("../calls/inbound-trust-reader.js", () => ({
   readPhoneCallerTrust: mockReadPhoneCallerTrust,
-  getInboundTrustVerdict: mockGetInboundTrustVerdict,
   getPhoneCallerVerdict: (otherPartyNumber: string | undefined) =>
     mockGetInboundTrustVerdict({
       channelType: "phone",
@@ -1572,7 +1571,7 @@ describe("media-stream setup outcome scenarios", () => {
       // no controller, finalization ran.
       expect(speakSystemPrompt).toHaveBeenCalledWith(
         expect.anything(),
-        "The assistant can't take calls right now. Please try again later.",
+        "The assistant is unable to take this call right now. Please try again later.",
       );
       expect(updateCallSession).toHaveBeenCalledWith(
         "call-floor-unavail-1",
@@ -1758,10 +1757,10 @@ describe("media-stream setup outcome scenarios", () => {
   });
 
   // ── Gateway trust verdict ──────────────────────────────────────────
-  // handleStart fetches getInboundTrustVerdict for the inbound caller and
-  // threads it into routeSetup, so the media-stream transport enforces
-  // the gateway ACL. routeSetup itself decides verdict-vs-local; these
-  // tests assert the verdict is fetched and passed.
+  // handleStart awaits readPhoneCallerTrust for the inbound caller and
+  // threads the verdict into routeSetup, so the media-stream transport
+  // enforces the gateway ACL. routeSetup itself decides verdict-vs-local;
+  // these tests assert the verdict is fetched and passed.
 
   describe("gateway trust verdict", () => {
     test("fetches the inbound caller's verdict and threads it into routeSetup", async () => {

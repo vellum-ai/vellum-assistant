@@ -17,6 +17,7 @@ import {
   verdictHasMemberIdentity,
   verdictMemberFromVerdict,
   verdictMemberUnresolvable,
+  verdictUsability,
 } from "../trust-verdict-consumer.js";
 
 const CONV = "conv-123";
@@ -719,5 +720,78 @@ describe("verdict predicates", () => {
         canonicalSenderId: "u-1",
       } satisfies TrustVerdict),
     ).toBe(false);
+  });
+});
+
+describe("verdictUsability", () => {
+  test("missing / resolutionFailed / member-unresolvable are unusable with their reasons", () => {
+    expect(verdictUsability(null)).toEqual({
+      usable: false,
+      reason: "missing",
+    });
+    expect(verdictUsability(undefined)).toEqual({
+      usable: false,
+      reason: "missing",
+    });
+    expect(
+      verdictUsability({
+        trustClass: "unknown",
+        canonicalSenderId: null,
+        resolutionFailed: true,
+      } satisfies TrustVerdict),
+    ).toEqual({ usable: false, reason: "resolution failed" });
+    expect(
+      verdictUsability({
+        trustClass: "trusted_contact",
+        canonicalSenderId: "u-1",
+        contactId: "contact-1",
+        channelId: "channel-1",
+        policy: "allow",
+      } satisfies TrustVerdict),
+    ).toEqual({ usable: false, reason: "member unresolvable" });
+  });
+
+  test("unrecognized trust class (version skew) is unusable", () => {
+    expect(
+      verdictUsability({
+        trustClass: "superadmin" as TrustVerdict["trustClass"],
+        canonicalSenderId: "u-1",
+      }),
+    ).toEqual({ usable: false, reason: "unrecognized trust class" });
+  });
+
+  test("memberless guardian claim is contradictory and unusable", () => {
+    expect(
+      verdictUsability({
+        trustClass: "guardian",
+        canonicalSenderId: "u-g",
+        guardianExternalUserId: "u-g",
+        guardianPrincipalId: "p-1",
+      } satisfies TrustVerdict),
+    ).toEqual({ usable: false, reason: "guardian without member" });
+  });
+
+  test("memberful guardian and memberless stranger verdicts are usable", () => {
+    const guardian = {
+      trustClass: "guardian",
+      canonicalSenderId: "u-g",
+      contactId: "contact-g",
+      channelId: "channel-g",
+      status: "active",
+      policy: "allow",
+    } satisfies TrustVerdict;
+    expect(verdictUsability(guardian)).toEqual({
+      usable: true,
+      verdict: guardian,
+    });
+
+    const stranger = {
+      trustClass: "unknown",
+      canonicalSenderId: "u-2",
+    } satisfies TrustVerdict;
+    expect(verdictUsability(stranger)).toEqual({
+      usable: true,
+      verdict: stranger,
+    });
   });
 });

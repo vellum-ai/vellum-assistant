@@ -184,7 +184,8 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Fail-closed verdict source: missing/failed/member-unresolvable verdicts deny
+// Fail-closed verdict source: missing/failed/member-unresolvable verdicts —
+// plus unrecognized trust classes and memberless guardian claims — deny
 // inbound (no stranger-lane side effects, no verification-read IPC) and abort
 // outbound setup loudly.
 // ---------------------------------------------------------------------------
@@ -225,6 +226,20 @@ describe("routeSetup — unusable verdict fails closed", () => {
           status: "active",
           policy: "bogus",
         }),
+      },
+      {
+        name: "unrecognized trust class (version skew)",
+        verdict: makeVerdict({
+          trustClass: "superadmin" as TrustVerdict["trustClass"],
+          canonicalSenderId: "+12025550142",
+        }),
+      },
+      {
+        // Contradictory: the gateway proves guardian identity via a
+        // same-channel member row, so a memberless guardian claim must
+        // never confer guardian capabilities (or even a normal_call).
+        name: "memberless guardian claim",
+        verdict: makeVerdict({ trustClass: "guardian" }),
       },
     ];
 

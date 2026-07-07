@@ -11,7 +11,6 @@ import type {
   SourceMetadata,
   TrustVerdict,
 } from "@vellumai/gateway-client";
-import { isTrustClass } from "@vellumai/gateway-client";
 
 import type { VerificationSessionWire } from "../../../channels/gateway-verification-sessions.js";
 import {
@@ -33,7 +32,10 @@ import {
 } from "../../access-request-helper.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import type { VerdictMember } from "../../trust-verdict-consumer.js";
-import { verdictMemberFromVerdict } from "../../trust-verdict-consumer.js";
+import {
+  verdictMemberFromVerdict,
+  verdictUsability,
+} from "../../trust-verdict-consumer.js";
 
 const log = getLogger("runtime-http");
 
@@ -207,59 +209,58 @@ export async function enforceIngressAcl(
   // Slack message timestamp for permalink construction.
   const messageTs = sourceMetadata?.messageId ?? undefined;
 
-  // Absent verdict = gateway could not vouch for this actor → fail-closed deny.
-  // A PRESENT verdict with no member (stranger) still flows through the
-  // stranger lane below; only a missing verdict short-circuits here.
-  const verdict = sourceMetadata?.trustVerdict;
-  if (verdict == null) {
-    log.info(
-      { sourceChannel, externalUserId: canonicalSenderId },
-      "Ingress ACL: absent trust verdict, denying fail-closed",
-    );
+  // The shared usability predicate is the fail-closed gate: an unusable
+  // verdict soft-denies with NO stranger-lane side effects (no access-request
+  // card, no verification challenge, no canned reply) — never fail-stranger.
+  // A PRESENT memberless stranger verdict is usable and flows through the
+  // stranger lane below. The switch preserves this stage's per-reason log
+  // lines; TEXT does not fall back to local ACL reads, the sender can retry.
+  const usability = verdictUsability(sourceMetadata?.trustVerdict);
+  if (!usability.usable) {
+    switch (usability.reason) {
+      case "missing":
+        log.info(
+          { sourceChannel, externalUserId: canonicalSenderId },
+          "Ingress ACL: absent trust verdict, denying fail-closed",
+        );
+        break;
+      case "resolution failed":
+        log.warn(
+          { sourceChannel, externalUserId: canonicalSenderId },
+          "Ingress ACL: gateway trust resolution failed, denying fail-closed",
+        );
+        break;
+      case "member unresolvable":
+        log.info(
+          { sourceChannel, externalUserId: canonicalSenderId },
+          "Ingress ACL: member verdict with unresolvable ACL, denying fail-closed",
+        );
+        break;
+      case "unrecognized trust class":
+        log.warn(
+          {
+            sourceChannel,
+            externalUserId: canonicalSenderId,
+            trustClass: sourceMetadata?.trustVerdict?.trustClass,
+          },
+          "Ingress ACL: unrecognized trust class on verdict, denying fail-safe",
+        );
+        break;
+      case "guardian without member":
+        log.warn(
+          { sourceChannel, externalUserId: canonicalSenderId },
+          "Ingress ACL: guardian verdict without a member row, denying fail-safe",
+        );
+        break;
+    }
     return failClosedDeny();
   }
-
-  // Gateway attempted resolution but failed (DB error) → fail-closed deny,
-  // distinct from an absent verdict and from a real stranger. TEXT does not
-  // fall back to local ACL reads; the sender can retry.
-  if (verdict.resolutionFailed === true) {
-    log.warn(
-      { sourceChannel, externalUserId: canonicalSenderId },
-      "Ingress ACL: gateway trust resolution failed, denying fail-closed",
-    );
-    return failClosedDeny();
-  }
+  const { verdict } = usability;
 
   // Member resolved from the gateway verdict (ACL + identity only); null for a
   // stranger verdict, which falls through to the non-member deny lane.
   const resolvedMember: VerdictMember | null =
     verdictMemberFromVerdict(verdict);
-
-  // A verdict carrying member identity but no resolvable member
-  // (malformed/unknown ACL) fails closed, not treated as a stranger.
-  if (!resolvedMember && (verdict.contactId || verdict.channelId)) {
-    log.info(
-      { sourceChannel, externalUserId: canonicalSenderId },
-      "Ingress ACL: member verdict with unresolvable ACL, denying fail-closed",
-    );
-    return failClosedDeny();
-  }
-
-  // An unrecognized trust class is an unresolvable verdict (version skew,
-  // malformed payload), not a stranger. Fail safe: soft-deny with no
-  // stranger-lane side effects (no access-request card, no verification
-  // challenge, no canned reply) — never fail-stranger.
-  if (!isTrustClass(verdict.trustClass)) {
-    log.warn(
-      {
-        sourceChannel,
-        externalUserId: canonicalSenderId,
-        trustClass: verdict.trustClass,
-      },
-      "Ingress ACL: unrecognized trust class on verdict, denying fail-safe",
-    );
-    return failClosedDeny();
-  }
 
   // ── Guardian short-circuit ──
   // A verdict classified `guardian` is admitted even when its same-channel
@@ -269,18 +270,9 @@ export async function enforceIngressAcl(
   // gates below — those would misroute the guardian into the stranger lane
   // and fire an access request at the guardian themselves.
   if (verdict.trustClass === "guardian") {
-    // The gateway proves guardian identity via a same-channel member row
-    // (the active binding address, or a row belonging to the guardian
-    // contact), so every guardian verdict carries a resolvable member row.
-    // A guardian verdict WITHOUT one is contradictory — cross-channel
-    // address collisions are not identity proofs and must never confer
-    // guardian capabilities. Fail safe: soft-deny with no stranger-lane
-    // side effects.
+    // verdictUsability guarantees guardian verdicts carry a resolvable
+    // member row; narrow for TS.
     if (!resolvedMember) {
-      log.warn(
-        { sourceChannel, externalUserId: canonicalSenderId },
-        "Ingress ACL: guardian verdict without a member row, denying fail-safe",
-      );
       return failClosedDeny();
     }
 

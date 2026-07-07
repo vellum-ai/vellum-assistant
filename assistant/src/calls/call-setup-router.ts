@@ -28,6 +28,10 @@ import {
 import { getLogger } from "../util/logger.js";
 import { getActiveVoiceInvite } from "./gateway-invite-reader.js";
 import type { CallSession } from "./types.js";
+import {
+  TRUST_UNAVAILABLE_DENY_MESSAGE,
+  unresolvedActorTrust,
+} from "./unresolved-caller-trust.js";
 
 const log = getLogger("call-setup-router");
 
@@ -105,28 +109,6 @@ export interface SetupResolved {
   actorTrust: ActorTrustContext;
 }
 
-/**
- * Minimal unknown-trust context for the fail-closed deny, where no verdict
- * is available to build real trust from.
- */
-function unresolvedActorTrust(otherPartyNumber: string): ActorTrustContext {
-  return {
-    canonicalSenderId: otherPartyNumber || null,
-    guardianBindingMatch: null,
-    memberRecord: null,
-    trustClass: "unknown",
-    actorMetadata: {
-      identifier: otherPartyNumber || undefined,
-      displayName: undefined,
-      senderDisplayName: undefined,
-      memberDisplayName: undefined,
-      username: undefined,
-      channel: "phone",
-      trustStatus: "unknown",
-    },
-  };
-}
-
 // ── Router ───────────────────────────────────────────────────────────
 
 /**
@@ -166,8 +148,7 @@ export async function routeSetup(ctx: SetupContext): Promise<{
     return {
       outcome: {
         action: "deny",
-        message:
-          "The assistant is unable to take this call right now. Please try again later.",
+        message: TRUST_UNAVAILABLE_DENY_MESSAGE,
         logReason: `Inbound voice ACL: trust verdict unavailable (${reason}) — fail-closed deny`,
       },
       resolved: {
@@ -282,8 +263,8 @@ export async function routeSetup(ctx: SetupContext): Promise<{
   // verification challenge is in flight. While active, the floor IS the access
   // decision: an admitted caller bypasses the legacy identity flows
   // (unverified_caller / name_capture) and connects directly. When inactive
-  // (null policy, flag off, exempt channel, reader failed open, or a pending
-  // challenge), those legacy flows are preserved unchanged.
+  // (null policy, flag off, exempt channel, or a pending challenge), those
+  // legacy flows are preserved unchanged.
   const floorActive = ctx.admissionPolicy != null && !pendingChallenge;
 
   // Inbound admission floor verdict; defaults to admitted when inactive.
