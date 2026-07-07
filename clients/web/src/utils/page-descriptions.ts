@@ -40,6 +40,8 @@ export const INTERNAL_ROUTE_KEYS: ReadonlySet<string> = new Set([
   "quickInput",
   // Path prefix only — bare /assistant/conversations renders NotFound
   "conversations",
+  // One-time invite handler — dead end without senderAssistantId/token params
+  "connect",
   // Link builders, not pages
   "conversationAtMessage",
   "conversationWithPrompt",
@@ -183,12 +185,6 @@ export const PAGE_DESCRIPTIONS: Record<string, PageDescription> = {
     description:
       "Contacts and their connected channels (Slack, Telegram, email), plus invite links to connect people.",
     features: ["contacts", "connections", "invite", "address book"],
-  },
-  connect: {
-    label: "Connect",
-    description:
-      "Confirmation page for accepting an assistant-to-assistant invite link, creating a trusted connection (requires ?senderAssistantId= and ?token=).",
-    features: ["connect assistants", "invite link", "a2a connection", "accept invite"],
   },
   "library.root": {
     label: "Library",

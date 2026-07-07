@@ -31,19 +31,6 @@
       ]
     },
     {
-      "key": "connect",
-      "path": "/assistant/connect",
-      "label": "Connect",
-      "section": "App",
-      "description": "Confirmation page for accepting an assistant-to-assistant invite link, creating a trusted connection (requires ?senderAssistantId= and ?token=).",
-      "features": [
-        "connect assistants",
-        "invite link",
-        "a2a connection",
-        "accept invite"
-      ]
-    },
-    {
       "key": "contacts.root",
       "path": "/assistant/contacts",
       "label": "Contacts",
