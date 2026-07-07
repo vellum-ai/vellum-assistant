@@ -17,6 +17,7 @@ import {
   Cpu,
   CreditCard,
   Keyboard,
+  KeyRound,
   Laptop,
   Mic,
   Settings,
@@ -36,6 +37,7 @@ import { routes } from "@/utils/routes";
 /** All panel IDs supported by the Settings page. */
 export const PANEL_IDS = [
   "integrations",
+  "credentials",
   "model",
   "notifications",
   "keyboard-shortcuts",
@@ -79,6 +81,7 @@ export const SETTINGS_SIDEBAR: SidebarItem[] = [
   { id: "assistant-status", label: "General", href: routes.settings.general, icon: SlidersHorizontal },
   { id: "model", label: "Models & Services", href: routes.settings.ai, icon: Cpu },
   { id: "integrations", label: "Integrations", href: routes.settings.integrations, icon: Puzzle },
+  { id: "credentials", label: "Credentials", href: routes.settings.credentials, icon: KeyRound },
   { id: "notifications", label: "Notifications", href: routes.settings.notifications, icon: Bell },
   { id: "keyboard-shortcuts", label: "Keyboard Shortcuts", href: routes.settings.keyboardShortcuts, icon: Keyboard },
   { id: "sounds", label: "Sounds", href: routes.settings.sounds, icon: Volume2 },

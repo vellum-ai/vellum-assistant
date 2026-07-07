@@ -39,7 +39,7 @@ function McpSettingsRedirect() {
 }
 
 export function getRouterBasename(): string | undefined {
-  if (!isRemoteGatewayMode()) return undefined;
+  if (!isRemoteGatewayMode()) {return undefined;}
   return remoteGatewayPublicPathPrefix() || undefined;
 }
 
@@ -251,6 +251,7 @@ export const routeTree = [
                 { path: "general", lazy: { Component: () => import("@/domains/settings/pages/general-page").then((m) => m.GeneralPage) } },
                 { path: "ai", lazy: { Component: () => import("@/domains/settings/ai/ai-page").then((m) => m.AiPage) } },
                 { path: "integrations", lazy: { Component: () => import("@/domains/settings/pages/integrations-page").then((m) => m.IntegrationsPage) } },
+                { path: "credentials", lazy: { Component: () => import("@/domains/settings/credentials/credentials-page").then((m) => m.CredentialsPage) } },
                 { path: "notifications", lazy: { Component: () => import("@/domains/settings/pages/notifications-page").then((m) => m.NotificationsPage) } },
                 { path: "keyboard-shortcuts", lazy: { Component: () => import("@/domains/settings/keyboard-shortcuts/keyboard-shortcuts-page").then((m) => m.KeyboardShortcutsPage) } },
                 { path: "sounds", lazy: { Component: () => import("@/domains/settings/pages/sounds-page").then((m) => m.SoundsPage) } },
