@@ -90,6 +90,7 @@ export interface ChannelTierCell {
     scope: string;
     adapter?: string;
     channelExternalId?: string;
+    channelType?: string;
   };
   contactType: string;
   threshold: RiskThreshold;
@@ -121,6 +122,44 @@ export function tierOverridesFromCells(
     }
   }
   return overrides;
+}
+
+/**
+ * The default tier for a cell-less channel of the given type: the winning
+ * broader-scope cell, walking the matrix cascade exactly like the gateway
+ * (`channel_type` > `adapter` > `workspace`), with the trusted_contact cell
+ * as representative. Returns `null` when no broader cell exists — the
+ * owner's global interactive threshold applies then, which the caller
+ * supplies from its thresholds query.
+ */
+export function defaultTierFromCells(
+  cells: ChannelTierCell[],
+  adapter: string,
+  channelType: "public" | "private",
+): SlackCapabilityTier | null {
+  const matchesScope = (cell: ChannelTierCell, scope: string): boolean => {
+    if (cell.selector.scope !== scope) {
+      return false;
+    }
+    if (scope === "workspace") {
+      return true;
+    }
+    if (cell.selector.adapter !== adapter) {
+      return false;
+    }
+    return scope === "adapter" || cell.selector.channelType === channelType;
+  };
+  for (const scope of ["channel_type", "adapter", "workspace"]) {
+    const scoped = cells.filter((cell) => matchesScope(cell, scope));
+    if (scoped.length === 0) {
+      continue;
+    }
+    const representative =
+      scoped.find((cell) => cell.contactType === "trusted_contact") ??
+      scoped[0]!;
+    return representative.threshold;
+  }
+  return null;
 }
 
 /** The row's resolved tier plus whether a persisted cell backs it. */

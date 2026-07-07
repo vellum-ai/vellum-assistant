@@ -40,6 +40,9 @@ const meta: Meta<typeof SlackChannelList> = {
     assistantDisplayName: "Example Assistant",
     slackHandle: "@example-assistant",
     channels: MIXED_CHANNELS,
+    // Live-resolved fall-through (no broader-scope cells → the owner's
+    // global interactive threshold, Conservative here).
+    defaultTiers: { public: "low", private: "low" },
   },
   decorators: [
     (Story) => (

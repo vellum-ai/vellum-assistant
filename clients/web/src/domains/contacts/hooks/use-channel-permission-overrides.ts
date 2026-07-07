@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   CHANNEL_TIER_CONTACT_TYPES,
+  defaultTierFromCells,
   tierOverridesFromCells,
   type SlackCapabilityTier,
 } from "@/domains/contacts/slack-channel-overrides";
@@ -26,6 +27,12 @@ type WireCell = Omit<Cell, "updatedAt">;
 export interface ChannelPermissionOverridesController {
   /** Persisted tier per channel external id, or `undefined` while the feature is off. */
   tierOverrides?: Record<string, SlackCapabilityTier>;
+  /**
+   * Winning broader-scope cell per room kind (the default a cell-less
+   * channel of that type resolves to before the global thresholds).
+   * `null` per kind when no broader cell exists.
+   */
+  typeDefaults?: Record<"public" | "private", SlackCapabilityTier | null>;
   /** Channels with a cell write/delete in flight. */
   pendingChannelIds: ReadonlySet<string>;
   /** True until the cells have loaded at least once. */
@@ -95,7 +102,13 @@ export function useChannelPermissionOverrides({
   const query = useQuery({
     ...assistantChannelPermissionOverridesListOptions(pathOptions),
     enabled: enabled && Boolean(assistantId),
-    select: (data) => tierOverridesFromCells(data.cells, adapter),
+    select: (data) => ({
+      tierOverrides: tierOverridesFromCells(data.cells, adapter),
+      typeDefaults: {
+        public: defaultTierFromCells(data.cells, adapter, "public"),
+        private: defaultTierFromCells(data.cells, adapter, "private"),
+      },
+    }),
   });
 
   // Optimistically replace the channel's cells in the cached list, snapshot
@@ -198,6 +211,7 @@ export function useChannelPermissionOverrides({
   if (!enabled) {
     return {
       tierOverrides: undefined,
+      typeDefaults: undefined,
       pendingChannelIds: new Set(),
       isLoading: false,
       isError: false,
@@ -207,7 +221,8 @@ export function useChannelPermissionOverrides({
   }
 
   return {
-    tierOverrides: query.data,
+    tierOverrides: query.data?.tierOverrides,
+    typeDefaults: query.data?.typeDefaults,
     pendingChannelIds,
     isLoading: query.isPending,
     isError: query.isError,
@@ -215,7 +230,7 @@ export function useChannelPermissionOverrides({
       setMutation.mutate({ channelExternalId, tier }),
     onTierReset: (channelExternalId) => {
       // Skip the round-trip when nothing is persisted for the channel.
-      if (query.data?.[channelExternalId] === undefined) {
+      if (query.data?.tierOverrides[channelExternalId] === undefined) {
         return;
       }
       deleteMutation.mutate({ channelExternalId });

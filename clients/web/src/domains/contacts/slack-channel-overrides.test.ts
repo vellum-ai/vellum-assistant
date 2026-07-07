@@ -5,6 +5,7 @@ import { THRESHOLD_PRESETS } from "@/utils/threshold-presets";
 import {
   CAPABILITY_TIER_META,
   CAPABILITY_TIER_VALUES,
+  defaultTierFromCells,
   resolveChannelTier,
   tierOverridesFromCells,
   type ChannelTierCell,
@@ -64,6 +65,63 @@ describe("CAPABILITY_TIER_META", () => {
     );
     expect(CAPABILITY_TIER_META.medium.sublabel).toBe("workspace actions too");
     expect(CAPABILITY_TIER_META.high.sublabel).toBe("acts freely");
+  });
+});
+
+describe("defaultTierFromCells", () => {
+  const cell = (
+    scope: string,
+    threshold: ChannelTierCell["threshold"],
+    extra: Partial<ChannelTierCell["selector"]> = {},
+    contactType = "trusted_contact",
+  ): ChannelTierCell => ({
+    selector: { scope, adapter: "slack", ...extra },
+    contactType,
+    threshold,
+  });
+
+  test("no broader-scope cells resolves to null — the global thresholds apply", () => {
+    expect(
+      defaultTierFromCells(
+        [cell("channel", "high", { channelExternalId: "C1" })],
+        "slack",
+        "public",
+      ),
+    ).toBeNull();
+  });
+
+  test("channel_type cell wins over adapter and workspace cells", () => {
+    const cells = [
+      cell("workspace", "high", { adapter: undefined }),
+      cell("adapter", "medium"),
+      cell("channel_type", "low", { channelType: "public" }),
+    ];
+    expect(defaultTierFromCells(cells, "slack", "public")).toBe("low");
+    // The private kind has no channel_type cell → next scope up wins.
+    expect(defaultTierFromCells(cells, "slack", "private")).toBe("medium");
+  });
+
+  test("other adapters' cells are ignored", () => {
+    expect(
+      defaultTierFromCells(
+        [
+          cell("channel_type", "none", {
+            adapter: "telegram",
+            channelType: "public",
+          }),
+        ],
+        "slack",
+        "public",
+      ),
+    ).toBeNull();
+  });
+
+  test("trusted_contact is the representative when cells diverge", () => {
+    const cells = [
+      cell("channel_type", "none", { channelType: "public" }, "unknown"),
+      cell("channel_type", "medium", { channelType: "public" }),
+    ];
+    expect(defaultTierFromCells(cells, "slack", "public")).toBe("medium");
   });
 });
 

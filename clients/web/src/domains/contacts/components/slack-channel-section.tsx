@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SlackChannelList } from "@/domains/contacts/components/slack-channel-list";
 import { useChannelPermissionOverrides } from "@/domains/contacts/hooks/use-channel-permission-overrides";
 import { memberSlackChannelsOptions } from "@/domains/contacts/slack-channels-query";
+import { getGlobalThresholds } from "@/lib/threshold-api";
 
 export interface SlackChannelSectionProps {
   assistantId: string;
@@ -34,10 +35,28 @@ export function SlackChannelSection({
     adapter: "slack",
   });
 
+  // The default a cell-less row resolves to: the winning broader-scope
+  // matrix cell for its channel type, else the owner's global interactive
+  // threshold (channel turns run as conversation context). Thresholds
+  // share the Risk Tolerance settings page's query key, so the cache is
+  // shared.
+  const thresholdsQuery = useQuery({
+    queryKey: ["thresholds", assistantId],
+    queryFn: () => getGlobalThresholds(assistantId),
+    enabled: Boolean(assistantId),
+    staleTime: 30_000,
+  });
+  const interactive = thresholdsQuery.data?.interactive ?? null;
+  const defaultTiers = {
+    public: overrides.typeDefaults?.public ?? interactive,
+    private: overrides.typeDefaults?.private ?? interactive,
+  };
+
   return (
     <SlackChannelList
       assistantDisplayName={assistantDisplayName}
       slackHandle={slackHandle}
+      defaultTiers={defaultTiers}
       channels={channelsQuery.data}
       loading={channelsQuery.isPending}
       error={channelsQuery.isError}

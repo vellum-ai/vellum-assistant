@@ -16,6 +16,12 @@ export interface SlackChannelOverridePanelProps {
   channelName: string;
   settings: SlackChannelTierSettings;
   /**
+   * The resolved default for this channel's type when no cell is
+   * persisted — shown selected in the picker with "default" status.
+   * `null` while unknown; the picker then renders unset.
+   */
+  defaultTier: SlackCapabilityTier | null;
+  /**
    * True until persisted overrides have loaded — the picker holds disabled
    * so a stored tier can't be misread (and overwritten) as the default.
    */
@@ -39,6 +45,7 @@ export interface SlackChannelOverridePanelProps {
 export function SlackChannelOverridePanel({
   channelName,
   settings,
+  defaultTier,
   loading = false,
   error = false,
   onTierChange,
@@ -105,26 +112,16 @@ export function SlackChannelOverridePanel({
             variant="body-small-default"
             className="text-[color:var(--content-tertiary)]"
           >
-            Global default
+            default
           </Typography>
         )}
       </div>
       <SegmentControl<SlackCapabilityTier>
         items={tierItems}
-        value={settings.tier}
+        value={settings.tier ?? defaultTier}
         onChange={onTierChange}
         ariaLabel={`Assistant Access in ${channelName}`}
       />
-      {!unavailable && !settings.overridden ? (
-        <Typography
-          as="p"
-          variant="body-small-default"
-          className="text-[color:var(--content-tertiary)]"
-        >
-          No channel override — this channel follows your global Assistant
-          Access setting. Pick a tier to set one.
-        </Typography>
-      ) : null}
     </div>
   );
 }

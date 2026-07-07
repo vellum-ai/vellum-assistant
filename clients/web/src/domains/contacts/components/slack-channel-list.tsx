@@ -128,10 +128,17 @@ export interface SlackChannelListProps {
   error?: boolean;
   /**
    * Persisted capabilities-tier override per channel id (from the gateway's
-   * channel-permission cells). Channels absent from the map use the
-   * channel-type default.
+   * channel-permission cells). Channels absent from the map fall through to
+   * the owner's global interactive threshold ({@link defaultTiers}).
    */
   tierOverrides?: Record<string, SlackCapabilityTier>;
+  /**
+   * The resolved default per room kind for cell-less rows: the winning
+   * broader-scope matrix cell for that channel type, else the owner's
+   * global interactive threshold. `null` while unknown (loading/error) —
+   * rows then show a plain "Default" badge rather than guessing a tier.
+   */
+  defaultTiers?: Record<SlackRoomKind, SlackCapabilityTier | null>;
   /**
    * True until persisted overrides have loaded — expanded rows hold their
    * tier picker disabled so stored overrides can't be misread as defaults.
@@ -166,6 +173,7 @@ export function SlackChannelList({
   loading = false,
   error = false,
   tierOverrides,
+  defaultTiers,
   tierOverridesLoading = false,
   tierOverridesError = false,
   pendingChannelIds = EMPTY_PENDING_IDS,
@@ -331,6 +339,7 @@ export function SlackChannelList({
                             pending={pendingChannelIds.has(channel.id)}
                             overridesLoading={tierOverridesLoading}
                             overridesError={tierOverridesError}
+                            defaultTiers={defaultTiers}
                             tierOverride={tierOverrides?.[channel.id]}
                             onTierChange={(tier) =>
                               onTierChange?.(channel.id, tier)
@@ -350,6 +359,7 @@ export function SlackChannelList({
                         pending={pendingChannelIds.has(channel.id)}
                         overridesLoading={tierOverridesLoading}
                         overridesError={tierOverridesError}
+                        defaultTiers={defaultTiers}
                         tierOverride={tierOverrides?.[channel.id]}
                         onTierChange={(tier) =>
                           onTierChange?.(channel.id, tier)
@@ -386,6 +396,7 @@ function SlackChannelRow({
   pending,
   overridesLoading,
   overridesError,
+  defaultTiers,
   tierOverride,
   onTierChange,
   onReset,
@@ -395,6 +406,7 @@ function SlackChannelRow({
   pending: boolean;
   overridesLoading: boolean;
   overridesError: boolean;
+  defaultTiers: Record<SlackRoomKind, SlackCapabilityTier | null> | undefined;
   tierOverride: SlackCapabilityTier | undefined;
   onTierChange: (tier: SlackCapabilityTier) => void;
   onReset: () => void;
@@ -407,10 +419,14 @@ function SlackChannelRow({
   const Icon = CHANNEL_KIND_ICONS[kind];
   const metaLabel = slackChannelMetaLabel(channel);
   const settings = resolveChannelTier(tierOverride);
-  // No cell → no tier badge: the channel follows the owner's global
-  // Assistant Access setting, which a hardcoded tier would misreport.
+  // No cell → the row shows the resolved fall-through tier for its kind
+  // (broader-scope matrix cell, else the owner's global interactive
+  // threshold) marked "default", never a hardcoded one.
   const tierMeta =
     settings.tier !== null ? CAPABILITY_TIER_META[settings.tier] : null;
+  const defaultTier = defaultTiers?.[kind] ?? null;
+  const defaultMeta =
+    defaultTier !== null ? CAPABILITY_TIER_META[defaultTier] : null;
   return (
     <Collapsible.Item
       value={channel.id}
@@ -418,12 +434,7 @@ function SlackChannelRow({
     >
       <Collapsible.Trigger
         aria-label={`${channel.name} — ${open ? "collapse" : "expand"} channel settings`}
-        className={cn(
-          "group gap-3 rounded-md px-2 py-3 transition-colors",
-          "hover:bg-[var(--surface-hover)]",
-          "data-[state=open]:bg-[var(--surface-active)]",
-          "data-[state=open]:shadow-[inset_3px_0_0_0_var(--content-default)]",
-        )}
+        className="group gap-3 rounded-md px-2 py-3 transition-colors hover:bg-[var(--surface-hover)]"
       >
         <Icon
           aria-hidden="true"
@@ -445,7 +456,11 @@ function SlackChannelRow({
           {tierMeta !== null ? (
             <Tag tone={tierMeta.tone}>{tierMeta.label} • custom</Tag>
           ) : (
-            <Tag>Global default</Tag>
+            <Tag>
+              {defaultMeta !== null
+                ? `${defaultMeta.label} • default`
+                : "Default"}
+            </Tag>
           )}
           <ChevronDown
             aria-hidden="true"
@@ -457,6 +472,7 @@ function SlackChannelRow({
         <SlackChannelOverridePanel
           channelName={channel.name}
           settings={settings}
+          defaultTier={defaultTier}
           loading={overridesLoading}
           error={overridesError}
           onTierChange={onTierChange}

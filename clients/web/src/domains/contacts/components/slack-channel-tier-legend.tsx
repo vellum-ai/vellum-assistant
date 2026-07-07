@@ -94,7 +94,7 @@ export function SlackChannelTierLegend({
   assistantName,
 }: SlackChannelTierLegendProps) {
   return (
-    <div className="flex flex-col gap-3 rounded-lg bg-[var(--surface-active)] p-4">
+    <div className="flex flex-col gap-3">
       <Typography
         as="h4"
         variant="label-small-default"
