@@ -121,6 +121,15 @@ export interface TtsSynthesisResult {
 
   /** MIME type of the returned audio (e.g. `"audio/mpeg"`, `"audio/wav"`). */
   contentType: string;
+
+  /**
+   * Actual output sample rate in Hz of the returned audio, when the provider
+   * knows it (raw PCM output). Undefined for container/compressed formats
+   * whose rate is carried in the payload (mp3/wav/opus). May differ from the
+   * request's `sampleRateHz` hint when the provider cannot honour it exactly —
+   * callers that label raw PCM with a rate must use this over the hint.
+   */
+  sampleRateHz?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +205,18 @@ export interface TtsProvider {
 
   /** Static capability advertisement. */
   readonly capabilities: TtsProviderCapabilities;
+
+  /**
+   * Actual PCM output sample rate in Hz that synthesizing `request` will
+   * produce, when deterministically known before synthesis begins.
+   *
+   * Streaming callers that label emitted chunks with a rate use this so the
+   * first chunk — delivered before the final {@link TtsSynthesisResult}
+   * resolves — carries the provider's true output rate rather than the
+   * request's `sampleRateHz` hint. Returns `undefined` for non-PCM output
+   * or when the rate is not known up-front.
+   */
+  resolveOutputSampleRateHz?(request: TtsSynthesisRequest): number | undefined;
 
   /**
    * Synthesize text and return the complete audio buffer.

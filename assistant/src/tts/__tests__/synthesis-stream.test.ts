@@ -30,6 +30,7 @@ interface StreamingFakeOptions {
   /** Awaited after all chunks are delivered, before the stream resolves. */
   resolveGate?: Promise<void>;
   contentType?: string;
+  sampleRateHz?: number;
 }
 
 function makeStreamingProvider(
@@ -56,6 +57,7 @@ function makeStreamingProvider(
       return {
         audio: Buffer.concat(chunks),
         contentType: options.contentType ?? "audio/mpeg",
+        sampleRateHz: options.sampleRateHz,
       };
     },
   };
@@ -64,6 +66,7 @@ function makeStreamingProvider(
 function makeBufferProvider(
   audio: Buffer,
   contentType = "audio/mpeg",
+  sampleRateHz?: number,
 ): TtsProvider & { requests: TtsSynthesisRequest[] } {
   const requests: TtsSynthesisRequest[] = [];
   return {
@@ -72,7 +75,7 @@ function makeBufferProvider(
     requests,
     async synthesize(request): Promise<TtsSynthesisResult> {
       requests.push(request);
-      return { audio, contentType };
+      return { audio, contentType, sampleRateHz };
     },
   };
 }
@@ -503,6 +506,22 @@ describe("synthesizeAndEmit (streaming)", () => {
     ]);
   });
 
+  test("passes the provider-reported sampleRateHz through on the result", async () => {
+    const provider = makeStreamingProvider([bytes("a")], {
+      contentType: "audio/pcm",
+      sampleRateHz: 24000,
+    });
+
+    const result = await synthesizeAndEmit({
+      provider,
+      text: "hello",
+      useCase: "phone-call",
+      onChunk: () => {},
+    });
+
+    expect(result.sampleRateHz).toBe(24000);
+  });
+
   test("passes text/useCase/voiceId/outputFormat/sampleRateHz/signal through on the request", async () => {
     const provider = makeStreamingProvider([bytes("a")]);
     const abortController = new AbortController();
@@ -552,8 +571,26 @@ describe("synthesizeAndEmit (buffer)", () => {
     expect(result).toEqual({
       emittedChunks: 1,
       contentType: "audio/wav",
+      sampleRateHz: undefined,
       stopped: false,
     });
+  });
+
+  test("passes the provider-reported sampleRateHz through on the result", async () => {
+    const provider = makeBufferProvider(
+      Buffer.from("abc"),
+      "audio/pcm",
+      16000,
+    );
+
+    const result = await synthesizeAndEmit({
+      provider,
+      text: "hello",
+      useCase: "phone-call",
+      onChunk: () => {},
+    });
+
+    expect(result.sampleRateHz).toBe(16000);
   });
 
   test("throws on an empty audio payload", async () => {

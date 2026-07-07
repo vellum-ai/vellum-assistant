@@ -76,7 +76,30 @@ export async function streamLiveVoiceTtsAudio(
 ): Promise<LiveVoiceTtsResult> {
   const { provider, providerId, providerConfig } =
     await resolveLiveVoiceStreamingTtsProvider(options.config);
-  const sampleRate = resolveSampleRate(options.sampleRate, providerConfig);
+  const useCase = options.useCase ?? "phone-call";
+  const requestedSampleRate = resolveSampleRate(
+    options.sampleRate,
+    providerConfig,
+  );
+  // Frames are labeled with the provider's actual output rate: the streaming
+  // path emits chunks before the synthesis result resolves, so the rate must
+  // be known up-front — a rate hint the provider cannot honour would
+  // otherwise mislabel the audio and play at the wrong speed.
+  const providerSampleRate = provider.resolveOutputSampleRateHz?.({
+    text: options.text,
+    useCase,
+    voiceId: options.voiceId,
+    outputFormat: options.outputFormat,
+    sampleRateHz: requestedSampleRate,
+    signal: options.signal,
+  });
+  let sampleRate = providerSampleRate ?? requestedSampleRate;
+  if (sampleRate !== requestedSampleRate) {
+    log.warn(
+      { provider: providerId, requestedSampleRate, sampleRate },
+      "TTS provider output sample rate differs from the requested rate; labeling audio with the provider rate",
+    );
+  }
   const chunkContentType = resolveChunkContentType(
     provider,
     providerConfig,
@@ -122,10 +145,10 @@ export async function streamLiveVoiceTtsAudio(
     const result = await synthesizeAndEmit({
       provider,
       text: options.text,
-      useCase: options.useCase ?? "phone-call",
+      useCase,
       voiceId: options.voiceId,
       outputFormat: options.outputFormat,
-      sampleRateHz: sampleRate,
+      sampleRateHz: requestedSampleRate,
       signal: options.signal,
       onChunk: (chunk) => {
         if (canStreamChunks) {
@@ -148,6 +171,24 @@ export async function streamLiveVoiceTtsAudio(
       );
     }
     const contentType = result.contentType || chunkContentType;
+
+    // Late correction for providers that report the actual rate only on the
+    // completed result: it relabels the buffered emit below and the returned
+    // result (already-streamed frames keep their up-front label).
+    if (
+      isPositiveFiniteNumber(result.sampleRateHz) &&
+      result.sampleRateHz !== sampleRate
+    ) {
+      log.warn(
+        {
+          provider: providerId,
+          labeledSampleRate: sampleRate,
+          sampleRate: result.sampleRateHz,
+        },
+        "TTS provider reported a different output sample rate on the completed result",
+      );
+      sampleRate = result.sampleRateHz;
+    }
 
     // An abort mid-stream resolves without throwing; skip the buffered emit
     // so a truncated payload is never delivered after cancellation.
