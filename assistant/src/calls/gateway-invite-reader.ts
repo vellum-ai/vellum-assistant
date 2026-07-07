@@ -11,14 +11,21 @@
  * - Redemption fails CLOSED — any IPC failure is the generic
  *   `invalid_or_expired` outcome. There is no local fallback: the gateway
  *   row is the single lifecycle authority for voice invites.
+ *
+ * Deliberately NOT built on `channels/gateway-invites.ts` /
+ * `ipcCallPersistentValidated`: this is the hot call-setup path, so it uses
+ * one-shot `ipcCall` with explicit per-operation timeouts and the fail
+ * postures above instead of the persistent throw-fail-closed client the
+ * control-plane relays share.
  */
 
 import {
   type ActiveVoiceInvite,
-  ActiveVoiceInviteSchema,
-  InviteRedemptionOutcomeSchema,
+  GetActiveVoiceInviteIpcResponseSchema,
+  INVITES_IPC_METHODS,
+  type RedeemVoiceInviteIpcResponse,
+  RedeemVoiceInviteIpcResponseSchema,
 } from "@vellumai/gateway-client";
-import { z } from "zod";
 
 import { ipcCall } from "../ipc/gateway-client.js";
 
@@ -29,18 +36,7 @@ const DETECTION_IPC_TIMEOUT_MS = 2_000;
 // headroom — a timeout still fails closed.
 const REDEMPTION_IPC_TIMEOUT_MS = 10_000;
 
-const GetActiveVoiceInviteResponseSchema = z.object({
-  invite: ActiveVoiceInviteSchema.nullable(),
-});
-
-const RedeemVoiceInviteResponseSchema = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(true), outcome: InviteRedemptionOutcomeSchema }),
-  z.object({ ok: z.literal(false), reason: z.literal("invalid_or_expired") }),
-]);
-
-export type GatewayVoiceRedemptionResult = z.infer<
-  typeof RedeemVoiceInviteResponseSchema
->;
+export type GatewayVoiceRedemptionResult = RedeemVoiceInviteIpcResponse;
 
 const REDEMPTION_FAILURE: GatewayVoiceRedemptionResult = {
   ok: false,
@@ -59,11 +55,11 @@ export async function getActiveVoiceInvite(
   }
   try {
     const result = await ipcCall(
-      "get_active_voice_invite",
+      INVITES_IPC_METHODS.getActiveVoiceInvite,
       { callerExternalUserId: fromNumber },
       DETECTION_IPC_TIMEOUT_MS,
     );
-    const parsed = GetActiveVoiceInviteResponseSchema.safeParse(result);
+    const parsed = GetActiveVoiceInviteIpcResponseSchema.safeParse(result);
     if (!parsed.success) {
       return null;
     }
@@ -83,11 +79,11 @@ export async function redeemVoiceInviteViaGateway(
 ): Promise<GatewayVoiceRedemptionResult> {
   try {
     const result = await ipcCall(
-      "redeem_voice_invite",
+      INVITES_IPC_METHODS.redeemVoiceInvite,
       { callerExternalUserId: fromNumber, code },
       REDEMPTION_IPC_TIMEOUT_MS,
     );
-    const parsed = RedeemVoiceInviteResponseSchema.safeParse(result);
+    const parsed = RedeemVoiceInviteIpcResponseSchema.safeParse(result);
     if (!parsed.success) {
       return REDEMPTION_FAILURE;
     }

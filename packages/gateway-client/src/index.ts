@@ -93,30 +93,49 @@ export type {
 } from "./trust-verdict-contract.js";
 
 // Invite contract (shared gateway ↔ daemon) — hash/generate helpers,
-// channel gating, redemption outcome + invite IPC schemas
+// channel gating, redemption outcome, method map + invite IPC schemas
 export {
   ActiveVoiceInviteSchema,
+  CreateInviteIpcResponseSchema,
   generateInviteCode,
   generateInviteToken,
+  GetActiveVoiceInviteIpcResponseSchema,
   GetActiveVoiceInviteRequestSchema,
   hashInviteCode,
   hashInviteToken,
+  INVITES_IPC_METHODS,
   InviteRedemptionOutcomeSchema,
+  InviteRedemptionResultSchema,
+  InviteWireSchema,
   isInviteCodeRedemptionEnabled,
   isValidE164,
+  ListInvitesIpcResponseSchema,
   RedeemInviteByCodeRequestSchema,
   RedeemInviteByTokenRequestSchema,
+  RedeemInviteTokenIpcResponseSchema,
+  RedeemInviteVoiceIpcResponseSchema,
+  RedeemVoiceInviteIpcResponseSchema,
   RedeemVoiceInviteRequestSchema,
+  RevokeInviteIpcResponseSchema,
 } from "./invite-contract.js";
 
 export type {
   ActiveVoiceInvite,
+  CreateInviteIpcResponse,
+  GetActiveVoiceInviteIpcResponse,
   GetActiveVoiceInviteRequest,
   InviteRedemptionOutcome,
   InviteRedemptionResult,
+  InvitesIpcMethod,
+  InviteWire,
+  ListInvitesIpcResponse,
   RedeemInviteByCodeRequest,
   RedeemInviteByTokenRequest,
+  RedeemInviteTokenIpcResponse,
+  RedeemInviteVoiceIpcResponse,
+  RedeemVoiceInviteIpcResponse,
   RedeemVoiceInviteRequest,
+  RevokeInviteIpcResponse,
 } from "./invite-contract.js";
 
 // Verification-session contract (shared gateway ↔ daemon) — hash helper,
