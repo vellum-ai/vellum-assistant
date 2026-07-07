@@ -33,7 +33,6 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
   const completedRef = useRef(false);
   // Latest open state for mutation callbacks, which outlive a close.
   const openRef = useRef(open);
-  openRef.current = open;
 
   const invalidateFactors = () =>
     queryClient.invalidateQueries({ queryKey: userMfaFactorsListQueryKey() });
@@ -122,6 +121,7 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
 
   // Reset on open (not close) so the closing animation doesn't flash.
   useEffect(() => {
+    openRef.current = open;
     if (!open) {
       return;
     }
