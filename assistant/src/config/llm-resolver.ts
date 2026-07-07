@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { getCatalogProviderForModel } from "../providers/model-catalog.js";
+import {
+  getCatalogProviderForModel,
+  isModelInCatalog,
+} from "../providers/model-catalog.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import { getEffectiveProfile } from "./default-profile-catalog.js";
 import {
@@ -201,9 +204,7 @@ export function resolveCallSiteConfig(
     );
   }
 
-  const resolved = finalize(
-    deepMerge(...layers.map(withImpliedProviderForKnownModel)),
-  );
+  const resolved = finalize(deepMerge(...withImpliedProviders(layers)));
   // `logitBias` is profile-scoped: the winning profile is its only source.
   // Overwrite — or clear — whatever the deep-merge may have copied from a
   // non-profile layer (`llm.default` or a call-site fragment), so a preset set
@@ -403,18 +404,41 @@ function effectiveDefault(
   return dflt;
 }
 
-function withImpliedProviderForKnownModel(source: Mergeable): Mergeable {
-  if (source.provider !== undefined) return source;
-  const model = source.model;
-  if (typeof model !== "string" || model.length === 0) return source;
-
-  const provider = getCatalogProviderForModel(model);
-  if (provider === undefined) return source;
-
-  return {
-    ...source,
-    provider,
-  };
+/**
+ * Stamp a catalog-implied provider onto model-only layers whose model the
+ * provider applicable at that point in the merge does not serve. Layers are
+ * scanned in merge order (low → high precedence), tracking the provider the
+ * merged config would carry at each layer: when that provider already lists
+ * the layer's model in its own catalog, no implication is needed and the
+ * layer stays provider-less so the lower-precedence provider wins. Models
+ * unknown to the catalog never imply a provider.
+ */
+function withImpliedProviders(layers: Mergeable[]): Mergeable[] {
+  let applicableProvider: string | undefined;
+  return layers.map((layer) => {
+    if (layer.provider !== undefined) {
+      if (typeof layer.provider === "string") {
+        applicableProvider = layer.provider;
+      }
+      return layer;
+    }
+    const model = layer.model;
+    if (typeof model !== "string" || model.length === 0) {
+      return layer;
+    }
+    if (
+      applicableProvider !== undefined &&
+      isModelInCatalog(applicableProvider, model)
+    ) {
+      return layer;
+    }
+    const provider = getCatalogProviderForModel(model);
+    if (provider === undefined) {
+      return layer;
+    }
+    applicableProvider = provider;
+    return { ...layer, provider };
+  });
 }
 
 /**

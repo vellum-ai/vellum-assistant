@@ -14,6 +14,16 @@ export function isAnthropicModel(model: string): boolean {
   return model.startsWith("anthropic/");
 }
 
+// Gateways that front Anthropic's Messages API for anthropic/* models.
+const ANTHROPIC_DELEGATING_GATEWAYS = new Set([
+  "openrouter",
+  "vercel-ai-gateway",
+]);
+
+export function isAnthropicDelegatingGateway(provider: string): boolean {
+  return ANTHROPIC_DELEGATING_GATEWAYS.has(provider);
+}
+
 // The Anthropic SDK appends `/v1/messages` to its configured baseURL, so we
 // strip the trailing `/v1` segment from the OpenAI-compat base before handing
 // it to the SDK.

@@ -13,6 +13,10 @@ import {
   isRetryableNetworkError,
   sleep,
 } from "../util/retry.js";
+import {
+  isAnthropicDelegatingGateway,
+  isAnthropicModel,
+} from "./anthropic-gateway-shared.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
 import { isAdaptiveThinkingOnlyModel } from "./model-catalog.js";
 import {
@@ -186,9 +190,11 @@ function isRetryableError(error: unknown): boolean {
  * temperature ≠ 1, top_p) apply exactly to these requests.
  */
 function targetsAnthropicWire(providerName: string, model: string): boolean {
-  if (providerName === "anthropic") return true;
-  if (providerName === "openrouter" || providerName === "vercel-ai-gateway") {
-    return model.startsWith("anthropic/");
+  if (providerName === "anthropic") {
+    return true;
+  }
+  if (isAnthropicDelegatingGateway(providerName)) {
+    return isAnthropicModel(model);
   }
   return false;
 }

@@ -88,6 +88,76 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.effort).toBe("low");
   });
 
+  test("model-only override of a shared gateway model keeps a vercel-ai-gateway default provider", () => {
+    // `anthropic/claude-opus-4.8` is listed by both openrouter and
+    // vercel-ai-gateway; the applicable default provider serves it, so no
+    // provider is implied and the default wins.
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "vercel-ai-gateway",
+        model: "anthropic/claude-sonnet-4.6",
+      },
+      callSites: {
+        memoryExtraction: { model: "anthropic/claude-opus-4.8" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("vercel-ai-gateway");
+    expect(resolved.model).toBe("anthropic/claude-opus-4.8");
+  });
+
+  test("model-only override of a shared gateway model keeps an openrouter default provider", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "openrouter",
+        model: "anthropic/claude-sonnet-4.6",
+      },
+      callSites: {
+        memoryExtraction: { model: "anthropic/claude-opus-4.8" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("openrouter");
+    expect(resolved.model).toBe("anthropic/claude-opus-4.8");
+  });
+
+  test("model-only override of a gateway model with a non-serving default implies the catalog owner", () => {
+    // Anthropic's own catalog uses bare slugs, so it does not serve
+    // `anthropic/claude-sonnet-4.6` — the catalog owner (openrouter, the
+    // earliest entry listing it) is implied.
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      callSites: {
+        memoryExtraction: { model: "anthropic/claude-sonnet-4.6" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("openrouter");
+    expect(resolved.model).toBe("anthropic/claude-sonnet-4.6");
+  });
+
+  test("model unique to vercel-ai-gateway implies vercel-ai-gateway", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      callSites: {
+        memoryExtraction: { model: "openai/gpt-5.5-pro" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("vercel-ai-gateway");
+    expect(resolved.model).toBe("openai/gpt-5.5-pro");
+  });
+
   test("unknown model-only override preserves inherited provider", () => {
     const llm = LLMSchema.parse({
       default: {
