@@ -1473,3 +1473,55 @@ export function isAdaptiveThinkingOnlyModel(modelId: string): boolean {
     p.models.some((m) => m.id === modelId && m.adaptiveThinkingOnly === true),
   );
 }
+
+/**
+ * Model-id patterns for the Claude families that accept Anthropic's adaptive
+ * thinking mode (`thinking: { type: "adaptive" }`) beyond the always-on
+ * adaptive-only models. Only the newest families support it; older Claude
+ * models (Sonnet 4.5, Opus 4.5/4.6, Sonnet 4.6, Haiku 4.5) reject it with a 400
+ * "adaptive thinking is not supported on this model" and must instead receive
+ * the classic budgeted shape (`{ type: "enabled", budget_tokens }`).
+ *
+ * Patterns match both the bare Anthropic ids (`claude-opus-4-8`) and the
+ * OpenRouter mirror ids (`anthropic/claude-opus-4.8`), which differ only in the
+ * version separator. This is the adaptive-thinking counterpart to the
+ * `deprecatesSamplingParams` families in `anthropic/client.ts`: the two share a
+ * model set today but track distinct capabilities, so they are kept separate.
+ */
+const ADAPTIVE_THINKING_MODEL_PATTERNS: readonly RegExp[] = [
+  /claude-opus-4[.-][78]\b/,
+  /claude-sonnet-5\b/,
+];
+
+/**
+ * Whether the model supports Anthropic's adaptive thinking mode. True for the
+ * always-on adaptive-only models (Fable) and for the newer Claude families that
+ * accept the adaptive shape. Unknown models return false (conservative — an
+ * unrecognized model is treated as not supporting adaptive thinking).
+ */
+export function supportsAdaptiveThinking(modelId: string): boolean {
+  if (isAdaptiveThinkingOnlyModel(modelId)) {
+    return true;
+  }
+  return ADAPTIVE_THINKING_MODEL_PATTERNS.some((p) => p.test(modelId));
+}
+
+/** Whether the model ID exists under any provider in the catalog. */
+function isKnownCatalogModel(modelId: string): boolean {
+  return PROVIDER_CATALOG.some((p) => p.models.some((m) => m.id === modelId));
+}
+
+/**
+ * Whether the model is a known catalog model that does NOT support adaptive
+ * thinking — i.e. sending it `thinking: { type: "adaptive" }` would 400. The
+ * daemon rewrites an enabled/adaptive thinking config into the classic budgeted
+ * shape for these models. Unknown models return false so their existing wire
+ * behavior is preserved: the daemon leaves the adaptive shape untouched rather
+ * than guessing that an unrecognized model needs the budgeted form.
+ */
+export function requiresBudgetedThinking(modelId: string): boolean {
+  if (!isKnownCatalogModel(modelId)) {
+    return false;
+  }
+  return !supportsAdaptiveThinking(modelId);
+}

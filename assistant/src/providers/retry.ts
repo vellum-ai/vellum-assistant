@@ -14,7 +14,10 @@ import {
   sleep,
 } from "../util/retry.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
-import { isAdaptiveThinkingOnlyModel } from "./model-catalog.js";
+import {
+  isAdaptiveThinkingOnlyModel,
+  requiresBudgetedThinking,
+} from "./model-catalog.js";
 import {
   isThinkingConfigDisabled,
   normalizeThinkingConfigForWire,
@@ -77,6 +80,79 @@ const THINKING_EXTRA_FIELDS_AWARE_PROVIDERS = new Set(["gemini"]);
  * `text.verbosity` on the Responses API — a GPT-5-series parameter).
  */
 const VERBOSITY_SUPPORTED_PROVIDERS = new Set(["openai"]);
+
+/**
+ * Default `budget_tokens` used when an enabled/adaptive thinking config is
+ * rewritten to Anthropic's classic budgeted shape for a model that doesn't
+ * support adaptive thinking. Clamped per call so the request satisfies
+ * Anthropic's `1024 <= budget_tokens < max_tokens` constraint while leaving
+ * room for the visible response (see {@link budgetedThinkingConfig}).
+ */
+const NON_ADAPTIVE_THINKING_BUDGET_TOKENS = 16000;
+
+/** Anthropic's minimum accepted `budget_tokens` for extended thinking. */
+const MIN_THINKING_BUDGET_TOKENS = 1024;
+
+/**
+ * Whether a request sent to the given provider/model reaches Anthropic's
+ * Messages API — either the native Anthropic provider or OpenRouter fronting an
+ * `anthropic/*` model (which delegates to `AnthropicProvider`). Anthropic-wire
+ * thinking constraints (adaptive support, budgeted shape, temperature/top_p)
+ * only apply to these requests.
+ */
+function isAnthropicWireRequest(providerName: string, model: string): boolean {
+  if (providerName === "anthropic") {
+    return true;
+  }
+  if (providerName === "openrouter") {
+    return model.startsWith("anthropic/");
+  }
+  return false;
+}
+
+/**
+ * Whether the normalized wire `thinking` config is Anthropic's adaptive shape
+ * (`{ type: "adaptive" }`). `normalizeThinkingConfigForWire` produces this for
+ * every enabled config.
+ */
+function isAdaptiveWireThinking(thinking: unknown): boolean {
+  return (
+    typeof thinking === "object" &&
+    thinking !== null &&
+    !Array.isArray(thinking) &&
+    (thinking as Record<string, unknown>).type === "adaptive"
+  );
+}
+
+/**
+ * Build the classic budgeted Anthropic thinking shape (`{ type: "enabled",
+ * budget_tokens }`) for a model that rejects the adaptive shape.
+ *
+ * Anthropic counts the thinking budget against `max_tokens` and requires
+ * `1024 <= budget_tokens < max_tokens`, so the budget is capped at half of
+ * `max_tokens` — reserving at least half of the output cap for the visible
+ * response — and at the standard {@link NON_ADAPTIVE_THINKING_BUDGET_TOKENS}.
+ * When `max_tokens` is unset, the Anthropic client's own default (8192–64000)
+ * comfortably fits the standard budget.
+ *
+ * Returns `undefined` when the halved cap falls below Anthropic's 1024
+ * minimum (`max_tokens < 2048`): there is no budget that is both valid and
+ * leaves room for a response, so the caller drops thinking for the request —
+ * a working non-thinking response beats a guaranteed 400.
+ */
+function budgetedThinkingConfig(
+  maxTokens: number | undefined,
+): Record<string, unknown> | undefined {
+  const ceiling =
+    typeof maxTokens === "number"
+      ? Math.floor(maxTokens / 2)
+      : Number.POSITIVE_INFINITY;
+  const budget = Math.min(NON_ADAPTIVE_THINKING_BUDGET_TOKENS, ceiling);
+  if (budget < MIN_THINKING_BUDGET_TOKENS) {
+    return undefined;
+  }
+  return { type: "enabled", budget_tokens: budget };
+}
 
 /** Patterns that indicate a transient streaming corruption from the SDK. */
 const RETRYABLE_STREAM_PATTERNS = [
@@ -375,6 +451,50 @@ function normalizeSendMessageOptions(
     delete nextConfig.thinking;
   }
 
+  // Mirror direction: older Anthropic models (Sonnet 4.5, Opus 4.5/4.6, Sonnet
+  // 4.6, Haiku 4.5) reject `thinking: { type: "adaptive" }` with a 400
+  // "adaptive thinking is not supported on this model" — only the newest
+  // families (Opus 4.7/4.8, Sonnet 5, Fable) accept it. `normalizeThinking-
+  // ConfigForWire` maps every enabled config to the adaptive shape regardless
+  // of model, so rewrite it here — where the resolved model is known — to
+  // Anthropic's classic budgeted shape (`{ type: "enabled", budget_tokens }`)
+  // for known non-adaptive models so their turns don't hard-fail. Runs before
+  // the temperature/top_p guards below because budgeted thinking is still
+  // "enabled" on the wire and carries the same temperature/top_p constraints.
+  // Unknown models keep the adaptive shape (existing behavior). When
+  // `max_tokens` is too small to fit a valid budget plus response headroom
+  // (`budgetedThinkingConfig` returns undefined), thinking is dropped for the
+  // request instead — for these models an absent config means thinking off.
+  if (
+    typeof nextConfig.model === "string" &&
+    isAnthropicWireRequest(providerName, nextConfig.model) &&
+    requiresBudgetedThinking(nextConfig.model) &&
+    isAdaptiveWireThinking(nextConfig.thinking)
+  ) {
+    const budgeted = budgetedThinkingConfig(
+      typeof nextConfig.max_tokens === "number"
+        ? nextConfig.max_tokens
+        : undefined,
+    );
+    if (budgeted === undefined) {
+      log.warn(
+        {
+          providerName,
+          callSite: config.callSite,
+          model: nextConfig.model,
+          maxTokens: nextConfig.max_tokens,
+        },
+        "Dropping enabled thinking — max_tokens is too small to fit the " +
+          "minimum thinking budget (1024) plus response headroom on a model " +
+          "without adaptive thinking. Raise max_tokens to at least 2048 to " +
+          "keep thinking enabled.",
+      );
+      delete nextConfig.thinking;
+    } else {
+      nextConfig.thinking = budgeted;
+    }
+  }
+
   // thinking is Anthropic-specific on the wire; OpenRouter reads it as a
   // signal for its unified reasoning parameter; Gemini reads `level` from it.
   // Strip it for other providers.
@@ -418,17 +538,18 @@ function normalizeSendMessageOptions(
   // into OpenRouter's `reasoning` parameter via `buildExtraCreateParams`
   // and may support reasoning with forced tool_choice.
   const isThinkingForcedToolConflict = (() => {
-    if (nextConfig.thinking == null) return false;
-    if (isThinkingConfigDisabled(nextConfig.thinking)) return false;
-    const tc = nextConfig.tool_choice as Record<string, unknown> | undefined;
-    if (tc == null || (tc.type !== "tool" && tc.type !== "any")) return false;
-    if (providerName === "anthropic") return true;
-    if (providerName === "openrouter") {
-      const model =
-        typeof nextConfig.model === "string" ? nextConfig.model : "";
-      return model.startsWith("anthropic/");
+    if (nextConfig.thinking == null) {
+      return false;
     }
-    return false;
+    if (isThinkingConfigDisabled(nextConfig.thinking)) {
+      return false;
+    }
+    const tc = nextConfig.tool_choice as Record<string, unknown> | undefined;
+    if (tc == null || (tc.type !== "tool" && tc.type !== "any")) {
+      return false;
+    }
+    const model = typeof nextConfig.model === "string" ? nextConfig.model : "";
+    return isAnthropicWireRequest(providerName, model);
   })();
   if (isThinkingForcedToolConflict) {
     delete nextConfig.thinking;
@@ -473,13 +594,7 @@ function normalizeSendMessageOptions(
         return false;
       }
     }
-    if (providerName === "anthropic") {
-      return true;
-    }
-    if (providerName === "openrouter") {
-      return model.startsWith("anthropic/");
-    }
-    return false;
+    return isAnthropicWireRequest(providerName, model);
   })();
   const isThinkingTemperatureConflict = (() => {
     if (!isThinkingEnabledOnAnthropicWire) {
