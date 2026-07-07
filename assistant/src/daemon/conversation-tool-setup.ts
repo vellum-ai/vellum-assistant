@@ -41,10 +41,12 @@ import {
   resolveSkillExecuteInput,
 } from "../tools/skills/execute.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
+import type {
+  ProxyApprovalCallback,
+  ProxyApprovalRequest,
+} from "../tools/tool-types.js";
 import {
   isDiskPressureCleanupToolName,
-  type ProxyApprovalCallback,
-  type ProxyApprovalRequest,
   type ToolContext,
   type ToolExecutionResult,
   type ToolLifecycleEventHandler,

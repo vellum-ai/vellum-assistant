@@ -23,8 +23,8 @@ import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
 import { suggestToolName } from "./tool-name-aliases.js";
+import type { ExecutionTarget } from "./tool-types.js";
 import {
-  type ExecutionTarget,
   isDiskPressureCleanupToolName,
   type OwnerInfo,
   type Tool,

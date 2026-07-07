@@ -4,9 +4,9 @@ import { z } from "zod";
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
-import type { SecretPromptResult } from "../permissions/secret-prompter.js";
+import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 import type { ContentBlock } from "../providers/types.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import type { TrustClass } from "../runtime/trust-class.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 import type {
   DiffInfo,
@@ -36,45 +36,22 @@ export function isDiskPressureCleanupToolName(name: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Re-exports + concrete overlays for types that live in
-// ./tool-types.js.
+// Concrete overlays for types that live in ./tool-types.js.
 //
-// The canonical declarations live in the neutral leaf module
-// `./tool-types.js`. This file preserves existing import paths
-// (`"../tools/types.js"`) so all callers keep resolving.
-//
-// Pure re-exports below cover types the contracts package could declare
-// without any assistant-side references. The remaining interfaces (`Tool`,
-// `ToolContext`, `ToolExecutionResult`, `ToolExecutedEvent`,
-// `ToolLifecycleEvent`, `ToolLifecycleEventHandler`, `ProxyToolResolver`)
-// reference daemon-internal types (CES client, host-proxy classes,
-// `ContentBlock`, `ApprovalRequired`, `TrustClass`, `InterfaceId`,
+// The canonical declarations live in the neutral leaf module `./tool-types.js`.
+// The interfaces below (`Tool`, `ToolContext`, `ToolExecutionResult`,
+// `ToolExecutedEvent`, `ToolLifecycleEvent`, `ToolLifecycleEventHandler`,
+// `ProxyToolResolver`) reference daemon-internal types (CES client, host-proxy
+// classes, `ContentBlock`, `ApprovalRequired`, `TrustClass`, `InterfaceId`,
 // `SecretPromptResult`, `UsageAttributionSnapshot`) that can't move into a
-// neutral package. For those,
-// the contracts version uses opaque placeholders (`unknown`, broadened
-// `string`) and the assistant redeclares the interface here with the
-// concrete types. The two sides are structurally independent — no
-// inheritance, no intersection — which avoids TypeScript's contravariance
-// mismatches on lifecycle-event handlers.
-// `ToolExecutionErrorEvent` is the exception: its contracts fields are all
-// concrete, so the assistant overlay simply extends it with the
-// daemon-internal telemetry fields.
+// neutral package. For those, the contracts version uses opaque placeholders
+// (`unknown`, broadened `string`) and the assistant redeclares the interface
+// here with the concrete types. The two sides are structurally independent —
+// no inheritance, no intersection — which avoids TypeScript's contravariance
+// mismatches on lifecycle-event handlers. `ToolExecutionErrorEvent` is the
+// exception: its contracts fields are all concrete, so the assistant overlay
+// simply extends it with the daemon-internal telemetry fields.
 // ---------------------------------------------------------------------------
-
-export type {
-  DiffInfo,
-  ErrorCategory,
-  ExecutionTarget,
-  ProxyApprovalCallback,
-  ProxyApprovalRequest,
-  ProxyEnvVars,
-  SensitiveOutputBinding,
-  SensitiveOutputKind,
-  ToolExecutionStartEvent,
-  ToolPermissionDeniedEvent,
-  ToolPermissionPromptEvent,
-} from "./tool-types.js";
-export { RiskLevel } from "./tool-types.js";
 
 // ---------------------------------------------------------------------------
 // Assistant-side concrete overlays

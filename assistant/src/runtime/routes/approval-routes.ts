@@ -13,7 +13,7 @@ import { findConversation } from "../../daemon/conversation-registry.js";
 import type {
   SecretDelivery,
   SecretPromptResult,
-} from "../../permissions/secret-prompter.js";
+} from "../../permissions/secret-prompt-types.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getConversationByKey } from "../../persistence/conversation-key-store.js";
 import {

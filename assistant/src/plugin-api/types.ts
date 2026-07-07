@@ -24,12 +24,12 @@ export type {
   StopContext,
   UserPromptSubmitContext,
 } from "../hooks/types.js";
+export { RiskLevel } from "../tools/tool-types.js";
 export type {
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
 } from "../tools/types.js";
-export { RiskLevel } from "../tools/types.js";
 
 // ─── Hook function ───────────────────────────────────────────────────────────
 

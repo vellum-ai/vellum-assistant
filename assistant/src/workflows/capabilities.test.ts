@@ -8,12 +8,8 @@ import {
   registerWorkspaceTools,
 } from "../tools/registry.js";
 import { isSideEffectTool } from "../tools/side-effects.js";
-import type {
-  ExecutionTarget,
-  Tool,
-  ToolContext,
-  ToolExecutionResult,
-} from "../tools/types.js";
+import type { ExecutionTarget } from "../tools/tool-types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import {
   CapabilityManifestSchema,
   CapabilityResolutionError,
