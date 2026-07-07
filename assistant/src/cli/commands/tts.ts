@@ -6,13 +6,14 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { readStdinSync } from "../../util/read-stdin.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
@@ -172,7 +173,7 @@ Examples:
               (positionalParts.length > 0 ? positionalParts.join(" ") : "");
             if (!messageText && !process.stdin.isTTY) {
               try {
-                messageText = readFileSync("/dev/stdin", "utf-8").trim();
+                messageText = readStdinSync().trim();
               } catch {
                 /* stdin unavailable */
               }

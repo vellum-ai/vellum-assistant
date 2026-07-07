@@ -695,8 +695,13 @@ function tryJsonParse(raw: string): unknown {
 
 function readBodyData(data: string): unknown {
   if (data === "@-") {
-    const raw = readFileSync("/dev/stdin", "utf-8");
-    return tryJsonParse(raw);
+    // This handler runs inside the daemon, whose stdin is a supervisor pipe
+    // or /dev/null — never the caller's terminal. Stdin-based body input is
+    // resolved CLI-side and arrives pre-parsed via `parsed_data`.
+    throw new BadRequestError(
+      'Stdin body input ("@-") is not supported on this endpoint. ' +
+        "Pass the body inline, reference a file with @<path>, or use the assistant CLI.",
+    );
   }
 
   if (data.startsWith("@")) {

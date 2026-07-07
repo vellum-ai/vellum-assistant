@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { readStdinSync } from "../../util/read-stdin.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
@@ -51,7 +52,9 @@ function validatePayload(raw: unknown): ImportPayload {
   for (let i = 0; i < obj.conversations.length; i++) {
     const conv = obj.conversations[i] as Record<string, unknown>;
     if (!conv.title || typeof conv.title !== "string") {
-      throw new Error(`conversations[${i}].title is required and must be a string`);
+      throw new Error(
+        `conversations[${i}].title is required and must be a string`,
+      );
     }
     if (!Array.isArray(conv.messages) || conv.messages.length === 0) {
       throw new Error(`conversations[${i}].messages must be a non-empty array`);
@@ -62,7 +65,9 @@ function validatePayload(raw: unknown): ImportPayload {
         throw new Error(`conversations[${i}].messages[${j}].role is required`);
       }
       if (msg.content === undefined || msg.content === null) {
-        throw new Error(`conversations[${i}].messages[${j}].content is required`);
+        throw new Error(
+          `conversations[${i}].messages[${j}].content is required`,
+        );
       }
     }
   }
@@ -71,7 +76,9 @@ function validatePayload(raw: unknown): ImportPayload {
 
 // -- CLI registration --
 
-export function registerConversationsImportCommand(conversations: Command): void {
+export function registerConversationsImportCommand(
+  conversations: Command,
+): void {
   registerCommand(conversations, {
     name: "import",
     transport: "ipc",
@@ -119,7 +126,7 @@ Examples:
                   "No input provided. Pipe JSON into stdin or use --file <path>.",
                 );
               }
-              raw = readFileSync("/dev/stdin", "utf-8");
+              raw = readStdinSync();
             }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -158,9 +165,17 @@ Examples:
           }
 
           const r = await cliIpcCall<ImportResult>("conversations_import", {
-            body: { conversations: payload.conversations as unknown as Record<string, unknown>[] },
+            body: {
+              conversations: payload.conversations as unknown as Record<
+                string,
+                unknown
+              >[],
+            },
           });
-          if (!r.ok) return exitFromIpcResult(r as { ok: false; error?: string; statusCode?: number });
+          if (!r.ok)
+            return exitFromIpcResult(
+              r as { ok: false; error?: string; statusCode?: number },
+            );
 
           const result = r.result!;
           if (opts.json) {
@@ -170,7 +185,9 @@ Examples:
               `Imported ${result.imported} conversation(s) with ${result.messages} message(s).`,
             ];
             if (result.skipped > 0) {
-              lines.push(`Skipped ${result.skipped} already-imported conversation(s).`);
+              lines.push(
+                `Skipped ${result.skipped} already-imported conversation(s).`,
+              );
             }
             if (result.errors.length > 0) {
               lines.push(`Failed: ${result.errors.length} conversation(s).`);

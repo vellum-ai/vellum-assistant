@@ -175,3 +175,37 @@ describe("background bash lifecycle events", () => {
     expect(completed[0]?.output).not.toContain("failed");
   });
 });
+
+describe("foreground stdin handling", () => {
+  test("a piped child reading fd 0 succeeds without ENXIO", async () => {
+    // Reproduces `producer | assistant <cmd>` run under the shell tool: the
+    // consumer's stdin is a real pipe read-end. Reading fd 0 must work;
+    // reopening "/dev/stdin" would fail ENXIO on a pipe.
+    const readFd0 =
+      'const {readFileSync}=require("node:fs");process.stdout.write(readFileSync(0,"utf-8"))';
+    const result = await shellTool.execute(
+      {
+        command: `printf '%s' piped-payload | ${process.execPath} -e '${readFd0}'`,
+        activity: "test",
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("piped-payload");
+    expect(result.content).not.toContain("ENXIO");
+  });
+
+  test("top-level command sees EOF-clean stdin (ignored, not closed)", async () => {
+    // The shell tool wires stdin to /dev/null via `stdio: ["ignore", ...]`,
+    // so a well-behaved child reading stdin gets immediate EOF, never ENXIO.
+    const result = await shellTool.execute(
+      { command: "cat; echo done", activity: "test" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("done");
+    expect(result.content).not.toContain("ENXIO");
+  });
+});

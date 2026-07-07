@@ -10,10 +10,6 @@
  * request contract without opening an assistant socket.
  */
 
-import {
-  existsSync as actualExistsSync,
-  readFileSync as actualReadFileSync,
-} from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
@@ -89,17 +85,17 @@ mock.module("../../../util/logger.js", () => ({
   }),
 }));
 
-mock.module("node:fs", () => ({
-  readFileSync: (path: string, encoding?: BufferEncoding) => {
-    if (path === "/dev/stdin") {
-      if (mockStdinContent === null) {
-        throw new Error("EAGAIN: resource temporarily unavailable");
-      }
-      return mockStdinContent;
+// Stdin is read via fd 0 through the shared helper, never by reopening
+// "/dev/stdin" (which fails ENXIO for pipe read-ends). A null content
+// simulates stdin with no readable data.
+mock.module("../../../util/read-stdin.js", () => ({
+  STDIN_FD: 0,
+  readStdinSync: () => {
+    if (mockStdinContent === null) {
+      throw new Error("EAGAIN: resource temporarily unavailable");
     }
-    return actualReadFileSync(path, encoding);
+    return mockStdinContent;
   },
-  existsSync: actualExistsSync,
 }));
 
 const { registerInferenceCommand } = await import("../inference.js");

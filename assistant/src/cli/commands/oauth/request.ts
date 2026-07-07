@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { readStdinSync } from "../../../util/read-stdin.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,7 @@ function tryJsonParse(raw: string): unknown {
  */
 function readBodyData(data: string): unknown {
   if (data === "@-") {
-    const raw = readFileSync("/dev/stdin", "utf-8");
+    const raw = readStdinSync();
     return tryJsonParse(raw);
   }
 
