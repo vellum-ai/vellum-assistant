@@ -6,6 +6,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Input } from "@vellumai/design-library/components/input";
+import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { VirtualList } from "@vellumai/design-library/components/virtual-list";
@@ -185,15 +186,21 @@ export function SlackChannelList({
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(new Set());
   const [multiOpen, setMultiOpen] = useState(false);
 
-  // Radix reports the full next open-set; outside "Expand all" mode the
-  // single-open rule keeps only the newly opened row.
-  const handleOpenChange = (next: string[]) => {
+  // Rows are stock ListRows (not Accordion.Triggers), so the open set is
+  // toggled here and drives the Collapsible.Root value one-way. Outside
+  // "Expand all" mode the single-open rule keeps only the newest row.
+  const toggleRow = (id: string) => {
     setOpenIds((prev) => {
       if (multiOpen) {
-        return new Set(next);
+        const next = new Set(prev);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        return next;
       }
-      const added = next.find((id) => !prev.has(id));
-      return added ? new Set([added]) : new Set<string>();
+      return prev.has(id) ? new Set() : new Set([id]);
     });
   };
 
@@ -319,11 +326,7 @@ export function SlackChannelList({
                   No channels match.
                 </Typography>
               ) : (
-                <Collapsible.Root
-                  type="multiple"
-                  value={[...openIds]}
-                  onValueChange={handleOpenChange}
-                >
+                <Collapsible.Root type="multiple" value={[...openIds]}>
                   {visibleChannels.length > VIRTUALIZE_THRESHOLD ? (
                     // Virtuoso sizes its scroller to 100% of the wrapper, so
                     // the fixed height lives on the wrapper, not the list.
@@ -335,6 +338,7 @@ export function SlackChannelList({
                           <SlackChannelRow
                             channel={channel}
                             open={openIds.has(channel.id)}
+                            onToggle={() => toggleRow(channel.id)}
                             pending={pendingChannelIds.has(channel.id)}
                             overridesLoading={tierOverridesLoading}
                             overridesError={tierOverridesError}
@@ -355,6 +359,7 @@ export function SlackChannelList({
                         key={channel.id}
                         channel={channel}
                         open={openIds.has(channel.id)}
+                        onToggle={() => toggleRow(channel.id)}
                         pending={pendingChannelIds.has(channel.id)}
                         overridesLoading={tierOverridesLoading}
                         overridesError={tierOverridesError}
@@ -402,6 +407,7 @@ function SlackChannelRow({
   overridesError,
   defaultTiers,
   tierOverride,
+  onToggle,
   onTierChange,
   onReset,
 }: {
@@ -412,6 +418,7 @@ function SlackChannelRow({
   overridesError: boolean;
   defaultTiers: Record<SlackRoomKind, SlackCapabilityTier | null> | undefined;
   tierOverride: SlackCapabilityTier | undefined;
+  onToggle: () => void;
   onTierChange: (tier: SlackCapabilityTier) => void;
   onReset: () => void;
 }) {
@@ -436,42 +443,43 @@ function SlackChannelRow({
       value={channel.id}
       className="[&+&]:border-t [&+&]:border-[var(--border-base)]"
     >
-      <Collapsible.Trigger
-        aria-label={`${channel.name} — ${open ? "collapse" : "expand"} channel settings`}
-        className="group gap-3 rounded-md px-2 py-3 transition-colors hover:bg-[var(--surface-hover)]"
-      >
-        <Icon
-          aria-hidden="true"
-          className="h-4 w-4 shrink-0 text-[var(--content-tertiary)]"
-        />
-        <span className="min-w-0 flex-1 truncate text-left text-body-medium-default text-[var(--content-default)]">
-          {channel.name}
-        </span>
-        <span className="flex shrink-0 items-center gap-4">
-          {pending ? (
-            <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-              Saving…
-            </span>
-          ) : metaLabel != null ? (
-            <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-              {metaLabel}
-            </span>
-          ) : null}
-          {tierMeta !== null ? (
-            <Tag tone={tierMeta.tone}>{tierMeta.label} • custom</Tag>
-          ) : (
-            <Tag>
-              {defaultMeta !== null
-                ? `${defaultMeta.label} • default`
-                : "Default"}
-            </Tag>
-          )}
-          <ChevronDown
-            aria-hidden="true"
-            className="h-4 w-4 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180"
-          />
-        </span>
-      </Collapsible.Trigger>
+      <ListRow
+        leading={<Icon className="h-4 w-4 text-[var(--content-tertiary)]" />}
+        title={channel.name}
+        onClick={onToggle}
+        contentAriaLabel={`${channel.name} — ${open ? "collapse" : "expand"} channel settings`}
+        showChevron={false}
+        selected={open}
+        trailing={
+          <>
+            {pending ? (
+              <span className="text-body-small-default text-[color:var(--content-tertiary)]">
+                Saving…
+              </span>
+            ) : metaLabel != null ? (
+              <span className="text-body-small-default text-[color:var(--content-tertiary)]">
+                {metaLabel}
+              </span>
+            ) : null}
+            {tierMeta !== null ? (
+              <Tag tone={tierMeta.tone}>{tierMeta.label} • custom</Tag>
+            ) : (
+              <Tag>
+                {defaultMeta !== null
+                  ? `${defaultMeta.label} • default`
+                  : "Default"}
+              </Tag>
+            )}
+            <ChevronDown
+              aria-hidden="true"
+              className={cn(
+                "h-4 w-4 text-[var(--content-tertiary)] transition-transform",
+                open && "rotate-180",
+              )}
+            />
+          </>
+        }
+      />
       <Collapsible.Content>
         <SlackChannelOverridePanel
           channelName={channel.name}

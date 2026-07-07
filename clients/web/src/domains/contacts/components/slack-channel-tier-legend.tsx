@@ -97,7 +97,7 @@ export function SlackChannelTierLegend({
   return (
     <Card.Root>
       <Card.Header>Assistant Access levels</Card.Header>
-      <Card.Body className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+      <Card.Body className="grid gap-4 sm:grid-cols-2">
         {CAPABILITY_TIER_VALUES.map((tier) => {
           const meta = CAPABILITY_TIER_META[tier];
           return (

@@ -45,7 +45,8 @@ const meta: Meta<typeof SlackChannelList> = {
     defaultTiers: { public: "low", private: "low" },
   },
   decorators: [
-    // Mirrors the Channels page's card column (flex flex-col gap-6).
+    // Mirrors the Slack sub-tab's card column (flex flex-col gap-4 in
+    // assistant-channels-list.tsx), which owns inter-card spacing.
     (Story) => (
       <div
         style={{
@@ -53,7 +54,7 @@ const meta: Meta<typeof SlackChannelList> = {
           margin: "2rem auto",
           display: "flex",
           flexDirection: "column",
-          gap: 24,
+          gap: 16,
         }}
       >
         <Story />
