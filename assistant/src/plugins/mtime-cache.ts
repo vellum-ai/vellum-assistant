@@ -354,7 +354,7 @@ async function applySourceVersions(
         // still-cached `shutdown`, then `evictHooksForOwner` drops the owner's
         // cached resolutions so the next read re-resolves fresh.
         await deactivatePlugin(activeName, "reload");
-        evictHooksForOwner(activeName);
+        evictHooksForOwner("plugin", activeName);
         evictToolCacheEntries(activeName);
         sweepModules(before, after);
         // Re-read the manifest — the edit may have renamed the plugin (or
@@ -448,13 +448,14 @@ async function reconcileWorkspaceHooks(
   );
   if (activeIdx >= 0) {
     await runShutdownHook(
+      "workspace",
       WORKSPACE_HOOKS_OWNER,
       { assistantVersion: APP_VERSION, reason },
       reason,
     );
     activatedPlugins.splice(activeIdx, 1);
   }
-  evictHooksForOwner(WORKSPACE_HOOKS_OWNER);
+  evictHooksForOwner("workspace", WORKSPACE_HOOKS_OWNER);
   sweepModules(before, after);
   if (after !== undefined) {
     await runInitHook(WORKSPACE_HOOKS_OWNER);
@@ -716,7 +717,7 @@ async function evictPlugin(
   pluginName: string,
 ): Promise<void> {
   // Evict hooks (owned by the hook loader).
-  evictHooksForOwner(pluginName);
+  evictHooksForOwner("plugin", pluginName);
 
   // Evict tools.
   evictToolCacheEntries(pluginName);
@@ -856,6 +857,7 @@ async function deactivatePlugin(
   }
 
   await runShutdownHook(
+    "plugin",
     pluginName,
     { assistantVersion: APP_VERSION, reason },
     reason,
