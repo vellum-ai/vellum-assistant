@@ -163,6 +163,9 @@ interface ActiveAssistantTurn {
   ttsAudioStarted: boolean;
   finalized: boolean;
   ttsBuffer: string;
+  // A non-empty speakable segment reached the TTS queue — gates the eager
+  // first-segment flush that trades clause quality for speech onset.
+  ttsSegmentEnqueued: boolean;
   ttsQueue: Promise<void>;
   assistantMessageId: string | null;
   assistantAudioChunks: Buffer[];
@@ -861,6 +864,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ttsAudioStarted: false,
       finalized: false,
       ttsBuffer: "",
+      ttsSegmentEnqueued: false,
       ttsQueue: Promise.resolve(),
       assistantMessageId: null,
       assistantAudioChunks: [],
@@ -1095,6 +1099,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const { segments, remainder } = extractSpeakableSegments(
       activeTurn.ttsBuffer,
       force,
+      // Eager until the first segment is enqueued: the opening clause flushes
+      // early so speech onset does not wait for a full sentence.
+      { eager: !activeTurn.ttsSegmentEnqueued },
     );
     activeTurn.ttsBuffer = remainder;
 
@@ -1114,6 +1121,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const streamTtsAudio = this.streamTtsAudio;
     if (activeTurn?.token !== token || !streamTtsAudio) return;
 
+    activeTurn.ttsSegmentEnqueued = true;
     activeTurn.ttsQueue = activeTurn.ttsQueue
       .catch(() => {})
       .then(async () => {

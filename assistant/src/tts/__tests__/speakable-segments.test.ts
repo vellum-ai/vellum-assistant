@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD,
+  EAGER_SPEAKABLE_SEGMENT_CHAR_THRESHOLD,
   extractSpeakableSegments,
 } from "../speakable-segments.js";
 
@@ -111,6 +112,99 @@ describe("extractSpeakableSegments", () => {
 
     expect(segments).toEqual(["alpha beta", "gamma delta"]);
     expect(remainder).toBe("epsilon");
+  });
+
+  describe("eager mode", () => {
+    test("splits at a comma once enough text precedes it", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "Sure, I can help with that, and here is more",
+        false,
+        { eager: true },
+      );
+
+      expect(segments).toEqual(["Sure, I can help with that,"]);
+      expect(remainder).toBe(" and here is more");
+    });
+
+    test("splits at semicolons and colons past the prefix floor", () => {
+      const { segments } = extractSpeakableSegments(
+        "Here is what I found today; there is more coming",
+        false,
+        { eager: true },
+      );
+
+      expect(segments).toEqual(["Here is what I found today;"]);
+    });
+
+    test("a short clause like 'Sure, ' does not flush on its own", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "Sure, ",
+        false,
+        { eager: true },
+      );
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe("Sure, ");
+    });
+
+    test("clause punctuation at end-of-text keeps buffering", () => {
+      const text = "Sure, I can help with that,";
+
+      const { segments, remainder } = extractSpeakableSegments(text, false, {
+        eager: true,
+      });
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe(text);
+    });
+
+    test("uses the lower char threshold to split without punctuation", () => {
+      const text = "word ".repeat(20);
+
+      const { segments } = extractSpeakableSegments(text, false, {
+        eager: true,
+      });
+
+      expect(segments.length).toBeGreaterThan(0);
+      const segment = segments[0] ?? "";
+      expect(segment.length).toBeLessThanOrEqual(
+        EAGER_SPEAKABLE_SEGMENT_CHAR_THRESHOLD,
+      );
+      expect(segment.endsWith("word")).toBe(true);
+    });
+
+    test("charThreshold option overrides the eager default", () => {
+      const text = "word ".repeat(20);
+
+      const { segments } = extractSpeakableSegments(text, false, {
+        eager: true,
+        charThreshold: 30,
+      });
+
+      expect(segments[0]?.length).toBeLessThanOrEqual(30);
+    });
+
+    test("eagerness applies only to the first segment of a call", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "Sure, I can help with that, and after that we can keep going, with more",
+        false,
+        { eager: true },
+      );
+
+      expect(segments).toEqual(["Sure, I can help with that,"]);
+      expect(remainder).toBe(
+        " and after that we can keep going, with more",
+      );
+    });
+
+    test("non-eager extraction ignores clause punctuation", () => {
+      const text = "Sure, I can help with that, and here is more";
+
+      const { segments, remainder } = extractSpeakableSegments(text, false);
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe(text);
+    });
   });
 
   test("charThreshold defaulting matches the exported constant", () => {
