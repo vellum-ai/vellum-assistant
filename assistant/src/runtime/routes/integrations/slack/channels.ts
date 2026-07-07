@@ -46,6 +46,19 @@ const TYPE_SORT_ORDER: Record<string, number> = {
   dm: 2,
 };
 
+/** Slackbot's fixed user id — its IM channel exists in every workspace. */
+const SLACKBOT_USER_ID = "USLACKBOT";
+
+/**
+ * IMs the assistant can neither converse in meaningfully nor post to:
+ * Slackbot (bots cannot message Slackbot) and deactivated accounts.
+ */
+function isNoiseIm(c: SlackConversation): boolean {
+  return (
+    !!c.is_im && (c.user === SLACKBOT_USER_ID || c.is_user_deleted === true)
+  );
+}
+
 export async function handleListSlackChannels({
   queryParams,
 }: RouteHandlerArgs = {}) {
@@ -70,9 +83,18 @@ export async function handleListSlackChannels({
     cursor = resp.response_metadata?.next_cursor || undefined;
   } while (cursor);
 
-  const conversations = memberOnly
-    ? allChannels.filter(isMemberConversation)
-    : allChannels;
+  // The presence list (memberOnly) is rooms only: channels and group DMs.
+  // 1:1 IMs are person-scoped, not room-scoped — the person's settings live
+  // on their contact — and Slack materializes IM rows without any
+  // conversation happening (app install, a user merely opening the bot's DM
+  // tab, Slackbot), so IM existence would overstate presence anyway. The
+  // share picker (memberOnly absent) keeps IMs — they are valid share
+  // destinations — minus the unpostable noise IMs.
+  const conversations = (
+    memberOnly
+      ? allChannels.filter((c) => !c.is_im && isMemberConversation(c))
+      : allChannels
+  ).filter((c) => !isNoiseIm(c));
 
   const dmUserIds = conversations
     .filter((c) => c.is_im && c.user)
@@ -150,7 +172,7 @@ export const ROUTES: RouteDefinition[] = [
         name: "memberOnly",
         schema: { type: "string", enum: ["true", "false"] },
         description:
-          "When 'true', only return conversations the connected identity is in: channels/groups with is_member, plus all DMs and group DMs",
+          "When 'true', only return rooms the connected identity is in: channels with is_member plus group DMs. 1:1 DMs are excluded — they are person-scoped, and Slack materializes IM rows without any conversation happening.",
       },
     ],
     responseBody: SlackChannelsListResultSchema,
