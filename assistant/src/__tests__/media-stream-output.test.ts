@@ -29,6 +29,10 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
   })),
 }));
 
+// Pre-load the module processSynthesizeItem imports dynamically, so the
+// first synthesize item doesn't pay module-load latency mid-test.
+await import("../tts/synthesis-stream.js");
+
 import {
   mulawToPcm16,
   pcm16ToMulaw,
@@ -81,10 +85,27 @@ function createMockWs() {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Wait for async playback queue to drain. */
-async function drain(): Promise<void> {
-  // Allow microtasks and the drain loop to run
-  await new Promise((resolve) => setTimeout(resolve, 10));
+/**
+ * Wait for async playback to progress. With `until`, polls (up to 2 s) for
+ * the condition so assertions don't race the queue on slow CI machines;
+ * without it, a single fixed tick (for negative assertions).
+ */
+async function drain(until?: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2000;
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    if (!until || until() || Date.now() > deadline) return;
+  }
+}
+
+/** True when a sent message with the given event type exists. */
+function hasEvent(sent: string[], event: string): boolean {
+  return sent.some((s) => JSON.parse(s).event === event);
+}
+
+/** Number of mark messages among the sent messages. */
+function countMarks(sent: string[]): number {
+  return sent.filter((s) => JSON.parse(s).event === "mark").length;
 }
 
 /** Generate a minimal valid WAV buffer with PCM data. */
@@ -171,6 +192,19 @@ function decimateByTwo(pcm: Buffer): Buffer {
   return out;
 }
 
+/** Outputs created during the current test, closed in afterEach. */
+const activeOutputs: MediaStreamOutput[] = [];
+
+/** Construct a MediaStreamOutput tracked for afterEach teardown. */
+function makeOutput(
+  ws: import("bun").ServerWebSocket<unknown>,
+  streamSid: string,
+): MediaStreamOutput {
+  const output = new MediaStreamOutput(ws, streamSid);
+  activeOutputs.push(output);
+  return output;
+}
+
 /** Install a resolveCallTtsProvider mock returning the given provider. */
 function useProvider(provider: unknown): void {
   mockResolveCallTtsProvider.mockImplementation(() => ({
@@ -198,6 +232,13 @@ function countZeroCrossings(pcm: Buffer): number {
 // ---------------------------------------------------------------------------
 
 afterEach(() => {
+  // Close every output so an in-flight synthesize item from a slow test
+  // bails on its staleness check instead of calling the next test's
+  // (re-)mocked provider.
+  for (const output of activeOutputs) {
+    output.markClosed();
+  }
+  activeOutputs.length = 0;
   mockSynthesize.mockReset();
   // Restore the default resolveCallTtsProvider mock
   mockResolveCallTtsProvider.mockImplementation(() => ({
@@ -221,11 +262,11 @@ describe("MediaStreamOutput", () => {
       });
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("hello ", false);
       output.sendTextToken("world", true);
 
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       // Should have sent media frames (from synthesis) and a mark
       const events = sent.map((s) => JSON.parse(s).event);
@@ -239,10 +280,10 @@ describe("MediaStreamOutput", () => {
 
     test("empty token with last: true sends only end-of-turn mark (no synthesis)", async () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("", true);
 
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       // Should send only a mark, no media frames
       expect(sent).toHaveLength(1);
@@ -256,7 +297,7 @@ describe("MediaStreamOutput", () => {
 
     test("non-last tokens accumulate without sending", () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("hello ", false);
       output.sendTextToken("world ", false);
       expect(sent).toHaveLength(0);
@@ -264,7 +305,7 @@ describe("MediaStreamOutput", () => {
 
     test("does not send when closed", () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.endSession();
       output.sendTextToken("hello", true);
       expect(sent).toHaveLength(0);
@@ -274,7 +315,7 @@ describe("MediaStreamOutput", () => {
   describe("CallTransport interface — sendPlayUrl", () => {
     test("enqueues a fetch-url item in the playback queue", () => {
       const { ws } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendPlayUrl("https://example.com/audio.mp3");
       // The queue should have one item (the fetch will fail since
       // there's no real server, but the enqueueing is synchronous)
@@ -283,7 +324,7 @@ describe("MediaStreamOutput", () => {
 
     test("does not enqueue when closed", () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.endSession();
       output.sendPlayUrl("https://example.com/audio.mp3");
       expect(sent).toHaveLength(0);
@@ -293,7 +334,7 @@ describe("MediaStreamOutput", () => {
   describe("CallTransport interface — endSession", () => {
     test("closes the WebSocket with code 1000", () => {
       const mock = createMockWs();
-      const output = new MediaStreamOutput(mock.ws, "stream-1");
+      const output = makeOutput(mock.ws, "stream-1");
       output.endSession("test-reason");
       expect(mock.closed).toBe(true);
       expect(mock.closeCode).toBe(1000);
@@ -302,7 +343,7 @@ describe("MediaStreamOutput", () => {
 
     test("uses default reason when none provided", () => {
       const mock = createMockWs();
-      const output = new MediaStreamOutput(mock.ws, "stream-1");
+      const output = makeOutput(mock.ws, "stream-1");
       output.endSession();
       expect(mock.closed).toBe(true);
       expect(mock.closeReason).toBe("session-ended");
@@ -310,7 +351,7 @@ describe("MediaStreamOutput", () => {
 
     test("is idempotent", () => {
       const mock = createMockWs();
-      const output = new MediaStreamOutput(mock.ws, "stream-1");
+      const output = makeOutput(mock.ws, "stream-1");
       output.endSession("first");
       // Second call should not throw (ws.close would throw on already-closed)
       output.endSession("second");
@@ -321,7 +362,7 @@ describe("MediaStreamOutput", () => {
   describe("sendAudioPayload", () => {
     test("sends a media command with the base64 payload", () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      const output = makeOutput(ws, "MZ-stream-1");
       output.sendAudioPayload("dGVzdA==");
 
       expect(sent).toHaveLength(1);
@@ -335,7 +376,7 @@ describe("MediaStreamOutput", () => {
 
     test("does not send when closed", () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      const output = makeOutput(ws, "MZ-stream-1");
       output.endSession();
       output.sendAudioPayload("dGVzdA==");
       // Only the close would have happened, no media sent
@@ -346,7 +387,7 @@ describe("MediaStreamOutput", () => {
   describe("sendMark", () => {
     test("sends a mark command with the given name", () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      const output = makeOutput(ws, "MZ-stream-1");
       output.sendMark("end-of-turn");
 
       expect(sent).toHaveLength(1);
@@ -360,7 +401,7 @@ describe("MediaStreamOutput", () => {
 
     test("does not send when closed", () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      const output = makeOutput(ws, "MZ-stream-1");
       output.endSession();
       output.sendMark("end-of-turn");
       expect(sent).toHaveLength(0);
@@ -370,7 +411,7 @@ describe("MediaStreamOutput", () => {
   describe("clearAudio — barge-in", () => {
     test("sends a clear command to Twilio", () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      const output = makeOutput(ws, "MZ-stream-1");
       output.clearAudio();
 
       expect(sent).toHaveLength(1);
@@ -395,7 +436,7 @@ describe("MediaStreamOutput", () => {
       );
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      const output = makeOutput(ws, "MZ-stream-1");
 
       // Queue synthesis
       output.sendTextToken("hello world", true);
@@ -415,7 +456,7 @@ describe("MediaStreamOutput", () => {
 
     test("does not send when closed", () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      const output = makeOutput(ws, "MZ-stream-1");
       output.endSession();
       output.clearAudio();
       expect(sent).toHaveLength(0);
@@ -425,7 +466,7 @@ describe("MediaStreamOutput", () => {
   describe("clearBufferedAudio — rejected barge-in", () => {
     test("sends a clear command to Twilio", () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      const output = makeOutput(ws, "MZ-stream-1");
       output.clearBufferedAudio();
 
       expect(sent).toHaveLength(1);
@@ -449,12 +490,12 @@ describe("MediaStreamOutput", () => {
       );
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      const output = makeOutput(ws, "MZ-stream-1");
 
       output.sendTextToken("hello world", true);
       output.clearBufferedAudio();
 
-      await new Promise((resolve) => setTimeout(resolve, 60));
+      await drain(() => hasEvent(sent, "media"));
 
       // Unlike clearAudio, the in-flight synthesis is not aborted:
       // its frames go out once ready.
@@ -475,7 +516,7 @@ describe("MediaStreamOutput", () => {
       );
 
       const { ws } = createMockWs();
-      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      const output = makeOutput(ws, "MZ-stream-1");
 
       let fired = 0;
       output.setAudioStartCallback(() => {
@@ -484,14 +525,14 @@ describe("MediaStreamOutput", () => {
       output.sendTextToken("hello world", true);
       output.clearBufferedAudio();
 
-      await new Promise((resolve) => setTimeout(resolve, 60));
+      await drain(() => fired === 1);
 
       expect(fired).toBe(1);
     });
 
     test("does not send when closed", () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      const output = makeOutput(ws, "MZ-stream-1");
       output.endSession();
       output.clearBufferedAudio();
       expect(sent).toHaveLength(0);
@@ -513,7 +554,7 @@ describe("MediaStreamOutput", () => {
       });
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
 
       let fired = 0;
       let mediaSentWhenFired = -1;
@@ -525,7 +566,7 @@ describe("MediaStreamOutput", () => {
       });
 
       output.sendTextToken("hello world", true);
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
       expect(mediaMessages.length).toBeGreaterThan(1);
@@ -540,25 +581,25 @@ describe("MediaStreamOutput", () => {
         contentType: "audio/wav",
       });
 
-      const { ws } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
 
       let fired = 0;
       output.setAudioStartCallback(() => fired++);
 
       output.sendTextToken("first", true);
-      await drain();
+      await drain(() => countMarks(sent) >= 1);
       expect(fired).toBe(1);
 
       // Second item without re-arming — signal already consumed.
       output.sendTextToken("second", true);
-      await drain();
+      await drain(() => countMarks(sent) >= 2);
       expect(fired).toBe(1);
 
       // Re-armed — fires again for the next item.
       output.setAudioStartCallback(() => fired++);
       output.sendTextToken("third", true);
-      await drain();
+      await drain(() => countMarks(sent) >= 3);
       expect(fired).toBe(2);
     });
 
@@ -576,7 +617,7 @@ describe("MediaStreamOutput", () => {
       );
 
       const { ws } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
 
       let fired = 0;
       output.setAudioStartCallback(() => fired++);
@@ -589,14 +630,14 @@ describe("MediaStreamOutput", () => {
     });
 
     test("an empty end-of-turn (mark only) does not fire the signal", async () => {
-      const { ws } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
 
       let fired = 0;
       output.setAudioStartCallback(() => fired++);
 
       output.sendTextToken("", true);
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
       expect(fired).toBe(0);
     });
   });
@@ -609,8 +650,8 @@ describe("MediaStreamOutput", () => {
         contentType: "audio/wav",
       });
 
-      const { ws } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
 
       // Tokens buffered mid-turn; a barge-in signal the controller ignores
       // (turn still processing) flushes queued audio but must not truncate
@@ -618,7 +659,7 @@ describe("MediaStreamOutput", () => {
       output.sendTextToken("hello ", false);
       output.clearAudio();
       output.sendTextToken("world", true);
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       expect(mockSynthesize).toHaveBeenCalledTimes(1);
       expect(mockSynthesize.mock.calls[0][0].text).toBe("hello world");
@@ -626,12 +667,12 @@ describe("MediaStreamOutput", () => {
 
     test("discardPendingText drops accumulated text so no synthesis occurs", async () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
 
       output.sendTextToken("stale partial response", false);
       output.discardPendingText();
       output.sendTextToken("", true);
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       expect(mockSynthesize).not.toHaveBeenCalled();
       // Only the end-of-turn mark goes out.
@@ -643,7 +684,7 @@ describe("MediaStreamOutput", () => {
   describe("setStreamSid / getStreamSid", () => {
     test("updates the stream SID used in subsequent commands", () => {
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "old-sid");
+      const output = makeOutput(ws, "old-sid");
       expect(output.getStreamSid()).toBe("old-sid");
 
       output.setStreamSid("new-sid");
@@ -658,7 +699,7 @@ describe("MediaStreamOutput", () => {
   describe("markClosed", () => {
     test("transitions to closed state without sending a close frame", () => {
       const mock = createMockWs();
-      const output = new MediaStreamOutput(mock.ws, "stream-1");
+      const output = makeOutput(mock.ws, "stream-1");
       output.markClosed();
       expect(mock.closed).toBe(false); // WebSocket not actually closed
       output.sendAudioPayload("dGVzdA=="); // Should be suppressed
@@ -675,7 +716,7 @@ describe("MediaStreamOutput", () => {
         close() {},
       } as unknown as import("bun").ServerWebSocket<unknown>;
 
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       // Should not throw
       expect(() => output.sendAudioPayload("dGVzdA==")).not.toThrow();
     });
@@ -688,7 +729,7 @@ describe("MediaStreamOutput", () => {
         },
       } as unknown as import("bun").ServerWebSocket<unknown>;
 
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       // Should not throw
       expect(() => output.endSession()).not.toThrow();
     });
@@ -707,10 +748,10 @@ describe("MediaStreamOutput", () => {
       });
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("test synthesis", true);
 
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       // Should have sent at least one media frame and an end-of-turn mark
       const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
@@ -729,7 +770,7 @@ describe("MediaStreamOutput", () => {
 
     test("getPlaybackQueueLength reflects queue state", () => {
       const { ws } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       // Initially empty
       expect(output.getPlaybackQueueLength()).toBe(0);
     });
@@ -757,10 +798,10 @@ describe("MediaStreamOutput", () => {
       });
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("test", true);
 
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       // The audioBufferToFrames magic-byte detection should detect mp3
       // sync bytes when format is "wav" and return silence (no media
@@ -790,10 +831,10 @@ describe("MediaStreamOutput", () => {
       });
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("test", true);
 
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       // processSynthesizeItem derives actualFormat from content-type:
       // "audio/pcm" -> "pcm". audioBufferToFrames handles raw PCM by
@@ -825,10 +866,10 @@ describe("MediaStreamOutput", () => {
       });
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("test", true);
 
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       // processSynthesizeItem detects "audio/x-raw" -> "pcm" format.
       // audioBufferToFrames converts raw PCM to mu-law frames.
@@ -854,9 +895,9 @@ describe("MediaStreamOutput", () => {
         contentType: "audio/wav",
       });
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("test", true);
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
       return sent;
     }
 
@@ -933,10 +974,10 @@ describe("MediaStreamOutput", () => {
       });
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
 
       output.sendTextToken("First sentence. Sec", false);
-      await drain();
+      await drain(() => countMediaFrames(sent) > 0);
 
       // The completed first sentence synthesizes (and its frames go out)
       // while the turn is still streaming.
@@ -945,7 +986,7 @@ describe("MediaStreamOutput", () => {
       expect(countMediaFrames(sent)).toBeGreaterThan(0);
 
       output.sendTextToken("ond sentence.", true);
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       expect(mockSynthesize).toHaveBeenCalledTimes(2);
       expect(mockSynthesize.mock.calls[1][0].text).toBe("Second sentence.");
@@ -959,9 +1000,9 @@ describe("MediaStreamOutput", () => {
       });
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("One. Two.", true);
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       expect(mockSynthesize).toHaveBeenCalledTimes(2);
       const events = sent.map((s) => JSON.parse(s).event);
@@ -1003,9 +1044,9 @@ describe("MediaStreamOutput", () => {
       });
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("Hello there.", true);
-      await drain();
+      await drain(() => countMediaFrames(sent) >= 2);
 
       // First chunk's frames went out while the stream is still open,
       // and the end-of-turn mark has not been sent yet.
@@ -1014,7 +1055,7 @@ describe("MediaStreamOutput", () => {
       expect(sent.some((s) => JSON.parse(s).event === "mark")).toBe(false);
 
       releaseStream();
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       expect(countMediaFrames(sent)).toBe(4);
       expect(sent.some((s) => JSON.parse(s).event === "mark")).toBe(true);
@@ -1044,9 +1085,9 @@ describe("MediaStreamOutput", () => {
       });
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("Test.", true);
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       // The concatenated mu-law output must be byte-identical to a
       // whole-buffer transcode: no dropped or torn samples at chunk seams.
@@ -1081,9 +1122,9 @@ describe("MediaStreamOutput", () => {
       });
 
       const { ws, sent } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("Hello there.", true);
-      await drain();
+      await drain(() => countMediaFrames(sent) > 0);
 
       const framesBefore = countMediaFrames(sent);
       expect(framesBefore).toBeGreaterThan(0);
@@ -1118,9 +1159,9 @@ describe("MediaStreamOutput", () => {
 
       const { ws, sent } = createMockWs();
       sentRef.sent = sent;
-      const output = new MediaStreamOutput(ws, "stream-1");
+      const output = makeOutput(ws, "stream-1");
       output.sendTextToken("Hello.", true);
-      await drain();
+      await drain(() => hasEvent(sent, "mark"));
 
       // Nothing streamed mid-flight; the whole accumulated WAV is
       // transcoded once at the end.
