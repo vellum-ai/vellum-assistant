@@ -9,12 +9,13 @@ import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getLogger } from "../util/logger.js";
 import {
-  type DefaultProfileTemplate,
+  getEffectiveProfiles,
   MANAGED_PROFILE_NAMES,
   MANAGED_PROFILE_TEMPLATES,
   materializeProfile,
   USER_PROFILE_TEMPLATES,
 } from "./default-profile-catalog.js";
+import { DEFAULT_PROFILE_KEYS } from "./default-profile-names.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
 import { isDispatchableProfile } from "./profile-dispatchability.js";
 import type { ProfileEntry } from "./schemas/llm.js";
@@ -41,17 +42,17 @@ export type SeedInferenceProfilesOptions = {
 /**
  * Seed inference profiles into the workspace config.
  *
- * Runs on every daemon startup. Two responsibilities:
+ * Runs on every daemon startup. Default profile CONTENT is code-owned
+ * (`default-profile-catalog.ts`) and resolves through the effective view
+ * whether or not `llm.profiles` carries an entry, so nothing here writes
+ * default bodies. Two responsibilities remain:
  *
- * 1. **Managed profiles** (`balanced`, `quality-optimized`,
- *    `cost-optimized`): reconciled from the code templates on every boot —
- *    on-platform and off-platform alike — so Vellum can push model/config
- *    updates to customers in a release without a workspace migration. The
- *    templates own all profile content; on-disk `label`, `status`, and `topP`
- *    overrides survive reseeds (the BYOK label suffix and hatch-time disable
- *    rely on this).
- *    Platform overlays (`preserveProfileNames`) take precedence for the boot
- *    they are supplied.
+ * 1. **BYOK hatch stubs**: a fresh off-platform install cannot use the
+ *    platform-auth vellum route, so the default profiles get a thin
+ *    disabled stub (`{source, status, label}`) that makes the resolver fall
+ *    through to the personal `custom-*` profiles. Skipped when the hatch
+ *    overlay explicitly selected a managed connection — the defaults then
+ *    stay absent and resolve active from the catalog.
  *
  * 2. **User profiles** (`custom-balanced`, `custom-quality-optimized`,
  *    `custom-cost-optimized`): materialized once at hatch time for
@@ -80,99 +81,40 @@ export function seedInferenceProfiles(
 
   // BYOK mode = off-platform installs. The user is bringing their own provider
   // API key; managed profile labels get a " (Managed)" suffix to disambiguate
-  // from the personal "custom-*" profiles that share base labels. Managed
-  // profile + connection status is initially "disabled" for true BYOK hatches
-  // so the picker doesn't offer an unusable platform-auth option on day one.
-  // When the hatch overlay explicitly selects a managed profile, the matching
-  // managed connection stays active so the first post-onboarding message can
-  // use the user's chosen managed route. Post-hatch user toggles survive every
-  // subsequent boot.
+  // from the personal "custom-*" profiles that share base labels.
   const isByokMode = !isPlatform;
 
-  // 1. Managed profiles. Reconciled from the code templates on every boot —
-  //    on-platform and off-platform alike — so Vellum can push model/config
-  //    updates in new releases just by editing `default-profile-catalog.ts`
-  //    and shipping a release, with no workspace migration. The catalog is
-  //    the single source of truth for profile *content* (model, maxTokens,
-  //    effort, thinking, description, provider/connection).
-  //
-  //    Platform overlays (`preserveProfileNames`) still take precedence for the
-  //    boot they are supplied: a profile named in the overlay is skipped here so
-  //    the overlay fragment lands verbatim and is never polluted by template
-  //    fields it omits. The overlay is a one-time hatch input (archived after
-  //    its first merge), so on subsequent boots the templates reconcile content
-  //    as usual.
-  //
-  //    A whitelist of fields survives the reconcile: `label`, `status`, and
-  //    `topP` are preserved from disk across reseeds so the BYOK hatch-time
-  //    disable and any pre-existing overrides don't silently revert on every
-  //    boot. Managed-source profiles reject all user-facing edits except the
-  //    disabled→active re-enable (enforced at the route layer's commit
-  //    guard), so these preserved fields are frozen, not editable. Carry by
-  //    key-presence rather than truthiness so an explicit `null` (cleared
-  //    field) survives too.
-  //
-  //    BYOK seed defaults (off-platform only):
-  //      • label: " (Managed)" suffix disambiguates managed profile labels
-  //        from personal "custom-*" profiles that share base labels.
-  //        Upgrade migration: existing installs that already have the bare
-  //        template label ("Balanced" / "Quality" / "Speed") on disk get
-  //        rewritten to the suffixed form. Any other previous label value
-  //        (user-set custom string, explicit null, already-suffixed) is
-  //        preserved as-is.
-  //      • status: "disabled" on fresh materialization at BYOK hatch only —
-  //        gated on (isHatch && !previous) and skipped for any managed
-  //        connection explicitly selected by the hatch overlay. Post-hatch
-  //        boots and existing installs are never auto-disabled. A user
-  //        re-enable persists across boots via the key-presence preservation
-  //        below.
+  // 1. BYOK hatch stubs. Default profile bodies are code-owned and never
+  //    written here; the only workspace state a default carries is a thin
+  //    managed stub holding the fields the effective view overlays
+  //    (`source`, `status`, `label`). A fresh BYOK hatch disables the
+  //    defaults so the picker doesn't offer an unusable platform-auth route
+  //    on day one — and so the resolver's `custom-*` fallback applies. When
+  //    the hatch overlay explicitly selected a managed connection, no stubs
+  //    are written: the defaults stay absent and resolve active from the
+  //    catalog, so the first post-onboarding message can use the chosen
+  //    managed route. Post-hatch user toggles live on the stub and are never
+  //    touched again.
   const hatchSelectedManagedConnection = getHatchSelectedManagedConnection(
     llm,
     profiles,
     options,
   );
 
-  for (const [name, template] of Object.entries(MANAGED_PROFILE_TEMPLATES)) {
-    if (preservedProfileNames.has(name)) continue;
-
-    const previous = readObject(profiles[name]);
-    const effectiveTemplate: DefaultProfileTemplate = isByokMode
-      ? { ...template, label: `${template.label} (Managed)` }
-      : template;
-    const next = materializeProfile(
-      effectiveTemplate,
-      template.provider,
-      template.connectionName,
-    ) as Record<string, unknown>;
-    if (
-      isByokMode &&
-      options.isHatch &&
-      !previous &&
-      template.connectionName !== hatchSelectedManagedConnection
-    ) {
-      next.status = "disabled";
+  if (
+    isByokMode &&
+    options.isHatch &&
+    hatchSelectedManagedConnection === undefined
+  ) {
+    for (const name of DEFAULT_PROFILE_KEYS) {
+      if (readObject(profiles[name])) continue;
+      const label = MANAGED_PROFILE_TEMPLATES[name]?.label;
+      profiles[name] = {
+        source: "managed",
+        status: "disabled",
+        ...(typeof label === "string" ? { label: `${label} (Managed)` } : {}),
+      } as ProfileEntry;
     }
-    if (previous) {
-      // Preserve on-disk overrides of these whitelisted fields. The label path
-      // also runs the BYOK upgrade migration described above: if the on-disk
-      // label exactly equals the bare template default and we're in BYOK
-      // mode, rewrite to the suffixed effective label so existing installs
-      // get the disambiguation, not just fresh hatches.
-      if ("label" in previous) {
-        next.label =
-          isByokMode && previous.label === template.label
-            ? effectiveTemplate.label
-            : previous.label;
-      }
-      if ("status" in previous) next.status = previous.status;
-      // A pre-existing on-disk `topP` override is frozen by the invariant
-      // guard but must still survive reseeds, including an explicit `null`
-      // clear — otherwise it would silently revert to the template value on
-      // every boot. Carry by key-presence (not truthiness) so `null`
-      // survives too.
-      if ("topP" in previous) next.topP = previous.topP;
-    }
-    profiles[name] = next as ProfileEntry;
   }
 
   // 2. User profiles — only at hatch time for off-platform installations.
@@ -218,11 +160,18 @@ export function seedInferenceProfiles(
 
   pruneNonDispatchableProfiles(llm, profiles);
 
+  // Profile lookups below go through the effective view: a default profile
+  // resolves from the code catalog whether or not the workspace carries a
+  // stub for it, and a stub contributes only its status/label overlays.
+  const effectiveProfiles = getEffectiveProfiles(
+    profiles as Record<string, ProfileEntry>,
+  ) as Record<string, Record<string, unknown>>;
+
   // Active profile resolution.
   const requestedActiveProfile = readString(llm.activeProfile);
   const requestedActiveEntry =
     requestedActiveProfile !== undefined
-      ? readObject(profiles[requestedActiveProfile])
+      ? readObject(effectiveProfiles[requestedActiveProfile])
       : null;
   const requestedActiveExists = requestedActiveEntry !== null;
   const shouldPreserveActiveProfile =
@@ -243,7 +192,7 @@ export function seedInferenceProfiles(
   const requestedAdvisorProfile = readString(llm.advisorProfile);
   const requestedAdvisorEntry =
     requestedAdvisorProfile !== undefined
-      ? readObject(profiles[requestedAdvisorProfile])
+      ? readObject(effectiveProfiles[requestedAdvisorProfile])
       : null;
   const requestedAdvisorIsDisabledManaged =
     requestedAdvisorEntry?.source === "managed" &&
@@ -256,7 +205,7 @@ export function seedInferenceProfiles(
     requestedAdvisorIsDisabledManaged
   ) {
     const defaultAdvisorProfile = selectDefaultAdvisorProfile(
-      profiles,
+      effectiveProfiles,
       preferPersonalAdvisor,
     );
     if (defaultAdvisorProfile) {
@@ -314,6 +263,12 @@ function pruneNonDispatchableProfiles(
 ): void {
   const removed = new Set<string>();
   for (const [name, profile] of Object.entries(profiles)) {
+    // Thin managed stubs carry no model/mix by design — their content is
+    // code-owned, so dispatchability is judged on the catalog body, never
+    // the stub. Only workspace-owned profiles are pruned.
+    if (MANAGED_PROFILE_NAMES.has(name) && profile.source === "managed") {
+      continue;
+    }
     if (!isDispatchableProfile(profile)) {
       delete profiles[name];
       removed.add(name);

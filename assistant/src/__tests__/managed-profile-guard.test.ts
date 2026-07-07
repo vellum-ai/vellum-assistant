@@ -1032,3 +1032,240 @@ describe("wire-only profile keys are stripped from writes", () => {
     expect(profile.maxTokens).toBe(2048);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Code-owned default profiles: wire round-trip and shadowing guards
+// ---------------------------------------------------------------------------
+
+const getRoute = ROUTES.find((r) => r.operationId === "config_get")!;
+
+describe("code-owned default profiles — wire view and write normalization", () => {
+  test("GET materializes catalog bodies over thin stubs (wire-only)", async () => {
+    rawConfig = {
+      llm: {
+        profiles: { balanced: { source: "managed", status: "disabled" } },
+      },
+    };
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    const wireBalanced = response.llm.profiles.balanced;
+    expect(wireBalanced.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(wireBalanced.provider_connection).toBe("vellum");
+    expect(wireBalanced.status).toBe("disabled");
+    expect(wireBalanced.invariant).toBe(true);
+    // Absent defaults are materialized too — the catalog owns their content.
+    expect(response.llm.profiles["quality-optimized"].model).toBeDefined();
+  });
+
+  test("GET → PATCH round-trip of the wire view is accepted and keeps disk stubs thin", async () => {
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: { source: "managed", status: "disabled" },
+          "my-custom": { provider: "openai", model: "gpt-4o", source: "user" },
+        },
+      },
+    };
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: response.llm.profiles } },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    expect(savedProfile("balanced")).toEqual({
+      source: "managed",
+      status: "disabled",
+    });
+    // Echoes of absent defaults reduce to a no-op managed stub.
+    expect(savedProfile("quality-optimized")).toEqual({ source: "managed" });
+    expect(savedProfile("my-custom")).toEqual({
+      provider: "openai",
+      model: "gpt-4o",
+      source: "user",
+    });
+  });
+
+  test("creating a new profile under a default name is rejected", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    await expect(
+      patchRoute.handler({
+        body: {
+          llm: {
+            profiles: {
+              balanced: { source: "user", provider: "openai", model: "gpt-4o" },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'Cannot create profile "balanced" — the name is reserved for a code-defined default profile.',
+    );
+    expectNothingCommitted();
+  });
+
+  test("writing content to an absent default name is rejected", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    await expect(
+      patchRoute.handler({
+        body: {
+          llm: {
+            profiles: {
+              "cost-optimized": { source: "managed", model: "gpt-4o" },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'Cannot edit managed profile "cost-optimized" fields [model].',
+    );
+    expectNothingCommitted();
+  });
+
+  test("disabling an absent default via a generic write is rejected", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    await expect(
+      patchRoute.handler({
+        body: {
+          llm: {
+            profiles: { balanced: { source: "managed", status: "disabled" } },
+          },
+        },
+      }),
+    ).rejects.toThrow('Cannot disable managed profile "balanced".');
+    expectNothingCommitted();
+  });
+
+  test("PUT status re-enable on an absent always-available default creates a thin managed stub", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    const result = await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { status: "active" },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedProfile("balanced")).toEqual({
+      source: "managed",
+      status: "active",
+    });
+  });
+
+  test("PUT on absent flag-gated os-beta is still rejected", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    await expect(
+      replaceRoute.handler({
+        pathParams: { name: "os-beta" },
+        body: { status: "active" },
+      }),
+    ).rejects.toThrow(
+      'Profile "os-beta" is not currently available and cannot be edited.',
+    );
+    expectNothingCommitted();
+  });
+
+  test("an existing user-source shadow of a default name stays editable", async () => {
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: { source: "user", provider: "openai", model: "gpt-4o" },
+        },
+      },
+    };
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: { balanced: { model: "gpt-5.4" } } } },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    expect(savedProfile("balanced").model).toBe("gpt-5.4");
+  });
+});
+
+describe("code-owned default profiles — leaf SET source stamping", () => {
+  test("a leaf SET creating a managed entry stamps the managed marker", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles.balanced.status", value: "active" },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedProfile("balanced")).toEqual({
+      source: "managed",
+      status: "active",
+    });
+  });
+
+  test("a leaf SET on an existing user shadow does not stamp it managed", async () => {
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: { source: "user", provider: "openai", model: "gpt-4o" },
+        },
+      },
+    };
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles.balanced.model", value: "gpt-5.4" },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedProfile("balanced")).toEqual({
+      source: "user",
+      provider: "openai",
+      model: "gpt-5.4",
+    });
+  });
+
+  test("a leaf SET writing content to an absent default is rejected", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    await expect(
+      setRoute.handler({
+        body: { path: "llm.profiles.balanced.model", value: "gpt-4o" },
+      }),
+    ).rejects.toThrow(BadRequestError);
+    expectNothingCommitted();
+  });
+});
+
+describe("code-owned default profiles — echoes over stale on-disk bodies", () => {
+  // An overlay can persist a managed entry whose content differs from the
+  // catalog; GET serves catalog content, so a client echo carries values
+  // that match neither nothing — they match the wire view. The round-trip
+  // must still be a no-op.
+  const staleBody = {
+    source: "managed",
+    provider: "anthropic",
+    model: "claude-sonnet",
+    maxTokens: 16000,
+  };
+
+  test("GET → PATCH round-trip over a stale managed body is accepted and changes nothing", async () => {
+    rawConfig = { llm: { profiles: { balanced: structuredClone(staleBody) } } };
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    // The wire view serves catalog content, not the stale body.
+    expect(response.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/glm-5p2",
+    );
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: response.llm.profiles } },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    expect(savedProfile("balanced")).toEqual(staleBody);
+  });
+
+  test("GET → SET llm round-trip over a stale managed body is accepted and changes nothing", async () => {
+    rawConfig = { llm: { profiles: { balanced: structuredClone(staleBody) } } };
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles", value: response.llm.profiles },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedProfile("balanced")).toEqual(staleBody);
+  });
+
+  test("a genuine content edit over a stale managed body is still rejected", async () => {
+    rawConfig = { llm: { profiles: { balanced: structuredClone(staleBody) } } };
+    await expect(
+      patchRoute.handler({
+        body: {
+          llm: { profiles: { balanced: { model: "some-other-model" } } },
+        },
+      }),
+    ).rejects.toThrow(BadRequestError);
+    expectNothingCommitted();
+  });
+});

@@ -67,6 +67,11 @@ mock.module("../ipc/gateway-client.js", () => ({
   },
 }));
 
+import {
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+} from "../config/loader.js";
 import { upsertContact } from "../contacts/contact-store.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -116,6 +121,23 @@ async function handleTriggerInviteCall(params: {
 }
 
 await initializeDb();
+
+// Disable the catalog default so resolution lands on llm.default. Without the
+// stub, the `inviteInstructionGenerator` call site resolves the catalog's
+// `cost-optimized` profile, whose `vellum` provider_connection does not exist
+// in this test workspace's DB — resolution would throw instead of falling back
+// to the deterministic instruction copy.
+{
+  const raw = loadRawConfig();
+  const llm = (raw.llm ?? {}) as Record<string, unknown>;
+  llm.profiles = {
+    ...((llm.profiles ?? {}) as Record<string, unknown>),
+    "cost-optimized": { source: "managed", status: "disabled" },
+  };
+  raw.llm = llm;
+  saveRawConfig(raw);
+  invalidateConfigCache();
+}
 
 /** Create a throwaway contact and return its ID, for use as the invite's contactId. */
 function createTargetContact(displayName = "Test Contact"): string {
@@ -353,7 +375,9 @@ describe("composeInvitePresentation", () => {
 
       const share = invite.share as Record<string, unknown>;
       expect(share).toBeDefined();
-      expect(share.url).toBe(`https://t.me/test_invite_bot?start=iv_${rawToken}`);
+      expect(share.url).toBe(
+        `https://t.me/test_invite_bot?start=iv_${rawToken}`,
+      );
       expect(typeof share.displayText).toBe("string");
       expect(typeof invite.guardianInstruction).toBe("string");
       expect((invite.guardianInstruction as string).length).toBeGreaterThan(0);
@@ -366,7 +390,11 @@ describe("composeInvitePresentation", () => {
   });
 
   test("non-voice payloads without an inviteCode pass through unchanged", async () => {
-    const payload = { id: "inv-x", sourceChannel: "telegram", status: "active" };
+    const payload = {
+      id: "inv-x",
+      sourceChannel: "telegram",
+      status: "active",
+    };
     const invite = await composeInvitePresentation({
       contactId: createTargetContact(),
       invite: payload,

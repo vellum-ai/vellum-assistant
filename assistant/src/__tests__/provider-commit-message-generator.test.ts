@@ -168,6 +168,11 @@ describe("ProviderCommitMessageGenerator", () => {
   // 3c. No resolvable provider despite keys
   test('no resolvable provider with keys present → returns deterministic, reason "provider_not_initialized"', async () => {
     mockSecureKeys = { anthropic: "sk-test-key" };
+    currentConfig.llm.profiles = {
+      ...currentConfig.llm.profiles,
+      // Disable the catalog default so resolution lands on llm.default.
+      "cost-optimized": { source: "managed", status: "disabled" },
+    };
     resolvedProvider = null;
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {

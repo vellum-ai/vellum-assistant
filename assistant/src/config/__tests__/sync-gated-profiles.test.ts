@@ -57,6 +57,7 @@ afterAll(() => {
 });
 
 import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+import { getEffectiveProfile } from "../default-profile-catalog.js";
 import { invalidateConfigCache } from "../loader.js";
 import { LLMSchema } from "../schemas/llm.js";
 import { seedInferenceProfiles } from "../seed-inference-profiles.js";
@@ -108,14 +109,19 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(reconcileFlagGatedProfiles()).toBe(true);
 
     const raw = readConfig();
+    // On disk: a thin managed stub — profile content is code-owned.
     const osBeta = raw.llm.profiles["os-beta"]!;
-    expect(osBeta.model).toBe("MiniMaxAI/MiniMax-M3");
-    expect(osBeta.provider_connection).toBe("vellum");
-    expect(osBeta.provider).toBe("together");
-    expect(osBeta.source).toBe("managed");
-    expect(osBeta.label).toBe("OS Beta");
-    expect(osBeta.effort).toBe("low");
-    expect(osBeta.topP).toBe(0.95);
+    expect(osBeta).toEqual({ source: "managed" });
+
+    // Through the effective view the stub resolves to the catalog body.
+    const effective = getEffectiveProfile(raw.llm.profiles, "os-beta")!;
+    expect(effective.model).toBe("MiniMaxAI/MiniMax-M3");
+    expect(effective.provider_connection).toBe("vellum");
+    expect(effective.provider).toBe("together");
+    expect(effective.source).toBe("managed");
+    expect(effective.label).toBe("OS Beta");
+    expect(effective.effort).toBe("low");
+    expect(effective.topP).toBe(0.95);
 
     const order = raw.llm.profileOrder;
     expect(order.indexOf("os-beta")).toBe(order.indexOf("balanced") + 1);
@@ -127,11 +133,14 @@ describe("reconcileFlagGatedProfiles", () => {
 
     expect(reconcileFlagGatedProfiles()).toBe(true);
 
-    const osBeta = readConfig().llm.profiles["os-beta"]!;
+    const profiles = readConfig().llm.profiles;
+    const osBeta = profiles["os-beta"]!;
     expect(osBeta.status).toBe("disabled");
     expect(osBeta.label).toBe("OS Beta (Managed)");
     expect(osBeta.source).toBe("managed");
-    expect(osBeta.effort).toBe("low");
+    // Content stays code-owned; the effective view supplies it.
+    expect(osBeta.effort).toBeUndefined();
+    expect(getEffectiveProfile(profiles, "os-beta")?.effort).toBe("low");
   });
 
   test("flag on is idempotent across repeated runs", () => {
@@ -159,13 +168,18 @@ describe("reconcileFlagGatedProfiles", () => {
 
     reconcileFlagGatedProfiles();
 
-    const after = readConfig().llm.profiles["os-beta"]!;
+    const profiles = readConfig().llm.profiles;
+    const after = profiles["os-beta"]!;
     expect(after.label).toBe("My OS Beta");
     expect(after.status).toBe("disabled");
     expect(after.topP).toBe(0.8);
-    expect(after.model).toBe("MiniMaxAI/MiniMax-M3");
-    expect(after.provider_connection).toBe("vellum");
-    expect(after.effort).toBe("low");
+
+    const effective = getEffectiveProfile(profiles, "os-beta")!;
+    expect(effective.label).toBe("My OS Beta");
+    expect(effective.topP).toBe(0.8);
+    expect(effective.model).toBe("MiniMaxAI/MiniMax-M3");
+    expect(effective.provider_connection).toBe("vellum");
+    expect(effective.effort).toBe("low");
   });
 
   test("flag off removes a managed os-beta and applies fallbacks", () => {

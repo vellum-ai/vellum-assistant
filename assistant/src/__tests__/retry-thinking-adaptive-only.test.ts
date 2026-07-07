@@ -79,6 +79,8 @@ describe("retry normalization: adaptive-only thinking models", () => {
         thinking: { enabled: false },
         effort: "high",
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
 
@@ -118,6 +120,8 @@ describe("retry normalization: adaptive-only thinking models", () => {
         model: "anthropic/claude-fable-5",
         thinking: { enabled: false },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
 
@@ -138,6 +142,8 @@ describe("retry normalization: adaptive-only thinking models", () => {
         model: "claude-fable-5",
         thinking: { enabled: true },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
 
@@ -158,6 +164,8 @@ describe("retry normalization: adaptive-only thinking models", () => {
         model: "claude-opus-4-7",
         thinking: { enabled: false },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
 
@@ -179,6 +187,8 @@ describe("retry normalization: adaptive-only thinking models", () => {
         thinking: { enabled: false },
         temperature: 0.7,
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
 
