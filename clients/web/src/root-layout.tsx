@@ -4,6 +4,7 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
+import { useOpenUrlDirectives } from "@/hooks/use-open-url-directives";
 import { useGlobalDeepLinkConsumer } from "@/hooks/use-global-deep-link-consumer";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
@@ -165,6 +166,10 @@ export function RootLayout() {
   // `useDeepLinkConsumer` because it owns `setInput`; the two
   // hand off via `pending-deep-link-store`.
   useGlobalDeepLinkConsumer();
+  // Conversationless `open_url` directives (CLI OAuth hand-offs). Mounted
+  // here so the browser opens even when no chat stream consumer exists —
+  // Settings/Logs routes, or a draft conversation that isn't persisted yet.
+  useOpenUrlDirectives();
 
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   // Id of the assistant a tray "Retire <assistant>…" command targets. The tray
