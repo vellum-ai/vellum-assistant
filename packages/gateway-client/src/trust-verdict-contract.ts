@@ -142,11 +142,14 @@ export type ResolveInboundTrustRequest = z.infer<
  * an ENVELOPE field, not a {@link TrustVerdictSchema} field: the verdict is
  * also stamped on every text relay's `sourceMetadata`, which must not carry
  * this voice-setup-only companion. `admissionPolicy: null` is the gateway's
- * explicit "no enforcement configured" answer (an admit).
+ * explicit "no enforcement configured" answer (an admit). The key is nullish
+ * for version skew: a pre-envelope gateway answers `{ verdict }` only, and a
+ * valid verdict must not be discarded over the missing companion — the
+ * consumer falls back to the standalone admission-policy read.
  */
 export const ResolveInboundTrustResponseSchema = z.object({
   verdict: TrustVerdictSchema,
-  admissionPolicy: AdmissionPolicySchema.nullable(),
+  admissionPolicy: AdmissionPolicySchema.nullish(),
 });
 
 export type ResolveInboundTrustResponse = z.infer<

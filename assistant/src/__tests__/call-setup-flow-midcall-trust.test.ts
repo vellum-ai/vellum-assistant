@@ -3,9 +3,10 @@
  * re-resolution used after verification/activation on a phone call.
  *
  * The gateway verdict is the sole trust source: a usable verdict (including
- * memberless unknown and memberful blocked/revoked) is consumed directly; a
- * missing/failed/member-unresolvable verdict throws, and the flow's caller
- * keeps the setup-time trust. Local `resolveActorTrust` is never consulted.
+ * memberless unknown and memberful blocked/revoked) is consumed directly; an
+ * unusable verdict (missing, failed, member-unresolvable, memberless guardian
+ * claim) throws, and the flow's caller keeps the setup-time trust. Local
+ * `resolveActorTrust` is never consulted.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -24,7 +25,6 @@ const realInboundTrustReader = {
 };
 mock.module("../calls/inbound-trust-reader.js", () => ({
   ...realInboundTrustReader,
-  getInboundTrustVerdict: async () => mockVerdict,
   getPhoneCallerVerdict: async () => mockVerdict,
 }));
 
@@ -67,11 +67,17 @@ beforeEach(() => {
 
 describe("resolveMidCallTrustContext", () => {
   test("usable guardian verdict re-resolves trust from the gateway verdict", async () => {
+    // Guardian verdicts carry a same-channel member row — a memberless
+    // guardian claim is contradictory and unusable (asserted below).
     mockVerdict = {
       trustClass: "guardian",
       canonicalSenderId: FROM_NUMBER,
       guardianExternalUserId: FROM_NUMBER,
       guardianPrincipalId: FROM_NUMBER,
+      contactId: "ct_g",
+      channelId: "ch_g",
+      status: "active",
+      policy: "allow",
     };
 
     const context = await resolveMidCallTrustContext("self", FROM_NUMBER);
@@ -80,6 +86,20 @@ describe("resolveMidCallTrustContext", () => {
     expect(context.sourceChannel).toBe("phone");
     expect(context.trustClass).toBe("guardian");
     expect(context.guardianExternalUserId).toBe(FROM_NUMBER);
+  });
+
+  test("memberless guardian claim is contradictory and throws with no local fallback", async () => {
+    mockVerdict = {
+      trustClass: "guardian",
+      canonicalSenderId: FROM_NUMBER,
+      guardianExternalUserId: FROM_NUMBER,
+      guardianPrincipalId: FROM_NUMBER,
+    };
+
+    await expect(
+      resolveMidCallTrustContext("self", FROM_NUMBER),
+    ).rejects.toThrow(/verdict unavailable/);
+    expect(localResolutions).toBe(0);
   });
 
   test("usable trusted-contact member verdict is consumed directly", async () => {

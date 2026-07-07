@@ -119,10 +119,6 @@ mock.module("../calls/channel-admission-reader.js", () => ({
 let mockInboundVerdict: unknown = null;
 let lastInboundVerdictArgs: Record<string, unknown> | null = null;
 mock.module("../calls/inbound-trust-reader.js", () => ({
-  getInboundTrustVerdict: async (args: Record<string, unknown>) => {
-    lastInboundVerdictArgs = args;
-    return mockInboundVerdict;
-  },
   getPhoneCallerVerdict: async (otherPartyNumber: string | undefined) => {
     lastInboundVerdictArgs = {
       channelType: "phone",

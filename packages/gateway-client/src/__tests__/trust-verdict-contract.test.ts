@@ -151,10 +151,12 @@ describe("ResolveInboundTrustResponseSchema", () => {
     expect(parsed.admissionPolicy).toBeNull();
   });
 
-  test("rejects a missing admission policy field", () => {
-    expect(() =>
-      ResolveInboundTrustResponseSchema.parse({ verdict: fullVerdict }),
-    ).toThrow();
+  test("tolerates an absent admission policy field (pre-envelope gateway)", () => {
+    const parsed = ResolveInboundTrustResponseSchema.parse({
+      verdict: fullVerdict,
+    });
+    expect(parsed.verdict).toEqual(fullVerdict);
+    expect(parsed.admissionPolicy).toBeUndefined();
   });
 
   test("rejects an out-of-vocabulary admission policy", () => {

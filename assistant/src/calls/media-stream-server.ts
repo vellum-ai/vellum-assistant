@@ -44,7 +44,6 @@ import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approv
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import { resolveGuardianName } from "../prompts/user-reference.js";
-import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { CallController } from "./call-controller.js";
@@ -81,6 +80,10 @@ import {
   type MediaStreamSttSessionCallbacks,
   type MediaStreamSttSessionConfig,
 } from "./media-stream-stt-session.js";
+import {
+  TRUST_UNAVAILABLE_DENY_MESSAGE,
+  unresolvedActorTrust,
+} from "./unresolved-caller-trust.js";
 
 const log = getLogger("media-stream-server");
 const UUID_SHAPED_NAME =
@@ -106,41 +109,24 @@ function resolveAssistantLabel(): string | null {
  * Deny routing for an inbound call whose combined trust-verdict +
  * admission-floor read failed (gateway unreachable / malformed answer).
  * Mirrors the router's floor-deny outcome shape so the setup flow runs the
- * standard deny teardown (denial copy + hangup). Trust is stamped `unknown`:
- * with no gateway answer the caller cannot be vetted.
+ * standard deny teardown (denial copy + hangup). Trust is stamped `unknown`
+ * via the shared builder: with no gateway answer the caller cannot be vetted.
  */
 function admissionUnavailableDeny(otherPartyNumber: string): {
   outcome: SetupOutcome;
   resolved: SetupResolved;
 } {
-  const actorTrust: ActorTrustContext = {
-    canonicalSenderId: null,
-    guardianBindingMatch: null,
-    guardianPrincipalId: undefined,
-    memberRecord: null,
-    trustClass: "unknown",
-    actorMetadata: {
-      identifier: otherPartyNumber || undefined,
-      displayName: undefined,
-      senderDisplayName: undefined,
-      memberDisplayName: undefined,
-      username: undefined,
-      channel: "phone",
-      trustStatus: "unknown",
-    },
-  };
   return {
     outcome: {
       action: "deny",
-      message:
-        "The assistant can't take calls right now. Please try again later.",
+      message: TRUST_UNAVAILABLE_DENY_MESSAGE,
       logReason: "Inbound voice admission floor: gateway unreachable",
     },
     resolved: {
       assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       isInbound: true,
       otherPartyNumber,
-      actorTrust,
+      actorTrust: unresolvedActorTrust(otherPartyNumber),
     },
   };
 }

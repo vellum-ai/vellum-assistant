@@ -10,6 +10,7 @@
  */
 
 import type { TrustVerdict } from "@vellumai/gateway-client";
+import { isTrustClass } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../channels/types.js";
 import { channelStatusToMemberStatus } from "../contacts/member-status.js";
@@ -126,7 +127,7 @@ export function verdictHasMemberIdentity(verdict: TrustVerdict): boolean {
 /**
  * True when the verdict claims a member identity but that member can't be
  * resolved (partial/mixed-version verdict). Such a verdict is unusable —
- * callers fall back to local resolution.
+ * consumers fail closed (deny), never falling back to local resolution.
  */
 export function verdictMemberUnresolvable(verdict: TrustVerdict): boolean {
   return (
@@ -135,17 +136,29 @@ export function verdictMemberUnresolvable(verdict: TrustVerdict): boolean {
   );
 }
 
+/** Machine-readable cause for an unusable verdict; consumers switch on it. */
+export type VerdictUnusableReason =
+  | "missing"
+  | "resolution failed"
+  | "member unresolvable"
+  | "unrecognized trust class"
+  | "guardian without member";
+
 /**
  * Classify whether a verdict can serve as a trust source. Unusable when
- * missing, `resolutionFailed`, or claiming a member whose ACL can't be
- * reassembled; consumers fail closed on those. A memberless stranger verdict
- * is usable.
+ * missing, `resolutionFailed`, claiming a member whose ACL can't be
+ * reassembled, carrying an out-of-contract trust class (version skew,
+ * malformed payload), or claiming `guardian` without a member row
+ * (contradictory — the gateway proves guardian identity via a same-channel
+ * member row, so cross-channel address collisions must never confer guardian
+ * capabilities). Consumers fail closed on all of those. A memberless stranger
+ * verdict is usable.
  */
 export function verdictUsability(
   verdict: TrustVerdict | null | undefined,
 ):
   | { usable: true; verdict: TrustVerdict }
-  | { usable: false; reason: string } {
+  | { usable: false; reason: VerdictUnusableReason } {
   if (verdict == null) {
     return { usable: false, reason: "missing" };
   }
@@ -154,6 +167,12 @@ export function verdictUsability(
   }
   if (verdictMemberUnresolvable(verdict)) {
     return { usable: false, reason: "member unresolvable" };
+  }
+  if (!isTrustClass(verdict.trustClass)) {
+    return { usable: false, reason: "unrecognized trust class" };
+  }
+  if (verdict.trustClass === "guardian" && !verdictMemberFromVerdict(verdict)) {
+    return { usable: false, reason: "guardian without member" };
   }
   return { usable: true, verdict };
 }
