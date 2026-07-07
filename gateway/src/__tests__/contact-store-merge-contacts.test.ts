@@ -211,7 +211,7 @@ describe("ContactStore.mergeContacts — typed transactional mirror", () => {
     expect(mirrorMergeCalls()).toHaveLength(1);
   });
 
-  test("user_file slug resolution failure is soft: merge succeeds, mirror skipped", async () => {
+  test("user_file slug resolution failure degrades: merge op still sent without the slug", async () => {
     seedContact("ct_keep", "contact");
     seedContact("ct_merge", "contact");
 
@@ -222,13 +222,41 @@ describe("ContactStore.mergeContacts — typed transactional mirror", () => {
 
     expect(result).not.toBeNull();
     expect(result!.id).toBe("ct_keep");
-    // Mirror op never sent (resolution failed first), and still no raw SQL.
-    expect(mirrorMergeCalls()).toHaveLength(0);
+
+    // The slug is only consumed by the daemon's rare gap-INSERT branch, so
+    // its failure must NOT skip the mirror merge — the op goes out with
+    // resolvedUserFile omitted. Still no raw SQL.
+    const calls = mirrorMergeCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].params).toEqual({
+      body: {
+        keepContactId: "ct_keep",
+        mergeContactId: "ct_merge",
+        keepDisplayName: "name-ct_keep",
+      },
+    });
     expect(dbProxyRunCalls).toHaveLength(0);
 
     // Gateway DB is still consistent: donor gone.
     const remaining = getGatewayDb().select().from(contacts).all();
     expect(remaining.find((c) => c.id === "ct_merge")).toBeUndefined();
+  });
+
+  test("slug failure on the sibling-info path also degrades: merge op still sent", async () => {
+    seedContact("ct_keep", "contact");
+    seedContact("ct_merge", "contact");
+
+    ipcThrowOn.set("contacts_info_batch", new Error("daemon unavailable"));
+
+    const store = new ContactStore();
+    const result = await store.mergeContacts("ct_keep", "ct_merge");
+
+    expect(result).not.toBeNull();
+    const calls = mirrorMergeCalls();
+    expect(calls).toHaveLength(1);
+    expect(
+      (calls[0].params?.body as Record<string, unknown>).resolvedUserFile,
+    ).toBeUndefined();
   });
 
   test("guardian donor is rejected before any DB or mirror write", async () => {

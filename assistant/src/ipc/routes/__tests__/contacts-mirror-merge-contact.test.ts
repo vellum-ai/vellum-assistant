@@ -144,6 +144,24 @@ describe("contacts_mirror_merge_contact", () => {
     expect(contactRow("co-merge")).toBeNull();
   });
 
+  test("dual-write gap without resolvedUserFile: survivor INSERT proceeds with null user_file", () => {
+    seedContact("co-merge", { notes: "donor notes" });
+    seedChannel("ch-1", "co-merge");
+
+    // Gateway degrades resolvedUserFile to undefined when slug resolution
+    // fails — the merge must still apply, with a null user_file.
+    expect(merge({ keepDisplayName: "Keeper" })).toEqual({ ok: true });
+
+    const row = contactRow("co-keep");
+    expect(row).toEqual({
+      display_name: "Keeper",
+      notes: "donor notes",
+      user_file: null,
+    });
+    expect(channelOwner("ch-1")).toBe("co-keep");
+    expect(contactRow("co-merge")).toBeNull();
+  });
+
   test("idempotent retry: donor already gone is a no-op success", () => {
     seedContact("co-keep", { notes: "keep notes" });
     seedContact("co-merge", { notes: "merge notes" });

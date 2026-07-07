@@ -1401,12 +1401,22 @@ export class ContactStore {
     // compensation is needed — a failed mirror leaves a stale donor for
     // reconciliation. The user_file slug is resolved here because its
     // principal-sibling reuse needs the gateway DB; the daemon uses it only
-    // for the dual-write-gap INSERT of a survivor missing from the mirror.
+    // for the dual-write-gap INSERT of a survivor missing from the mirror,
+    // so a resolution failure degrades to undefined (null user_file on that
+    // rare INSERT) rather than skipping the merge op.
     try {
-      const resolvedUserFile = await this.resolveAssistantUserFileSlug(
-        keep.displayName,
-        keep.principalId,
-      );
+      let resolvedUserFile: string | undefined;
+      try {
+        resolvedUserFile = await this.resolveAssistantUserFileSlug(
+          keep.displayName,
+          keep.principalId,
+        );
+      } catch (slugErr) {
+        log.warn(
+          { keepId, mergeId, slugErr },
+          "mergeContacts: user_file slug resolution failed — sending mirror merge without it",
+        );
+      }
       await ipcCallAssistant("contacts_mirror_merge_contact", {
         body: {
           keepContactId: keepId,
