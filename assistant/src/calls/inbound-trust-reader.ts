@@ -1,18 +1,21 @@
 /**
- * Gateway-backed per-actor inbound trust verdict reader.
+ * Gateway-backed per-actor inbound trust reader.
  *
- * Resolves the inbound sender's {@link TrustVerdict} from the gateway via the
- * `resolve_inbound_trust` IPC route. Unlike the channel-admission reader this
- * is per-actor, NOT per-channel, so there is NO caching.
+ * Resolves the inbound sender's {@link TrustVerdict} — and, on the same
+ * `resolve_inbound_trust` round-trip, the channel's admission policy — from
+ * the gateway. Per-actor, NOT per-channel, so there is NO caching.
  *
- * Returns `null` on ANY failure (transport failure, `undefined`, malformed
- * shape, or thrown error). The caller owns the deny policy (fail-open vs
- * fail-closed); this reader only reports the verdict or `null`.
+ * {@link readInboundTrust} reports `{ ok: false }` on ANY failure (transport
+ * failure, `undefined`, malformed shape, or thrown error); an explicit
+ * `admissionPolicy: null` on a successful read is the gateway's "no
+ * enforcement configured" answer, distinct from an unreachable gateway. The
+ * caller owns the deny policy; this reader only reports.
  */
 
 import {
+  type AdmissionPolicy,
+  ResolveInboundTrustResponseSchema,
   type TrustVerdict,
-  TrustVerdictSchema,
 } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../channels/types.js";
@@ -23,40 +26,69 @@ import { setMemberVerdict } from "../runtime/member-verdict-cache.js";
 // setup on a gateway that accepts the socket but hangs.
 const TRUST_IPC_TIMEOUT_MS = 2_000;
 
+/**
+ * Combined verdict + admission-policy read result. `{ ok: false }` means the
+ * gateway was unreachable or answered with a malformed shape.
+ */
+export type InboundTrustReadResult =
+  | { ok: true; verdict: TrustVerdict; admissionPolicy: AdmissionPolicy | null }
+  | { ok: false };
+
+export async function readInboundTrust(input: {
+  channelType: ChannelId;
+  actorExternalId?: string;
+}): Promise<InboundTrustReadResult> {
+  try {
+    const result = await ipcCall(
+      "resolve_inbound_trust",
+      input,
+      TRUST_IPC_TIMEOUT_MS,
+    );
+    if (!result) return { ok: false };
+
+    const parsed = ResolveInboundTrustResponseSchema.safeParse(result);
+    if (!parsed.success) return { ok: false };
+
+    // Single choke point: warm the member-verdict cache so the sync trust
+    // fallback resolves the member without a local ACL read.
+    setMemberVerdict(input.channelType, input.actorExternalId, parsed.data.verdict);
+    return {
+      ok: true,
+      verdict: parsed.data.verdict,
+      admissionPolicy: parsed.data.admissionPolicy,
+    };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Verdict-only surface for callers that don't consume the admission policy. */
 export async function getInboundTrustVerdict(input: {
   channelType: ChannelId;
   actorExternalId?: string;
 }): Promise<TrustVerdict | null> {
-  try {
-    const result = (await ipcCall(
-      "resolve_inbound_trust",
-      input,
-      TRUST_IPC_TIMEOUT_MS,
-    )) as { verdict?: unknown } | null | undefined;
-
-    if (!result) return null;
-
-    const parsed = TrustVerdictSchema.safeParse(result.verdict);
-    if (!parsed.success) return null;
-
-    // Single choke point: warm the member-verdict cache so the sync trust
-    // fallback resolves the member without a local ACL read.
-    setMemberVerdict(input.channelType, input.actorExternalId, parsed.data);
-    return parsed.data;
-  } catch {
-    return null;
-  }
+  const result = await readInboundTrust(input);
+  return result.ok ? result.verdict : null;
 }
 
 /**
- * Resolve the verdict for a phone caller by their external number. Callers
- * compute `otherPartyNumber` from their own transport-specific direction.
+ * Combined verdict + admission-policy read for a phone caller by their
+ * external number. Callers compute `otherPartyNumber` from their own
+ * transport-specific direction.
  */
-export function getPhoneCallerVerdict(
+export function readPhoneCallerTrust(
   otherPartyNumber: string | undefined,
-): Promise<TrustVerdict | null> {
-  return getInboundTrustVerdict({
+): Promise<InboundTrustReadResult> {
+  return readInboundTrust({
     channelType: "phone",
     actorExternalId: otherPartyNumber || undefined,
   });
+}
+
+/** Verdict-only variant of {@link readPhoneCallerTrust}. */
+export async function getPhoneCallerVerdict(
+  otherPartyNumber: string | undefined,
+): Promise<TrustVerdict | null> {
+  const result = await readPhoneCallerTrust(otherPartyNumber);
+  return result.ok ? result.verdict : null;
 }

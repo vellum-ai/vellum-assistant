@@ -9,6 +9,7 @@ import { SourceMetadataSchema } from "../inbound-contract.js";
 import {
   makeResolutionFailedVerdict,
   makeUnauthenticatedSenderVerdict,
+  ResolveInboundTrustResponseSchema,
   TrustVerdictSchema,
   type TrustVerdict,
 } from "../trust-verdict-contract.js";
@@ -127,5 +128,41 @@ describe("SourceMetadataSchema trustVerdict back-compat", () => {
   test("round-trips a payload carrying trustVerdict", () => {
     const parsed = SourceMetadataSchema.parse({ trustVerdict: fullVerdict });
     expect(parsed.trustVerdict).toEqual(fullVerdict);
+  });
+});
+
+describe("ResolveInboundTrustResponseSchema", () => {
+  test("round-trips a verdict with an admission policy", () => {
+    const parsed = ResolveInboundTrustResponseSchema.parse({
+      verdict: fullVerdict,
+      admissionPolicy: "guardian_only",
+    });
+    expect(parsed).toEqual({
+      verdict: fullVerdict,
+      admissionPolicy: "guardian_only",
+    });
+  });
+
+  test("accepts an explicit null admission policy (no enforcement)", () => {
+    const parsed = ResolveInboundTrustResponseSchema.parse({
+      verdict: fullVerdict,
+      admissionPolicy: null,
+    });
+    expect(parsed.admissionPolicy).toBeNull();
+  });
+
+  test("rejects a missing admission policy field", () => {
+    expect(() =>
+      ResolveInboundTrustResponseSchema.parse({ verdict: fullVerdict }),
+    ).toThrow();
+  });
+
+  test("rejects an out-of-vocabulary admission policy", () => {
+    expect(() =>
+      ResolveInboundTrustResponseSchema.parse({
+        verdict: fullVerdict,
+        admissionPolicy: "everyone",
+      }),
+    ).toThrow();
   });
 });
