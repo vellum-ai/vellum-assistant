@@ -10,7 +10,7 @@
 import type { ChannelId } from "../channels/types.js";
 import {
   findContactByAddress,
-  updateContactPrincipalAndChannel,
+  repairChannelAddress,
 } from "../contacts/contact-store.js";
 import {
   getGuardianDelivery,
@@ -76,11 +76,7 @@ export async function healGuardianBindingDrift(
   );
   if (!localContact || !localChannel) return false;
 
-  const updated = updateContactPrincipalAndChannel(
-    localContact.id,
-    localChannel.id,
-    incomingPrincipalId,
-  );
+  const updated = repairChannelAddress(localChannel.id, incomingPrincipalId);
 
   if (!updated) {
     log.warn(

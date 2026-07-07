@@ -14,8 +14,7 @@ import {
 
 import { log } from "../daemon/handlers/shared.js";
 import { ipcCallPersistent } from "../ipc/gateway-client.js";
-import { findContactChannel } from "./contact-store.js";
-import { revokeMember, upsertContactChannel } from "./contacts-write.js";
+import { upsertContactChannel } from "./contacts-write.js";
 import type { ContactWriteResult } from "./types.js";
 
 // ── Activate ─────────────────────────────────────────────────────────
@@ -161,8 +160,7 @@ export interface BlockSenderChannelParams {
  * status, and `mark_channel_revoked` is idempotent (already-revoked →
  * didWrite:false) and refuses to downgrade a guardian channel. Fails closed —
  * a relay failure surfaces as `revoked: false` so callers never report a block
- * the gateway did not persist. The assistant-DB status update is a best-effort
- * mirror.
+ * the gateway did not persist.
  */
 export async function blockSenderChannel(
   params: BlockSenderChannelParams,
@@ -207,21 +205,6 @@ export async function blockSenderChannel(
     return { revoked: false };
   }
 
-  // Best-effort local mirror so the Contacts page reflects the downgrade.
-  // Resolved by logical (type, address) key — the local mirror row's id is
-  // not guaranteed to match the gateway channel id.
-  try {
-    const local = findContactChannel({
-      channelType: params.sourceChannel,
-      address: params.externalUserId,
-    });
-    if (local) {
-      revokeMember(local.channel.id);
-    }
-  } catch {
-    // The local row may not exist for a brand-new sender; the gateway
-    // outcome stands.
-  }
   return { revoked: true };
 }
 
