@@ -100,6 +100,23 @@ mock.module("../../calls/fish-audio-client.js", () => ({
   synthesizeWithFishAudio: mockSynthesizeWithFishAudio,
 }));
 
+// -- xAI TTS socket-session mock ---------------------------------------------
+
+const defaultXaiSocketAudio = Buffer.from("fake-xai-stream-audio");
+
+const defaultXaiSocketImpl = async (
+  options: XaiTtsSocketOptions,
+): Promise<Buffer> => {
+  options.onChunk?.(defaultXaiSocketAudio);
+  return defaultXaiSocketAudio;
+};
+
+const mockSynthesizeOverXaiTtsSocket = mock(defaultXaiSocketImpl);
+
+mock.module("../providers/xai-tts-socket.js", () => ({
+  synthesizeOverXaiTtsSocket: mockSynthesizeOverXaiTtsSocket,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -121,6 +138,7 @@ import {
 import { createFishAudioProvider } from "../providers/fish-audio-provider.js";
 import { FishAudioTtsError } from "../providers/fish-audio-provider.js";
 import { createXaiProvider, XaiTtsError } from "../providers/xai-provider.js";
+import type { XaiTtsSocketOptions } from "../providers/xai-tts-socket.js";
 import type { TtsSynthesisRequest } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -161,6 +179,8 @@ beforeEach(() => {
     bitRate: 128000,
   };
   mockSynthesizeWithFishAudio.mockClear();
+  mockSynthesizeOverXaiTtsSocket.mockClear();
+  mockSynthesizeOverXaiTtsSocket.mockImplementation(defaultXaiSocketImpl);
 });
 
 afterEach(() => {
@@ -1781,171 +1801,131 @@ describe("xAI TTS provider adapter", () => {
     }
   });
 
-  // -- Streaming (WebSocket) -------------------------------------------------
+  // -- Streaming (WebSocket session wiring) ----------------------------------
+  // The socket session itself (frames, timeouts, abort, ordering) is covered
+  // by providers/__tests__/xai-tts-socket.test.ts; these tests assert only
+  // what the provider passes into it and how it maps the result.
 
   describe("synthesizeStream", () => {
-    type WsEventType = "open" | "close" | "error" | "message";
-    type WsListener = (...args: unknown[]) => void;
-
-    /** Minimal mock WebSocket simulating the xAI TTS streaming endpoint. */
-    class MockWebSocket {
-      readyState = 0; // CONNECTING
-      closeCalled = false;
-      private listeners = new Map<WsEventType, WsListener[]>();
-
-      addEventListener(type: WsEventType, listener: WsListener): void {
-        const list = this.listeners.get(type) ?? [];
-        list.push(listener);
-        this.listeners.set(type, list);
-      }
-
-      send(): void {
-        if (this.readyState !== 1) {
-          throw new Error("WebSocket is not open");
-        }
-      }
-
-      close(): void {
-        this.closeCalled = true;
-        this.readyState = 3; // CLOSED
-      }
-
-      simulateOpen(): void {
-        this.readyState = 1; // OPEN
-        for (const l of this.listeners.get("open") ?? []) l();
-      }
-
-      simulateMessage(data: unknown): void {
-        for (const l of this.listeners.get("message") ?? []) l({ data });
-      }
+    function capturedSocketOptions(): XaiTtsSocketOptions {
+      expect(mockSynthesizeOverXaiTtsSocket).toHaveBeenCalledTimes(1);
+      return mockSynthesizeOverXaiTtsSocket.mock.calls[0]![0];
     }
 
-    let mockWs: MockWebSocket;
-    let constructorCalls: {
-      url: string;
-      options?: { headers?: Record<string, string> };
-    }[];
-    let originalWebSocket: unknown;
-
-    beforeEach(() => {
-      mockWs = new MockWebSocket();
-      constructorCalls = [];
-      originalWebSocket = (globalThis as Record<string, unknown>).WebSocket;
-
-      const ws = mockWs;
-      (globalThis as Record<string, unknown>).WebSocket = class {
-        constructor(
-          url: string,
-          options?: { headers?: Record<string, string> },
-        ) {
-          constructorCalls.push({ url, options });
-          return ws;
-        }
-      };
-    });
-
-    afterEach(() => {
-      (globalThis as Record<string, unknown>).WebSocket = originalWebSocket;
-    });
-
-    /** Wait for the async key/config resolution to construct the socket. */
-    async function untilSocketConstructed(): Promise<void> {
-      for (let i = 0; i < 50 && constructorCalls.length === 0; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      }
-      expect(constructorCalls).toHaveLength(1);
-    }
-
-    function audioDeltaFrame(bytes: string): string {
-      return JSON.stringify({
-        type: "audio.delta",
-        delta: Buffer.from(bytes).toString("base64"),
-      });
-    }
-
-    const AUDIO_DONE_FRAME = JSON.stringify({ type: "audio.done" });
-
-    test("connects with the REST-mirrored pcm output format and Bearer auth", async () => {
+    test("passes the REST-mirrored pcm URL, key, text, and signal to the socket session", async () => {
+      const controller = new AbortController();
       const provider = createXaiProvider();
-      const promise = provider.synthesizeStream!(
-        makeRequest({ outputFormat: "pcm" }),
+      const result = await provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm", signal: controller.signal }),
         () => {},
       );
-      await untilSocketConstructed();
 
-      const { url, options } = constructorCalls[0]!;
-      expect(url).toContain("wss://api.x.ai/v1/tts");
-      expect(url).toContain("language=auto");
-      expect(url).toContain("voice=eve");
-      expect(url).toContain("codec=pcm");
-      expect(url).toContain("sample_rate=16000");
-      expect(url).not.toContain("bit_rate=");
-      expect(options?.headers?.Authorization).toBe("Bearer test-xai-api-key");
+      const options = capturedSocketOptions();
+      expect(options.url).toContain("wss://api.x.ai/v1/tts");
+      expect(options.url).toContain("language=auto");
+      expect(options.url).toContain("voice=eve");
+      expect(options.url).toContain("codec=pcm");
+      expect(options.url).toContain("sample_rate=16000");
+      expect(options.url).not.toContain("bit_rate=");
+      expect(options.apiKey).toBe("test-xai-api-key");
+      expect(options.text).toBe("Hello world");
+      expect(options.signal).toBe(controller.signal);
 
-      mockWs.simulateOpen();
-      mockWs.simulateMessage(audioDeltaFrame("pcm"));
-      mockWs.simulateMessage(AUDIO_DONE_FRAME);
-      await promise;
+      expect(result.audio.equals(defaultXaiSocketAudio)).toBe(true);
+      expect(result.contentType).toBe("audio/pcm");
     });
 
     test("pcm sampleRateHz hint is carried in the stream URL", async () => {
       const provider = createXaiProvider();
-      const promise = provider.synthesizeStream!(
+      await provider.synthesizeStream!(
         makeRequest({ outputFormat: "pcm", sampleRateHz: 22_050 }),
         () => {},
       );
-      await untilSocketConstructed();
 
-      expect(constructorCalls[0]!.url).toContain("sample_rate=22050");
-
-      mockWs.simulateOpen();
-      mockWs.simulateMessage(audioDeltaFrame("pcm"));
-      mockWs.simulateMessage(AUDIO_DONE_FRAME);
-      await promise;
+      expect(capturedSocketOptions().url).toContain("sample_rate=22050");
     });
 
     test("mp3 requests carry codec=mp3 and bit_rate and resolve audio/mpeg", async () => {
       const provider = createXaiProvider();
-      const promise = provider.synthesizeStream!(makeRequest(), () => {});
-      await untilSocketConstructed();
+      const result = await provider.synthesizeStream!(makeRequest(), () => {});
 
-      const { url } = constructorCalls[0]!;
+      const { url } = capturedSocketOptions();
       expect(url).toContain("codec=mp3");
       expect(url).toContain("sample_rate=24000");
       expect(url).toContain("bit_rate=128000");
-
-      mockWs.simulateOpen();
-      mockWs.simulateMessage(audioDeltaFrame("mp3"));
-      mockWs.simulateMessage(AUDIO_DONE_FRAME);
-
-      const result = await promise;
       expect(result.contentType).toBe("audio/mpeg");
     });
 
-    test("forwards decoded chunks in order and resolves with the concatenation", async () => {
-      const received: Buffer[] = [];
-      const provider = createXaiProvider();
-      const promise = provider.synthesizeStream!(
-        makeRequest({ outputFormat: "pcm" }),
-        (chunk) => received.push(Buffer.from(chunk)),
-      );
-      await untilSocketConstructed();
+    test("forwards stream timeout options to the socket session", async () => {
+      const provider = createXaiProvider({
+        connectTimeoutMs: 11,
+        firstChunkTimeoutMs: 22,
+        idleTimeoutMs: 33,
+      });
+      await provider.synthesizeStream!(makeRequest(), () => {});
 
-      mockWs.simulateOpen();
-      mockWs.simulateMessage(audioDeltaFrame("chunk-1"));
-      mockWs.simulateMessage(audioDeltaFrame("chunk-2"));
-      mockWs.simulateMessage(AUDIO_DONE_FRAME);
-
-      const result = await promise;
-      expect(received.map((c) => c.toString())).toEqual([
-        "chunk-1",
-        "chunk-2",
-      ]);
-      expect(result.audio.toString()).toBe("chunk-1chunk-2");
-      expect(result.contentType).toBe("audio/pcm");
+      expect(capturedSocketOptions()).toMatchObject({
+        connectTimeoutMs: 11,
+        firstChunkTimeoutMs: 22,
+        idleTimeoutMs: 33,
+      });
     });
 
-    test("throws XAI_TTS_NO_API_KEY without constructing a socket", async () => {
+    test("passes the caller's onChunk through to the socket session", async () => {
+      mockSynthesizeOverXaiTtsSocket.mockImplementation(async (options) => {
+        options.onChunk?.(Buffer.from("chunk-1"));
+        options.onChunk?.(Buffer.from("chunk-2"));
+        return Buffer.from("chunk-1chunk-2");
+      });
+
+      const received: string[] = [];
+      const provider = createXaiProvider();
+      const result = await provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm" }),
+        (chunk) => received.push(Buffer.from(chunk).toString()),
+      );
+
+      expect(received).toEqual(["chunk-1", "chunk-2"]);
+      expect(result.audio.toString()).toBe("chunk-1chunk-2");
+    });
+
+    test("error factories produce provider-owned XaiTtsError codes", async () => {
+      const provider = createXaiProvider();
+      await provider.synthesizeStream!(makeRequest(), () => {});
+
+      const options = capturedSocketOptions();
+
+      const timeoutErr = options.makeTimeoutError(20);
+      expect(timeoutErr).toBeInstanceOf(XaiTtsError);
+      expect((timeoutErr as XaiTtsError).code).toBe("XAI_TTS_STREAM_TIMEOUT");
+      expect(timeoutErr.message).toContain("20ms");
+
+      const streamErr = options.makeStreamError("voice not found");
+      expect(streamErr).toBeInstanceOf(XaiTtsError);
+      expect((streamErr as XaiTtsError).code).toBe("XAI_TTS_STREAM_FAILED");
+      expect(streamErr.message).toContain("voice not found");
+
+      const emptyErr = options.makeEmptyError();
+      expect(emptyErr).toBeInstanceOf(XaiTtsError);
+      expect((emptyErr as XaiTtsError).code).toBe("XAI_TTS_EMPTY_RESPONSE");
+    });
+
+    test("propagates a socket-session rejection unmodified", async () => {
+      const failure = new XaiTtsError(
+        "XAI_TTS_STREAM_FAILED",
+        "xAI streaming TTS failed: boom",
+      );
+      mockSynthesizeOverXaiTtsSocket.mockImplementation(async () => {
+        throw failure;
+      });
+
+      const provider = createXaiProvider();
+      await expect(
+        provider.synthesizeStream!(makeRequest(), () => {}),
+      ).rejects.toBe(failure);
+    });
+
+    test("throws XAI_TTS_NO_API_KEY without invoking the socket session", async () => {
       mockXaiApiKey = null;
 
       const provider = createXaiProvider();
@@ -1957,67 +1937,7 @@ describe("xAI TTS provider adapter", () => {
         expect(err).toBeInstanceOf(XaiTtsError);
         expect((err as XaiTtsError).code).toBe("XAI_TTS_NO_API_KEY");
       }
-      expect(constructorCalls).toHaveLength(0);
-    });
-
-    test("throws XAI_TTS_STREAM_TIMEOUT when the stream stalls", async () => {
-      const provider = createXaiProvider({
-        connectTimeoutMs: 20,
-        firstChunkTimeoutMs: 20,
-        idleTimeoutMs: 20,
-      });
-      const promise = provider.synthesizeStream!(
-        makeRequest({ outputFormat: "pcm" }),
-        () => {},
-      );
-      await untilSocketConstructed();
-      mockWs.simulateOpen();
-
-      try {
-        await promise;
-        throw new Error("Expected synthesizeStream to throw");
-      } catch (err) {
-        expect(err).toBeInstanceOf(XaiTtsError);
-        expect((err as XaiTtsError).code).toBe("XAI_TTS_STREAM_TIMEOUT");
-        expect((err as XaiTtsError).message).toContain("20ms");
-      }
-    });
-
-    test("throws XAI_TTS_STREAM_FAILED on an error frame", async () => {
-      const provider = createXaiProvider();
-      const promise = provider.synthesizeStream!(
-        makeRequest({ outputFormat: "pcm" }),
-        () => {},
-      );
-      await untilSocketConstructed();
-      mockWs.simulateOpen();
-      mockWs.simulateMessage(
-        JSON.stringify({ type: "error", message: "voice not found" }),
-      );
-
-      try {
-        await promise;
-        throw new Error("Expected synthesizeStream to throw");
-      } catch (err) {
-        expect(err).toBeInstanceOf(XaiTtsError);
-        expect((err as XaiTtsError).code).toBe("XAI_TTS_STREAM_FAILED");
-        expect((err as XaiTtsError).message).toContain("voice not found");
-      }
-    });
-
-    test("abort rejects with AbortError", async () => {
-      const controller = new AbortController();
-      const provider = createXaiProvider();
-      const promise = provider.synthesizeStream!(
-        makeRequest({ outputFormat: "pcm", signal: controller.signal }),
-        () => {},
-      );
-      await untilSocketConstructed();
-      mockWs.simulateOpen();
-      controller.abort();
-
-      await expect(promise).rejects.toMatchObject({ name: "AbortError" });
-      expect(mockWs.closeCalled).toBe(true);
+      expect(mockSynthesizeOverXaiTtsSocket).not.toHaveBeenCalled();
     });
   });
 });
