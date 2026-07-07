@@ -1,5 +1,5 @@
 /**
- * Robust synchronous stdin reader for CLI commands and CLI-side route helpers.
+ * Robust synchronous stdin reader for CLI commands.
  *
  * Reads file descriptor 0 directly rather than reopening the `/dev/stdin`
  * path. When the process is a spawned subprocess whose stdin is a pipe

@@ -626,6 +626,20 @@ describe("POST oauth/request", () => {
     ).rejects.toBeInstanceOf(BadRequestError);
   });
 
+  test("rejects @- stdin body data — daemon stdin is not the caller's", async () => {
+    await expect(
+      getRoute("POST", "oauth/request").handler(
+        makeArgs({
+          body: {
+            provider: "google",
+            url: "https://api.google.com/v1/me",
+            data: "@-",
+          },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
   test("happy-path GET returns response payload", async () => {
     mockResolveResponse = {
       status: 200,

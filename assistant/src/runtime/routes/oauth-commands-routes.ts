@@ -38,7 +38,6 @@ import { VellumPlatformClient } from "../../platform/client.js";
 import { withValidToken } from "../../security/token-manager.js";
 import { matchHostPattern } from "../../tools/credentials/host-pattern-match.js";
 import { getLogger } from "../../util/logger.js";
-import { readStdinSync } from "../../util/read-stdin.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -695,8 +694,13 @@ function tryJsonParse(raw: string): unknown {
 
 function readBodyData(data: string): unknown {
   if (data === "@-") {
-    const raw = readStdinSync();
-    return tryJsonParse(raw);
+    // This handler runs inside the daemon, whose stdin is a supervisor pipe
+    // or /dev/null — never the caller's terminal. Stdin-based body input is
+    // resolved CLI-side and arrives pre-parsed via `parsed_data`.
+    throw new BadRequestError(
+      'Stdin body input ("@-") is not supported on this endpoint. ' +
+        "Pass the body inline, reference a file with @<path>, or use the assistant CLI.",
+    );
   }
 
   if (data.startsWith("@")) {
