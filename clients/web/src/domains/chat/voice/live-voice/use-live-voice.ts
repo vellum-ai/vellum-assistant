@@ -413,9 +413,14 @@ export function useLiveVoice(
         }),
         client.on("turnBoundary", () => {
           if (!live()) return;
-          // The server segmented the user's turn; mirror the local auto-release
-          // UI transition. Under PTT this follows our own ptt_release (state
-          // already advanced); in open-mic it is the primary end-of-turn signal.
+          // The server segmented the user's turn; close the forwarding gate
+          // and mirror the local auto-release UI transition. Under PTT this
+          // follows our own ptt_release (gate already closed); in open-mic it
+          // is the primary end-of-turn signal — without closing the gate here
+          // the client would keep streaming mic (and assistant-playback echo)
+          // audio for the rest of the response. No ptt_release is sent: the
+          // server owns the boundary.
+          session.forwardingAudio = false;
           const s = useLiveVoiceStore.getState();
           if (s.state === "listening") s.setState("transcribing");
           syncTurnBackstop(session);

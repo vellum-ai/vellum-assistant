@@ -664,6 +664,34 @@ describe("turn_boundary", () => {
 
     expect(h.view.result.current.state).toBe("thinking");
   });
+
+  test("closes the forwarding gate: mic audio stops streaming for the rest of the turn", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    // One chunk streams while listening.
+    act(() => {
+      h.getCapture().pushAmplitude(0.1);
+      h.getCapture().pushChunk(pcmChunk(20));
+    });
+    expect(h.client.sentAudio).toHaveLength(1);
+
+    act(() => {
+      h.client.emit("turnBoundary", { type: "turn_boundary", seq: 2 });
+    });
+
+    // The server owns the boundary; chunks captured during the assistant's
+    // turn (including playback echo) must not be forwarded, and a late
+    // stt_partial must not bounce the state back to listening.
+    act(() => {
+      h.getCapture().pushAmplitude(0.1);
+      h.getCapture().pushChunk(pcmChunk(20));
+      h.client.emit("sttPartial", { type: "stt_partial", seq: 3, text: "he" });
+    });
+    expect(h.client.sentAudio).toHaveLength(1);
+    expect(h.client.pttReleaseCount).toBe(0);
+    expect(h.view.result.current.state).toBe("transcribing");
+  });
 });
 
 // ---------------------------------------------------------------------------
