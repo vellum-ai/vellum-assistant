@@ -36,6 +36,9 @@ const {
   guardianIntegrityState,
   hasEvidenceOfPriorGuardian,
 } = await import("../auth/guardian-integrity.js");
+const { applyGuardianBindingGatewayWrites } = await import(
+  "../auth/guardian-bootstrap.js"
+);
 
 // The reporter's first-report error log carries the detail payload; capture
 // it as the "reported" signal.
@@ -149,6 +152,25 @@ describe("guardianIntegrityState", () => {
     expect(guardianIntegrityState()).toBe("missing_guardian");
 
     bustGuardianIntegrityCache();
+    expect(guardianIntegrityState()).toBe("ok");
+  });
+
+  test("applyGuardianBindingGatewayWrites busts a cached missing_guardian (phone rebind path)", () => {
+    seedActorToken();
+    expect(guardianIntegrityState()).toBe("missing_guardian");
+
+    // The outbound phone rebind commits guardian rows through this shared
+    // helper without going through createGuardianBinding.
+    getGatewayDb().transaction(() =>
+      applyGuardianBindingGatewayWrites({
+        channel: "phone",
+        externalUserId: "+15551230001",
+        deliveryChatId: "+15551230001",
+        guardianPrincipalId: "principal-123",
+      }),
+    );
+
+    // No manual bust and no TTL wait: the write itself invalidates the cache.
     expect(guardianIntegrityState()).toBe("ok");
   });
 });

@@ -37,7 +37,8 @@ export type GuardianIntegrityState = "ok" | "missing_guardian";
 
 /**
  * TTL on the computed state so the per-verdict overhead is one cached check.
- * Guardian-binding writes bust the cache eagerly (createGuardianBinding);
+ * Guardian-binding writes bust the cache eagerly
+ * (applyGuardianBindingGatewayWrites, shared by every binding-commit path);
  * the TTL bounds staleness for every other write path.
  */
 const STATE_TTL_MS = 30_000;

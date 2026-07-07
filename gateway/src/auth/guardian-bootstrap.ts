@@ -344,6 +344,11 @@ export function applyGuardianBindingGatewayWrites(
       .run();
   }
 
+  // The guardian row just written supersedes any cached missing-guardian
+  // state. Busting here covers every binding-commit path (createGuardianBinding
+  // and the outbound phone rebind in verification/session-service.ts).
+  bustGuardianIntegrityCache();
+
   return {
     contactId,
     channelId,
@@ -450,9 +455,6 @@ export async function createGuardianBinding(
   const writes = getGatewayDb().transaction(() =>
     applyGuardianBindingGatewayWrites(params),
   );
-
-  // The committed guardian row supersedes any cached missing-guardian state.
-  bustGuardianIntegrityCache();
 
   await mirrorGuardianBinding(writes);
 
