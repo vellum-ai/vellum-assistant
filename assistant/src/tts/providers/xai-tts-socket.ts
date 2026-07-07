@@ -12,8 +12,8 @@
  * pattern), keeping this module free of provider imports.
  */
 
-import type { StreamReadTimeouts } from "../stream-read.js";
 import { getLogger } from "../../util/logger.js";
+import type { StreamReadTimeouts } from "../stream-read.js";
 
 const log = getLogger("xai-tts-socket");
 
@@ -153,7 +153,7 @@ export function synthesizeOverXaiTtsSocket(
     };
 
     const settle = (fn: () => void) => {
-      if (settled) return;
+      if (settled) {return;}
       settled = true;
       clearTimers();
       signal?.removeEventListener("abort", onAbort);
@@ -177,7 +177,7 @@ export function synthesizeOverXaiTtsSocket(
      * counts as activity (mirrors `readChunkedBody`).
      */
     const armStallTimer = () => {
-      if (stallTimer !== null) clearTimeout(stallTimer);
+      if (stallTimer !== null) {clearTimeout(stallTimer);}
       const timeoutMs = receivedAnyFrame ? idleTimeoutMs : firstChunkTimeoutMs;
       stallTimer = setTimeout(() => {
         fail(makeTimeoutError(timeoutMs));
@@ -191,7 +191,7 @@ export function synthesizeOverXaiTtsSocket(
     signal?.addEventListener("abort", onAbort, { once: true });
 
     ws.addEventListener("open", () => {
-      if (settled) return;
+      if (settled) {return;}
       if (connectTimer !== null) {
         clearTimeout(connectTimer);
         connectTimer = null;
@@ -219,12 +219,12 @@ export function synthesizeOverXaiTtsSocket(
     });
 
     ws.addEventListener("message", (ev) => {
-      if (settled) return;
+      if (settled) {return;}
 
       receivedAnyFrame = true;
       armStallTimer();
 
-      if (typeof ev.data !== "string") return;
+      if (typeof ev.data !== "string") {return;}
 
       let frame: XaiTtsFrame;
       try {
@@ -233,13 +233,13 @@ export function synthesizeOverXaiTtsSocket(
         log.debug("Dropped non-JSON xAI TTS frame");
         return;
       }
-      if (!frame || typeof frame !== "object") return;
+      if (!frame || typeof frame !== "object") {return;}
 
       switch (frame.type) {
         case "audio.delta": {
-          if (typeof frame.delta !== "string") return;
+          if (typeof frame.delta !== "string") {return;}
           const chunk = Buffer.from(frame.delta, "base64");
-          if (chunk.byteLength === 0) return;
+          if (chunk.byteLength === 0) {return;}
           chunks.push(chunk);
           onChunk?.(chunk);
           return;
