@@ -365,25 +365,3 @@ export const watchdogEvents = sqliteTable(
     index("idx_watchdog_events_created_at_id").on(table.createdAt, table.id),
   ],
 );
-
-export const traceEvents = sqliteTable(
-  "trace_events",
-  {
-    eventId: text("event_id").primaryKey(),
-    conversationId: text("conversation_id").notNull(),
-    requestId: text("request_id"),
-    timestampMs: integer("timestamp_ms").notNull(),
-    sequence: integer("sequence").notNull(),
-    kind: text("kind").notNull(),
-    status: text("status"),
-    summary: text("summary").notNull(),
-    attributesJson: text("attributes_json"), // JSON-serialized attributes
-    createdAt: integer("created_at").notNull(),
-  },
-  (table) => [
-    index("idx_trace_events_conversation_timestamp").on(
-      table.conversationId,
-      table.timestampMs,
-    ),
-  ],
-);

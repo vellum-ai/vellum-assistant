@@ -181,24 +181,34 @@ export const BROWSER_OPERATION_META: readonly BrowserOperationMeta[] = [
         name: "new_tab",
         type: "boolean",
         description:
-          "Open the URL in a new browser tab and pin subsequent operations on this session to it. Extension backend only; ignored on other backends.",
+          "Force a brand-new browser tab even when this session already has a dedicated tab, and pin subsequent operations to it. Extension backend only; ignored on other backends.",
+        required: false,
+      },
+      {
+        name: "use_active_tab",
+        type: "boolean",
+        description:
+          "Navigate the currently-active browser tab instead of a dedicated tab. Extension backend only; ignored on other backends.",
         required: false,
       },
     ],
     helpText: `Loads the given URL and waits for the page to reach a stable state.
 Returns the page title on success.
 
-By default on the Chrome extension backend, navigate attaches the
-debugger to whichever tab is currently active. Pass --new-tab to
-open a fresh tab instead and pin this session's subsequent
-operations to it — useful when the active tab is one you don't
-want disturbed (for example, the tab you're chatting with the
-assistant from).
+On the Chrome extension backend, navigate opens a dedicated tab the
+first time it runs in a conversation and pins this session's
+subsequent operations to it, so browsing never disturbs the tab
+you're on (often the tab you're chatting with the assistant from).
+Later navigates reuse that pinned tab.
+
+Pass --new-tab to force a fresh tab even when one is already pinned,
+or --use-active-tab to navigate the currently-active tab instead.
 
 Examples:
   $ assistant browser navigate --url https://example.com
   $ assistant browser navigate --url http://localhost:3000 --allow-private-network
   $ assistant browser navigate --url https://github.com --new-tab
+  $ assistant browser navigate --url https://github.com --use-active-tab
   $ assistant browser --session s1 navigate --url https://github.com`,
   },
   {

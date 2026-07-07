@@ -1,9 +1,8 @@
 /**
  * Contact upsert/lookup helpers for gateway-owned verification.
  *
- * Identity/info READS go through typed daemon IPC (contacts-info-client), with
- * a residual raw-SQL `assistantDbQuery` lookup for the (type,address) existing
- * row; identity-mirror WRITES go through the typed `contacts_mirror_*` IPC
+ * Identity/info READS go through typed daemon IPC (contacts-info-client);
+ * identity-mirror WRITES go through the typed `contacts_mirror_*` IPC
  * methods. The gateway DB stays the ACL source of truth.
  *
  * These helpers cover the subset of contact operations needed by the
@@ -16,7 +15,6 @@ import { existsSync } from "node:fs";
 
 import { and, eq, sql } from "drizzle-orm";
 
-import { assistantDbQuery } from "../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../db/connection.js";
 import {
   contactChannels as gwContactChannels,
@@ -524,29 +522,26 @@ export async function upsertVerifiedContactChannel(params: {
 
   // Resolve the existing channel's identity (id, parent contact) only. The
   // ACL/status decision is owned by the gateway pre-check below; the most
-  // recently updated mirror row is preferred. In soft mode a failed lookup
-  // falls through to the create path: the gateway write resolves by logical
-  // key either way, and the mirror writes below are soft too.
-  let existing: { channelId: string; contactId: string }[];
+  // recently updated mirror row is preferred (the typed lookup orders by
+  // updated_at DESC). In soft mode a failed lookup falls through to the create
+  // path: the gateway write resolves by logical key either way, and the mirror
+  // writes below are soft too.
+  let existing: { channelId: string; contactId: string } | null;
   try {
-    existing = await assistantDbQuery<{
-      channelId: string;
-      contactId: string;
-    }>(
-      `SELECT cc.id AS channelId, cc.contact_id AS contactId
-       FROM contact_channels cc
-       WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
-       ORDER BY cc.updated_at DESC
-       LIMIT 1`,
-      [sourceChannel, address],
-    );
+    const channel = await lookupContactChannelIdentity({
+      type: sourceChannel,
+      address,
+    });
+    existing = channel
+      ? { channelId: channel.id, contactId: channel.contactId }
+      : null;
   } catch (mirrorErr) {
     if (!mirrorSoft) throw mirrorErr;
     log.warn(
       { err: mirrorErr, sourceChannel },
       "Assistant mirror lookup failed (soft); proceeding gateway-only",
     );
-    existing = [];
+    existing = null;
   }
 
   // The gateway is the source of truth: a blocked/revoked gateway row rejects
@@ -565,8 +560,8 @@ export async function upsertVerifiedContactChannel(params: {
     return { verified: false };
   }
 
-  if (existing.length > 0) {
-    const row = existing[0];
+  if (existing) {
+    const row = existing;
 
     // The block/revoke decision is owned by the authoritative gateway row,
     // already gated above. The assistant mirror's status is not consulted: it
@@ -811,20 +806,15 @@ export async function upsertContactChannel(params: {
     params.externalUserId;
   const contactDisplayName = displayName ?? username ?? address;
 
-  const existing = await assistantDbQuery<{
-    channelId: string;
-    contactId: string;
-  }>(
-    `SELECT cc.id AS channelId, cc.contact_id AS contactId
-     FROM contact_channels cc
-     WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE
-     ORDER BY cc.updated_at DESC
-     LIMIT 1`,
-    [sourceChannel, address],
-  );
+  // Most-recently-updated mirror row wins. Socket presence was guarded above;
+  // an IPC failure propagates.
+  const existing = await lookupContactChannelIdentity({
+    type: sourceChannel,
+    address,
+  });
 
-  if (existing.length > 0) {
-    const row = existing[0];
+  if (existing) {
+    const row = { channelId: existing.id, contactId: existing.contactId };
     // Gateway DB is the source of truth for ACL: a blocked channel stays blocked.
     if (gatewayChannelStatus(sourceChannel, address) === "blocked") return;
 

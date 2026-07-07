@@ -679,7 +679,7 @@ describe("executeBrowserNavigate", () => {
     expect(cdpDisposed).toBe(true);
   });
 
-  // ── --new-tab flag (extension path only) ──────────────────────
+  // ── tab routing (extension path only) ─────────────────────────
 
   test("extension path with new_tab: true opens a fresh tab and pins it before Page.navigate", async () => {
     parseUrlResult = new URL("https://example.com/page");
@@ -779,9 +779,8 @@ describe("executeBrowserNavigate", () => {
     // follow-on Page.navigate would still route to the dead tab
     // unless we reset the session on the cdp instance too (round-3
     // P1 fix added cdp.setCdpSessionId(undefined)).
-    const { setPinnedTab, getPinnedTab } = await import(
-      "../tools/browser/pinned-tabs.js"
-    );
+    const { setPinnedTab, getPinnedTab } =
+      await import("../tools/browser/pinned-tabs.js");
     setPinnedTab(ctx.conversationId, "stale-pinned-tab-id");
     expect(getPinnedTab(ctx.conversationId)).toBe("stale-pinned-tab-id");
 
@@ -825,20 +824,106 @@ describe("executeBrowserNavigate", () => {
     expect(cdpSetSessionIdCalls).toEqual([]);
   });
 
-  test("absence of new_tab leaves extension path untouched (no Vellum.createTab)", async () => {
+  test("default (no flags) on extension opens a dedicated tab and pins it before Page.navigate", async () => {
     parseUrlResult = new URL("https://example.com/page");
     mockExtensionAvailable = true;
 
+    cdpSendHandler = (method, params) => {
+      if (method === "Vellum.createTab") return { tabId: "999" };
+      return defaultCdpHandler(method, params);
+    };
+
     const result = await executeBrowserNavigate(
-      { url: "https://example.com/page" }, // no new_tab key at all
+      { url: "https://example.com/page" }, // no flags — default behavior
       { ...ctx },
     );
 
     expect(result.isError).toBe(false);
+    // The dedicated tab is opened BEFORE Page.navigate so the navigation
+    // lands on it rather than the user's active tab.
+    const createIdx = cdpSendCalls.findIndex(
+      (c) => c.method === "Vellum.createTab",
+    );
+    const navIdx = cdpSendCalls.findIndex((c) => c.method === "Page.navigate");
+    expect(createIdx).toBeGreaterThanOrEqual(0);
+    expect(navIdx).toBeGreaterThanOrEqual(0);
+    expect(createIdx).toBeLessThan(navIdx);
+    expect(cdpSetSessionIdCalls).toContain("999");
+  });
+
+  test("default reuses an existing pinned tab (no Vellum.createTab)", async () => {
+    const { setPinnedTab } = await import("../tools/browser/pinned-tabs.js");
+    setPinnedTab(ctx.conversationId, "already-pinned-tab");
+
+    parseUrlResult = new URL("https://example.com/page");
+    mockExtensionAvailable = true;
+
+    const result = await executeBrowserNavigate(
+      { url: "https://example.com/page" }, // no flags
+      { ...ctx },
+    );
+
+    expect(result.isError).toBe(false);
+    // Conversation already has a dedicated tab; the `cdp` client was
+    // constructed routed to it, so no new tab is opened and the live
+    // session is left as-is.
     expect(cdpSendCalls.some((c) => c.method === "Vellum.createTab")).toBe(
       false,
     );
     expect(cdpSetSessionIdCalls).toEqual([]);
+    expect(cdpSendCalls.some((c) => c.method === "Page.navigate")).toBe(true);
+  });
+
+  test("new_tab: true forces a fresh tab even when one is already pinned", async () => {
+    const { setPinnedTab, getPinnedTab } =
+      await import("../tools/browser/pinned-tabs.js");
+    setPinnedTab(ctx.conversationId, "already-pinned-tab");
+
+    parseUrlResult = new URL("https://example.com/page");
+    mockExtensionAvailable = true;
+
+    cdpSendHandler = (method, params) => {
+      if (method === "Vellum.createTab") return { tabId: "1001" };
+      return defaultCdpHandler(method, params);
+    };
+
+    const result = await executeBrowserNavigate(
+      { url: "https://example.com/page", new_tab: true },
+      { ...ctx },
+    );
+
+    expect(result.isError).toBe(false);
+    // --new-tab overrides the reuse path and opens a brand-new tab,
+    // re-pinning the conversation to it.
+    expect(cdpSendCalls.some((c) => c.method === "Vellum.createTab")).toBe(
+      true,
+    );
+    expect(cdpSetSessionIdCalls).toContain("1001");
+    expect(getPinnedTab(ctx.conversationId)).toBe("1001");
+  });
+
+  test("use_active_tab: true navigates the active tab, clearing any pin and live session", async () => {
+    const { setPinnedTab, getPinnedTab } =
+      await import("../tools/browser/pinned-tabs.js");
+    setPinnedTab(ctx.conversationId, "already-pinned-tab");
+
+    parseUrlResult = new URL("https://example.com/page");
+    mockExtensionAvailable = true;
+
+    const result = await executeBrowserNavigate(
+      { url: "https://example.com/page", use_active_tab: true },
+      { ...ctx },
+    );
+
+    expect(result.isError).toBe(false);
+    // Opt-out: no dedicated tab is opened; the pin and live session are
+    // cleared so the navigate is authoritative on the active tab.
+    expect(cdpSendCalls.some((c) => c.method === "Vellum.createTab")).toBe(
+      false,
+    );
+    expect(getPinnedTab(ctx.conversationId)).toBeUndefined();
+    expect(cdpSetSessionIdCalls).toEqual([undefined]);
+    expect(cdpSendCalls.some((c) => c.method === "Page.navigate")).toBe(true);
   });
 
   // ── Defense-in-depth: post-navigation final URL check ─────────

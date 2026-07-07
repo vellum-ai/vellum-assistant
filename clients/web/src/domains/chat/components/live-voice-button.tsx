@@ -6,6 +6,9 @@
  * while this one opens a full-duplex live-voice session via {@link useLiveVoice}
  * (mic streaming + TTS playback + barge-in). The button is gated behind the
  * `voice-mode` assistant flag and renders nothing when the flag is off.
+ * Sessions run hands-free (server-side turn detection, multi-turn); per-turn
+ * push-to-talk survives only as the version-skew fallback against daemons
+ * that don't acknowledge server_vad.
  *
  * Appearance reflects the {@link useLiveVoice} session phase:
  *   - `idle`/`failed`     → mic icon, click to start
@@ -13,8 +16,6 @@
  *   - any other (active)  → stop-circle icon, click to stop; the live
  *                           `inputAmplitude` drives a subtle pulse so the user
  *                           sees the mic is hearing them.
- *
- * Wiring into the composer happens in a later PR; this is the standalone control.
  */
 
 import { Loader2, Mic, StopCircle } from "lucide-react";
@@ -58,7 +59,10 @@ export function LiveVoiceButton({
     } else {
       // Only the start path honours the external `disabled` prop.
       if (disabled) return;
-      void start(assistantId, conversationId);
+      // Hands-free (server turn detection) is the only session mode; the
+      // manual path survives solely as the version-skew fallback when the
+      // daemon doesn't acknowledge server_vad on the ready frame.
+      void start(assistantId, conversationId, { handsFree: true });
     }
   }, [active, connecting, disabled, start, stop, assistantId, conversationId]);
 

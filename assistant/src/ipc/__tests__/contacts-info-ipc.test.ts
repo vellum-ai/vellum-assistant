@@ -60,6 +60,7 @@ function insertChannel(params: {
   type?: string;
   address: string;
   externalChatId?: string | null;
+  updatedAt?: number | null;
 }): void {
   const now = Date.now();
   getSqlite().run(
@@ -71,7 +72,7 @@ function insertChannel(params: {
       params.address,
       params.externalChatId ?? null,
       now,
-      now,
+      params.updatedAt !== undefined ? params.updatedAt : now,
     ],
   );
 }
@@ -203,6 +204,58 @@ describe("handleContactChannelIdentityLookup", () => {
       body: { channelId: "nope" },
     });
     expect(result).toEqual({ channel: null });
+  });
+
+  test("duplicate (type,address) rows resolve to the most-recently-updated", () => {
+    // The unique (type,address) index is case-SENSITIVE while this lookup is
+    // COLLATE NOCASE, so case-variant duplicates can match; the newest row must
+    // win deterministically (matches the raw SQL it replaced).
+    insertContact({ id: "c-old" });
+    insertContact({ id: "c-new" });
+    insertChannel({
+      id: "ch-old",
+      contactId: "c-old",
+      type: "email",
+      address: "Dup@Example.com",
+      updatedAt: 1_000,
+    });
+    insertChannel({
+      id: "ch-new",
+      contactId: "c-new",
+      type: "email",
+      address: "dup@example.com",
+      updatedAt: 2_000,
+    });
+
+    const result = handleContactChannelIdentityLookup({
+      body: { type: "email", address: "DUP@example.com" },
+    }) as { channel: { id: string; contactId: string } | null };
+    expect(result.channel?.id).toBe("ch-new");
+    expect(result.channel?.contactId).toBe("c-new");
+  });
+
+  test("a duplicate with NULL updated_at loses to a stamped row", () => {
+    insertContact({ id: "c-null" });
+    insertContact({ id: "c-stamped" });
+    insertChannel({
+      id: "ch-null",
+      contactId: "c-null",
+      type: "email",
+      address: "Nulldup@Example.com",
+      updatedAt: null,
+    });
+    insertChannel({
+      id: "ch-stamped",
+      contactId: "c-stamped",
+      type: "email",
+      address: "nulldup@example.com",
+      updatedAt: 1_000,
+    });
+
+    const result = handleContactChannelIdentityLookup({
+      body: { type: "email", address: "nulldup@example.com" },
+    }) as { channel: { id: string } | null };
+    expect(result.channel?.id).toBe("ch-stamped");
   });
 
   test("rejects a selector with neither channelId nor (type,address)", () => {

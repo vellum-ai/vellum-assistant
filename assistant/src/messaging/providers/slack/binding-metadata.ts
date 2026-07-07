@@ -50,6 +50,11 @@ export function buildSlackBindingMetadata(
       })
     : undefined;
 
+  // Channel-neutral source link: prefer the bound thread, fall back to the
+  // channel, so clients land on the most specific source available.
+  const sourceLink =
+    threadLink ?? (channelWebUrl ? { webUrl: channelWebUrl } : undefined);
+
   return {
     externalChatName,
     ...(slackThread ? { slackThread } : {}),
@@ -58,5 +63,6 @@ export function buildSlackBindingMetadata(
       name: externalChatName,
       ...(channelWebUrl ? { link: { webUrl: channelWebUrl } } : {}),
     },
+    ...(sourceLink ? { sourceLink } : {}),
   };
 }

@@ -57,7 +57,6 @@ describe("upsertContact user_file selection", () => {
   test("assigns a fresh slug per contact; principalId is gateway-owned and no longer groups siblings locally", () => {
     const primary = upsertContact({
       displayName: "Chris",
-      role: "guardian",
       channels: [
         {
           type: "vellum",
@@ -72,7 +71,6 @@ describe("upsertContact user_file selection", () => {
     // (collision-incremented) slug. Sibling grouping is owned by the gateway.
     const slack = upsertContact({
       displayName: "chris",
-      role: "guardian",
       channels: [
         {
           type: "slack",
@@ -88,7 +86,6 @@ describe("upsertContact user_file selection", () => {
   test("generates a slug from the display name for a brand-new contact", () => {
     const contact = upsertContact({
       displayName: "Alice",
-      role: "contact",
       channels: [
         {
           type: "slack",
@@ -103,7 +100,6 @@ describe("upsertContact user_file selection", () => {
   test("still auto-increments when principalId is not set and displayName collides", () => {
     const first = upsertContact({
       displayName: "Bob",
-      role: "contact",
       channels: [
         {
           type: "slack",
@@ -114,7 +110,6 @@ describe("upsertContact user_file selection", () => {
     });
     const second = upsertContact({
       displayName: "Bob",
-      role: "contact",
       channels: [
         {
           type: "slack",
@@ -137,7 +132,6 @@ describe("upsertContact user_file selection", () => {
 
     const contact = upsertContact({
       displayName: "Legacy",
-      role: "guardian",
       channels: [
         {
           type: "phone",

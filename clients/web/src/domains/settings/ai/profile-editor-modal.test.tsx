@@ -61,12 +61,14 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     }),
 }));
 
-
 // Stub the credential hooks so the inline ProviderCreateForm renders without
 // issuing real daemon queries.
 mock.module("@/domains/settings/ai/use-stored-credential-presence", () => ({
-  credentialPresenceQueryKey: (assistantId: string, kind: string, name: string) =>
-    ["credentialPresence", assistantId, kind, name] as const,
+  credentialPresenceQueryKey: (
+    assistantId: string,
+    kind: string,
+    name: string,
+  ) => ["credentialPresence", assistantId, kind, name] as const,
   useStoredCredentialPresence: () => ({
     hasStoredCredential: false,
     isLoading: false,
@@ -80,9 +82,8 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   }),
 }));
 
-const { ProfileEditorModal } = await import(
-  "@/domains/settings/ai/profile-editor-modal"
-);
+const { ProfileEditorModal } =
+  await import("@/domains/settings/ai/profile-editor-modal");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -90,7 +91,10 @@ const { ProfileEditorModal } = await import(
 
 const ASSISTANT_ID = "asst-1";
 
-function makeConnection(name: string, provider = "anthropic"): ProviderConnection {
+function makeConnection(
+  name: string,
+  provider = "anthropic",
+): ProviderConnection {
   return {
     name,
     label: null,
@@ -292,9 +296,9 @@ function topPSwitch(): HTMLButtonElement {
  */
 function findTopPSlider(): HTMLElement | null {
   return (
-    Array.from(
-      document.querySelectorAll<HTMLElement>('[role="slider"]'),
-    ).find((el) => el.getAttribute("aria-valuemax") === "1") ?? null
+    Array.from(document.querySelectorAll<HTMLElement>('[role="slider"]')).find(
+      (el) => el.getAttribute("aria-valuemax") === "1",
+    ) ?? null
   );
 }
 
@@ -475,9 +479,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     // After create, the sub-form collapses and the provider is selected.
     await waitFor(() => {
-      expect(
-        document.body.textContent,
-      ).toContain(
+      expect(document.body.textContent).toContain(
         "New provider connection will show up in the Providers section.",
       );
     });
@@ -642,7 +644,10 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 // ---------------------------------------------------------------------------
 
 describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
-  function renderEdit(initialValues: Record<string, unknown>, connection: ProviderConnection) {
+  function renderEdit(
+    initialValues: Record<string, unknown>,
+    connection: ProviderConnection,
+  ) {
     return render(
       <Wrapper>
         <ProfileEditorModal
@@ -688,6 +693,28 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     // ...the bound model isn't auto-cleared, so the validation hint stays away
     // and Save remains enabled (the binding would persist intact).
     expect(document.body.textContent).not.toContain("Select a model.");
+    expect(getSaveBtn().disabled).toBe(false);
+  });
+
+  test("treats the vellum connection as available for a managed-routable provider (no stale-clear)", () => {
+    // A managed profile keeps its real provider (fireworks) but binds to the
+    // provider-agnostic `vellum` connection, whose own provider is the `vellum`
+    // sentinel. The editor must recognize that binding for managed-routable
+    // providers instead of flagging it "not found" and auto-clearing it on save.
+    renderEdit(
+      {
+        name: "balanced",
+        label: "Balanced",
+        provider: "fireworks",
+        model: "accounts/fireworks/models/kimi-k2p5",
+        provider_connection: "vellum",
+        status: "active",
+      },
+      makeConnection("vellum", "vellum"),
+    );
+
+    // The binding resolves — the stale "(not found)" marker is absent.
+    expect(document.body.textContent).not.toContain("vellum (not found)");
     expect(getSaveBtn().disabled).toBe(false);
   });
 
@@ -829,7 +856,6 @@ describe("ProfileEditorModal — Top P wiring", () => {
     });
     expect(saveCalls[0].entry.topP).toBeNull();
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -876,7 +902,11 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
       entry: unknown,
       options?: { mode?: "merge" | "replace" },
     ) => {
-      saveCalls.push({ name, entry: entry as Record<string, unknown>, options });
+      saveCalls.push({
+        name,
+        entry: entry as Record<string, unknown>,
+        options,
+      });
       return Promise.resolve();
     };
 
@@ -929,7 +959,11 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
       entry: unknown,
       options?: { mode?: "merge" | "replace" },
     ) => {
-      saveCalls.push({ name, entry: entry as Record<string, unknown>, options });
+      saveCalls.push({
+        name,
+        entry: entry as Record<string, unknown>,
+        options,
+      });
       return Promise.resolve();
     };
 

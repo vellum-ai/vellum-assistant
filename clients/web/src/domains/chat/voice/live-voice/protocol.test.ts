@@ -8,7 +8,25 @@ import {
 describe("parseServerFrame", () => {
   const frames: LiveVoiceServerFrame[] = [
     { type: "ready", seq: 1, sessionId: "s1", conversationId: "c1" },
+    {
+      type: "ready",
+      seq: 16,
+      sessionId: "s1",
+      conversationId: "c1",
+      turnDetection: "server_vad",
+    },
+    {
+      type: "ready",
+      seq: 17,
+      sessionId: "s1",
+      conversationId: "c1",
+      turnDetection: "manual",
+    },
     { type: "busy", seq: 2, activeSessionId: "s9" },
+    { type: "speech_started", seq: 12 },
+    { type: "utterance_end", seq: 13, reason: "silence" },
+    { type: "utterance_discarded", seq: 18 },
+    { type: "turn_cancelled", seq: 14, turnId: "t2" },
     { type: "stt_partial", seq: 3, text: "hel" },
     { type: "stt_final", seq: 4, text: "hello" },
     { type: "thinking", seq: 5, turnId: "t1" },
@@ -42,6 +60,13 @@ describe("parseServerFrame", () => {
       warning: { code: "w", message: "warn" },
     },
     { type: "error", seq: 11, code: "boom", message: "bad" },
+    {
+      type: "error",
+      seq: 19,
+      code: "invalid_field",
+      message: "transient",
+      recoverable: true,
+    },
   ];
 
   for (const frame of frames) {
@@ -70,15 +95,11 @@ describe("parseServerFrame", () => {
     }
   });
 
-  test("returns invalid_json for unknown frame type", () => {
+  test("returns unknown_frame for an unrecognized frame type", () => {
     const result = parseServerFrame(
       JSON.stringify({ type: "made_up", seq: 1 }),
     );
-    expect(result).toEqual({
-      type: "error",
-      code: "invalid_json",
-      message: expect.any(String),
-    });
+    expect(result).toEqual({ type: "unknown_frame", frameType: "made_up" });
   });
 
   test("returns invalid_json for missing type", () => {
@@ -88,5 +109,23 @@ describe("parseServerFrame", () => {
       code: "invalid_json",
       message: expect.any(String),
     });
+  });
+
+  test("returns invalid_json for a non-string type", () => {
+    const result = parseServerFrame(JSON.stringify({ type: 42, seq: 1 }));
+    expect(result).toEqual({
+      type: "error",
+      code: "invalid_json",
+      message: expect.any(String),
+    });
+  });
+
+  test("round-trips utterance_end with a max-duration reason", () => {
+    const frame: LiveVoiceServerFrame = {
+      type: "utterance_end",
+      seq: 15,
+      reason: "max-duration",
+    };
+    expect(parseServerFrame(JSON.stringify(frame))).toEqual(frame);
   });
 });

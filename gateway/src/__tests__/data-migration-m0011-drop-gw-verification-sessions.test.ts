@@ -1,20 +1,14 @@
 /**
- * Tests for m0011-drop-gw-verification-sessions.
+ * Tests for m0011-drop-gw-verification-sessions (retired to a no-op).
  *
- * Verifies that the gateway `channel_verification_sessions` mirror table is
- * dropped when present, that re-running is idempotent, that a fresh install
- * (table already absent) is a no-op that still reports "done", that down() is
- * a no-op, and that the migration is registered after m0010.
+ * The migration formerly dropped the gateway `channel_verification_sessions`
+ * write-only mirror. Combo 13 recreates that table as gateway-owned via the
+ * schema push, so the drop was retired: up() must leave the live table
+ * intact on installs that never recorded the key (fresh installs run data
+ * migrations after the schema push creates the table).
  */
 
-import {
-  describe,
-  test,
-  expect,
-  beforeAll,
-  beforeEach,
-  afterAll,
-} from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 
 import "./test-preload.js";
 
@@ -37,52 +31,26 @@ afterAll(() => {
   resetGatewayDb();
 });
 
-function rawDb() {
-  return getGatewayDb().$client;
-}
-
 function tableExists(): boolean {
-  const row = rawDb()
-    .prepare(
+  const row = getGatewayDb()
+    .$client.prepare(
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'channel_verification_sessions'",
     )
     .get();
   return row != null;
 }
 
-function createMirrorTable(): void {
-  rawDb().exec(
-    "CREATE TABLE IF NOT EXISTS channel_verification_sessions (id TEXT PRIMARY KEY, status TEXT)",
-  );
-}
-
-beforeEach(() => {
-  createMirrorTable();
-});
-
 describe("m0011-drop-gw-verification-sessions", () => {
-  test("drops the mirror table when present", () => {
+  test("up is a no-op that leaves the gateway-owned table intact", () => {
+    // Schema push at initGatewayDb created the recreated table.
     expect(tableExists()).toBe(true);
 
     expect(m0011Up()).toBe("done");
+    expect(tableExists()).toBe(true);
 
-    expect(tableExists()).toBe(false);
-  });
-
-  test("idempotent: re-running after the drop is a no-op", () => {
+    // Idempotent re-run.
     expect(m0011Up()).toBe("done");
-    expect(tableExists()).toBe(false);
-
-    expect(m0011Up()).toBe("done");
-    expect(tableExists()).toBe(false);
-  });
-
-  test("fresh install (table absent) is a no-op that reports done", () => {
-    rawDb().exec("DROP TABLE IF EXISTS channel_verification_sessions");
-    expect(tableExists()).toBe(false);
-
-    expect(m0011Up()).toBe("done");
-    expect(tableExists()).toBe(false);
+    expect(tableExists()).toBe(true);
   });
 
   test("down is a no-op (returns done)", () => {

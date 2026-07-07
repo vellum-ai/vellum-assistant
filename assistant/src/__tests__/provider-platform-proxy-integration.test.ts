@@ -637,7 +637,13 @@ describe("managed proxy integration — ollama exclusion", () => {
   test("ollama registers only when explicitly configured as provider", async () => {
     enableManagedProxy();
     mockProviderKeys = {};
-    await initializeProviders(makeProvidersConfig("ollama", "test-model"));
+    const config = makeProvidersConfig("ollama", "test-model");
+    // Disable the catalog default so resolution lands on llm.default.
+    config.llm.profiles = {
+      ...config.llm.profiles,
+      balanced: { source: "managed", status: "disabled" },
+    };
+    await initializeProviders(config);
     expect(listProviders()).toContain("ollama");
   });
 

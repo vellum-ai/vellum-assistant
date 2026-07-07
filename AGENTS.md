@@ -25,7 +25,7 @@ Defend technical positions with evidence. Don't flip-flop to placate the user �
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`clients/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
-- **Package manager**: Use `bun install` for dependencies (each package has its own `bun.lock`).
+- **Package manager**: This is a bun workspace — one root `bun.lock` covers every member (services, `packages/*`, `clients/web`, `clients/macos`). Run `bun install` anywhere in the tree (it resolves to the workspace root), or scope it with name filters like `--filter=@vellumai/assistant` (path filters resolve against the cwd — avoid them). Cross-package deps use `workspace:*`; `overrides`, `patchedDependencies`, and `trustedDependencies` are honored only in the root manifest. Non-members (`clients/chrome-extension`, skills) keep their own lockfiles.
 
 ```bash
 cd assistant && bun install          # Install dependencies
@@ -72,6 +72,10 @@ Docker `cache-to: type=gha` must set `ignore-error=true`. The GHA cache is a bui
 The Capacitor iOS source-of-truth lives in [`clients/ios/`](./clients/ios/) and is built locally from `clients/web/` via `bun run ios:open`. See [`clients/ios/README.md`](./clients/ios/README.md) for the local build flow and full release pipeline mapping.
 
 TestFlight builds are produced by the `release-ios.yaml` reusable workflow in this repo. Both `dev-release.yaml` and `release.yml` call it as a same-repo `uses:` job with `{ environment, version }` inputs. The workflow runs on `macos-15`, installs web dependencies, runs `cap sync ios`, generates the Xcode project via XcodeGen, archives, signs, and uploads to TestFlight.
+
+## Cutting Releases
+
+**Never cut or promote a release automatically — always get explicit manual confirmation from the user first.** This applies to both release steps: dispatching `create-release-branch.yml` (branch cut + staging bake) and dispatching `release.yml` on a `release/v<X.Y.Z>` branch (production deploy). An explicit user request for the release in the current conversation counts as confirmation; otherwise ask and wait. Never dispatch either workflow as a side effect of other work (merging PRs, completing a plan, scheduled or autonomous agent runs), and standing authorizations (e.g. auto-merge) do not extend to releases. The scheduled Tue/Fri branch cut is the only sanctioned automation; production promotion is always a deliberate human action. Process details: `/release` (`.claude/skills/release/SKILL.md`).
 
 ## Testing
 
@@ -246,7 +250,7 @@ Docker instances use six per-service volumes enforcing least-privilege at the co
 - **Trust rules** are owned by the gateway. In Docker mode (`IS_CONTAINERIZED=true`), the assistant reads/writes trust rules via the gateway's HTTP trust API — no direct filesystem access to `trust.json`.
 - **Credentials** are owned by the CES. The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`). Neither has filesystem access to `keys.enc` / `store.key`.
 - **Meet bots in Docker mode** are not yet supported. The assistant container has no elevated capabilities (`--privileged`, `CAP_SYS_ADMIN` are absent). In bare-metal mode, meet bots are sibling containers on the host's Docker engine.
-- **CES bootstrap socket auth is intentionally absent**: the CES managed-mode Unix socket on the shared `emptyDir` volume does not require a handshake auth token because all containers in the pod are controlled by Vellum — no untrusted process can connect to the socket.
+- **CES socket auth is intentionally absent**: the CES Unix socket (managed-mode `emptyDir` volume or local-mode sibling `ces.sock`) does not require a handshake auth token. All processes on the host/pod are trusted — the security boundary is rules-based access control on credential operations inside CES, not network-level socket auth. Assistant subprocesses (tools, skills) are expected to be able to connect to CES; preventing credential exfiltration requires per-credential policy enforcement, not hiding the socket path.
 
 ## Workspace & Secrets
 

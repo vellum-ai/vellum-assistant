@@ -5,11 +5,12 @@
  * - Guardian prompts always bind to the existing guardian contact.
  * - Guardian prompts conflict (409) when the channel belongs to another contact.
  * - Non-guardian prompts create or reuse contacts via channel lookup.
- * - All writes are dual-written to the gateway DB.
+ * - The gateway DB is the source of truth; the assistant identity mirror is
+ *   driven over typed `contacts_mirror_*` IPC ops (asserted by payload — the
+ *   daemon-side write semantics are pinned in the daemon's mirror suites).
  */
 import {
   afterAll,
-  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -18,39 +19,26 @@ import {
   spyOn,
   test,
 } from "bun:test";
-import { Database } from "bun:sqlite";
 
 import { initSigningKey } from "../auth/token-service.js";
 
 initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
 // ---------------------------------------------------------------------------
-// Mock assistant DB proxy with a real in-memory SQLite.
+// Mock IPC so mirror ops + resolve_contact_prompt don't dial a real socket.
+// Method name → error to throw on the next call to it (mirror-failure tests).
 // ---------------------------------------------------------------------------
 
-let testAssistantDb: Database | null = null;
+const ipcThrowOn = new Map<string, Error>();
 
-mock.module("../db/assistant-db-proxy.js", () => ({
-   
-  async assistantDbQuery(sql: string, bind?: any[]) {
-    if (!testAssistantDb) throw new Error("test assistant DB not initialized");
-    const stmt = testAssistantDb.prepare(sql);
-    return bind ? stmt.all(...bind) : stmt.all();
-  },
-   
-  async assistantDbRun(sql: string, bind?: any[]) {
-    if (!testAssistantDb) throw new Error("test assistant DB not initialized");
-    const stmt = testAssistantDb.prepare(sql);
-    const result = bind ? stmt.run(...bind) : stmt.run();
-    return { changes: result.changes, lastInsertRowid: Number(result.lastInsertRowid) };
-  },
-}));
-
-// ---------------------------------------------------------------------------
-// Mock IPC so resolve_contact_prompt doesn't try to dial a real socket.
-// ---------------------------------------------------------------------------
-
-const ipcMock = mock(async () => ({ resolved: true }));
+const ipcMock = mock(async (method: string) => {
+  const err = ipcThrowOn.get(method);
+  if (err) {
+    ipcThrowOn.delete(method);
+    throw err;
+  }
+  return { resolved: true };
+});
 
 // Spread the actual module so untouched exports (IpcHandlerError,
 // IpcTransportError, ipcSuggestTrustRule) stay importable by later-loaded
@@ -65,62 +53,14 @@ mock.module("../ipc/assistant-client.js", () => ({
 // Imports that depend on the mocks above.
 // ---------------------------------------------------------------------------
 
-const { handleContactPromptSubmit } = await import(
-  "../http/routes/contact-prompt.js"
-);
-const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
-  "../db/connection.js"
-);
+const { handleContactPromptSubmit } =
+  await import("../http/routes/contact-prompt.js");
+const { initGatewayDb, getGatewayDb, resetGatewayDb } =
+  await import("../db/connection.js");
 const { contactChannels: gwContactChannels, contacts: gwContacts } =
   await import("../db/schema.js");
 const { ContactStore } = await import("../db/contact-store.js");
 const { eq } = await import("drizzle-orm");
-
-// ---------------------------------------------------------------------------
-// Schema helpers
-// ---------------------------------------------------------------------------
-
-function initAssistantDb(): Database {
-  const db = new Database(":memory:");
-  db.exec("PRAGMA foreign_keys=ON");
-  db.exec(`
-    CREATE TABLE contacts (
-      id TEXT PRIMARY KEY,
-      display_name TEXT NOT NULL,
-      notes TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      role TEXT NOT NULL DEFAULT 'contact',
-      principal_id TEXT,
-      user_file TEXT,
-      contact_type TEXT NOT NULL DEFAULT 'human'
-    )
-  `);
-  db.exec(`
-    CREATE TABLE contact_channels (
-      id TEXT PRIMARY KEY,
-      contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
-      type TEXT NOT NULL,
-      address TEXT NOT NULL,
-      is_primary INTEGER NOT NULL DEFAULT 0,
-      external_user_id TEXT,
-      external_chat_id TEXT,
-      status TEXT NOT NULL DEFAULT 'unverified',
-      policy TEXT NOT NULL DEFAULT 'allow',
-      verified_at INTEGER,
-      verified_via TEXT,
-      invite_id TEXT,
-      revoked_reason TEXT,
-      blocked_reason TEXT,
-      updated_at INTEGER,
-      created_at INTEGER NOT NULL
-    )
-  `);
-  db.exec(
-    `CREATE UNIQUE INDEX idx_contact_channels_type_address ON contact_channels(type, address)`,
-  );
-  return db;
-}
 
 // ---------------------------------------------------------------------------
 // Request factory
@@ -181,17 +121,12 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  testAssistantDb = initAssistantDb();
   ipcMock.mockClear();
+  ipcThrowOn.clear();
 
   const gwDb = getGatewayDb();
   gwDb.delete(gwContactChannels).run();
   gwDb.delete(gwContacts).run();
-});
-
-afterEach(() => {
-  testAssistantDb?.close();
-  testAssistantDb = null;
 });
 
 // ---------------------------------------------------------------------------
@@ -199,38 +134,44 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("handleContactPromptSubmit", () => {
-  // Seed a guardian contact into BOTH the gateway DB (source of truth) and the
-  // assistant DB mirror. The handler resolves the guardian from the gateway DB;
-  // the assistant row keeps the FK for the best-effort channel mirror.
+  // Seed a guardian contact into the gateway DB (source of truth). The
+  // assistant identity mirror is not modeled here — mirror writes are
+  // asserted as typed IPC payloads.
   function seedGuardian(id = "guardian-1", name = "Vargas"): void {
     const now = Date.now();
     getGatewayDb()
       .insert(gwContacts)
-      .values({ id, displayName: name, role: "guardian", createdAt: now, updatedAt: now })
+      .values({
+        id,
+        displayName: name,
+        role: "guardian",
+        createdAt: now,
+        updatedAt: now,
+      })
       .run();
-    testAssistantDb!.run(
-      `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
-       VALUES (?, ?, 'guardian', 'human', ?, ?)`,
-      [id, name, now, now],
-    );
   }
 
   test("guardian prompt — binds channel to existing gateway guardian, role preserved", async () => {
     seedGuardian();
 
     const res = await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-1", address: "+15551234567", channelType: "phone", role: "guardian" }),
+      makeRequest({
+        requestId: "req-1",
+        address: "+12125550123",
+        channelType: "phone",
+        role: "guardian",
+      }),
     );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
     // Gateway DB is the source of truth: channel row bound to the guardian.
     const gwChannels = getGatewayDb()
       .select()
       .from(gwContactChannels)
-      .where(eq(gwContactChannels.address, "+15551234567"))
+      .where(eq(gwContactChannels.address, "+12125550123"))
       .all();
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].contactId).toBe("guardian-1");
@@ -262,7 +203,7 @@ describe("handleContactPromptSubmit", () => {
         id: "chan-1",
         contactId: "guardian-1",
         type: "phone",
-        address: "+15551234567",
+        address: "+12125550123",
         isPrimary: true,
         status: "active",
         policy: "allow",
@@ -273,11 +214,16 @@ describe("handleContactPromptSubmit", () => {
       .run();
 
     const res = await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-2", address: "+15551234567", channelType: "phone", role: "guardian" }),
+      makeRequest({
+        requestId: "req-2",
+        address: "+12125550123",
+        channelType: "phone",
+        role: "guardian",
+      }),
     );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
     // No new channel should have been inserted in the gateway DB.
@@ -301,7 +247,13 @@ describe("handleContactPromptSubmit", () => {
     // gateway DB.
     getGatewayDb()
       .insert(gwContacts)
-      .values({ id: "other-1", displayName: "Orphan", role: "contact", createdAt: now, updatedAt: now })
+      .values({
+        id: "other-1",
+        displayName: "Orphan",
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
       .run();
     getGatewayDb()
       .insert(gwContactChannels)
@@ -309,7 +261,7 @@ describe("handleContactPromptSubmit", () => {
         id: "chan-other",
         contactId: "other-1",
         type: "phone",
-        address: "+15551234567",
+        address: "+12125550123",
         isPrimary: true,
         status: "unverified",
         policy: "allow",
@@ -320,11 +272,16 @@ describe("handleContactPromptSubmit", () => {
       .run();
 
     const res = await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-3", address: "+15551234567", channelType: "phone", role: "guardian" }),
+      makeRequest({
+        requestId: "req-3",
+        address: "+12125550123",
+        channelType: "phone",
+        role: "guardian",
+      }),
     );
 
     expect(res.status).toBe(409);
-    const body = await res.json() as Record<string, unknown>;
+    const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(false);
 
     // The stale gateway channel must not have been deleted or reassigned, and no
@@ -338,11 +295,8 @@ describe("handleContactPromptSubmit", () => {
     expect(gwChannels[0].id).toBe("chan-other");
     expect(gwChannels[0].contactId).toBe("other-1");
 
-    // No assistant-DB channel write occurred for that address either.
-    const asChannels = testAssistantDb!
-      .prepare(`SELECT id FROM contact_channels WHERE address = ?`)
-      .all("+15551234567") as { id: string }[];
-    expect(asChannels).toHaveLength(0);
+    // No mirror op fired either — the conflict aborts before any upsert.
+    expect(callsFor(ipcMock, "contacts_mirror_upsert_full")).toHaveLength(0);
 
     // IPC should have been called with an error so the CLI doesn't hang.
     expect(ipcMock).toHaveBeenCalledTimes(1);
@@ -354,26 +308,24 @@ describe("handleContactPromptSubmit", () => {
     expectNoEmit(ipcMock);
   });
 
-  test("guardian prompt — accepted even when assistant-DB mirror throws (gateway-first)", async () => {
+  test("guardian prompt — accepted even when the mirror op throws (gateway-first)", async () => {
     seedGuardian();
 
-    // Make the best-effort assistant-DB mirror fail. The gateway-first write
+    // Make the best-effort typed mirror op fail. The gateway-first write
     // must still succeed and the request still be accepted.
-    const realDb = testAssistantDb!;
-    testAssistantDb = {
-      prepare() {
-        throw new Error("assistant DB mirror unavailable");
-      },
-    } as unknown as Database;
+    ipcThrowOn.set(
+      "contacts_mirror_upsert_full",
+      new Error("assistant DB mirror unavailable"),
+    );
 
-    let res: Response;
-    try {
-      res = await handleContactPromptSubmit(
-        makeRequest({ requestId: "req-mirror-g", address: "+15550009999", channelType: "phone", role: "guardian" }),
-      );
-    } finally {
-      testAssistantDb = realDb;
-    }
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-mirror-g",
+        address: "+12125550124",
+        channelType: "phone",
+        role: "guardian",
+      }),
+    );
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -383,7 +335,7 @@ describe("handleContactPromptSubmit", () => {
     const gwChannels = getGatewayDb()
       .select()
       .from(gwContactChannels)
-      .where(eq(gwContactChannels.address, "+15550009999"))
+      .where(eq(gwContactChannels.address, "+12125550124"))
       .all();
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].contactId).toBe("guardian-1");
@@ -392,7 +344,13 @@ describe("handleContactPromptSubmit", () => {
   test("guardian prompt — creates guardian gateway-first when none exists (bootstrap sub-case)", async () => {
     // No guardian seeded anywhere — handler must mint one gateway-first.
     const res = await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-boot", address: "+15557654321", channelType: "phone", role: "guardian", displayName: "Boot Guardian" }),
+      makeRequest({
+        requestId: "req-boot",
+        address: "+12125550125",
+        channelType: "phone",
+        role: "guardian",
+        displayName: "Boot Guardian",
+      }),
     );
 
     expect(res.status).toBe(200);
@@ -412,7 +370,7 @@ describe("handleContactPromptSubmit", () => {
     const gwChannels = getGatewayDb()
       .select()
       .from(gwContactChannels)
-      .where(eq(gwContactChannels.address, "+15557654321"))
+      .where(eq(gwContactChannels.address, "+12125550125"))
       .all();
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].contactId).toBe(gwGuardians[0].id);
@@ -465,14 +423,13 @@ describe("handleContactPromptSubmit", () => {
     expectEmittedContactsChanged(ipcMock);
   });
 
-  test("non-guardian prompt — mirrors the new channel into the post-317 assistant DB (no dropped-column write)", async () => {
-    // Regression: the assistant DB dropped interaction_count/last_seen_at/
-    // last_interaction (migration 317). The dual-write mirror INSERT must write
-    // only surviving columns; a dropped-column reference would throw and be
-    // swallowed by the best-effort catch, silently stranding the mirror row.
+  test("non-guardian prompt — one contacts_mirror_upsert_full op carries the gateway contact + channel ids", async () => {
+    // The identity mirror is ONE typed transactional op; it must ship the
+    // just-written gateway ids so the daemon-side rows adopt them (daemon
+    // write semantics pinned in contacts-mirror-upsert-full.test.ts).
     const res = await handleContactPromptSubmit(
       makeRequest({
-        requestId: "req-mirror-317",
+        requestId: "req-mirror-op",
         address: "carol@example.com",
         channelType: "email",
         role: "trusted-contact",
@@ -489,51 +446,39 @@ describe("handleContactPromptSubmit", () => {
       .all();
     expect(gwChannelRows).toHaveLength(1);
 
-    // The mirror INSERT succeeded against the post-317 schema: the assistant DB
-    // has the channel row under the same gateway contact + channel id.
-    const asChannels = testAssistantDb!
-      .prepare(
-        `SELECT id, contact_id AS contactId, type, address, is_primary AS isPrimary
-           FROM contact_channels WHERE address = ?`,
-      )
-      .all("carol@example.com") as {
-      id: string;
-      contactId: string;
+    const mirror = callsFor(ipcMock, "contacts_mirror_upsert_full");
+    expect(mirror).toHaveLength(1);
+    expect(mirror[0].body.contactId).toBe(gwChannelRows[0].contactId);
+    const channels = mirror[0].body.channels as {
+      id?: string;
       type: string;
       address: string;
-      isPrimary: number;
+      isPrimary?: boolean;
     }[];
-    expect(asChannels).toHaveLength(1);
-    expect(asChannels[0].id).toBe(gwChannelRows[0].id);
-    expect(asChannels[0].contactId).toBe(gwChannelRows[0].contactId);
-    expect(asChannels[0].type).toBe("email");
-    expect(asChannels[0].isPrimary).toBe(1);
+    expect(channels).toHaveLength(1);
+    expect(channels[0].id).toBe(gwChannelRows[0].id);
+    expect(channels[0].type).toBe("email");
+    expect(channels[0].address).toBe("carol@example.com");
+    expect(channels[0].isPrimary).toBe(true);
   });
 
-  test("non-guardian prompt — accepted even when assistant-DB mirror throws (gateway-first)", async () => {
-    // Make the best-effort assistant-DB mirror fail. The gateway-first write
+  test("non-guardian prompt — accepted even when the mirror op throws (gateway-first)", async () => {
+    // Make the best-effort typed mirror op fail. The gateway-first write
     // must still succeed and the request still be accepted.
-    const realDb = testAssistantDb!;
-    testAssistantDb = {
-      prepare() {
-        throw new Error("assistant DB mirror unavailable");
-      },
-    } as unknown as Database;
+    ipcThrowOn.set(
+      "contacts_mirror_upsert_full",
+      new Error("assistant DB mirror unavailable"),
+    );
 
-    let res: Response;
-    try {
-      res = await handleContactPromptSubmit(
-        makeRequest({
-          requestId: "req-mirror",
-          address: "bob@example.com",
-          channelType: "email",
-          role: "trusted-contact",
-          displayName: "Bob",
-        }),
-      );
-    } finally {
-      testAssistantDb = realDb;
-    }
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-mirror",
+        address: "bob@example.com",
+        channelType: "email",
+        role: "trusted-contact",
+        displayName: "Bob",
+      }),
+    );
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -561,7 +506,13 @@ describe("handleContactPromptSubmit", () => {
     // truth for the reuse-by-channel lookup).
     getGatewayDb()
       .insert(gwContacts)
-      .values({ id: "contact-1", displayName: "Alice", role: "contact", createdAt: now, updatedAt: now })
+      .values({
+        id: "contact-1",
+        displayName: "Alice",
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
       .run();
     getGatewayDb()
       .insert(gwContactChannels)
@@ -580,7 +531,11 @@ describe("handleContactPromptSubmit", () => {
       .run();
 
     const res = await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-5", address: "alice@example.com", channelType: "email" }),
+      makeRequest({
+        requestId: "req-5",
+        address: "alice@example.com",
+        channelType: "email",
+      }),
     );
 
     expect(res.status).toBe(200);
@@ -601,7 +556,13 @@ describe("handleContactPromptSubmit", () => {
     const now = Date.now();
     getGatewayDb()
       .insert(gwContacts)
-      .values({ id: "contact-1", displayName: "Alice", role: "contact", createdAt: now, updatedAt: now })
+      .values({
+        id: "contact-1",
+        displayName: "Alice",
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
       .run();
     getGatewayDb()
       .insert(gwContactChannels)
@@ -621,7 +582,12 @@ describe("handleContactPromptSubmit", () => {
 
     // displayName: null must NOT be written through to the NOT NULL column.
     const res = await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-null", address: "alice@example.com", channelType: "email", displayName: null }),
+      makeRequest({
+        requestId: "req-null",
+        address: "alice@example.com",
+        channelType: "email",
+        displayName: null,
+      }),
     );
 
     expect(res.status).toBe(200);
@@ -632,39 +598,34 @@ describe("handleContactPromptSubmit", () => {
     expect(gwContactRows[0].displayName).toBe("Alice");
   });
 
-  test("gateway DB receives dual-write for new contact and channel", async () => {
-    const now = Date.now();
-    testAssistantDb!.run(
-      `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
-       VALUES ('guardian-1', 'Vargas', 'guardian', 'human', ?, ?)`,
-      [now, now],
-    );
-
-    // Also seed guardian in gateway DB so FK is satisfied.
-    getGatewayDb()
-      .insert(gwContacts)
-      .values({ id: "guardian-1", displayName: "Vargas", role: "guardian", createdAt: now, updatedAt: now })
-      .run();
+  test("gateway DB receives the new channel bound to the existing guardian", async () => {
+    seedGuardian();
 
     await handleContactPromptSubmit(
-      makeRequest({ requestId: "req-6", address: "+15559876543", channelType: "phone", role: "guardian" }),
+      makeRequest({
+        requestId: "req-6",
+        address: "+12125550126",
+        channelType: "phone",
+        role: "guardian",
+      }),
     );
 
     const gwChannels = getGatewayDb()
       .select()
       .from(gwContactChannels)
-      .where(eq(gwContactChannels.address, "+15559876543"))
+      .where(eq(gwContactChannels.address, "+12125550126"))
       .all();
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].contactId).toBe("guardian-1");
   });
 
-  test("guardian prompt — reuse path heals the assistant-DB mirror channel", async () => {
+  test("guardian prompt — reuse path fires the mirror-heal upsert op with the existing channel id", async () => {
     const now = Date.now();
     seedGuardian();
-    // Gateway channel already bound to the guardian (the reuse precondition),
-    // but the assistant-DB mirror has NO channel row — simulating a mirror that
-    // was unavailable when the channel was first bound.
+    // Gateway channel already bound to the guardian (the reuse precondition).
+    // The reuse path still runs upsertContact so a mirror that missed the
+    // original bind is healed by the typed op (daemon-side upsert pinned in
+    // contacts-mirror-upsert-full.test.ts).
     getGatewayDb()
       .insert(gwContactChannels)
       .values({
@@ -680,13 +641,6 @@ describe("handleContactPromptSubmit", () => {
         updatedAt: now,
       })
       .run();
-
-    // Precondition: assistant mirror has no channel for this address.
-    expect(
-      testAssistantDb!
-        .prepare(`SELECT id FROM contact_channels WHERE address = ?`)
-        .all("+15551112222"),
-    ).toHaveLength(0);
 
     const res = await handleContactPromptSubmit(
       makeRequest({
@@ -710,15 +664,14 @@ describe("handleContactPromptSubmit", () => {
     expect(gwChannels).toHaveLength(1);
     expect(gwChannels[0].id).toBe("chan-reuse");
 
-    // The reuse path called upsertContact, which healed the assistant-DB
-    // mirror: a channel row for the address now exists under the guardian.
-    const asChannels = testAssistantDb!
-      .prepare(
-        `SELECT contact_id FROM contact_channels WHERE address = ?`,
-      )
-      .all("+15551112222") as { contact_id: string }[];
-    expect(asChannels).toHaveLength(1);
-    expect(asChannels[0].contact_id).toBe("guardian-1");
+    // The mirror-heal op targets the guardian and ships the existing gateway
+    // channel id for daemon-side id alignment.
+    const mirror = callsFor(ipcMock, "contacts_mirror_upsert_full");
+    expect(mirror).toHaveLength(1);
+    expect(mirror[0].body.contactId).toBe("guardian-1");
+    const channels = mirror[0].body.channels as { id?: string }[];
+    expect(channels).toHaveLength(1);
+    expect(channels[0].id).toBe("chan-reuse");
 
     const ipcCall = resolveCall(ipcMock);
     expect(ipcCall.body.channelId).toBe("chan-reuse");
@@ -789,7 +742,7 @@ describe("handleContactPromptSubmit", () => {
     expectEmittedContactsChanged(ipcMock);
   });
 
-  test("guardian bootstrap-create — gateway is authoritative; assistant mirror row exists without ACL role", async () => {
+  test("guardian bootstrap-create — gateway is authoritative; no ACL role crosses the mirror ops", async () => {
     const res = await handleContactPromptSubmit(
       makeRequest({
         requestId: "req-boot-role",
@@ -811,13 +764,17 @@ describe("handleContactPromptSubmit", () => {
       .all();
     expect(gwGuardians).toHaveLength(1);
 
-    // Assistant mirror is an identity mirror only — the row exists but no ACL
-    // role is written through, so it falls back to the schema default 'contact'.
-    const asContacts = testAssistantDb!
-      .prepare(`SELECT role FROM contacts WHERE id = ?`)
-      .all(gwGuardians[0].id) as { role: string }[];
-    expect(asContacts).toHaveLength(1);
-    expect(asContacts[0].role).toBe("contact");
+    // The identity mirror carries no ACL role: neither the contact-create op
+    // nor the channel-bind op includes one.
+    const mirrorBodies = [
+      ...callsFor(ipcMock, "contacts_mirror_upsert_contact"),
+      ...callsFor(ipcMock, "contacts_mirror_upsert_full"),
+    ];
+    expect(mirrorBodies.length).toBeGreaterThanOrEqual(1);
+    for (const call of mirrorBodies) {
+      expect(call.body.contactId).toBe(gwGuardians[0].id);
+      expect("role" in call.body).toBe(false);
+    }
   });
 
   test("non-guardian prompt — 500 + daemon error when channel can't be resolved (no empty channelId)", async () => {
@@ -917,7 +874,7 @@ describe("handleContactPromptSubmit", () => {
       res = await handleContactPromptSubmit(
         makeRequest({
           requestId: "req-existing-noresolve",
-          address: "+15557778888",
+          address: "+12125550188",
           channelType: "phone",
           role: "guardian",
         }),

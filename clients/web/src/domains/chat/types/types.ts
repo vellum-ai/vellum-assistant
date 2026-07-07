@@ -10,15 +10,12 @@ import type {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { isToolCallCompleted } from "@/domains/chat/utils/tool-call-status";
 import type { DisplayAttachment } from "@/types/attachment-types";
-import type { SlackMessageLink } from "@/utils/slack-message-link";
+import type { ExternalSourceLink } from "@/utils/external-source-link";
 
 export type { DisplayAttachment } from "@/types/attachment-types";
 
-export type { SlackMessageLink } from "@/utils/slack-message-link";
-export {
-  parseSlackMessageLink,
-  getSlackLinkUrl,
-} from "@/utils/slack-message-link";
+export type { ExternalSourceLink } from "@/utils/external-source-link";
+export { getExternalLinkUrl } from "@/utils/external-source-link";
 
 export interface SlackMessageSender {
   id?: string;
@@ -43,8 +40,8 @@ export interface SlackRuntimeMessage {
   channelTs: string;
   threadTs?: string;
   sender?: SlackMessageSender;
-  messageLink?: SlackMessageLink;
-  threadLink?: SlackMessageLink;
+  messageLink?: ExternalSourceLink;
+  threadLink?: ExternalSourceLink;
   eventKind?: "message" | "reaction";
   reaction?: SlackReaction;
 }

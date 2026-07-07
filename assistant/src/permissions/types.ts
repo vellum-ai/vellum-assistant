@@ -1,7 +1,4 @@
-export type {
-  AllowlistOption,
-  ScopeOption,
-} from "../tools/tool-types.js";
+export type { AllowlistOption, ScopeOption } from "../tools/tool-types.js";
 export { RiskLevel } from "../tools/tool-types.js";
 
 export type ApprovalMode = "prompted" | "auto" | "blocked" | "unknown";
@@ -87,6 +84,16 @@ export interface PolicyContext {
   trustClass?: string;
   /** Source channel the turn arrived on (e.g. "vellum" for internal jobs). */
   sourceChannel?: string;
+  /**
+   * External channel ID of the current chat (e.g. Slack channel ID), for the
+   * channel-ID tier of permission-matrix cell resolution.
+   */
+  channelExternalId?: string;
+  /**
+   * Conversation type on the permission-matrix axis (dm | private | public),
+   * for the channel-type tier of cell resolution.
+   */
+  channelConversationType?: string;
   /**
    * Whether procedural-memory-as-skills is active for this assistant (memory-v3
    * is live). Precomputed in {@link buildPolicyContext} so the checker can gate

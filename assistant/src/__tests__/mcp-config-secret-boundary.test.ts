@@ -158,6 +158,18 @@ const configGetRoute = findRoute("config_get");
 const configPatchRoute = findRoute("config_patch");
 const configSetRoute = findRoute("config_set");
 
+/**
+ * Config responses inject the code-catalog default profiles into
+ * `llm.profiles` (the effective wire view). These tests pin the MCP secret
+ * boundary, so drop the injected block before whole-response comparisons.
+ */
+function withoutWireProfiles(
+  result: Record<string, unknown>,
+): Record<string, unknown> {
+  const { llm: _llm, ...rest } = result;
+  return rest;
+}
+
 describe("MCP config secret boundary", () => {
   beforeEach(() => {
     rawConfig = {};
@@ -211,7 +223,7 @@ describe("MCP config secret boundary", () => {
     const result = configGetRoute.handler({}) as Record<string, unknown>;
 
     expect(JSON.stringify(result)).not.toContain("malformed-secret");
-    expect(result).toEqual({
+    expect(withoutWireProfiles(result)).toEqual({
       mcp: {
         servers: [
           {
@@ -238,7 +250,7 @@ describe("MCP config secret boundary", () => {
 
     const result = configGetRoute.handler({}) as Record<string, unknown>;
 
-    expect(result).toEqual(rawConfig);
+    expect(withoutWireProfiles(result)).toEqual(rawConfig);
   });
 
   test("config_get preserves non-credential headers env vars", () => {
@@ -260,7 +272,7 @@ describe("MCP config secret boundary", () => {
 
     const result = configGetRoute.handler({}) as Record<string, unknown>;
 
-    expect(result).toEqual(rawConfig);
+    expect(withoutWireProfiles(result)).toEqual(rawConfig);
   });
 
   test("config_patch rejects MCP transport headers so generic writes cannot reintroduce plaintext credentials", async () => {
@@ -300,7 +312,7 @@ describe("MCP config secret boundary", () => {
       },
     });
 
-    expect(result).toEqual({
+    expect(withoutWireProfiles(result as Record<string, unknown>)).toEqual({
       mcp: {
         servers: {
           headers: {
@@ -333,7 +345,7 @@ describe("MCP config secret boundary", () => {
       },
     });
 
-    expect(result).toEqual({
+    expect(withoutWireProfiles(result as Record<string, unknown>)).toEqual({
       mcp: {
         servers: {
           local: {

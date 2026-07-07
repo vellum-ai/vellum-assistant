@@ -46,7 +46,9 @@ export function detectUnknownCommand(
   if (known.has(firstPositional)) return null;
 
   const suggestion = findClosestCommand(firstPositional, [...known]);
-  return suggestion ? { token: firstPositional, suggestion } : { token: firstPositional };
+  return suggestion
+    ? { token: firstPositional, suggestion }
+    : { token: firstPositional };
 }
 
 /**

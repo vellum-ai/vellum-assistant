@@ -1,10 +1,20 @@
 /**
- * Hand-written fetch wrappers for the assistant daemon's trust-rules endpoints.
- * These endpoints are served via the gateway sidecar under
- * /v1/assistants/{id}/trust-rules/* and are not part of the Django OpenAPI
- * schema.
+ * Trust-rules API wrappers over the generated gateway SDK.
+ *
+ * The endpoints are gateway-native (`/v1/assistants/{id}/trust-rules/*`);
+ * their schemas live on the gateway's route metadata
+ * (`gateway/src/http/routes/trust-rules-routes.ts`), so the types here are
+ * codegen-derived. The gateway client's interceptor routes to the
+ * self-hosted gateway in local mode and through the platform proxy for
+ * platform-hosted assistants.
  */
-import { client } from "@/generated/api/client.gen";
+import {
+  assistantTrustRuleCreate,
+  assistantTrustRuleDelete,
+  assistantTrustRuleSuggest,
+  assistantTrustRulesList,
+  assistantTrustRuleUpdate,
+} from "@/generated/gateway/sdk.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -16,7 +26,6 @@ import type {
   SuggestTrustRuleBody,
   TrustRuleItem,
   TrustRuleOrigin,
-  TrustRulesListResponse,
   TrustRuleSuggestion,
   UpdateTrustRuleBody,
 } from "@/types/trust-rules";
@@ -30,28 +39,18 @@ export interface FetchTrustRulesParams {
   includeAll?: boolean;
 }
 
-function buildFetchQuery(
-  params: FetchTrustRulesParams,
-): Record<string, string> {
-  const query: Record<string, string> = {};
-  if (params.origin) query.origin = params.origin;
-  if (params.tool) query.tool = params.tool;
-  if (params.includeDeleted) query.include_deleted = "true";
-  if (params.includeAll) query.include_all = "true";
-  return query;
-}
-
 export async function fetchTrustRules(
   assistantId: string,
   params: FetchTrustRulesParams = {},
 ): Promise<TrustRuleItem[]> {
-  const { data, error, response } = await client.get<
-    TrustRulesListResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/trust-rules/",
+  const { data, error, response } = await assistantTrustRulesList({
     path: { assistant_id: assistantId },
-    query: buildFetchQuery(params),
+    query: {
+      origin: params.origin,
+      tool: params.tool,
+      include_deleted: params.includeDeleted ? "true" : undefined,
+      include_all: params.includeAll ? "true" : undefined,
+    },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to load trust rules.");
@@ -68,11 +67,9 @@ export async function addTrustRule(
   assistantId: string,
   body: AddTrustRuleBody,
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/trust-rules/",
+  const { error, response } = await assistantTrustRuleCreate({
     path: { assistant_id: assistantId },
     body,
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to add trust rule.");
@@ -89,11 +86,9 @@ export async function updateTrustRule(
   ruleId: string,
   body: UpdateTrustRuleBody,
 ): Promise<void> {
-  const { error, response } = await client.patch<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/trust-rules/{rule_id}/",
+  const { error, response } = await assistantTrustRuleUpdate({
     path: { assistant_id: assistantId, rule_id: ruleId },
     body,
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to update trust rule.");
@@ -105,22 +100,13 @@ export async function updateTrustRule(
   }
 }
 
-interface SuggestTrustRuleResponse {
-  suggestion: TrustRuleSuggestion;
-}
-
 export async function suggestTrustRule(
   assistantId: string,
   body: SuggestTrustRuleBody,
 ): Promise<TrustRuleSuggestion> {
-  const { data, error, response } = await client.post<
-    SuggestTrustRuleResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/trust-rules/suggest/",
+  const { data, error, response } = await assistantTrustRuleSuggest({
     path: { assistant_id: assistantId },
     body,
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to get trust rule suggestion.");
@@ -140,8 +126,7 @@ export async function deleteTrustRule(
   assistantId: string,
   ruleId: string,
 ): Promise<void> {
-  const { error, response } = await client.delete<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/trust-rules/{rule_id}/",
+  const { error, response } = await assistantTrustRuleDelete({
     path: { assistant_id: assistantId, rule_id: ruleId },
     throwOnError: false,
   });

@@ -69,6 +69,7 @@
 
 import {
   GetActiveVoiceInviteRequestSchema,
+  INVITES_IPC_METHODS,
   RedeemVoiceInviteRequestSchema,
 } from "@vellumai/gateway-client";
 import { z } from "zod";
@@ -133,7 +134,7 @@ export const inviteRoutes: IpcRoute[] = [
     // Explicit redemption relay for the daemon's CLI/HTTP redeem routes:
     // voice-code and token requests dispatch into the same gateway-native
     // engine the HTTP redeem handler uses (redeemInviteNative).
-    method: "invites_redeem",
+    method: INVITES_IPC_METHODS.redeem,
     schema: RedeemInviteParamsSchema,
     handler: async (params?: Record<string, unknown>) => {
       const parsed = parseRedeemInviteBody(params ?? {});
@@ -146,7 +147,7 @@ export const inviteRoutes: IpcRoute[] = [
   {
     // Single gateway-DB read, sanitized (no code/token hashes). Shares the
     // HTTP list native implementation.
-    method: "invites_list",
+    method: INVITES_IPC_METHODS.list,
     schema: ListInvitesParamsSchema,
     handler: async (params?: Record<string, unknown>) => {
       const query = ListInvitesParamsSchema.parse(params ?? {});
@@ -156,7 +157,7 @@ export const inviteRoutes: IpcRoute[] = [
   {
     // Verify contact → mint secrets natively → write the canonical gateway
     // row. Returns the gateway's one-time minted payload + rawToken.
-    method: "invites_create",
+    method: INVITES_IPC_METHODS.create,
     schema: CreateInviteParamsSchema,
     handler: async (params?: Record<string, unknown>) => {
       const input = CreateInviteParamsSchema.parse(params);
@@ -166,7 +167,7 @@ export const inviteRoutes: IpcRoute[] = [
   {
     // Single gateway-DB UPDATE, idempotent for already-terminal invites.
     // Returns the sanitized invite.
-    method: "invites_revoke",
+    method: INVITES_IPC_METHODS.revoke,
     schema: InviteIdParamsSchema,
     handler: async (params?: Record<string, unknown>) => {
       const { id } = InviteIdParamsSchema.parse(params);
@@ -176,7 +177,7 @@ export const inviteRoutes: IpcRoute[] = [
   {
     // Voice-invite detection for an inbound caller: the active phone invite
     // bound to the caller's number, projected to display metadata only.
-    method: "get_active_voice_invite",
+    method: INVITES_IPC_METHODS.getActiveVoiceInvite,
     schema: GetActiveVoiceInviteRequestSchema,
     handler: (params?: Record<string, unknown>) => {
       const { callerExternalUserId } =
@@ -190,7 +191,7 @@ export const inviteRoutes: IpcRoute[] = [
     // Voice-code redemption through the gateway engine. The engine fires the
     // best-effort `invite_redeemed` daemon info-mirror event on a real redeem
     // (already_member consumed nothing, so there is nothing to mirror).
-    method: "redeem_voice_invite",
+    method: INVITES_IPC_METHODS.redeemVoiceInvite,
     schema: RedeemVoiceInviteRequestSchema,
     handler: async (params?: Record<string, unknown>) => {
       const parsed = RedeemVoiceInviteRequestSchema.parse(params);

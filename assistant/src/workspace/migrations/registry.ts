@@ -122,6 +122,8 @@ import { seedDefaultUserGuardrailsMigration } from "./121-seed-default-user-guar
 import { relocateDefaultUserBoundaryMigration } from "./122-relocate-default-user-boundary.js";
 import { swapQualityProfileToFableMigration } from "./123-swap-quality-profile-to-fable.js";
 import { correctDefaultUserBoundaryCommentsMigration } from "./124-correct-default-user-boundary-comments.js";
+import { repointManagedConnectionsToVellumMigration } from "./125-repoint-managed-connections-to-vellum.js";
+import { stripManagedProfileBodiesMigration } from "./126-strip-managed-profile-bodies.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -255,4 +257,6 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   relocateDefaultUserBoundaryMigration,
   swapQualityProfileToFableMigration,
   correctDefaultUserBoundaryCommentsMigration,
+  repointManagedConnectionsToVellumMigration,
+  stripManagedProfileBodiesMigration,
 ];

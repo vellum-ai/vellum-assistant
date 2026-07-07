@@ -1,31 +1,37 @@
 /**
  * Pure routing logic for the voice call setup phase.
  *
- * Given a setup context (call session, actor trust, voice config, ACL policy),
- * returns a discriminated union describing what the call session should do
- * next — without performing any side effects itself.
+ * Given a setup context (call session, gateway trust verdict, voice config,
+ * ACL policy), returns a discriminated union describing what the call session
+ * should do next — without performing any side effects itself.
+ *
+ * The gateway verdict is the sole caller-trust source. An unusable verdict
+ * (missing, `resolutionFailed`, or member-unresolvable) fails closed —
+ * matching the text path's posture: inbound calls are denied, outbound setup
+ * aborts.
  */
 
 import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 
+import { getPendingSession } from "../channels/gateway-verification-sessions.js";
 import { getConfig } from "../config/loader.js";
-import {
-  type ActorTrustContext,
-  resolveActorTrust,
-} from "../runtime/actor-trust-resolver.js";
+import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { getPendingSession } from "../runtime/channel-verification-service.js";
 import {
   type AdmissionPolicyResult,
   enforceAdmissionPolicy,
 } from "../runtime/routes/inbound-stages/admission-policy.js";
 import {
   actorTrustContextFromVerdict,
-  verdictMemberUnresolvable,
+  verdictUsability,
 } from "../runtime/trust-verdict-consumer.js";
 import { getLogger } from "../util/logger.js";
 import { getActiveVoiceInvite } from "./gateway-invite-reader.js";
 import type { CallSession } from "./types.js";
+import {
+  TRUST_UNAVAILABLE_DENY_MESSAGE,
+  unresolvedActorTrust,
+} from "./unresolved-caller-trust.js";
 
 const log = getLogger("call-setup-router");
 
@@ -44,9 +50,9 @@ interface SetupContext {
    */
   admissionPolicy?: AdmissionPolicy | null;
   /**
-   * Gateway-stamped caller trust verdict. When present and not
-   * `resolutionFailed`, the caller's trust is built from it; otherwise the
-   * router falls back to local resolution.
+   * Gateway-stamped caller trust verdict — the sole caller-trust source.
+   * A missing/failed/member-unresolvable verdict fails closed (inbound deny,
+   * outbound setup abort).
    */
   verdict?: TrustVerdict | null;
 }
@@ -122,32 +128,44 @@ export async function routeSetup(ctx: SetupContext): Promise<{
   const isInbound = ctx.session?.initiatedFromConversationId == null;
   const otherPartyNumber = isInbound ? ctx.from : ctx.to;
 
-  // Verdict-first: build caller trust from the gateway verdict when present.
-  // Voice falls back to local resolution on a missing/failed verdict so a
-  // gateway blip does not drop a known guardian's call — the deliberate
-  // difference from the fail-closed text path.
-  //
-  // A verdict that claims a member (contactId/channelId) but whose ACL can't be
-  // reassembled (malformed/mixed-version status·policy) also falls back to local
-  // resolution, so voice never trusts a member it cannot ACL-check. A real
-  // stranger verdict (no member identity) still takes the verdict path —
-  // memberRecord null is correct there.
-  const usable =
-    ctx.verdict &&
-    !ctx.verdict.resolutionFailed &&
-    !verdictMemberUnresolvable(ctx.verdict);
-  const actorTrust = usable
-    ? actorTrustContextFromVerdict(ctx.verdict!, {
-        sourceChannel: "phone",
-        conversationExternalId: otherPartyNumber,
-        actorDisplayName: undefined,
-      })
-    : resolveActorTrust({
+  // The gateway verdict is the sole caller-trust source; an unusable one
+  // fails closed, mirroring the text path's resolutionFailed deny
+  // (acl-enforcement.ts): inbound is denied with the unavailable copy and no
+  // stranger-lane side effects; outbound (guardian-initiated) aborts setup
+  // loudly via the transport's setup-failure teardown.
+  const usability = verdictUsability(ctx.verdict);
+  if (!usability.usable) {
+    const { reason } = usability;
+    if (!isInbound) {
+      throw new Error(
+        `Voice setup: caller trust verdict unavailable (${reason}) — aborting outbound setup`,
+      );
+    }
+    log.warn(
+      { callSessionId: ctx.callSessionId, from: ctx.from, reason },
+      "Inbound voice ACL: trust verdict unavailable — denying fail-closed",
+    );
+    return {
+      outcome: {
+        action: "deny",
+        message: TRUST_UNAVAILABLE_DENY_MESSAGE,
+        logReason: `Inbound voice ACL: trust verdict unavailable (${reason}) — fail-closed deny`,
+      },
+      resolved: {
         assistantId,
-        sourceChannel: "phone",
-        conversationExternalId: otherPartyNumber,
-        actorExternalId: otherPartyNumber || undefined,
-      });
+        isInbound,
+        otherPartyNumber,
+        actorTrust: unresolvedActorTrust(otherPartyNumber),
+      },
+    };
+  }
+
+  const { verdict } = usability;
+  const actorTrust = actorTrustContextFromVerdict(verdict, {
+    sourceChannel: "phone",
+    conversationExternalId: otherPartyNumber,
+    actorDisplayName: undefined,
+  });
 
   const resolved: SetupResolved = {
     assistantId,
@@ -231,14 +249,22 @@ export async function routeSetup(ctx: SetupContext): Promise<{
   }
 
   // ── Inbound call ACL evaluation ─────────────────────────────────
-  const pendingChallenge = getPendingSession("phone");
+  // Gateway read; throws on transport failure (control-plane posture —
+  // setup fails loudly rather than mis-routing past a pending challenge).
+  // Skipped when the verdict stamps `hasInterceptableVerificationSession:
+  // false` — the channel-scoped stamp is authoritative only as a negative
+  // (same rule as the text path); `true`/absent falls back to the read.
+  const pendingChallenge =
+    verdict.hasInterceptableVerificationSession === false
+      ? null
+      : await getPendingSession("phone");
 
   // An admission floor is "active" only when a policy applies and no pending
   // verification challenge is in flight. While active, the floor IS the access
   // decision: an admitted caller bypasses the legacy identity flows
   // (unverified_caller / name_capture) and connects directly. When inactive
-  // (null policy, flag off, exempt channel, reader failed open, or a pending
-  // challenge), those legacy flows are preserved unchanged.
+  // (null policy, flag off, exempt channel, or a pending challenge), those
+  // legacy flows are preserved unchanged.
   const floorActive = ctx.admissionPolicy != null && !pendingChallenge;
 
   // Inbound admission floor verdict; defaults to admitted when inactive.

@@ -92,9 +92,19 @@ mock.module("../config/loader.js", () => {
 
 // ── Credential mock (prevents real key lookups) ──────────────────────
 
+// Provider API keys resolve by default so telephony playability checks
+// (WAV-transport tests) can select providers; tests can narrow the
+// resolvable set. Reset to null (all resolve) in beforeEach.
+let mockResolvableProviderKeys: ((service: string) => string | null) | null =
+  null;
+
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => null,
   getSecureKey: () => null,
+  getProviderKeyAsync: async (service: string) =>
+    mockResolvableProviderKeys
+      ? mockResolvableProviderKeys(service)
+      : "test-key",
 }));
 
 mock.module("../security/credential-key.js", () => ({
@@ -398,6 +408,8 @@ function setupController(
   opts?: {
     assistantId?: string;
     trustContext?: import("../daemon/trust-context.js").TrustContext;
+    /** Simulate the media-stream transport's WAV requirement. */
+    requiresWavAudio?: boolean;
   },
 ) {
   ensureConversation("conv-ctrl-test");
@@ -410,6 +422,9 @@ function setupController(
   });
   updateCallSession(session.id, { status: "in_progress" });
   const transport = createMockTransport();
+  if (opts?.requiresWavAudio) {
+    Object.assign(transport, { requiresWavAudio: true });
+  }
   const controller = new CallController(session.id, transport, task ?? null, {
     assistantId: opts?.assistantId,
     trustContext: opts?.trustContext,
@@ -483,6 +498,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "elevenlabs";
     cfg.services.tts.providers["fish-audio"].referenceId = "";
     cfg.ingress.publicBaseUrl = "https://generic.example.com";
+    mockResolvableProviderKeys = null;
     // Reset TTS provider registry to ensure clean state
     registerTestTtsProviders();
   });
@@ -2949,6 +2965,108 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("synthesized provider: a turn error cancels the queued synthesis chain so no stale speech follows the recovery prompt", async () => {
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "fish-audio";
+    cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
+
+    _resetTtsProviderOverridesForTests();
+    // elevenlabs present so a native fallback route exists for fish-audio.
+    const elevenlabs: TtsProvider = {
+      id: "elevenlabs",
+      capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
+      async synthesize() {
+        return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+      },
+    };
+    _setTtsProviderForTests(elevenlabs);
+
+    // Slow provider: blocks until the test releases it, but honors the
+    // abort signal like real providers do.
+    let releaseSynth: (() => void) | undefined;
+    const synthGate = new Promise<void>((resolve) => {
+      releaseSynth = resolve;
+    });
+    let synthStartedResolve: (() => void) | undefined;
+    const synthStarted = new Promise<void>((resolve) => {
+      synthStartedResolve = resolve;
+    });
+    let providerSawAbort = false;
+    const fishAudioSlow: TtsProvider = {
+      id: "fish-audio",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize() {
+        return { audio: Buffer.from("x"), contentType: "audio/mpeg" };
+      },
+      async synthesizeStream(request, onChunk) {
+        synthStartedResolve?.();
+        await new Promise<void>((resolve, reject) => {
+          const abortErr = new Error("aborted");
+          abortErr.name = "AbortError";
+          if (request.signal?.aborted) {
+            providerSawAbort = true;
+            reject(abortErr);
+            return;
+          }
+          request.signal?.addEventListener(
+            "abort",
+            () => {
+              providerSawAbort = true;
+              reject(abortErr);
+            },
+            { once: true },
+          );
+          void synthGate.then(resolve);
+        });
+        onChunk(Buffer.from("stale-partial-answer-audio"));
+        return {
+          audio: Buffer.from("stale-partial-answer-audio"),
+          contentType: "audio/mpeg",
+        };
+      },
+    };
+    _setTtsProviderForTests(fishAudioSlow);
+
+    // Emit a speakable segment, then error the turn once that segment's
+    // synthesis is in flight — the run is never superseded, so only the
+    // turn-error cancellation keeps the chain from speaking.
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        onTextDelta: (text: string) => void;
+        onError: (msg: string) => void;
+      }) => {
+        opts.onTextDelta("Partial answer for the caller. And more");
+        void synthStarted.then(() => {
+          opts.onError("voice pipeline failure");
+        });
+        return { turnId: "run-err-synth", abort: () => {} };
+      },
+    );
+
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // The in-flight segment was aborted and the recovery message spoken.
+    expect(providerSawAbort).toBe(true);
+    const spoken = relay.sentTokens.map((t) => t.token).join("");
+    expect(spoken).toContain("technical issue");
+    expect(controller.getState()).toBe("idle");
+
+    // Releasing the slow provider must not surface the cancelled chain's
+    // play URL or native-fallback text after the recovery prompt.
+    releaseSynth?.();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(relay.sentPlayUrls.length).toBe(0);
+    const allText = relay.sentTokens.map((t) => t.token).join("");
+    expect(allText).not.toContain("Partial answer for the caller");
+
+    controller.destroy();
+  });
+
   test("Deepgram selected path resolves useSynthesizedPath to true", async () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "deepgram";
@@ -3048,6 +3166,474 @@ describe("call-controller", () => {
     // via native token TTS despite synthesis failure.
     const allTokenText = relay.sentTokens.map((t) => t.token).join("");
     expect(allTokenText).toContain("Hello from fish path");
+
+    controller.destroy();
+  });
+
+  // ── Incremental per-segment synthesis (synthesized-play path) ───────
+
+  function registerFishAudioSegmentRecorder(opts?: {
+    onSynthesizeStream?: (
+      text: string,
+      request: import("../tts/types.js").TtsSynthesisRequest,
+      onChunk: (chunk: Buffer) => void,
+    ) => Promise<void>;
+  }): { synthesizedTexts: string[] } {
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "fish-audio";
+    cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
+
+    _resetTtsProviderOverridesForTests();
+    const synthesizedTexts: string[] = [];
+    const fishAudioStreaming: TtsProvider = {
+      id: "fish-audio",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize() {
+        return { audio: Buffer.from("audio"), contentType: "audio/mpeg" };
+      },
+      async synthesizeStream(request, onChunk) {
+        synthesizedTexts.push(request.text);
+        await opts?.onSynthesizeStream?.(request.text, request, onChunk);
+        onChunk(Buffer.from(`audio:${request.text}`));
+        return {
+          audio: Buffer.from(`audio:${request.text}`),
+          contentType: "audio/mpeg",
+        };
+      },
+    };
+    _setTtsProviderForTests(fishAudioStreaming);
+    return { synthesizedTexts };
+  }
+
+  test("synthesized provider: segments synthesize during the stream — first play URL before turn completion", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    const { relay, controller } = setupController();
+
+    let playUrlsAtTurnCompletion = -1;
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        opts.onTextDelta("First sentence done. ");
+        // The first segment's play URL must reach the transport while the
+        // LLM turn is still streaming.
+        await pollUntil(() => relay.sentPlayUrls.length > 0);
+        opts.onTextDelta("Second sentence follows.");
+        playUrlsAtTurnCompletion = relay.sentPlayUrls.length;
+        opts.onComplete();
+        return { turnId: "run-incremental", abort: () => {} };
+      },
+    );
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(playUrlsAtTurnCompletion).toBe(1);
+    expect(synthesizedTexts).toEqual([
+      "First sentence done.",
+      "Second sentence follows.",
+    ]);
+    expect(relay.sentPlayUrls.length).toBe(2);
+    // End-of-turn signal fires only after the synthesis chain drains.
+    const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+    expect(lastToken).toEqual({ token: "", last: true });
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: segments synthesize serially in order even when the first is slow", async () => {
+    const events: string[] = [];
+    registerFishAudioSegmentRecorder({
+      onSynthesizeStream: async (text) => {
+        events.push(`start:${text}`);
+        if (text.startsWith("One")) {
+          await new Promise((r) => setTimeout(r, 20));
+        }
+        events.push(`emit:${text}`);
+      },
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["One is here. ", "Two is here."]),
+    );
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // Serialized chain: the second segment must not start until the first
+    // finished, so play URLs hit the transport FIFO in segment order.
+    expect(events).toEqual([
+      "start:One is here.",
+      "emit:One is here.",
+      "start:Two is here.",
+      "emit:Two is here.",
+    ]);
+    expect(relay.sentPlayUrls.length).toBe(2);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: a control marker spanning delta boundaries is never synthesized", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn([
+        "Let me check that for you. [ASK_GUARD",
+        "IAN: What time works?] One moment.",
+      ]),
+    );
+    const { session, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(synthesizedTexts).toEqual([
+      "Let me check that for you.",
+      "One moment.",
+    ]);
+    // The consultation is still dispatched from the full response text.
+    expect(getPendingQuestion(session.id)?.questionText).toBe(
+      "What time works?",
+    );
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: markdown spanning delta boundaries is stripped before synthesis", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["This is **very", " important**. Please note it."]),
+    );
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(synthesizedTexts).toEqual([
+      "This is very important.",
+      "Please note it.",
+    ]);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: barge-in mid-turn stops subsequent segment synthesis", async () => {
+    let releaseFirst: (() => void) | undefined;
+    const firstGate = new Promise<void>((r) => {
+      releaseFirst = r;
+    });
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder({
+      // Block the first segment mid-synthesis (ignoring the abort signal)
+      // so the barge-in lands while later segments are still queued.
+      onSynthesizeStream: () => firstGate,
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["One is done. ", "Two is done. ", "Three is done."]),
+    );
+    const { relay, controller } = setupController();
+
+    const turn = controller.handleCallerUtterance("Hi");
+    await pollUntil(() => synthesizedTexts.length === 1);
+
+    controller.handleInterrupt();
+    releaseFirst?.();
+    await turn;
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Queued segments never synthesize after the barge-in, and the aborted
+    // first segment's late audio never reaches the caller.
+    expect(synthesizedTexts).toEqual(["One is done."]);
+    expect(relay.sentPlayUrls.length).toBe(0);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: a late-finishing stale segment neither clobbers the new turn's abort handle nor emits audio", async () => {
+    let releaseStale: (() => void) | undefined;
+    const staleGate = new Promise<void>((r) => {
+      releaseStale = r;
+    });
+    let newTurnAborted = false;
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder({
+      onSynthesizeStream: async (text, request) => {
+        if (text.startsWith("Old")) {
+          // Stale turn's provider ignores the abort and finishes late.
+          await staleGate;
+          return;
+        }
+        // New turn's provider hangs until its own abort signal fires.
+        await new Promise<void>((resolve) => {
+          request.signal?.addEventListener(
+            "abort",
+            () => {
+              newTurnAborted = true;
+              resolve();
+            },
+            { once: true },
+          );
+        });
+        const err = new Error("aborted");
+        err.name = "AbortError";
+        throw err;
+      },
+    });
+    let voiceTurnCalls = 0;
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: { onTextDelta: (t: string) => void }) => {
+        voiceTurnCalls++;
+        opts.onTextDelta(
+          voiceTurnCalls === 1 ? "Old news here. " : "New reply here. ",
+        );
+        // Hold the turn open; barge-in resolves it via the abort listener.
+        return { turnId: `run-clobber-${voiceTurnCalls}`, abort: () => {} };
+      },
+    );
+    const { relay, controller } = setupController();
+
+    const turn1 = controller.handleCallerUtterance("Hi");
+    let turn1Settled = false;
+    void turn1.finally(() => {
+      turn1Settled = true;
+    });
+    await pollUntil(() => synthesizedTexts.length === 1);
+
+    // Barge-in while the first segment's synthesis is still in flight.
+    controller.handleInterrupt();
+
+    // The stale run drains its chain before settling, so the interrupted
+    // turn stays pending until its hung segment resolves.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(turn1Settled).toBe(false);
+
+    // Start the next turn while the stale segment is still in flight.
+    const turn2 = controller.handleUserInstruction("follow up");
+    await pollUntil(() => synthesizedTexts.length === 2);
+
+    // The stale segment finishes late — after the new turn registered its
+    // own abort handle.
+    releaseStale?.();
+    await turn1;
+
+    // A barge-in on the NEW turn must still abort its in-flight synthesis:
+    // the stale segment's completion must not have cleared the handle.
+    controller.handleInterrupt();
+    await pollUntil(() => newTurnAborted);
+    await turn2;
+
+    expect(synthesizedTexts).toEqual(["Old news here.", "New reply here."]);
+    // Neither the stale segment's late chunk nor the aborted new segment
+    // ever reaches the caller.
+    expect(relay.sentPlayUrls.length).toBe(0);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: after a segment synthesis failure, remaining segments take the native fallback in order", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder({
+      onSynthesizeStream: async () => {
+        throw new Error("fish-audio stream failure");
+      },
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["First part is done. ", "Second part is done."]),
+    );
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // Only the first segment attempts synthesis; the rest short-circuit to
+    // the native route so text is never dropped, duplicated, or reordered.
+    expect(synthesizedTexts).toEqual(["First part is done."]);
+    const tokenTexts = relay.sentTokens
+      .filter((t) => t.token.length > 0)
+      .map((t) => t.token);
+    expect(tokenTexts).toEqual([
+      "First part is done. ",
+      "Second part is done. ",
+    ]);
+    // Trimmed segments carry a separator so back-to-back tokens never
+    // fuse into "…done.Second part…".
+    expect(tokenTexts.join("")).toContain("done. Second");
+    expect(relay.sentPlayUrls.length).toBe(0);
+    // End-of-turn still fires after the chain drains.
+    const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+    expect(lastToken).toEqual({ token: "", last: true });
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: a mid-stream failure after the play URL went out is not re-sent natively; later segments take the native route", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder({
+      onSynthesizeStream: async (_text, _request, onChunk) => {
+        onChunk(Buffer.from("partial-audio"));
+        // Let the queued emit flush so the play URL goes out before the
+        // failure lands (mirrors a real mid-stream stall).
+        await new Promise((r) => setTimeout(r, 0));
+        throw new Error("fish-audio mid-stream failure");
+      },
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["First part is done. ", "Second part is done."]),
+    );
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // The failed segment's truncated audio already played, so its text is
+    // never re-sent as native tokens; later segments still take the
+    // native route.
+    expect(synthesizedTexts).toEqual(["First part is done."]);
+    expect(relay.sentPlayUrls.length).toBe(1);
+    const tokenTexts = relay.sentTokens
+      .filter((t) => t.token.length > 0)
+      .map((t) => t.token);
+    expect(tokenTexts).toEqual(["Second part is done. "]);
+    const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+    expect(lastToken).toEqual({ token: "", last: true });
+
+    controller.destroy();
+  });
+
+  // ── Per-segment fallback on WAV-requiring transports ────────────────
+
+  /**
+   * Register a failing fish-audio primary and a recording elevenlabs
+   * fallback, with fish-audio configured as the active provider. Used by
+   * the WAV-transport segment-fallback tests. With
+   * `fishEmitsChunkBeforeFailing`, the primary emits one audio chunk (so
+   * the play URL reaches the transport) before failing mid-stream.
+   */
+  function registerWavFallbackProviders(opts?: {
+    fishEmitsChunkBeforeFailing?: boolean;
+  }): {
+    fishTexts: string[];
+    fallbackTexts: string[];
+  } {
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "fish-audio";
+    cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
+
+    _resetTtsProviderOverridesForTests();
+    const fallbackTexts: string[] = [];
+    const elevenlabs: TtsProvider = {
+      id: "elevenlabs",
+      capabilities: {
+        supportsStreaming: false,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize(request) {
+        fallbackTexts.push(request.text);
+        return {
+          audio: Buffer.from("fallback-audio"),
+          contentType: "audio/pcm",
+        };
+      },
+    };
+    _setTtsProviderForTests(elevenlabs);
+
+    const fishTexts: string[] = [];
+    const fishAudioFailing: TtsProvider = {
+      id: "fish-audio",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize() {
+        throw new Error("fish-audio synth failure");
+      },
+      async synthesizeStream(request, onChunk) {
+        fishTexts.push(request.text);
+        if (opts?.fishEmitsChunkBeforeFailing) {
+          onChunk(Buffer.from("partial-fish-audio"));
+          // Let the queued emit flush so the play URL reaches the
+          // transport before the failure lands (mirrors a real
+          // mid-stream stall).
+          await new Promise((r) => setTimeout(r, 0));
+        }
+        throw new Error("fish-audio stream failure");
+      },
+    };
+    _setTtsProviderForTests(fishAudioFailing);
+
+    return { fishTexts, fallbackTexts };
+  }
+
+  test("WAV transport: a failed segment and the rest of the turn synthesize via a playable fallback provider", async () => {
+    const { fishTexts, fallbackTexts } = registerWavFallbackProviders();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["First part is done. ", "Second part is done."]),
+    );
+    const { relay, controller } = setupController(undefined, {
+      requiresWavAudio: true,
+    });
+
+    await controller.handleCallerUtterance("Hi");
+
+    // The primary provider is tried once; the failed segment and all
+    // subsequent segments retry through the fallback provider, so the
+    // caller hears the whole turn instead of partial speech then silence.
+    expect(fishTexts).toEqual(["First part is done."]);
+    expect(fallbackTexts).toEqual([
+      "First part is done.",
+      "Second part is done.",
+    ]);
+    expect(relay.sentPlayUrls.length).toBe(2);
+    // No text routes through native tokens on a WAV transport.
+    expect(relay.sentTokens.filter((t) => t.token.length > 0)).toEqual([]);
+    const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+    expect(lastToken).toEqual({ token: "", last: true });
+
+    controller.destroy();
+  });
+
+  test("WAV transport: a mid-stream failure after audio reached the caller is not re-spoken, but later segments use the fallback", async () => {
+    const { fishTexts, fallbackTexts } = registerWavFallbackProviders({
+      fishEmitsChunkBeforeFailing: true,
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["First part is done. ", "Second part is done."]),
+    );
+    const { relay, controller } = setupController(undefined, {
+      requiresWavAudio: true,
+    });
+
+    await controller.handleCallerUtterance("Hi");
+
+    // The failed segment's play URL already went out — the caller heard
+    // its truncated audio, so a fallback re-synthesis would speak the
+    // whole segment a second time. Only later segments route through
+    // the fallback provider.
+    expect(fishTexts).toEqual(["First part is done."]);
+    expect(fallbackTexts).toEqual(["Second part is done."]);
+    expect(relay.sentPlayUrls.length).toBe(2);
+    expect(relay.sentTokens.filter((t) => t.token.length > 0)).toEqual([]);
+    const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+    expect(lastToken).toEqual({ token: "", last: true });
+
+    controller.destroy();
+  });
+
+  test("WAV transport: when no playable fallback exists, failed segments are skipped and end-of-turn still fires", async () => {
+    // Only fish-audio's key resolves, so the fallback scan finds nothing.
+    mockResolvableProviderKeys = (service) =>
+      service === "fish-audio" ? "test-key" : null;
+    const { fishTexts, fallbackTexts } = registerWavFallbackProviders();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["First part is done. ", "Second part is done."]),
+    );
+    const { relay, controller } = setupController(undefined, {
+      requiresWavAudio: true,
+    });
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(fishTexts).toEqual(["First part is done."]);
+    expect(fallbackTexts).toEqual([]);
+    expect(relay.sentPlayUrls.length).toBe(0);
+    // Native tokens are never used on a WAV transport, and the turn
+    // still closes with the end-of-turn signal.
+    expect(relay.sentTokens.filter((t) => t.token.length > 0)).toEqual([]);
+    const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+    expect(lastToken).toEqual({ token: "", last: true });
 
     controller.destroy();
   });
@@ -3395,6 +3981,56 @@ describe("call-controller", () => {
 
       controller.destroy();
       await turnPromise.catch(() => {});
+    });
+
+    test("buffering transport: a caller utterance during processing cancels the transport's pending speech", async () => {
+      let releaseTurn!: () => void;
+      const completeGate = new Promise<void>((r) => {
+        releaseTurn = r;
+      });
+      let turnCalls = 0;
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+          signal?: AbortSignal;
+        }) => {
+          turnCalls++;
+          if (turnCalls === 1) {
+            opts.onTextDelta("Queued sentence one. Queued sentence two.");
+            opts.signal?.addEventListener("abort", () => releaseTurn());
+            await completeGate;
+            opts.onComplete();
+            return { turnId: "run-cancel-1", abort: () => releaseTurn() };
+          }
+          opts.onTextDelta("Second turn reply.");
+          opts.onComplete();
+          return { turnId: "run-cancel-2", abort: () => {} };
+        },
+      );
+
+      const { relay, controller } = setupController();
+      let cancelledPendingSpeech = 0;
+      // Buffering transport: audio never starts, so the first turn stays
+      // in `processing` with its sentences already queued for synthesis.
+      relay.setAudioStartCallback = () => {};
+      relay.cancelPendingSpeech = () => {
+        cancelledPendingSpeech++;
+      };
+
+      const turn1 = controller.handleCallerUtterance("Hi");
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(controller.getState()).toBe("processing");
+      expect(cancelledPendingSpeech).toBe(0);
+
+      // The caller speaks again before any audio played — the aborted
+      // turn's queued speech must be cancelled so it cannot play over
+      // the new turn.
+      await controller.handleCallerUtterance("Actually, wait");
+      expect(cancelledPendingSpeech).toBeGreaterThan(0);
+
+      await turn1.catch(() => {});
+      controller.destroy();
     });
 
     test("buffering transport: stale audio-start signal from a superseded run does not flip state", async () => {

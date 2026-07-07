@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./channels": "./src/channels.ts",
+    "./client-metadata": "./src/client-metadata.ts",
     "./credential-rpc": "./src/credential-rpc.ts",
     "./ingress": "./src/ingress.ts",
     "./twilio-ingress": "./src/twilio-ingress.ts",

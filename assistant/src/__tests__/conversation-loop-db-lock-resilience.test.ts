@@ -106,7 +106,6 @@ function createMockDeps(): EventHandlerDeps {
     ctx: {
       conversationId: CONVERSATION_ID,
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       streamThinking: false,
       emitActivityState: () => {},
       markWorkspaceTopLevelDirty: () => {},

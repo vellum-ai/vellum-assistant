@@ -10,7 +10,7 @@ import { hashInviteCode, hashInviteToken } from "@vellumai/gateway-client";
 
 import { getGatewayDb } from "../../db/connection.js";
 import { ContactStore } from "../../db/contact-store.js";
-import { contacts } from "../../db/schema.js";
+import { actorTokenRecords, contacts } from "../../db/schema.js";
 
 const INVITE_CODE = "123456";
 const INVITE_TOKEN = "tok_raw_abc123";
@@ -40,6 +40,25 @@ export function seedContact(opts: {
       principalId: opts.principalId ?? null,
       createdAt: now,
       updatedAt: opts.updatedAt ?? now,
+    })
+    .run();
+}
+
+/** Insert an active actor-token row bound to a guardian principal. */
+export function seedActorToken(opts: { id?: string } = {}): void {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(actorTokenRecords)
+    .values({
+      id: opts.id ?? crypto.randomUUID(),
+      tokenHash: "hash-1",
+      guardianPrincipalId: "principal-123",
+      hashedDeviceId: "device-abc",
+      platform: "macos",
+      status: "active",
+      issuedAt: now,
+      createdAt: now,
+      updatedAt: now,
     })
     .run();
 }

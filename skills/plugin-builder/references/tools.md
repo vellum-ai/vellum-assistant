@@ -78,6 +78,22 @@ The result is what the model sees back:
 | `yieldToUser`   | `boolean?`        | When true, the loop returns control to the user after this result instead of making another model call. |
 | `contentBlocks` | `ContentBlock[]?` | Rich content blocks (for example images) to include alongside the text result.                          |
 
+## Persisting data from a tool
+
+A tool that needs durable storage should derive the directory from the workspace root, which matches where the host provisions plugin storage (`<workspaceDir>/plugins/<plugin-name>/data`):
+
+```ts
+execute: async (input, ctx) => {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const storageDir = path.join(process.env.VELLUM_WORKSPACE_DIR, "plugins", "my-plugin-name", "data");
+  await fs.mkdir(storageDir, { recursive: true });
+  // read/write files under storageDir
+},
+```
+
+Note that `pluginStorageDir` is only available on `InitContext` (the `init` hook), not on `ToolContext`, so a tool cannot read it inside `execute`.
+
 ## Resolution order
 
 All tools (built-in, plugin, workspace, and MCP) land in one shared catalog. When the model calls a tool, the runtime looks it up by name. When two sources register the same name, the higher-precedence source wins:

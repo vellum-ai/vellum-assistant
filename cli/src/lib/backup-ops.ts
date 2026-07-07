@@ -9,10 +9,7 @@ import {
 import { homedir } from "os";
 import { dirname, join } from "path";
 
-import {
-  loadGuardianToken,
-  refreshGuardianToken,
-} from "./guardian-token.js";
+import { loadGuardianToken, refreshGuardianToken } from "./guardian-token.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 /** Default backup directory following XDG convention */
@@ -63,28 +60,35 @@ export async function createBackup(
   try {
     let accessToken = await getGuardianAccessToken(runtimeUrl, assistantId);
     if (!accessToken) {
-      console.warn("Warning: backup skipped — no valid guardian token available");
+      console.warn(
+        "Warning: backup skipped — no valid guardian token available",
+      );
       return null;
     }
 
-    let response = await loopbackSafeFetch(`${runtimeUrl}/v1/migrations/export`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
+    let response = await loopbackSafeFetch(
+      `${runtimeUrl}/v1/migrations/export`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          description: options?.description ?? "CLI backup",
+        }),
+        signal: AbortSignal.timeout(120_000),
       },
-      body: JSON.stringify({
-        description: options?.description ?? "CLI backup",
-      }),
-      signal: AbortSignal.timeout(120_000),
-    });
+    );
 
     // Retry once with a refreshed token on 401 — the cached token may be
     // stale after a container restart that regenerated the gateway signing key.
     if (response.status === 401) {
       const refreshed = await refreshGuardianToken(runtimeUrl, assistantId);
       if (!refreshed) {
-        console.warn(`Warning: backup export failed (401) and token refresh failed`);
+        console.warn(
+          `Warning: backup export failed (401) and token refresh failed`,
+        );
         return null;
       }
       accessToken = refreshed.accessToken;
@@ -149,19 +153,24 @@ export async function restoreBackup(
     const bundleData = readFileSync(backupPath);
     let accessToken = await getGuardianAccessToken(runtimeUrl, assistantId);
     if (!accessToken) {
-      console.warn("Warning: restore skipped — no valid guardian token available");
+      console.warn(
+        "Warning: restore skipped — no valid guardian token available",
+      );
       return false;
     }
 
-    let response = await loopbackSafeFetch(`${runtimeUrl}/v1/migrations/import`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/octet-stream",
-      },
-      body: bundleData,
-      signal: AbortSignal.timeout(120_000),
-    });
+    const postImport = () =>
+      loopbackSafeFetch(`${runtimeUrl}/v1/migrations/import`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/octet-stream",
+        },
+        body: bundleData,
+        signal: AbortSignal.timeout(120_000),
+      });
+
+    let response = await postImport();
 
     // Retry once with a refreshed token on 401 — the cached token may be
     // stale after a container restart that regenerated the gateway signing key.
@@ -172,19 +181,33 @@ export async function restoreBackup(
         return false;
       }
       accessToken = refreshed.accessToken;
-      response = await loopbackSafeFetch(`${runtimeUrl}/v1/migrations/import`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/octet-stream",
-        },
-        body: bundleData,
-        signal: AbortSignal.timeout(120_000),
-      });
+      response = await postImport();
     }
 
-    if (!response.ok) {
+    // A freshly-(re)started gateway 503s {status:"starting"} for a couple of
+    // seconds until its own assistant poll observes the migration state and
+    // opens the traffic gate — retry through that window rather than failing
+    // the recovery. The daemon's running-migrations 503 carries a `reason`
+    // field and is excluded: the import must not race an in-flight migration.
+    const startingGateDeadline = Date.now() + 15_000;
+    while (!response.ok) {
       const body = await response.text();
+      let gatewayStarting = false;
+      try {
+        const parsed = JSON.parse(body) as {
+          status?: string;
+          reason?: string;
+        };
+        gatewayStarting =
+          parsed.status === "starting" && parsed.reason === undefined;
+      } catch {
+        // Non-JSON error body — not the starting gate.
+      }
+      if (gatewayStarting && Date.now() < startingGateDeadline) {
+        await new Promise((r) => setTimeout(r, 1_000));
+        response = await postImport();
+        continue;
+      }
       console.warn(`Warning: restore failed (${response.status}): ${body}`);
       return false;
     }

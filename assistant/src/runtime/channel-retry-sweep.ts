@@ -436,6 +436,10 @@ export async function sweepFailedEvents(
         assistantId,
         {
           messageId: replyMessageId,
+          // The stored reply id may point at a bare <no_response/> row from
+          // the turn's final message; the turn boundary lets delivery fall
+          // through to the real reply written earlier in the same turn.
+          ...(event.messageId ? { sinceMessageId: event.messageId } : {}),
           startFromSegment: event.deliveredSegmentCount,
           ...(priorStreamMessageTs ? { messageTs: priorStreamMessageTs } : {}),
           onSegmentDelivered: (count) =>

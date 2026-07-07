@@ -102,6 +102,15 @@ export const ConnectionModelSchema = z
   .meta({ id: "ConnectionModel" });
 export type ConnectionModel = z.infer<typeof ConnectionModelSchema>;
 
+/**
+ * Providers whose connections require an explicit `baseUrl` and non-empty
+ * `models` list (openai-compatible endpoints have no fixed upstream, so the
+ * user must supply both). Every other provider derives these from its catalog
+ * entry and rejects a client-supplied `baseUrl`.
+ */
+export const PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: ReadonlySet<string> =
+  new Set(["openai-compatible"]);
+
 // ---------------------------------------------------------------------------
 // Full connection shape used by CRUD layer
 // ---------------------------------------------------------------------------
@@ -117,8 +126,7 @@ export const ProviderConnectionSchema = z
     createdAt: z.number().int(),
     updatedAt: z.number().int(),
     /**
-     * Whether this row is a Vellum-managed connection (`anthropic-managed`,
-     * `openai-managed`, `gemini-managed`). Derived from
+     * Whether this row is the Vellum-managed connection (`vellum`). Derived from
      * `MANAGED_CONNECTION_NAMES` in `connections.ts` at serialize time; the
      * DB column does not exist. Clients use this to render the read-only
      * "Vellum" badge + view-only editor and to disable the delete affordance

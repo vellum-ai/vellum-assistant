@@ -77,8 +77,19 @@ const { AdmissionPolicyStore } =
   await import("../db/admission-policy-store.js");
 const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
   await import("../risk/admission-policy-cache.js");
-const { contacts: gwContacts, contactChannels: gwContactChannels } =
-  await import("../db/schema.js");
+const {
+  contacts: gwContacts,
+  contactChannels: gwContactChannels,
+  actorTokenRecords,
+  actorRefreshTokenRecords,
+} = await import("../db/schema.js");
+const { bustGuardianIntegrityCache } = await import(
+  "../auth/guardian-integrity.js"
+);
+const {
+  resetGuardianIntegrityReporterForTesting,
+  setGuardianIntegrityReporterOverridesForTesting,
+} = await import("../guardian-integrity-reporter.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
 
 const CHANNEL = "telegram";
@@ -184,17 +195,32 @@ beforeEach(async () => {
   // (channels first — FK cascade from contacts).
   getGatewayDb().delete(gwContactChannels).run();
   getGatewayDb().delete(gwContacts).run();
+  // Guardian-evidence tables too: leftover token rows from sibling suites
+  // would flip the recomputed integrity state to missing_guardian.
+  getGatewayDb().delete(actorTokenRecords).run();
+  getGatewayDb().delete(actorRefreshTokenRecords).run();
   const store = new AdmissionPolicyStore();
   for (const row of store.list()) store.remove(row.channelType);
   initAdmissionPolicyCache();
   runtimePayloads = [];
   forwardToRuntimeMock.mockClear();
   interceptResult = { intercepted: false };
+  // The integrity state is TTL-cached process-wide; recompute per test and
+  // silence the fail-loud reporter (its behavior has its own suites).
+  bustGuardianIntegrityCache();
+  resetGuardianIntegrityReporterForTesting();
+  setGuardianIntegrityReporterOverridesForTesting({
+    fetchImpl: async () => new Response("{}"),
+    mintToken: () => "svc-token",
+    baseUrl: "http://127.0.0.1:7821",
+    log: { error: () => {}, warn: () => {} },
+  });
 });
 
 afterEach(() => {
   resetAdmissionPolicyCache();
   resetGatewayDb();
+  resetGuardianIntegrityReporterForTesting();
 });
 
 describe("handle-inbound trust verdict stamping", () => {
@@ -402,6 +428,27 @@ describe("handle-inbound sender-authentication downgrade", () => {
 
     const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
     expect(verdict.trustClass).toBe("guardian");
+  });
+
+  test("missing-guardian DB + senderAuthenticated=false → downgrade preserves resolutionFailed", async () => {
+    // Evidence of prior onboarding with zero guardian rows: the resolver
+    // stamps resolutionFailed on the unknown verdict. The auth downgrade must
+    // not erase it — a failed-auth sender in a broken-trust DB fails closed
+    // instead of getting stranger-lane treatment.
+    insertContact({ id: "c-residual", displayName: "Residual Member" });
+
+    await handleInbound(makeConfig(), makeEmailEvent(), {
+      ...ROUTING,
+      senderAuthenticated: false,
+    });
+
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.resolutionFailed).toBe(true);
+    expect(verdict.canonicalSenderId).toBe(GUARDIAN_EMAIL);
+    // The downgrade's stripping semantics are unchanged.
+    expect(verdict.contactId).toBeUndefined();
+    expect(verdict.guardianExternalUserId).toBeUndefined();
   });
 
   test("forged trusted_contact From: with senderAuthenticated=false → downgraded to stranger", async () => {

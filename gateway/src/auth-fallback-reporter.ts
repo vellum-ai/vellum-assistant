@@ -5,21 +5,18 @@
 // window. Deliberately does NOT touch the runtime circuit breaker — this is
 // non-critical traffic and must never affect chat routing.
 
-import { buildUpstreamUrl } from "@vellumai/assistant-client";
-
-import { mintServiceToken } from "./auth/token-exchange.js";
 import type {
   AuthFallbackCount,
   AuthFallbackCountTracker,
 } from "./auth-fallback-count-tracker.js";
-import { fetchImpl } from "./fetch.js";
+import type { fetchImpl } from "./fetch.js";
+import { postInternalTelemetry } from "./internal-telemetry-client.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("auth-fallback-reporter");
 
 const ROUTE_PATH = "/v1/internal/telemetry/auth-fallback";
 const DEFAULT_FLUSH_INTERVAL_MS = 60_000;
-const POST_TIMEOUT_MS = 10_000;
 
 function getFlushIntervalMs(): number {
   const raw = process.env.AUTH_FALLBACK_FLUSH_INTERVAL_MS;
@@ -54,16 +51,16 @@ export class AuthFallbackReporter {
   private readonly tracker: AuthFallbackCountTracker;
   private readonly baseUrl: string;
   private readonly intervalMs: number;
-  private readonly doFetch: typeof fetchImpl;
-  private readonly mintToken: () => string;
+  private readonly doFetch: typeof fetchImpl | undefined;
+  private readonly mintToken: (() => string) | undefined;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(config: AuthFallbackReporterConfig) {
     this.tracker = config.tracker;
     this.baseUrl = config.baseUrl;
     this.intervalMs = config.intervalMs ?? getFlushIntervalMs();
-    this.doFetch = config.fetchImpl ?? fetchImpl;
-    this.mintToken = config.mintToken ?? mintServiceToken;
+    this.doFetch = config.fetchImpl;
+    this.mintToken = config.mintToken;
   }
 
   start(): void {
@@ -105,15 +102,12 @@ export class AuthFallbackReporter {
     };
 
     try {
-      const url = buildUpstreamUrl(this.baseUrl, ROUTE_PATH);
-      const resp = await this.doFetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.mintToken()}`,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(POST_TIMEOUT_MS),
+      const resp = await postInternalTelemetry({
+        baseUrl: this.baseUrl,
+        path: ROUTE_PATH,
+        body,
+        fetchImpl: this.doFetch,
+        mintToken: this.mintToken,
       });
       if (!resp.ok) {
         log.warn(
@@ -121,9 +115,7 @@ export class AuthFallbackReporter {
           "Auth-fallback flush rejected — re-queueing counts for next flush",
         );
         this.tracker.merge(batch.counts);
-        return;
       }
-      await resp.text(); // release the connection
     } catch (err) {
       log.warn(
         { err, keys: batch.counts.length },

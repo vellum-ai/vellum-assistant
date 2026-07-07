@@ -242,4 +242,74 @@ describe("GET /tools", () => {
       handler({ queryParams: { conversationId: "missing" } }),
     ).toThrow(/No active conversation "missing"/);
   });
+
+  test("with agent=role, simulates the subagent tool projection", async () => {
+    // GIVEN core tools including ones in and out of the researcher allowlist
+    registerTool(makeFakeTool("web_search"));
+    registerTool(makeFakeTool("web_fetch"));
+    registerTool(makeFakeTool("file_read"));
+    registerTool(makeFakeTool("file_list"));
+    registerTool(makeFakeTool("recall"));
+    registerTool(makeFakeTool("notify_parent"));
+    // These should be filtered out for the researcher role:
+    registerTool(makeFakeTool("bash"));
+    registerTool(makeFakeTool("file_write"));
+    registerTool(makeFakeTool("file_edit"));
+
+    // WHEN the handler runs with agent=researcher
+    const { names } = (await handler({
+      queryParams: { agent: "researcher" },
+    })) as ToolsGetResponse;
+
+    // THEN only the researcher allowlist tools are returned
+    expect(names).toContain("web_search");
+    expect(names).toContain("web_fetch");
+    expect(names).toContain("file_read");
+    expect(names).toContain("file_list");
+    expect(names).toContain("recall");
+    expect(names).toContain("notify_parent");
+    // And tools outside the allowlist are excluded
+    expect(names).not.toContain("bash");
+    expect(names).not.toContain("file_write");
+    expect(names).not.toContain("file_edit");
+  });
+
+  test("with agent=general, returns all tools (no allowlist filter)", async () => {
+    // GIVEN core tools
+    registerTool(makeFakeTool("web_search"));
+    registerTool(makeFakeTool("bash"));
+    registerTool(makeFakeTool("notify_parent"));
+
+    // WHEN the handler runs with agent=general (allowedTools: undefined)
+    const { names } = (await handler({
+      queryParams: { agent: "general" },
+    })) as ToolsGetResponse;
+
+    // THEN all registered tools are visible — the general role has no
+    // allowlist, so nothing is filtered
+    expect(names).toContain("web_search");
+    expect(names).toContain("bash");
+    expect(names).toContain("notify_parent");
+  });
+
+  test("with agent=role, notify_parent is visible (subagent-only gating works)", async () => {
+    // GIVEN notify_parent registered as a core tool
+    registerTool(makeFakeTool("notify_parent"));
+
+    // WHEN the handler runs with agent=coder
+    const { names, tools } = (await handler({
+      queryParams: { agent: "coder" },
+    })) as ToolsGetResponse;
+
+    // THEN notify_parent appears because isSubagent=true satisfies
+    // the SUBAGENT_ONLY_TOOL_NAMES gate in isToolActiveForContext
+    expect(names).toContain("notify_parent");
+    expect(tools.some((t) => t.name === "notify_parent")).toBe(true);
+  });
+
+  test("with an unknown agent, throws a 404 RouteError", () => {
+    expect(() =>
+      handler({ queryParams: { agent: "nonexistent_role" } }),
+    ).toThrow(/Unknown agent "nonexistent_role"/);
+  });
 });

@@ -75,7 +75,6 @@ function makeDeps(): EventHandlerDeps {
     ctx: {
       conversationId: CONVERSATION_ID,
       provider: { name: "mock-provider" },
-      traceEmitter: { emit: () => {} },
       currentTurnSurfaces: [],
       trustContext: undefined,
     } as unknown as EventHandlerDeps["ctx"],

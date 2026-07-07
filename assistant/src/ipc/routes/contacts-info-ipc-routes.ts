@@ -14,7 +14,7 @@
  * route schema.
  */
 
-import { and, eq, inArray, like, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../../persistence/db-connection.js";
@@ -125,7 +125,9 @@ const CHANNEL_IDENTITY_PROJECTION = {
  * Resolve a contact-channel identity by `channelId` OR by logical
  * `(type, address)` (COLLATE NOCASE). Replaces the raw identity SELECTs in the
  * verification helpers and the gateway channel resolver. Returns the channel's
- * identity fields (no ACL/status).
+ * identity fields (no ACL/status). The unique `(type, address)` index is
+ * case-sensitive while this lookup is NOCASE, so case-variant duplicates can
+ * match; they resolve to the most-recently-updated row.
  */
 export function handleContactChannelIdentityLookup({
   body = {},
@@ -146,6 +148,7 @@ export function handleContactChannelIdentityLookup({
     .from(contactChannels)
     .innerJoin(contacts, eq(contacts.id, contactChannels.contactId))
     .where(where)
+    .orderBy(desc(contactChannels.updatedAt))
     .get();
 
   return { channel: row ?? null };

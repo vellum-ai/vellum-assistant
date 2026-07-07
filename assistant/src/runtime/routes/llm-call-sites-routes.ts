@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
 import { loadConfig } from "../../config/loader.js";
 import {
@@ -52,7 +53,7 @@ export type LlmProfilesListResult = z.infer<
 
 async function handleListProfiles(): Promise<LlmProfilesListResult> {
   const { llm } = loadConfig();
-  const profiles = llm?.profiles ?? {};
+  const profiles = getEffectiveProfiles(llm?.profiles);
   return {
     profiles: Object.keys(profiles).sort(),
     activeProfile:

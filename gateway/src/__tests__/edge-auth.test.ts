@@ -24,7 +24,11 @@ import "./test-preload.js";
 let mockReadCredential = mock(
   async (_key: string): Promise<string | undefined> => undefined,
 );
+// Spread the actual module so untouched exports (getWorkspaceDir, …) stay
+// importable by transitive dependencies of the modules under test.
+const actualCredentialReader = await import("../credential-reader.js");
 mock.module("../credential-reader.js", () => ({
+  ...actualCredentialReader,
   readCredential: (key: string) => mockReadCredential(key),
 }));
 
@@ -38,7 +42,9 @@ let mockValidateEdgeToken = mock(
     reason: "noop",
   }),
 );
+const actualTokenExchange = await import("../auth/token-exchange.js");
 mock.module("../auth/token-exchange.js", () => ({
+  ...actualTokenExchange,
   validateEdgeToken: (token: string) => mockValidateEdgeToken(token),
 }));
 

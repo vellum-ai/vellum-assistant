@@ -25,12 +25,6 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
-// Member ACL rides on memberRecord, sourced from the member-verdict cache; this
-// suite only exercises the gateway-guardian path, so no member resolves.
-mock.module("../../contacts/contact-store.js", () => ({
-  findContactByAddress: (_channelType: string, _address: string) => null,
-}));
-
 const { resolveLocalPrincipalTrustContext } = await import(
   "../local-principal-trust.js"
 );

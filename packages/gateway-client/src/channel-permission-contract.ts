@@ -74,6 +74,12 @@ export type ChannelConversationType =
 
 export const ChannelConversationTypeSchema = z.enum(CHANNEL_CONVERSATION_TYPES);
 
+export function isChannelConversationType(
+  value: unknown,
+): value is ChannelConversationType {
+  return ChannelConversationTypeSchema.safeParse(value).success;
+}
+
 // ── Cell selector + cell ─────────────────────────────────────────────────────
 
 /**
@@ -126,6 +132,19 @@ export const ChannelPermissionCellSchema = z.object({
 });
 
 export type ChannelPermissionCell = z.infer<typeof ChannelPermissionCellSchema>;
+
+/**
+ * Composite key identifying one cell (selector × contact-type) — the shape
+ * delete operations take on both the IPC and HTTP surfaces.
+ */
+export const ChannelPermissionCellKeySchema = z.object({
+  selector: ChannelPermissionSelectorSchema,
+  contactType: TrustClassSchema,
+});
+
+export type ChannelPermissionCellKey = z.infer<
+  typeof ChannelPermissionCellKeySchema
+>;
 
 /** A persisted cell as read back from the store. */
 export interface ChannelPermissionCellRow extends ChannelPermissionCell {

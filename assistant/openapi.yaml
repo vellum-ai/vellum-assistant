@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.5
+  version: 0.10.6
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -49,9 +49,9 @@ paths:
       operationId: readyz_get
       summary: Readiness probe
       description:
-        Strict readiness probe. Returns 503 with { status, ready, notReady } until the daemon's synchronous startup
-        latches (isStartupComplete() && isDbReady()) are set, then a stable 200. notReady lists the gates still failing
-        ("startup", "db"). CES is informational and never gates readiness.
+        "Readiness probe. Returns 200 while DB migrations are running (body { status: 'migrating', ready: false,
+        dbMigrations }) so orchestrators keep the pod in service, then a stable 200 { status: 'ok', ready: true } once
+        migrations complete. Returns 503 only when migrations failed. CES is informational and never gates readiness."
       responses:
         "200":
           description: Successful response
@@ -64,17 +64,34 @@ paths:
                     type: string
                   ready:
                     type: boolean
-                  notReady:
-                    type: array
-                    items:
-                      type: string
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - not_started
+                          - running
+                          - failed
+                          - ready
+                      reason:
+                        type: string
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
+                    additionalProperties: false
                 required:
                   - status
                   - ready
-                  - notReady
                 additionalProperties: false
         "503":
-          description: Not ready — startup incomplete or database not ready.
+          description: DB migrations failed — daemon requires a restart.
           content:
             application/json:
               schema:
@@ -84,14 +101,31 @@ paths:
                     type: string
                   ready:
                     type: boolean
-                  notReady:
-                    type: array
-                    items:
-                      type: string
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - not_started
+                          - running
+                          - failed
+                          - ready
+                      reason:
+                        type: string
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
+                    additionalProperties: false
                 required:
                   - status
                   - ready
-                  - notReady
                 additionalProperties: false
   /v1/acp/{id}/cancel:
     post:
@@ -4003,18 +4037,12 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
-                        verifiedVia:
-                          anyOf:
-                            - type: string
-                            - type: "null"
                         memberDisplayName:
                           type: string
                         interactionCount:
                           type: number
-                        lastInteraction:
-                          anyOf:
-                            - type: number
-                            - type: "null"
+                        hasInterceptableVerificationSession:
+                          type: boolean
                       required:
                         - trustClass
                         - canonicalSenderId
@@ -6314,6 +6342,14 @@ paths:
                               required:
                                 - channelId
                               additionalProperties: false
+                            sourceLink:
+                              type: object
+                              properties:
+                                appUrl:
+                                  type: string
+                                webUrl:
+                                  type: string
+                              additionalProperties: false
                           required:
                             - sourceChannel
                             - externalChatId
@@ -6659,6 +6695,14 @@ paths:
                             required:
                               - channelId
                             additionalProperties: false
+                          sourceLink:
+                            type: object
+                            properties:
+                              appUrl:
+                                type: string
+                              webUrl:
+                                type: string
+                            additionalProperties: false
                         required:
                           - sourceChannel
                           - externalChatId
@@ -6865,6 +6909,14 @@ paths:
                                 additionalProperties: false
                             required:
                               - channelId
+                            additionalProperties: false
+                          sourceLink:
+                            type: object
+                            properties:
+                              appUrl:
+                                type: string
+                              webUrl:
+                                type: string
                             additionalProperties: false
                         required:
                           - sourceChannel
@@ -8017,6 +8069,14 @@ paths:
                                 additionalProperties: false
                             required:
                               - channelId
+                            additionalProperties: false
+                          sourceLink:
+                            type: object
+                            properties:
+                              appUrl:
+                                type: string
+                              webUrl:
+                                type: string
                             additionalProperties: false
                         required:
                           - sourceChannel
@@ -11332,6 +11392,76 @@ paths:
       responses:
         "204":
           description: Successful response
+  /v1/events/tail:
+    get:
+      operationId: events_tail_get
+      summary: Fetch a conversation's buffered event tail
+      description:
+        Return the ring-buffered assistant events for one conversation with seq greater than fromSeq — the
+        request/response twin of reconnecting the SSE stream with lastSeenSeq. A client recovering from a delivery gap
+        fetches the /messages snapshot (anchored at its seq watermark) and then this tail from that anchor, folding the
+        returned envelopes through the same apply path as live events; snapshot plus tail is deterministically complete.
+        complete=false means the ring no longer reaches back to fromSeq and the snapshot alone must serve as the
+        recovery.
+      tags:
+        - events
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Assistant-minted internal conversation id whose events to return. Required.
+        - name: fromSeq
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            Return buffered events with seq strictly greater than this value — typically the seq watermark of a
+            just-fetched /messages snapshot. Must be a non-negative integer.
+        - name: toSeq
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            Optional inclusive upper bound on returned seqs. A caller that already knows where its live delivery
+            resumed (e.g. the first live event after a gap) can trim the response to exactly the hole. Purely a
+            bandwidth trim — client folds are seq-idempotent, so overlap with live delivery is harmless without it. Must
+            be an integer >= fromSeq.
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items: {}
+                    description:
+                      Buffered assistant event envelopes ({id, conversationId, emittedAt, seq, message}) with seq > fromSeq,
+                      ascending, filtered to the conversation and to the caller's delivery set (client identity
+                      headers). Same wire shape as the /events SSE data frames.
+                  complete:
+                    type: boolean
+                    description:
+                      True when the ring still covered fromSeq, so the returned events are the contiguous tail. False when
+                      eviction broke contiguity — events is empty and the caller must recover from the snapshot alone.
+                  frontier:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Seq of the last returned event (or fromSeq when the tail is empty but contiguous). Null when complete is
+                      false.
+                required:
+                  - events
+                  - complete
+                  - frontier
+                additionalProperties: false
   /v1/export:
     post:
       operationId: export_post
@@ -11933,6 +12063,28 @@ paths:
                       - budget
                       - lastCompletedRun
                     additionalProperties: false
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - not_started
+                          - running
+                          - failed
+                          - ready
+                      reason:
+                        type: string
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
+                    additionalProperties: false
                 required:
                   - status
                   - timestamp
@@ -12109,6 +12261,28 @@ paths:
                       - artifactCount
                       - budget
                       - lastCompletedRun
+                    additionalProperties: false
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - not_started
+                          - running
+                          - failed
+                          - ready
+                      reason:
+                        type: string
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
                     additionalProperties: false
                 required:
                   - status
@@ -13858,9 +14032,8 @@ paths:
       operationId: inference_providerconnections_by_name_delete
       summary: Delete a provider connection
       description:
-        Delete a provider connection. Fails with 400 for managed connections (anthropic-managed, openai-managed,
-        gemini-managed) which are re-seeded on boot. Fails with 409 if any profile or call-site references the
-        connection.
+        Delete a provider connection. Fails with 400 for the Vellum-managed connection (vellum) which is re-seeded
+        on boot. Fails with 409 if any profile or call-site references the connection.
       tags:
         - inference
       parameters:
@@ -13914,8 +14087,8 @@ paths:
       operationId: inference_providerconnections_by_name_patch
       summary: Update a provider connection
       description:
-        Update an existing connection. Cannot rename or change the provider. For managed connections
-        (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label remains editable.
+        Update an existing connection. Cannot rename or change the provider. For the Vellum-managed connection
+        (vellum) the auth is locked to platform; label remains editable.
       tags:
         - inference
       parameters:
@@ -15534,6 +15707,54 @@ paths:
                     required:
                       - skipped
                     additionalProperties: false
+  /v1/internal/telemetry/watchdog:
+    post:
+      operationId: internal_telemetry_watchdog_post
+      summary: Relay a watchdog telemetry event
+      description:
+        Emits a gateway-origin watchdog telemetry event directly to platform ingest, bypassing the SQLite watchdog
+        buffer, so integrity alarms never depend on the state they report on.
+      tags:
+        - internal
+        - telemetry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                check_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                detail:
+                  anyOf:
+                    - type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties: {}
+                    - type: "null"
+                value:
+                  anyOf:
+                    - type: number
+                    - type: "null"
+              required:
+                - check_name
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                required:
+                  - ok
+                additionalProperties: false
   /v1/internal/twilio/status:
     post:
       operationId: internal_twilio_status_post
@@ -18843,28 +19064,6 @@ paths:
                   - memoryRecall
                   - memoryV2Activation
                 additionalProperties: false
-  /v1/messages/{messageId}/tts:
-    post:
-      operationId: messages_by_messageId_tts_post
-      summary: Synthesize message to speech
-      description: Synthesize a message's text content to audio using the configured TTS provider.
-      tags:
-        - messages
-      parameters:
-        - name: messageId
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: conversationId
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Conversation that contains the message
-      responses:
-        "200":
-          description: Successful response
   /v1/messages/lexical/backfill:
     post:
       operationId: messages_lexical_backfill_post
@@ -21128,6 +21327,44 @@ paths:
                   showPlatformLogin:
                     type: boolean
                 additionalProperties: false
+  /v1/platform/credits:
+    get:
+      operationId: platform_credits_get
+      summary: Get the organization's remaining credit balance
+      description:
+        Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform
+        billing summary.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  remaining:
+                    type: number
+                  settled:
+                    type: number
+                  pending:
+                    type: number
+                  unit:
+                    type: string
+                    const: USD
+                  stale:
+                    type: boolean
+                  as_of:
+                    type: string
+                required:
+                  - remaining
+                  - settled
+                  - pending
+                  - unit
+                  - stale
+                  - as_of
+                additionalProperties: false
   /v1/platform/disconnect:
     post:
       operationId: platform_disconnect_post
@@ -21385,7 +21622,8 @@ paths:
         Remove the directory at `<workspaceDir>/plugins/<name>/`. Mirrors the CLI's `assistant plugins uninstall
         <name>` (without the interactive confirmation — the API caller is responsible for any prompt). The plugin name
         is sanitized by the same regex the CLI uses; `../escape`-style values, hidden names, and absolute paths return
-        400. Missing plugins return 404. The assistant must be restarted to drop the plugin from the running runtime.
+        400. Missing plugins return 404. The plugin is dropped from the running runtime live on the next read (no
+        restart required).
       tags:
         - plugins
       parameters:
@@ -21983,14 +22221,14 @@ paths:
         `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref),
         mirroring `plugins install`''s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed
         commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching
-        the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to
-        load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them
-        and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the
-        re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting
-        hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and
-        reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy
-        whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade
-        <name> [--strategy <s>]`.'
+        the install. Installs lacking provenance are re-pinned to the current SHA. The upgraded code is picked up live
+        on the next read (no restart required). `strategy` controls how local edits are reconciled: `overwrite`
+        (default) discards them and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge
+        against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving
+        conflicting hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the
+        file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge
+        strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins
+        upgrade <name> [--strategy <s>]`.'
       tags:
         - plugins
       parameters:
@@ -22192,9 +22430,9 @@ paths:
         "Install a plugin by name from the canonical source — a whitelisted `plugins/marketplace.json` entry.
         Always resolves against the curated default git ref (no caller-supplied ref): installing from an unreviewed
         revision would bypass the marketplace curation boundary and let attacker-controlled code be loaded. Materializes
-        the plugin under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's
-        `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves
-        to nothing returns 404. Sibling to `POST /v1/skills/install`."
+        the plugin under `<workspaceDir>/plugins/<name>/`; the plugin is picked up live on the next read (no restart
+        required). Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force`
+        returns 409; a name that resolves to nothing returns 404. Sibling to `POST /v1/skills/install`."
       tags:
         - plugins
       requestBody:
@@ -27316,6 +27554,19 @@ paths:
       description: List Slack channels, groups, and DMs for the channel picker.
       tags:
         - integrations
+      parameters:
+        - name: memberOnly
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "true"
+              - "false"
+          description:
+            "When 'true', only return rooms the connected identity is in: channels with is_member plus group DMs. 1:1
+            DMs are excluded — they are person-scoped, and Slack materializes IM rows without any conversation
+            happening."
       responses:
         "200":
           description: Successful response
@@ -27341,11 +27592,29 @@ paths:
                             - dm
                         isPrivate:
                           type: boolean
+                        isMember:
+                          type: boolean
+                        memberCount:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        topic:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        imageUrl:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                       required:
                         - id
                         - name
                         - type
                         - isPrivate
+                        - isMember
+                        - memberCount
+                        - topic
+                        - imageUrl
                       additionalProperties: false
                 required:
                   - channels
@@ -27394,6 +27663,47 @@ paths:
                   - ok
                   - ts
                   - channel
+                additionalProperties: false
+  /v1/slack/users:
+    get:
+      operationId: slack_users_get
+      summary: List Slack workspace users
+      description:
+        List human members of the connected Slack workspace for the contact account-linking picker. Deleted users
+        and bots are excluded.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        username:
+                          type: string
+                        displayName:
+                          type: string
+                        imageUrl:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - username
+                        - displayName
+                        - imageUrl
+                      additionalProperties: false
+                required:
+                  - users
                 additionalProperties: false
   /v1/sounds/available:
     get:
@@ -28520,7 +28830,8 @@ paths:
         skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present
         but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools
         available to that conversation as of its most recent turn (including skill/MCP tools registered over its
-        lifecycle); 404 if no such conversation is active."
+        lifecycle); 404 if no such conversation is active. With `agent`, simulates the subagent tool projection for a
+        given role or resolves a live subagent's conversation."
       tags:
         - tools
       parameters:
@@ -28530,6 +28841,14 @@ paths:
           schema:
             type: string
           description: When set, scope the tool inventory to this conversation's most recent turn instead of the global registry.
+        - name: agent
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            A subagent role name or a live subagent id. Simulates the subagent tool projection for that role or
+            resolves the live subagent's conversation.
       responses:
         "200":
           description: Successful response
@@ -28613,105 +28932,6 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/trace-events:
-    get:
-      operationId: traceevents_get
-      summary: List trace events
-      description: Return persisted trace events for a conversation.
-      tags:
-        - trace
-      parameters:
-        - name: conversationId
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Conversation ID (required)
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-          description: Max events to return
-        - name: afterSequence
-          in: query
-          required: false
-          schema:
-            type: integer
-          description: Return events after this sequence number
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  events:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        eventId:
-                          type: string
-                        conversationId:
-                          type: string
-                        requestId:
-                          type: string
-                        timestampMs:
-                          type: number
-                        sequence:
-                          type: number
-                        kind:
-                          type: string
-                          enum:
-                            - request_received
-                            - request_queued
-                            - request_dequeued
-                            - llm_call_started
-                            - llm_call_finished
-                            - assistant_message
-                            - tool_started
-                            - tool_permission_requested
-                            - tool_permission_decided
-                            - tool_finished
-                            - tool_failed
-                            - generation_handoff
-                            - message_complete
-                            - generation_cancelled
-                            - request_error
-                            - tool_profiling_summary
-                        status:
-                          type: string
-                          enum:
-                            - info
-                            - success
-                            - warning
-                            - error
-                        summary:
-                          type: string
-                        attributes:
-                          type: object
-                          propertyNames:
-                            type: string
-                          additionalProperties:
-                            anyOf:
-                              - type: string
-                              - type: number
-                              - type: boolean
-                              - type: "null"
-                      required:
-                        - eventId
-                        - conversationId
-                        - timestampMs
-                        - sequence
-                        - kind
-                        - summary
-                      additionalProperties: false
-                    description: Trace event objects
-                required:
-                  - events
-                additionalProperties: false
   /v1/transfers/{transferId}/content:
     get:
       operationId: transfers_by_transferId_content_get

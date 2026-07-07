@@ -12,7 +12,15 @@ import {
   resetGuardianBootstrap,
   seedGuardianTokenFromSiblingEnv,
 } from "../lib/guardian-token.js";
-import { resolveProcessState, stopProcessByPidFile, isProcessAlive } from "../lib/process";
+import {
+  probeDaemonReadinessWithRetry,
+  waitForDaemonMigrationsReady,
+} from "../lib/http-client.js";
+import {
+  isProcessAlive,
+  resolveProcessState,
+  stopProcessByPidFile,
+} from "../lib/process";
 import {
   generateLocalSigningKey,
   isAssistantWatchModeAvailable,
@@ -109,13 +117,23 @@ export async function wake(): Promise<void> {
 
   const pidFile = getDaemonPidPath(resources);
 
+  // Budget anchor for the migration-coordination wait below: the host
+  // wrapper (packages/local-mode/src/wake.ts WAKE_TIMEOUT_MS) SIGTERMs wake
+  // after 180s, and the hung-daemon health wait + post-spawn wait + gateway
+  // start can already consume most of that.
+  const wakeStartedAt = Date.now();
+
   let daemonRunning = false;
+  let daemonUnready = false;
+  let daemonMigrationsFailed = false;
   const daemonState = await resolveProcessState(
     pidFile,
     resources.daemonPort,
     "Assistant",
+    60_000,
+    "readyz",
   );
-  if (daemonState.status === "healthy") {
+  if (daemonState.status !== "needs_start") {
     if (watch && isAssistantWatchModeAvailable()) {
       console.log(
         `Assistant running (pid ${daemonState.pid}) — restarting in watch mode...`,
@@ -123,9 +141,19 @@ export async function wake(): Promise<void> {
       await stopProcessByPidFile(pidFile, "assistant");
     } else {
       daemonRunning = true;
+      daemonUnready = daemonState.status !== "healthy";
+      daemonMigrationsFailed = daemonState.status === "migration_failed";
       if (watch) {
         console.log(
           `Assistant running (pid ${daemonState.pid}) — watch mode not available (no source files). Keeping existing process.`,
+        );
+      } else if (daemonMigrationsFailed) {
+        console.log(
+          `Assistant running (pid ${daemonState.pid}) but its database migrations failed.`,
+        );
+      } else if (daemonUnready) {
+        console.log(
+          `Assistant running (pid ${daemonState.pid}) — database migrations still running.`,
         );
       } else {
         console.log(`Assistant already running (pid ${daemonState.pid}).`);
@@ -189,6 +217,13 @@ export async function wake(): Promise<void> {
       startCes(watch, resources),
       startLocalDaemon(watch, resources, { foreground, signingKey }),
     ]);
+    // startLocalDaemon's post-spawn wait is bounded (60s) — a longer
+    // migration outlives it. Classify the fresh spawn the same way the
+    // attach path does, so the gateway-coordination wait below applies to
+    // both paths and wake's closing summary stays honest.
+    const readiness = await probeDaemonReadinessWithRetry(resources.daemonPort);
+    daemonUnready = readiness === "migrating";
+    daemonMigrationsFailed = readiness === "failed";
   } else {
     // Self-heal: the daemon is already healthy, but the CES sibling may have
     // died independently (crash, OOM kill). A dead ces.pid under a live daemon
@@ -205,6 +240,7 @@ export async function wake(): Promise<void> {
   }
 
   // Start gateway
+  let gatewayStarted = false;
   {
     const vellumDir = join(resources.instanceDir, ".vellum");
     const gatewayPidFile = join(vellumDir, "gateway.pid");
@@ -231,6 +267,7 @@ export async function wake(): Promise<void> {
         signingKey,
         bootstrapSecret,
       });
+      gatewayStarted = true;
     } else if (gatewayAlive) {
       if (watch && isGatewayWatchModeAvailable()) {
         console.log(
@@ -238,6 +275,7 @@ export async function wake(): Promise<void> {
         );
         await stopProcessByPidFile(gatewayPidFile, "gateway");
         await startGateway(watch, resources, { signingKey, bootstrapSecret });
+        gatewayStarted = true;
       } else {
         if (watch) {
           console.log(
@@ -249,6 +287,32 @@ export async function wake(): Promise<void> {
       }
     } else {
       await startGateway(watch, resources, { signingKey, bootstrapSecret });
+      gatewayStarted = true;
+    }
+  }
+
+  // A freshly-(re)started gateway refuses all non-probe traffic until the
+  // daemon reports migration readiness, so consumers that act right after
+  // wake (the web connect-repair retry, the guardian re-provision below)
+  // would hit its closed gate. When the daemon is migrating AND the gateway
+  // was just started (or a guardian repair was requested), wait out the
+  // migration — capped at 60s and at whatever budget remains before the
+  // 180s host-wrapper SIGTERM (30s headroom kept), since earlier bounded
+  // waits may already have consumed most of it. Fast path (gateway already
+  // serving, no repair) stays ~1s.
+  if (
+    daemonUnready &&
+    !daemonMigrationsFailed &&
+    (gatewayStarted || repairGuardian)
+  ) {
+    const waitBudgetMs = Math.min(60_000, wakeStartedAt + 150_000 - Date.now());
+    if (waitBudgetMs > 0) {
+      const readiness = await waitForDaemonMigrationsReady(
+        resources.daemonPort,
+        Date.now() + waitBudgetMs,
+      );
+      daemonUnready = readiness !== "ready";
+      daemonMigrationsFailed = readiness === "failed";
     }
   }
 
@@ -295,6 +359,11 @@ export async function wake(): Promise<void> {
           console.warn(
             `   Guardian token re-provision failed after ${maxAttempts} attempts: ${err}`,
           );
+          // The user explicitly confirmed this destructive repair — a
+          // success exit here would make callers (the web recovery flow)
+          // treat a repair that never ran as done and drop their cached
+          // gateway token. Surface the failure through the exit code.
+          process.exitCode = 1;
         }
       }
     }
@@ -311,6 +380,15 @@ export async function wake(): Promise<void> {
     writeFileSync(ngrokPidFile, String(ngrokChild.pid));
   }
 
+  if (daemonMigrationsFailed) {
+    console.log(
+      "Assistant database migrations FAILED — DB-backed routes will return 503 until the assistant is restarted. Check the daemon logs.",
+    );
+  } else if (daemonUnready) {
+    console.log(
+      "Assistant is still running database migrations; DB-backed routes return 503 until they finish.",
+    );
+  }
   console.log("Wake complete.");
 
   if (foreground) {

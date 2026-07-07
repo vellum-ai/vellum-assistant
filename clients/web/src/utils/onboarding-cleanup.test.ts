@@ -29,6 +29,7 @@ const storeState = {
   setShareDiagnostics: mock(() => {}),
   setAnalyticsConsentCurrent: mock(() => {}),
   setDiagnosticsConsentCurrent: mock(() => {}),
+  setConsentHydrated: mock(() => {}),
 };
 mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: { getState: () => storeState },
@@ -91,6 +92,7 @@ beforeEach(() => {
   storeState.setShareDiagnostics.mockReset();
   storeState.setAnalyticsConsentCurrent.mockReset();
   storeState.setDiagnosticsConsentCurrent.mockReset();
+  storeState.setConsentHydrated.mockReset();
   patchConsentMock.mockReset();
   patchConsentMock.mockImplementation(async () => {});
   setDeviceBoolMock.mockReset();
@@ -474,6 +476,18 @@ describe("saveConsent", () => {
     expect(storeState.setDiagnosticsConsentCurrent).toHaveBeenCalledWith(true);
     expect(localStorage.getItem(analyticsKey("user-1"))).toBe("true");
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBe("true");
+  });
+
+  test("marks consent hydrated — an explicit acceptance is authoritative", () => {
+    saveConsent({
+      userId: "user-1",
+      tos: true,
+      privacy: true,
+      shareAnalytics: true,
+      shareDiagnostics: true,
+      hasPlatformSession: false,
+    });
+    expect(storeState.setConsentHydrated).toHaveBeenCalledWith(true);
   });
 });
 

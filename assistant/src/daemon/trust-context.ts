@@ -4,6 +4,8 @@
  * Extracted from conversation-runtime-assembly.ts to break circular
  * imports (memory/conversation-crud → daemon/conversation-runtime-assembly).
  */
+import type { ChannelConversationType } from "@vellumai/gateway-client";
+
 import type { ChannelId } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
 import { shouldExposePersonalMemory } from "../plugins/defaults/memory/v2/static-context.js";
@@ -38,6 +40,13 @@ export interface TrustContext {
   requesterExternalUserId?: string;
   /** Chat/conversation ID the requester is interacting through. */
   requesterChatId?: string;
+  /**
+   * Conversation type of the inbound chat mapped onto the permission-matrix
+   * axis (`dm | private | public`). Undefined when the channel's chat type is
+   * unknown or ambiguous — the matrix's channel-type tier then cannot match
+   * and resolution falls through to the adapter tier (fail-safe direction).
+   */
+  conversationType?: ChannelConversationType;
   /** Contact ID of the requester's member record, for local info joins. */
   requesterContactId?: string;
   /** API-facing member status of the requester's channel (ACL). */
@@ -58,8 +67,9 @@ export interface TrustContext {
  * scheduled tasks) when invoking the agent loop without
  * an inbound actor identity. The assistant is the guardian over its own
  * internal state, so self-maintenance flows clear the side-effect
- * approval gate. Inbound message conversations resolve trust per-actor
- * via `resolveTrustContext()` and must not use this constant.
+ * approval gate. Inbound message conversations derive trust per-actor from
+ * the gateway-stamped verdict (`trustContextFromVerdict()`) and must not
+ * use this constant.
  */
 export const INTERNAL_GUARDIAN_TRUST_CONTEXT = {
   sourceChannel: "vellum",
@@ -124,4 +134,32 @@ export function isPersonalMemoryAllowed(
     sourceChannel: trustContext?.sourceChannel,
     isTrustedActor: resolveTrustClass(trustContext) === "guardian",
   });
+}
+
+/**
+ * Map a channel-native chat type (Telegram `private`/`group`/`supergroup`,
+ * Slack `im`/`mpim`/`channel`) onto the permission-matrix conversation-type
+ * axis. Slack's gateway normalizer forwards every non-DM as `"channel"`
+ * without distinguishing public from private, so `"channel"` maps to
+ * undefined — a permissive public-channel cell must not silently govern
+ * private channels. The channel-type tier starts matching for Slack non-DMs
+ * once the gateway forwards the distinct type.
+ */
+export function mapChatTypeToConversationType(
+  chatType?: string,
+): ChannelConversationType | undefined {
+  switch (chatType) {
+    case "im": // Slack DM
+    case "private": // Telegram DM
+      return "dm";
+    // "mpim" is Slack's multi-party DM. The gateway normalizer currently
+    // collapses mpim into "channel", so this arm matches nothing from Slack
+    // today; it pins the correct mapping for the raw Slack vocabulary.
+    case "mpim":
+    case "group": // Telegram group
+    case "supergroup": // Telegram supergroup
+      return "private";
+    default:
+      return undefined;
+  }
 }

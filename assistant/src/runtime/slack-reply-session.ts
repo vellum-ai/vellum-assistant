@@ -18,7 +18,7 @@ import { deliverChannelReply } from "./gateway-client.js";
 import {
   hasDeliverableAssistantText,
   NO_RESPONSE_INLINE_RE,
-} from "./slack-no-response.js";
+} from "./no-response.js";
 import type { TaskProgressData } from "./slack-task-progress.js";
 import {
   getTaskProgressDataFromSurfaceData,

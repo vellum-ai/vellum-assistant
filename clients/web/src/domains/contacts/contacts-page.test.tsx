@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
 import { ApiError } from "@/utils/api-errors";
 import type { ContactPayload } from "@/domains/contacts/types";
@@ -64,6 +64,7 @@ mock.module("@/domains/contacts/contacts-gateway", () => ({
   },
   deleteContact: async () => {},
   verifyContactChannel: async () => {},
+  linkContactChannelAccount: async () => GUARDIAN,
   redeemA2AInvite: async () => ({ success: true }),
 }));
 
@@ -162,12 +163,24 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("ContactsPage guardian auto-selection", () => {
-  test("?setup= deep link suppresses guardian auto-select", async () => {
+describe("ContactsPage legacy setup deep link", () => {
+  test("?setup= deep link redirects to the Channels tab with the param intact", async () => {
+    // Old builds' mobile chat handoff (and saved links) pointed channel
+    // setup at this page; the credential forms now live only on the
+    // Channels tab, so the page must forward the link there.
+    function ChannelsMarker() {
+      const location = useLocation();
+      return createElement(
+        "div",
+        { "data-testid": "channels-page" },
+        location.search,
+      );
+    }
+
     render(
       createElement(
         MemoryRouter,
-        { initialEntries: ["/contacts?setup=slack"] },
+        { initialEntries: ["/assistant/contacts?setup=slack"] },
         createElement(
           QueryClientProvider,
           {
@@ -175,28 +188,27 @@ describe("ContactsPage guardian auto-selection", () => {
               defaultOptions: { queries: { retry: false } },
             }),
           },
-          createElement(ContactsPage, { assistantId: "asst-1" }),
+          createElement(
+            Routes,
+            null,
+            createElement(Route, {
+              path: "/assistant/contacts",
+              element: createElement(ContactsPage, { assistantId: "asst-1" }),
+            }),
+            createElement(Route, {
+              path: "/assistant/channels",
+              element: createElement(ChannelsMarker),
+            }),
+          ),
         ),
       ),
     );
 
-    // Wait for the guardian data to load (contactsGetOptions resolves).
     await waitFor(() => {
-      // The "Channels" heading is part of AssistantChannelsDetail which renders
-      // only when selection.kind === "assistant". If guardian auto-selected,
-      // this would not be in the document.
-      expect(
-        document.querySelector('[data-testid="channels-detail"]') ??
-          document.body.textContent?.includes("Channels"),
-      ).toBeTruthy();
+      const marker = document.querySelector('[data-testid="channels-page"]');
+      expect(marker).not.toBeNull();
+      expect(marker!.textContent).toBe("?setup=slack");
     });
-
-    // The name input (from guardian detail) should NOT be rendered because
-    // guardian auto-selection was suppressed.
-    const nameInput = document.querySelector<HTMLInputElement>(
-      'input[placeholder="Your name"]',
-    );
-    expect(nameInput).toBeNull();
   });
 });
 

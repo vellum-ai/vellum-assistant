@@ -2,10 +2,10 @@
  * Tests for the verification-revoke route relay.
  *
  * The revoke route downgrades the channel's ACL status through the gateway
- * (source of truth) via `ipcCallPersistent("mark_channel_revoked", ...)` while
- * keeping session teardown (`cancelOutbound`, `revokePendingSessions`)
- * assistant-side. The gateway enforces the guardian guard; a rejected guardian
- * downgrade surfaces here as a relayed IpcCallError.
+ * (source of truth) via `ipcCallPersistent("mark_channel_revoked", ...)`;
+ * session teardown (`cancelOutbound`, `revokePendingSessions`) relays through
+ * the gateway session client. The gateway enforces the guardian guard; a
+ * rejected guardian downgrade surfaces here as a relayed IpcCallError.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -43,8 +43,8 @@ mock.module("../../../ipc/gateway-client.js", () => ({
   ipcCallPersistent: ipcCallPersistentMock,
 }));
 
-// Session teardown — assert these still run locally on every revoke.
-const cancelOutboundMock = mock((_args: { channel: string }) => {});
+// Session teardown — assert these still run on every revoke.
+const cancelOutboundMock = mock(async (_args: { channel: string }) => {});
 const actualOutboundActions =
   await import("../../verification-outbound-actions.js");
 mock.module("../../verification-outbound-actions.js", () => ({
@@ -52,7 +52,14 @@ mock.module("../../verification-outbound-actions.js", () => ({
   cancelOutbound: cancelOutboundMock,
 }));
 
-const revokePendingSessionsMock = mock((_channel: string) => {});
+const revokePendingSessionsMock = mock(async (_channel: string) => {});
+const actualGatewaySessions =
+  await import("../../../channels/gateway-verification-sessions.js");
+mock.module("../../../channels/gateway-verification-sessions.js", () => ({
+  ...actualGatewaySessions,
+  revokePendingSessions: revokePendingSessionsMock,
+}));
+
 let guardianBinding: {
   guardianExternalUserId: string;
   guardianDeliveryChatId?: string;
@@ -61,7 +68,6 @@ const actualVerificationService =
   await import("../../channel-verification-service.js");
 mock.module("../../channel-verification-service.js", () => ({
   ...actualVerificationService,
-  revokePendingSessions: revokePendingSessionsMock,
   getGuardianBinding: mock(() => guardianBinding),
 }));
 
@@ -95,17 +101,6 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
       input.channelTypes!.includes(g.channelType),
     );
   }),
-}));
-
-// Guard: the contact-channel ACL write moves to the gateway relay and must
-// never run locally.
-const localAclWrite = mock(() => {
-  throw new Error("local ACL write must not happen on relayed revoke");
-});
-const actualContactsWrite = await import("../../../contacts/contacts-write.js");
-mock.module("../../../contacts/contacts-write.js", () => ({
-  ...actualContactsWrite,
-  revokeMember: localAclWrite,
 }));
 
 // Contact-change notification — fired explicitly on relay success so open
@@ -151,7 +146,6 @@ describe("verification revoke relay", () => {
     ipcCallPersistentMock.mockClear();
     cancelOutboundMock.mockClear();
     revokePendingSessionsMock.mockClear();
-    localAclWrite.mockClear();
     notifyContactsChangedMock.mockClear();
   });
 
@@ -174,9 +168,6 @@ describe("verification revoke relay", () => {
     // Session teardown stays assistant-side.
     expect(cancelOutboundMock).toHaveBeenCalledTimes(1);
     expect(revokePendingSessionsMock).toHaveBeenCalledTimes(1);
-
-    // The contact-channel ACL write does not fall back to the assistant.
-    expect(localAclWrite).not.toHaveBeenCalled();
 
     // Invalidation emitted explicitly on relay success.
     expect(notifyContactsChangedMock).toHaveBeenCalledTimes(1);
@@ -253,7 +244,6 @@ describe("verification revoke relay", () => {
     // Session teardown ran before the relay rejected.
     expect(cancelOutboundMock).toHaveBeenCalledTimes(1);
     expect(revokePendingSessionsMock).toHaveBeenCalledTimes(1);
-    expect(localAclWrite).not.toHaveBeenCalled();
   });
 
   test("no binding present: tears down sessions and skips the relay", async () => {

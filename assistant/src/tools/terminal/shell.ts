@@ -31,8 +31,8 @@ import {
   formatShellOutput,
   MAX_OUTPUT_LENGTH,
 } from "../shared/shell-output.js";
+import type { ProxyEnvVars } from "../tool-types.js";
 import type {
-  ProxyEnvVars,
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,

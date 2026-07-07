@@ -62,11 +62,6 @@ mock.module("../contacts/canonical-guardian-store.js", () => ({
   listPendingRequestsByConversationScope: () => [],
 }));
 
-mock.module("../telemetry/trace-event-store.js", () => ({
-  persistTraceEvent: () => {},
-  getMaxSequence: () => 0,
-}));
-
 mock.module("../notifications/preference-extractor.js", () => ({
   extractPreferences: async () => ({ detected: false, preferences: [] }),
 }));
@@ -100,7 +95,6 @@ import {
   MessageQueue,
   type QueuedMessage,
 } from "../daemon/conversation-queue-manager.js";
-import { TraceEmitter } from "../daemon/trace-emitter.js";
 
 // ---------------------------------------------------------------------------
 // Fake context — captures preactivation calls, satisfies the bare minimum
@@ -130,7 +124,6 @@ function makeFakeContext(opts: {
     },
     abortController: null,
     queue: opts.queue,
-    traceEmitter: new TraceEmitter("conv-app-control-preactivation", () => {}),
     surfaceActionRequestIds: new Set<string>(),
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     get preactivatedSkillIds(): string[] | undefined {

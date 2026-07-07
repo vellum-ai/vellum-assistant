@@ -129,7 +129,6 @@ function makeDeps(): EventHandlerDeps {
     ctx: {
       conversationId: CONV,
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       currentTurnSurfaces: [],
       trustContext: {
         sourceChannel: "vellum",

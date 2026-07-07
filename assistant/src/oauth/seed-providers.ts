@@ -1,5 +1,13 @@
 import type { AvailableScopes } from "./connect-types.js";
-import { seedProviders } from "./oauth-store.js";
+import { migrateProviderBaseUrl, seedProviders } from "./oauth-store.js";
+
+/**
+ * Base URL the google provider was seeded with before it multiplexed products
+ * behind the host-only `https://www.googleapis.com` base. Rows carrying exactly
+ * this value are advanced to the current default on startup; user-customized
+ * base URLs are left alone.
+ */
+const STALE_GOOGLE_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
 
 /**
  * Protocol-level seed data for each well-known OAuth provider.
@@ -75,7 +83,14 @@ export const PROVIDER_SEED_DATA: Record<
     tokenExchangeUrl: "https://oauth2.googleapis.com/token",
     userinfoUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
     pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
-    baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
+    // Google multiplexes many products behind one OAuth token, each on its own
+    // path under the generic API host: Gmail (/gmail/v1/...), Calendar
+    // (/calendar/v3/...), Drive (/drive/v3/...), userinfo (/oauth2/v2/...).
+    // A host-only base URL lets a relative request path select the product,
+    // so `oauth request --provider google /calendar/v3/...` resolves the
+    // same way as `/gmail/v1/...`. Internal Gmail callers pass a mailbox-scoped
+    // base URL override (see GMAIL_API_BASE_URL) for their short paths.
+    baseUrl: "https://www.googleapis.com",
     displayLabel: "Google",
     description: "Gmail, Calendar, Drive, and Contacts",
     dashboardUrl: "https://console.cloud.google.com/apis/credentials",
@@ -782,4 +797,17 @@ export const SEEDED_PROVIDER_KEYS = new Set(Object.keys(PROVIDER_SEED_DATA));
  */
 export function seedOAuthProviders(): void {
   seedProviders(Object.values(PROVIDER_SEED_DATA));
+
+  // seedProviders preserves an existing baseUrl via COALESCE, so a corrected
+  // seed default never reaches rows created with the old value. Advance the
+  // google row off its stale mailbox-scoped default without clobbering a
+  // user-customized base URL.
+  const nextGoogleBaseUrl = PROVIDER_SEED_DATA.google.baseUrl;
+  if (nextGoogleBaseUrl) {
+    migrateProviderBaseUrl({
+      provider: "google",
+      staleBaseUrl: STALE_GOOGLE_BASE_URL,
+      nextBaseUrl: nextGoogleBaseUrl,
+    });
+  }
 }

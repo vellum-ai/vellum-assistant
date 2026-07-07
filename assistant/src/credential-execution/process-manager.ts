@@ -1,16 +1,11 @@
 /**
  * CES process manager.
  *
- * Manages the CES child process lifecycle for local mode, and creates
- * transport connections for managed sidecar mode.
- *
- * Local mode: Spawns the `credential-executor` binary as a child process
- * and creates a stdio-based CesTransport for the RPC client. The manager
- * owns the process lifecycle (start, health monitoring, graceful shutdown).
- *
- * Managed mode: Connects to the CES sidecar's bootstrap Unix socket and
- * creates a socket-based CesTransport. The CES sidecar manages its own
- * lifecycle; the process manager only manages the transport connection.
+ * Creates transport connections to the CES process — either a CLI-launched
+ * sibling over a Unix socket (bare-metal/local), or a managed sidecar over
+ * its bootstrap socket (containerized). The process manager owns only the
+ * transport connection lifecycle; the CES process itself is managed by the
+ * CLI (sibling) or the pod infrastructure (managed).
  *
  * Managed env contract:
  * - CES_BOOTSTRAP_SOCKET  — Path to the bootstrap Unix socket (shared emptyDir)
@@ -22,26 +17,18 @@
 import { createConnection, type Socket } from "node:net";
 import { StringDecoder } from "node:string_decoder";
 
-import type { Subprocess } from "bun";
-
 import type { AssistantConfig } from "../config/schema.js";
-import { ensureBun } from "../util/bun-runtime.js";
 import { getLogger } from "../util/logger.js";
 import type { CesTransport } from "./client.js";
 import {
   discoverCesWithRetry,
-  discoverLocalCes,
   type DiscoveryResult,
-  isCesSiblingOptIn,
-  type LocalDiscoverySuccess,
-  type LocalSourceDiscoverySuccess,
   type ManagedDiscoverySuccess,
   type SiblingDiscoverySuccess,
 } from "./executable-discovery.js";
 
 const log = getLogger("ces-process-manager");
 
-const SHUTDOWN_GRACE_MS = 5_000;
 const SOCKET_CONNECT_TIMEOUT_MS = 5_000;
 
 // ---------------------------------------------------------------------------
@@ -78,20 +65,18 @@ export interface CesProcessManagerConfig {
 
 export interface CesProcessManager {
   /**
-   * Start the CES process (local) or connect to the sidecar (managed).
+   * Connect to the CES process (sibling socket or managed sidecar socket).
    * Returns a CesTransport ready for use with createCesClient().
    *
    * Throws if CES is unavailable.
    */
   start(): Promise<CesTransport>;
 
-  /** Gracefully stop the CES process (local) or disconnect (managed). */
+  /** Disconnect from the CES socket. */
   stop(): Promise<void>;
 
   /**
-   * Force-stop the CES process even if start() hasn't finished yet.
-   * Unlike stop(), this works regardless of the `running` state — it kills
-   * any child process or destroys any managed socket immediately.
+   * Force-disconnect the CES socket even if start() hasn't finished yet.
    */
   forceStop(): Promise<void>;
 
@@ -116,7 +101,6 @@ export interface CesProcessManager {
 export function createCesProcessManager(
   _config: CesProcessManagerConfig,
 ): CesProcessManager {
-  let childProcess: Subprocess | null = null;
   let managedSocket: Socket | null = null;
   let discoveryResult: DiscoveryResult | null = null;
   let running = false;
@@ -129,45 +113,13 @@ export function createCesProcessManager(
         throw new Error("CES process manager is already running");
       }
 
-      // Poll for the managed bootstrap socket with a short backoff. The CES
-      // sidecar re-binds its socket after each assistant session ends, so a
-      // reconnecting assistant can briefly race the re-bind; a single probe
-      // would otherwise fall back to local discovery and fail in managed mode.
+      // Poll for the socket with a short backoff. Both the managed bootstrap
+      // socket and the CLI-launched sibling socket are bound asynchronously,
+      // so a reconnecting assistant can briefly race the re-bind.
       discoveryResult = await discoverCesWithRetry();
-      if (discoveryResult.mode === "unavailable" && !isCesSiblingOptIn()) {
-        // The managed sidecar bootstrap socket is not present — this happens
-        // when the instance pre-dates the socket volume mount (e.g. existing
-        // Docker configs without the ces-bootstrap volume). Warn and fall
-        // back to local discovery so these deployments don't fail on upgrade.
-        //
-        // NOT for the sibling opt-in: there we must connect to the
-        // CLI-launched sibling, never spawn our own CES (that would run a
-        // second CES against the same on-disk stores).
-        log.warn(
-          { reason: discoveryResult.reason },
-          "CES managed sidecar bootstrap socket unavailable — falling back to local CES discovery",
-        );
-        discoveryResult = discoverLocalCes();
-      }
 
       if (discoveryResult.mode === "unavailable") {
         throw new CesUnavailableError(discoveryResult.reason);
-      }
-
-      if (discoveryResult.mode === "local") {
-        const transport = await startLocalProcess(discoveryResult);
-        currentTransport = transport;
-        wireTransportClose(transport);
-        running = true;
-        return transport;
-      }
-
-      if (discoveryResult.mode === "local-source") {
-        const transport = await startLocalSourceProcess(discoveryResult);
-        currentTransport = transport;
-        wireTransportClose(transport);
-        running = true;
-        return transport;
       }
 
       // managed sidecar or CLI-launched sibling — both connect to a socket.
@@ -181,11 +133,6 @@ export function createCesProcessManager(
     async stop(): Promise<void> {
       if (!running) return;
 
-      if (childProcess) {
-        await stopLocalProcess(childProcess);
-        childProcess = null;
-      }
-
       if (managedSocket) {
         managedSocket.destroy();
         managedSocket = null;
@@ -197,12 +144,6 @@ export function createCesProcessManager(
     },
 
     async forceStop(): Promise<void> {
-      if (childProcess) {
-        childProcess.kill("SIGKILL");
-        await childProcess.exited.catch(() => {});
-        childProcess = null;
-      }
-
       if (managedSocket) {
         managedSocket.destroy();
         managedSocket = null;
@@ -247,63 +188,6 @@ export function createCesProcessManager(
   }
 
   // -------------------------------------------------------------------------
-  // Local mode — child process over stdio
-  // -------------------------------------------------------------------------
-
-  async function startLocalProcess(
-    discovery: LocalDiscoverySuccess,
-  ): Promise<CesTransport> {
-    log.info(
-      { executable: discovery.executablePath },
-      "Spawning CES child process",
-    );
-
-    const proc = Bun.spawn({
-      cmd: [discovery.executablePath],
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: buildLocalCesEnv(),
-    });
-
-    childProcess = proc;
-
-    log.info({ pid: proc.pid }, "CES child process started");
-    forwardStderrToLogger(proc);
-
-    return createStdioTransport(proc);
-  }
-
-  // -------------------------------------------------------------------------
-  // Local source mode — child process over stdio (bun run)
-  // -------------------------------------------------------------------------
-
-  async function startLocalSourceProcess(
-    discovery: LocalSourceDiscoverySuccess,
-  ): Promise<CesTransport> {
-    log.info(
-      { sourcePath: discovery.sourcePath },
-      "Spawning CES child process from source",
-    );
-
-    const bunPath = await ensureBun();
-    const proc = Bun.spawn({
-      cmd: [bunPath, "run", discovery.sourcePath],
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: buildLocalCesEnv(),
-    });
-
-    childProcess = proc;
-
-    log.info({ pid: proc.pid }, "CES child process started (from source)");
-    forwardStderrToLogger(proc);
-
-    return createStdioTransport(proc);
-  }
-
-  // -------------------------------------------------------------------------
   // Socket connection — managed sidecar or CLI-launched local sibling
   // -------------------------------------------------------------------------
 
@@ -325,38 +209,6 @@ export function createCesProcessManager(
 
     return createSocketTransport(socket);
   }
-}
-
-// ---------------------------------------------------------------------------
-// Local CES env
-// ---------------------------------------------------------------------------
-
-/**
- * Build the environment for a locally-spawned CES child process.
- *
- * Inherits the daemon's process env (which already has VELLUM_WORKSPACE_DIR
- * and GATEWAY_SECURITY_DIR from the CLI) and adds CES-specific env vars:
- *
- * - `CREDENTIAL_SECURITY_DIR`: CES reads this to find its key store and
- *   encryption data. In local mode this is the same directory as the
- *   gateway security dir (both point to `<instance>/.vellum/protected`).
- *
- * - `VELLUM_WORKSPACE_DIR`: Forwarded so CES can locate the assistant
- *   workspace (credential metadata, OAuth DB, token refresh).
- */
-function buildLocalCesEnv(): Record<string, string | undefined> {
-  return {
-    ...process.env,
-    CES_LAUNCHED_BY: "assistant",
-    // Map the daemon's GATEWAY_SECURITY_DIR to CES's own env var.
-    // In local mode, both services share the same protected/ directory.
-    CREDENTIAL_SECURITY_DIR:
-      process.env["CREDENTIAL_SECURITY_DIR"] ||
-      process.env["GATEWAY_SECURITY_DIR"],
-    // VELLUM_WORKSPACE_DIR is already in process.env from the CLI,
-    // but be explicit for clarity.
-    VELLUM_WORKSPACE_DIR: process.env["VELLUM_WORKSPACE_DIR"],
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -392,112 +244,6 @@ function createCloseNotifier(): {
     },
     onClose(handler) {
       handlers.push(handler);
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Stdio transport (local mode)
-// ---------------------------------------------------------------------------
-
-function createStdioTransport(proc: Subprocess): CesTransport {
-  const messageHandlers: Array<(message: string) => void> = [];
-  let buffer = "";
-  const death = createCloseNotifier();
-
-  // Read stdout line by line — narrow past `number` union arm from Subprocess type
-  if (proc.stdout && typeof proc.stdout !== "number") {
-    const reader = proc.stdout.getReader();
-    const decoder = new TextDecoder();
-
-    void (async () => {
-      let endReason: "eof" | "error" = "eof";
-      let readError: unknown;
-      try {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) {break;}
-
-          buffer += decoder.decode(value, { stream: true });
-          let newlineIdx: number;
-          while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-            const line = buffer.slice(0, newlineIdx).trim();
-            buffer = buffer.slice(newlineIdx + 1);
-            if (line) {
-              for (const handler of messageHandlers) {
-                handler(line);
-              }
-            }
-          }
-        }
-      } catch (err) {
-        endReason = "error";
-        readError = err;
-      } finally {
-        // Report dead the moment the stdout stream ends (regardless of why),
-        // and notify the client so it can fail-fast any in-flight calls.
-        death.markDead();
-
-        // DIAGNOSTIC (observation only). The reconnection path (secure-keys.ts)
-        // bounces CES whenever isAlive() goes false. This classifies WHY the
-        // transport died: a real process exit, or a stdout stream that
-        // ended/errored while the process is STILL RUNNING — the spurious case
-        // that needlessly restarts a healthy CES. Let `proc.exited` settle one
-        // tick so a near-simultaneous real exit isn't misread as spurious, then
-        // snapshot the exit code (`null` = still running).
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        const exitCode = proc.exitCode;
-        if (exitCode === null) {
-          log.warn(
-            {
-              pid: proc.pid,
-              endReason,
-              err: readError instanceof Error ? readError.message : readError,
-            },
-            "CES stdio transport: stdout stream ended while the process is still alive (spurious transport death)",
-          );
-        } else {
-          log.debug(
-            { pid: proc.pid, endReason, exitCode },
-            "CES stdio transport: stdout stream ended after process exit",
-          );
-        }
-      }
-    })();
-  }
-
-  // Track process exit
-  void proc.exited.then((exitCode) => {
-    death.markDead();
-    log.info(
-      { pid: proc.pid, exitCode },
-      "CES stdio transport: process exited",
-    );
-  });
-
-  return {
-    write(line: string): void {
-      if (!death.isAlive() || !proc.stdin || typeof proc.stdin === "number") {
-        throw new Error("CES stdio transport is not alive");
-      }
-      proc.stdin.write(line + "\n");
-    },
-
-    onMessage(handler: (message: string) => void): void {
-      messageHandlers.push(handler);
-    },
-
-    isAlive(): boolean {
-      return death.isAlive();
-    },
-
-    onClose: death.onClose,
-
-    close(): void {
-      death.markDead();
-      if (proc.stdin && typeof proc.stdin !== "number") {
-        proc.stdin.end();
-      }
     },
   };
 }
@@ -565,119 +311,7 @@ function createSocketTransport(socket: Socket): CesTransport {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Route a single CES stderr line to the appropriate log level so that
- * only genuine errors reach the Sentry stream.
- *
- * CES is a pino-backed child process that writes INFO/DEBUG/WARN/ERROR
- * all to stderr (stdout is reserved for the stdio-RPC transport). We
- * parse the embedded pino level (JSON path) or match a severity prefix
- * (pretty-printed path) and route each line to the matching log method.
- *
- * Exported for testing.
- */
-export function logCesLine(
-  line: string,
-  pid: number | undefined,
-  logger: {
-    debug: (obj: object, msg: string) => void;
-    info: (obj: object, msg: string) => void;
-    warn: (obj: object, msg: string) => void;
-    error: (obj: object, msg: string) => void;
-  } = log,
-): void {
-  const meta = { pid };
-  const msg = `[ces-stderr] ${line}`;
-
-  // Pino JSON path: parse the line and bucket by numeric `level`.
-  try {
-    const parsed = JSON.parse(line);
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      typeof (parsed as { level?: unknown }).level === "number"
-    ) {
-      const level = (parsed as { level: number }).level;
-      if (level >= 50) {
-        logger.error(meta, msg);
-      } else if (level >= 40) {
-        logger.warn(meta, msg);
-      } else if (level >= 30) {
-        logger.info(meta, msg);
-      } else {
-        logger.debug(meta, msg);
-      }
-      return;
-    }
-  } catch {
-    // Not JSON — fall through to prefix-based routing.
-  }
-
-  // Pretty-printed / fragment path: look for a level prefix on the line.
-  // Strip an optional pino-pretty-style leading timestamp: "[HH:MM:SS.mmm] ".
-  const prefixStripped = line.replace(
-    /^\[\d{1,2}:\d{2}:\d{2}(?:\.\d{1,3})?\]\s+/,
-    "",
-  );
-  if (/^(FATAL|ERROR)\b/i.test(prefixStripped)) {
-    logger.error(meta, msg);
-  } else if (/^(WARN|WARNING)\b/i.test(prefixStripped)) {
-    logger.warn(meta, msg);
-  } else {
-    logger.info(meta, msg);
-  }
-}
-
-function forwardStderrToLogger(proc: Subprocess): void {
-  if (!proc.stderr || typeof proc.stderr === "number") {return;}
-
-  const reader = proc.stderr.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  void (async () => {
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) {break;}
-
-        buffer += decoder.decode(value, { stream: true });
-        let newlineIdx: number;
-        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-          const line = buffer.slice(0, newlineIdx).trimEnd();
-          buffer = buffer.slice(newlineIdx + 1);
-          if (line) {logCesLine(line, proc.pid);}
-        }
-      }
-      const trailing = buffer.trimEnd();
-      if (trailing) {logCesLine(trailing, proc.pid);}
-    } catch {
-      // Process ended or stream closed; nothing to forward.
-    }
-  })();
-}
-
-async function stopLocalProcess(proc: Subprocess): Promise<void> {
-  log.info({ pid: proc.pid }, "Stopping CES child process");
-  proc.kill("SIGTERM");
-
-  const graceful = await Promise.race([
-    proc.exited.then(() => true),
-    new Promise<false>((resolve) =>
-      setTimeout(() => resolve(false), SHUTDOWN_GRACE_MS),
-    ),
-  ]);
-
-  if (!graceful) {
-    log.warn("CES child process did not exit gracefully, sending SIGKILL");
-    proc.kill("SIGKILL");
-    await proc.exited;
-  }
-
-  log.info("CES child process stopped");
-}
-
-function connectWithTimeout(
+async function connectWithTimeout(
   socketPath: string,
   timeoutMs: number,
 ): Promise<Socket> {
@@ -709,7 +343,7 @@ function connectWithTimeout(
 // Error types
 // ---------------------------------------------------------------------------
 
-/** CES is not available in the current deployment (executable or socket missing). */
+/** CES is not available in the current deployment (socket missing). */
 export class CesUnavailableError extends Error {
   constructor(reason: string) {
     super(`CES is unavailable: ${reason}`);

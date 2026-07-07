@@ -27,7 +27,11 @@ let mockValidateEdgeToken = mock(
     | { ok: true; claims: { sub: string; scope_profile: string } }
     | { ok: false; reason: string } => ({ ok: false, reason: "noop" }),
 );
+// Spread the actual module so untouched exports (mintServiceToken, …) stay
+// importable by transitive dependencies of the modules under test.
+const actualTokenExchange = await import("../auth/token-exchange.js");
 mock.module("../auth/token-exchange.js", () => ({
+  ...actualTokenExchange,
   validateEdgeToken: (token: string) => mockValidateEdgeToken(token),
 }));
 

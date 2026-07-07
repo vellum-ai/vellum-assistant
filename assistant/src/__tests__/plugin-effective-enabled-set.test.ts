@@ -10,8 +10,9 @@
  *  - `getHooksFor(name, { conversationId })` resolves the conversation's scope
  *    and excludes in-process default-plugin hooks outside it; omitting the
  *    conversationId imposes no restriction.
- *  - `collectUserHooks(name, dirs, set)` excludes user-land plugin hooks outside
- *    the set, while standalone workspace hooks (not owned by a plugin) still run.
+ *  - `collectUserHookEntries(name, dirs, set)` excludes user-land plugin hooks
+ *    outside the set, while standalone workspace hooks (not owned by a plugin)
+ *    still run.
  *
  * The per-chat scope layers on top of (does not replace) the global
  * `.disabled` sentinel check — a plugin excluded by either is excluded.
@@ -34,7 +35,10 @@ mock.module("../daemon/conversation-plugin-scope.js", () => ({
   resolveConversationPluginScope: (id: string) => resolveScopeMock(id),
 }));
 
-import { collectUserHooks } from "../hooks/hook-loader.js";
+import {
+  collectUserHookEntries,
+  resetHookCacheForTests,
+} from "../hooks/hook-loader.js";
 import { getHooksFor } from "../hooks/registry.js";
 import {
   registerPlugin,
@@ -133,11 +137,12 @@ describe("getHooksFor per-chat plugin scope (in-process default hooks)", () => {
   });
 });
 
-describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
+describe("collectUserHookEntries per-chat plugin scope (user-land hooks)", () => {
   let root: string;
   let counter = 0;
 
   beforeEach(() => {
+    resetHookCacheForTests();
     root = join(
       tmpdir(),
       `vellum-userhooks-${process.pid}-${Date.now()}-${counter++}`,
@@ -149,6 +154,8 @@ describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  // Each hook resolves lazily on its first read, so the fixture only has to lay
+  // the files down on disk — the read fills the cache.
   function pluginDirWithHook(name: string): string {
     const dir = join(root, name);
     const hooksDir = join(dir, "hooks");
@@ -166,9 +173,11 @@ describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
       [pluginDirWithHook("uplug-b"), "uplug-b"],
     ];
 
-    expect(await collectUserHooks("user-prompt-submit", dirs)).toHaveLength(2);
     expect(
-      await collectUserHooks("user-prompt-submit", dirs, null),
+      await collectUserHookEntries("user-prompt-submit", dirs),
+    ).toHaveLength(2);
+    expect(
+      await collectUserHookEntries("user-prompt-submit", dirs, null),
     ).toHaveLength(2);
   });
 
@@ -179,7 +188,11 @@ describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
     ];
 
     expect(
-      await collectUserHooks("user-prompt-submit", dirs, new Set(["uplug-a"])),
+      await collectUserHookEntries(
+        "user-prompt-submit",
+        dirs,
+        new Set(["uplug-a"]),
+      ),
     ).toHaveLength(1);
   });
 });

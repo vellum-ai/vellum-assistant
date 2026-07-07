@@ -8,10 +8,10 @@ import {
   test,
 } from "bun:test";
 
+import type { ToolPermissionDeniedEvent } from "../tools/tool-types.js";
 import type {
   ToolExecutionResult,
   ToolLifecycleEvent,
-  ToolPermissionDeniedEvent,
 } from "../tools/types.js";
 
 // -- Module mocks (must precede real imports) --

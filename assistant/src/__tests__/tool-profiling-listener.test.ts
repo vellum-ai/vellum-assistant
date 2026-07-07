@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { TraceEventKind } from "../daemon/message-protocol.js";
-import type {
-  TraceEmitOptions,
-  TraceEmitter,
-} from "../daemon/trace-emitter.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import {
@@ -12,27 +7,10 @@ import {
   ToolProfiler,
 } from "../events/tool-profiling-listener.js";
 
-interface EmittedTrace {
-  kind: TraceEventKind;
-  summary: string;
-  opts?: TraceEmitOptions;
-}
-
-let traces: EmittedTrace[];
-
-function createMockTraceEmitter(): TraceEmitter {
-  return {
-    emit(kind: TraceEventKind, summary: string, opts?: TraceEmitOptions) {
-      traces.push({ kind, summary, opts });
-    },
-  } as TraceEmitter;
-}
-
 describe("ToolProfiler", () => {
   let profiler: ToolProfiler;
 
   beforeEach(() => {
-    traces = [];
     profiler = new ToolProfiler();
   });
 
@@ -107,43 +85,16 @@ describe("ToolProfiler", () => {
     expect(typeof summary.rssDeltaMb).toBe("number");
   });
 
-  test("emitSummary does nothing when no tools were called", () => {
-    const emitter = createMockTraceEmitter();
+  test("emitSummary returns without throwing when no tools were called", () => {
     profiler.startRequest();
-    profiler.emitSummary(emitter, "req-1");
-
-    expect(traces).toHaveLength(0);
+    expect(() => profiler.emitSummary("req-1")).not.toThrow();
   });
 
-  test("emitSummary emits tool_profiling_summary trace", () => {
-    const emitter = createMockTraceEmitter();
+  test("emitSummary returns without throwing after tool completions", () => {
     profiler.startRequest();
     profiler.recordToolCompletion("file_read", 10, false);
     profiler.recordToolCompletion("bash", 200, false);
-    profiler.recordToolCompletion("bash", 50, true);
-
-    profiler.emitSummary(emitter, "req-1");
-
-    expect(traces).toHaveLength(1);
-    expect(traces[0].kind).toBe("tool_profiling_summary");
-    expect(traces[0].opts?.requestId).toBe("req-1");
-    expect(traces[0].opts?.status).toBe("info");
-    expect(traces[0].opts?.attributes?.toolCount).toBe(3);
-    expect(traces[0].opts?.attributes?.totalToolTimeMs).toBe(260);
-    expect(traces[0].opts?.attributes?.slowestTool).toBe("bash");
-    expect(traces[0].opts?.attributes?.slowestToolMaxMs).toBe(200);
-  });
-
-  test("emitSummary summary text includes key metrics", () => {
-    const emitter = createMockTraceEmitter();
-    profiler.startRequest();
-    profiler.recordToolCompletion("bash", 100, false);
-
-    profiler.emitSummary(emitter);
-
-    expect(traces[0].summary).toContain("1 tool calls");
-    expect(traces[0].summary).toContain("tool time: 100ms");
-    expect(traces[0].summary).toContain("slowest: bash 100ms");
+    expect(() => profiler.emitSummary("req-1")).not.toThrow();
   });
 });
 

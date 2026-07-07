@@ -148,6 +148,88 @@ export function detectClientOs(): ClientOs {
   return "web";
 }
 
+/**
+ * Browser attribution for turn telemetry (`metadata.client.browser_family` /
+ * `.browser_version`). Family is engine-level: Chromium derivatives without
+ * their own brand entry (Opera, Brave, Arc) report as `"chrome"`.
+ */
+export type BrowserInfo = {
+  family?: "chrome" | "edge" | "firefox" | "safari";
+  version?: string;
+};
+
+type UADataBrand = { brand: string; version: string };
+
+/**
+ * Detect the browser from `navigator.userAgentData.brands` (Chromium-only
+ * API). Brand names are full strings like "Microsoft Edge" / "Google Chrome"
+ * / "Chromium"; GREASE entries ("Not_A Brand" and friends) match neither
+ * pattern. The brand version is the (possibly reduced) major version.
+ */
+function browserFromBrands(
+  brands: UADataBrand[] | undefined,
+): BrowserInfo | null {
+  if (!brands || brands.length === 0) {
+    return null;
+  }
+  const families = [
+    { family: "edge", pattern: /microsoft edge/i },
+    { family: "chrome", pattern: /google chrome|chromium/i },
+  ] as const;
+  for (const { family, pattern } of families) {
+    const match = brands.find((brand) => pattern.test(brand.brand));
+    if (match) {
+      const version = match.version.match(/^\d+/)?.[0];
+      return { family, ...(version ? { version } : {}) };
+    }
+  }
+  return null;
+}
+
+/**
+ * Detect the browser from the UA string (Safari and Firefox never expose
+ * `userAgentData`). Order matters: Edge UAs contain "Chrome/", Chrome and
+ * Firefox UAs contain "Safari/", so Safari's `Version/` pattern goes last.
+ * iOS third-party browsers use injected engine tokens (EdgiOS / CriOS /
+ * FxiOS — same token set as `isSafariBrowser`).
+ */
+function browserFromUserAgent(ua: string): BrowserInfo | null {
+  const patterns = [
+    { family: "edge", pattern: /(?:Edg|EdgiOS|EdgA)\/(\d+)/ },
+    { family: "chrome", pattern: /(?:Chrome|CriOS|Chromium)\/(\d+)/ },
+    { family: "firefox", pattern: /(?:Firefox|FxiOS)\/(\d+)/ },
+    { family: "safari", pattern: /Version\/(\d+).*Safari\// },
+  ] as const;
+  for (const { family, pattern } of patterns) {
+    const match = ua.match(pattern);
+    if (match) {
+      return { family, version: match[1] };
+    }
+  }
+  return null;
+}
+
+/**
+ * Detect the current browser's family and major version for telemetry.
+ * Prefers `userAgentData.brands` where available, falls back to UA-string
+ * parsing. Returns `{}` when neither yields a match (or during SSR).
+ */
+export function detectBrowserInfo(): BrowserInfo {
+  if (typeof navigator === "undefined") {
+    return {};
+  }
+  const uaData = (
+    navigator as Navigator & {
+      userAgentData?: { brands?: UADataBrand[] };
+    }
+  ).userAgentData;
+  return (
+    browserFromBrands(uaData?.brands) ??
+    browserFromUserAgent(navigator.userAgent) ??
+    {}
+  );
+}
+
 // ---------------------------------------------------------------------------
 // React hooks — safe thin wrappers for use in component render bodies
 // ---------------------------------------------------------------------------

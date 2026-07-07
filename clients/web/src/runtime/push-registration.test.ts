@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { subscribe } from "@/lib/event-bus";
 
 // ── platform guards ──────────────────────────────────────────────────────────
 //
@@ -22,17 +24,27 @@ mock.module("@capacitor/core", () => ({
 
 type RegistrationHandler = (token: { value: string }) => void;
 type ErrorHandler = (error: { error: string }) => void;
+type ActionPerformedHandler = (action: {
+  actionId: string;
+  notification: { data?: unknown };
+}) => void;
 
 let registrationHandler: RegistrationHandler | null = null;
 let registrationErrorHandler: ErrorHandler | null = null;
+let actionPerformedHandler: ActionPerformedHandler | null = null;
 let permissionState: "granted" | "denied" | "prompt" = "granted";
 
 const addListenerMock = mock(
-  async (event: string, handler: RegistrationHandler | ErrorHandler) => {
+  async (
+    event: string,
+    handler: RegistrationHandler | ErrorHandler | ActionPerformedHandler,
+  ) => {
     if (event === "registration") {
       registrationHandler = handler as RegistrationHandler;
     } else if (event === "registrationError") {
       registrationErrorHandler = handler as ErrorHandler;
+    } else if (event === "pushNotificationActionPerformed") {
+      actionPerformedHandler = handler as ActionPerformedHandler;
     }
     return { remove: async () => {} };
   },
@@ -113,6 +125,7 @@ mock.module("@/lib/sentry/capture-error", () => ({
 }));
 
 const {
+  extractPushConversationId,
   isRemotePushSupported,
   registerForRemotePush,
   unregisterFromRemotePush,
@@ -128,6 +141,22 @@ const flushMicrotasks = async (rounds = 10) => {
   }
 };
 
+// Bus subscriptions made by a test; unsubscribed in afterEach so cases
+// stay isolated.
+const busUnsubscribes: Array<() => void> = [];
+const subscribeForTest: typeof subscribe = (event, handler) => {
+  const unsubscribe = subscribe(event, handler);
+  busUnsubscribes.push(unsubscribe);
+  return unsubscribe;
+};
+
+afterEach(() => {
+  for (const unsubscribe of busUnsubscribes) {
+    unsubscribe();
+  }
+  busUnsubscribes.length = 0;
+});
+
 beforeEach(() => {
   isNative = true;
   platform = "ios";
@@ -135,6 +164,7 @@ beforeEach(() => {
   bundleId = "ai.vocify-inc.vellum-assistant-ios";
   registrationHandler = null;
   registrationErrorHandler = null;
+  actionPerformedHandler = null;
   lastUpsertArg = null;
   lastDeleteArg = null;
   upsertError = undefined;
@@ -234,6 +264,92 @@ describe("registerForRemotePush", () => {
 
     expect(captureErrorMock).toHaveBeenCalledTimes(1);
     expect(upsertMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("pushNotificationActionPerformed tap routing", () => {
+  const tap = (data?: unknown) => {
+    actionPerformedHandler?.({ actionId: "tap", notification: { data } });
+  };
+
+  let published: Array<{ threadId: string }> = [];
+  beforeEach(() => {
+    published = [];
+    subscribeForTest("deeplink.openThread", (payload) => {
+      published.push(payload);
+    });
+  });
+
+  test("publishes deeplink.openThread from data.deep_link.conversationId", async () => {
+    await registerForRemotePush("assistant-1");
+    tap({ deep_link: { conversationId: "conv-123" } });
+
+    expect(published).toEqual([{ threadId: "conv-123" }]);
+  });
+
+  test("falls back to a top-level data.conversationId", async () => {
+    await registerForRemotePush("assistant-1");
+    tap({ conversationId: "conv-456" });
+
+    expect(published).toEqual([{ threadId: "conv-456" }]);
+  });
+
+  test("publishes nothing for absent or malformed data", async () => {
+    await registerForRemotePush("assistant-1");
+    tap(undefined);
+    tap(null);
+    tap("not-an-object");
+    tap({});
+    tap({ deep_link: "not-an-object" });
+    tap({ deep_link: { conversationId: 42 } });
+    tap({ conversationId: { nested: true } });
+
+    expect(published).toEqual([]);
+    expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("extractPushConversationId", () => {
+  test("reads data.deep_link.conversationId", () => {
+    expect(
+      extractPushConversationId({ deep_link: { conversationId: "conv-1" } }),
+    ).toBe("conv-1");
+  });
+
+  test("falls back to a top-level conversationId", () => {
+    expect(extractPushConversationId({ conversationId: "conv-2" })).toBe(
+      "conv-2",
+    );
+  });
+
+  test("prefers deep_link over a top-level conversationId", () => {
+    expect(
+      extractPushConversationId({
+        deep_link: { conversationId: "conv-deep" },
+        conversationId: "conv-top",
+      }),
+    ).toBe("conv-deep");
+  });
+
+  test("falls back to top-level when deep_link.conversationId is malformed", () => {
+    expect(
+      extractPushConversationId({
+        deep_link: { conversationId: 42 },
+        conversationId: "conv-top",
+      }),
+    ).toBe("conv-top");
+  });
+
+  test("returns undefined for non-object, absent, and malformed shapes", () => {
+    expect(extractPushConversationId(undefined)).toBeUndefined();
+    expect(extractPushConversationId(null)).toBeUndefined();
+    expect(extractPushConversationId("conv-1")).toBeUndefined();
+    expect(extractPushConversationId(42)).toBeUndefined();
+    expect(extractPushConversationId([])).toBeUndefined();
+    expect(extractPushConversationId({})).toBeUndefined();
+    expect(extractPushConversationId({ deep_link: null })).toBeUndefined();
+    expect(extractPushConversationId({ deep_link: {} })).toBeUndefined();
+    expect(extractPushConversationId({ conversationId: 42 })).toBeUndefined();
   });
 });
 

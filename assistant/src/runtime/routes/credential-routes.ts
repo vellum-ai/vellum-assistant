@@ -28,6 +28,7 @@ import {
   type OAuthConnectionRow,
 } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
+import { normalizeSecretValue } from "../../security/secret-normalize.js";
 import {
   deleteSecureKeyAsync,
   getActiveBackendInfoAsync,
@@ -333,10 +334,15 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
     throw new BadRequestError("value is required");
   }
 
+  const normalizedValue = normalizeSecretValue(value);
+  if (normalizedValue.length === 0) {
+    throw new BadRequestError("value is required");
+  }
+
   assertMetadataWritable();
 
   const key = credentialKey(service, field);
-  const stored = await setSecureKeyAsync(key, value);
+  const stored = await setSecureKeyAsync(key, normalizedValue);
   if (!stored) {
     throw new InternalError(
       `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,

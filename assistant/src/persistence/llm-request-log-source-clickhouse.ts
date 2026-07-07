@@ -24,7 +24,7 @@ import {
   getMessageById,
   messageMetadataSchema,
 } from "./conversation-crud.js";
-import type { LlmRequestLogSource } from "./llm-request-log-source.js";
+import type { LlmRequestLogSource } from "./llm-request-log-source-types.js";
 import type {
   CompactionAgentLogRow,
   LogMetaRow,
