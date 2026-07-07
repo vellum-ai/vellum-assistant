@@ -1,10 +1,19 @@
-import { describe, test, expect, mock, afterEach } from "bun:test";
+import {
+  describe,
+  test,
+  expect,
+  mock,
+  beforeAll,
+  afterAll,
+  afterEach,
+} from "bun:test";
 import { createHmac } from "node:crypto";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { initSigningKey } from "../auth/token-service.js";
+import "./test-preload.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -49,8 +58,25 @@ const { createTwilioVoiceWebhookHandler } =
   await import("../http/routes/twilio-voice-webhook.js");
 const { createTwilioStatusWebhookHandler } =
   await import("../http/routes/twilio-status-webhook.js");
+const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
+const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
+  await import("../risk/admission-policy-cache.js");
 
 const AUTH_TOKEN = "test-twilio-auth-token";
+
+// The voice webhook resolves the phone admission floor (channel-trust-floors
+// is enabled by default), so the admission-policy cache must exist like it
+// does at gateway startup. An empty store reads as the built-in default.
+beforeAll(async () => {
+  resetGatewayDb();
+  await initGatewayDb();
+  initAdmissionPolicyCache();
+});
+
+afterAll(() => {
+  resetAdmissionPolicyCache();
+  resetGatewayDb();
+});
 
 afterEach(() => {
   fetchMock = mock(async () => new Response());

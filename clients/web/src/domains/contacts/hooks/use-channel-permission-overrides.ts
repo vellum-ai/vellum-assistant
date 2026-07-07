@@ -120,7 +120,10 @@ export function useChannelPermissionOverrides({
   // coordinates the evaluator queries for this adapter's rooms — no
   // conversation type, so broader-scope cells apply exactly as they would
   // at tool time. POST-with-body read; the generated SDK has no query
-  // factory for it, so the queryFn calls the SDK directly.
+  // factory for it, so the queryFn calls the SDK directly. Fail-soft with
+  // no retries: the resolve route ships after the rest of the surface
+  // (0.10.7 gateways 404 it deterministically), and an errored query just
+  // leaves the badge at a plain "Default".
   const defaultQuery = useQuery({
     queryKey: ["channel-permission-resolve", assistantId, adapter],
     queryFn: async () => {
@@ -132,6 +135,7 @@ export function useChannelPermissionOverrides({
       return data.resolved?.threshold ?? null;
     },
     enabled,
+    retry: false,
     staleTime: 30_000,
   });
 
