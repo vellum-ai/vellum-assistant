@@ -1,10 +1,4 @@
-import {
-  CircleAlert,
-  CircleCheck,
-  Info,
-  TriangleAlert,
-  X,
-} from "lucide-react";
+import { CircleAlert, CircleCheck, Info, X } from "lucide-react";
 import { type ReactElement, type ReactNode } from "react";
 import { toast as sonnerToast, Toaster as SonnerToaster } from "sonner";
 
@@ -21,6 +15,7 @@ import { cn } from "../utils/cn";
  */
 
 type ToastVariant = "default" | "info" | "warning" | "error" | "success";
+type ToastTone = "weak" | "strong";
 
 interface ToastOptions {
   description?: string;
@@ -30,58 +25,89 @@ interface ToastOptions {
     onClick: () => void;
   };
   id?: string;
+  tone?: ToastTone;
 }
 
 const ASSERTIVE_VARIANTS = new Set<ToastVariant>(["error", "warning"]);
 
-const VARIANT_STYLES: Record<
-  ToastVariant,
-  { container: string; icon: string; iconElement: ReactNode }
-> = {
-  default: {
-    container:
-      "bg-[var(--surface-lift)] border-[var(--border-base)] text-[var(--content-default)]",
-    icon: "text-[var(--content-tertiary)]",
-    iconElement: null,
-  },
-  info: {
-    container:
-      "bg-[var(--surface-overlay)] border-[var(--border-element)] text-[var(--content-default)]",
-    icon: "text-[var(--content-secondary)]",
-    iconElement: <Info className="h-4 w-4" />,
-  },
-  warning: {
-    container:
-      "bg-[var(--system-mid-weak)] border-[var(--system-mid-strong)] text-[var(--system-mid-strong)]",
-    icon: "text-[var(--system-mid-strong)]",
-    iconElement: <CircleAlert className="h-4 w-4" />,
-  },
-  error: {
-    container:
-      "bg-[var(--system-negative-weak)] border-[var(--system-negative-strong)] text-[var(--system-negative-strong)]",
-    icon: "text-[var(--system-negative-strong)]",
-    iconElement: <TriangleAlert className="h-4 w-4" />,
-  },
-  success: {
-    container:
-      "bg-[var(--system-positive-weak)] border-[var(--system-positive-strong)] text-[var(--system-positive-strong)]",
-    icon: "text-[var(--system-positive-strong)]",
-    iconElement: <CircleCheck className="h-4 w-4" />,
-  },
-};
+function variantStyles(
+  variant: ToastVariant,
+  tone: ToastTone,
+): { container: string; iconElement: ReactNode } {
+  const strong = tone === "strong";
+  switch (variant) {
+    case "success":
+      return strong
+        ? {
+            container:
+              "bg-[var(--system-positive-strong)] border-transparent text-white",
+            iconElement: <CircleCheck className="h-4 w-4" />,
+          }
+        : {
+            container:
+              "bg-[var(--system-positive-weak)] border-transparent text-[var(--system-positive-strong)]",
+            iconElement: <CircleCheck className="h-4 w-4" />,
+          };
+    case "error":
+      return strong
+        ? {
+            container:
+              "bg-[var(--system-negative-strong)] border-transparent text-white",
+            iconElement: <CircleAlert className="h-4 w-4" />,
+          }
+        : {
+            container:
+              "bg-[var(--system-negative-weak)] border-transparent text-[var(--system-negative-strong)]",
+            iconElement: <CircleAlert className="h-4 w-4" />,
+          };
+    case "warning":
+      return strong
+        ? {
+            container:
+              "bg-[var(--system-mid-strong)] border-transparent text-white",
+            iconElement: <Info className="h-4 w-4" />,
+          }
+        : {
+            container:
+              "bg-[var(--system-mid-weak)] border-transparent text-[var(--system-mid-strong)]",
+            iconElement: <Info className="h-4 w-4" />,
+          };
+    case "info":
+      return strong
+        ? {
+            container:
+              "bg-[var(--content-secondary)] border-transparent text-white",
+            iconElement: <Info className="h-4 w-4" />,
+          }
+        : {
+            container:
+              "bg-[var(--surface-overlay)] border-transparent text-[var(--content-default)]",
+            iconElement: <Info className="h-4 w-4" />,
+          };
+    case "default":
+    default:
+      return {
+        container:
+          "bg-[var(--surface-lift)] border-transparent text-[var(--content-default)]",
+        iconElement: null,
+      };
+  }
+}
 
 function ToastContent({
   message,
   variant = "default",
+  tone = "weak",
   options,
   onDismiss,
 }: {
   message: string;
   variant?: ToastVariant;
+  tone?: ToastTone;
   options?: ToastOptions;
   onDismiss: () => void;
 }) {
-  const styles = VARIANT_STYLES[variant];
+  const styles = variantStyles(variant, tone);
   return (
     <div
       role={ASSERTIVE_VARIANTS.has(variant) ? "alert" : "status"}
@@ -92,9 +118,7 @@ function ToastContent({
       )}
     >
       {styles.iconElement ? (
-        <span className={cn("mt-0.5 shrink-0", styles.icon)}>
-          {styles.iconElement}
-        </span>
+        <span className="mt-0.5 shrink-0">{styles.iconElement}</span>
       ) : null}
       <div className="min-w-0 flex-1 space-y-1">
         <p className="text-body-medium-default">{message}</p>
@@ -144,11 +168,13 @@ function showToast(
   options?: ToastOptions,
 ) {
   const id = options?.id ?? nextToastId();
+  const tone = options?.tone ?? "weak";
   return sonnerToast.custom(
     () => (
       <ToastContent
         message={message}
         variant={variant}
+        tone={tone}
         options={options}
         onDismiss={() => sonnerToast.dismiss(id)}
       />
@@ -191,7 +217,7 @@ function Toaster() {
   return (
     <div data-slot="toaster">
       <SonnerToaster
-        position="bottom-right"
+        position="bottom-center"
         toastOptions={{
           unstyled: true,
           style: { width: "356px" },
@@ -202,4 +228,4 @@ function Toaster() {
 }
 
 export { toast, Toaster, ToastContent };
-export type { ToastVariant, ToastOptions };
+export type { ToastVariant, ToastTone, ToastOptions };

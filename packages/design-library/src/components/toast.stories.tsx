@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { Button } from "./button";
-import { toast, Toaster, type ToastVariant } from "./toast";
+import { toast, Toaster, type ToastTone, type ToastVariant } from "./toast";
 
 interface ToastStoryArgs {
   variant: ToastVariant;
@@ -118,6 +118,71 @@ export const AllVariants: Story = {
       >
         Success
       </Button>
+    </div>
+  ),
+};
+
+const TONE_VARIANTS: {
+  variant: Exclude<ToastVariant, "default">;
+  message: string;
+}[] = [
+  { variant: "info", message: "Informational message" },
+  { variant: "warning", message: "Something needs attention" },
+  { variant: "error", message: "Something went wrong" },
+  { variant: "success", message: "Action completed" },
+];
+
+export const WeakTone: Story = {
+  parameters: {
+    controls: { disable: true },
+    docs: {
+      description: {
+        story:
+          "Weak tone (default) — subdued background with colored text/icon. Includes the iconless `default` variant, which only has a weak tone.",
+      },
+    },
+  },
+  render: () => (
+    <div className="flex flex-wrap gap-2">
+      <Button variant="outlined" onClick={() => toast("Default notification")}>
+        Default
+      </Button>
+      {TONE_VARIANTS.map(({ variant, message }) => (
+        <Button
+          key={variant}
+          variant="outlined"
+          onClick={() => toast[variant](message, { tone: "weak" })}
+        >
+          {variant}
+        </Button>
+      ))}
+    </div>
+  ),
+};
+
+export const StrongTone: Story = {
+  parameters: {
+    controls: { disable: true },
+    docs: {
+      description: {
+        story:
+          "Strong tone — full-color background with white text/icon. The `default` variant has no strong tone.",
+      },
+    },
+  },
+  render: () => (
+    <div className="flex flex-wrap gap-2">
+      {TONE_VARIANTS.map(({ variant, message }) => (
+        <Button
+          key={variant}
+          variant="outlined"
+          onClick={() =>
+            toast[variant](message, { tone: "strong" satisfies ToastTone })
+          }
+        >
+          {variant}
+        </Button>
+      ))}
     </div>
   ),
 };
