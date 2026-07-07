@@ -92,35 +92,42 @@ A URL install bypasses the marketplace entirely: the tree is cloned verbatim (no
 
 ## Write the README
 
-The README is the storefront. It is the first thing a user sees on the GitHub repo and the marketplace listing. Every marketplace plugin should follow the same structure so users can scan and compare. A plugin with no README will not pass review.
+The README is the storefront. Every marketplace plugin should have the same visual header at the top so users can scan and compare. The header is a centered card with four elements: icon, title, tagline, and badges.
 
-### Required sections, in order
+```markdown
+<div align="center">
 
-**1. Centered header.** Plugin name, one-line tagline, version/license/made-for-Vellum badges, and section navigation links. If you have a hero image, center it above the title.
+<img src="hero.png" width="200" alt="My Plugin">
 
-**2. One-paragraph intro.** Two sentences max. The first names what the assistant can already do. The second names what this plugin adds. No marketing language. The reader should understand the gap in five seconds.
+# my-plugin
 
-**3. What you get.** Bullet list of capabilities. Each bullet: bolded name plus one sentence. This is the feature list users scan to decide if the plugin is worth installing.
+**one-line tagline that says what it does**
 
-**4. Scheduled jobs** (only if the plugin has automated behavior). Lead with a one-line warning that the plugin acts on its own. Then a table: when it fires, what happens. End with a "what it will never do on its own" line. Skip entirely if the plugin has no automated behavior.
+![version](https://img.shields.io/badge/version-0.1.0-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![made for](https://img.shields.io/badge/made%20for-Vellum-8A2BE2)
 
-**5. Requirements.** Hard dependencies only: integrations, credentials, API keys. Label each as a hard requirement. Skip if the plugin has none.
+[What You Get](#what-you-get) • [Requirements](#requirements) • [Install](#install) • [Usage](#usage)
 
-**6. Install.** The install command on one line, followed by a one-sentence description of what happens on first use.
+</div>
 
-**7. Surfaces.** Table of every tool, hook, and skill the plugin ships. One row per surface, name plus what it does.
+---
+```
 
-**8. Usage.** Four to six example prompts a user would type to trigger the plugin. Plain language, quoted.
+The four required elements:
 
-**9. Example** (if you have a screenshot or sample output). If the plugin produces visible output, include a screenshot or sample. Skip if not applicable.
+1. **Icon.** A hero image or logo, centered, 200px wide. This is the visual identity of the plugin. If you do not have one, skip the image tag but keep the centered title block.
+2. **Title.** The plugin name as a top-level heading.
+3. **Short description.** One line in bold, directly under the title. What the plugin does in plain language. No marketing fluff.
+4. **Badges.** Version, license, and a "made for Vellum" badge. Use [shields.io](https://shields.io) static badges.
 
-**10. License.** One line. MIT is the standard for marketplace plugins.
+Section navigation links below the badges are optional but recommended so users can jump to what matters.
+
+Below the header, write whatever sections make sense for your plugin. The header is the standard part.
 
 ### Example
 
-See the [travel-planner README](https://github.com/AnitaKirkovska/travel-planner#readme) for a complete reference implementation of this format.
+See the [travel-planner README](https://github.com/AnitaKirkovska/travel-planner#readme) for a reference implementation.
 
-## Verify before shipping
+## Verify before shipping## Verify before shipping
 
 1. Plugin directory copied into `plugins/<name>/`, `assistant plugins list` shows status `ok` (not `error`, not `skipped`).
 2. `assistant plugins inspect <name>` reports `up-to-date` and `drift: none`.
@@ -141,7 +148,7 @@ Once merged, users install by name: `assistant plugins install my-plugin`. The n
 - Directory matches the loader convention (`hooks/`, `tools/`, `skills/`, optional `src/`).
 - `package.json` declares `name`, `version`, and a real `peerDependencies["@vellumai/plugin-api"]` range.
 - Each surface has been exercised locally with a working example.
-- A `README.md` follows the standard format (header, intro, what you get, scheduled jobs if applicable, requirements, install, surfaces, usage, license).
+- A `README.md` has the standard visual header (icon, title, short description, badges).
 - A `marketplace.json` entry exists with a full SHA in `source.ref`, and the Vellum team's review is in flight.
 
 ## Reference files
