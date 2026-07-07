@@ -484,10 +484,10 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           <BottomSheet.Header className="sr-only">
             <BottomSheet.Title>Conversation settings</BottomSheet.Title>
           </BottomSheet.Header>
-          {/* `pt-0` because the Header is sr-only. Body's default
-              overflow-y-auto must stay: long profile lists exceed the sheet's
-              height cap and need to scroll. */}
-          <BottomSheet.Body className="pt-0">
+          {/* `pt-0` because the Header is sr-only. `overflow-hidden` —
+              the panel content is short enough that scrolling is not needed
+              and should not be permitted (Figma review: node 6599-6728). */}
+          <BottomSheet.Body className="overflow-hidden pt-0">
             <SectionLabel>Assistant Access</SectionLabel>
             {THRESHOLD_PRESETS.map((preset) => {
               const isActive = preset.id === activePreset.id;
