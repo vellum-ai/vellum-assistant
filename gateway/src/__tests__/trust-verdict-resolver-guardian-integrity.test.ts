@@ -4,15 +4,16 @@
  *  - Onboarded-evidence DB with zero guardian rows → every `unknown`
  *    classification carries `resolutionFailed: true` (consumers fail closed).
  *  - Non-unknown classifications (e.g. an intact trusted contact) are never
- *    stamped by the integrity check.
+ *    stamped by the integrity check, but they still evaluate the state — the
+ *    fail-loud reporter fires on member traffic too, not just strangers.
  *  - Fresh install and healthy (guardian present) install → verdicts
  *    unchanged, no `resolutionFailed`.
  *  - A thrown integrity check degrades to the plain unknown verdict — no
  *    crash, no stamp.
  *
- * The fail-loud reporter is silenced through its test-only overrides so no
- * relay or log leaves the test process (bun's mock.module is process-global
- * and would leak into other test files).
+ * The fail-loud reporter is silenced/observed through its test-only overrides
+ * so no relay or log leaves the test process (bun's mock.module is
+ * process-global and would leak into other test files).
  */
 import { beforeEach, afterEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
@@ -71,6 +72,9 @@ function insertChannel(args: {
     .run();
 }
 
+// Captured reporter detail payloads (via the log-override seam).
+const reportCalls: Record<string, unknown>[] = [];
+
 beforeEach(async () => {
   resetGatewayDb();
   await initGatewayDb();
@@ -79,12 +83,18 @@ beforeEach(async () => {
   getGatewayDb().delete(actorTokenRecords).run();
   getGatewayDb().delete(actorRefreshTokenRecords).run();
   bustGuardianIntegrityCache();
+  reportCalls.length = 0;
   resetGuardianIntegrityReporterForTesting();
   setGuardianIntegrityReporterOverridesForTesting({
     fetchImpl: async () => new Response("{}"),
     mintToken: () => "svc-token",
     baseUrl: "http://127.0.0.1:7821",
-    log: { error: () => {}, warn: () => {} },
+    log: {
+      error: (detail) => {
+        reportCalls.push(detail);
+      },
+      warn: () => {},
+    },
   });
 });
 
@@ -125,7 +135,7 @@ describe("missing-guardian state (evidence, zero guardian rows)", () => {
     expect(verdict.resolutionFailed).toBe(true);
   });
 
-  test("intact trusted contact still classifies without a stamp", async () => {
+  test("intact trusted contact classifies without a stamp but fires the reporter", async () => {
     seedContact({ id: "c1" });
     insertChannel({ id: "ch1", contactId: "c1", address: "U_MEMBER" });
 
@@ -134,8 +144,13 @@ describe("missing-guardian state (evidence, zero guardian rows)", () => {
       actorExternalId: "U_MEMBER",
     });
 
+    // Member admission is unchanged — no resolutionFailed on the verdict —
+    // but detection is traffic-independent: member traffic alone reports.
     expect(verdict.trustClass).toBe("trusted_contact");
     expect(verdict.resolutionFailed).toBeUndefined();
+    expect(reportCalls).toEqual([
+      { has_contacts: true, has_actor_tokens: false },
+    ]);
   });
 });
 
@@ -164,6 +179,7 @@ describe("healthy and fresh installs are unaffected", () => {
 
     expect(verdict.trustClass).toBe("guardian");
     expect(verdict.resolutionFailed).toBeUndefined();
+    expect(reportCalls).toHaveLength(0);
   });
 
   test("fresh empty DB: stranger stays plain unknown", async () => {
@@ -174,6 +190,7 @@ describe("healthy and fresh installs are unaffected", () => {
 
     expect(verdict.trustClass).toBe("unknown");
     expect(verdict.resolutionFailed).toBeUndefined();
+    expect(reportCalls).toHaveLength(0);
   });
 });
 

@@ -165,7 +165,8 @@ beforeAll(async () => {
   await initGatewayDb();
 });
 
-// Captured missing-guardian reporter detail payloads (via the log override).
+// Captured guardian-integrity reporter detail payloads (via the log
+// override): missing-guardian and mint-refused reports both land here.
 const reportCalls: Record<string, unknown>[] = [];
 
 beforeEach(() => {
@@ -403,6 +404,7 @@ describe("resolve-or-mint (resolveOrCreateVellumGuardian)", () => {
     expect(contactRows).toHaveLength(1); // no new principal row minted
     expect(reportCalls).toEqual([
       { has_contacts: true, has_actor_tokens: false },
+      { integrity_state: "missing_guardian" },
     ]);
   });
 
@@ -417,10 +419,11 @@ describe("resolve-or-mint (resolveOrCreateVellumGuardian)", () => {
     expect(getGatewayDb().select().from(contacts).all()).toHaveLength(0);
     expect(reportCalls).toEqual([
       { has_contacts: false, has_actor_tokens: true },
+      { integrity_state: "missing_guardian" },
     ]);
   });
 
-  test("refuses when a guardian contact exists but the vellum binding is inactive — no missing-guardian report", async () => {
+  test("refuses when a guardian contact exists but the vellum binding is inactive — mint-refused report fires", async () => {
     seedGuardianChannel({
       type: "vellum",
       address: "vellum-principal-stale",
@@ -433,8 +436,9 @@ describe("resolve-or-mint (resolveOrCreateVellumGuardian)", () => {
     );
 
     // Integrity state is "ok" (a guardian row exists), so the
-    // missing-guardian reporter stays quiet; the refusal is still logged.
-    expect(reportCalls).toHaveLength(0);
+    // missing-guardian reporter stays quiet — but the refusal must not be
+    // telemetry-silent: the mint-refused report fires with the state.
+    expect(reportCalls).toEqual([{ integrity_state: "ok" }]);
   });
 
   test("startup backfill recovers once the guardian is re-seeded", async () => {
