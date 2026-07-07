@@ -22,6 +22,7 @@ import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
+import { resolveExecutionTarget } from "../tools/execution-target.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
   getMcpToolDefinitions,
@@ -46,6 +47,7 @@ import type {
   ProxyApprovalRequest,
 } from "../tools/tool-types.js";
 import {
+  type ExecutionTarget,
   isDiskPressureCleanupToolName,
   type ToolContext,
   type ToolExecutionResult,
@@ -155,7 +157,9 @@ export function resolveConversationAttribution(
 export function getEffectiveEnabledPluginSet(conv: {
   enabledPlugins?: string[] | null;
 }): Set<string> | null {
-  if (conv.enabledPlugins == null) return null;
+  if (conv.enabledPlugins == null) {
+    return null;
+  }
   // Rule 1: the conversation's explicit selections always apply.
   const effective = new Set(conv.enabledPlugins);
   // Rules 2 + 3: add a default the conversation did not already decide, unless
@@ -281,6 +285,10 @@ export function createToolExecutor(
       conversationId: ctx.conversationId,
       assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
+      // The execution target of the tool as resolved into this turn's wire
+      // definitions — routing follows what the model was shown, not a live
+      // registry re-lookup that could race a mid-turn swap.
+      executionTarget: ctx.currentTurnToolExecutionTargets?.get(executionName),
       taskRunId: ctx.taskRunId,
       trustClass: resolveTrustClass(turnTrust),
       executionChannel: turnTrust.sourceChannel,
@@ -419,6 +427,13 @@ export function createToolExecutor(
         return pluginRejection;
       }
 
+      // skill_execute dispatches to an inner tool the wrapper's snapshot entry
+      // doesn't describe; re-target the context to the inner tool (skill tools
+      // are absent from the wire snapshot, so this resolves to sandbox).
+      toolContext.executionTarget =
+        ctx.currentTurnToolExecutionTargets?.get(toolName) ??
+        resolveExecutionTarget({ name: toolName });
+
       const rawResult = await executor.execute(
         toolName,
         toolInput,
@@ -495,6 +510,13 @@ export interface SkillProjectionContext {
    * but, unlike that per-turn execution gate, never cleared at turn teardown.
    */
   lastResolvedToolNames?: Set<string>;
+  /**
+   * Sandbox/host target per tool name from the most recent turn's resolved
+   * wire definitions. Set alongside {@link allowedToolNames} so the executor
+   * callback routes execution by the target the model was shown, not a live
+   * registry re-lookup.
+   */
+  currentTurnToolExecutionTargets?: ReadonlyMap<string, ExecutionTarget>;
   /** When > 0, the resolveTools callback returns no tools at all. */
   toolsDisabledDepth: number;
   /** Channel capabilities — read lazily per turn for conditional tool filtering. */
@@ -949,6 +971,13 @@ export function createResolveToolsCallback(
     // execution gate (cleared at teardown and restricted under disk pressure),
     // whereas this snapshot answers "what tools does this conversation have".
     ctx.lastResolvedToolNames = turnAllowed;
+    // Snapshot each resolved tool's execution target so the executor callback
+    // routes by the target the model was shown this turn, not a live re-lookup.
+    // Skill-projected + skill_execute-inner tools are absent here and fall back
+    // to `resolveExecutionTarget` (sandbox) downstream.
+    ctx.currentTurnToolExecutionTargets = new Map(
+      allBaseDefs.map((d) => [d.name, resolveExecutionTarget(d)]),
+    );
     if (ctx.diskPressureCleanupModeActive === true) {
       const cleanupDefs = allBaseDefs.filter((d) =>
         isDiskPressureCleanupToolName(d.name),

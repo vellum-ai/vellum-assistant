@@ -5,6 +5,7 @@
 
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { ExecutionTarget } from "../tools/types.js";
 import type { SurfaceConversationContext } from "./conversation-surfaces.js";
 import type { TrustContext } from "./trust-context.js";
 
@@ -78,6 +79,13 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   abortController: AbortController | null;
   /** When set, only tools in this set may execute during the current turn. */
   allowedToolNames?: Set<string>;
+  /**
+   * Sandbox/host target per tool name as resolved into the current turn's wire
+   * definitions. Written by the resolver alongside {@link allowedToolNames} and
+   * read by the executor callback so a tool's execution target is the one the
+   * model was shown, not a re-lookup that could race a mid-turn registry swap.
+   */
+  currentTurnToolExecutionTargets?: ReadonlyMap<string, ExecutionTarget>;
   /** When set, the subagent/wake tool allowlist (see {@link subagentToolGateMode}). */
   subagentAllowedTools?: Set<string>;
   /**

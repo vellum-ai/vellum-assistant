@@ -99,7 +99,7 @@ import {
 } from "../telemetry/activation-funnel.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions, getTool } from "../tools/registry.js";
-import type { ToolLifecycleEvent } from "../tools/types.js";
+import type { ExecutionTarget, ToolLifecycleEvent } from "../tools/types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -295,6 +295,14 @@ export class Conversation {
    * @internal
    */
   lastResolvedToolNames?: Set<string>;
+  /**
+   * Sandbox/host target per tool name from the most recent turn's resolved wire
+   * definitions, so the executor callback routes by the target the model was
+   * shown rather than a live registry re-lookup. Set alongside
+   * {@link allowedToolNames} by the resolve-tools callback.
+   * @internal
+   */
+  currentTurnToolExecutionTargets?: ReadonlyMap<string, ExecutionTarget>;
   /** @internal */ diskPressureCleanupModeActive?: boolean;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
@@ -1425,7 +1433,9 @@ export class Conversation {
    * edge would put runtime-assembly's importers on that cycle).
    */
   getSubagentChildren(): SubagentState[] | null {
-    if (this.isSubagent) return null;
+    if (this.isSubagent) {
+      return null;
+    }
     return getSubagentManager().getChildrenOf(this.conversationId);
   }
 

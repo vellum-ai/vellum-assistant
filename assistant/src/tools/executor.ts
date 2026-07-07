@@ -21,7 +21,6 @@ import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { resolveExecutionTarget } from "./execution-target.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
 import { PermissionChecker } from "./permission-checker.js";
-import { getTool } from "./registry.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
 import { applyEdit } from "./shared/filesystem/edit-engine.js";
 import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
@@ -84,11 +83,13 @@ export class ToolExecutor {
     let permApprovalMode: string | undefined;
     let permApprovalReason: string | undefined;
     let permRiskThreshold: string | undefined;
-    // Registered tools have `executionTarget` stamped at load time; the
-    // `resolveExecutionTarget` fallback only fires for unknown tools (the
-    // executor's name-aliased lookup can race against late registration).
+    // The dispatcher stamps `executionTarget` from the tool as presented to the
+    // model this turn (see conversation-tool-setup), so routing can't drift if
+    // the registry entry for this name is swapped mid-turn. The
+    // `resolveExecutionTarget` fallback covers callers with no snapshot (e.g.
+    // standalone runs).
     const executionTarget =
-      getTool(name)?.executionTarget ?? resolveExecutionTarget({ name });
+      context.executionTarget ?? resolveExecutionTarget({ name });
 
     emitLifecycleEvent(context, {
       type: "start",
@@ -635,7 +636,9 @@ function emitLifecycleEvent(
   event: ToolLifecycleEvent,
 ): void {
   const handler = context.onToolLifecycleEvent;
-  if (!handler) return;
+  if (!handler) {
+    return;
+  }
 
   // Redact sensitive fields from tool inputs before they reach audit listeners
   const sanitizedEvent = {
@@ -700,16 +703,22 @@ function computePreviewDiff(
     if (toolName === "file_write") {
       const rawPath = input.path as string;
       const content = input.content as string;
-      if (!rawPath || typeof content !== "string") return undefined;
+      if (!rawPath || typeof content !== "string") {
+        return undefined;
+      }
       const pathCheck = sandboxPolicy(rawPath, workingDir, {
         mustExist: false,
       });
-      if (!pathCheck.ok) return undefined;
+      if (!pathCheck.ok) {
+        return undefined;
+      }
       const filePath = pathCheck.resolved;
       const isNewFile = !pathExists(filePath);
       if (!isNewFile) {
         const stat = safeStatSync(filePath);
-        if (!stat || stat.size > MAX_FILE_SIZE_BYTES) return undefined;
+        if (!stat || stat.size > MAX_FILE_SIZE_BYTES) {
+          return undefined;
+        }
       }
       const oldContent = isNewFile ? "" : readFileSync(filePath, "utf-8");
       return { filePath, oldContent, newContent: content, isNewFile };
@@ -724,18 +733,27 @@ function computePreviewDiff(
         typeof oldString !== "string" ||
         typeof newString !== "string" ||
         oldString.length === 0
-      )
+      ) {
         return undefined;
+      }
       const pathCheck = sandboxPolicy(rawPath, workingDir);
-      if (!pathCheck.ok) return undefined;
+      if (!pathCheck.ok) {
+        return undefined;
+      }
       const filePath = pathCheck.resolved;
       const stat = safeStatSync(filePath);
-      if (!stat) return undefined;
-      if (stat.size > MAX_FILE_SIZE_BYTES) return undefined;
+      if (!stat) {
+        return undefined;
+      }
+      if (stat.size > MAX_FILE_SIZE_BYTES) {
+        return undefined;
+      }
       const content = readFileSync(filePath, "utf-8");
       const replaceAll = input.replace_all === true;
       const result = applyEdit(content, oldString, newString, replaceAll);
-      if (!result.ok) return undefined;
+      if (!result.ok) {
+        return undefined;
+      }
       return {
         filePath,
         oldContent: content,
