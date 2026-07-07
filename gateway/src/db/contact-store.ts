@@ -14,6 +14,10 @@ import {
   emptyContactInfo,
   fetchInfoForContacts,
 } from "./contacts-info-joiner.js";
+import {
+  isUnknownIpcMethodError,
+  reportMirrorOpMissing,
+} from "../contacts-mirror-op-reporter.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import {
   fetchContactsInfoBatch,
@@ -1251,10 +1255,16 @@ export class ContactStore {
     try {
       await this.mirrorContactToAssistantDb(contactId, canonicalParams);
     } catch (err) {
-      log.warn(
-        { contactId, err },
-        "upsertContact: assistant DB mirror failed (best-effort)",
-      );
+      // Unknown method = old daemon without the typed op: the gateway write
+      // stands with no mirror and no fallback — escalate loudly.
+      if (isUnknownIpcMethodError(err)) {
+        reportMirrorOpMissing("contacts_mirror_upsert_full", { contactId });
+      } else {
+        log.warn(
+          { contactId, err },
+          "upsertContact: assistant DB mirror failed (best-effort)",
+        );
+      }
     }
 
     // ── 6. Read back full contact shape (best-effort) ─────────────────
@@ -1421,10 +1431,20 @@ export class ContactStore {
         },
       });
     } catch (err) {
-      log.warn(
-        { keepId, mergeId, err },
-        "mergeContacts: assistant DB mirror failed (best-effort)",
-      );
+      // Unknown method = old daemon without the typed op: the donor is already
+      // gone gateway-side but stays alive in the mirror, with no fallback —
+      // escalate loudly instead of the routine best-effort warn.
+      if (isUnknownIpcMethodError(err)) {
+        reportMirrorOpMissing("contacts_mirror_merge_contact", {
+          keepId,
+          mergeId,
+        });
+      } else {
+        log.warn(
+          { keepId, mergeId, err },
+          "mergeContacts: assistant DB mirror failed (best-effort)",
+        );
+      }
     }
 
     // Read back the survivor with info join.

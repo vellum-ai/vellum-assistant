@@ -984,6 +984,25 @@ export const ROUTES: RouteDefinition[] = [
 // Transport-agnostic handlers (moved from HTTP-only)
 // ---------------------------------------------------------------------------
 
+/**
+ * DIVERGENCE RISK — daemon-local merge, NOT the canonical path.
+ *
+ * This executes the LOCAL `mergeContacts` (assistant DB only). The canonical
+ * merge is the gateway control plane (POST /v1/contacts/merge →
+ * contacts-control-plane-proxy.handleMergeContacts), which merges the gateway
+ * DB — the ACL source of truth — and mirrors here via
+ * `contacts_mirror_merge_contact`. A merge through THIS route leaves the
+ * gateway DB untouched: the donor contact and its ACL channel rows survive
+ * gateway-side while the assistant mirror deletes them. Gateway-fronted
+ * clients never reach this route (the control-plane route-match intercepts
+ * the path), but direct daemon callers — notably the bundled `contact_merge`
+ * tool — do.
+ *
+ * Not converted to a relay yet because no gateway IPC/SDK merge surface
+ * exists (unlike `update_contact_channel` below); relaying requires new
+ * gateway-client contracts + a gateway IPC route + a core extraction of the
+ * HTTP handler. Until then, prefer the gateway route wherever reachable.
+ */
 async function handleMergeContactsRoute(args: RouteHandlerArgs) {
   const { body } = args;
   const keepId = body?.keepId as string | undefined;
