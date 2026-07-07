@@ -410,6 +410,13 @@ export function ContactsPage({
     select: (data) => data.users,
   });
 
+  // Without configured Slack credentials the roster can only 503, so the
+  // Link action is offered only when the Slack connection is ready —
+  // otherwise the row keeps Invite as its sole (working) action.
+  const slackReady = channelsController.channels.some(
+    (channel) => channel.key === "slack" && channel.status === "ready",
+  );
+
   const handleLinkAccount = useCallback(
     (channelId: string) => {
       if (channelId === slackLink.channelType) {
@@ -562,7 +569,7 @@ export function ContactsPage({
               }
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
-              onLinkAccount={handleLinkAccount}
+              onLinkAccount={slackReady ? handleLinkAccount : undefined}
             />
           )
         ) : (
