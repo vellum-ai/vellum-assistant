@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import { THRESHOLD_PRESETS } from "@/utils/threshold-presets";
+
 import {
   CAPABILITY_TIER_META,
-  CAPABILITY_TIER_THRESHOLDS,
+  CAPABILITY_TIER_VALUES,
   resolveChannelTier,
-  tierFromThreshold,
   tierOverridesFromCells,
   type ChannelTierCell,
 } from "./slack-channel-overrides";
@@ -12,40 +13,57 @@ import {
 describe("resolveChannelTier", () => {
   test("no cell resolves the presentation default, not an override", () => {
     expect(resolveChannelTier(undefined)).toEqual({
-      tier: "full_access",
+      tier: "high",
       overridden: false,
     });
   });
 
   test("a persisted cell flags the row as custom", () => {
-    expect(resolveChannelTier("standard")).toEqual({
-      tier: "standard",
+    expect(resolveChannelTier("low")).toEqual({
+      tier: "low",
       overridden: true,
     });
   });
 
-  test("a full_access cell is still an override — it pins the channel above the global cascade", () => {
-    expect(resolveChannelTier("full_access")).toEqual({
-      tier: "full_access",
+  test("a high cell is still an override — it pins the channel above the global cascade", () => {
+    expect(resolveChannelTier("high")).toEqual({
+      tier: "high",
       overridden: true,
     });
   });
 });
 
-describe("tier ↔ threshold mapping", () => {
-  test("write mapping covers every tier", () => {
-    expect(CAPABILITY_TIER_THRESHOLDS).toEqual({
-      strict: "none",
-      standard: "low",
-      full_access: "high",
-    });
+describe("tier ↔ preset parity", () => {
+  test("tiers are the global presets' thresholds, in preset order", () => {
+    expect(CAPABILITY_TIER_VALUES).toEqual(
+      THRESHOLD_PRESETS.map((preset) => preset.riskThreshold),
+    );
   });
 
-  test("read mapping inverts writes and folds medium into standard", () => {
-    expect(tierFromThreshold("none")).toBe("strict");
-    expect(tierFromThreshold("low")).toBe("standard");
-    expect(tierFromThreshold("medium")).toBe("standard");
-    expect(tierFromThreshold("high")).toBe("full_access");
+  test("labels come from the matching global preset — no redefined names", () => {
+    for (const preset of THRESHOLD_PRESETS) {
+      expect(CAPABILITY_TIER_META[preset.riskThreshold].label).toBe(
+        preset.label,
+      );
+    }
+  });
+});
+
+describe("CAPABILITY_TIER_META", () => {
+  test("tones follow the existing status mapping", () => {
+    expect(CAPABILITY_TIER_META.none.tone).toBe("negative");
+    expect(CAPABILITY_TIER_META.low.tone).toBe("warning");
+    expect(CAPABILITY_TIER_META.medium.tone).toBe("info");
+    expect(CAPABILITY_TIER_META.high.tone).toBe("positive");
+  });
+
+  test("sublabels use the behavior framing, not tool inventory", () => {
+    expect(CAPABILITY_TIER_META.none.sublabel).toBe("ask before every action");
+    expect(CAPABILITY_TIER_META.low.sublabel).toBe(
+      "safe actions, ask for the rest",
+    );
+    expect(CAPABILITY_TIER_META.medium.sublabel).toBe("workspace actions too");
+    expect(CAPABILITY_TIER_META.high.sublabel).toBe("acts freely");
   });
 });
 
@@ -65,12 +83,15 @@ describe("tierOverridesFromCells", () => {
     threshold: overrides.threshold ?? "low",
   });
 
-  test("maps channel-scope cells for the adapter to tiers", () => {
+  test("maps channel-scope cells for the adapter to their thresholds", () => {
     const overrides = tierOverridesFromCells(
-      [cell({ channelExternalId: "C1", threshold: "low" })],
+      [
+        cell({ channelExternalId: "C1", threshold: "low" }),
+        cell({ channelExternalId: "C2", threshold: "medium" }),
+      ],
       "slack",
     );
-    expect(overrides).toEqual({ C1: "standard" });
+    expect(overrides).toEqual({ C1: "low", C2: "medium" });
   });
 
   test("ignores other scopes and other adapters", () => {
@@ -101,20 +122,6 @@ describe("tierOverridesFromCells", () => {
       ],
       "slack",
     );
-    expect(overrides).toEqual({ C1: "full_access" });
-  });
-});
-
-describe("CAPABILITY_TIER_META", () => {
-  test("strict and full access reuse the threshold-preset labels", () => {
-    expect(CAPABILITY_TIER_META.strict.label).toBe("Strict");
-    expect(CAPABILITY_TIER_META.full_access.label).toBe("Full access");
-    expect(CAPABILITY_TIER_META.standard.label).toBe("Standard");
-  });
-
-  test("tones follow the existing status mapping", () => {
-    expect(CAPABILITY_TIER_META.strict.tone).toBe("negative");
-    expect(CAPABILITY_TIER_META.standard.tone).toBe("warning");
-    expect(CAPABILITY_TIER_META.full_access.tone).toBe("positive");
+    expect(overrides).toEqual({ C1: "high" });
   });
 });
