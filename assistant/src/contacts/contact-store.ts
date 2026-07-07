@@ -20,6 +20,10 @@ import type {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+type Db = ReturnType<typeof getDb>;
+/** Accepts the live connection or a transaction handle. */
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
 /** Strip LIKE metacharacters so user input is matched literally.
  * SQLite has no default escape character for LIKE, so we strip rather than escape. */
 function escapeLike(value: string): string {
@@ -30,11 +34,7 @@ function escapeLike(value: string): string {
  * Find the first contact_channels row whose (type, address) matches.
  * Uses COLLATE NOCASE to find legacy lowercased rows (pre-migration 290).
  */
-function findConflictingChannel(
-  db: ReturnType<typeof getDb>,
-  type: string,
-  address: string,
-) {
+function findConflictingChannel(db: DbOrTx, type: string, address: string) {
   return db
     .select()
     .from(contactChannels)
@@ -45,6 +45,60 @@ function findConflictingChannel(
       ),
     )
     .get();
+}
+
+/** Merge notes concat: survivor notes first, donor appended with \n,
+ * empty result stored as null. */
+function concatMergedNotes(
+  keepNotes: string | null | undefined,
+  donorNotes: string | null,
+): string | null {
+  return [keepNotes ?? null, donorNotes].filter(Boolean).join("\n") || null;
+}
+
+/**
+ * Move donor channels onto the survivor, skipping any the survivor already
+ * holds by logical (type, address) key. COLLATE NOCASE catches legacy
+ * lowercased rows. `touchUpdatedAt` stamps updated_at on moved rows (the
+ * mirror op does; the local merge historically does not).
+ */
+function reparentDonorChannels(
+  tx: DbOrTx,
+  keepId: string,
+  mergeId: string,
+  touchUpdatedAt?: number,
+): void {
+  const donorChannels = tx
+    .select()
+    .from(contactChannels)
+    .where(eq(contactChannels.contactId, mergeId))
+    .all();
+
+  for (const ch of donorChannels) {
+    const exists = tx
+      .select()
+      .from(contactChannels)
+      .where(
+        and(
+          eq(contactChannels.contactId, keepId),
+          eq(contactChannels.type, ch.type),
+          sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
+        ),
+      )
+      .get();
+
+    if (!exists) {
+      tx.update(contactChannels)
+        .set({
+          contactId: keepId,
+          ...(touchUpdatedAt !== undefined
+            ? { updatedAt: touchUpdatedAt }
+            : {}),
+        })
+        .where(eq(contactChannels.id, ch.id))
+        .run();
+    }
+  }
 }
 
 /**
@@ -649,41 +703,14 @@ export function mergeContacts(
 
     tx.update(contacts)
       .set({
-        notes: [keep.notes, merge.notes].filter(Boolean).join("\n") || null,
+        notes: concatMergedNotes(keep.notes, merge.notes),
         updatedAt: now,
       })
       .where(eq(contacts.id, keepId))
       .run();
 
     // Move channels from donor to survivor, skipping duplicates
-    const donorChannels = tx
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.contactId, mergeId))
-      .all();
-
-    for (const ch of donorChannels) {
-      // COLLATE NOCASE catches legacy lowercased rows so we don't try to
-      // move a donor channel that collides with an existing survivor channel.
-      const exists = tx
-        .select()
-        .from(contactChannels)
-        .where(
-          and(
-            eq(contactChannels.contactId, keepId),
-            eq(contactChannels.type, ch.type),
-            sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
-          ),
-        )
-        .get();
-
-      if (!exists) {
-        tx.update(contactChannels)
-          .set({ contactId: keepId })
-          .where(eq(contactChannels.id, ch.id))
-          .run();
-      }
-    }
+    reparentDonorChannels(tx, keepId, mergeId);
 
     // Delete the donor contact (cascading deletes remaining channels)
     tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
@@ -724,9 +751,7 @@ export function mergeContactMirror(params: {
       .from(contacts)
       .where(eq(contacts.id, params.keepContactId))
       .get();
-    const combined =
-      [survivor?.notes ?? null, donor.notes].filter(Boolean).join("\n") ||
-      null;
+    const combined = concatMergedNotes(survivor?.notes, donor.notes);
 
     if (survivor) {
       tx.update(contacts)
@@ -748,30 +773,7 @@ export function mergeContactMirror(params: {
     }
 
     // Move donor channels to the survivor, skipping duplicates by logical key.
-    const donorChannels = tx
-      .select()
-      .from(contactChannels)
-      .where(eq(contactChannels.contactId, params.mergeContactId))
-      .all();
-    for (const ch of donorChannels) {
-      const exists = tx
-        .select()
-        .from(contactChannels)
-        .where(
-          and(
-            eq(contactChannels.contactId, params.keepContactId),
-            eq(contactChannels.type, ch.type),
-            sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
-          ),
-        )
-        .get();
-      if (!exists) {
-        tx.update(contactChannels)
-          .set({ contactId: params.keepContactId, updatedAt: now })
-          .where(eq(contactChannels.id, ch.id))
-          .run();
-      }
-    }
+    reparentDonorChannels(tx, params.keepContactId, params.mergeContactId, now);
 
     // Delete the donor (cascade removes remaining duplicate channels).
     tx.delete(contacts).where(eq(contacts.id, params.mergeContactId)).run();
@@ -900,17 +902,8 @@ export function upsertContactMirrorFull(params: {
         continue;
       }
 
-      const conflict = tx
-        .select({ id: contactChannels.id })
-        .from(contactChannels)
-        .where(
-          and(
-            eq(contactChannels.type, ch.type),
-            sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
-          ),
-        )
-        .get();
-      if (conflict) continue;
+      // Address owned by ANOTHER contact is never stolen.
+      if (findConflictingChannel(tx, ch.type, ch.address)) continue;
 
       tx.insert(contactChannels)
         .values({
