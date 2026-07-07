@@ -170,7 +170,8 @@ export const messageMetadataSchema = z
      * by `persistQueuedMessageBody` — the transport `userMessageInterface` is
      * "web" for the web, iOS, and macOS apps alike, so this is the only
      * per-platform attribution. `browser_family` / `browser_version` /
-     * `interface_version` (and an `os` override) come from the sanitized
+     * `shell` ("electron" | "capacitor" | "browser") / `interface_version`
+     * (and an `os` override) come from the sanitized
      * `x-vellum-*` client-metadata headers read by `handleSendMessage`
      * (see `@vellumai/service-contracts/client-metadata`). Forwarded
      * verbatim onto `TurnTelemetryEvent.client` for downstream analytics.

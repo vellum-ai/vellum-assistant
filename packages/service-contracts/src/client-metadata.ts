@@ -17,6 +17,7 @@ export const CLIENT_METADATA_HEADERS = {
   browser_family: "x-vellum-browser-family",
   browser_version: "x-vellum-browser-version",
   os: "x-vellum-client-os",
+  shell: "x-vellum-client-shell",
   interface_version: "x-vellum-interface-version",
 } as const;
 

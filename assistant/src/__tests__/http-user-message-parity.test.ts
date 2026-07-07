@@ -548,6 +548,7 @@ describe("HTTP POST /v1/messages client metadata headers", () => {
     "x-vellum-browser-family": "safari",
     "x-vellum-browser-version": "17",
     "x-vellum-client-os": "ios",
+    "x-vellum-client-shell": "capacitor",
     "x-vellum-interface-version": "1.2.3",
   };
 
@@ -582,6 +583,7 @@ describe("HTTP POST /v1/messages client metadata headers", () => {
         browser_family: "safari",
         browser_version: "17",
         os: "ios",
+        shell: "capacitor",
         interface_version: "1.2.3",
       },
     });
@@ -620,6 +622,7 @@ describe("HTTP POST /v1/messages client metadata headers", () => {
         browser_family: "safari",
         browser_version: "17",
         os: "ios",
+        shell: "capacitor",
         interface_version: "1.2.3",
       },
     });

@@ -6,6 +6,7 @@ import {
 import {
   detectBrowserInfo,
   detectClientOs,
+  detectClientShell,
 } from "@/runtime/platform-detection";
 
 let cached: string | null = null;
@@ -49,6 +50,7 @@ function getClientMetadataHeaders(): Record<string, string> {
     [CLIENT_METADATA_HEADERS.browser_family, browser.family],
     [CLIENT_METADATA_HEADERS.browser_version, browser.version],
     [CLIENT_METADATA_HEADERS.os, detectClientOs()],
+    [CLIENT_METADATA_HEADERS.shell, detectClientShell()],
     [
       CLIENT_METADATA_HEADERS.interface_version,
       import.meta.env.VITE_APP_VERSION,

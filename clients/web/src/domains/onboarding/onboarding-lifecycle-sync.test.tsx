@@ -350,6 +350,7 @@ mock.module("@/runtime/platform-detection", () => ({
   // this onboarding test doesn't exercise the OS/browser surface, so stub
   // the web defaults to keep the partial module mock complete.
   detectClientOs: () => "web",
+  detectClientShell: () => "browser",
   detectBrowserInfo: () => ({}),
 }));
 

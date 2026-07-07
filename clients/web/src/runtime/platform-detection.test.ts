@@ -28,7 +28,9 @@ mock.module("@capacitor/core", () => ({
   Capacitor: { getPlatform: () => nativeOsPlatform },
 }));
 
-const { detectClientOs } = await import("@/runtime/platform-detection");
+const { detectClientOs, detectClientShell } = await import(
+  "@/runtime/platform-detection"
+);
 
 const ORIGINAL_UA = navigator.userAgent;
 const IPHONE_UA =
@@ -94,5 +96,29 @@ describe("detectClientOs", () => {
     nativePlatform = true;
     setUserAgent(IPHONE_UA);
     expect(detectClientOs()).toBe("macos");
+  });
+});
+
+describe("detectClientShell", () => {
+  test("returns 'electron' inside the Electron desktop shell", () => {
+    electron = true;
+    expect(detectClientShell()).toBe("electron");
+  });
+
+  test("returns 'capacitor' inside the Capacitor native shell", () => {
+    nativePlatform = true;
+    expect(detectClientShell()).toBe("capacitor");
+  });
+
+  test("returns 'browser' in a plain browser", () => {
+    expect(detectClientShell()).toBe("browser");
+  });
+
+  test("prefers 'electron' when both the Electron and native signals are present", () => {
+    // The Electron macOS shell also satisfies the native heuristics;
+    // `isElectron()` must win so it isn't reported as 'capacitor'.
+    electron = true;
+    nativePlatform = true;
+    expect(detectClientShell()).toBe("electron");
   });
 });

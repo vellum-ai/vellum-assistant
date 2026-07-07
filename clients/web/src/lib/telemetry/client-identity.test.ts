@@ -142,6 +142,7 @@ describe("client-identity", () => {
         "x-vellum-browser-family",
         "x-vellum-browser-version",
         "x-vellum-client-os",
+        "x-vellum-client-shell",
         "x-vellum-interface-version",
       ]);
       expect(headers["X-Vellum-Client-Id"]).toBe(mod.getClientId());
@@ -155,6 +156,7 @@ describe("client-identity", () => {
       expect(headers["x-vellum-browser-family"]).toBe("safari");
       expect(headers["x-vellum-browser-version"]).toBe("17");
       expect(headers["x-vellum-client-os"]).toBe("ios");
+      expect(headers["x-vellum-client-shell"]).toBe("browser");
       expect(headers["x-vellum-interface-version"]).toBe("1.2.3");
       // Never the raw user-agent string, in any header.
       expect(JSON.stringify(headers)).not.toContain("Mozilla");
@@ -183,6 +185,7 @@ describe("client-identity", () => {
       "X-Vellum-Client-Id",
       "X-Vellum-Interface-Id",
       "x-vellum-client-os",
+      "x-vellum-client-shell",
     ]);
     expect(headers["x-vellum-client-os"]).toBe("web");
   });
@@ -209,6 +212,7 @@ describe("client-identity", () => {
       "X-Vellum-Client-Id",
       "X-Vellum-Interface-Id",
       "x-vellum-client-os",
+      "x-vellum-client-shell",
     ]);
     expect(headers["x-vellum-client-os"]).toBe("ios");
   });

@@ -149,6 +149,38 @@ export function detectClientOs(): ClientOs {
 }
 
 /**
+ * The app shell hosting this web bundle, for turn telemetry
+ * (`metadata.client.shell`). The same `clients/web` bundle runs in the
+ * Electron macOS app, the Capacitor iOS/Android native shell, and a plain
+ * browser, so the host shell is decided at runtime rather than by which build
+ * is shipped. Lets analytics distinguish the app shells directly instead of
+ * inferring them from the absence of a browser family.
+ */
+export type ClientShell = "electron" | "capacitor" | "browser";
+
+/**
+ * Detect the app shell ("electron" | "capacitor" | "browser") at runtime.
+ *
+ * Order mirrors `detectClientOs`: the Electron macOS shell also satisfies the
+ * native heuristics, so `isElectron()` is checked first or it would be
+ * misreported as `capacitor`. A native Capacitor shell (`isNativePlatform()`,
+ * true for iOS AND Android) reports `capacitor`; everything else is `browser`.
+ *
+ * Safe to call before hydration: each underlying helper falls through to
+ * `false` when `window`/`navigator` are undefined, so SSR resolves to
+ * `browser`.
+ */
+export function detectClientShell(): ClientShell {
+  if (isElectron()) {
+    return "electron";
+  }
+  if (isNativePlatform()) {
+    return "capacitor";
+  }
+  return "browser";
+}
+
+/**
  * Browser attribution for turn telemetry (`metadata.client.browser_family` /
  * `.browser_version`). Family is engine-level: Chromium derivatives without
  * their own brand entry (Opera, Brave, Arc) report as `"chrome"`.
