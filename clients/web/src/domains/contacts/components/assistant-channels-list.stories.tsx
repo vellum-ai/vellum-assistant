@@ -1,4 +1,5 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { DetailCard } from "@/components/detail-card";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -24,10 +25,23 @@ const withLayoutFlag = (tabbed: boolean): Decorator => {
   };
 };
 
+// The Slack panel owns its own queries (`SlackChannelSection`), so stories
+// need a QueryClient. Requests fail in Storybook (no daemon), so the Slack
+// tab's channel list renders its error state; the list's full visuals live
+// in the SlackChannelList stories, which mock data via props.
+const withQueryClient: Decorator = (Story) => (
+  <QueryClientProvider
+    client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+  >
+    <Story />
+  </QueryClientProvider>
+);
+
 const meta: Meta<typeof AssistantChannelsList> = {
   title: "Contacts/AssistantChannelsList",
   component: AssistantChannelsList,
   args: {
+    assistantId: "assistant-1",
     assistantName: "Example Assistant",
     channels: [
       { key: "slack", status: "ready", address: "@example-assistant" },
@@ -41,6 +55,7 @@ const meta: Meta<typeof AssistantChannelsList> = {
     onSaveTwilioCredentials: async () => {},
   },
   decorators: [
+    withQueryClient,
     withLayoutFlag(true),
     (Story) => (
       <div
@@ -78,38 +93,6 @@ export const ChannelsTabSlackConnected: Story = {
     onSlackThreadModeChange: () => {},
     channelPolicies: { slack: "trusted_contacts" },
     onChannelPolicyChange: () => {},
-    slackChannels: [
-      {
-        id: "C001",
-        name: "general",
-        type: "channel",
-        isPrivate: false,
-        isMember: true,
-        memberCount: 42,
-        topic: null,
-        imageUrl: null,
-      },
-      {
-        id: "C002",
-        name: "leadership",
-        type: "channel",
-        isPrivate: true,
-        isMember: true,
-        memberCount: 4,
-        topic: null,
-        imageUrl: null,
-      },
-      {
-        id: "D001",
-        name: "Alice",
-        type: "dm",
-        isPrivate: true,
-        isMember: true,
-        memberCount: null,
-        topic: null,
-        imageUrl: null,
-      },
-    ],
   },
 };
 

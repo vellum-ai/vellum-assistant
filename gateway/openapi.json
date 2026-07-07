@@ -348,6 +348,426 @@
         }
       }
     },
+    "/v1/channel-permission-overrides": {
+      "get": {
+        "operationId": "channelPermissionOverridesList",
+        "summary": "List channel-permission matrix cells",
+        "tags": ["channel-permission-overrides"],
+        "description": "Returns every persisted cell (cascade selector × contact-type → RiskThreshold). Unset cells fall through the cascade; the list contains only explicit overrides.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cells": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "selector": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "scope": {
+                                    "type": "string",
+                                    "const": "workspace"
+                                  }
+                                },
+                                "required": ["scope"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "scope": {
+                                    "type": "string",
+                                    "const": "adapter"
+                                  },
+                                  "adapter": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": ["scope", "adapter"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "scope": {
+                                    "type": "string",
+                                    "const": "channel_type"
+                                  },
+                                  "adapter": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "channelType": {
+                                    "type": "string",
+                                    "enum": ["dm", "private", "public"]
+                                  }
+                                },
+                                "required": ["scope", "adapter", "channelType"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "scope": {
+                                    "type": "string",
+                                    "const": "channel"
+                                  },
+                                  "adapter": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "channelExternalId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "scope",
+                                  "adapter",
+                                  "channelExternalId"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ],
+                            "type": "object"
+                          },
+                          "contactType": {
+                            "type": "string",
+                            "enum": [
+                              "guardian",
+                              "trusted_contact",
+                              "unverified_contact",
+                              "unknown"
+                            ]
+                          },
+                          "threshold": {
+                            "type": "string",
+                            "enum": ["none", "low", "medium", "high"]
+                          },
+                          "note": {
+                            "anyOf": [{ "type": "string" }, { "type": "null" }]
+                          },
+                          "updatedAt": { "type": "number" }
+                        },
+                        "required": [
+                          "selector",
+                          "contactType",
+                          "threshold",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["cells"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "channelPermissionOverrideSet",
+        "summary": "Upsert a channel-permission matrix cell",
+        "tags": ["channel-permission-overrides"],
+        "description": "Upserts one cell, identified by the selector × contact-type in the body. The adapter must be a known channel id.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "selector": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": { "type": "string", "const": "workspace" }
+                        },
+                        "required": ["scope"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": { "type": "string", "const": "adapter" },
+                          "adapter": { "type": "string", "minLength": 1 }
+                        },
+                        "required": ["scope", "adapter"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": {
+                            "type": "string",
+                            "const": "channel_type"
+                          },
+                          "adapter": { "type": "string", "minLength": 1 },
+                          "channelType": {
+                            "type": "string",
+                            "enum": ["dm", "private", "public"]
+                          }
+                        },
+                        "required": ["scope", "adapter", "channelType"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": { "type": "string", "const": "channel" },
+                          "adapter": { "type": "string", "minLength": 1 },
+                          "channelExternalId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": ["scope", "adapter", "channelExternalId"],
+                        "additionalProperties": false
+                      }
+                    ],
+                    "type": "object"
+                  },
+                  "contactType": {
+                    "type": "string",
+                    "enum": [
+                      "guardian",
+                      "trusted_contact",
+                      "unverified_contact",
+                      "unknown"
+                    ]
+                  },
+                  "threshold": {
+                    "type": "string",
+                    "enum": ["none", "low", "medium", "high"]
+                  },
+                  "note": {
+                    "anyOf": [{ "type": "string" }, { "type": "null" }]
+                  }
+                },
+                "required": ["selector", "contactType", "threshold"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cell": {
+                      "type": "object",
+                      "properties": {
+                        "selector": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "scope": {
+                                  "type": "string",
+                                  "const": "workspace"
+                                }
+                              },
+                              "required": ["scope"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "scope": {
+                                  "type": "string",
+                                  "const": "adapter"
+                                },
+                                "adapter": { "type": "string", "minLength": 1 }
+                              },
+                              "required": ["scope", "adapter"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "scope": {
+                                  "type": "string",
+                                  "const": "channel_type"
+                                },
+                                "adapter": { "type": "string", "minLength": 1 },
+                                "channelType": {
+                                  "type": "string",
+                                  "enum": ["dm", "private", "public"]
+                                }
+                              },
+                              "required": ["scope", "adapter", "channelType"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "scope": {
+                                  "type": "string",
+                                  "const": "channel"
+                                },
+                                "adapter": { "type": "string", "minLength": 1 },
+                                "channelExternalId": {
+                                  "type": "string",
+                                  "minLength": 1
+                                }
+                              },
+                              "required": [
+                                "scope",
+                                "adapter",
+                                "channelExternalId"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ],
+                          "type": "object"
+                        },
+                        "contactType": {
+                          "type": "string",
+                          "enum": [
+                            "guardian",
+                            "trusted_contact",
+                            "unverified_contact",
+                            "unknown"
+                          ]
+                        },
+                        "threshold": {
+                          "type": "string",
+                          "enum": ["none", "low", "medium", "high"]
+                        },
+                        "note": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "updatedAt": { "type": "number" }
+                      },
+                      "required": [
+                        "selector",
+                        "contactType",
+                        "threshold",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["cell"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/channel-permission-overrides/delete": {
+      "post": {
+        "operationId": "channelPermissionOverrideDelete",
+        "summary": "Delete a channel-permission matrix cell",
+        "tags": ["channel-permission-overrides"],
+        "description": "Removes one cell by its composite key (selector × contact-type), letting the next cascade tier up win. Returns whether a cell was removed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "selector": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": { "type": "string", "const": "workspace" }
+                        },
+                        "required": ["scope"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": { "type": "string", "const": "adapter" },
+                          "adapter": { "type": "string", "minLength": 1 }
+                        },
+                        "required": ["scope", "adapter"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": {
+                            "type": "string",
+                            "const": "channel_type"
+                          },
+                          "adapter": { "type": "string", "minLength": 1 },
+                          "channelType": {
+                            "type": "string",
+                            "enum": ["dm", "private", "public"]
+                          }
+                        },
+                        "required": ["scope", "adapter", "channelType"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "scope": { "type": "string", "const": "channel" },
+                          "adapter": { "type": "string", "minLength": 1 },
+                          "channelExternalId": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": ["scope", "adapter", "channelExternalId"],
+                        "additionalProperties": false
+                      }
+                    ],
+                    "type": "object"
+                  },
+                  "contactType": {
+                    "type": "string",
+                    "enum": [
+                      "guardian",
+                      "trusted_contact",
+                      "unverified_contact",
+                      "unknown"
+                    ]
+                  }
+                },
+                "required": ["selector", "contactType"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "removed": { "type": "boolean" } },
+                  "required": ["removed"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/contacts": {
       "post": {
         "operationId": "contactsUpsert",

@@ -17,7 +17,10 @@ function makeChannel(overrides: Partial<SlackChannel> & Pick<SlackChannel, "id" 
   };
 }
 
-/** A mix of public channels, private channels, and DMs, all member-only. */
+/**
+ * A mix of public channels, private channels, group DMs, and 1:1 DMs — the
+ * list renders rooms only, so the 1:1 DM rows stay hidden.
+ */
 const MIXED_CHANNELS: SlackChannel[] = [
   makeChannel({ id: "C001", name: "general", memberCount: 42 }),
   makeChannel({ id: "C002", name: "engineering", memberCount: 18 }),
@@ -37,9 +40,6 @@ const meta: Meta<typeof SlackChannelList> = {
     assistantDisplayName: "Example Assistant",
     slackHandle: "@example-assistant",
     channels: MIXED_CHANNELS,
-    // Alice is a verified contact, so her DM resolves "Full access";
-    // Bob's DM resolves "Strict".
-    verifiedDmContactNames: new Set(["alice"]),
   },
   decorators: [
     (Story) => (
@@ -61,6 +61,25 @@ export const Loaded: Story = {};
 export const Empty: Story = {
   args: {
     channels: [],
+  },
+};
+
+/**
+ * `eng-releases` starts overridden to the Standard tier — the row badge
+ * reads "Standard • custom" and expanding it shows the custom-capabilities
+ * callout with Reset to default (mirrors the ticket mockup's `releases`).
+ */
+export const OverriddenChannel: Story = {
+  args: {
+    tierOverrides: { C003: "standard" },
+    onTierChange: () => {},
+    onTierReset: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByLabelText("eng-releases — expand channel settings"),
+    );
   },
 };
 

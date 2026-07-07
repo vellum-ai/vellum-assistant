@@ -27515,8 +27515,9 @@ paths:
               - "true"
               - "false"
           description:
-            "When 'true', only return conversations the connected identity is in: channels/groups with is_member, plus
-            all DMs and group DMs"
+            "When 'true', only return rooms the connected identity is in: channels with is_member plus group DMs. 1:1
+            DMs are excluded — they are person-scoped, and Slack materializes IM rows without any conversation
+            happening."
       responses:
         "200":
           description: Successful response

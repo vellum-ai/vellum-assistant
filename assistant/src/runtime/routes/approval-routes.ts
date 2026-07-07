@@ -16,6 +16,10 @@ import type {
 } from "../../permissions/secret-prompter.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getConversationByKey } from "../../persistence/conversation-key-store.js";
+import {
+  hasInteriorWhitespace,
+  normalizeSecretValue,
+} from "../../security/secret-normalize.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import * as pendingInteractions from "../pending-interactions.js";
@@ -127,7 +131,22 @@ function handleSecret({ body }: RouteHandlerArgs) {
   // undefined) so the request settles cleanly rather than 400-ing and stranding
   // the pending interaction.
   const isCancel = delivery === "none";
-  const value = isCancel ? undefined : (body?.value as string | undefined);
+  const rawValue = isCancel ? undefined : (body?.value as string | undefined);
+
+  const value =
+    rawValue === undefined ? undefined : normalizeSecretValue(rawValue);
+  if (value !== undefined && value !== rawValue) {
+    log.info(
+      { hadEdgeWhitespace: true },
+      "Trimmed edge whitespace from submitted secret value",
+    );
+  }
+  if (value !== undefined && hasInteriorWhitespace(value)) {
+    log.warn(
+      { interiorWhitespace: true },
+      "Submitted secret contains interior whitespace — expected for multi-line secrets (e.g. PEM keys), unexpected for API tokens",
+    );
+  }
 
   if (
     delivery !== undefined &&
