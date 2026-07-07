@@ -18,7 +18,6 @@ import { channelLinkProvenance } from "@/domains/contacts/channel-linking";
 import { LinkAccountDialog } from "@/domains/contacts/components/link-account-dialog";
 import { findDuplicateCandidate } from "@/domains/contacts/duplicate-suggestion";
 import { slackRosterOptions } from "@/domains/contacts/slack-users-query";
-import { useSupportsSlackRosterLink } from "@/lib/backwards-compat/slack-roster-link";
 import {
     deleteContact as gatewayDeleteContact,
     upsertContact,
@@ -427,10 +426,6 @@ export function ContactsPage({
     onLinked: invalidateContacts,
   });
 
-  // Older assistants don't serve GET /v1/slack/users — hide the Link action
-  // and skip the roster fetch so the row degrades to Invite-only.
-  const supportsSlackRosterLink = useSupportsSlackRosterLink();
-
   // The header provenance line renders the @handle for guardian-linked
   // bindings from the roster, so the fetch is enabled while such a contact
   // is selected — not only while the picker is open.
@@ -448,7 +443,6 @@ export function ContactsPage({
     ...slackRosterOptions(assistantId),
     enabled:
       Boolean(assistantId) &&
-      supportsSlackRosterLink &&
       (slackLink.dialogOpen || needsRosterForProvenance),
     select: (data) => data.users,
   });
@@ -632,9 +626,7 @@ export function ContactsPage({
               }
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
-              onLinkAccount={
-                supportsSlackRosterLink ? handleLinkAccount : undefined
-              }
+              onLinkAccount={handleLinkAccount}
               onDismissDuplicate={handleDismissDuplicate}
               onMergeDuplicate={handleMergeDuplicate}
             />
