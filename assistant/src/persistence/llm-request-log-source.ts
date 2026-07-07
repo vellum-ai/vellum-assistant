@@ -19,9 +19,6 @@
 import { getConfig } from "../config/loader.js";
 import type { LlmRequestLogSource } from "./llm-request-log-source-types.js";
 
-// Re-exported so existing consumers keep importing the interface from here.
-export type { LlmRequestLogSource };
-
 /**
  * Return the configured LLM request log source.
  *

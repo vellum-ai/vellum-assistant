@@ -36,16 +36,6 @@ import {
   type UsageTimeRange,
 } from "./usage-types.js";
 
-// Re-exported so the aggregation module's public surface is unchanged for the
-// route/CLI/test consumers that import these types from here.
-export {
-  type GroupByDimension,
-  USAGE_GROUP_BY_DIMENSIONS,
-  type UsageBucketOptions,
-  type UsageDayBucket,
-  type UsageTimeRange,
-};
-
 // ---------------------------------------------------------------------------
 // Write
 // ---------------------------------------------------------------------------

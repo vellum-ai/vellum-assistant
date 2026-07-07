@@ -1,11 +1,6 @@
 /**
- * Shared value/time-bucket vocabulary for the LLM usage aggregation modules.
- *
- * Extracted into a leaf module so the bucketing helpers (`usage-buckets.ts`,
- * `usage-grouped-buckets.ts`) can consume these types without importing back
- * from `llm-usage-store.ts`, which imports the helpers — that mutual import
- * formed a circular dependency. `llm-usage-store.ts` re-exports these symbols
- * so its public surface is unchanged.
+ * Shared time-bucket vocabulary for the LLM usage aggregation modules
+ * (`llm-usage-store.ts`, `usage-buckets.ts`, `usage-grouped-buckets.ts`).
  */
 
 /** Epoch-millis time range (inclusive on both ends). */

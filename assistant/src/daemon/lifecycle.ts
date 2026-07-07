@@ -21,7 +21,7 @@ import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-runtime-manager.js";
+import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
 import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";

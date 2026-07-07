@@ -29,7 +29,6 @@ import { ensureBun, findBun } from "../../util/bun-runtime.js";
 import { getLogger } from "../../util/logger.js";
 import { getEmbeddingModelsDir } from "../../util/platform.js";
 import { PromiseGuard } from "../../util/promise-guard.js";
-import { requestLocalEmbeddingRetry } from "./embedding-local-retry.js";
 
 const log = getLogger("embedding-runtime-manager");
 
@@ -571,35 +570,4 @@ export class EmbeddingRuntimeManager {
       return null;
     }
   }
-}
-
-/**
- * Download the local embedding runtime in the background (non-blocking).
- *
- * Pre-warms the runtime (bun binary + ONNX worker scripts) so the first local
- * embed doesn't pay the download cost inline. A no-op when the runtime is
- * already installed. Failures are swallowed with a warning: local embeddings
- * fall back to cloud backends, so a failed download must never block or crash
- * daemon startup. Returns immediately; the download proceeds on its own.
- */
-export function startEmbeddingRuntimeManager(): void {
-  void (async () => {
-    try {
-      const runtimeManager = new EmbeddingRuntimeManager();
-      if (runtimeManager.isReady()) return;
-      log.info("Downloading embedding runtime in background...");
-      await runtimeManager.ensureInstalled();
-      // Reset the sticky local-backend failure flag so auto mode retries
-      // local embeddings without evicting a worker that may already be live.
-      // Routed through the retry leaf to avoid importing the backend directly
-      // (which would form an import cycle).
-      requestLocalEmbeddingRetry();
-      log.info("Embedding runtime download complete");
-    } catch (err) {
-      log.warn(
-        { err },
-        "Embedding runtime download failed — local embeddings will use cloud fallback",
-      );
-    }
-  })();
 }

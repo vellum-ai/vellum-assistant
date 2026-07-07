@@ -1,12 +1,8 @@
 /**
- * Type-only contract for the pluggable LLM request log read source.
- *
- * Extracted into a leaf module so the implementations
- * (`llm-request-log-source-local.ts`, `llm-request-log-source-clickhouse.ts`)
- * can implement the interface without importing back from
- * `llm-request-log-source.ts`, whose factory dynamically imports them — that
- * mutual import formed a circular dependency. `llm-request-log-source.ts`
- * re-exports this interface so its public surface is unchanged.
+ * Type-only contract for the pluggable LLM request log read source,
+ * implemented by `llm-request-log-source-local.ts` and
+ * `llm-request-log-source-clickhouse.ts` and resolved by
+ * `getLlmRequestLogSource` in `llm-request-log-source.ts`.
  */
 import type {
   CompactionAgentLogRow,
