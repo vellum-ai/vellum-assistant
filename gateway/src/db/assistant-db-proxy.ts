@@ -19,10 +19,7 @@
  * contact-merge cluster gets typed mirror ops.
  */
 
-import {
-  IpcHandlerError,
-  ipcCallAssistant,
-} from "../ipc/assistant-client.js";
+import { ipcCallAssistant } from "../ipc/assistant-client.js";
 
 export type SqliteValue = string | number | null | Uint8Array;
 
@@ -75,69 +72,3 @@ export async function assistantDbRun(
 export async function assistantDbExec(sql: string): Promise<void> {
   await dbProxy(sql, "exec");
 }
-
-// ---------------------------------------------------------------------------
-// Transaction helper
-// ---------------------------------------------------------------------------
-
-export interface AssistantDbTransactionStep {
-  /** The SQL write statement to execute. */
-  sql: string;
-  /** Positional bind parameters. */
-  bind?: SqliteValue[];
-  /**
-   * If set, abort the transaction (rollback) when this step's row-change
-   * count is below this threshold. Used for stale-write detection — e.g.
-   * "increment use_count only if status = 'active' AND use_count < max_uses",
-   * with `requireChanges: 1` to abort when no rows match.
-   */
-  requireChanges?: number;
-}
-
-export type AssistantDbTransactionResult =
-  | {
-      ok: true;
-      results: Array<{ changes: number; lastInsertRowid: number }>;
-    }
-  | {
-      ok: false;
-      reason: "require_changes_failed";
-      failedStep: number;
-      actualChanges: number;
-      requiredChanges: number;
-    };
-
-/**
- * Execute multiple write statements against the assistant's SQLite DB inside
- * a single atomic transaction (BEGIN IMMEDIATE). All steps commit together;
- * any throw — including a `requireChanges` constraint failure — rolls back
- * the entire batch.
- *
- * Use this when several writes must succeed or fail as a unit (e.g. invite
- * redemption: contact-channel upsert + invite-use record).
- *
- * Error handling:
- * - `requireChanges` violations return `{ ok: false, reason: "require_changes_failed", ... }`.
- * - Handler-level failures (SQL constraint errors, malformed params) throw
- *   `IpcHandlerError` so the underlying SQL message is preserved.
- * - Transport failures (socket missing, daemon unreachable, timeout) throw
- *   `IpcTransportError`. Use this to distinguish retryable vs.
- *   non-retryable failures.
- *
- * Read-modify-write across steps is not supported. Use SQL-level conditions
- * (WHERE clauses, ON CONFLICT) plus `requireChanges` for stale-write detection.
- */
-export async function assistantDbTransaction(
-  steps: AssistantDbTransactionStep[],
-): Promise<AssistantDbTransactionResult> {
-  return (await ipcCallAssistant("db_proxy_transaction", {
-    steps,
-  })) as AssistantDbTransactionResult;
-}
-
-/**
- * Re-export so callers in this module's domain (gateway DB write helpers)
- * can identify SQL/handler failures from the assistant DB proxy without
- * importing from the IPC client directly.
- */
-export { IpcHandlerError };

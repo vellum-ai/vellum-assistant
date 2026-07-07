@@ -49,6 +49,8 @@ import {
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import { resolveGuardianName } from "../prompts/user-reference.js";
+import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { CallController } from "./call-controller.js";
 import {
@@ -57,7 +59,11 @@ import {
 } from "./call-pointer-messages.js";
 import { CallSetupFlow, type CallSetupFlowDeps } from "./call-setup-flow.js";
 import type { SetupFlowResult } from "./call-setup-flow-types.js";
-import { routeSetup } from "./call-setup-router.js";
+import {
+  routeSetup,
+  type SetupOutcome,
+  type SetupResolved,
+} from "./call-setup-router.js";
 import { speakSystemPrompt } from "./call-speech-output.js";
 import {
   fireCallTranscriptNotifier,
@@ -100,6 +106,49 @@ function resolveAssistantLabel(): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Deny routing for an inbound call whose admission floor could not be read
+ * (gateway unreachable / malformed answer). Mirrors the router's floor-deny
+ * outcome shape so the setup flow runs the standard deny teardown (denial
+ * copy + hangup). Trust is stamped `unknown`: with no gateway answer the
+ * caller cannot be vetted.
+ */
+function admissionUnavailableDeny(otherPartyNumber: string): {
+  outcome: SetupOutcome;
+  resolved: SetupResolved;
+} {
+  const actorTrust: ActorTrustContext = {
+    canonicalSenderId: null,
+    guardianBindingMatch: null,
+    guardianPrincipalId: undefined,
+    memberRecord: null,
+    trustClass: "unknown",
+    actorMetadata: {
+      identifier: otherPartyNumber || undefined,
+      displayName: undefined,
+      senderDisplayName: undefined,
+      memberDisplayName: undefined,
+      username: undefined,
+      channel: "phone",
+      trustStatus: "unknown",
+    },
+  };
+  return {
+    outcome: {
+      action: "deny",
+      message:
+        "The assistant can't take calls right now. Please try again later.",
+      logReason: "Inbound voice admission floor: gateway unreachable",
+    },
+    resolved: {
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      isInbound: true,
+      otherPartyNumber,
+      actorTrust,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -421,18 +470,21 @@ export class MediaStreamCallSession {
     // transport.
     const from = session?.fromNumber ?? "";
     const to = session?.toNumber ?? "";
+    const isInbound = session?.initiatedFromConversationId == null;
+    const otherPartyNumber = isInbound ? from : to;
 
     // Resolve the phone channel's inbound admission floor so the trust floor
     // (e.g. guardian_only) is enforced on this transport too — not just the
-    // gateway webhook's no_one kill switch. The reader fails open to `null`
-    // by contract, so a transport hiccup admits the caller.
+    // gateway webhook's no_one kill switch. The reader fails closed by
+    // contract: an unreachable gateway denies inbound setup below rather
+    // than admitting unvetted callers past the floor.
     //
     // Concurrently, prime the guardian displayName used by setup-flow copy
     // and warm the phone-channel guardian-delivery cache for setup-flow
     // label resolution (gateway-side binding writes don't invalidate the
     // daemon cache, so read fresh). All three are independent IPC reads on
     // different cache keys.
-    const [admissionPolicy] = await Promise.all([
+    const [admissionRead] = await Promise.all([
       getChannelAdmissionPolicy("phone"),
       this.primeGuardianDisplayName(),
       getGuardianDeliveryFresh({ channelTypes: ["phone"] }),
@@ -446,34 +498,46 @@ export class MediaStreamCallSession {
       return;
     }
 
-    // Gateway-verdict caller trust so this transport enforces the gateway
-    // ACL. The reader returns null on failure; routeSetup fails closed on a
-    // missing/failed verdict (inbound deny, outbound setup abort).
-    const isInbound = session?.initiatedFromConversationId == null;
-    const otherPartyNumber = isInbound ? from : to;
-    const verdict = await getPhoneCallerVerdict(otherPartyNumber);
+    let routed: { outcome: SetupOutcome; resolved: SetupResolved };
+    if (isInbound && !admissionRead.ok) {
+      // Fail closed: with no gateway answer the floor cannot be enforced, so
+      // the caller cannot be vetted. Outbound calls never consult admission
+      // and route normally below.
+      log.warn(
+        { callSessionId: this.callSessionId, from },
+        "Inbound voice admission floor unavailable — denying call setup",
+      );
+      routed = admissionUnavailableDeny(otherPartyNumber);
+    } else {
+      // Gateway-verdict caller trust so this transport enforces the gateway
+      // ACL. The reader returns null on failure; routeSetup fails closed on a
+      // missing/failed verdict (inbound deny, outbound setup-failure
+      // teardown).
+      const verdict = await getPhoneCallerVerdict(otherPartyNumber);
 
-    // The verdict read above yields the event loop; abort if the session was
-    // disposed meanwhile, matching the admission-read guard above.
-    if (this.abortIfDisposed("verdict read")) {
-      return;
+      // The verdict read above yields the event loop; abort if the session was
+      // disposed meanwhile, matching the admission-read guard above.
+      if (this.abortIfDisposed("verdict read")) {
+        return;
+      }
+
+      routed = await routeSetup({
+        callSessionId: this.callSessionId,
+        session: session ?? null,
+        from,
+        to,
+        customParameters: event.start.customParameters,
+        admissionPolicy: admissionRead.ok ? admissionRead.policy : null,
+        verdict,
+      });
+
+      // routeSetup can yield the event loop (gateway voice-invite read); abort
+      // if the session was disposed meanwhile, matching the guards above.
+      if (this.abortIfDisposed("setup routing")) {
+        return;
+      }
     }
-
-    const { outcome, resolved } = await routeSetup({
-      callSessionId: this.callSessionId,
-      session: session ?? null,
-      from,
-      to,
-      customParameters: event.start.customParameters,
-      admissionPolicy,
-      verdict,
-    });
-
-    // routeSetup can yield the event loop (gateway voice-invite read); abort
-    // if the session was disposed meanwhile, matching the guards above.
-    if (this.abortIfDisposed("setup routing")) {
-      return;
-    }
+    const { outcome, resolved } = routed;
 
     log.info(
       {

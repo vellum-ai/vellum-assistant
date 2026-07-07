@@ -180,6 +180,9 @@ export function createEmailWebhookHandler(
           { from: event.actor.actorExternalId, to: recipientAddress },
           "Gateway intercept — returning reply text to platform",
         );
+        // replyText contract: the gateway cannot send email on this path — the
+        // reply rides the HTTP response for the platform (vembda) to deliver,
+        // and delivery is tracked platform-side.
         return Response.json({
           ok: true,
           [intercept.flag]: true,
@@ -226,7 +229,8 @@ export function createEmailWebhookHandler(
 
       // Propagate the runtime's full response (including denied/reason/replyText)
       // so the platform can decide whether to persist the email and how to respond
-      // to the sender.
+      // to the sender. Same replyText contract as above: the gateway cannot send
+      // email here — the platform (vembda) delivers any reply and tracks delivery.
       const runtimeBody = result.runtimeResponse ?? {};
       return Response.json({ ok: true, ...runtimeBody });
     } catch (err) {
