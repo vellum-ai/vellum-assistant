@@ -51,15 +51,6 @@ export type DefaultProfileTemplate = Omit<
 };
 
 /**
- * Re-exported for backward compatibility — `DEFAULT_PROFILE_PROVIDERS` is
- * defined in `default-profile-names.js` (an import-free module) so
- * `schemas/llm.ts` can validate `llm.defaultProvider` against it without a
- * circular import.
- */
-export { DEFAULT_PROFILE_PROVIDERS };
-export type { DefaultProfileProvider };
-
-/**
  * The `vellum` column: platform-managed implementations. Overwritten in
  * workspace config on every daemon boot so Vellum can push model/config
  * updates to customers in new releases.
