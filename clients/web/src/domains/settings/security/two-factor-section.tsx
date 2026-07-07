@@ -124,7 +124,7 @@ export function TwoFactorSection() {
       <ConfirmDialog
         open={pendingDelete !== null}
         title="Remove authenticator app"
-        message="Signing in with email and password will no longer ask for a code from this app. You can set up a new authenticator app at any time."
+        message="Signing in will no longer ask for a code from this app. You can set up a new authenticator app at any time."
         confirmLabel="Remove"
         destructive
         onConfirm={() => {
