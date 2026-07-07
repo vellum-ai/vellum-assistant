@@ -5,50 +5,79 @@
  * the `contact-store` primitives; the gateway DB stays the ACL source of truth.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
 const upsertContactChannelCalls: unknown[] = [];
 const upsertContactCalls: unknown[] = [];
 const deleteContactCalls: unknown[] = [];
 const mergeContactMirrorCalls: unknown[] = [];
 
-// Spread the real modules so unrelated consumers (contact-routes) keep their
-// exports; override only the primitives the handlers delegate to.
-const realContactsWrite = await import("../../../contacts/contacts-write.js");
-const realContactStore = await import("../../../contacts/contact-store.js");
+// `mock.module` is process-global; every stub below DELEGATES to the real
+// implementation unless this file's tests are running, so the mocks cannot
+// leak into sibling suites (e.g. the real-DB merge suite's initializeDb()).
+let mockActive = false;
+beforeAll(() => {
+  mockActive = true;
+});
+afterAll(() => {
+  mockActive = false;
+});
+
+// Snapshot-spread the real modules BEFORE mock.module patches their namespaces
+// in place — delegating through the live namespace would re-enter the mock.
+// Spreading also keeps unrelated exports intact for other consumers.
+const realContactsWrite = {
+  ...(await import("../../../contacts/contacts-write.js")),
+};
+const realContactStore = {
+  ...(await import("../../../contacts/contact-store.js")),
+};
 
 mock.module("../../../contacts/contacts-write.js", () => ({
   ...realContactsWrite,
-  upsertContactChannel: (params: unknown) => {
-    upsertContactChannelCalls.push(params);
+  upsertContactChannel: (
+    ...args: Parameters<typeof realContactsWrite.upsertContactChannel>
+  ) => {
+    if (!mockActive) {return realContactsWrite.upsertContactChannel(...args);}
+    upsertContactChannelCalls.push(args[0]);
     return null;
   },
 }));
 
 mock.module("../../../contacts/contact-store.js", () => ({
   ...realContactStore,
-  upsertContact: (params: unknown) => {
-    upsertContactCalls.push(params);
+  upsertContact: (
+    ...args: Parameters<typeof realContactStore.upsertContact>
+  ) => {
+    if (!mockActive) {return realContactStore.upsertContact(...args);}
+    upsertContactCalls.push(args[0]);
     return { created: true };
   },
-  deleteContact: (id: unknown) => {
-    deleteContactCalls.push(id);
+  deleteContact: (
+    ...args: Parameters<typeof realContactStore.deleteContact>
+  ) => {
+    if (!mockActive) {return realContactStore.deleteContact(...args);}
+    deleteContactCalls.push(args[0]);
   },
-  mergeContactMirror: (params: unknown) => {
-    mergeContactMirrorCalls.push(params);
+  mergeContactMirror: (
+    ...args: Parameters<typeof realContactStore.mergeContactMirror>
+  ) => {
+    if (!mockActive) {return realContactStore.mergeContactMirror(...args);}
+    mergeContactMirrorCalls.push(args[0]);
   },
 }));
 
 // The transactional method wraps ops in getDb().transaction(); run the callback
 // inline so op dispatch is observable against the mocked primitives above.
-// Spread the real module so unrelated exports stay intact if suites ever share
-// a process.
-const realDbConnection = await import(
-  "../../../persistence/db-connection.js"
-);
+const realDbConnection = {
+  ...(await import("../../../persistence/db-connection.js")),
+};
 mock.module("../../../persistence/db-connection.js", () => ({
   ...realDbConnection,
-  getDb: () => ({ transaction: (fn: () => void) => fn() }),
+  getDb: () =>
+    mockActive
+      ? { transaction: (fn: () => void) => fn() }
+      : realDbConnection.getDb(),
 }));
 
 const {
