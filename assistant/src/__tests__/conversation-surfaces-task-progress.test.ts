@@ -22,7 +22,6 @@ function makeContext(
   return {
     conversationId: "session-1",
     channelCapabilities,
-    traceEmitter: { emit: () => {} },
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<

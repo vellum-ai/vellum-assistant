@@ -92,7 +92,6 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     currentRequestId: "req-1",
     workingDir: "/tmp/test",
     abortController: null,
-    traceEmitter: { emit: () => {} },
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
