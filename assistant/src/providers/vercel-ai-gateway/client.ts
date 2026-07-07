@@ -1,36 +1,23 @@
-import { ProviderError } from "../../util/errors.js";
 import { AnthropicProvider } from "../anthropic/client.js";
+import {
+  isAnthropicModel,
+  retagDelegateError,
+  toAnthropicMessagesBaseURL,
+} from "../anthropic-gateway-shared.js";
 import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 import type {
   Message,
   ProviderResponse,
   SendMessageOptions,
 } from "../types.js";
-import { ContextOverflowError, isContextOverflowError } from "../types.js";
 
 export interface VercelAIGatewayProviderOptions {
-  apiKey?: string;
   baseURL?: string;
   streamTimeoutMs?: number;
   useNativeWebSearch?: boolean;
 }
 
 const DEFAULT_VERCEL_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
-
-// Models prefixed `anthropic/` are routed through the gateway's
-// Anthropic-compatible Messages API at `<root>/v1/messages` so that
-// Anthropic-native features — extended thinking, prompt caching, cache TTL,
-// output_config — work without lossy translation through the OpenAI chat
-// completions compatibility layer. The Anthropic SDK appends `/v1/messages` to
-// its configured baseURL, so we strip the trailing `/v1` segment from the
-// OpenAI-compat base before handing it to the SDK.
-function isAnthropicModel(model: string): boolean {
-  return model.startsWith("anthropic/");
-}
-
-export function toAnthropicMessagesBaseURL(baseURL: string): string {
-  return baseURL.replace(/\/v1\/?$/, "");
-}
 
 export class VercelAIGatewayProvider extends OpenAIChatCompletionsProvider {
   private readonly gatewayApiKey: string;
@@ -90,26 +77,7 @@ export class VercelAIGatewayProvider extends OpenAIChatCompletionsProvider {
       }
       return await super.sendMessage(messages, options);
     } catch (error) {
-      // Re-tag delegate-thrown ContextOverflowError so the outer provider name
-      // matches the configured provider ("vercel-ai-gateway"). This keeps
-      // downstream error reporting and metrics attribution accurate, while
-      // preserving the actualTokens/maxTokens extracted by the delegate.
-      if (isContextOverflowError(error) && error.provider !== this.name) {
-        throw new ContextOverflowError(error.message, this.name, {
-          actualTokens: error.actualTokens,
-          maxTokens: error.maxTokens,
-          statusCode: error.statusCode,
-          cause: error,
-        });
-      }
-      if (error instanceof ProviderError && error.provider !== this.name) {
-        throw new ProviderError(error.message, this.name, error.statusCode, {
-          cause: error.cause ?? error,
-          retryAfterMs: error.retryAfterMs,
-          abortReason: error.abortReason,
-        });
-      }
-      throw error;
+      retagDelegateError(error, this.name);
     }
   }
 
