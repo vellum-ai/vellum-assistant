@@ -243,6 +243,71 @@ describe("extractSpeakableSegments", () => {
       expect(remainder).toBe("");
     });
 
+    test("a lone arithmetic asterisk does not suppress sentence boundaries", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "The result of 5 * 3 is 15. And the next sentence keeps going",
+        false,
+      );
+
+      expect(segments).toEqual(["The result of 5 * 3 is 15."]);
+      expect(remainder).toBe(" And the next sentence keeps going");
+    });
+
+    test("a lone arithmetic asterisk does not suppress eager clause boundaries", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "The result of 5 * 3 is 15, and here is even more",
+        false,
+        { eager: true },
+      );
+
+      expect(segments).toEqual(["The result of 5 * 3 is 15,"]);
+      expect(remainder).toBe(" and here is even more");
+    });
+
+    test("a line-start bullet asterisk does not suppress sentence boundaries", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "* bullet item with words. And more after it",
+        false,
+      );
+
+      expect(segments).toEqual(["* bullet item with words."]);
+      expect(remainder).toBe(" And more after it");
+    });
+
+    test("does not split at a clause boundary inside an open italic span", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "*italic text that keeps going, more* and then.",
+        false,
+        { eager: true },
+      );
+
+      expect(segments).toEqual([
+        "*italic text that keeps going, more* and then.",
+      ]);
+      expect(remainder).toBe("");
+    });
+
+    test("a short italic span with a comma stays intact in eager mode", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "*italic, text* more.",
+        false,
+        { eager: true },
+      );
+
+      expect(segments).toEqual(["*italic, text* more."]);
+      expect(remainder).toBe("");
+    });
+
+    test("an unpaired bold marker still defers sentence boundaries", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "**important note. still inside the span",
+        false,
+      );
+
+      expect(segments).toEqual([]);
+      expect(remainder).toBe("**important note. still inside the span");
+    });
+
     test("an open span still flushes at the length-threshold hard cap", () => {
       const text = `**${"steady ".repeat(40)}`;
 

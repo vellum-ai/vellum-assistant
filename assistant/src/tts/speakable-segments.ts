@@ -70,42 +70,72 @@ function findSpeakableBoundary(
   charThreshold: number,
   eager: boolean,
 ): number | null {
+  // Inline-span state (backtick / `**` / `*`), accumulated over the scan. A
+  // boundary inside an open span would split the span across segments, and
+  // per-segment sanitization would leave an unbalanced marker to be spoken.
+  let inBacktick = false;
+  let inBold = false;
+  let inItalic = false;
+  let skipSpanChar = false;
+
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
-    if (char === "\n") {
-      return index + 1;
-    }
     if (!char) {
       continue;
     }
+    if (char === "\n") {
+      return index + 1;
+    }
+
+    const inOpenSpan = inBacktick || inBold || inItalic;
 
     if (
+      !inOpenSpan &&
       eager &&
       EAGER_CLAUSE_PUNCTUATION.has(char) &&
       index >= EAGER_MIN_CLAUSE_PREFIX_CHARS &&
-      isWhitespace(text[index + 1] ?? "") &&
-      !hasOpenInlineSpan(text.slice(0, index))
+      isWhitespace(text[index + 1] ?? "")
     ) {
       return index + 1;
     }
 
-    if (!SENTENCE_ENDING_PUNCTUATION.has(char)) {
-      continue;
+    if (!inOpenSpan && SENTENCE_ENDING_PUNCTUATION.has(char)) {
+      let boundary = index + 1;
+      while (
+        boundary < text.length &&
+        TRAILING_SENTENCE_PUNCTUATION.has(text[boundary] ?? "")
+      ) {
+        boundary += 1;
+      }
+      if (boundary === text.length || isWhitespace(text[boundary] ?? "")) {
+        return boundary;
+      }
     }
 
-    let boundary = index + 1;
-    while (
-      boundary < text.length &&
-      TRAILING_SENTENCE_PUNCTUATION.has(text[boundary] ?? "")
-    ) {
-      boundary += 1;
-    }
-
-    if (
-      (boundary === text.length || isWhitespace(text[boundary] ?? "")) &&
-      !hasOpenInlineSpan(text.slice(0, index))
-    ) {
-      return boundary;
+    if (skipSpanChar) {
+      skipSpanChar = false;
+    } else if (char === "`") {
+      inBacktick = !inBacktick;
+    } else if (char === "*") {
+      const prev = text[index - 1];
+      const next = text[index + 1];
+      if (next === "*") {
+        inBold = !inBold;
+        skipSpanChar = true;
+      } else if (inItalic) {
+        // Mirrors the TTS sanitizer's word-boundary-aware italic rule: a
+        // closer needs non-whitespace before it and no word char after, so
+        // arithmetic like `5 * 3` and bullet markers never toggle parity.
+        if (prev !== undefined && !isWhitespace(prev) && !isWordChar(next)) {
+          inItalic = false;
+        }
+      } else if (
+        !isWordChar(prev) &&
+        next !== undefined &&
+        !isWhitespace(next)
+      ) {
+        inItalic = true;
+      }
     }
   }
 
@@ -119,29 +149,8 @@ function findSpeakableBoundary(
   return preferredBoundary ?? charThreshold;
 }
 
-/**
- * Whether the text ends inside an open `**`, `*`, or backtick span. A
- * boundary there would split the span across segments, and per-segment
- * sanitization would leave an unbalanced marker to be spoken.
- */
-function hasOpenInlineSpan(prefix: string): boolean {
-  let backticks = 0;
-  let bold = 0;
-  let italic = 0;
-  for (let index = 0; index < prefix.length; index += 1) {
-    const char = prefix[index];
-    if (char === "`") {
-      backticks += 1;
-    } else if (char === "*") {
-      if (prefix[index + 1] === "*") {
-        bold += 1;
-        index += 1;
-      } else {
-        italic += 1;
-      }
-    }
-  }
-  return backticks % 2 === 1 || bold % 2 === 1 || italic % 2 === 1;
+function isWordChar(value: string | undefined): boolean {
+  return value !== undefined && /\w/.test(value);
 }
 
 function findLastWhitespaceBoundary(
