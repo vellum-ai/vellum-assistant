@@ -20,6 +20,7 @@ import {
 import { readCredential } from "../credential-reader.js";
 import { credentialKey } from "../credential-key.js";
 import { arePlatformFeaturesEnabled } from "../feature-flag-resolver.js";
+import { reportGuardianMintRefused } from "../guardian-integrity-reporter.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { getLogger } from "../logger.js";
 import { deleteContactIfOrphaned } from "../verification/contact-helpers.js";
@@ -804,8 +805,19 @@ async function resolveOrCreateVellumGuardian(options: {
   const priorEvidence = hasEvidenceOfPriorGuardian();
   if (priorEvidence && !options.allowMintWithEvidence) {
     // Fires the missing-guardian reporter (error log + telemetry,
-    // rate-limited there) when the DB is truly guardian-less.
-    guardianIntegrityState();
+    // rate-limited there) when the DB is truly guardian-less. The state is
+    // `ok` when a guardian contact row survives with a lost/inactive vellum
+    // binding, so the refusal reports under its own check_name either way —
+    // clients see guardian_repair_required 401s and that must never be
+    // telemetry-silent. Best-effort: the refusal itself must not depend on
+    // the integrity check.
+    let integrityState = "unavailable";
+    try {
+      integrityState = guardianIntegrityState();
+    } catch {
+      // Reported as "unavailable"; refusal proceeds regardless.
+    }
+    reportGuardianMintRefused({ integrity_state: integrityState });
     log.error(
       "no active vellum guardian binding but the gateway DB carries evidence of prior onboarding — refusing to mint a divergent principal; re-pair via guardian init to recover",
     );

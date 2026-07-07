@@ -207,18 +207,23 @@ export async function resolveTrustVerdict(
   const verdict: TrustVerdict = { trustClass, canonicalSenderId };
 
   // A gateway DB that has lost its guardian rows (but shows evidence of prior
-  // onboarding) misclassifies every sender as a plain stranger. Stamp
-  // `resolutionFailed` so consumers fail closed with no stranger-lane side
-  // effects. Best-effort: a thrown integrity check degrades to the plain
-  // unknown verdict rather than breaking resolution.
-  if (trustClass === "unknown") {
-    try {
-      if (guardianIntegrityState() === "missing_guardian") {
-        verdict.resolutionFailed = true;
-      }
-    } catch {
-      // Plain unknown verdict; integrity detection must never break resolution.
+  // onboarding) misclassifies every sender as a plain stranger. Evaluate the
+  // integrity state (TTL-cached) on EVERY resolve so detection/reporting is
+  // traffic-independent — intact contact rows classify members normally and
+  // would otherwise keep the fail-loud reporter silent until a stranger
+  // messages. Only `unknown` classifications get the `resolutionFailed` stamp
+  // (consumers fail closed with no stranger-lane side effects); member
+  // admission is unchanged. Best-effort: a thrown integrity check degrades to
+  // the plain verdict rather than breaking resolution.
+  try {
+    if (
+      guardianIntegrityState() === "missing_guardian" &&
+      trustClass === "unknown"
+    ) {
+      verdict.resolutionFailed = true;
     }
+  } catch {
+    // Plain verdict; integrity detection must never break resolution.
   }
 
   // Session-presence stamp (channel-scoped): lets the daemon's deny branches

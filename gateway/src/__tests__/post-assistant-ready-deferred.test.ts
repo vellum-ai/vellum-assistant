@@ -17,6 +17,9 @@
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { sql } from "drizzle-orm";
+
+import "./test-preload.js";
 
 type HealthResponder = () => unknown;
 
@@ -40,6 +43,19 @@ const {
   runDeferredTasksWhenAssistantReady,
   waitForAssistant,
 } = await import("../post-assistant-ready.js");
+const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
+  "../db/connection.js"
+);
+const { contacts, contactChannels } = await import("../db/schema.js");
+const { MIGRATIONS } = await import("../db/data-migrations/index.js");
+const { bustGuardianIntegrityCache } = await import(
+  "../auth/guardian-integrity.js"
+);
+const {
+  resetGuardianIntegrityReporterForTesting,
+  setGuardianIntegrityReporterOverridesForTesting,
+} = await import("../guardian-integrity-reporter.js");
+const { seedContact } = await import("./helpers/contact-fixtures.js");
 
 const MIGRATING_HEALTH = {
   status: "MIGRATING",
@@ -101,6 +117,44 @@ describe("runDeferredTasksWhenAssistantReady", () => {
     expect(ready).toBe(false);
     // Nowhere near the 5-minute deadline (or even one 2s poll interval).
     expect(Date.now() - started).toBeLessThan(1_500);
+  });
+
+  test("real deferred run resolves when the guardian backfill refuses to mint", async () => {
+    await initGatewayDb();
+    try {
+      // Pre-record every data-migration key so the real executor's migration
+      // step no-ops against the test DB — the refusing guardian backfill is
+      // the code under test.
+      for (const { key } of MIGRATIONS) {
+        getGatewayDb().run(
+          sql`INSERT OR IGNORE INTO one_time_migrations (key, ran_at) VALUES (${key}, ${Date.now()})`,
+        );
+      }
+      // Evidence of prior onboarding with no guardian row →
+      // ensureVellumGuardianBinding throws VellumGuardianMintRefusedError.
+      seedContact({ id: "invited-contact" });
+      bustGuardianIntegrityCache();
+      setGuardianIntegrityReporterOverridesForTesting({
+        fetchImpl: async () => new Response("{}"),
+        mintToken: () => "svc-token",
+        baseUrl: "http://127.0.0.1:7821",
+        log: { error: () => {}, warn: () => {} },
+      });
+      resetPostAssistantReadyForTest(); // restore the REAL executor
+
+      // The refusal is warn-and-continue inside the executor: the deferred
+      // run resolves instead of rejecting or crashing boot.
+      await runDeferredTasksWhenAssistantReady(5);
+
+      // Refused, not minted: no vellum guardian binding appeared.
+      expect(
+        getGatewayDb().select().from(contactChannels).all(),
+      ).toHaveLength(0);
+      expect(getGatewayDb().select().from(contacts).all()).toHaveLength(1);
+    } finally {
+      resetGuardianIntegrityReporterForTesting();
+      resetGatewayDb();
+    }
   });
 
   test("stops polling immediately once the tasks have run elsewhere", async () => {
