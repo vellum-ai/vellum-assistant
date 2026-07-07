@@ -66,7 +66,7 @@ function makePlugin(): { dir: string; hooksDir: string; name: string } {
  * from disk.
  */
 function redeploy(plugin: { name: string }, modulePaths: string[]): void {
-  evictHooksForOwner(plugin.name);
+  evictHooksForOwner("plugin", plugin.name);
   for (const path of modulePaths) {
     evictModule(path);
   }
@@ -186,7 +186,7 @@ describe("hook reload primitives", () => {
 
     // Evicting the owner (as the reconcile does on a source change) clears the
     // negative entry, so the next read picks the hook up.
-    evictHooksForOwner(plugin.name);
+    evictHooksForOwner("plugin", plugin.name);
     expect(await dispatchOne(plugin)).toBe("added");
   });
 
