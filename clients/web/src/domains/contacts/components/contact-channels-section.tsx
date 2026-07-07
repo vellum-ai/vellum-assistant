@@ -3,6 +3,7 @@ import {
     CheckCircle,
     Hash,
     HelpCircle,
+    Link2,
     Mail,
     MessageSquare,
     Phone,
@@ -13,7 +14,13 @@ import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Tag } from "@vellumai/design-library/components/tag";
 
+import {
+    channelLinkProvenance,
+    isVerifiedContactChannel,
+    LINKABLE_CHANNEL_IDS,
+} from "@/domains/contacts/channel-linking";
 import {
     ProvenancePill,
     type CascadeProvenance,
@@ -47,19 +54,6 @@ export type ChannelActionState =
   | { kind: "unverified" }
   | { kind: "setup" }
   | { kind: "none" };
-
-/**
- * A contact channel counts as verified when explicitly marked so, or when
- * active with a recorded verification timestamp.
- */
-export function isVerifiedContactChannel(
-  channel: Pick<ContactChannelPayload, "status" | "verifiedAt">,
-): boolean {
-  return (
-    channel.status === "verified" ||
-    (channel.status === "active" && channel.verifiedAt != null)
-  );
-}
 
 export function getChannelActionState(
   info: ChannelInfo,
@@ -144,6 +138,13 @@ interface ContactChannelsSectionProps {
   onSetupChannel?: (type: string) => void;
   onVerifyChannel?: (type: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
+  /**
+   * Opens the roster picker for a linkable channel row (see
+   * `LINKABLE_CHANNEL_IDS`). When provided, unlinked linkable rows render
+   * "Link account" as their primary action with Invite as the secondary.
+   * Non-linkable rows are unaffected.
+   */
+  onLinkAccount?: (channelId: string) => void;
 }
 
 function ChannelIcon({
@@ -184,6 +185,7 @@ export function ContactChannelsSection({
   onSetupChannel,
   onVerifyChannel,
   onRevokeChannel,
+  onLinkAccount,
 }: ContactChannelsSectionProps) {
   const [verifyPending, setVerifyPending] = useState<ChannelInfo | null>(null);
   const [revokePending, setRevokePending] = useState<{
@@ -255,6 +257,11 @@ export function ContactChannelsSection({
                         })
                     : undefined
                 }
+                onLinkAccount={
+                  onLinkAccount && LINKABLE_CHANNEL_IDS.has(info.id)
+                    ? () => onLinkAccount(info.id)
+                    : undefined
+                }
               />
             </div>
           );
@@ -306,6 +313,7 @@ interface ChannelRowProps {
   onSetup?: () => void;
   onVerify?: () => void;
   onRevoke?: () => void;
+  onLinkAccount?: () => void;
 }
 
 function ChannelRow({
@@ -317,8 +325,15 @@ function ChannelRow({
   onSetup,
   onVerify,
   onRevoke,
+  onLinkAccount,
 }: ChannelRowProps) {
   const actionState = getChannelActionState(info, existing);
+  // Provenance badge is scoped to linkable rows (Slack-only for v1); other
+  // adapters need more investigation before getting the treatment.
+  const linkProvenance =
+    LINKABLE_CHANNEL_IDS.has(info.id) && existing
+      ? channelLinkProvenance(existing)
+      : null;
 
   return (
     <div className="flex items-center gap-3 py-4">
@@ -357,6 +372,13 @@ function ChannelRow({
           </>
         ) : actionState.kind === "verified" ? (
           <>
+            {linkProvenance === "guardian_linked" ? (
+              <Tag tone="info" leftIcon={<Link2 />}>
+                Linked by you
+              </Tag>
+            ) : linkProvenance === "handshake" ? (
+              <Tag tone="positive">Handshake</Tag>
+            ) : null}
             <span className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md whitespace-nowrap select-none text-body-small-emphasised leading-none bg-[var(--content-default)] text-[var(--surface-base)]">
               <CheckCircle className="h-3 w-3" />
               Verified
@@ -377,13 +399,21 @@ function ChannelRow({
           </Button>
         ) : actionState.kind === "setup" ? (
           info.id === "a2a" ? null : (
-            <Button
-              variant="outlined"
-              onClick={onSetup}
-              disabled={!onSetup}
-            >
-              {setupLabel}
-            </Button>
+            <>
+              {onLinkAccount ? (
+                <Button onClick={onLinkAccount}>
+                  <Link2 className="h-3.5 w-3.5" />
+                  Link account
+                </Button>
+              ) : null}
+              <Button
+                variant="outlined"
+                onClick={onSetup}
+                disabled={!onSetup}
+              >
+                {setupLabel}
+              </Button>
+            </>
           )
         ) : null}
       </div>

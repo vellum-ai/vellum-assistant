@@ -64,6 +64,7 @@ mock.module("@/domains/contacts/contacts-gateway", () => ({
   },
   deleteContact: async () => {},
   verifyContactChannel: async () => {},
+  linkContactChannelAccount: async () => GUARDIAN,
   redeemA2AInvite: async () => ({ success: true }),
 }));
 

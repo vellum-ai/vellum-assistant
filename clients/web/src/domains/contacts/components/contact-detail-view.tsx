@@ -1,10 +1,14 @@
+import { Link2 } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Input } from "@vellumai/design-library/components/input";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 import { DetailCard } from "@/components/detail-card";
+import type { RosterAccount } from "@/domains/contacts/channel-linking";
+import { contactProvenanceLine } from "@/domains/contacts/contact-provenance";
 import { ContactChannelsSection } from "@/domains/contacts/components/contact-channels-section";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import type { ChannelProvenanceMap } from "@/domains/contacts/hooks/use-channel-provenance";
@@ -20,12 +24,29 @@ interface ContactDetailViewProps {
   availableChannels?: ChannelInfo[];
   a2aEnabled?: boolean;
   channelProvenance?: ChannelProvenanceMap;
+  /**
+   * Likely duplicate of this contact (see
+   * `domains/contacts/duplicate-suggestion.ts`). Renders a dismissable merge
+   * callout above the detail card when set.
+   */
+  duplicateCandidate?: ContactPayload | null;
+  /**
+   * Cached per-channel rosters used to render the account handle in the
+   * header provenance line. A channel with no cached roster falls back to
+   * the raw account ID.
+   */
+  rosterByChannel?: Partial<Record<string, RosterAccount[]>>;
   onSave: (patch: { displayName: string; notes: string }) => void;
   onDelete: () => void;
   onMerge?: () => void;
   onSetupChannel?: (type: string) => void;
   onVerifyChannel?: (type: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
+  /** Opens the roster picker for a linkable channel row. */
+  onLinkAccount?: (channelId: string) => void;
+  onDismissDuplicate?: () => void;
+  /** Merge `duplicateCandidate` into this contact (already user-confirmed). */
+  onMergeDuplicate?: () => void;
 }
 
 export function ContactDetailView(props: ContactDetailViewProps) {
@@ -42,12 +63,17 @@ function ContactDetailViewInner({
   availableChannels,
   a2aEnabled,
   channelProvenance,
+  duplicateCandidate,
+  rosterByChannel,
   onSave,
   onDelete,
   onMerge,
   onSetupChannel,
   onVerifyChannel,
   onRevokeChannel,
+  onLinkAccount,
+  onDismissDuplicate,
+  onMergeDuplicate,
 }: ContactDetailViewProps) {
   const isNewContactDraft = contact.displayName === "New Contact";
   const [displayName, setDisplayName] = useState(
@@ -55,6 +81,7 @@ function ContactDetailViewInner({
   );
   const [notes, setNotes] = useState(contact.notes ?? "");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [mergeConfirmOpen, setMergeConfirmOpen] = useState(false);
 
   const trimmedName = displayName.trim();
   const trimmedNotes = notes.trim();
@@ -70,6 +97,7 @@ function ContactDetailViewInner({
 
   const headerName = trimmedName || contact.displayName;
   const interactionLabel = `${contact.interactionCount} interaction${contact.interactionCount === 1 ? "" : "s"}`;
+  const provenanceLine = contactProvenanceLine(contact, rosterByChannel);
 
   const requestDelete = () => {
     if (isEmptyDraft) {
@@ -81,11 +109,33 @@ function ContactDetailViewInner({
 
   return (
     <div className="flex flex-col gap-6">
+      {duplicateCandidate && onMergeDuplicate ? (
+        <Notice
+          tone="warning"
+          icon={<Link2 className="h-4 w-4" />}
+          title="Possible duplicate."
+          onDismiss={onDismissDuplicate}
+          actions={
+            <Button
+              onClick={() => setMergeConfirmOpen(true)}
+              disabled={mergePending || savePending || deletePending}
+            >
+              {mergePending ? "Merging…" : `Merge into ${headerName}`}
+            </Button>
+          }
+        >
+          {duplicateCandidate.displayName} looks like the same person. Merge
+          into one contact?
+        </Notice>
+      ) : null}
+
       <DetailCard
         title={headerName}
         accessory={<ContactTypeBadge role={contact.role} contactType={contact.contactType} />}
         compactAccessory
-        subtitle={interactionLabel}
+        subtitle={
+          provenanceLine ? `${provenanceLine} · ${interactionLabel}` : interactionLabel
+        }
       >
         <div className="flex flex-col gap-4">
           <Input
@@ -158,8 +208,8 @@ function ContactDetailViewInner({
       </DetailCard>
 
       <DetailCard
-        title="Channels"
-        subtitle="Once verified, your assistant will recognize this contact when they message from these channels."
+        title="Linked accounts"
+        subtitle="Where the assistant recognizes this contact. Link accounts you know, invite the ones you don't."
       >
         <ContactChannelsSection
           contactChannels={contact.channels}
@@ -171,8 +221,24 @@ function ContactDetailViewInner({
           onSetupChannel={onSetupChannel}
           onVerifyChannel={onVerifyChannel}
           onRevokeChannel={onRevokeChannel}
+          onLinkAccount={onLinkAccount}
         />
       </DetailCard>
+
+      {duplicateCandidate && onMergeDuplicate ? (
+        <ConfirmDialog
+          open={mergeConfirmOpen}
+          title={`Merge ${duplicateCandidate.displayName} into ${headerName}?`}
+          message={`This will move ${duplicateCandidate.displayName}'s channels onto ${headerName} and delete ${duplicateCandidate.displayName}. This action cannot be undone.`}
+          confirmLabel="Merge"
+          destructive
+          onConfirm={() => {
+            setMergeConfirmOpen(false);
+            onMergeDuplicate();
+          }}
+          onCancel={() => setMergeConfirmOpen(false)}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={confirmOpen}

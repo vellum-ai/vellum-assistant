@@ -14,6 +14,9 @@ import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-
 import { ContactsList } from "@/domains/contacts/components/contacts-list";
 import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog";
 import { GuardianDetailView } from "@/domains/contacts/components/guardian-detail-view";
+import { LinkAccountDialog } from "@/domains/contacts/components/link-account-dialog";
+import { findDuplicateCandidate } from "@/domains/contacts/duplicate-suggestion";
+import { slackRosterOptions } from "@/domains/contacts/slack-users-query";
 import {
     deleteContact as gatewayDeleteContact,
     upsertContact,
@@ -40,6 +43,7 @@ import { assistantDisplayName } from "@/domains/contacts/assistant-display-name"
 import { useAssistantChannels } from "@/domains/contacts/hooks/use-assistant-channels";
 import { useChannelProvenance } from "@/domains/contacts/hooks/use-channel-provenance";
 import { useInviteLinkDialog } from "@/domains/contacts/hooks/use-invite-link-dialog";
+import { useAccountLink } from "@/domains/contacts/hooks/use-account-link";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { toastOnError } from "@/utils/mutation-error";
@@ -193,6 +197,21 @@ export function ContactsPage({
     );
   }, [contactsData, selectedContact]);
   const canMerge = mergeCandidates.length > 0;
+
+  // Merge-suggestion callout: dismissals are session-scoped, keyed per
+  // (contact, candidate) pair so dismissing one suggestion doesn't hide a
+  // different candidate surfaced later.
+  const [dismissedDuplicateKeys, setDismissedDuplicateKeys] = useState<
+    ReadonlySet<string>
+  >(new Set());
+  const duplicateCandidate = useMemo<ContactPayload | null>(() => {
+    if (!selectedContact || selectedContact.role === "guardian") return null;
+    const candidate = findDuplicateCandidate(selectedContact, mergeCandidates);
+    if (!candidate) return null;
+    return dismissedDuplicateKeys.has(`${selectedContact.id}:${candidate.id}`)
+      ? null
+      : candidate;
+  }, [selectedContact, mergeCandidates, dismissedDuplicateKeys]);
 
   const guardianAutoSelectedRef = useRef(!!setupChannel);
   useEffect(() => {
@@ -393,6 +412,57 @@ export function ContactsPage({
     [selectedContact, verifyChannelMutation],
   );
 
+  const slackLink = useAccountLink({
+    assistantId,
+    channelType: "slack",
+    contact: selectedContact
+      ? { id: selectedContact.id, displayName: selectedContact.displayName }
+      : null,
+    onLinked: invalidateContacts,
+  });
+
+  // Roster fetch is deferred until the picker opens; the cached result also
+  // feeds the header provenance line's handle lookup.
+  const slackRosterQuery = useQuery({
+    ...slackRosterOptions(assistantId),
+    enabled: Boolean(assistantId) && slackLink.dialogOpen,
+    select: (data) => data.users,
+  });
+
+  const handleLinkAccount = useCallback(
+    (channelId: string) => {
+      if (channelId === slackLink.channelType) {
+        slackLink.open();
+      }
+    },
+    [slackLink],
+  );
+
+  const handleDismissDuplicate = useCallback(() => {
+    if (!selectedContact || !duplicateCandidate) return;
+    const key = `${selectedContact.id}:${duplicateCandidate.id}`;
+    setDismissedDuplicateKeys((prev) => new Set(prev).add(key));
+  }, [selectedContact, duplicateCandidate]);
+
+  const handleMergeDuplicate = useCallback(() => {
+    if (!selectedContact || !duplicateCandidate || mergeMutation.isPending) {
+      return;
+    }
+    mergeMutation.mutate(
+      {
+        path: { assistant_id: assistantId },
+        body: {
+          keepId: selectedContact.id,
+          mergeId: duplicateCandidate.id,
+        },
+      },
+      // The merge-suggestion path has no dialog surfacing mergeMutation.error,
+      // so failures toast here (per-call, to avoid double-reporting when the
+      // manual merge dialog is the caller).
+      { onError: toastOnError("Failed to merge contacts") },
+    );
+  }, [selectedContact, duplicateCandidate, mergeMutation, assistantId]);
+
   // ---------------------------------------------------------------------------
   // Derived optimistic state
   // ---------------------------------------------------------------------------
@@ -519,6 +589,8 @@ export function ContactsPage({
               availableChannels={availableChannels}
               a2aEnabled={a2aChannel}
               channelProvenance={channelProvenance}
+              duplicateCandidate={duplicateCandidate}
+              rosterByChannel={{ slack: slackRosterQuery.data }}
               onSave={(patch) => {
                 updateMutation.mutate({
                   contactId: optimisticContact.id,
@@ -534,6 +606,9 @@ export function ContactsPage({
               }
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
+              onLinkAccount={handleLinkAccount}
+              onDismissDuplicate={handleDismissDuplicate}
+              onMergeDuplicate={handleMergeDuplicate}
             />
           )
         ) : (
@@ -566,6 +641,30 @@ export function ContactsPage({
           onClose={handleCloseMerge}
         />
       ) : null}
+
+      <LinkAccountDialog
+        open={slackLink.dialogOpen}
+        channelLabel="Slack"
+        contactName={selectedContact?.displayName ?? ""}
+        accounts={slackRosterQuery.data}
+        loading={slackRosterQuery.isLoading}
+        errorMessage={
+          slackRosterQuery.isError
+            ? "Couldn’t load the workspace roster. Check the Slack connection and try again."
+            : slackLink.linkErrorMessage
+        }
+        pendingAccountId={slackLink.pendingAccountId}
+        onPick={slackLink.pick}
+        onClose={slackLink.close}
+        onInviteInstead={
+          onStartSetupConversation
+            ? () => {
+                slackLink.close();
+                handleContactSetupChannel(slackLink.channelType);
+              }
+            : undefined
+        }
+      />
 
       <GenerateInviteLinkDialog
         open={inviteDialog.isOpen}

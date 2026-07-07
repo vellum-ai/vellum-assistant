@@ -12,7 +12,7 @@ import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 import type { TagTone } from "@vellumai/design-library/components/tag";
 
 import { EmptyState } from "@/components/empty-state";
-import { isVerifiedContactChannel } from "@/domains/contacts/components/contact-channels-section";
+import { isVerifiedContactChannel } from "@/domains/contacts/channel-linking";
 import type { ContactPayload, SlackChannel } from "@/domains/contacts/types";
 import {
   presetFromThreshold,
