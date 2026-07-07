@@ -67,6 +67,7 @@ describe("streamLiveVoiceTtsAudio", () => {
         voiceId: undefined,
         signal: undefined,
         outputFormat: undefined,
+        sampleRateHz: 24_000,
       },
     ]);
     expect(frames).toEqual([
@@ -152,10 +153,68 @@ describe("streamLiveVoiceTtsAudio", () => {
         onChunk: (chunk: Uint8Array) => void,
       ): Promise<TtsSynthesisResult> {
         requests.push(request);
-        onChunk(Buffer.from("pcm-one"));
-        onChunk(Buffer.from("pcm-two"));
+        onChunk(Buffer.from("pcm-one!"));
+        onChunk(Buffer.from("pcm-two!"));
         return {
-          audio: Buffer.from("pcm-onepcm-two"),
+          audio: Buffer.from("pcm-one!pcm-two!"),
+          contentType: "audio/pcm",
+        };
+      },
+    });
+
+    const frames: LiveVoiceTtsAudioChunk[] = [];
+    const result = await streamLiveVoiceTtsAudio({
+      config,
+      text: "hello from live voice",
+      outputFormat: "pcm",
+      sampleRate: 16_000,
+      onAudioChunk: (chunk) => frames.push(chunk),
+    });
+
+    expect(requests[0]?.outputFormat).toBe("pcm");
+    expect(requests[0]?.sampleRateHz).toBe(16_000);
+    expect(frames).toEqual([
+      {
+        type: "tts_audio",
+        contentType: "audio/pcm",
+        sampleRate: 16_000,
+        dataBase64: Buffer.from("pcm-one!").toString("base64"),
+      },
+      {
+        type: "tts_audio",
+        contentType: "audio/pcm",
+        sampleRate: 16_000,
+        dataBase64: Buffer.from("pcm-two!").toString("base64"),
+      },
+    ]);
+    expect(result).toEqual({
+      provider: "elevenlabs",
+      contentType: "audio/pcm",
+      sampleRate: 16_000,
+      chunks: 2,
+      bytes: Buffer.byteLength("pcm-one!pcm-two!"),
+    });
+  });
+
+  test("carries a trailing odd byte into the next PCM chunk to keep frames sample-aligned", async () => {
+    config = makeConfig({ provider: "elevenlabs" });
+    _setTtsProviderForTests({
+      id: "elevenlabs",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "pcm"],
+      },
+      async synthesize(): Promise<TtsSynthesisResult> {
+        throw new Error("buffered synthesis should not be used");
+      },
+      async synthesizeStream(
+        _request: TtsSynthesisRequest,
+        onChunk: (chunk: Uint8Array) => void,
+      ): Promise<TtsSynthesisResult> {
+        onChunk(Buffer.from([1, 2, 3]));
+        onChunk(Buffer.from([4, 5, 6, 7, 8]));
+        return {
+          audio: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]),
           contentType: "audio/pcm",
         };
       },
@@ -169,28 +228,48 @@ describe("streamLiveVoiceTtsAudio", () => {
       onAudioChunk: (chunk) => frames.push(chunk),
     });
 
-    expect(requests[0]?.outputFormat).toBe("pcm");
-    expect(frames).toEqual([
-      {
-        type: "tts_audio",
-        contentType: "audio/pcm",
-        sampleRate: 24_000,
-        dataBase64: Buffer.from("pcm-one").toString("base64"),
-      },
-      {
-        type: "tts_audio",
-        contentType: "audio/pcm",
-        sampleRate: 24_000,
-        dataBase64: Buffer.from("pcm-two").toString("base64"),
-      },
+    expect(frames.map((frame) => frame.dataBase64)).toEqual([
+      Buffer.from([1, 2]).toString("base64"),
+      Buffer.from([3, 4, 5, 6, 7, 8]).toString("base64"),
     ]);
-    expect(result).toEqual({
-      provider: "elevenlabs",
-      contentType: "audio/pcm",
-      sampleRate: 24_000,
-      chunks: 2,
-      bytes: Buffer.byteLength("pcm-onepcm-two"),
+    expect(result).toMatchObject({ chunks: 2, bytes: 8 });
+  });
+
+  test("drops a dangling final odd byte instead of emitting a torn PCM sample", async () => {
+    config = makeConfig({ provider: "elevenlabs" });
+    _setTtsProviderForTests({
+      id: "elevenlabs",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "pcm"],
+      },
+      async synthesize(): Promise<TtsSynthesisResult> {
+        throw new Error("buffered synthesis should not be used");
+      },
+      async synthesizeStream(
+        _request: TtsSynthesisRequest,
+        onChunk: (chunk: Uint8Array) => void,
+      ): Promise<TtsSynthesisResult> {
+        onChunk(Buffer.from([1, 2, 3]));
+        return {
+          audio: Buffer.from([1, 2, 3]),
+          contentType: "audio/pcm",
+        };
+      },
     });
+
+    const frames: LiveVoiceTtsAudioChunk[] = [];
+    const result = await streamLiveVoiceTtsAudio({
+      config,
+      text: "hello from live voice",
+      outputFormat: "pcm",
+      onAudioChunk: (chunk) => frames.push(chunk),
+    });
+
+    expect(frames.map((frame) => frame.dataBase64)).toEqual([
+      Buffer.from([1, 2]).toString("base64"),
+    ]);
+    expect(result).toMatchObject({ chunks: 1, bytes: 2 });
   });
 
   test("skips the buffered non-PCM emit when the signal aborts mid-stream", async () => {
