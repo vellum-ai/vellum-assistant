@@ -32,7 +32,7 @@
  * subsequent statement) — see {@link REPORT_COOLDOWN_MS}.
  */
 
-import * as Sentry from "@sentry/node";
+import type * as SentryNs from "@sentry/node";
 
 import { getLogger } from "../util/logger.js";
 
@@ -110,16 +110,24 @@ function reportCorruption(
       // Best-effort; never let a telemetry failure escape the query path.
     });
 
-  try {
-    Sentry.withScope((scope) => {
-      scope.setLevel("error");
-      scope.setTag("sqlite_corruption_database", detail.database);
-      scope.setContext("sqlite_corruption", detail);
-      Sentry.captureMessage(SQLITE_CORRUPTED_CHECK_NAME);
+  // Lazy-import `@sentry/node` (~225ms) only when corruption is actually
+  // reported. Importing it eagerly would pull Sentry into `db-connection`'s
+  // static graph (this module is reached via slow-query-log), taxing every
+  // DB-touching test file's import. In production Sentry is already loaded by
+  // initSentry() at startup, so this resolves from cache. Fire-and-forget, best
+  // effort — never let a Sentry failure escape into the calling query path.
+  void import("@sentry/node")
+    .then((Sentry: typeof SentryNs) => {
+      Sentry.withScope((scope) => {
+        scope.setLevel("error");
+        scope.setTag("sqlite_corruption_database", detail.database);
+        scope.setContext("sqlite_corruption", detail);
+        Sentry.captureMessage(SQLITE_CORRUPTED_CHECK_NAME);
+      });
+    })
+    .catch(() => {
+      // Never let a Sentry failure escape into the calling query path.
     });
-  } catch {
-    // Never let a Sentry failure escape into the calling query path.
-  }
 }
 
 /** Context handed to {@link observeSqliteStatementError} for a failed execution. */

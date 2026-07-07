@@ -1,6 +1,57 @@
 import { Writable } from "node:stream";
 
-import * as Sentry from "@sentry/node";
+import type * as SentryNs from "@sentry/node";
+
+/**
+ * `@sentry/node` costs ~225ms to import and is only needed once an error/fatal
+ * log actually reaches this stream. Importing it eagerly here would make merely
+ * importing the logger pay that cost — and almost every module (and test file)
+ * pulls the logger in transitively via `db-connection`. So load it lazily,
+ * cached, on the first write.
+ *
+ * This costs production nothing: the daemon calls `initSentry()` at startup
+ * (see `instrument.ts`), which imports `@sentry/node` long before the first
+ * error log, so the dynamic import below resolves from the module cache. In
+ * tests Sentry is never initialised, so it is simply never loaded through this
+ * path.
+ */
+let sentryModule: Promise<typeof SentryNs> | null = null;
+function loadSentry(): Promise<typeof SentryNs> {
+  return (sentryModule ??= import("@sentry/node"));
+}
+
+function captureEntry(Sentry: typeof SentryNs, entry: Record<string, unknown>) {
+  const module = (entry.module as string) ?? "unknown";
+  const msg = (entry.msg as string) ?? "";
+
+  if (entry.err && typeof entry.err === "object") {
+    // Reconstruct an Error so Sentry gets a proper stack trace.
+    const errObj = entry.err as {
+      message?: string;
+      type?: string;
+      name?: string;
+      stack?: string;
+    };
+    const error = new Error(errObj.message ?? msg);
+    error.name = errObj.type ?? errObj.name ?? "Error";
+    if (errObj.stack) error.stack = errObj.stack;
+
+    Sentry.withScope((scope) => {
+      scope.setTag("source", "error_log");
+      scope.setTag("log_module", module);
+      scope.setLevel((entry.level as number) >= 60 ? "fatal" : "error");
+      if (msg) scope.setExtra("log_message", msg);
+      Sentry.captureException(error);
+    });
+  } else {
+    Sentry.withScope((scope) => {
+      scope.setTag("source", "error_log");
+      scope.setTag("log_module", module);
+      scope.setLevel((entry.level as number) >= 60 ? "fatal" : "error");
+      Sentry.captureMessage(`[${module}] ${msg}`);
+    });
+  }
+}
 
 /**
  * Pino-compatible writable stream that forwards error/fatal log messages
@@ -15,37 +66,24 @@ import * as Sentry from "@sentry/node";
 export function createSentryLogStream(): Writable {
   return new Writable({
     write(chunk, _encoding, callback) {
+      let entry: Record<string, unknown>;
       try {
-        const entry = JSON.parse(chunk.toString());
-        const module: string = entry.module ?? "unknown";
-        const msg: string = entry.msg ?? "";
-
-        if (entry.err && typeof entry.err === "object") {
-          // Reconstruct an Error so Sentry gets a proper stack trace.
-          const errObj = entry.err;
-          const error = new Error(errObj.message ?? msg);
-          error.name = errObj.type ?? errObj.name ?? "Error";
-          if (errObj.stack) error.stack = errObj.stack;
-
-          Sentry.withScope((scope) => {
-            scope.setTag("source", "error_log");
-            scope.setTag("log_module", module);
-            scope.setLevel(entry.level >= 60 ? "fatal" : "error");
-            if (msg) scope.setExtra("log_message", msg);
-            Sentry.captureException(error);
-          });
-        } else {
-          Sentry.withScope((scope) => {
-            scope.setTag("source", "error_log");
-            scope.setTag("log_module", module);
-            scope.setLevel(entry.level >= 60 ? "fatal" : "error");
-            Sentry.captureMessage(`[${module}] ${msg}`);
-          });
-        }
+        entry = JSON.parse(chunk.toString());
       } catch {
-        // Never block logging if Sentry capture fails.
+        // Malformed entry — never block logging.
+        callback();
+        return;
       }
-      callback();
+      loadSentry()
+        .then((Sentry) => {
+          try {
+            captureEntry(Sentry, entry);
+          } catch {
+            // Never block logging if Sentry capture fails.
+          }
+          callback();
+        })
+        .catch(() => callback());
     },
   });
 }
