@@ -37,6 +37,9 @@ const meta: Meta<typeof SlackChannelList> = {
     assistantDisplayName: "Example Assistant",
     slackHandle: "@example-assistant",
     channels: MIXED_CHANNELS,
+    // Alice is a verified contact, so her DM resolves "Full access";
+    // Bob's DM resolves "Strict".
+    verifiedDmContactNames: new Set(["alice"]),
   },
   decorators: [
     (Story) => (

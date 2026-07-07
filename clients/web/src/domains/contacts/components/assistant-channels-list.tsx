@@ -73,11 +73,10 @@ export interface AssistantChannelsListProps {
   slackChannelsLoading?: boolean;
   slackChannelsError?: boolean;
   /**
-   * Whether the connected assistant serves the channel-list endpoint
-   * (backwards-compat gate). `false` hides the list entirely — the
-   * pre-feature Slack sub-tab layout.
+   * Verified-contact lookup for the Slack DM rows' resolved-access badges
+   * (see `buildVerifiedSlackContactNames`).
    */
-  slackChannelsSupported?: boolean;
+  slackVerifiedDmContactNames?: ReadonlySet<string>;
   /**
    * Per-channel admission floor, keyed by channel. Omit (or pass no
    * `onChannelPolicyChange`) to hide the trust-floor control entirely — used
@@ -154,7 +153,7 @@ export function AssistantChannelsList({
   slackChannels,
   slackChannelsLoading = false,
   slackChannelsError = false,
-  slackChannelsSupported = true,
+  slackVerifiedDmContactNames,
   channelPolicies,
   policySavingKey = null,
   policiesLoading = false,
@@ -267,7 +266,7 @@ export function AssistantChannelsList({
                 slackChannels={slackChannels}
                 slackChannelsLoading={slackChannelsLoading}
                 slackChannelsError={slackChannelsError}
-                slackChannelsSupported={slackChannelsSupported}
+                slackVerifiedDmContactNames={slackVerifiedDmContactNames}
                 onSaveTwilioCredentials={onSaveTwilioCredentials}
                 policy={channelPolicies?.[channel.key]}
                 policySaving={policySavingKey === channel.key}
@@ -398,7 +397,7 @@ interface ChannelPanelProps {
   slackChannels?: SlackChannel[];
   slackChannelsLoading?: boolean;
   slackChannelsError?: boolean;
-  slackChannelsSupported?: boolean;
+  slackVerifiedDmContactNames?: ReadonlySet<string>;
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
   policy?: AdmissionPolicy;
   policySaving?: boolean;
@@ -425,7 +424,7 @@ function ChannelPanel({
   slackChannels,
   slackChannelsLoading = false,
   slackChannelsError = false,
-  slackChannelsSupported = true,
+  slackVerifiedDmContactNames,
   onSaveTwilioCredentials,
   policy,
   policySaving = false,
@@ -527,13 +526,14 @@ function ChannelPanel({
         </SlackChannelCard>
       ) : null}
 
-      {channel.key === "slack" && connected && slackChannelsSupported ? (
+      {channel.key === "slack" && connected ? (
         <SlackChannelList
           assistantDisplayName={assistantDisplayName}
           slackHandle={channel.address}
           channels={slackChannels}
           loading={slackChannelsLoading}
           error={slackChannelsError}
+          verifiedDmContactNames={slackVerifiedDmContactNames}
         />
       ) : null}
 

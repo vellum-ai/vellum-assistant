@@ -3,6 +3,7 @@ import { useCallback, useMemo } from "react";
 
 import type { SlackThreadMode } from "@/components/slack-setup-wizard";
 import type { AssistantChannelsListProps } from "@/domains/contacts/components/assistant-channels-list";
+import { buildVerifiedSlackContactNames } from "@/domains/contacts/components/slack-channel-list";
 import { useChannelTrustFloors } from "@/domains/contacts/hooks/use-channel-trust-floors";
 import {
   SETUP_CHANNEL_IDS,
@@ -14,6 +15,7 @@ import { memberSlackChannelsOptions, memberSlackChannelsQueryKey } from "@/domai
 import {
   channelsReadinessGetOptions,
   channelsReadinessGetQueryKey,
+  contactsGetOptions,
   integrationsSlackChannelConfigGetOptions,
   integrationsSlackChannelConfigGetQueryKey,
   integrationsSlackChannelConfigPatchMutation,
@@ -25,7 +27,6 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import type { IntegrationsSlackChannelConfigGetResponse } from "@/generated/daemon/types.gen";
 import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
-import { useSupportsSlackChannelList } from "@/lib/backwards-compat/slack-channel-list";
 import { useSaveTelegramConfig } from "@/hooks/use-save-telegram-config";
 import { useSaveTwilioCredentials } from "@/hooks/use-save-twilio-credentials";
 
@@ -96,13 +97,18 @@ export function useAssistantChannels({
   });
 
   // Presence-only channel list for the Slack sub-tab.
-  // Version-gated: older assistants don't serve GET /v1/slack/channels,
-  // so the query stays off and the list stays hidden against them.
-  const supportsSlackChannelList = useSupportsSlackChannelList();
   const slackChannelsQuery = useQuery({
     ...memberSlackChannelsOptions(assistantId),
-    enabled: slackConnected && supportsSlackChannelList,
+    enabled: slackConnected,
     select: (data) => data.channels,
+  });
+
+  // Verified-contact lookup behind the DM rows' resolved-access badges.
+  // Shares the contacts cache with the Contacts page (same key, own select).
+  const verifiedSlackContactsQuery = useQuery({
+    ...contactsGetOptions(pathOpts),
+    enabled: slackConnected,
+    select: (data) => buildVerifiedSlackContactNames(data.contacts),
   });
 
   // Per-channel trust floors (admission policy), shown inline on each connected
@@ -216,7 +222,7 @@ export function useAssistantChannels({
     slackChannels: slackChannelsQuery.data,
     slackChannelsLoading: slackChannelsQuery.isPending,
     slackChannelsError: slackChannelsQuery.isError,
-    slackChannelsSupported: supportsSlackChannelList,
+    slackVerifiedDmContactNames: verifiedSlackContactsQuery.data,
     channelPolicies: channelTrustFloors.policies,
     policySavingKey: channelTrustFloors.savingKey,
     policiesLoading: channelTrustFloors.isLoading,
