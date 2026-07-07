@@ -6,10 +6,21 @@ mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => isMobileRef.value,
 }));
 
+const isNativeRef = { value: false };
+const openUrlMock = mock((_url: string) => Promise.resolve());
+mock.module("@/runtime/native-auth", () => ({
+  isNativePlatform: () => isNativeRef.value,
+}));
+mock.module("@/runtime/browser", () => ({
+  openUrl: openUrlMock,
+}));
+
 const { ChannelSourceLinkPill } = await import("./channel-source-link-pill");
 
 afterEach(() => {
   isMobileRef.value = false;
+  isNativeRef.value = false;
+  openUrlMock.mockClear();
   cleanup();
 });
 
@@ -44,5 +55,20 @@ describe("ChannelSourceLinkPill", () => {
       "https://acme.slack.com/archives/C123/p456",
     );
     expect(link.textContent).not.toContain("Open in Slack");
+  });
+
+  test("routes clicks through the native URL opener on Capacitor", () => {
+    isNativeRef.value = true;
+    const { getByRole } = render(
+      <ChannelSourceLinkPill
+        href="https://acme.slack.com/archives/C123/p456"
+        channelId="slack"
+      />,
+    );
+
+    getByRole("link", { name: /open in slack/i }).click();
+    expect(openUrlMock).toHaveBeenCalledWith(
+      "https://acme.slack.com/archives/C123/p456",
+    );
   });
 });

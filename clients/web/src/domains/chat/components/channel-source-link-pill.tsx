@@ -4,6 +4,7 @@ import { Button } from "@vellumai/design-library";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { getChannelLabel } from "@/utils/channel-presentation";
+import { handleNativeAnchorClick } from "@/utils/native-anchor";
 
 export interface ChannelSourceLinkPillProps {
   /** Deep link to the conversation's source in the external channel —
@@ -33,7 +34,7 @@ export function ChannelSourceLinkPill({
         className="h-3.5 w-3.5"
       />
     ) : (
-      <ExternalLink />
+      <ExternalLink className="h-3.5 w-3.5" />
     );
 
   if (isMobile) {
@@ -50,6 +51,7 @@ export function ChannelSourceLinkPill({
           target="_blank"
           rel="noreferrer noopener"
           aria-label={label}
+          onClick={(e) => handleNativeAnchorClick(e, href)}
         />
       </Button>
     );
@@ -64,7 +66,12 @@ export function ChannelSourceLinkPill({
       className="rounded-full"
       tintColor="var(--content-default)"
     >
-      <a href={href} target="_blank" rel="noreferrer noopener">
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer noopener"
+        onClick={(e) => handleNativeAnchorClick(e, href)}
+      >
         {label}
       </a>
     </Button>
