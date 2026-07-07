@@ -21546,6 +21546,19 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        icon:
+                          description: Author-declared emoji icon from the plugin's package.json vellum.icon; absent when none.
+                          type: string
+                        hasIcon:
+                          description:
+                            Whether the plugin ships a valid author-bundled `icon.png` (PNG magic + dimensions + size validated).
+                            Drives whether a client fetches the bundled icon.
+                          type: boolean
+                        iconVersion:
+                          description:
+                            Content hash of the validated `icon.png`; present only when `hasIcon` is true. Use it as a cache-buster for
+                            the bundled-icon endpoint.
+                          type: string
                       required:
                         - id
                         - name
@@ -21715,6 +21728,23 @@ paths:
                     description:
                       Prebuilt client artifact from `package.json` `vellum.artifact`, or null when the plugin ships none or its
                       descriptor is incomplete (e.g. a placeholder sha256).
+                  icon:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Author-declared emoji icon from the plugin's `package.json` `vellum.icon`, or null when none.
+                  hasIcon:
+                    type: boolean
+                    description:
+                      Whether the locally installed copy ships a valid author-bundled `icon.png` (PNG magic + dimensions + size
+                      validated). Always false when the plugin is not installed.
+                  iconVersion:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description:
+                      Content hash of the validated `icon.png`; null when `hasIcon` is false. Use it as a cache-buster for the
+                      bundled-icon endpoint.
                 required:
                   - name
                   - installed
@@ -21726,6 +21756,9 @@ paths:
                   - readme
                   - ref
                   - artifact
+                  - icon
+                  - hasIcon
+                  - iconVersion
                 additionalProperties: false
         "400":
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
@@ -21908,6 +21941,35 @@ paths:
           description: No plugin directory exists with the given name.
         "409":
           description: The plugin is already enabled.
+  /v1/plugins/{name}/icon:
+    get:
+      operationId: plugins_by_name_icon_get
+      summary: Serve a plugin's bundled icon
+      description:
+        Serve the installed plugin's validated author-bundled `icon.png` as `image/png`. The PNG is re-validated on
+        read (magic bytes + IHDR dimensions + size) and served with an immutable `Cache-Control` plus a content-hash
+        `ETag` — the `iconVersion` reported by `GET /v1/plugins` and `GET /v1/plugins/:name` — so clients cache
+        aggressively and only refetch when the hash changes. A plugin with no valid bundled icon returns 404; a
+        malformed name returns 400. Pair with the `hasIcon` / `iconVersion` fields on the list and detail responses to
+        decide whether to fetch.
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: No installed plugin with the given name has an icon.
   /v1/plugins/{name}/inspect:
     get:
       operationId: plugins_by_name_inspect_get

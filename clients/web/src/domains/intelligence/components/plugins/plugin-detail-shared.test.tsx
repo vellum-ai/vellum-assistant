@@ -32,6 +32,9 @@ const githubPlugin: PluginsByNameGetResponse = {
   readme: "# Level Up",
   ref: "main",
   artifact: null,
+  icon: null,
+  hasIcon: false,
+  iconVersion: null,
 };
 
 describe("PluginDetailMetadata", () => {
