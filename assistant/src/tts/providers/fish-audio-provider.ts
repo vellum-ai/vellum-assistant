@@ -84,6 +84,19 @@ function resolveReferenceId(
   return referenceId;
 }
 
+/**
+ * Actual PCM output sample rate for a request. Fish Audio accepts an exact
+ * `sample_rate`, so a PCM request's hint is honoured as-is; non-PCM formats
+ * carry their rate in the container and report undefined.
+ */
+function resolvePcmOutputSampleRateHz(
+  request: TtsSynthesisRequest,
+): number | undefined {
+  return request.outputFormat === "pcm"
+    ? (request.sampleRateHz ?? DEFAULT_PCM_SAMPLE_RATE_HZ)
+    : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Provider implementation
 // ---------------------------------------------------------------------------
@@ -99,6 +112,7 @@ async function performSynthesis(
   // PCM request passes straight through at the hinted sample rate.
   const pcmRequested = request.outputFormat === "pcm";
   const effectiveFormat = pcmRequested ? "pcm" : config.format;
+  const sampleRateHz = resolvePcmOutputSampleRateHz(request);
 
   const effectiveConfig: FishAudioSynthesisConfig = {
     ...config,
@@ -122,9 +136,7 @@ async function performSynthesis(
     audio = await synthesizeWithFishAudio(request.text, effectiveConfig, {
       onChunk,
       signal: request.signal,
-      sampleRate: pcmRequested
-        ? (request.sampleRateHz ?? DEFAULT_PCM_SAMPLE_RATE_HZ)
-        : undefined,
+      sampleRate: sampleRateHz,
     });
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") throw err;
@@ -136,7 +148,7 @@ async function performSynthesis(
 
   const contentType = FORMAT_CONTENT_TYPE[effectiveFormat] ?? "audio/mpeg";
 
-  return { audio, contentType };
+  return { audio, contentType, sampleRateHz };
 }
 
 export function createFishAudioProvider(): TtsProvider {
@@ -148,6 +160,7 @@ export function createFishAudioProvider(): TtsProvider {
   return {
     id: "fish-audio",
     capabilities,
+    resolveOutputSampleRateHz: resolvePcmOutputSampleRateHz,
     synthesize: (request) => performSynthesis(request),
     synthesizeStream: (request, onChunk) => performSynthesis(request, onChunk),
   };

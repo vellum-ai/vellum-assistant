@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   _resetTtsProviderOverridesForTests,
@@ -16,6 +16,17 @@ import type {
 } from "../live-voice-tts.js";
 
 let config = makeConfig();
+
+// Real-catalog tests exercise the actual provider adapters, which read
+// credentials and config through these modules.
+mock.module("../../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async () => "test-api-key",
+  getProviderKeyAsync: async () => "test-api-key",
+}));
+mock.module("../../config/loader.js", () => ({
+  getConfig: () => config,
+  loadConfig: () => config,
+}));
 
 const { LiveVoiceTtsError, streamLiveVoiceTtsAudio } =
   await import("../live-voice-tts.js");
@@ -314,6 +325,93 @@ describe("streamLiveVoiceTtsAudio", () => {
       chunks: 0,
       bytes: 0,
     });
+  });
+
+  test("labels frames with the provider-reported output rate when the requested rate is not honoured", async () => {
+    config = makeConfig({ provider: "elevenlabs" });
+    _setTtsProviderForTests({
+      id: "elevenlabs",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "pcm"],
+      },
+      resolveOutputSampleRateHz: () => 16_000,
+      async synthesize(): Promise<TtsSynthesisResult> {
+        throw new Error("buffered synthesis should not be used");
+      },
+      async synthesizeStream(
+        request: TtsSynthesisRequest,
+        onChunk: (chunk: Uint8Array) => void,
+      ): Promise<TtsSynthesisResult> {
+        expect(request.sampleRateHz).toBe(48_000);
+        onChunk(Buffer.from("pcm-one!"));
+        return {
+          audio: Buffer.from("pcm-one!"),
+          contentType: "audio/pcm",
+          sampleRateHz: 16_000,
+        };
+      },
+    });
+
+    const frames: LiveVoiceTtsAudioChunk[] = [];
+    const result = await streamLiveVoiceTtsAudio({
+      config,
+      text: "hello from live voice",
+      outputFormat: "pcm",
+      sampleRate: 48_000,
+      onAudioChunk: (chunk) => frames.push(chunk),
+    });
+
+    expect(frames.map((frame) => frame.sampleRate)).toEqual([16_000]);
+    expect(result.sampleRate).toBe(16_000);
+  });
+
+  test("resolves ElevenLabs streaming through the real catalog adapter", async () => {
+    // No _setTtsProviderForTests override: this exercises the real catalog
+    // provider lookup and must not throw LIVE_VOICE_TTS_STREAMING_UNAVAILABLE.
+    config = makeConfig({ provider: "elevenlabs" });
+    const originalFetch = globalThis.fetch;
+    let capturedUrl = "";
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array([0x01, 0x02, 0x03, 0x04]));
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    try {
+      const frames: LiveVoiceTtsAudioChunk[] = [];
+      const result = await streamLiveVoiceTtsAudio({
+        config,
+        text: "hello from live voice",
+        outputFormat: "pcm",
+        sampleRate: 24_000,
+        onAudioChunk: (chunk) => frames.push(chunk),
+      });
+
+      expect(capturedUrl).toContain("/stream?output_format=pcm_24000");
+      expect(result).toMatchObject({
+        provider: "elevenlabs",
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+      });
+      expect(frames).toEqual([
+        {
+          type: "tts_audio",
+          contentType: "audio/pcm",
+          sampleRate: 24_000,
+          dataBase64: Buffer.from([0x01, 0x02, 0x03, 0x04]).toString("base64"),
+        },
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test("returns a typed configuration error for a non-streaming provider", async () => {

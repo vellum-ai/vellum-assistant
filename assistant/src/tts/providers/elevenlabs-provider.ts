@@ -14,6 +14,7 @@ import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
+import { readChunkedBody } from "../stream-read.js";
 import type {
   TtsProvider,
   TtsProviderCapabilities,
@@ -32,7 +33,8 @@ export type ElevenLabsTtsErrorCode =
   | "ELEVENLABS_TTS_NO_VOICE_ID"
   | "ELEVENLABS_TTS_HTTP_ERROR"
   | "ELEVENLABS_TTS_EMPTY_RESPONSE"
-  | "ELEVENLABS_TTS_REQUEST_FAILED";
+  | "ELEVENLABS_TTS_REQUEST_FAILED"
+  | "ELEVENLABS_TTS_STREAM_TIMEOUT";
 
 export class ElevenLabsTtsError extends Error {
   readonly code: ElevenLabsTtsErrorCode;
@@ -191,17 +193,24 @@ function resolveOutputFormat(request: TtsSynthesisRequest): string {
   return request.useCase === "phone-call" ? "mp3_22050_32" : "mp3_44100_128";
 }
 
+/** Sample rate of a `pcm_*` output format in Hz; undefined for non-PCM formats. */
+function pcmFormatSampleRateHz(outputFormat: string): number | undefined {
+  return outputFormat.startsWith("pcm_")
+    ? Number(outputFormat.slice("pcm_".length))
+    : undefined;
+}
+
 /**
  * Resolve credentials and config, build the request body, and issue the
  * ElevenLabs TTS HTTP request. Shared by `synthesize` (buffer endpoint) and
  * `synthesizeStream` (`/stream` endpoint). Throws on missing credentials and
  * non-OK responses; resolves with the OK response and the resolved output
- * format.
+ * format and content type.
  */
 async function performTtsRequest(
   request: TtsSynthesisRequest,
   { stream }: { stream: boolean },
-): Promise<{ response: Response; outputFormat: string }> {
+): Promise<{ response: Response; outputFormat: string; contentType: string }> {
   const apiKey = await getSecureKeyAsync(
     credentialKey("elevenlabs", "api_key"),
   );
@@ -242,7 +251,7 @@ async function performTtsRequest(
     "Starting ElevenLabs TTS synthesis",
   );
 
-  const acceptType = FORMAT_CONTENT_TYPE[outputFormat] ?? "audio/mpeg";
+  const contentType = FORMAT_CONTENT_TYPE[outputFormat] ?? "audio/mpeg";
 
   let response: Response;
   try {
@@ -251,7 +260,7 @@ async function performTtsRequest(
       headers: {
         "Content-Type": "application/json",
         "xi-api-key": apiKey,
-        Accept: acceptType,
+        Accept: contentType,
       },
       body: JSON.stringify(body),
       signal: request.signal,
@@ -280,10 +289,76 @@ async function performTtsRequest(
     );
   }
 
-  return { response, outputFormat };
+  return { response, outputFormat, contentType };
 }
 
-export function createElevenLabsProvider(): TtsProvider {
+/** Stream-stall timeouts, injectable for tests. */
+export interface ElevenLabsStreamTimeouts {
+  firstChunkTimeoutMs?: number;
+  idleTimeoutMs?: number;
+}
+
+/**
+ * Issue the TTS request and consume the response into a complete result.
+ * The streaming path forwards chunks via `onChunk` as they arrive, guarded
+ * by first-chunk/idle stall timeouts; the buffer path reads the whole body.
+ */
+async function performSynthesis(
+  request: TtsSynthesisRequest,
+  options: {
+    stream: boolean;
+    onChunk?: (chunk: Uint8Array) => void;
+  } & ElevenLabsStreamTimeouts,
+): Promise<TtsSynthesisResult> {
+  const { response, outputFormat, contentType } = await performTtsRequest(
+    request,
+    { stream: options.stream },
+  );
+
+  let audio: Buffer;
+  if (options.stream) {
+    if (!response.body) {
+      throw new ElevenLabsTtsError(
+        "ELEVENLABS_TTS_EMPTY_RESPONSE",
+        "ElevenLabs streaming TTS returned no response body",
+      );
+    }
+    audio = await readChunkedBody(response.body, {
+      onChunk: options.onChunk,
+      firstChunkTimeoutMs: options.firstChunkTimeoutMs,
+      idleTimeoutMs: options.idleTimeoutMs,
+      makeTimeoutError: (timeoutMs) =>
+        new ElevenLabsTtsError(
+          "ELEVENLABS_TTS_STREAM_TIMEOUT",
+          `ElevenLabs streaming TTS read timed out after ${timeoutMs}ms`,
+        ),
+    });
+  } else {
+    audio = Buffer.from(await response.arrayBuffer());
+  }
+
+  if (audio.byteLength === 0) {
+    throw new ElevenLabsTtsError(
+      "ELEVENLABS_TTS_EMPTY_RESPONSE",
+      "ElevenLabs TTS returned an empty audio response",
+    );
+  }
+
+  log.debug(
+    { bytes: audio.byteLength, stream: options.stream },
+    "ElevenLabs TTS synthesis complete",
+  );
+
+  return {
+    audio,
+    contentType,
+    sampleRateHz: pcmFormatSampleRateHz(outputFormat),
+  };
+}
+
+export function createElevenLabsProvider(
+  streamTimeouts: ElevenLabsStreamTimeouts = {},
+): TtsProvider {
   const capabilities: TtsProviderCapabilities = {
     supportsStreaming: true,
     supportedFormats: ["mp3", "pcm"],
@@ -292,86 +367,11 @@ export function createElevenLabsProvider(): TtsProvider {
   return {
     id: "elevenlabs",
     capabilities,
-
-    async synthesize(
-      request: TtsSynthesisRequest,
-    ): Promise<TtsSynthesisResult> {
-      const { response, outputFormat } = await performTtsRequest(request, {
-        stream: false,
-      });
-
-      const arrayBuffer = await response.arrayBuffer();
-      if (arrayBuffer.byteLength === 0) {
-        throw new ElevenLabsTtsError(
-          "ELEVENLABS_TTS_EMPTY_RESPONSE",
-          "ElevenLabs TTS returned an empty audio response",
-        );
-      }
-
-      log.debug(
-        { bytes: arrayBuffer.byteLength },
-        "ElevenLabs TTS synthesis complete",
-      );
-
-      return {
-        audio: Buffer.from(arrayBuffer),
-        contentType: FORMAT_CONTENT_TYPE[outputFormat] ?? "audio/mpeg",
-      };
-    },
-
-    async synthesizeStream(
-      request: TtsSynthesisRequest,
-      onChunk: (chunk: Uint8Array) => void,
-    ): Promise<TtsSynthesisResult> {
-      const { response, outputFormat } = await performTtsRequest(request, {
-        stream: true,
-      });
-
-      if (!response.body) {
-        throw new ElevenLabsTtsError(
-          "ELEVENLABS_TTS_EMPTY_RESPONSE",
-          "ElevenLabs streaming TTS returned no response body",
-        );
-      }
-
-      const chunks: Uint8Array[] = [];
-      const reader = response.body.getReader();
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value && value.byteLength > 0) {
-            chunks.push(value);
-            onChunk(value);
-          }
-        }
-      } catch (err) {
-        try {
-          await reader.cancel();
-        } catch {
-          // Ignore cancellation errors
-        }
-        throw err;
-      }
-
-      if (chunks.length === 0) {
-        throw new ElevenLabsTtsError(
-          "ELEVENLABS_TTS_EMPTY_RESPONSE",
-          "ElevenLabs TTS returned an empty audio response",
-        );
-      }
-
-      const audio = Buffer.concat(chunks);
-      log.debug(
-        { bytes: audio.byteLength },
-        "ElevenLabs streaming TTS synthesis complete",
-      );
-
-      return {
-        audio,
-        contentType: FORMAT_CONTENT_TYPE[outputFormat] ?? "audio/mpeg",
-      };
-    },
+    resolveOutputSampleRateHz: (request) =>
+      pcmFormatSampleRateHz(resolveOutputFormat(request)),
+    synthesize: (request) => performSynthesis(request, { stream: false }),
+    synthesizeStream: (request, onChunk) =>
+      performSynthesis(request, { stream: true, onChunk, ...streamTimeouts }),
   };
 }
 
