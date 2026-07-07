@@ -920,7 +920,7 @@ describe("AssistantConfigSchema", () => {
   test("applies liveVoice defaults", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.liveVoice).toEqual({
-      mode: "ptt",
+      mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
         silenceThresholdMs: 800,
@@ -933,12 +933,12 @@ describe("AssistantConfigSchema", () => {
   test("accepts valid liveVoice config overrides", () => {
     const result = AssistantConfigSchema.parse({
       liveVoice: {
-        mode: "open-mic",
+        mode: "ptt",
         vad: { speechEnergyThreshold: 1500, silenceThresholdMs: 1000 },
         maxSessionDurationSeconds: 900,
       },
     });
-    expect(result.liveVoice.mode).toBe("open-mic");
+    expect(result.liveVoice.mode).toBe("ptt");
     expect(result.liveVoice.vad.speechEnergyThreshold).toBe(1500);
     expect(result.liveVoice.vad.silenceThresholdMs).toBe(1000);
     // Unspecified vad fields still get defaults

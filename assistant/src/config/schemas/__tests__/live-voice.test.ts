@@ -46,7 +46,7 @@ describe("LiveVoiceConfigSchema", () => {
   test("empty object parses to defaults", () => {
     const parsed = LiveVoiceConfigSchema.parse({});
     expect(parsed).toEqual({
-      mode: "ptt",
+      mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
         silenceThresholdMs: 800,
@@ -58,11 +58,11 @@ describe("LiveVoiceConfigSchema", () => {
 
   test("accepts overrides", () => {
     const parsed = LiveVoiceConfigSchema.parse({
-      mode: "open-mic",
+      mode: "ptt",
       vad: { silenceThresholdMs: 1200 },
       maxSessionDurationSeconds: 600,
     });
-    expect(parsed.mode).toBe("open-mic");
+    expect(parsed.mode).toBe("ptt");
     expect(parsed.vad.silenceThresholdMs).toBe(1200);
     // Unspecified vad fields still get defaults
     expect(parsed.vad.speechEnergyThreshold).toBe(800);

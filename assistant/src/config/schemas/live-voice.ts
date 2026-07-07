@@ -43,9 +43,9 @@ export const LiveVoiceConfigSchema = z
       .enum(VALID_LIVE_VOICE_MODES, {
         error: `liveVoice.mode must be one of: ${VALID_LIVE_VOICE_MODES.join(", ")}`,
       })
-      .default("ptt")
+      .default("open-mic")
       .describe(
-        "Default microphone mode for live voice sessions — push-to-talk (ptt) or hands-free (open-mic)",
+        "Default microphone mode for live voice sessions — hands-free (open-mic) or push-to-talk (ptt)",
       ),
     vad: LiveVoiceVadConfigSchema.default(LiveVoiceVadConfigSchema.parse({})),
     maxSessionDurationSeconds: z
