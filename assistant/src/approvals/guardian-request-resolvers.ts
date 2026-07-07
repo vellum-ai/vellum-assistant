@@ -592,6 +592,13 @@ async function notifyRequesterOfDenial(params: {
   deniedPayload: TrustedContactDecisionPayload;
   requestId: string;
   conversationId: string | null;
+  /**
+   * Admitted-mode introduction nudges never send the requester a denial
+   * text — the sender made no request and (for leave-unverified) keeps
+   * whatever access the floor grants. Guardian-facing decision signals
+   * still emit.
+   */
+  suppressRequesterNotice?: boolean;
 }): Promise<void> {
   const {
     channel,
@@ -603,17 +610,20 @@ async function notifyRequesterOfDenial(params: {
     deniedPayload,
     requestId,
     conversationId,
+    suppressRequesterNotice,
   } = params;
 
-  await deliverRequesterNotice({
-    channel,
-    requesterChatId,
-    requesterExternalUserId,
-    assistantId,
-    channelDeliveryContext,
-    desktopDeliverUrl,
-    text: "Your access request has been denied.",
-  });
+  if (!suppressRequesterNotice) {
+    await deliverRequesterNotice({
+      channel,
+      requesterChatId,
+      requesterExternalUserId,
+      assistantId,
+      channelDeliveryContext,
+      desktopDeliverUrl,
+      text: "Your access request has been denied.",
+    });
+  }
 
   if (channelDeliveryContext) {
     void emitNotificationSignal({
@@ -712,6 +722,9 @@ const accessRequestResolver: GuardianRequestResolver = {
       decidedByContactResult?.contact.displayName ?? null;
 
     const signals = parseRequesterSignals(request.requesterSignals);
+    // Admitted-mode nudges (sender cleared the admission floor) never send
+    // requester-facing lifecycle notices — the sender made no request.
+    const admittedNudge = request.trigger === "admitted";
     let outcome: IntroductionOutcome = OUTCOME_BY_ACTION[decision.action];
 
     // A bot cannot return a verification code, so a handshake approval on a
@@ -772,16 +785,20 @@ const accessRequestResolver: GuardianRequestResolver = {
         deniedPayload,
         requestId: request.id,
         conversationId: request.conversationId,
+        suppressRequesterNotice: admittedNudge,
       });
 
       return {
         ok: true,
         applied: true,
         // Desktop actors (vellum channel) receive inline reply text; channel
-        // actors get replies delivered via the channel delivery context.
+        // actors get replies delivered via the channel delivery context. An
+        // admitted sender keeps whatever access the floor grants.
         ...(ctx.actor.channel === "vellum"
           ? {
-              guardianReplyText: `${requesterLabel} will stay unverified. They won't be able to message the assistant.`,
+              guardianReplyText: admittedNudge
+                ? `${requesterLabel} will stay unverified.`
+                : `${requesterLabel} will stay unverified. They won't be able to message the assistant.`,
             }
           : {}),
       };
@@ -826,6 +843,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         deniedPayload,
         requestId: request.id,
         conversationId: request.conversationId,
+        suppressRequesterNotice: admittedNudge,
       });
 
       return {
@@ -956,16 +974,19 @@ const accessRequestResolver: GuardianRequestResolver = {
         "Access request resolver: direct trust — contact activated without handshake",
       );
 
-      // Notify the requester they're in.
-      await deliverRequesterNotice({
-        channel,
-        requesterChatId,
-        requesterExternalUserId,
-        assistantId,
-        channelDeliveryContext,
-        desktopDeliverUrl,
-        text: "Your access request has been approved. You can message the assistant here.",
-      });
+      // Notify the requester they're in. Admitted-mode nudges skip this —
+      // the sender was already conversing and made no request.
+      if (!admittedNudge) {
+        await deliverRequesterNotice({
+          channel,
+          requesterChatId,
+          requesterExternalUserId,
+          assistantId,
+          channelDeliveryContext,
+          desktopDeliverUrl,
+          text: "Your access request has been approved. You can message the assistant here.",
+        });
+      }
 
       return {
         ok: true,

@@ -325,6 +325,9 @@ export async function notifyGuardianOfAccessRequest(
       isStranger,
       isRestricted,
     }),
+    // Persisted so decision-time policy (resolvers, expiry sweep) can
+    // suppress requester-facing lifecycle notices for admitted-mode nudges.
+    ...(trigger === "admitted" ? { trigger } : {}),
     expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
   });
 

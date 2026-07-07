@@ -78,6 +78,7 @@ function makeRequest(
     conversationId: "conv-1",
     requesterExternalUserId: "req-user",
     requesterChatId: "req-chat",
+    trigger: null,
     guardianExternalUserId: "guardian-user",
     guardianPrincipalId: "guardian-principal",
     callSessionId: null,

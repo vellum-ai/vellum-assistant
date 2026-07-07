@@ -44,6 +44,11 @@ export async function notifyExpiredGuardianRequest(
         releaseExpiredInteraction(request);
         return;
       case "access_request":
+        // Admitted-mode nudges expire silently for the requester — the
+        // sender made no request and keeps whatever access the floor grants.
+        if (request.trigger === "admitted") {
+          break;
+        }
         await notifyRequesterOfExpiry(
           request,
           "Your access request expired before it was reviewed. " +
