@@ -42,7 +42,7 @@ interface CapabilityTierMeta {
 export const CAPABILITY_TIER_META: Record<SlackCapabilityTier, CapabilityTierMeta> = {
   strict: {
     label: presetFromThreshold("none").label,
-    sublabel: "read + reply only",
+    sublabel: "ask before every action",
     description:
       "Nothing is auto-approved — every tool call from this channel asks first.",
     tone: "negative",
