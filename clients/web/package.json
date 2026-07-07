@@ -8,7 +8,7 @@
     "dist"
   ],
   "scripts": {
-    "predev": "bun run openapi-ts && node scripts/copy-skill-assets.mjs",
+    "predev": "bun run openapi-ts && node scripts/copy-skill-assets.mjs && bun run generate:nav-manifest",
     "dev": "bun --bun vite",
     "prebuild": "node scripts/copy-skill-assets.mjs",
     "build": "bun --bun vite build",

@@ -58,7 +58,7 @@
     },
     {
       "key": "conversation",
-      "path": "/assistant/conversations/:key",
+      "path": "/assistant/conversations/:conversationId",
       "label": "Conversation",
       "section": "App",
       "description": "A single conversation's chat transcript and composer; supports ?message= to scroll to and highlight a message.",
@@ -135,7 +135,7 @@
     },
     {
       "key": "library.app",
-      "path": "/assistant/library/:slug",
+      "path": "/assistant/library/:appId",
       "label": "App",
       "section": "App",
       "description": "Detail view for a single library app, with an Open action.",

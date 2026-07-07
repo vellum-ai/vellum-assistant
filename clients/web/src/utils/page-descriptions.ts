@@ -19,6 +19,12 @@ export interface PageDescription {
   features?: string[];
   /** Query-param sub-tabs, if the page has them. */
   tabs?: { id: string; query: string }[];
+  /**
+   * Placeholder names for dynamic segments, when the route builder's argument
+   * names differ from the params mounted in routes.tsx (a test enforces the
+   * manifest matches the mounted patterns).
+   */
+  params?: string[];
 }
 
 /**
@@ -86,6 +92,7 @@ export const PAGE_DESCRIPTIONS: Record<string, PageDescription> = {
     description:
       "A single conversation's chat transcript and composer; supports ?message= to scroll to and highlight a message.",
     features: ["chat", "conversation", "messages", "transcript", "reply", "thread"],
+    params: ["conversationId"],
   },
   inspect: {
     label: "Context Inspector",
@@ -193,6 +200,7 @@ export const PAGE_DESCRIPTIONS: Record<string, PageDescription> = {
     label: "App",
     description: "Detail view for a single library app, with an Open action.",
     features: ["app", "open app", "library app", "launch app"],
+    params: ["appId"],
   },
   document: {
     label: "Document",

@@ -65,7 +65,10 @@ function collectRouteEntries(
   }
   if (typeof node === "function") {
     const fn = node as (...args: string[]) => string;
-    return [{ key: prefix, path: fn(...placeholderArgs(fn)), dynamic: true }];
+    const args =
+      PAGE_DESCRIPTIONS[prefix]?.params?.map((p) => `:${p}`) ??
+      placeholderArgs(fn);
+    return [{ key: prefix, path: fn(...args), dynamic: true }];
   }
   if (node !== null && typeof node === "object") {
     return Object.entries(node).flatMap(([name, child]) =>
