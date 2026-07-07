@@ -82,6 +82,7 @@ jobs:
         run: |
           bun pm pack
           TARBALL=$(ls vellumai-cli-*.tgz)
+          bun ../scripts/strip-bundled-field-from-tarball.mjs "$TARBALL"
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
           echo "Packed: $TARBALL"
         id: pack

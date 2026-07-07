@@ -1915,6 +1915,7 @@ jobs:
           mkdir -p /tmp/npm-dist
           bun pm pack --destination /tmp/npm-dist
           mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          bun ../scripts/strip-bundled-field-from-tarball.mjs /tmp/npm-dist/package.tgz
           node -p "require('./package.json').name" > /tmp/npm-dist/name
           node -p "require('./package.json').version" > /tmp/npm-dist/version
       - name: Upload tarball
