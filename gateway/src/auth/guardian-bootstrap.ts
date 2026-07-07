@@ -839,8 +839,10 @@ async function resolveOrCreateVellumGuardian(options: {
  * Ensure a vellum guardian binding exists, returning its principalId.
  * Resolves from the gateway DB, minting a fresh principal on a miss — unless
  * the DB carries evidence of a prior guardian, in which case it throws
- * {@link VellumGuardianMintRefusedError} (callers degrade; startup backfill
- * is wrapped non-fatally in post-assistant-ready).
+ * {@link VellumGuardianMintRefusedError}. Every caller must handle that
+ * refusal explicitly: the startup backfill degrades boot non-fatally
+ * (post-assistant-ready), and the /auth/token + remote-web pairing routes
+ * map it to a 503 repair-required response.
  *
  * Called during gateway startup to backfill existing installations.
  */
