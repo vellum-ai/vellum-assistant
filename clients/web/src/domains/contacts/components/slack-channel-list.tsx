@@ -97,19 +97,17 @@ export function SlackChannelList({
     [channels, search, kindFilter],
   );
 
+  // Inline (no block wrapper): the empty state's own description <p> wraps
+  // it, and the below-list placement adds its own paragraph wrapper.
   const inviteHint = (
-    <Typography
-      as="p"
-      variant="body-small-default"
-      className="text-[color:var(--content-tertiary)]"
-    >
+    <>
       Only showing channels {assistantDisplayName} is in. To add{" "}
       {assistantDisplayName} to a channel, type{" "}
       <code className="text-[color:var(--content-secondary)]">
         /invite {slackHandle ?? `@${assistantDisplayName}`}
       </code>{" "}
       inside that Slack channel.
-    </Typography>
+    </>
   );
 
   return (
@@ -206,7 +204,13 @@ export function SlackChannelList({
                 ))}
               </div>
             )}
-            {inviteHint}
+            <Typography
+              as="p"
+              variant="body-small-default"
+              className="text-[color:var(--content-tertiary)]"
+            >
+              {inviteHint}
+            </Typography>
           </div>
         )}
       </Card.Body>
