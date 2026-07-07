@@ -31,6 +31,10 @@ const TONE_DOT_COLOR: Record<TagTone, string> = {
  * (`assistant/src/permissions/approval-policy.ts`): a channel cell replaces
  * the global threshold for this channel, deny trust rules block at every
  * threshold, and at `none` every tool call prompts (it isn't a tool ban).
+ * Sensitive tools sit above the threshold entirely — for non-guardian
+ * actors they always escalate to the owner without a scoped grant
+ * (`assistant/src/tools/tool-approval-handler.ts`), so the full-access
+ * copy keeps that caveat.
  */
 function tierDescription(
   tier: SlackCapabilityTier,
@@ -62,7 +66,8 @@ function tierDescription(
       return (
         <>
           {assistantName} runs any tool it has access to without asking.
-          Anything you’ve blocked in{" "}
+          Sensitive tools still come to you first, and anything you’ve
+          blocked in{" "}
           <Link
             to={routes.settings.privacy}
             className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
