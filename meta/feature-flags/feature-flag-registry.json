@@ -63,7 +63,7 @@
       "scope": "assistant",
       "key": "trace-collection",
       "label": "Trace Collection",
-      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) — the live value is delivered from LaunchDarkly.",
+      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) \u2014 the live value is delivered from LaunchDarkly.",
       "defaultEnabled": false
     },
     {
@@ -147,14 +147,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "message-tts",
-      "scope": "assistant",
-      "key": "message-tts",
-      "label": "Message Text-to-Speech",
-      "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
-      "defaultEnabled": false
-    },
-    {
       "id": "backward-releases",
       "scope": "assistant",
       "key": "backward-releases",
@@ -168,14 +160,6 @@
       "key": "voice-mode",
       "label": "Voice Mode",
       "description": "Show the live voice conversation button in the composer",
-      "defaultEnabled": false
-    },
-    {
-      "id": "voice-mode-hands-free",
-      "scope": "assistant",
-      "key": "voice-mode-hands-free",
-      "label": "Voice Mode: Hands-Free",
-      "description": "Server-side turn detection and barge-in for live voice — continuous conversation without push-to-talk",
       "defaultEnabled": false
     },
     {

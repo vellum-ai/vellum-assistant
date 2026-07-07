@@ -18874,28 +18874,6 @@ paths:
                   - memoryRecall
                   - memoryV2Activation
                 additionalProperties: false
-  /v1/messages/{messageId}/tts:
-    post:
-      operationId: messages_by_messageId_tts_post
-      summary: Synthesize message to speech
-      description: Synthesize a message's text content to audio using the configured TTS provider.
-      tags:
-        - messages
-      parameters:
-        - name: messageId
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: conversationId
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Conversation that contains the message
-      responses:
-        "200":
-          description: Successful response
   /v1/messages/lexical/backfill:
     post:
       operationId: messages_lexical_backfill_post

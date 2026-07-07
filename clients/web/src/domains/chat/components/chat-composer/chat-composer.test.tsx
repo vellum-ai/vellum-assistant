@@ -51,7 +51,6 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
   useAssistantFeatureFlagStore: {
     use: {
       voiceMode: () => mockVoiceMode,
-      voiceModeHandsFree: () => false,
     },
   },
 }));
