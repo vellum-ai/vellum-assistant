@@ -53,6 +53,22 @@ export class DeepgramTtsError extends Error {
 
 const DEEPGRAM_API_BASE = "https://api.deepgram.com";
 
+/**
+ * Sample rate for PCM requests that carry no `sampleRateHz` hint. The
+ * media-stream transcoder assumes headerless PCM is 16 kHz (the
+ * ElevenLabs/Deepgram/xAI convention) and downsamples to 8 kHz telephony.
+ */
+const DEFAULT_PCM_SAMPLE_RATE_HZ = 16_000;
+
+/**
+ * Sample rates Deepgram's linear16 encoding accepts. Per
+ * https://developers.deepgram.com/docs/tts-media-output-settings
+ * these are 8/16/24/32/48 kHz (22.05 and 44.1 kHz are not supported).
+ */
+const SUPPORTED_PCM_SAMPLE_RATES_HZ = [
+  8_000, 16_000, 24_000, 32_000, 48_000,
+] as const;
+
 /** Map from Deepgram encoding names to MIME content types. */
 const FORMAT_CONTENT_TYPE: Record<string, string> = {
   mp3: "audio/mpeg",
@@ -77,16 +93,46 @@ interface DeepgramOutputParams {
   contentTypeKey: string;
 }
 
+/** Nearest Deepgram-supported PCM sample rate to `hintHz`; ties prefer the higher rate. */
+function nearestSupportedPcmSampleRateHz(hintHz: number): number {
+  return SUPPORTED_PCM_SAMPLE_RATES_HZ.reduce((best, rate) => {
+    const bestDelta = Math.abs(best - hintHz);
+    const delta = Math.abs(rate - hintHz);
+    if (delta < bestDelta || (delta === bestDelta && rate > best)) {
+      return rate;
+    }
+    return best;
+  });
+}
+
+/**
+ * Actual PCM output sample rate for a request. A PCM request's hint is clamped
+ * to the nearest Deepgram-supported rate (e.g. 44.1 kHz → 48 kHz) so the same
+ * value is both sent to the API and reported to callers; non-PCM formats carry
+ * their rate in the container and report undefined.
+ */
+function resolvePcmOutputSampleRateHz(
+  request: TtsSynthesisRequest,
+): number | undefined {
+  if (request.outputFormat !== "pcm") {
+    return undefined;
+  }
+  return nearestSupportedPcmSampleRateHz(
+    request.sampleRateHz ?? DEFAULT_PCM_SAMPLE_RATE_HZ,
+  );
+}
+
 /**
  * Resolve the Deepgram output encoding, container, and sample rate based on
  * the synthesis request and provider config.
  *
  * **PCM path** (`outputFormat: "pcm"`):
  *   The media-stream transport needs raw headerless PCM for mu-law transcoding.
- *   We request `encoding=linear16&container=none&sample_rate=16000` — 16-bit
- *   signed little-endian at 16 kHz with no WAV header. This matches the
- *   ElevenLabs `pcm_16000` convention and the downstream
- *   `audioBufferToFrames` expectation (16 kHz -> 8 kHz downsample).
+ *   We request `encoding=linear16&container=none` — 16-bit signed
+ *   little-endian with no WAV header — at the request's `sampleRateHz` hint
+ *   clamped to the nearest Deepgram-supported rate, defaulting to 16 kHz when
+ *   no hint is given. An explicit `sample_rate` is always sent to avoid
+ *   Deepgram's 24 kHz default.
  *
  * **WAV path** (`config.format === "wav"`):
  *   Deepgram treats WAV as a container, not an encoding. We translate to
@@ -103,7 +149,7 @@ function resolveOutputParams(
     return {
       encoding: "linear16",
       container: "none",
-      sample_rate: 16_000,
+      sample_rate: resolvePcmOutputSampleRateHz(request),
       contentTypeKey: "linear16",
     };
   }
@@ -128,6 +174,7 @@ export function createDeepgramProvider(): TtsProvider {
   return {
     id: "deepgram",
     capabilities,
+    resolveOutputSampleRateHz: resolvePcmOutputSampleRateHz,
 
     async synthesize(
       request: TtsSynthesisRequest,

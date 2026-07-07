@@ -443,7 +443,10 @@ describe("ElevenLabs TTS provider adapter", () => {
     });
 
     await expect(
-      provider.synthesizeStream!(makeRequest({ outputFormat: "pcm" }), () => {}),
+      provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm" }),
+        () => {},
+      ),
     ).rejects.toMatchObject({
       name: "ElevenLabsTtsError",
       code: "ELEVENLABS_TTS_STREAM_TIMEOUT",
@@ -472,8 +475,9 @@ describe("ElevenLabs TTS provider adapter", () => {
     });
 
     await expect(
-      provider.synthesizeStream!(makeRequest({ outputFormat: "pcm" }), (chunk) =>
-        received.push(chunk),
+      provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm" }),
+        (chunk) => received.push(chunk),
       ),
     ).rejects.toMatchObject({
       name: "ElevenLabsTtsError",
@@ -1132,6 +1136,76 @@ describe("Deepgram TTS provider adapter", () => {
     expect(capturedUrl).toContain("container=none");
     expect(capturedUrl).toContain("sample_rate=16000");
     expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("pcm request honors a supported sampleRateHz hint", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 24_000 }),
+    );
+
+    expect(capturedUrl).toContain("encoding=linear16");
+    expect(capturedUrl).toContain("container=none");
+    expect(capturedUrl).toContain("sample_rate=24000");
+  });
+
+  test("pcm request clamps an unsupported sampleRateHz hint to the nearest supported rate", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 44_100 }),
+    );
+    expect(capturedUrl).toContain("sample_rate=48000");
+
+    // Tie between 8000 and 16000 prefers the higher rate.
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 12_000 }),
+    );
+    expect(capturedUrl).toContain("sample_rate=16000");
+  });
+
+  // -- Output sample rate probe ---------------------------------------------
+
+  test("resolveOutputSampleRateHz returns the clamped rate for pcm requests", () => {
+    const provider = createDeepgramProvider();
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ outputFormat: "pcm", sampleRateHz: 44_100 }),
+      ),
+    ).toBe(48_000);
+  });
+
+  test("resolveOutputSampleRateHz defaults to 16 kHz for hint-less pcm requests", () => {
+    const provider = createDeepgramProvider();
+    expect(
+      provider.resolveOutputSampleRateHz!(makeRequest({ outputFormat: "pcm" })),
+    ).toBe(16_000);
+  });
+
+  test("resolveOutputSampleRateHz returns undefined for non-pcm requests", () => {
+    const provider = createDeepgramProvider();
+    expect(provider.resolveOutputSampleRateHz!(makeRequest())).toBeUndefined();
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ sampleRateHz: 24_000 }),
+      ),
+    ).toBeUndefined();
   });
 
   test("translates wav config format to linear16 encoding with container=wav", async () => {
