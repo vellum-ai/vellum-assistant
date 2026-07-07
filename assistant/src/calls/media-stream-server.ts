@@ -428,10 +428,10 @@ export class MediaStreamCallSession {
     // by contract, so a transport hiccup admits the caller.
     //
     // Concurrently, prime the guardian displayName used by setup-flow copy
-    // and warm the phone-channel guardian-delivery cache for routeSetup's
-    // SYNC resolveActorTrust fallback (gateway-side binding writes don't
-    // invalidate the daemon cache, so read fresh). All three are independent
-    // IPC reads on different cache keys.
+    // and warm the phone-channel guardian-delivery cache for setup-flow
+    // label resolution (gateway-side binding writes don't invalidate the
+    // daemon cache, so read fresh). All three are independent IPC reads on
+    // different cache keys.
     const [admissionPolicy] = await Promise.all([
       getChannelAdmissionPolicy("phone"),
       this.primeGuardianDisplayName(),
@@ -446,10 +446,9 @@ export class MediaStreamCallSession {
       return;
     }
 
-    // Verdict-first caller trust so this transport enforces the gateway
-    // ACL. routeSetup uses it when present and not resolutionFailed, else
-    // falls back to local resolution. The reader returns null on failure,
-    // keeping the local path on a gateway blip.
+    // Gateway-verdict caller trust so this transport enforces the gateway
+    // ACL. The reader returns null on failure; routeSetup fails closed on a
+    // missing/failed verdict (inbound deny, outbound setup abort).
     const isInbound = session?.initiatedFromConversationId == null;
     const otherPartyNumber = isInbound ? from : to;
     const verdict = await getPhoneCallerVerdict(otherPartyNumber);
