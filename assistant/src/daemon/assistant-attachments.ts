@@ -50,13 +50,13 @@ export interface AssistantAttachmentDraft {
  * storage form the block uses.
  */
 export function estimateBase64Bytes(base64: string): number;
-export function estimateBase64Bytes(source: {
-  data?: unknown;
-  sizeBytes?: unknown;
-}): number;
 export function estimateBase64Bytes(
-  arg: string | { data?: unknown; sizeBytes?: unknown },
+  source: { data?: unknown; sizeBytes?: unknown } | null | undefined,
+): number;
+export function estimateBase64Bytes(
+  arg: string | { data?: unknown; sizeBytes?: unknown } | null | undefined,
 ): number {
+  if (arg == null) return 0;
   if (typeof arg !== "string") {
     if (typeof arg.sizeBytes === "number") return arg.sizeBytes;
     if (typeof arg.data === "string") return estimateBase64Bytes(arg.data);

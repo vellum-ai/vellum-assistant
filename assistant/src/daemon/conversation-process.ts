@@ -6,10 +6,7 @@
  * used by conversation-history.ts.
  */
 
-import {
-  attachmentsToContentBlocks,
-  enrichMessageWithSourcePaths,
-} from "../agent/attachments.js";
+import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -572,7 +569,7 @@ async function drainSingleMessage(
       const contentToPersist = serializePersistedUserMessageContent(
         next.content,
         next.displayContent,
-        attachmentsToContentBlocks(next.attachments),
+        next.attachments,
       );
       await addMessage(conversation.conversationId, "user", contentToPersist, {
         metadata: drainChannelMeta,
@@ -668,7 +665,7 @@ async function drainSingleMessage(
         serializePersistedUserMessageContent(
           next.content,
           next.displayContent,
-          attachmentsToContentBlocks(next.attachments),
+          next.attachments,
         ),
         { metadata: drainChannelMeta },
       );
@@ -754,7 +751,7 @@ async function drainSingleMessage(
         serializePersistedUserMessageContent(
           next.content,
           next.displayContent,
-          attachmentsToContentBlocks(next.attachments),
+          next.attachments,
         ),
         { metadata: drainChannelMeta },
       );
@@ -1549,7 +1546,7 @@ export async function processMessage(
         serializePersistedUserMessageContent(
           content,
           displayContent,
-          attachmentsToContentBlocks(attachments),
+          attachments,
         ),
         { metadata: routerChannelMeta },
       );
@@ -1638,7 +1635,7 @@ export async function processMessage(
     const contentToPersist = serializePersistedUserMessageContent(
       content,
       displayContent,
-      attachmentsToContentBlocks(attachments),
+      attachments,
     );
     const persisted = await addMessage(
       conversation.conversationId,
@@ -1721,7 +1718,7 @@ export async function processMessage(
         serializePersistedUserMessageContent(
           content,
           displayContent,
-          attachmentsToContentBlocks(attachments),
+          attachments,
         ),
         { metadata: pmChannelMeta },
       );
@@ -1798,7 +1795,7 @@ export async function processMessage(
         serializePersistedUserMessageContent(
           content,
           displayContent,
-          attachmentsToContentBlocks(attachments),
+          attachments,
         ),
         { metadata: pmChannelMeta },
       );

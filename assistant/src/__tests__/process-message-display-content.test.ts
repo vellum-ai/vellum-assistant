@@ -27,6 +27,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 let createInlineShouldThrow = false;
+let validateShouldFail = false;
 
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
@@ -56,7 +57,10 @@ mock.module("../persistence/attachments-store.js", () => ({
   },
   getAttachmentContent: () => null,
   getFilePathForAttachment: () => "/tmp/att-stored.pdf",
-  validateAttachmentUpload: () => ({ ok: true }),
+  validateAttachmentUpload: () =>
+    validateShouldFail
+      ? { ok: false, error: "unsupported type" }
+      : { ok: true },
   AttachmentUploadError: class extends Error {},
 }));
 
@@ -447,6 +451,33 @@ describe("processMessage displayContent", () => {
           filename: "attachment.pdf",
         },
       },
+    ]);
+  });
+
+  test("drops a validation-rejected attachment instead of inlining it", async () => {
+    const conversation = makeTestConversation();
+    validateShouldFail = true;
+    try {
+      await conversation.persistUserMessage({
+        content: "here is a file",
+        attachments: [
+          {
+            filename: "payload.exe",
+            mimeType: "application/x-msdownload",
+            data: Buffer.from("MZ...").toString("base64"),
+          },
+        ],
+        requestId: "req-rejected",
+      });
+    } finally {
+      validateShouldFail = false;
+    }
+
+    // A rejected attachment must NOT reach messages.content — only the text
+    // block is persisted, no base64 file block.
+    expect(addMessageCalls).toHaveLength(1);
+    expect(JSON.parse(addMessageCalls[0]!.content)).toEqual([
+      { type: "text", text: "here is a file" },
     ]);
   });
 

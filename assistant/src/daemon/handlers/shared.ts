@@ -212,7 +212,7 @@ function extractFileBlockMetadata(
       source && typeof source.filename === "string"
         ? source.filename
         : "attachment",
-    sizeBytes: source ? estimateBase64Bytes(source) : 0,
+    sizeBytes: estimateBase64Bytes(source),
   };
 }
 

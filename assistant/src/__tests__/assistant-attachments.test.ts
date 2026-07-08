@@ -73,6 +73,11 @@ describe("estimateBase64Bytes", () => {
   test("returns 0 for a source with neither sizeBytes nor data", () => {
     expect(estimateBase64Bytes({})).toBe(0);
   });
+
+  test("returns 0 for a null or undefined source", () => {
+    expect(estimateBase64Bytes(null)).toBe(0);
+    expect(estimateBase64Bytes(undefined)).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

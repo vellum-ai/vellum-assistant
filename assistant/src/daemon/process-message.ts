@@ -5,10 +5,7 @@
  * it through DI. The DaemonServer methods delegate here.
  */
 
-import {
-  attachmentsToContentBlocks,
-  enrichMessageWithSourcePaths,
-} from "../agent/attachments.js";
+import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -379,7 +376,7 @@ export async function processMessage(
       serializePersistedUserMessageContent(
         content,
         options?.displayContent,
-        attachmentsToContentBlocks(attachments),
+        attachments,
       ),
       { metadata: userMetaWithSlack },
     );
@@ -472,7 +469,7 @@ export async function processMessage(
       serializePersistedUserMessageContent(
         content,
         options?.displayContent,
-        attachmentsToContentBlocks(attachments),
+        attachments,
       ),
       { metadata: compactUserMeta },
     );
@@ -527,7 +524,7 @@ export async function processMessage(
       serializePersistedUserMessageContent(
         content,
         options?.displayContent,
-        attachmentsToContentBlocks(attachments),
+        attachments,
       ),
       { metadata: cleanUserMeta },
     );
