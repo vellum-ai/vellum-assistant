@@ -327,3 +327,138 @@ body {
     animation: none;
   }
 }
+
+/* ─── Live-voice room avatar ─────────────────────────────────────────────────
+ * State-driven animation for the enlarged assistant avatar in the voice room.
+ * Each live-voice visual (idle / listening / thinking / responding /
+ * reconnecting) gets one continuous CSS loop here; the discrete enter/scale
+ * transition when the visual changes is a motion spring at the call site. The
+ * `responding` (and `listening`) visual additionally rides live mic/TTS
+ * amplitude, fed imperatively through the `--voice-amp` custom property by a
+ * requestAnimationFrame loop — never React state. See voice-avatar.tsx.
+ *
+ * The sonar ripple's cyan→indigo gradient is a deliberate decorative accent
+ * that stays constant across all themes (like a data-viz series or annotation
+ * overlay), so it is expressed as fixed rgba rather than a theme token. */
+.voice-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center;
+}
+
+/* Amplitude-reactive inner layer. `--voice-amp` (0–1) is written imperatively
+ * per frame; the small coefficient keeps the pulse subtle. Defaults to 0 so
+ * non-audio-reactive visuals sit at rest. */
+.voice-avatar__amp {
+  --voice-amp: 0;
+  display: inline-flex;
+  transform: scale(calc(1 + var(--voice-amp) * 0.12));
+  transform-origin: center;
+  will-change: transform;
+}
+
+/* Decorative ring/ripple layer shared by idle (invitation pulse) and listening
+ * (sonar). Inert until a visual class animates it. */
+.voice-avatar::after {
+  content: "";
+  position: absolute;
+  inset: -6%;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* Idle — gentle 4.5s breathing scale, mirroring macOS startBreathing(). */
+@keyframes voice-avatar-idle-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+/* Idle — faint invitation ring that swells and fades, inviting the user to
+ * speak without the urgency of the listening sonar. */
+@keyframes voice-avatar-invite-ring {
+  0% { opacity: 0; transform: scale(0.96); }
+  50% { opacity: 0.35; }
+  100% { opacity: 0; transform: scale(1.12); }
+}
+
+.voice-avatar--idle {
+  animation: voice-avatar-idle-breathe 4.5s ease-in-out infinite;
+}
+
+.voice-avatar--idle::after {
+  border: 1px solid var(--border-active);
+  animation: voice-avatar-invite-ring 4.5s ease-in-out infinite;
+}
+
+/* Listening — sonar ripple expanding from the avatar surface: cyan at the
+ * center fading to indigo at the outer edge. */
+@keyframes voice-avatar-listen-ripple {
+  0% { opacity: 0.55; transform: scale(0.9); }
+  100% { opacity: 0; transform: scale(1.6); }
+}
+
+.voice-avatar--listening::after {
+  background: radial-gradient(
+    circle,
+    rgba(34, 211, 238, 0.45) 0%,
+    rgba(99, 102, 241, 0.28) 60%,
+    rgba(99, 102, 241, 0) 72%
+  );
+  animation: voice-avatar-listen-ripple 1.8s ease-out infinite;
+}
+
+/* Thinking — "stillness with intent": a slow brightness/saturation cycle on
+ * the avatar itself. Deliberately NOT a spinner. */
+@keyframes voice-avatar-think-glow {
+  0%, 100% { filter: brightness(1) saturate(1); }
+  50% { filter: brightness(1.12) saturate(1.35); }
+}
+
+.voice-avatar--thinking {
+  animation: voice-avatar-think-glow 2.6s ease-in-out infinite;
+}
+
+/* Responding — subtle baseline energy bounce; the live amplitude scale rides
+ * on top via .voice-avatar__amp. */
+@keyframes voice-avatar-respond-bounce {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+.voice-avatar--responding {
+  animation: voice-avatar-respond-bounce 1.1s ease-in-out infinite;
+}
+
+/* Reconnecting — dimmed, slow pulse, distinct from idle-breathe (full opacity)
+ * and think-glow (brightens rather than dims). */
+@keyframes voice-avatar-reconnect-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.98); }
+  50% { opacity: 0.7; transform: scale(1.01); }
+}
+
+.voice-avatar--reconnecting {
+  animation: voice-avatar-reconnect-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-avatar--idle,
+  .voice-avatar--thinking,
+  .voice-avatar--responding,
+  .voice-avatar--reconnecting {
+    animation: none;
+  }
+  .voice-avatar--idle::after,
+  .voice-avatar--listening::after {
+    animation: none;
+    opacity: 0;
+  }
+  .voice-avatar--reconnecting {
+    opacity: 0.6;
+  }
+  .voice-avatar__amp {
+    transform: none;
+  }
+}
