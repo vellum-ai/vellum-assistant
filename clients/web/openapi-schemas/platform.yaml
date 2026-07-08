@@ -1413,6 +1413,75 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{assistant_id}/managed-speech/stt/transcribe/:
+    post:
+      operationId: assistants_managed_speech_stt_transcribe_create
+      description: Transcribe pre-recorded audio through Vellum's managed Deepgram
+        speech-to-text proxy. Vellum validates the request, checks billing eligibility,
+        calls Deepgram with managed credentials, bills the transcribed duration, and
+        returns the transcript.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechSTTRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechSTTRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechSTTRequestRequest'
+        required: true
+      security:
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechSTTResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '402':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{assistant_id}/oauth/{provider}/start/:
     post:
       operationId: assistants_oauth_start_create
@@ -6848,6 +6917,50 @@ components:
       - body
       - headers
       - status
+    ManagedSpeechErrorResponse:
+      type: object
+      description: Error envelope shared by the managed speech STT/TTS endpoints.
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+      required:
+      - code
+      - detail
+    ManagedSpeechSTTRequestRequest:
+      type: object
+      description: Request body for the managed speech STT (speech-to-text) endpoint.
+      properties:
+        audioBase64:
+          type: string
+          minLength: 1
+        mimeType:
+          type: string
+          minLength: 1
+        source:
+          type: string
+      required:
+      - audioBase64
+      - mimeType
+    ManagedSpeechSTTResponse:
+      type: object
+      description: Response body for the managed speech STT endpoint.
+      properties:
+        text:
+          type: string
+        providerId:
+          type: string
+        model:
+          type: string
+        durationSeconds:
+          type: number
+          format: double
+      required:
+      - durationSeconds
+      - model
+      - providerId
+      - text
     MfaEnrollResponse:
       type: object
       properties:
