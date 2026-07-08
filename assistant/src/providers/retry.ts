@@ -59,7 +59,28 @@ const DISABLED_THINKING_USES_EFFORT_PROVIDERS = new Set([
   "openai",
   "fireworks",
   "together",
+  "openrouter",
+  "vercel-ai-gateway",
 ]);
+
+// Whether a disabled `thinking` config must be encoded as `effort: "none"`
+// for this provider/model. Gateway calls that delegate `anthropic/*` models
+// to the Anthropic Messages API are excluded: the delegate honors a disabled
+// `thinking` natively and `effort` keeps its Anthropic meaning there, so
+// forcing it would diverge from the direct `anthropic` provider.
+function disabledThinkingForcesEffortNone(
+  providerName: string,
+  model: unknown,
+): boolean {
+  if (!DISABLED_THINKING_USES_EFFORT_PROVIDERS.has(providerName)) {
+    return false;
+  }
+  return !(
+    isAnthropicDelegatingGateway(providerName) &&
+    typeof model === "string" &&
+    isAnthropicModel(model)
+  );
+}
 
 /**
  * Providers that consume the `thinking` config. Anthropic uses it directly on
@@ -386,7 +407,7 @@ function normalizeSendMessageOptions(
 
   if (
     isThinkingConfigDisabled(nextConfig.thinking) &&
-    DISABLED_THINKING_USES_EFFORT_PROVIDERS.has(providerName)
+    disabledThinkingForcesEffortNone(providerName, nextConfig.model)
   ) {
     nextConfig.effort = "none";
   }
