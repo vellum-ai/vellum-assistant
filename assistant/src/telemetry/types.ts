@@ -209,11 +209,13 @@ export interface TurnTraceToolCall {
  * has no response. A coalesced batch's shared response lives on the batch's
  * final turn's window, where the daemon already attributes it.
  */
-/** Slim tool definition included in the trace — enough to diagnose tool
- * availability without bloating the payload with full input schemas. */
+/** Tool definition included in the trace — name, description, and full input
+ * schema so the trace shows exactly what the model had available. */
 export interface TurnTraceToolDefinition {
   name: string;
   description: string;
+  /** JSON schema describing the tool's input arguments. */
+  input_schema: Record<string, unknown>;
 }
 
 export interface TurnTrace {
@@ -238,10 +240,10 @@ export interface TurnTrace {
    */
   system_prompt: string | null;
   /**
-   * Tool definitions available to the model for this turn — name and
-   * description only, not the full input schema, to stay within the trace
-   * size cap. Read from the live conversation's last resolved tool set.
-   * Empty when the conversation has been evicted.
+   * Tool definitions available to the model for this turn — name,
+   * description, and full input schema, matching what the provider received.
+   * Read from the live conversation's last resolved tool set. Empty when the
+   * conversation has been evicted.
    */
   tool_definitions: TurnTraceToolDefinition[];
 }

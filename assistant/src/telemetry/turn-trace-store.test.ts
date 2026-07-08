@@ -40,7 +40,7 @@ let mockToolDescriptions: Record<string, string> = {};
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) =>
     mockToolDescriptions[name]
-      ? { description: mockToolDescriptions[name] }
+      ? { description: mockToolDescriptions[name], input_schema: {} }
       : undefined,
 }));
 
@@ -250,9 +250,9 @@ describe("assembleTurnTrace", () => {
 
     expect(trace.system_prompt).toBe("You are a helpful assistant.");
     expect(trace.tool_definitions).toEqual([
-      { name: "file_read", description: "Read a file" },
-      { name: "notify_parent", description: "" },
-      { name: "web_search", description: "Search the web" },
+      { name: "file_read", description: "Read a file", input_schema: {} },
+      { name: "notify_parent", description: "", input_schema: {} },
+      { name: "web_search", description: "Search the web", input_schema: {} },
     ]);
   });
 

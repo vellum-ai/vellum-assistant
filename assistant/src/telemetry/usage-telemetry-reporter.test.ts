@@ -132,7 +132,11 @@ interface MockTurnTrace {
   }[];
   tool_calls: unknown[];
   system_prompt: string | null;
-  tool_definitions: { name: string; description: string }[];
+  tool_definitions: {
+    name: string;
+    description: string;
+    input_schema: Record<string, unknown>;
+  }[];
 }
 
 // Returns a non-null bounded trace by default; individual tests override the
@@ -154,7 +158,13 @@ function defaultBoundedTurnTrace(boundary: {
     ],
     tool_calls: [],
     system_prompt: "You are a helpful assistant.",
-    tool_definitions: [{ name: "web_search", description: "Search the web" }],
+    tool_definitions: [
+      {
+        name: "web_search",
+        description: "Search the web",
+        input_schema: {},
+      },
+    ],
   };
 }
 
