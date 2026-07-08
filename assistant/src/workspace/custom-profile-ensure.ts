@@ -69,12 +69,16 @@ export function ensureCompleteCustomProfiles(workspaceDir: string): void {
     if (!parsed.success) {
       continue;
     }
-    // Spread over the original raw entry so keys the schema doesn't know
-    // survive (`safeParse` strips them).
-    const merged: Record<string, unknown> = {
-      ...entry,
-      ...completeCustomProfile(parsedDefault.data, parsed.data),
-    };
+    // Merge over the original raw entry at every depth so keys the schema
+    // doesn't know survive (`safeParse` strips them, top-level and inside
+    // nested objects like `contextWindow`).
+    const merged: Record<string, unknown> = mergePreservingUnknownKeys(
+      entry,
+      completeCustomProfile(parsedDefault.data, parsed.data) as Record<
+        string,
+        unknown
+      >,
+    );
     if (isDeepStrictEqual(merged, entry)) {
       continue;
     }
@@ -96,6 +100,29 @@ export function ensureCompleteCustomProfiles(workspaceDir: string): void {
   // The lifecycle call site runs before the first loadConfig() of this boot;
   // this guards callers that read config earlier (and future reordering).
   invalidateConfigCache();
+}
+
+/**
+ * `{...raw, ...completed}` recursively: completed (schema-known) values win,
+ * raw keys the schema stripped survive at every depth. (Duplicated in the
+ * write-path normalization in conversation-query-routes.ts — the two land in
+ * independent PRs; consolidate when either next changes.)
+ */
+function mergePreservingUnknownKeys(
+  raw: Record<string, unknown>,
+  completed: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...raw, ...completed };
+  for (const [key, value] of Object.entries(completed)) {
+    const rawValue = raw[key];
+    if (readObject(value) !== null && readObject(rawValue) !== null) {
+      out[key] = mergePreservingUnknownKeys(
+        rawValue as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+    }
+  }
+  return out;
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {

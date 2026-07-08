@@ -127,6 +127,28 @@ describe("ensureCompleteCustomProfiles", () => {
     expect(after).toBe(before);
   });
 
+  test("preserves nested unknown keys on materialized entries", () => {
+    writeConfig({
+      llm: {
+        default: distinctiveDefault,
+        profiles: {
+          partial: {
+            source: "user",
+            model: "claude-haiku-4-5-20251001",
+            contextWindow: { futureField: "keep-me", maxInputTokens: 111 },
+          },
+        },
+      },
+    });
+    ensureCompleteCustomProfiles(workspaceDir);
+    const contextWindow = readProfiles().partial.contextWindow as Record<
+      string,
+      unknown
+    >;
+    expect(contextWindow.futureField).toBe("keep-me");
+    expect(contextWindow.maxInputTokens).toBe(111);
+  });
+
   test("preserves unknown keys on materialized entries", () => {
     writeConfig({
       llm: {
