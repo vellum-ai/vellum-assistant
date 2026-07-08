@@ -2,11 +2,16 @@
  * Memory plugin — background startup orchestration.
  *
  * Boots the Qdrant vector store, reconciles the embedding-identity and v2
- * concept-page collections, runs the PKB and BM25 reconciles, seeds the
- * capability graph, and starts the memory jobs worker. Kicked off
- * fire-and-forget from `lifecycle.ts` after the runtime HTTP server is up, so
+ * concept-page collections, runs the PKB and BM25 reconciles, and seeds the
+ * capability graph. Kicked off fire-and-forget from the memory plugin's `init`
+ * hook during daemon plugin bootstrap (after the runtime HTTP server is up), so
  * the daemon accepts requests without waiting on Qdrant. Each step contains its
  * own failure so a memory-subsystem problem never blocks boot.
+ *
+ * Job-handler registration happens in the plugin's `init` hook, synchronously,
+ * before this is kicked off — so the memory handlers are guaranteed to be in the
+ * dispatch table before the jobs worker started near the end of this function
+ * claims its first job.
  */
 
 import { join } from "node:path";
@@ -14,22 +19,24 @@ import { join } from "node:path";
 import type { AssistantConfig } from "../../../config/schema.js";
 import { reconcileEmbeddingIdentity } from "../../../daemon/embedding-reconcile.js";
 import { refreshSkillCapabilityMemories } from "../../../daemon/skill-memory-refresh.js";
-import { registerMemoryJobHandlers } from "../../../jobs/register-job-handlers.js";
 import { selectEmbeddingBackend } from "../../../persistence/embeddings/embedding-backend.js";
 import {
   initMessagesLexicalIndex,
   MESSAGES_LEXICAL_COLLECTION,
 } from "../../../persistence/embeddings/messages-lexical-index.js";
-import { initQdrantClient } from "../../../persistence/embeddings/qdrant-client.js";
+import {
+  clearRebuildSentinel,
+  initQdrantClient,
+} from "../../../persistence/embeddings/qdrant-client.js";
 import { createQdrantManager } from "../../../persistence/embeddings/qdrant-manager.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
 } from "../../../persistence/jobs-store.js";
-import { startMemoryJobsWorker } from "../../../persistence/jobs-worker.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { resolveQdrantUrl } from "./embeddings.js";
+import { startMemoryJobsWorker } from "./jobs-worker.js";
 import { sweepConceptPageFrontmatter } from "./v2/frontmatter-sweep.js";
 import {
   maybeRebuildMemoryV2Concepts,
@@ -102,6 +109,10 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
         const { migrated } = await qdrantClient.ensureCollection();
         if (migrated && isMemoryEnabled()) {
           enqueueMemoryJob("rebuild_index", {});
+          // Clear the on-disk sentinel the ensure-path writes before its
+          // destructive delete: now that rebuild_index is queued, the
+          // cross-boot signal can retire. No-op if no sentinel was written.
+          await clearRebuildSentinel();
           log.info(
             "Qdrant collection was migrated — enqueued rebuild_index job",
           );
@@ -197,13 +208,14 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
     }
   }
 
-  // `startMemoryJobsWorker` starts the in-process supervisor (which owns
-  // the synchronous runner and stands down when an out-of-process worker is
-  // live) and spawns the out-of-process worker at boot when
-  // `memory.worker.enabled` is set. Shutdown stops whichever worker is
-  // actually running — see shutdown-handlers.ts.
+  // `startMemoryJobsWorker` starts the in-process supervisor (which owns the
+  // synchronous runner and stands down when an out-of-process worker is live)
+  // and spawns the out-of-process worker at boot when `memory.worker.enabled`
+  // is set. Shutdown stops whichever worker is actually running — see
+  // shutdown-handlers.ts. The job handlers were registered synchronously by the
+  // plugin's `init` hook before this function was kicked off, so the dispatch
+  // table is populated before the worker's first claim.
   log.info("Daemon startup: starting memory worker");
-  registerMemoryJobHandlers();
   startMemoryJobsWorker();
 
   // Seed capability graph nodes (new memory graph system)

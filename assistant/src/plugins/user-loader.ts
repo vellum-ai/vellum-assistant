@@ -29,6 +29,7 @@
 
 import { getLogger } from "../util/logger.js";
 import { ensurePluginApiShim } from "./ensure-plugin-api-shim.js";
+import { ensureSharedDepLinks } from "./ensure-shared-dep-links.js";
 import { populateCacheAtBoot } from "./mtime-cache.js";
 
 const log = getLogger("user-plugin-loader");
@@ -85,6 +86,20 @@ export async function loadUserPlugins(
     log.warn(
       { err },
       "loadUserPlugins: plugin-api shim materialization failed — continuing with degraded plugin support",
+    );
+  }
+
+  // Same treatment for whitelisted shared deps (zod, …): the installer never
+  // runs `bun install`, so a plugin's bare `import { z } from "zod"` only
+  // resolves if we symlink the assistant's own copy into the workspace's
+  // node_modules. ensureSharedDepLinks never throws for a single dep, but is
+  // wrapped for the same never-block-startup reason as above.
+  try {
+    await ensureSharedDepLinks();
+  } catch (err) {
+    log.warn(
+      { err },
+      "loadUserPlugins: shared-dep link failed — plugins with runtime deps may not import",
     );
   }
 

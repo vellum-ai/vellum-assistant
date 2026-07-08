@@ -12,29 +12,22 @@
  *    {@link registerDefaultPlugins}. Registration is idempotent so repeat
  *    calls (e.g. during integration tests) do not throw.
  * 2. Walks {@link getRegisteredPlugins} in registration order.
- * 3. For each plugin, consults `manifest.requiresFlag` against
- *    {@link isAssistantFeatureFlagEnabled}. If any listed flag is disabled,
- *    the plugin is skipped wholesale — no `init()`, no tool/route
- *    contributions, and the plugin is also dropped from the hook registry via
- *    {@link unregisterPlugin} so none of its hooks (including `shutdown`)
- *    participate in the turn lifecycle. This is the primary mechanism for
- *    shipping experimental plugins behind a feature flag.
- * 4. Validates the config block under `plugins.<name>` against
+ * 3. Validates the config block under `plugins.<name>` against
  *    `manifest.config` if the manifest supplies a parser-like validator
  *    (Zod schemas with `.parse()` are supported; anything else is passed
  *    through untouched).
- * 5. Creates a per-plugin writable data directory on demand and exposes it via
+ * 4. Creates a per-plugin writable data directory on demand and exposes it via
  *    {@link InitContext.pluginStorageDir}. For user plugins this is
  *    `<pluginDir>/data/`; for default plugins it is
  *    `<workspaceDir>/plugins-data/<plugin>/`.
- * 6. For each surviving plugin, registers its contributed tools and routes
+ * 5. For each surviving plugin, registers its contributed tools and routes
  *    into their global registries via {@link registerPluginTools} and
  *    {@link registerSkillRoute}. Contributions land BEFORE `init()` so
  *    the plugin's hook can observe a registry where its own model-visible
  *    surface is already wired — useful for plugins that want to attach
  *    metadata, warm caches, or otherwise interact with their own
  *    contributions during initialization.
- * 7. Awaits `plugin.init(ctx)` sequentially. An init failure is contained to
+ * 6. Awaits `plugin.init(ctx)` sequentially. An init failure is contained to
  *    the offending plugin: its already-registered tools and routes are rolled
  *    back, it is dropped from the registry, the failure is logged, and
  *    bootstrap continues with the remaining plugins. A single plugin's failure
@@ -55,25 +48,18 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import {
   getAllDefaultPlugins,
   registerDefaultPluginInjectors,
-  registerDefaultPluginJobHandlers,
-  registerDefaultPluginPersistenceHooks,
   registerDefaultPlugins,
 } from "../plugins/defaults/index.js";
 import {
   registerPluginInjectors,
   unregisterPluginInjectors,
 } from "../plugins/injector-registry.js";
-import {
-  registerPluginJobHandlers,
-  unregisterPluginJobHandlers,
-} from "../plugins/job-handler-registry.js";
 import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -149,16 +135,6 @@ function ensurePluginStorageDir(pluginName: string): string {
   return dir;
 }
 
-function getDisabledPluginFlag(
-  plugin: Plugin,
-  config: AssistantConfig,
-): string | undefined {
-  for (const flagKey of plugin.manifest.requiresFlag ?? []) {
-    if (!isAssistantFeatureFlagEnabled(flagKey, config)) return flagKey;
-  }
-  return undefined;
-}
-
 /**
  * Bring the plugin layer up during daemon startup. Runs the full sequence in
  * the one order the rest of the system depends on:
@@ -219,19 +195,6 @@ export async function bootstrapPlugins(): Promise<void> {
   // register while disabled.
   registerDefaultPluginInjectors();
 
-  // Register the default plugins' background-job handlers up front, the
-  // job-handler analog of the injector registration above. The general job
-  // worker's `registerMemoryJobHandlers` forwards the registry union into the
-  // worker dispatch table; pre-registering here keeps the daemon path symmetric
-  // with tools/routes/injectors (the standalone worker self-registers instead).
-  registerDefaultPluginJobHandlers();
-
-  // Install the memory feature's persistence-lifecycle handlers into the
-  // persistence seam up front, so the layer below memory can drive memory
-  // side effects (message indexing) without importing memory internals.
-  // Symmetric with the injector/job-handler registration above.
-  registerDefaultPluginPersistenceHooks();
-
   // Combine the canonical default plugins with any plugins registered via
   // `registerPlugin` (test fixtures). In production, `getRegisteredPlugins`
   // returns empty — all user plugins go through the mtime cache. Defaults come
@@ -252,15 +215,6 @@ export async function bootstrapPlugins(): Promise<void> {
 
   for (const plugin of plugins) {
     const name = plugin.manifest.name;
-    const disabledFlag = getDisabledPluginFlag(plugin, assistantConfig);
-    if (disabledFlag !== undefined) {
-      log.info(
-        { plugin: name, flag: disabledFlag },
-        `skipping plugin ${name}: feature flag ${disabledFlag} is disabled`,
-      );
-      unregisterPlugin(name);
-      continue;
-    }
 
     // Check for the .disabled sentinel. Both default and user plugins
     // can be disabled by creating a `.disabled` file at
@@ -272,12 +226,12 @@ export async function bootstrapPlugins(): Promise<void> {
     // and drops a `.disabled` file inside it. Runs before init so no
     // tools or routes from the disabled plugin are ever wired.
     //
-    // Unlike the feature-flag path above, we do NOT call
-    // `unregisterPlugin(name)` here. The plugin's hooks stay in the hook
-    // registry and are filtered at read time by `isPluginDisabled` in
-    // `getHooksFor`. This means `assistant plugins enable <name>` takes
-    // effect on the next turn without a restart — the hooks are already
-    // registered, they just need the sentinel removed to be included.
+    // We do NOT call `unregisterPlugin(name)` here. The plugin's hooks
+    // stay in the hook registry and are filtered at read time by
+    // `isPluginDisabled` in `getHooksFor`. This means `assistant plugins
+    // enable <name>` takes effect on the next turn without a restart —
+    // the hooks are already registered, they just need the sentinel
+    // removed to be included.
     const disabledSentinelPath = join(
       getWorkspacePluginsDir(),
       name,
@@ -379,14 +333,6 @@ async function initializePlugin(
       );
     }
 
-    if (plugin.jobHandlers && plugin.jobHandlers.length > 0) {
-      registerPluginJobHandlers(name, plugin.jobHandlers);
-      log.info(
-        { plugin: name, count: plugin.jobHandlers.length },
-        "plugin job handlers registered",
-      );
-    }
-
     if (plugin.hooks?.[HOOKS.INIT]) {
       try {
         await plugin.hooks[HOOKS.INIT](initContext);
@@ -416,7 +362,6 @@ async function initializePlugin(
       }
       unregisterPluginTools(name);
       unregisterPluginInjectors(name);
-      unregisterPluginJobHandlers(name);
     }
     throw err;
   }
@@ -472,7 +417,6 @@ async function teardownPlugin(
   }
 
   unregisterPluginInjectors(name);
-  unregisterPluginJobHandlers(name);
 
   if (plugin.hooks?.[HOOKS.SHUTDOWN]) {
     try {

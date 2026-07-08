@@ -83,9 +83,8 @@ function getExternalTools(): Array<{ owner: OwnerInfo; tool: Tool }> {
 }
 
 // Snapshot of core tools captured after initializeTools() completes.
-// Used by __resetRegistryForTesting() to restore eager tools that cannot
-// be re-registered because ESM import caching prevents side effects
-// from running a second time.
+// Lets __resetRegistryForTesting() restore the core baseline synchronously,
+// without re-running the async initializeTools() bootstrap.
 let coreToolsSnapshot: Map<string, Tool> | null = null;
 
 // Tracks how many sessions are currently using each skill's tools.
@@ -168,10 +167,10 @@ function withProviderSafeToolName(tool: Tool): Tool {
 
 /**
  * Memoize `finalizeTool(definition, name)` by the definition reference so
- * idempotent re-registration (test reset helpers, module re-imports) stays a
- * silent no-op — the same `ToolDefinition` always finalizes to the same `Tool`
- * instance, and the existing `existing === tool` short-circuit below keeps
- * working.
+ * idempotent re-registration (e.g. repeated initializeTools() calls across
+ * test files) stays a silent no-op — the same `ToolDefinition` always
+ * finalizes to the same `Tool` instance, and the existing `existing === tool`
+ * short-circuit below keeps working.
  */
 const finalizedByDefinition = new WeakMap<ToolDefinition, Tool>();
 
@@ -934,23 +933,14 @@ export function getAllToolDefinitions(): Tool[] {
 }
 
 export async function initializeTools(): Promise<void> {
-  const {
-    loadEagerModules,
-    eagerModuleToolNames,
-    explicitTools,
-    getCesToolsIfEnabled,
-    cesTools,
-  } = await import("./tool-manifest.js");
+  const { explicitTools, getCesToolsIfEnabled, cesTools } =
+    await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
   // registrations.  In production this is empty; in tests a non-skill tool
   // may have been registered before the first initializeTools() call.
   const preExisting = new Set(tools.keys());
 
-  // Import tool modules to trigger registration side effects.
-  await loadEagerModules();
-
-  // Explicit tool instances - no side-effect import required.
   for (const tool of explicitTools) {
     registerTool(tool);
   }
@@ -967,8 +957,8 @@ export async function initializeTools(): Promise<void> {
     ownersByName.set(tool.name, owner);
   }
 
-  // Host tools are registered explicitly so host access stays opt-in until
-  // this point in startup, rather than as module side effects.
+  // Host tools are registered here so host access stays opt-in until this
+  // point in startup.
   const hostTools = [
     hostFileReadTool,
     hostFileWriteTool,
@@ -995,15 +985,14 @@ export async function initializeTools(): Promise<void> {
   // arbitrary test tools that were registered before init.
   //
   // A pre-existing tool is included only if it is a known manifest tool
-  // (declared in eagerModuleToolNames, explicitTools, hostTools, or any
-  // registered external skill tool).  This handles ESM cache hits where
-  // eager-module tools are already in the registry before init ran.
+  // (declared in explicitTools, hostTools, or any registered external
+  // skill tool) — e.g. a test registered a manifest tool directly before
+  // its first initializeTools() call.
   if (!coreToolsSnapshot) {
     // Core tool literals always set `name` (verified by `registerTool` —
     // it throws on missing name). The `!` assertions reflect that
     // invariant at the iteration sites.
     const manifestToolNames = new Set<string>([
-      ...eagerModuleToolNames,
       ...explicitTools.map((t) => t.name!),
       ...extEntries.map(({ tool }) => tool.name),
       ...hostTools.map((t) => t.name!),
@@ -1089,9 +1078,8 @@ export async function syncFlagGatedTools(): Promise<void> {
  * when multiple test suites share a single Bun process.
  *
  * Restores core tools from a snapshot taken after the first
- * initializeTools() call, because ESM import caching means eager
- * side-effect modules will not re-register their tools on subsequent
- * initializeTools() calls.
+ * initializeTools() call, so the reset is synchronous and does not
+ * depend on re-running the async init bootstrap.
  */
 export function __resetRegistryForTesting(): void {
   tools.clear();

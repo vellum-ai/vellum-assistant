@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import {
+  getCatalogProviderForModel,
   isModelInCatalog,
   PROVIDER_CATALOG,
 } from "../providers/model-catalog.js";
@@ -464,6 +465,25 @@ describe("LLM catalog parity: daemon vs client", () => {
         }
       }
     }
+  });
+
+  test("getCatalogProviderForModel breaks shared-ID ties by catalog order", () => {
+    // OpenRouter and the Vercel AI Gateway both list this ID; OpenRouter comes
+    // first in PROVIDER_CATALOG, so model→provider inference must keep
+    // returning "openrouter" for configs that predate the gateway.
+    expect(getCatalogProviderForModel("anthropic/claude-sonnet-4.6")).toBe(
+      "openrouter",
+    );
+  });
+
+  test("getCatalogProviderForModel resolves gateway-unique IDs", () => {
+    expect(getCatalogProviderForModel("xai/grok-4.3")).toBe(
+      "vercel-ai-gateway",
+    );
+  });
+
+  test("getCatalogProviderForModel returns undefined for unknown IDs", () => {
+    expect(getCatalogProviderForModel("unknown/model")).toBeUndefined();
   });
 
   test("Gemini 2.5 Pro catalog context matches provider limits", () => {

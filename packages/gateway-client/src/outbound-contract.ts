@@ -37,6 +37,10 @@ export type AttachmentMetadata = z.infer<typeof AttachmentMetadataSchema>;
 export const ApprovalActionOptionSchema = z.object({
   id: z.string(),
   label: z.string(),
+  // Surface-agnostic button weight. Renderers translate it to their platform
+  // token (Slack primary/danger, Surface primary/destructive); absent means
+  // the renderer applies its own default styling.
+  emphasis: z.enum(["primary", "secondary", "destructive"]).optional(),
 });
 
 export type ApprovalActionOption = z.infer<typeof ApprovalActionOptionSchema>;
@@ -103,6 +107,8 @@ export const SlackStreamOpSchema = z
       threadTs: z.string(),
       markdownText: z.string().optional(),
       taskDisplayMode: z.literal("plan").optional(),
+      /** Title of the plan block, serialized as a `plan_update` chunk. */
+      planTitle: z.string().optional(),
       tasks: z.array(SlackStreamTaskSchema).optional(),
       /**
        * Slack user ID of the reader the stream targets. Required by
@@ -119,6 +125,8 @@ export const SlackStreamOpSchema = z
       action: z.literal("append"),
       streamTs: z.string(),
       markdownText: z.string().optional(),
+      /** Title of the plan block, serialized as a `plan_update` chunk. */
+      planTitle: z.string().optional(),
       tasks: z.array(SlackStreamTaskSchema).optional(),
     }),
     z.object({
@@ -126,6 +134,8 @@ export const SlackStreamOpSchema = z
       streamTs: z.string(),
       markdownText: z.string().optional(),
       blocks: z.array(z.custom<KnownBlock>()).optional(),
+      /** Title of the plan block, serialized as a `plan_update` chunk. */
+      planTitle: z.string().optional(),
       tasks: z.array(SlackStreamTaskSchema).optional(),
     }),
   ])

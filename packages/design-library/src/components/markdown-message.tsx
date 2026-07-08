@@ -24,6 +24,13 @@ import { cn } from "../utils/cn";
 
 const MAX_CODE_BLOCK_HEIGHT = 400;
 
+export const quoteBlockquoteClassName = cn(
+  "mx-0 mt-0 mb-3 flex w-full items-center gap-3 rounded-md bg-[var(--surface-sunken)] px-3 py-2.5 text-body-small-default text-[var(--content-secondary)] last:mb-0",
+);
+export const quoteBlockquoteAccentClassName =
+  "h-5 w-0.5 shrink-0 rounded-full bg-[var(--content-tertiary)]";
+export const quoteBlockquoteContentClassName = "min-w-0 flex-1 [&_p]:mb-0";
+
 function CopyButton({ visible, onClick, copied }: {
   visible: boolean;
   onClick: () => void;
@@ -163,6 +170,10 @@ export type MarkdownLinkComponent = (
   props: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">,
 ) => ReactNode;
 
+export type MarkdownImageComponent = (
+  props: { src: string; alt: string },
+) => ReactNode;
+
 /**
  * Browser-default `<em>` italic synthesizes an oblique skew on every glyph in
  * the run — including color-emoji glyphs — so `*🥺*` renders a slanted emoji.
@@ -243,6 +254,7 @@ function renderUprightEmoji(children: ReactNode): ReactNode {
 
 function buildMarkdownComponents(
   LinkComponent: MarkdownLinkComponent,
+  ImageComponent?: MarkdownImageComponent,
 ): Components {
   return {
     // mb-6 (24px) equals one --text-chat-line-height, so a `\n\n` paragraph
@@ -324,8 +336,9 @@ function buildMarkdownComponents(
     // emphasis render upright instead of skewed (see splitEmojiRuns).
     em: ({ children }) => <em>{renderUprightEmoji(children)}</em>,
     blockquote: ({ children }) => (
-      <blockquote className="mb-2 border-l-2 border-stone-300 pl-3 italic text-stone-600 last:mb-0 dark:border-stone-600 dark:text-stone-400">
-        {children}
+      <blockquote className={quoteBlockquoteClassName}>
+        <span aria-hidden="true" className={quoteBlockquoteAccentClassName} />
+        <div className={quoteBlockquoteContentClassName}>{children}</div>
       </blockquote>
     ),
     table: ({ children }) => (
@@ -362,6 +375,9 @@ function buildMarkdownComponents(
       if (isLocal) {
         return <img src={srcStr} alt={altStr} className="my-1 max-w-full rounded" />;
       }
+      if (ImageComponent) {
+        return <ImageComponent src={srcStr} alt={altStr} />;
+      }
       return (
         <span className="inline-flex items-center gap-1 rounded bg-stone-100 px-1.5 py-0.5 text-body-small-default text-stone-500 dark:bg-moss-800 dark:text-stone-400">
           🔗 External image not rendered ({altStr || srcStr})
@@ -384,13 +400,14 @@ function buildMarkdownComponents(
  * `$` into an italic math span. `–—` are literal members of the class; the
  * plain `-` stays last so it is never read as a range operator.
  *
- * A `+` is consumed only as part of a *suffixed* amount (`$1M+`, `$500K+` —
- * the "or more" idiom) so those amounts terminate at a clean boundary. It is
- * deliberately NOT a general boundary char: a bare `$1+1$` keeps `1` followed
- * by `+` with no boundary, so real arithmetic math is preserved.
+ * A trailing `+` (the "or more" idiom) is consumed as part of any amount,
+ * bare (`$50+`) or suffixed (`$1M+`, `$500K+`), so those amounts terminate at
+ * a clean boundary. It is deliberately NOT a general boundary char: in
+ * `$1+1$` the char after the `+` is a digit rather than a boundary, so real
+ * arithmetic math is preserved.
  */
 const CURRENCY_AMOUNT =
-  /\$(\d[\d,]*(?:\.\d+)?(?:(?:bn|tn|trn|[KMBT])\+?)?)(?=$|[\s).,;:!?%"'’\]}/–—-]|&)/gi;
+  /\$(\d[\d,]*(?:\.\d+)?(?:bn|tn|trn|[KMBT])?\+?)(?=$|[\s).,;:!?%"'’\]}/–—-]|&)/gi;
 
 /**
  * remark-math treats `$…$` as inline LaTeX, so monetary text like
@@ -566,6 +583,15 @@ export interface MarkdownMessageProps {
    */
   linkComponent?: MarkdownLinkComponent;
   /**
+   * Custom image component for rendering external `<img>` elements inside
+   * markdown. Receives `src` and `alt` props. By default, external images
+   * are blocked and show a placeholder label.
+   *
+   * Pass a stable reference (module-level function or `useCallback`) to
+   * avoid rebuilding internal component overrides on every render.
+   */
+  imageComponent?: MarkdownImageComponent;
+  /**
    * Custom URL transform applied to link, image, and definition URLs.
    * Overrides react-markdown's default sanitization which only allows
    * `http:`, `https:`, `mailto:`, and a few other schemes. Use this to
@@ -581,6 +607,7 @@ export function MarkdownMessage({
   className,
   hardLineBreaks,
   linkComponent,
+  imageComponent,
   urlTransform,
 }: MarkdownMessageProps) {
   const processed = useMemo(() => {
@@ -588,7 +615,7 @@ export function MarkdownMessage({
     return hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
   }, [content, hardLineBreaks]);
   const Link = linkComponent ?? DefaultLink;
-  const components = useMemo(() => buildMarkdownComponents(Link), [Link]);
+  const components = useMemo(() => buildMarkdownComponents(Link, imageComponent), [Link, imageComponent]);
   return (
     <div data-slot="markdown-message" className={cn("text-chat text-[var(--content-default)]", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkPreserveOrderedListNumbers]} rehypePlugins={[rehypeKatex]} components={components} urlTransform={urlTransform}>

@@ -23,11 +23,17 @@ import { z } from "zod";
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
+import type { ConversationDeletedInputContext } from "../hooks/types.js";
+import { HOOKS } from "../plugin-api/constants.js";
+import { forkConversationMemory } from "../plugins/defaults/memory/fork-conversation-memory.js";
+import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
+import { runHook } from "../plugins/pipeline.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { trustClassSchema } from "../runtime/trust-class.js";
@@ -36,7 +42,7 @@ import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
-import { createRowMapper } from "../util/row-mapper.js";
+import { createRowMapper, parseJsonNullable } from "../util/row-mapper.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
@@ -61,6 +67,7 @@ import {
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
+import type { ConversationCreateType } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,
@@ -72,8 +79,12 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
-import { enqueueLexicalIndexForMessage } from "./job-handlers/message-lexical.js";
-import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
+import {
+  clearMessagesLexicalIndex,
+  enqueueDeleteMessageLexical,
+  enqueueLexicalIndexForMessage,
+  enqueuePurgeConversationLexical,
+} from "./job-handlers/message-lexical.js";
 import {
   rawExec,
   rawGet,
@@ -87,7 +98,6 @@ import {
   llmRequestLogs,
   memoryEmbeddings,
   memorySegments,
-  memorySummaries,
   messageAttachments,
   messages,
   skillLoadedEvents,
@@ -155,13 +165,18 @@ export const messageMetadataSchema = z
     userMessageInterface: interfaceIdSchema.optional(),
     assistantMessageInterface: interfaceIdSchema.optional(),
     /**
-     * Optional client-side metadata bag attached to user messages by HTTP
-     * header middleware (reads `x-vellum-browser-family`,
-     * `x-vellum-browser-version`, `x-vellum-client-os`,
-     * `x-vellum-interface-version`). Forwarded verbatim onto
-     * `TurnTelemetryEvent.client` for downstream analytics. Kept as a
-     * permissive `record` so adding a new client field doesn't require a
-     * migration -- dbt can unpack later via JSON_VALUE.
+     * Optional client-side metadata bag attached to user messages at persist
+     * time. `os` carries the client-reported OS surface ("web" | "ios" |
+     * "macos" | "android") from the request body's `clientOs` field, stamped
+     * by `persistQueuedMessageBody` — the transport `userMessageInterface` is
+     * "web" for the web, iOS, and macOS apps alike, so this is the only
+     * per-platform attribution. `browser_family` / `browser_version` /
+     * `interface_version` (and an `os` override) come from the sanitized
+     * `x-vellum-*` client-metadata headers read by `handleSendMessage`
+     * (see `@vellumai/service-contracts/client-metadata`). Forwarded
+     * verbatim onto `TurnTelemetryEvent.client` for downstream analytics.
+     * Kept as a permissive `record` so adding a new client field doesn't
+     * require a migration -- dbt can unpack later via JSON_VALUE.
      */
     client: z.record(z.string(), z.unknown()).optional(),
     subagentNotification: subagentNotificationSchema.optional(),
@@ -178,6 +193,16 @@ export const messageMetadataSchema = z
     provenanceRequesterIdentifier: z.string().optional(),
     automated: z.boolean().optional(),
     /**
+     * Transcript-suppression flag: the row is a machine signal (e.g. the
+     * channel-setup wizard-close marker, the onboarding greeting kickoff),
+     * persisted and LLM-visible but never rendered as a user message. Test
+     * with {@link isHiddenMessageMetadata} — hidden rows are filtered from
+     * list-messages and queued snapshots, skip the user_message_echo, and
+     * are excluded from search/memory indexing and other consumers that
+     * treat message text as organic user input.
+     */
+    hidden: z.boolean().optional(),
+    /**
      * Structured terminal record stamped onto a `<background_event
      * source="background-tool">` wake so the web can rebuild the inline
      * bash/host_bash card from history after a daemon restart.
@@ -186,6 +211,13 @@ export const messageMetadataSchema = z
     forkSourceMessageId: z.string().optional(),
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
+    /**
+     * Resolved paths of the canonical attachment copies in the conversation's
+     * attachments/ directory (name collisions get a -2/-3 suffix), keyed by
+     * `${position}:${filename}`. Written after the attachments are linked;
+     * reinjected into LLM-facing content on history reload.
+     */
+    attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
     /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
      *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
@@ -211,6 +243,19 @@ export const messageMetadataSchema = z
 
 /** Validated shape of a persisted message's `metadata` column. */
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
+
+/**
+ * Shared predicate for the transcript-suppression flag on user-message
+ * metadata (see the `hidden` field on {@link messageMetadataSchema}). One
+ * definition so the sites that must agree — echo suppression, list-messages
+ * filtering, queued-snapshot filtering, indexing exclusion, and downstream
+ * consumers of message text — cannot drift.
+ */
+export function isHiddenMessageMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.hidden === true;
+}
 
 /**
  * Parse a persisted message's metadata JSON against {@link messageMetadataSchema}
@@ -300,6 +345,23 @@ export function extractImageSourcePaths(
   return Object.keys(paths).length > 0 ? paths : undefined;
 }
 
+/** Extract resolved stored paths from linked attachments for message metadata. */
+export function extractAttachmentStoredPaths(
+  attachments: ReadonlyArray<{
+    filename: string;
+    storedPath?: string;
+  }>,
+): Record<string, string> | undefined {
+  const paths: Record<string, string> = {};
+  for (let i = 0; i < attachments.length; i++) {
+    const a = attachments[i];
+    if (a.storedPath) {
+      paths[`${i}:${a.filename}`] = a.storedPath;
+    }
+  }
+  return Object.keys(paths).length > 0 ? paths : undefined;
+}
+
 export interface ConversationRow {
   id: string;
   title: string | null;
@@ -327,6 +389,8 @@ export interface ConversationRow {
   archivedAt: number | null;
   surfacedAt: number | null;
   inferenceProfile: string | null;
+  /** Parsed plugin-id list scoping this chat; null = default (all globally-enabled). */
+  enabledPlugins: string[] | null;
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
   lastNotifiedInferenceProfile: string | null;
@@ -363,6 +427,10 @@ export const parseConversation = createRowMapper<
   archivedAt: "archivedAt",
   surfacedAt: "surfacedAt",
   inferenceProfile: "inferenceProfile",
+  enabledPlugins: {
+    from: "enabledPlugins",
+    transform: parseJsonNullable<string[]>(),
+  },
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
   lastNotifiedInferenceProfile: "lastNotifiedInferenceProfile",
@@ -391,8 +459,6 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
   metadata: "metadata",
   clientMessageId: "clientMessageId",
 });
-
-export type ConversationCreateType = "standard" | "background" | "scheduled";
 
 /**
  * Monotonic timestamp source for message ordering. Two messages saved within
@@ -428,6 +494,11 @@ interface InsertMessageCoreParams {
   content: string;
   metadata?: Record<string, unknown>;
   clientMessageId?: string;
+  /** Pre-assigned message ID. When omitted, one is generated via
+   *  `uuid()`. Callers that already have a correlation ID (e.g.
+   *  `requestId` for user turns) can pass it here so the persisted
+   *  row ID matches the runtime request ID. */
+  id?: string;
 }
 
 /**
@@ -454,9 +525,10 @@ interface InsertMessageCoreParams {
 async function insertMessageCore(
   params: InsertMessageCoreParams,
 ): Promise<InsertedMessage> {
-  const { conversationId, role, content, metadata, clientMessageId } = params;
+  const { conversationId, role, content, metadata, clientMessageId, id } =
+    params;
   const db = getDb();
-  const messageId = uuid();
+  const messageId = id ?? uuid();
 
   if (metadata) {
     const result = messageMetadataSchema.safeParse(metadata);
@@ -596,6 +668,13 @@ export function createConversation(
   titleOrOpts?:
     | string
     | {
+        /**
+         * Adopt an explicit conversation id instead of minting a new uuid.
+         * Callers that already hold a client-provided id and want the row to
+         * carry it verbatim (e.g. {@link ensureConversationExists}) pass it
+         * here; everyone else omits it and gets a fresh uuid.
+         */
+        id?: string;
         title?: string;
         /**
          * Override the `is_auto_title` column (schema default 1). Pass
@@ -623,7 +702,7 @@ export function createConversation(
     requestedConversationType ?? "standard";
   const source = opts.source ?? "user";
   const groupId = opts.groupId;
-  const id = uuid();
+  const id = opts.id ?? uuid();
   const memoryScopeId = "default";
 
   // Ensure group_id column exists for deterministic schema readiness,
@@ -673,6 +752,7 @@ export function createConversation(
   try {
     db.insert(conversations).values(conversation).run();
     rawRun(
+      "conversation:create:setGroup",
       "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
       effectiveGroupId,
       effectiveGroupId === "system:pinned" ? 1 : 0,
@@ -688,6 +768,58 @@ export function createConversation(
   initConversationDir({ ...conversation, originChannel: null });
 
   return conversation;
+}
+
+/**
+ * A conversation id adopted verbatim from an untrusted source must be safe to
+ * embed as a single path component of the on-disk conversation dir
+ * (`<timestamp>_<id>/meta.json`). This pattern admits server uuids and the
+ * web client's `crypto.randomUUID()` / `draft-<ts>-<hex>` drafts while
+ * rejecting anything with path separators, `..`, or other traversal vectors.
+ */
+const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * Ensure a `conversations` row exists for `id`, creating one with default
+ * columns only when absent. Idempotent. Returns `true` iff this call inserted
+ * the row (so callers can emit a one-time creation side effect, e.g. a
+ * conversations-list invalidation).
+ *
+ * The normal text-send path persists the conversation row through the
+ * conversation-key store before the first message is written, so `messages`
+ * inserts always have their FK target. Entry points that adopt a
+ * client-provided conversation id directly — notably the live-voice session,
+ * which binds to the id from its start frame — have no such guarantee: on the
+ * first turn of a brand-new chat the row does not exist yet, and persisting
+ * the user message trips `FOREIGN KEY constraint failed`. Call this before the
+ * first persist to close that gap while keeping the adopted id verbatim.
+ *
+ * Because the id is adopted verbatim and reaches the filesystem via
+ * `createConversation` → `initConversationDir`, an id from an external client
+ * is validated first — a value like `../../tmp/x` would otherwise write
+ * `meta.json` outside the conversations directory.
+ */
+export function ensureConversationExists(id: string): boolean {
+  if (getConversation(id)) {
+    return false;
+  }
+  if (!ADOPTABLE_CONVERSATION_ID_RE.test(id)) {
+    throw new Error(
+      `Refusing to adopt unsafe conversation id: ${JSON.stringify(id)}`,
+    );
+  }
+  try {
+    createConversation({ id });
+    return true;
+  } catch (err) {
+    // A concurrent caller may have created the row between the check and the
+    // insert (UNIQUE(id) violation). That's the desired end state, so only
+    // rethrow if the row still isn't there.
+    if (!getConversation(id)) {
+      throw err;
+    }
+    return false;
+  }
 }
 
 export function getConversation(id: string): ConversationRow | null {
@@ -710,6 +842,7 @@ export function countConversationsByScheduleJobId(
 ): number {
   return (
     rawGet<{ c: number }>(
+      "conversation:countByScheduleJobId",
       "SELECT COUNT(*) AS c FROM conversations WHERE schedule_job_id = ?",
       scheduleJobId,
     )?.c ?? 0
@@ -770,6 +903,7 @@ export function getConversationSource(conversationId: string): string | null {
 function getConversationGroupId(conversationId: string): string | null {
   ensureGroupMigration();
   const row = rawGet<{ group_id: string | null }>(
+    "conversation:getGroupId",
     "SELECT group_id FROM conversations WHERE id = ?",
     conversationId,
   );
@@ -936,6 +1070,7 @@ export function forkConversation(params: {
           ? sourceHistoryStrippedAt
           : null,
         inferenceProfile: sourceConversation.inferenceProfile,
+        enabledPlugins: encodeEnabledPlugins(sourceConversation.enabledPlugins),
       })
       .where(eq(conversations.id, fc.id))
       .run();
@@ -1151,7 +1286,7 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
   // Carry the parent's per-conversation memory state into the child (activation
   // and injection logs, graph state, retrospective state). Runs synchronously
   // inside the fork transaction; a no-op when memory is absent or disabled.
-  getMemoryPersistenceHooks().onConversationForked({
+  forkConversationMemory({
     db,
     sourceConversationId,
     forkId: fork.id,
@@ -1328,6 +1463,9 @@ export async function forkConversationForRetrospective(params: {
               ? sourceHistoryStrippedAt
               : null,
             inferenceProfile: sourceConversation.inferenceProfile,
+            enabledPlugins: encodeEnabledPlugins(
+              sourceConversation.enabledPlugins,
+            ),
           })
           .where(eq(conversations.id, fc.id))
           .run();
@@ -1466,12 +1604,22 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
-  // Let the memory feature purge the conversation's per-message index (e.g. its
-  // lexical points). Fired from the shared primitive so every delete caller —
-  // route, wipe, retrospective cleanup/GC — cleans up. Routed through the
-  // persistence-hook seam so this layer stays decoupled from the memory plugin;
-  // a no-op when memory is not present.
-  getMemoryPersistenceHooks().onConversationDeleted(id);
+  // Notify `conversation-deleted` hooks (e.g. the memory plugin failing its
+  // still-pending jobs for this conversation). Fire-and-forget from this
+  // synchronous primitive — the pipeline contains per-hook failures, and
+  // hooks carry no ordering guarantee relative to the cleanup below.
+  void runHook(HOOKS.CONVERSATION_DELETED, {
+    conversationId: id,
+  } satisfies ConversationDeletedInputContext);
+
+  // Purge the conversation's points from the lexical (Qdrant) index. Fired
+  // from the shared primitive so every delete caller — route, retrospective
+  // cleanup/GC — cleans up. Safe to enqueue while the hook chain runs: the
+  // memory plugin's job sweep is scoped to its own job types and cannot fail
+  // this host-owned purge job. The enqueue helper self-selects: enqueue a job
+  // when memory is enabled, run the delete inline (best-effort,
+  // breaker-wrapped) when it is disabled.
+  enqueuePurgeConversationLexical(id);
 
   return result;
 }
@@ -1579,72 +1727,20 @@ export async function deleteConversationGently(
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
-  // Let the memory feature purge the conversation's per-message index — the
+  // Notify `conversation-deleted` hooks — fire-and-forget, same contract as
+  // the synchronous delete primitive.
+  void runHook(HOOKS.CONVERSATION_DELETED, {
+    conversationId: id,
+  } satisfies ConversationDeletedInputContext);
+
+  // Purge the conversation's points from the lexical (Qdrant) index — the
   // gentle path is the retrospective-GC caller, which would otherwise leak the
-  // conversation's lexical points. Routed through the persistence-hook seam;
-  // a no-op when memory is not present.
-  getMemoryPersistenceHooks().onConversationDeleted(id);
+  // conversation's lexical points. Safe to enqueue while the hook chain runs:
+  // the memory plugin's job sweep is scoped to its own job types and cannot
+  // fail this host-owned purge job.
+  enqueuePurgeConversationLexical(id);
 
   return result;
-}
-
-/**
- * Wipe a conversation and revert all memory changes it caused.
- *
- * Extends `deleteConversation` with:
- * - Cancelling pending memory jobs before deletion
- * - Deleting conversation-scoped memory summaries and their embeddings
- */
-export function wipeConversation(id: string): WipeConversationResult {
-  const db = getDb();
-  const deletedSummaryIds: string[] = [];
-
-  // Step A — Cancel pending memory jobs (before deleting messages, since
-  // the cancellation queries join on `messages`). Cleanup runs even while the
-  // memory plugin is disabled; returns 0 when memory is not present.
-  const cancelledJobCount = getMemoryPersistenceHooks().onConversationWiped(id);
-
-  // Step C — Delete conversation-scoped memory summaries and their embeddings.
-  const summaryRows = db
-    .select({ id: memorySummaries.id })
-    .from(memorySummaries)
-    .where(
-      and(
-        eq(memorySummaries.scope, "conversation"),
-        eq(memorySummaries.scopeKey, id),
-      ),
-    )
-    .all();
-  const summaryIds = summaryRows.map((r) => r.id);
-  if (summaryIds.length > 0) {
-    db.delete(memoryEmbeddings)
-      .where(
-        and(
-          eq(memoryEmbeddings.targetType, "summary"),
-          inArray(memoryEmbeddings.targetId, summaryIds),
-        ),
-      )
-      .run();
-    db.delete(memorySummaries)
-      .where(inArray(memorySummaries.id, summaryIds))
-      .run();
-  }
-  deletedSummaryIds.push(...summaryIds);
-
-  // Step D — Delegate to deleteConversation which handles messages (cascade
-  // segments, attachments), llmRequestLogs, toolInvocations,
-  // skillLoadedEvents, embeddings, and the conversation row.
-  const deletedMemoryIds = deleteConversation(id);
-
-  // Step E — Return the combined result.
-  return {
-    ...deletedMemoryIds,
-    deletedSummaryIds: [
-      ...deletedSummaryIds,
-      ...deletedMemoryIds.deletedSummaryIds,
-    ],
-    cancelledJobCount,
-  };
 }
 
 /** Options for {@link addMessage}. Only `skipIndexing` and `clientMessageId`
@@ -1656,6 +1752,10 @@ export interface AddMessageOptions {
    *  duplicate inserts for the same `(conversationId, clientMessageId)`
    *  pair are silently skipped. */
   clientMessageId?: string;
+  /** Pre-assigned message ID. When omitted, one is generated
+   *  internally. Pass the same value as `requestId` for user turns so
+   *  the persisted row ID matches the runtime correlation ID. */
+  id?: string;
 }
 
 /**
@@ -1669,13 +1769,14 @@ export async function addMessage(
   content: string,
   options?: AddMessageOptions,
 ) {
-  const { metadata, skipIndexing, clientMessageId } = options ?? {};
+  const { metadata, skipIndexing, clientMessageId, id } = options ?? {};
   const inserted = await insertMessageCore({
     conversationId,
     role,
     content,
     metadata,
     clientMessageId,
+    id,
   });
 
   if (inserted.deduplicated) {
@@ -1684,12 +1785,16 @@ export async function addMessage(
 
   const message = inserted;
 
-  if (!skipIndexing) {
-    // Message-content lexical indexing is host infrastructure, invoked
-    // directly (not through the memory hook seam, whose active side effects go
-    // inert while the memory plugin is disabled — search indexing must not).
-    // The direct write seams (streaming finalize, import, edit) enqueue for
-    // themselves; this covers the plain addMessage path.
+  // Hidden rows are machine signals suppressed from the transcript — they
+  // must not surface as search excerpts or be embedded into memory either.
+  if (!skipIndexing && !isHiddenMessageMetadata(metadata)) {
+    // Message-content lexical indexing is host infrastructure and must run
+    // even while the memory plugin is disabled (search indexing is not a
+    // memory-feature side effect), so it is enqueued unconditionally. The
+    // memory segment indexing below is the memory feature's own write path and
+    // self-gates on the memory config. The direct write seams (streaming
+    // finalize, import, edit) run both for themselves; this covers the plain
+    // addMessage path.
     enqueueLexicalIndexForMessage(message.id);
     try {
       const parsed = metadata
@@ -1699,15 +1804,19 @@ export async function addMessage(
         ? parsed.data.provenanceTrustClass
         : undefined;
       const automated = parsed?.success ? parsed.data.automated : undefined;
-      await getMemoryPersistenceHooks().onMessagePersisted({
-        messageId: message.id,
-        conversationId: message.conversationId,
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt,
-        provenanceTrustClass,
-        automated,
-      });
+      await indexMessageNow(
+        {
+          messageId: message.id,
+          conversationId: message.conversationId,
+          role: message.role,
+          content: message.content,
+          createdAt: message.createdAt,
+          scopeId: "default",
+          provenanceTrustClass,
+          automated,
+        },
+        getConfig().memory,
+      );
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },
@@ -2240,6 +2349,7 @@ export function archiveConversation(id: string): boolean {
   }
   const now = Date.now();
   rawRun(
+    "conversation:archive",
     "UPDATE conversations SET archived_at = ?, updated_at = ? WHERE id = ?",
     now,
     now,
@@ -2255,6 +2365,7 @@ export function unarchiveConversation(id: string): boolean {
   }
   const now = Date.now();
   rawRun(
+    "conversation:unarchive",
     "UPDATE conversations SET archived_at = NULL, updated_at = ? WHERE id = ?",
     now,
     id,
@@ -2273,6 +2384,7 @@ export function setConversationProcessingStartedAt(
   startedAt: number | null,
 ): void {
   rawRun(
+    "conversation:setProcessingStartedAt",
     "UPDATE conversations SET processing_started_at = ? WHERE id = ?",
     startedAt,
     id,
@@ -2288,6 +2400,7 @@ export function setConversationProcessingStartedAt(
  */
 export function clearStaleProcessingFlags(): number {
   return rawRun(
+    "conversation:clearStaleProcessingFlags",
     "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
   );
 }
@@ -2306,6 +2419,7 @@ export function isConversationProcessing(id: string): boolean {
     return inMemory;
   }
   const row = rawGet<{ processing_started_at: number | null }>(
+    "conversation:isProcessing",
     "SELECT processing_started_at FROM conversations WHERE id = ?",
     id,
   );
@@ -2325,6 +2439,7 @@ export function isConversationProcessing(id: string): boolean {
  */
 export function getConversationPersistedSeq(id: string): number | null {
   const row = rawGet<{ seq: number | null }>(
+    "conversation:getPersistedSeq",
     "SELECT seq FROM conversations WHERE id = ?",
     id,
   );
@@ -2346,6 +2461,7 @@ export function recordConversationPersistedSeq(id: string, seq: number): void {
     return;
   }
   rawRun(
+    "conversation:recordPersistedSeq",
     "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
     seq,
     id,
@@ -2377,6 +2493,7 @@ export function setConversationSurfaced(
   const now = Date.now();
   const surfacedAt = surfaced ? now : null;
   rawRun(
+    "conversation:setSurfaced",
     "UPDATE conversations SET surfaced_at = ?, updated_at = ? WHERE id = ?",
     surfacedAt,
     now,
@@ -2404,6 +2521,51 @@ export function setConversationInferenceProfile(
       inferenceProfile: profile,
       inferenceProfileSessionId: null,
       inferenceProfileExpiresAt: null,
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, conversationId))
+    .run();
+}
+
+/**
+ * Encode a plugin-id list for the `enabled_plugins` text column. Keeps a true
+ * SQL NULL for `null` (rather than the JSON literal `"null"`) so it reads back
+ * as "no per-chat restriction".
+ */
+function encodeEnabledPlugins(plugins: string[] | null): string | null {
+  return plugins === null ? null : JSON.stringify(plugins);
+}
+
+/**
+ * Read the per-conversation plugin scope. Returns the parsed `string[]` of
+ * plugin ids, or `null` when the column is unset/empty (= no per-chat
+ * restriction). Defensively returns `null` on a JSON parse failure.
+ */
+export function getConversationEnabledPlugins(
+  conversationId: string,
+): string[] | null {
+  const db = getDb();
+  const row = db
+    .select({ enabledPlugins: conversations.enabledPlugins })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  return parseJsonNullable<string[]>()(row?.enabledPlugins);
+}
+
+/**
+ * Set or clear the per-conversation plugin scope. Pass a `string[]` to scope
+ * the chat to those plugin ids, or `null` to clear the restriction and fall
+ * back to all globally-enabled plugins.
+ */
+export function setConversationEnabledPlugins(
+  conversationId: string,
+  plugins: string[] | null,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      enabledPlugins: encodeEnabledPlugins(plugins),
       updatedAt: Date.now(),
     })
     .where(eq(conversations.id, conversationId))
@@ -2582,6 +2744,7 @@ export function setLastNotifiedInferenceProfile(
   profileKey: string | null,
 ): void {
   rawRun(
+    "conversation:setLastNotifiedProfile",
     "UPDATE conversations SET last_notified_inference_profile = ? WHERE id = ?",
     profileKey,
     conversationId,
@@ -2605,9 +2768,15 @@ export async function clearAll(): Promise<{
   messages: number;
 }> {
   const msgCount =
-    rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM messages")?.c ?? 0;
+    rawGet<{ c: number }>(
+      "conversation:clearAll:countMessages",
+      "SELECT COUNT(*) AS c FROM messages",
+    )?.c ?? 0;
   const convCount =
-    rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM conversations")?.c ?? 0;
+    rawGet<{ c: number }>(
+      "conversation:clearAll:countConvs",
+      "SELECT COUNT(*) AS c FROM conversations",
+    )?.c ?? 0;
 
   // Each DELETE goes through `runAsyncSqlite`. The original code threw
   // on rawExec failure; mirror that here by throwing when the async
@@ -2633,9 +2802,12 @@ export async function clearAll(): Promise<{
   // memory_jobs and llm_request_logs each live in their own dedicated
   // connection; clear them directly on those connections rather than through a
   // sqlite3 subprocess.
-  rawMemoryRun("DELETE FROM memory_jobs");
+  rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
   await runOrThrow("DELETE FROM memory_checkpoints");
-  rawLogsRun("DELETE FROM llm_request_logs");
+  rawLogsRun(
+    "conversation:clearAll:requestLogs",
+    "DELETE FROM llm_request_logs",
+  );
   await runOrThrow("DELETE FROM llm_usage_events");
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");
@@ -2647,24 +2819,22 @@ export async function clearAll(): Promise<{
   // Record audit event — lifecycle_events is NOT deleted by clearAll(),
   // so this survives the wipe and provides a permanent trail.
   rawRun(
+    "conversation:clearAll:auditEvent",
     `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
     uuid(),
     "conversations_clear_all",
     Date.now(),
   );
 
-  // Let the memory feature drop its bulk per-message index (e.g. the whole
-  // lexical Qdrant collection) — a "delete all" leaves no ids to key
-  // per-message cleanup on. Routed through the persistence-hook seam so this
-  // layer stays decoupled from the memory plugin; a no-op when memory is not
-  // present. AWAITED so the drop completes before clear-all returns and writes
-  // resume — a message created right after must not upsert into a collection
-  // that is about to be dropped. Best-effort — a failure must not fail the
-  // whole clear-all.
+  // Drop the whole lexical (Qdrant) collection — a "delete all" leaves no ids
+  // to key per-message cleanup on. AWAITED so the drop completes before
+  // clear-all returns and writes resume — a message created right after must
+  // not upsert into a collection that is about to be dropped. Best-effort — a
+  // failure must not fail the whole clear-all.
   try {
-    await getMemoryPersistenceHooks().onAllConversationsCleared();
+    await clearMessagesLexicalIndex(getConfig());
   } catch (err) {
-    log.warn({ err }, "clearAll: failed to clear memory per-message index");
+    log.warn({ err }, "clearAll: failed to clear messages lexical index");
   }
 
   // Clear the disk-view conversations directory and recreate it empty
@@ -2756,11 +2926,14 @@ export function deleteLastExchange(conversationId: string): number {
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
-  // Let the memory feature clean up the undone messages' per-message index
-  // entries. This bulk delete bypasses `deleteMessageById`, so notify the seam
-  // with the collected ids — after the transaction and off the write path. A
-  // no-op when memory is not present.
-  getMemoryPersistenceHooks().onMessagesDeleted(messageIds);
+  // Remove the undone messages' points from the lexical index. This bulk
+  // delete bypasses `deleteMessageById`, so enqueue the collected ids here —
+  // after the transaction and off the write path. The enqueue helper
+  // self-selects: enqueue a job when memory is enabled, run the delete inline
+  // (best-effort, breaker-wrapped) when it is disabled.
+  for (const deletedMessageId of messageIds) {
+    enqueueDeleteMessageLexical(deletedMessageId);
+  }
 
   return deleted;
 }
@@ -2773,10 +2946,6 @@ export function deleteLastExchange(conversationId: string): number {
 interface DeletedMemoryIds {
   segmentIds: string[];
   deletedSummaryIds: string[];
-}
-
-interface WipeConversationResult extends DeletedMemoryIds {
-  cancelledJobCount: number;
 }
 
 /**
@@ -2993,13 +3162,12 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
-  // Let the memory feature clean up the deleted message's per-message index
-  // entry. Notified only when the row actually existed (`msgRow` set), after the
-  // transaction and off the write path, via the persistence-hook seam (a no-op
-  // when memory is not present). Covers single-message deletes (consolidation)
-  // that do not go through the conversation-level purge.
+  // Remove the deleted message's point from the lexical index. Enqueued only
+  // when the row actually existed (`msgRow` set), after the transaction and
+  // off the write path. Covers single-message deletes (consolidation) that do
+  // not go through the conversation-level purge.
   if (msgRow) {
-    getMemoryPersistenceHooks().onMessagesDeleted([messageId]);
+    enqueueDeleteMessageLexical(messageId);
   }
 
   return result;
@@ -3078,6 +3246,7 @@ export function getConversationRecentProvenanceTrustClass(
   | "unknown"
   | undefined {
   const row = rawGet<{ metadata: string | null }>(
+    "conversation:getProvenanceTrustClass",
     `SELECT metadata FROM messages
      WHERE conversation_id = ? AND role = 'user' AND metadata IS NOT NULL
      ORDER BY created_at DESC LIMIT 1`,
@@ -3114,6 +3283,7 @@ export function batchSetDisplayOrders(
           safeGroupId = "system:all";
         } else if (
           !rawGet<{ id: string }>(
+            "conversation:batchSetDisplayOrders:groupCheck",
             "SELECT id FROM conversation_groups WHERE id = ?",
             safeGroupId,
           )
@@ -3129,6 +3299,7 @@ export function batchSetDisplayOrders(
           safeGroupId === "system:background" ||
           safeGroupId === "system:scheduled";
         rawRun(
+          "conversation:batchSetDisplayOrders:group",
           `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
             clearsSurfaced ? ", surfaced_at = NULL" : ""
           } WHERE id = ?`,
@@ -3140,12 +3311,14 @@ export function batchSetDisplayOrders(
       } else if (update.isPinned === undefined) {
         // Only displayOrder provided — preserve existing pin state and group.
         rawRun(
+          "conversation:batchSetDisplayOrders:orderOnly",
           "UPDATE conversations SET display_order = ? WHERE id = ?",
           update.displayOrder,
           update.id,
         );
       } else if (update.isPinned) {
         rawRun(
+          "conversation:batchSetDisplayOrders:pin",
           "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
           update.displayOrder,
           update.id,
@@ -3154,6 +3327,7 @@ export function batchSetDisplayOrders(
         // Restore system group from source/conversationType when unpinning,
         // instead of clearing to NULL (which would lose provenance).
         rawRun(
+          "conversation:batchSetDisplayOrders:unpin",
           `UPDATE conversations SET display_order = ?, is_pinned = 0,
            group_id = CASE WHEN group_id = 'system:pinned' THEN
              CASE
@@ -3197,6 +3371,7 @@ export function getDisplayMetaForConversations(
       is_pinned: number | null;
       group_id: string | null;
     }>(
+      "conversation:getDisplayMeta",
       "SELECT display_order, is_pinned, group_id FROM conversations WHERE id = ?",
       id,
     );

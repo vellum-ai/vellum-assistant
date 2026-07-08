@@ -83,7 +83,7 @@ import type {
   SubagentToolGateMode,
   WakeToolContextPin,
 } from "../daemon/tool-setup-types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { resolveTurnCallSite } from "../daemon/turn-call-site.js";
 import {
   broadcastWakeSurface,

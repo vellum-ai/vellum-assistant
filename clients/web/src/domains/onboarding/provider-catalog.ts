@@ -10,6 +10,7 @@ export type OnboardingProviderId =
   | "ollama"
   | "fireworks"
   | "openrouter"
+  | "vercel-ai-gateway"
   | "openai-compatible";
 
 export interface OnboardingProvider {
@@ -123,9 +124,46 @@ export const ONBOARDING_PROVIDERS: readonly OnboardingProvider[] = [
     ],
   },
   {
+    id: "vercel-ai-gateway",
+    displayName: "Vercel AI Gateway",
+    apiKeyPlaceholder: "vck_...",
+    docsUrl:
+      "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keys",
+    requiresKey: true,
+    defaultModel: "anthropic/claude-sonnet-4.6",
+    // Context windows are capped at 200k (like the OpenRouter entry) so
+    // onboarding never opts new users into Anthropic long-context pricing.
+    models: [
+      {
+        id: "anthropic/claude-sonnet-4.6",
+        displayName: "Claude Sonnet 4.6",
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 64_000,
+      },
+      {
+        id: "anthropic/claude-opus-4.8",
+        displayName: "Claude Opus 4.8",
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 128_000,
+      },
+      {
+        id: "xai/grok-4.3",
+        displayName: "Grok 4.3",
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 16_000,
+      },
+      {
+        id: "deepseek/deepseek-v4-flash",
+        displayName: "DeepSeek V4 Flash",
+        contextWindowTokens: 200_000,
+        maxOutputTokens: 384_000,
+      },
+    ],
+  },
+  {
     id: "openai-compatible",
     displayName: "OpenAI-compatible",
-    apiKeyPlaceholder: "Your provider's API key",
+    apiKeyPlaceholder: "Your provider's API key (optional)",
     docsUrl: null,
     requiresKey: true,
   },

@@ -1,10 +1,14 @@
 import { config as dotenvConfig } from "dotenv";
 
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
-import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
+import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
-import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
+import {
+  hasPendingDefaultWorkspaceConfig,
+  loadConfig,
+  mergeDefaultWorkspaceConfig,
+} from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
@@ -12,7 +16,6 @@ import { startCes } from "../credential-execution/ces-runtime.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
-import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startMonitoring } from "../monitoring/control.js";
@@ -21,11 +24,10 @@ import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-runtime-manager.js";
+import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
 import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
-import { runMemoryStartup } from "../plugins/defaults/memory/startup.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { initializeProviders } from "../providers/registry.js";
@@ -33,7 +35,10 @@ import {
   initAuthSigningKey,
   resolveSigningKey,
 } from "../runtime/auth/token-service.js";
-import { startRuntimeHttpServer } from "../runtime/http-server.js";
+import {
+  startRuntimeHttpServer,
+  startRuntimeHttpServerBackgroundSweeps,
+} from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
@@ -42,8 +47,6 @@ import { startScheduler } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { syncFlagGatedTools } from "../tools/registry.js";
-import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
-import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
@@ -57,6 +60,8 @@ import {
 } from "../work-items/work-item-store.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
+import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
+import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
@@ -64,12 +69,13 @@ import { startAppSourceWatcher } from "./app-source-watcher.js";
 import { startConfigWatcher } from "./config-watcher.js";
 import { startConversationEvictor } from "./conversation-evictor.js";
 import { writePid } from "./daemon-control.js";
-import { setDbReady, setStartupComplete } from "./daemon-readiness.js";
 import {
-  evaluateDiskPressureNow,
-  startDiskPressureGuard,
-  stopDiskPressureGuard,
-} from "./disk-pressure-guard.js";
+  setDbMigrating,
+  setDbMigrationFailed,
+  setDbReady,
+  setStartupComplete,
+} from "./daemon-readiness.js";
+import { startDiskPressureGuardForLifecycle } from "./disk-pressure-guard-lifecycle.js";
 import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
@@ -85,57 +91,9 @@ import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { broadcastDaemonStatus } from "./status.js";
 
 const log = getLogger("lifecycle");
-let diskPressureStartupSampleTimer: ReturnType<typeof setTimeout> | null = null;
 
 function loadDotEnv(): void {
   dotenvConfig({ path: getDotEnvPath(), quiet: true });
-}
-
-function runDeferredDiskPressureStartupSample(): void {
-  diskPressureStartupSampleTimer = null;
-  try {
-    const status = evaluateDiskPressureNow();
-    if (status.error) {
-      log.warn(
-        { error: status.error },
-        "Disk pressure guard sample failed during startup — continuing unlocked",
-      );
-    }
-  } catch (err) {
-    log.warn(
-      { err },
-      "Disk pressure guard failed during startup — continuing unlocked",
-    );
-  }
-}
-
-export function startDiskPressureGuardForLifecycle(): void {
-  try {
-    const startedStatus = startDiskPressureGuard();
-    if (!startedStatus.enabled) {
-      return;
-    }
-    if (!diskPressureStartupSampleTimer) {
-      diskPressureStartupSampleTimer = setTimeout(
-        runDeferredDiskPressureStartupSample,
-        0,
-      );
-      (diskPressureStartupSampleTimer as { unref?: () => void }).unref?.();
-    }
-  } catch (err) {
-    log.warn(
-      { err },
-      "Disk pressure guard failed during startup — continuing unlocked",
-    );
-  }
-}
-
-export function stopDiskPressureGuardForLifecycle(): void {
-  if (diskPressureStartupSampleTimer) {
-    clearTimeout(diskPressureStartupSampleTimer);
-    diskPressureStartupSampleTimer = null;
-  }
-  stopDiskPressureGuard();
 }
 
 // Entry point for the daemon process itself
@@ -148,11 +106,12 @@ export async function runDaemon(): Promise<void> {
   validateEnv();
   log.info({ version: APP_VERSION }, "Daemon starting");
 
-  // Initialize crash reporting eagerly so the Sentry client is ready before
-  // early startup failures occur. Events are dropped (beforeSend) until the
-  // consent gate below confirms share_diagnostics opt-in; dev mode and the
-  // legacy local opt-out hard-disable via closeSentry().
-  initSentry();
+  // Signal handlers install before any blocking startup work — a boot that
+  // inherits a large WAL can spend minutes inside `initializeDb()`, and
+  // without handlers a SIGTERM in that window is the default hard kill.
+  // Handlers run a minimal exit path until `setStartupComplete()` below
+  // switches them to the full graceful shutdown.
+  installShutdownHandlers();
 
   ensureDataDir();
 
@@ -190,6 +149,30 @@ export async function runDaemon(): Promise<void> {
   // daemon restarts.
   const signingKey = resolveSigningKey();
   initAuthSigningKey(signingKey);
+
+  setDbMigrating();
+
+  // Materialize partial custom profiles BEFORE any transport binds: routes
+  // are gated on DB readiness, not on the config-shaping steps further down,
+  // so a fast-reconnecting client could otherwise resolve a turn against a
+  // partial profile in the window between readiness and the post-overlay
+  // ensure call below. Sync, DB-free, and idempotent. Skipped when an
+  // unconsumed onboarding overlay is pending: the overlay can rewrite
+  // llm.default later this boot, and baking against the pre-overlay default
+  // would pin the wrong baseline — on that single boot (a fresh hatch, with
+  // no established clients to race the window) the post-overlay pass owns
+  // materialization; the overlay file is consumed on merge, so every
+  // subsequent boot takes this early pass.
+  if (!hasPendingDefaultWorkspaceConfig()) {
+    try {
+      ensureCompleteCustomProfiles(getWorkspaceDir());
+    } catch (err) {
+      log.warn(
+        { err },
+        "Pre-transport custom profile materialization failed — continuing startup",
+      );
+    }
+  }
 
   // Start the runtime HTTP server early so /healthz answers ASAP. A bind
   // failure is non-fatal — the daemon falls back to IPC-only operation.
@@ -239,18 +222,15 @@ export async function runDaemon(): Promise<void> {
   // opens but one or more migrations failed (initializeDb resolves with
   // migrationsOk:false rather than throwing, per the daemon-never-blocks
   // philosophy). In both cases DB-dependent features won't work, but the
-  // HTTP server and config-based subsystems still start so the process
-  // remains reachable for diagnostics. The trivial /healthz and detailed
-  // /v1/health(z) endpoints still answer 200, but setDbReady(true) runs only
-  // when migrations all applied, so the readiness latch stays unset and
-  // /readyz reports not-ready (503) for the rest of the process lifetime.
-  // That 503 is intentional: a DB-broken daemon should fail readiness so it
-  // is not routed user traffic.
+  // HTTP server and config-based subsystems still start so the process remains
+  // reachable for diagnostics. The trivial /healthz probe stays green while
+  // detailed health reports the migration state, and /readyz fails only when
+  // migrations fail.
   //
   // The local `dbReady` and the module-level readiness latch intentionally
   // diverge on the migration-failure path: `dbReady` stays true to allow the
-  // downstream best-effort seeding / workspace migrations, while the latch
-  // stays unset to keep /readyz 503.
+  // downstream best-effort seeding / workspace migrations, while readiness
+  // records the failed migration state so /readyz returns 503.
   let dbReady = false;
   try {
     const { migrationsOk } = await initializeDb();
@@ -259,11 +239,24 @@ export async function runDaemon(): Promise<void> {
       setDbReady(true);
       log.info("Daemon startup: DB initialized");
     } else {
+      setDbMigrationFailed();
       log.error(
-        "Daemon startup: DB opened but one or more migrations failed — /readyz will remain unready (degraded mode)",
+        "Daemon startup: DB opened but one or more migrations failed — /readyz will remain unready",
       );
     }
+    // Migrations have settled (successfully or in the failed degraded mode),
+    // so start the HTTP server's ORM-touching background sweeps. The server
+    // binds earlier, before migrations run, so these are deferred to here to
+    // avoid racing async migrations into a missing table. They run in degraded
+    // mode too: the DB is open, and guardian approval/action expiry is
+    // security-relevant maintenance on tables that predate whatever migration
+    // failed. The retry sweep skips its cycles while readiness is unready (see
+    // startBackgroundSweeps) so refused replays can't burn dead-letter budget.
+    startRuntimeHttpServerBackgroundSweeps();
   } catch (err) {
+    // Sweeps intentionally NOT started on this path: initializeDb() threw, so
+    // the DB never opened and every sweep cycle would just error against it.
+    setDbMigrationFailed(err);
     log.error(
       { err },
       "DB initialization failed — continuing startup in degraded mode",
@@ -372,11 +365,6 @@ export async function runDaemon(): Promise<void> {
       );
     }
 
-    // Now that workspace migrations have run (including 003-seed-device-id
-    // which may copy the legacy installationId into device.json), it is safe
-    // to read the device ID and set the Sentry tag.
-    setSentryDeviceId(getDeviceId());
-
     // Expire stale pending canonical guardian requests left over from before
     // this process started.  Two categories are cleaned up:
     //
@@ -416,7 +404,7 @@ export async function runDaemon(): Promise<void> {
     }
 
     try {
-      const twilioProvider = new TwilioConversationRelayProvider();
+      const twilioProvider = new TwilioVoiceProvider();
       await reconcileCallsOnStartup(twilioProvider, log);
     } catch (err) {
       log.warn({ err }, "Call recovery failed — continuing startup");
@@ -485,6 +473,34 @@ export async function runDaemon(): Promise<void> {
     }
   }
 
+  // Runs on every boot (unlike the repair above, not gated on hadOverlay) so
+  // it also covers hand-deleted fields and configs restored from backups
+  // that predate the field. See workspace/default-provider-ensure.ts for the
+  // full rationale.
+  try {
+    await ensureDefaultProvider(getWorkspaceDir());
+    log.info("Default provider ensure pass complete");
+  } catch (err) {
+    log.warn(
+      { err },
+      "Default provider ensure pass failed — continuing startup",
+    );
+  }
+
+  // Runs on every boot, after the overlay merge and profile seeding and
+  // before the first loadConfig(), so no resolution ever sees a partial
+  // custom profile. See workspace/custom-profile-ensure.ts for why this is
+  // an ensure pass rather than a workspace migration.
+  try {
+    ensureCompleteCustomProfiles(getWorkspaceDir());
+    log.info("Custom profile materialization ensure pass complete");
+  } catch (err) {
+    log.warn(
+      { err },
+      "Custom profile materialization ensure pass failed — continuing startup",
+    );
+  }
+
   log.info("Daemon startup: loading config");
   const config = loadConfig();
 
@@ -533,25 +549,12 @@ export async function runDaemon(): Promise<void> {
     });
   }
 
-  // Privacy gating: Sentry crash/error reporting follows the platform owner's
-  // share_diagnostics consent; the usage telemetry reporter re-checks
-  // share_analytics on every flush. Both are disabled in dev mode. Sentry was
-  // initialized early, but beforeSend re-reads getCachedShareDiagnostics() on
-  // every event, so it drops events until consent confirms opt-in and honors a
-  // later revocation within one refresh cycle (the cache is refreshed by
-  // startConsentRefresh() below, mirroring the share_analytics posture).
-  const isDevMode = process.env.VELLUM_DEV === "1";
-  if (isDevMode || config.legacyDiagnosticsOptOut === true) {
-    // Dev mode and a preserved legacy local opt-out both disable Sentry
-    // unconditionally, without waiting on platform consent.
-    await closeSentry();
-  }
-
   // Refresh the consent cache regardless of dev mode so record-time telemetry
-  // writes (gated on getCachedShareAnalytics()) work in dev too. The reporter
-  // flush stays dev-gated above, so dev still never sends telemetry to the
-  // platform. Fire-and-forget: startConsentRefresh() runs an immediate
-  // non-blocking refresh, so the startup hot path is never blocked.
+  // writes (gated on getCachedShareAnalytics()) work in dev too. The usage
+  // telemetry reporter re-checks share_analytics on every flush, so dev still
+  // never sends telemetry to the platform. Fire-and-forget: startConsentRefresh()
+  // runs an immediate non-blocking refresh, so the startup hot path is never
+  // blocked.
   startConsentRefresh();
 
   // Bring up the daemon's CES connection (process + handshake + reconnect
@@ -565,7 +568,9 @@ export async function runDaemon(): Promise<void> {
   // first-party defaults, load user plugins, and run every plugin's
   // `init()`. Ordering is load-bearing (defaults register ahead of user
   // plugins so they compose innermost) and plugin failures are contained so
-  // they can't block daemon startup.
+  // they can't block daemon startup. The memory plugin's `init` hook registers
+  // the job handlers (its own plus the host's non-plugin domain handlers) and
+  // starts the jobs worker here.
   await initializePlugins();
 
   // Initialize providers before Qdrant so HTTP routes can begin accepting
@@ -654,16 +659,6 @@ export async function runDaemon(): Promise<void> {
 
   startScheduler();
 
-  // Fire-and-forget: Qdrant init and memory worker startup run concurrently
-  // with the rest of daemon boot. Must run AFTER `startRuntimeHttpServer()`
-  // so the analyze-deps singleton (populated inside `buildRouteTable()`) is
-  // available before the memory worker can claim leftover
-  // `conversation_analyze` jobs from a prior run. See the daemon-startup
-  // ordering test in `assistant/src/daemon/__tests__/`.
-  void runMemoryStartup(config).catch((err) =>
-    log.warn({ err }, "Background Qdrant init failed"),
-  );
-
   // One-time, self-healing backfill of existing messages into the Qdrant
   // lexical index (`messages_lexical`) on upgrade, so message-content search
   // never opens onto an empty index. Enqueue-only and checkpoint-guarded — the
@@ -679,17 +674,6 @@ export async function runDaemon(): Promise<void> {
   // The runtime HTTP server is up; broadcast the fresh daemon status so
   // connected clients pick up the transition.
   broadcastDaemonStatus();
-
-  // Register built-in TTS providers so the provider abstraction can resolve
-  // them by ID. Must happen before call controllers or routes are created.
-  try {
-    registerBuiltinTtsProviders();
-  } catch (err) {
-    log.warn(
-      { err },
-      "TTS provider registration failed — continuing with degraded TTS",
-    );
-  }
 
   // Initialize providers and tools after the HTTP server is listening so
   // health-check and pairing requests can be served immediately.  Wrapped in
@@ -713,18 +697,18 @@ export async function runDaemon(): Promise<void> {
   // failure never affects startup.
   installAssistantSymlink();
 
-  startEmbeddingRuntimeManager();
+  void startEmbeddingRuntimeManager();
 
   startWorkspaceHeartbeatService();
 
   startHeartbeatService();
 
-  installShutdownHandlers();
-
   // The critical startup await-chain has completed and the daemon can serve
   // requests, so latch readiness before logging "Daemon started". Any fatal
   // failure earlier in startup propagates out of runDaemon before this line,
-  // so the latch is never set on a failed start.
+  // so the latch is never set on a failed start. The latch also switches the
+  // signal handlers installed at the top of startup from their minimal
+  // early-exit mode to the full graceful shutdown.
   setStartupComplete();
 
   log.info(

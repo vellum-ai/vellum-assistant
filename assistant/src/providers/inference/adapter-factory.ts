@@ -32,6 +32,7 @@ import { RetryProvider } from "../retry.js";
 import { TogetherProvider } from "../together/client.js";
 import type { Provider } from "../types.js";
 import { UsageTrackingProvider } from "../usage-tracking.js";
+import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
 
@@ -107,6 +108,18 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       useNativeWebSearch,
       streamTimeoutMs,
     }),
+  "vercel-ai-gateway": ({
+    apiKey,
+    model,
+    streamTimeoutMs,
+    baseURL,
+    useNativeWebSearch,
+  }) =>
+    new VercelAIGatewayProvider(apiKey, model, {
+      useNativeWebSearch,
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
   "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new OpenAIChatCompletionsProvider(apiKey, model, {
       providerName: "openai-compatible",
@@ -181,9 +194,16 @@ export function createAdapterFromConnection(
     model: string;
     streamTimeoutMs?: number;
     useNativeWebSearch?: boolean;
+    /**
+     * Effective upstream provider to build the adapter for. Defaults to
+     * `connection.provider`. The provider-agnostic Vellum-managed connection
+     * passes the resolved profile's provider here, since its own row carries
+     * only the `vellum` sentinel.
+     */
+    provider?: string;
   },
 ): Provider | null {
-  const { provider } = connection;
+  const provider = opts.provider ?? connection.provider;
   const entry = PROVIDER_CATALOG.find((e) => e.id === provider);
   if (!entry) return null;
   const isKeyless = entry.setupMode === "keyless";

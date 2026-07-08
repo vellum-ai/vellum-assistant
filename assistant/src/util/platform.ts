@@ -247,6 +247,11 @@ export function getMemoryWorkerPidPath(): string {
   return join(getWorkspaceDir(), "memory-worker.pid");
 }
 
+/** Returns the path to the schedule-worker PID file ($VELLUM_WORKSPACE_DIR/schedule-worker.pid). */
+export function getScheduleWorkerPidPath(): string {
+  return join(getWorkspaceDir(), "schedule-worker.pid");
+}
+
 /**
  * Returns the directory where the resource monitor persists its forensics
  * ($VELLUM_WORKSPACE_DIR/data/monitoring). Lives on the workspace volume (the

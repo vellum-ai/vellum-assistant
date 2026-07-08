@@ -2,9 +2,10 @@
  * Unit tests for the CLI invite relay routes.
  *
  * Three CLI invite handlers (list/create/revoke) are thin relays to the gateway
- * IPC methods via `ipcCallPersistent`. These tests assert each relays with the
- * correct method + params, returns the parsed gateway response, never writes the
- * assistant invite store directly, and surfaces a relayed IpcCallError with its
+ * IPC methods via the typed `channels/gateway-invites` client (transport:
+ * `ipcCallPersistent`, responses contract-schema-validated). These tests
+ * assert each relays with the correct wire method + params, returns the
+ * parsed gateway response, and surfaces a relayed IpcCallError with its
  * statusCode. `invites_redeem` and `invites_trigger_call` stay daemon-local: the
  * gateway delegates the actual provider call to the daemon-local handler, so
  * relaying it back would loop gateway→assistant→gateway.
@@ -43,27 +44,28 @@ mock.module("../../../ipc/gateway-client.js", () => ({
   ipcCallPersistent: ipcCallPersistentMock,
 }));
 
-// Guard: fail loudly if any relayed handler still writes the assistant invite
-// store directly. The relayed CLI paths must go through the gateway only, so we
-// spy on the store's write functions and assert they are never invoked.
-const actualInviteStore = await import("../../../persistence/invite-store.js");
-
-const inviteStoreCall = mock(() => {
-  throw new Error("invite-store write must not happen on relayed CLI paths");
-});
-
-mock.module("../../../persistence/invite-store.js", () => ({
-  ...actualInviteStore,
-  createInvite: inviteStoreCall,
-  listInvites: inviteStoreCall,
-  revokeInvite: inviteStoreCall,
-}));
-
 // `invites_trigger_call` is daemon-local: the handler invokes the local
 // `triggerInviteCall` provider logic directly (never `ipcCallPersistent`).
 let triggerInviteCallResult: unknown = { ok: true, data: { callSid: "CA000" } };
 const triggerInviteCallMock = mock(
-  async (_id: string) => triggerInviteCallResult,
+  async (_params: Record<string, unknown>) => triggerInviteCallResult,
+);
+
+// Presentation composition is daemon-owned: the create relay invokes it
+// exactly once on the gateway's raw mint payload. Passthrough by default so
+// the relay-shape tests observe the gateway payload unchanged.
+let composeInvitePresentationResult:
+  | ((params: { invite: Record<string, unknown> }) => Record<string, unknown>)
+  | undefined;
+const composeInvitePresentationMock = mock(
+  async (params: {
+    contactId?: string;
+    invite: Record<string, unknown>;
+    rawToken?: string;
+  }) =>
+    composeInvitePresentationResult
+      ? composeInvitePresentationResult(params)
+      : params.invite,
 );
 
 const actualInviteService = await import("../../invite-service.js");
@@ -71,6 +73,10 @@ const actualInviteService = await import("../../invite-service.js");
 mock.module("../../invite-service.js", () => ({
   ...actualInviteService,
   triggerInviteCall: triggerInviteCallMock,
+  composeInvitePresentation: composeInvitePresentationMock,
+  // Deterministic guardian label so the voice-create passthrough is assertable
+  // (the real resolver reads the guardian persona file).
+  resolveInviteGuardianName: () => "Guardian Name",
 }));
 
 const {
@@ -87,14 +93,17 @@ describe("invite relay routes", () => {
     ipcResult = {};
     ipcError = undefined;
     ipcCallPersistentMock.mockClear();
-    inviteStoreCall.mockClear();
     triggerInviteCallResult = { ok: true, data: { callSid: "CA000" } };
     triggerInviteCallMock.mockClear();
+    composeInvitePresentationResult = undefined;
+    composeInvitePresentationMock.mockClear();
   });
 
   describe("handleListInvites", () => {
     test("relays invites_list with filters from queryParams", async () => {
-      ipcResult = { invites: [{ id: "i1" }] };
+      ipcResult = {
+        invites: [{ id: "i1", sourceChannel: "telegram", status: "active" }],
+      };
       const result = await handleListInvites({
         queryParams: { sourceChannel: "telegram", status: "active" },
       });
@@ -107,8 +116,10 @@ describe("invite relay routes", () => {
           timeoutMs: undefined,
         },
       ]);
-      expect(result).toEqual({ ok: true, invites: [{ id: "i1" }] });
-      expect(inviteStoreCall).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        ok: true,
+        invites: [{ id: "i1", sourceChannel: "telegram", status: "active" }],
+      });
     });
 
     test("omits absent filters", async () => {
@@ -123,7 +134,15 @@ describe("invite relay routes", () => {
 
   describe("handleCreateInvite", () => {
     test("relays invites_create with mapped body and returns invite + rawToken", async () => {
-      ipcResult = { invite: { id: "i9", token: "tok-9" }, rawToken: "tok-9" };
+      ipcResult = {
+        invite: {
+          id: "i9",
+          sourceChannel: "telegram",
+          status: "active",
+          token: "tok-9",
+        },
+        rawToken: "tok-9",
+      };
       const result = await handleCreateInvite({
         body: {
           contactId: "c1",
@@ -144,32 +163,121 @@ describe("invite relay routes", () => {
             expiresInMs: undefined,
             expectedExternalUserId: undefined,
           },
-          // The create relay uses a generous timeout (gateway invites_mint can
-          // spend ~5s in generateInviteInstruction); list/revoke use the default.
-          timeoutMs: 30_000,
+          // The gateway mint is a fast native DB write; the LLM presentation
+          // step runs daemon-side after the relay, so the default timeout fits.
+          timeoutMs: undefined,
         },
       ]);
       expect(result).toEqual({
         ok: true,
-        invite: { id: "i9", token: "tok-9" },
+        invite: {
+          id: "i9",
+          sourceChannel: "telegram",
+          status: "active",
+          token: "tok-9",
+        },
         rawToken: "tok-9",
       });
-      expect(inviteStoreCall).not.toHaveBeenCalled();
+    });
+
+    test("composes presentation daemon-side exactly once on the relayed mint payload", async () => {
+      ipcResult = {
+        invite: {
+          id: "i9",
+          sourceChannel: "telegram",
+          status: "active",
+          token: "tok-9",
+        },
+        rawToken: "tok-9",
+      };
+      composeInvitePresentationResult = (params) => ({
+        ...params.invite,
+        share: { url: "https://t.me/example_bot?start=tok-9" },
+        guardianInstruction: "Send the link to your friend.",
+      });
+
+      const result = await handleCreateInvite({
+        body: { contactId: "c1", sourceChannel: "telegram" },
+      });
+
+      expect(composeInvitePresentationMock).toHaveBeenCalledTimes(1);
+      expect(composeInvitePresentationMock.mock.calls[0][0]).toEqual({
+        contactId: "c1",
+        invite: {
+          id: "i9",
+          sourceChannel: "telegram",
+          status: "active",
+          token: "tok-9",
+        },
+        rawToken: "tok-9",
+      });
+      expect(result).toEqual({
+        ok: true,
+        invite: {
+          id: "i9",
+          sourceChannel: "telegram",
+          status: "active",
+          token: "tok-9",
+          share: { url: "https://t.me/example_bot?start=tok-9" },
+          guardianInstruction: "Send the link to your friend.",
+        },
+        rawToken: "tok-9",
+      });
     });
 
     test("omits rawToken when the gateway returns none", async () => {
-      ipcResult = { invite: { id: "i9" } };
+      ipcResult = {
+        invite: { id: "i9", sourceChannel: "phone", status: "active" },
+      };
       const result = await handleCreateInvite({
         body: { contactId: "c1", sourceChannel: "phone" },
       });
 
-      expect(result).toEqual({ ok: true, invite: { id: "i9" } });
+      expect(result).toEqual({
+        ok: true,
+        invite: { id: "i9", sourceChannel: "phone", status: "active" },
+      });
+    });
+
+    test("supplies guardianName (voice) and sourceConversationId passthrough", async () => {
+      ipcResult = {
+        invite: { id: "iv", sourceChannel: "phone", status: "active" },
+      };
+      await handleCreateInvite({
+        body: {
+          contactId: "c1",
+          sourceChannel: "phone",
+          expectedExternalUserId: "+15551234567",
+          sourceConversationId: "conv-1",
+        },
+      });
+
+      expect(ipcCalls[0].params).toMatchObject({
+        contactId: "c1",
+        sourceChannel: "phone",
+        expectedExternalUserId: "+15551234567",
+        guardianName: "Guardian Name",
+        sourceConversationId: "conv-1",
+      });
+    });
+
+    test("omits guardianName for non-voice creates", async () => {
+      ipcResult = {
+        invite: { id: "i9", sourceChannel: "telegram", status: "active" },
+      };
+      await handleCreateInvite({
+        body: { contactId: "c1", sourceChannel: "telegram" },
+      });
+
+      expect("guardianName" in (ipcCalls[0].params ?? {})).toBe(false);
     });
   });
 
   describe("handleRevokeInvite", () => {
     test("relays invites_revoke with id from pathParams", async () => {
-      ipcResult = { invite: { id: "i3", status: "revoked" } };
+      ipcResult = {
+        invite: { id: "i3", sourceChannel: "telegram", status: "revoked" },
+      };
       const result = await handleRevokeInvite({ pathParams: { id: "i3" } });
 
       expect(ipcCalls).toEqual([
@@ -181,32 +289,59 @@ describe("invite relay routes", () => {
       ]);
       expect(result).toEqual({
         ok: true,
-        invite: { id: "i3", status: "revoked" },
+        invite: { id: "i3", sourceChannel: "telegram", status: "revoked" },
       });
-      expect(inviteStoreCall).not.toHaveBeenCalled();
     });
   });
 
   describe("handleTriggerInviteCall (daemon-local carve-out)", () => {
-    test("invokes the local triggerInviteCall and does NOT relay to the gateway", async () => {
+    test("invokes the local triggerInviteCall with the gateway-supplied body fields and does NOT relay to the gateway", async () => {
       triggerInviteCallResult = { ok: true, data: { callSid: "CA123" } };
       const result = await handleTriggerInviteCall({
         pathParams: { id: "i7" },
+        body: {
+          phoneNumber: "+15551234567",
+          friendName: "Alice",
+          guardianName: "Guardian Label",
+        },
       });
 
       expect(triggerInviteCallMock).toHaveBeenCalledTimes(1);
-      expect(triggerInviteCallMock).toHaveBeenCalledWith("i7");
+      expect(triggerInviteCallMock).toHaveBeenCalledWith({
+        phoneNumber: "+15551234567",
+        friendName: "Alice",
+        guardianName: "Guardian Label",
+      });
       // Must NOT relay: relaying invites_trigger_call would loop
       // gateway→assistant→gateway (the gateway calls THIS to place the call).
       expect(ipcCalls).toEqual([]);
       expect(result).toEqual({ ok: true, callSid: "CA123" });
     });
 
+    test("route is gateway-only and stays dispatchable over the gateway's direct IPC path", () => {
+      const route = ROUTES.find(
+        (r) => r.operationId === "invites_trigger_call",
+      );
+      expect(route).toBeDefined();
+      // Gateway-only policy: the handler dials whatever number the body
+      // supplies, so it must never be reachable by actor principals (see
+      // route-policy.test.ts for the enforcement assertions).
+      expect(route!.policy!.allowedPrincipalTypes).toEqual(["svc_gateway"]);
+      expect(route!.policy!.requiredScopes).toEqual(["internal.write"]);
+      // The gateway invokes it via ipcCallAssistant("invites_trigger_call"),
+      // which dispatches shared routes that pass the IPC-eligibility filter.
+      expect(route!.requireGuardian).toBeUndefined();
+      expect(route!.isPublic).toBeUndefined();
+    });
+
     test("surfaces a failed provider call as a 400", async () => {
       triggerInviteCallResult = { ok: false, error: "Invite not eligible" };
 
       try {
-        await handleTriggerInviteCall({ pathParams: { id: "i7" } });
+        await handleTriggerInviteCall({
+          pathParams: { id: "i7" },
+          body: { phoneNumber: "+15551234567" },
+        });
         throw new Error("expected handler to throw");
       } catch (err) {
         const e = err as { statusCode?: number; message: string };
@@ -218,6 +353,15 @@ describe("invite relay routes", () => {
   });
 
   describe("error propagation", () => {
+    test("a schema-invalid gateway response fails closed (throws, no partial result)", async () => {
+      // Missing the pinned id/status fields.
+      ipcResult = { invites: [{ sourceChannel: "telegram" }] };
+
+      await expect(handleListInvites({ queryParams: {} })).rejects.toThrow(
+        "malformed invites_list response",
+      );
+    });
+
     test("relayed IpcCallError surfaces with its statusCode/errorCode", async () => {
       ipcError = new IpcCallError("Invite not found", {
         statusCode: 404,

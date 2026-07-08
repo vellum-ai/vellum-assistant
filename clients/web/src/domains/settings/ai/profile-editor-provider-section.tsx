@@ -10,6 +10,7 @@ import {
 
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
 import { useSelectableCatalogProviders } from "@/domains/settings/ai/provider-availability";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { ConnectionModel, ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
 
 const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
@@ -98,6 +99,7 @@ export function ProfileEditorProviderSection({
   connectionNotFound,
   hideProviderField = false,
 }: ProfileEditorProviderSectionProps) {
+  const isMobile = useIsMobile();
   const providerMissing = provider.length === 0;
   const providerWithoutModel = provider.length > 0 && model.length === 0;
 
@@ -256,7 +258,7 @@ export function ProfileEditorProviderSection({
             >
               Provider
             </label>
-            {providerMissing ? (
+            {providerMissing && !isMobile ? (
               <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
                 Pick a provider
               </span>

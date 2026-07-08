@@ -51,6 +51,7 @@ import {
   getOrCreateConversation as getOrCreateActiveConversation,
   mergeConversationOptions,
 } from "./conversation-store.js";
+import { getDbMigrationReadiness } from "./daemon-readiness.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
@@ -285,11 +286,33 @@ async function prepareConversationForMessage(
 // processMessage — main entry point for channel inbound + daemon callers
 // ---------------------------------------------------------------------------
 
+/**
+ * Defense-in-depth: never run a turn against a not-yet-migrated schema.
+ * The HTTP send path is already gated by dbMigrationUnavailableForPath, the
+ * IPC transport by dbMigrationGateResponse, and the background sweeps are
+ * deferred until migrations settle — but {@link processMessage} and
+ * {@link processMessageInBackground} are the two sinks every message caller
+ * funnels through (sweeps, scheduler, pointer, signal handlers, the
+ * conversation launcher), and the signal-file transport reaches them without
+ * passing either transport gate. Migrations run async during startup, so a
+ * caller can get here before the tables exist.
+ */
+function assertDbMigrationsReadyForTurn(): void {
+  const migrationReadiness = getDbMigrationReadiness();
+  if (!migrationReadiness.ready) {
+    throw new Error(
+      `Cannot process message: database migrations ${migrationReadiness.state}`,
+    );
+  }
+}
+
 export async function processMessage(
   conversationId: string,
   content: string,
   options?: ProcessMessageOptions,
 ): Promise<{ messageId: string; assistantMessageId?: string }> {
+  assertDbMigrationsReadyForTurn();
+
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
     content,
@@ -352,8 +375,8 @@ export async function processMessage(
       "user",
       serializePersistedUserMessageContent(
         content,
-        attachments,
         options?.displayContent,
+        attachments,
       ),
       { metadata: userMetaWithSlack },
     );
@@ -445,8 +468,8 @@ export async function processMessage(
       "user",
       serializePersistedUserMessageContent(
         content,
-        attachments,
         options?.displayContent,
+        attachments,
       ),
       { metadata: compactUserMeta },
     );
@@ -500,8 +523,8 @@ export async function processMessage(
       "user",
       serializePersistedUserMessageContent(
         content,
-        attachments,
         options?.displayContent,
+        attachments,
       ),
       { metadata: cleanUserMeta },
     );
@@ -583,6 +606,8 @@ export async function processMessageInBackground(
   content: string,
   options?: ProcessMessageOptions,
 ): Promise<{ messageId: string }> {
+  assertDbMigrationsReadyForTurn();
+
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
     content,

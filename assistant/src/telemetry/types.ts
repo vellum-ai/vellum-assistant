@@ -121,11 +121,11 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
 
 /**
  * Optional client metadata bag carried on `TurnTelemetryEvent.client`.
- * Sourced from `messages.metadata.client`, which is populated by HTTP
- * header middleware reading `x-vellum-browser-family`,
- * `x-vellum-browser-version`, `x-vellum-client-os`,
- * `x-vellum-interface-version`. Extensible without a schema change —
- * lives entirely in the JSON metadata column.
+ * Sourced from `messages.metadata.client`. Today only `os` is populated —
+ * stamped by `persistQueuedMessageBody` from the request body's `clientOs`
+ * field; the remaining fields are declared for clients that send them.
+ * Extensible without a schema change — lives entirely in the JSON metadata
+ * column.
  */
 export interface TurnTelemetryClientInfo {
   /** Browser family for `web`/`chrome-extension` interfaces: `"chrome"|"safari"|"firefox"|"edge"`. */
@@ -133,9 +133,11 @@ export interface TurnTelemetryClientInfo {
   /** Major browser version only (`"124"`, not the full UA string). */
   browser_version?: string;
   /**
-   * User's operating system at message time. For `web`/`chrome-extension`
-   * this comes from `navigator.userAgentData`; for `macos`/`ios` it's
-   * implicit from the interface, but clients may still send it explicitly.
+   * OS surface reported by the client at message time
+   * ("web" | "ios" | "macos" | "android"). The web, iOS, and macOS apps all
+   * run the same web renderer and report `interface_id: "web"` (the
+   * transport surface, which host-proxy capability gating keys off), so
+   * this field is the only per-platform attribution in turn telemetry.
    */
   os?: string;
   /**
@@ -207,9 +209,18 @@ export interface TurnTraceToolCall {
  * has no response. A coalesced batch's shared response lives on the batch's
  * final turn's window, where the daemon already attributes it.
  */
+/** Tool definition included in the trace — name, description, and full input
+ * schema so the trace shows exactly what the model had available. */
+export interface TurnTraceToolDefinition {
+  name: string;
+  description: string;
+  /** JSON schema describing the tool's input arguments. */
+  input_schema: Record<string, unknown>;
+}
+
 export interface TurnTrace {
   /** Shape version so the platform/dbt can evolve parsing without ambiguity. */
-  schema_version: 1;
+  schema_version: 2;
   /**
    * Ordered message rows for the turn (the user message first, then assistant
    * responses and any tool-result rows), oldest-first by `(created_at, id)`.
@@ -221,6 +232,20 @@ export interface TurnTrace {
    * which complements the inline tool_use/tool_result blocks in `messages`.
    */
   tool_calls: TurnTraceToolCall[];
+  /**
+   * The system prompt sent to the provider for this turn. Read from the live
+   * conversation's cached prompt at trace assembly time. Null when the
+   * conversation has been evicted from memory by the time the trace is
+   * assembled (e.g. after a daemon restart).
+   */
+  system_prompt: string | null;
+  /**
+   * Tool definitions available to the model for this turn — name,
+   * description, and full input schema, matching what the provider received.
+   * Read from the live conversation's last resolved tool set. Empty when the
+   * conversation has been evicted.
+   */
+  tool_definitions: TurnTraceToolDefinition[];
 }
 
 /** Turn event — one per user message. */
@@ -276,6 +301,38 @@ export interface TurnTelemetryEvent extends TelemetryEventBase {
    * middleware hasn't been wired to yet).
    */
   client: TurnTelemetryClientInfo | null;
+  /**
+   * Explicit abnormal turn outcome, stamped by the daemon at turn end:
+   *
+   * - `"batched"` — the user message was coalesced into a later turn's
+   *   shared response (`drainBatch`); its own window holds no assistant
+   *   message by design. `batched_into` identifies the turn that replied.
+   * - `"failed"` — the agent loop terminated in a non-cancellation error.
+   *   Includes turns whose only assistant output is the synthetic
+   *   provider-error message, so failure analytics don't need to
+   *   text-match error copy.
+   * - `"cancelled"` — the user cancelled the turn (stop / barge-in).
+   *
+   * Omitted when the turn replied normally, when the daemon predates
+   * outcome stamping, or when the process died mid-turn before a stamp
+   * could land — so `absent + no assistant message in trace` isolates the
+   * genuinely anomalous (crashed/unknown) turns.
+   */
+  outcome?: "batched" | "failed" | "cancelled";
+  /**
+   * For `outcome: "batched"` turns: the `daemon_event_id` of the
+   * batch-final turn whose window carries the shared response. Omitted
+   * otherwise.
+   */
+  batched_into?: string;
+  /**
+   * For `outcome: "failed"` turns: the stable classified error code
+   * (`classifyConversationError(...).code`, a `ConversationErrorCode`
+   * value like `"PROVIDER_RATE_LIMIT"` or `"MANAGED_USAGE_LIMIT"`). Never
+   * free-form error text. Omitted otherwise or when the failure had no
+   * classification.
+   */
+  failure_code?: string;
   /**
    * Full per-turn transcript (user message + assistant responses + tool
    * calls/results). Present ONLY when trace collection is enabled — the daemon

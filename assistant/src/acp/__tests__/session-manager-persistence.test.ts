@@ -75,6 +75,8 @@ function buildSessionWithFakeProcess(opts: {
     initialize: () => Promise.resolve(),
     createSession: () => Promise.resolve(opts.protocolSessionId),
     cancel: () => Promise.resolve(),
+    markStderr: () => 0,
+    stderrSince: () => "",
   };
 
   // Match spawn()'s wiring: pre-create the buffer and route emitted updates

@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 
-import { computeFit, type TreeNode } from "@/domains/intelligence/components/constellation-layout";
+import { computeFit, type PositionedNode } from "@/domains/intelligence/components/constellation-layout";
 
 import { MAX_ZOOM, MIN_ZOOM, VIRTUAL_CENTER, ZOOM_STEP } from "@/domains/intelligence/components/constellation-view/constants";
 
@@ -37,10 +37,10 @@ interface ViewportActions {
  * Manages all pan/zoom/drag viewport state for the constellation canvas.
  * Extracts ~150 lines of interaction logic from the main component.
  */
-export function useConstellationViewport(
+export function useConstellationViewport<T extends PositionedNode>(
   containerRef: RefObject<HTMLDivElement | null>,
-  nodes: TreeNode[],
-  nodeById: Map<string, TreeNode>,
+  nodes: readonly T[],
+  nodeById: Map<string, T>,
   onBackgroundPointerDown?: () => void,
 ): ViewportState & ViewportActions {
   const [viewSize, setViewSize] = useState({ width: 0, height: 0 });

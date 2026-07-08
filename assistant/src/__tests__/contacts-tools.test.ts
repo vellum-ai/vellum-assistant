@@ -33,6 +33,11 @@ mock.module("../config/env.js", () => ({
   getGatewayPort: () => 0,
 }));
 
+// Per-test override for the search_contacts IPC result. When set, cliIpcCall
+// returns it verbatim instead of dispatching to the store — used to inject
+// gateway-shaped payloads (e.g. a null interactionCount telemetry fail-soft).
+let searchContactsOverride: unknown[] | null = null;
+
 // Skill tools call cliIpcCall instead of the gateway HTTP.
 // Mock the IPC client to dispatch contact reads/merge to the real store
 // (backed by the test DB) without needing a running IPC server.
@@ -42,6 +47,9 @@ mock.module("../ipc/cli-client.js", () => ({
     const body = (params?.body ?? params ?? {}) as Record<string, unknown>;
     const pathParams = (params?.pathParams ?? {}) as Record<string, string>;
     if (method === "search_contacts") {
+      if (searchContactsOverride !== null) {
+        return { ok: true, result: searchContactsOverride };
+      }
       return { ok: true, result: store.searchContacts(body) };
     }
     if (method === "getContact") {
@@ -172,7 +180,40 @@ function upsertFixture(params: {
 // ── contact_search ──────────────────────────────────────────────────
 
 describe("contact_search tool", () => {
-  beforeEach(clearContacts);
+  beforeEach(() => {
+    searchContactsOverride = null;
+    clearContacts();
+  });
+
+  test("renders a null interactionCount without a false '>0' guard or a 'null' print", async () => {
+    // Defensive: the daemon-native path now defaults interactionCount to 0, but
+    // the ContactRead contract still permits null, so the tool must stay robust
+    // to a null — neither printing "Interactions: null" nor treating null as > 0
+    // (which would emit a bogus interactions line).
+    searchContactsOverride = [
+      {
+        id: "c-blank-telemetry",
+        displayName: "Telemetry Absent",
+        role: "contact",
+        notes: null,
+        contactType: "human",
+        lastInteraction: null,
+        interactionCount: null,
+        createdAt: 1699000000,
+        updatedAt: 1700000000,
+        channels: [],
+      },
+    ];
+
+    const result = await executeContactSearch({ query: "Telemetry" }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Telemetry Absent");
+    // The interactions line is suppressed entirely (guard is false), so neither
+    // the label nor a stringified "null" leaks into the summary.
+    expect(result.content).not.toContain("Interactions");
+    expect(result.content).not.toContain("null");
+  });
 
   test("searches by display name", async () => {
     upsertFixture({ display_name: "Alice Smith" });

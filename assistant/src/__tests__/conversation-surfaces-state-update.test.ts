@@ -29,7 +29,6 @@ function makeContext(opts?: {
 
   return {
     conversationId: "test-session",
-    traceEmitter: { emit: () => {} },
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<

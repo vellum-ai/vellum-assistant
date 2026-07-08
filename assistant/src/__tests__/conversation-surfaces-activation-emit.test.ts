@@ -63,7 +63,6 @@ function makeContext(
   const processMessageCalls: ProcessMessageCall[] = [];
   return {
     conversationId,
-    traceEmitter: { emit: () => {} },
     sendToClient: (msg: ServerMessage) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<

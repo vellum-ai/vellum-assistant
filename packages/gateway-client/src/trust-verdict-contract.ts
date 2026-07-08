@@ -16,6 +16,8 @@
 
 import { z } from "zod";
 
+import { AdmissionPolicySchema } from "./admission-policy-contract.js";
+
 /**
  * Verification-purpose trust classification. Mirrors the daemon's
  * `TrustClass` union (`actor-trust-resolver.ts`), ordered most- to
@@ -75,8 +77,20 @@ export const TrustVerdictSchema = z.object({
   status: z.string().optional(),
   policy: z.string().optional(),
   verifiedAt: z.number().nullable().optional(),
-  verifiedVia: z.string().nullable().optional(),
   memberDisplayName: z.string().optional(),
+
+  // Gateway-owned interaction telemetry (a trust signal, not an info field per
+  // the 2×2) — carried straight off the member `contact_channels` row.
+  // Present only when a member channel resolves; absent for unknown senders.
+  interactionCount: z.number().optional(),
+
+  // CHANNEL-scoped session-presence stamp: true ⇒ an interceptable
+  // (pending | pending_bootstrap | awaiting_response), non-expired
+  // verification session existed for this channel at resolution time.
+  // Not sender-scoped, so consumers may treat only `false` as authoritative
+  // (safe to skip session reads before minting a challenge); on true/absent
+  // they fall back to session reads for sender-scoped dedup.
+  hasInterceptableVerificationSession: z.boolean().optional(),
 });
 
 export type TrustVerdict = z.infer<typeof TrustVerdictSchema>;
@@ -94,9 +108,25 @@ export function makeResolutionFailedVerdict(
 }
 
 /**
+ * Downgraded verdict for an inbound sender whose channel identity could not be
+ * authenticated — e.g. an email whose `From:` failed SPF/DKIM/DMARC and so
+ * carries a spoofable address. A spoofable sender must never inherit
+ * guardian/trusted_contact trust from a matching address, so it is reduced to
+ * a plain `unknown` stranger: guardian and member/ACL fields are dropped so no
+ * residual trust is reconstructed downstream. Unlike
+ * {@link makeResolutionFailedVerdict} this is NOT `resolutionFailed` — the
+ * sender is a real stranger and should flow through the normal admission floor
+ * + verification lane, not the could-not-vouch soft-deny.
+ */
+export function makeUnauthenticatedSenderVerdict(
+  canonicalSenderId: string | null,
+): TrustVerdict {
+  return { trustClass: "unknown", canonicalSenderId };
+}
+
+/**
  * IPC request for `resolve_inbound_trust`. Per-actor identity keys the
- * gateway resolver needs to classify the inbound sender. The response reuses
- * {@link TrustVerdictSchema}.
+ * gateway resolver needs to classify the inbound sender.
  */
 export const ResolveInboundTrustRequestSchema = z.object({
   channelType: z.string().min(1),
@@ -105,4 +135,23 @@ export const ResolveInboundTrustRequestSchema = z.object({
 
 export type ResolveInboundTrustRequest = z.infer<
   typeof ResolveInboundTrustRequestSchema
+>;
+
+/**
+ * IPC response for `resolve_inbound_trust`. The channel admission policy is
+ * an ENVELOPE field, not a {@link TrustVerdictSchema} field: the verdict is
+ * also stamped on every text relay's `sourceMetadata`, which must not carry
+ * this voice-setup-only companion. `admissionPolicy: null` is the gateway's
+ * explicit "no enforcement configured" answer (an admit). The key is nullish
+ * for version skew: a pre-envelope gateway answers `{ verdict }` only, and a
+ * valid verdict must not be discarded over the missing companion — the
+ * consumer falls back to the standalone admission-policy read.
+ */
+export const ResolveInboundTrustResponseSchema = z.object({
+  verdict: TrustVerdictSchema,
+  admissionPolicy: AdmissionPolicySchema.nullish(),
+});
+
+export type ResolveInboundTrustResponse = z.infer<
+  typeof ResolveInboundTrustResponseSchema
 >;

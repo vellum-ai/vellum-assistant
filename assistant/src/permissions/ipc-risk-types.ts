@@ -39,6 +39,16 @@ export interface ClassificationResult {
   opaqueConstructs?: boolean;
   isComplexSyntax?: boolean;
   sandboxAutoApprove?: boolean;
+  /**
+   * Lexically-resolved path arguments from sandbox-auto-approve-eligible
+   * bash segments. The daemon resolves these through symlinks (via
+   * {@link isPathWithinWorkspaceRoot}) and overrides sandboxAutoApprove to
+   * false if any resolves outside the workspace. Closes the symlink-escape
+   * gap: the gateway's lexical check passes a path like
+   * `/workspace/escape/passwd` (symlink → `/etc/passwd`) because it cannot
+   * follow symlinks, but the daemon can.
+   */
+  sandboxPathArgs?: string[];
 }
 
 // ── Gateway request type ────────────────────────────────────────────────────
@@ -56,6 +66,8 @@ export interface FileContext {
   toolsDir: string;
   routesDir: string;
   workflowsDir: string;
+  /** Monitoring data dir — sentinel lives here, writes are code-injection risk. */
+  monitoringDir: string;
   actorTokenSigningKeyPath: string;
   skillSourceDirs: string[];
 }

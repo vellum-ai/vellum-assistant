@@ -414,6 +414,7 @@ export function migrateToolCreatedItems(): void {
   let rows: LegacyItem[];
   try {
     rows = rawAll<LegacyItem>(
+      "memoryGraph:migrateItems:select",
       `SELECT id, kind, subject, statement, confidence, importance, scope_id, first_seen_at
        FROM memory_items
        WHERE kind IN (${placeholders}) AND status = 'active'`,
@@ -445,6 +446,7 @@ export function migrateToolCreatedItems(): void {
     // Check if already migrated (sourceKey exists in graph)
     const sourceKey = `${prefix}${row.id}`;
     const existing = rawGet<{ id: string }>(
+      "memoryGraph:migrateItems:existing",
       `SELECT id FROM memory_graph_nodes WHERE source_conversations LIKE ?`,
       `%${sourceKey}%`,
     );
@@ -461,6 +463,7 @@ export function migrateToolCreatedItems(): void {
     });
 
     rawRun(
+      "memoryGraph:migrateItems:insert",
       `INSERT INTO memory_graph_nodes (
         id, content, type, created, last_accessed, last_consolidated,
         event_date, emotional_charge, fidelity, confidence, significance,

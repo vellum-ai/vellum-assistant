@@ -44,6 +44,7 @@ describe("migrateToolCreatedItems", () => {
     // recreate it for this test. We create a minimal version with just the
     // columns the migration reads.
     rawRun(
+      "test:createMemoryItemsTable",
       `CREATE TABLE IF NOT EXISTS memory_items (
         id TEXT PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -61,6 +62,7 @@ describe("migrateToolCreatedItems", () => {
     try {
       // Insert a legacy playbook item
       rawRun(
+        "test:insertLegacyItem",
         `INSERT INTO memory_items (id, kind, subject, statement, status, confidence, importance, scope_id, first_seen_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         "legacy-item-1",
@@ -76,6 +78,7 @@ describe("migrateToolCreatedItems", () => {
 
       // Clear the checkpoint so the migration re-runs
       rawRun(
+        "test:clearCheckpoint",
         "DELETE FROM memory_checkpoints WHERE key = ?",
         MIGRATE_ITEMS_CHECKPOINT,
       );
@@ -91,6 +94,7 @@ describe("migrateToolCreatedItems", () => {
         source_conversations: string;
         image_refs: string | null;
       }>(
+        "test:fetchGraphNode",
         `SELECT id, content, type, source_conversations, image_refs
          FROM memory_graph_nodes
          WHERE source_conversations LIKE ?`,
@@ -106,7 +110,7 @@ describe("migrateToolCreatedItems", () => {
       expect(node!.image_refs).toBeNull();
     } finally {
       // Clean up the recreated table so it does not interfere with other tests
-      rawRun("DROP TABLE IF EXISTS memory_items");
+      rawRun("test:dropMemoryItems", "DROP TABLE IF EXISTS memory_items");
     }
   });
 
@@ -117,6 +121,7 @@ describe("migrateToolCreatedItems", () => {
 
     // Recreate memory_items for legacy data
     rawRun(
+      "test:createMemoryItemsTable",
       `CREATE TABLE IF NOT EXISTS memory_items (
         id TEXT PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -136,16 +141,20 @@ describe("migrateToolCreatedItems", () => {
       // the pre-205 schema. SQLite doesn't support DROP COLUMN on all
       // versions, so we use the standard CREATE-new/INSERT-SELECT/DROP-old/
       // RENAME pattern.
-      rawRun(`CREATE TABLE memory_graph_nodes_backup AS
+      rawRun(
+        "test:backupGraphNodes",
+        `CREATE TABLE memory_graph_nodes_backup AS
         SELECT
           id, content, type, created, last_accessed, last_consolidated,
           event_date, emotional_charge, fidelity, confidence, significance,
           stability, reinforcement_count, last_reinforced,
           source_conversations, source_type, narrative_role, part_of_story,
           scope_id
-        FROM memory_graph_nodes`);
-      rawRun("DROP TABLE memory_graph_nodes");
+        FROM memory_graph_nodes`,
+      );
+      rawRun("test:dropGraphNodes", "DROP TABLE memory_graph_nodes");
       rawRun(
+        "test:createGraphNodes",
         `CREATE TABLE memory_graph_nodes (
           id                    TEXT PRIMARY KEY,
           content               TEXT NOT NULL,
@@ -169,19 +178,25 @@ describe("migrateToolCreatedItems", () => {
         )`,
       );
       rawRun(
+        "test:copyGraphNodes",
         `INSERT INTO memory_graph_nodes
          SELECT * FROM memory_graph_nodes_backup`,
       );
-      rawRun("DROP TABLE memory_graph_nodes_backup");
+      rawRun(
+        "test:dropGraphNodesBackup",
+        "DROP TABLE memory_graph_nodes_backup",
+      );
 
       // Clear checkpoint
       rawRun(
+        "test:clearCheckpoint",
         "DELETE FROM memory_checkpoints WHERE key = ?",
         MIGRATE_ITEMS_CHECKPOINT,
       );
 
       // Insert a legacy item
       rawRun(
+        "test:insertLegacyItem",
         `INSERT INTO memory_items (id, kind, subject, statement, status, confidence, importance, scope_id, first_seen_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         "legacy-item-2",
@@ -200,6 +215,7 @@ describe("migrateToolCreatedItems", () => {
 
       // Verify the row was migrated
       const node = rawGet<{ id: string; content: string }>(
+        "test:fetchMigratedNode",
         `SELECT id, content FROM memory_graph_nodes
          WHERE source_conversations LIKE ?`,
         "%style:legacy-item-2%",
@@ -207,10 +223,13 @@ describe("migrateToolCreatedItems", () => {
       expect(node).not.toBeNull();
       expect(node!.content).toBe("Formal tone\nAlways use formal language");
     } finally {
-      rawRun("DROP TABLE IF EXISTS memory_items");
+      rawRun("test:dropMemoryItems", "DROP TABLE IF EXISTS memory_items");
       // Restore the full schema for subsequent tests by re-adding image_refs
       try {
-        rawRun("ALTER TABLE memory_graph_nodes ADD COLUMN image_refs TEXT");
+        rawRun(
+          "test:addImageRefsColumn",
+          "ALTER TABLE memory_graph_nodes ADD COLUMN image_refs TEXT",
+        );
       } catch {
         // Column may already exist
       }
@@ -220,6 +239,7 @@ describe("migrateToolCreatedItems", () => {
   test("skips migration when checkpoint is already set", () => {
     // Recreate memory_items for legacy data
     rawRun(
+      "test:createMemoryItemsTable",
       `CREATE TABLE IF NOT EXISTS memory_items (
         id TEXT PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -239,6 +259,7 @@ describe("migrateToolCreatedItems", () => {
       setMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT, "done");
 
       rawRun(
+        "test:insertLegacyItem",
         `INSERT INTO memory_items (id, kind, subject, statement, status, confidence, importance, scope_id, first_seen_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         "legacy-item-3",
@@ -256,19 +277,23 @@ describe("migrateToolCreatedItems", () => {
       migrateToolCreatedItems();
 
       // Assert no rows were inserted into memory_graph_nodes
-      const rows = rawAll<{ id: string }>("SELECT id FROM memory_graph_nodes");
+      const rows = rawAll<{ id: string }>(
+        "test:listGraphNodeIds",
+        "SELECT id FROM memory_graph_nodes",
+      );
       expect(rows).toHaveLength(0);
     } finally {
-      rawRun("DROP TABLE IF EXISTS memory_items");
+      rawRun("test:dropMemoryItems", "DROP TABLE IF EXISTS memory_items");
     }
   });
 
   test("handles missing memory_items table gracefully", () => {
     // Ensure memory_items table does not exist
-    rawRun("DROP TABLE IF EXISTS memory_items");
+    rawRun("test:dropMemoryItems", "DROP TABLE IF EXISTS memory_items");
 
     // Clear the checkpoint so migration attempts to run
     rawRun(
+      "test:clearCheckpoint",
       "DELETE FROM memory_checkpoints WHERE key = ?",
       MIGRATE_ITEMS_CHECKPOINT,
     );
@@ -278,6 +303,7 @@ describe("migrateToolCreatedItems", () => {
 
     // The checkpoint should be set to "done" (migration handled the missing table)
     const checkpoint = rawGet<{ value: string }>(
+      "test:getCheckpoint",
       "SELECT value FROM memory_checkpoints WHERE key = ?",
       MIGRATE_ITEMS_CHECKPOINT,
     );

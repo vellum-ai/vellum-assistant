@@ -247,6 +247,8 @@ describe("RetryProvider — callSite resolution", () => {
         maxTokens: 32000,
       },
       // No `callSites.memoryRetrieval` entry.
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
 
     let seen: SendMessageOptions | undefined;
@@ -823,6 +825,58 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     expect(config.temperature).toBe(0.7);
   });
 
+  test("drops temperature for Vercel AI Gateway when fronting an `anthropic/*` model", async () => {
+    setLlmConfig({
+      default: {
+        provider: "vercel-ai-gateway",
+        model: "anthropic/claude-opus-4.6",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("vercel-ai-gateway", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent", temperature: 0.7 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("anthropic/claude-opus-4.6");
+    expect(config.temperature).toBeUndefined();
+  });
+
+  test("preserves temperature for Vercel AI Gateway when fronting a non-Anthropic model", async () => {
+    setLlmConfig({
+      default: {
+        provider: "vercel-ai-gateway",
+        model: "xai/grok-4.3",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("vercel-ai-gateway", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent", temperature: 0.7 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("xai/grok-4.3");
+    expect(config.temperature).toBe(0.7);
+  });
+
   test("guard does not fire when thinking has already been stripped by forced tool_choice", async () => {
     // `retry.ts` strips `thinking` when forced `tool_choice: { type: "tool" }`
     // is set on Anthropic — the guard runs after that step, so by the time
@@ -918,6 +972,60 @@ describe("RetryProvider — thinking/top_p conflict guard", () => {
     const config = seen?.config as Record<string, unknown>;
     expect(config.model).toBe("anthropic/claude-opus-4-7");
     expect(config.top_p).toBeUndefined();
+  });
+
+  test("drops top_p for Vercel AI Gateway when fronting an `anthropic/*` model", async () => {
+    setLlmConfig({
+      default: {
+        provider: "vercel-ai-gateway",
+        model: "anthropic/claude-opus-4.6",
+        thinking: { enabled: true, streamThinking: true },
+        topP: 0.9,
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("vercel-ai-gateway", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("anthropic/claude-opus-4.6");
+    expect(config.top_p).toBeUndefined();
+  });
+
+  test("preserves top_p for Vercel AI Gateway when fronting a non-Anthropic model", async () => {
+    setLlmConfig({
+      default: {
+        provider: "vercel-ai-gateway",
+        model: "xai/grok-4.3",
+        thinking: { enabled: true, streamThinking: true },
+        topP: 0.9,
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("vercel-ai-gateway", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("xai/grok-4.3");
+    expect(config.top_p).toBe(0.9);
   });
 
   test("preserves top_p when thinking is enabled on a non-Anthropic provider (fireworks)", async () => {

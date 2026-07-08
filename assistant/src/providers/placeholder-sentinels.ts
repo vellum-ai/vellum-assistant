@@ -32,7 +32,9 @@ const PLACEHOLDER_SENTINEL_BARE: ReadonlySet<string> = new Set(
 // control-stripping proxy can leave in its place.
 function stripLeadingEdgeNoise(text: string): string {
   let start = 0;
-  while (start < text.length && text.charCodeAt(start) <= 0x20) start += 1;
+  while (start < text.length && text.charCodeAt(start) <= 0x20) {
+    start += 1;
+  }
   return text.slice(start);
 }
 
@@ -40,7 +42,9 @@ function stripLeadingEdgeNoise(text: string): string {
 function stripSentinelEdgeNoise(text: string): string {
   const lead = stripLeadingEdgeNoise(text);
   let end = lead.length;
-  while (end > 0 && lead.charCodeAt(end - 1) <= 0x20) end -= 1;
+  while (end > 0 && lead.charCodeAt(end - 1) <= 0x20) {
+    end -= 1;
+  }
   return lead.slice(0, end);
 }
 
@@ -56,14 +60,20 @@ export function isPlaceholderSentinelText(text: string): boolean {
 }
 
 /**
- * True when `text` could still grow into a sentinel: once leading whitespace and
- * control noise is stripped, the remainder is a prefix of a bare sentinel (the
- * empty string included, so a buffer of pure edge noise is still held). The
- * streaming guard uses this to avoid flashing a sentinel — or an echo whose
- * `\x00` guard arrived as whitespace — on the live UI before completion.
+ * True when `text` could still grow into a sentinel — or already is one carrying
+ * trailing edge noise. Once whitespace and control bytes are stripped from BOTH
+ * edges, the remainder must be a prefix of a bare sentinel: the empty string
+ * (pure edge noise) and a complete sentinel (a prefix of itself, so
+ * `"<sentinel>\n"`) both qualify and stay held until block stop, where
+ * `isPlaceholderSentinelText` drops them. The streaming guard uses this to keep
+ * a sentinel — or an echo whose `\x00` guard arrived as whitespace — off the
+ * live UI before completion.
+ *
+ * Genuine content is never withheld: any non-whitespace byte breaks the prefix,
+ * extending the trimmed remainder past every bare form, so the buffer flushes.
  */
 export function couldBePlaceholderSentinelPrefix(text: string): boolean {
-  const normalized = stripLeadingEdgeNoise(text);
+  const normalized = stripSentinelEdgeNoise(text);
   return PLACEHOLDER_SENTINEL_BARE_FORMS.some((form) =>
     form.startsWith(normalized),
   );

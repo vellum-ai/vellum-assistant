@@ -567,13 +567,13 @@ export const ConversationMessageSchema = z.object({
   contentBlocks: z.array(ConversationContentBlockSchema).optional(),
   subagentNotification: ConversationSubagentNotificationSchema.optional(),
   acpNotification: ConversationAcpNotificationSchema.optional(),
-  /** Set on the persisted `<background_event source="background-tool">` wake a
-   *  backgrounded bash/host_bash run posts on completion. Like the subagent/ACP
-   *  notifications, the row stays in state (the LLM reads it) but is filtered
-   *  from the rendered transcript — the inline card carries the status. */
-  backgroundToolNotification: z.boolean().optional(),
+  /** Set on any persisted `<background_event source="...">` wake trigger row.
+   *  Like the subagent/ACP notifications, the row stays in state (the LLM reads
+   *  it) but is filtered from the rendered transcript — the user-facing wake
+   *  card carries the status. */
+  backgroundEventNotification: z.boolean().optional(),
   /** Structured completion of a backgrounded bash/host_bash run, stamped on the
-   *  same persisted background-event wake row as `backgroundToolNotification`.
+   *  same persisted background-event wake row as `backgroundEventNotification`.
    *  Lets the web reconstruct a terminal inline card after a daemon restart
    *  (the in-memory completed ring does not survive restarts). `id` equals the
    *  spawning tool call's `{backgrounded,id}` id. */

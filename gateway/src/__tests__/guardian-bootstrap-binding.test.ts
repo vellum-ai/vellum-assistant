@@ -54,7 +54,12 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 // and so we can assert it fired.
 const ipcMock = mock(async () => ({}));
 
+// Spread the actual module so untouched exports (IpcHandlerError,
+// IpcTransportError, ipcSuggestTrustRule) stay importable by later-loaded
+// files when suites share a bun process.
+const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
+  ...actualAssistantClient,
   ipcCallAssistant: ipcMock,
 }));
 
@@ -324,7 +329,7 @@ describe("createGuardianBinding id resolution (gateway reads)", () => {
     expect(result.channelId).toBe("claimable-channel");
   });
 
-  test("mints a fresh id for a brand-new guardian, written to both DBs", async () => {
+  test("mints a fresh id for a brand-new guardian, written to the gateway DB and mirrored via typed IPC", async () => {
     const result = await createGuardianBinding({
       channel: "slack",
       externalUserId: "U_FRESH",
@@ -343,14 +348,25 @@ describe("createGuardianBinding id resolution (gateway reads)", () => {
     expect(gwRows[0]!.id).toBe(result.channelId);
     expect(gwRows[0]!.contactId).toBe(result.contactId);
 
-    const asstRows = asstDb()
-      .query<
-        { id: string; contact_id: string },
-        []
-      >(`SELECT id, contact_id FROM contact_channels WHERE type = 'slack'`)
-      .all();
-    expect(asstRows).toEqual([
-      { id: result.channelId, contact_id: result.contactId },
+    // The assistant identity mirror is a single atomic contacts_mirror_apply
+    // op that reuses the gateway-minted contact + channel ids.
+    const applyCalls = (ipcMock.mock.calls as any[][]).filter(
+      (c) => c[0] === "contacts_mirror_apply",
+    );
+    expect(applyCalls).toHaveLength(1);
+    expect((applyCalls[0][1] as { body: { ops: unknown[] } }).body.ops).toEqual([
+      {
+        op: "upsert_channel",
+        contactId: result.contactId,
+        channelId: result.channelId,
+        type: "slack",
+        address: "U_FRESH",
+        externalChatId: "D_FRESH",
+        displayName: "Example User",
+        isPrimary: true,
+        refreshDisplayName: true,
+        reassignConflictingChannels: true,
+      },
     ]);
   });
 });

@@ -57,7 +57,7 @@ Hard invariants that the LLM cannot override:
 
 **Post-generation enforcement** (`decision-engine.ts`):
 
-- **Guardian question request-code enforcement** — `enforceGuardianRequestCode()` ensures request-code instructions (approve/reject or free-text answer) appear in all `guardian.question` notification copy, even when the LLM omits them.
+- **Guardian question request-code enforcement** — `enforceGuardianRequestCode()` ensures request-code instructions (approve/reject or free-text answer) appear in all `guardian.question` notification copy, even when the LLM omits them. Exception: for approval-mode questions the Slack adapter renders an interactive card with Approve/Reject buttons, so Slack copy is instead **stripped** of request-code instructions and bare code mentions (`stripGuardianRequestCodeInstructions()`).
 - **Access-request instruction enforcement** — `enforceAccessRequestInstructions()` validates that `ingress.access_request` copy contains: (1) the request-code approve/reject directive, (2) the exact "open invite flow" phrase. If any required element is missing, the full deterministic contract text is appended. This prevents model-generated copy from dropping security-critical action directives.
 
 **Pre-send gate checks** (`deterministic-checks.ts`) — these all depend on the decision, so they run here, after it:

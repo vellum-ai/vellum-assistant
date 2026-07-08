@@ -41,11 +41,28 @@ export interface AssistantAttachmentDraft {
 // ---------------------------------------------------------------------------
 
 /**
- * Estimate the decoded byte length of a base64-encoded string.
- * Accounts for trailing `=` padding characters.
+ * Decoded byte length of an image/file block's media payload.
+ *
+ * Given a raw base64 string, estimate the decoded length from its length and
+ * `=` padding. Given a media `source`, prefer its captured `sizeBytes`
+ * (`workspace_ref` blocks carry it) and otherwise estimate from inline `data`
+ * (legacy base64 blocks) — so callers get the byte size without caring which
+ * storage form the block uses.
  */
-export function estimateBase64Bytes(base64: string): number {
-  const trimmed = base64.replace(/\s/g, "");
+export function estimateBase64Bytes(base64: string): number;
+export function estimateBase64Bytes(
+  source: { data?: unknown; sizeBytes?: unknown } | null | undefined,
+): number;
+export function estimateBase64Bytes(
+  arg: string | { data?: unknown; sizeBytes?: unknown } | null | undefined,
+): number {
+  if (arg == null) return 0;
+  if (typeof arg !== "string") {
+    if (typeof arg.sizeBytes === "number") return arg.sizeBytes;
+    if (typeof arg.data === "string") return estimateBase64Bytes(arg.data);
+    return 0;
+  }
+  const trimmed = arg.replace(/\s/g, "");
   const padding = trimmed.endsWith("==") ? 2 : trimmed.endsWith("=") ? 1 : 0;
   return Math.max(0, Math.floor((trimmed.length * 3) / 4) - padding);
 }
@@ -261,18 +278,21 @@ export function parseDirectives(text: string): DirectiveParseResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Match markdown links with `vellum://workspace/` or `vellum://host/` URLs.
+ * Match markdown links with `vellum://workspace/` or `vellum://host/` URLs,
+ * in both plain (`[text](vellum://…)`) and image (`![alt](vellum://…)`) form.
  *
  * Captures:
- *   [1] = link text (filename)
- *   [2] = scheme authority: "workspace" or "host"
- *   [3] = path after the authority
+ *   [1] = optional leading `!` marking the image form (empty for plain links)
+ *   [2] = link text / image alt text (may be empty)
+ *   [3] = scheme authority: "workspace" or "host"
+ *   [4] = path after the authority
  *
  * The link text is NOT stripped from the assistant's message — unlike
  * `<vellum-attachment />` tags, the markdown link is valid user-facing
- * content that renders as a clickable download link.
+ * content that renders as a clickable download link or inline image.
  */
-const VELLUM_LINK_RE = /\[([^\]]+)\]\(vellum:\/\/(workspace|host)(\/[^)]*)\)/g;
+const VELLUM_LINK_RE =
+  /(!?)\[([^\]]*)\]\(vellum:\/\/(workspace|host)(\/[^)]*)\)/g;
 
 interface VellumLinkExtractResult {
   directiveRequests: DirectiveRequest[];
@@ -303,9 +323,15 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
 
   let m: RegExpExecArray | null;
   while ((m = VELLUM_LINK_RE.exec(text)) != null) {
-    const linkText = m[1]!;
-    const authority = m[2]!;
-    const rawPath = m[3]!;
+    const isImage = m[1] === "!";
+    const linkText = m[2]!;
+    const authority = m[3]!;
+    const rawPath = m[4]!;
+
+    // For image links (`![alt](vellum://…)`) the bracket text is a
+    // description, not a filename, so it must not override the resolved
+    // basename. Plain links keep their text as the attachment filename.
+    const filename = isImage ? undefined : linkText || undefined;
 
     const decodedPath = safeDecodePath(rawPath);
     if (decodedPath === null) {
@@ -329,7 +355,7 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
       directiveRequests.push({
         source: "sandbox",
         path,
-        filename: linkText || undefined,
+        filename,
         mimeType: undefined,
       });
     } else {
@@ -343,7 +369,7 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
       directiveRequests.push({
         source: "host",
         path: decodedPath,
-        filename: linkText || undefined,
+        filename,
         mimeType: undefined,
       });
     }
@@ -353,12 +379,14 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
 }
 
 /**
- * Replace `[text](vellum://...)` markdown links with their link text.
- * Used to sanitize text before channel delivery (Slack, Telegram, etc.)
- * where the `vellum://` scheme has no meaning.
+ * Replace `[text](vellum://...)` and `![alt](vellum://...)` markdown links with
+ * their bracket text. Used to sanitize text before channel delivery (Slack,
+ * Telegram, etc.) where the `vellum://` scheme has no meaning. The image form's
+ * leading `!` is dropped so the result is just the alt text (empty when the alt
+ * text is empty).
  */
 export function stripVellumLinks(text: string): string {
-  return text.replace(VELLUM_LINK_RE, "$1");
+  return text.replace(VELLUM_LINK_RE, "$2");
 }
 
 /** Regex fragment matching any prefix of `literal`, including empty and full. */
@@ -371,12 +399,16 @@ function anyPrefixOf(literal: string): string {
 }
 
 /**
- * A `[label](vellum://…)` link still being assembled at the end of the text: an
- * opening `[` whose remainder is a prefix of the full link grammar and has not
- * reached its closing `)`. Matched only when it runs to the end of the string.
+ * A `[label](vellum://…)` or `![alt](vellum://…)` link still being assembled at
+ * the end of the text: an optional leading `!` and opening `[` whose remainder
+ * is a prefix of the full link grammar and has not reached its closing `)`.
+ * A lone trailing `!` also matches, since it may be the first character of an
+ * image link whose `[` has not yet streamed in — withholding it prevents a
+ * stray `!` leaking to append-only sinks ahead of the alt text. Matched only
+ * when it runs to the end of the string.
  */
 const INCOMPLETE_VELLUM_LINK_TAIL_RE = new RegExp(
-  "\\[[^\\]]*" +
+  "(?:!?\\[[^\\]]*" +
     "(?:\\]" +
     "(?:\\(" +
     anyPrefixOf("vellum://") +
@@ -385,7 +417,8 @@ const INCOMPLETE_VELLUM_LINK_TAIL_RE = new RegExp(
     "(?:/[^)]*)?" +
     ")?" +
     ")?" +
-    ")?$",
+    ")?" +
+    "|!)$",
 );
 
 /**

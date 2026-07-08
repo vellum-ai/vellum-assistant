@@ -4,102 +4,6 @@ info:
   version: 1.0.0 (v1)
   description: Documentation of API endpoints of vellum-assistant-platform
 paths:
-  /v1/admin/assistants/{assistant_id}/doctor/history/:
-    get:
-      operationId: admin_assistants_doctor_history_list
-      description: List persisted Doctor sessions for any hosted assistant.
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      - in: path
-        name: assistant_id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      - name: limit
-        required: false
-        in: query
-        description: Number of results to return per page.
-        schema:
-          type: integer
-      - name: offset
-        required: false
-        in: query
-        description: The initial index from which to return the results.
-        schema:
-          type: integer
-      tags:
-      - admin
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PaginatedDoctorSessionListList'
-          description: ''
-        '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
-  /v1/admin/assistants/{assistant_id}/doctor/history/{doctor_session_id}/:
-    get:
-      operationId: admin_assistants_doctor_history_retrieve
-      description: Return a persisted Doctor session for any hosted assistant.
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      - in: path
-        name: assistant_id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      - in: path
-        name: doctor_session_id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      tags:
-      - admin
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DoctorSessionDetail'
-          description: ''
-        '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
   /v1/admin/assistants/{assistant_id}/doctor/sessions/:
     post:
       operationId: admin_assistants_doctor_sessions_create
@@ -1509,10 +1413,13 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
-  /v1/assistants/{assistant_id}/model-profiles/:
-    get:
-      operationId: assistants_model_profiles_list
-      description: Return the platform's managed default model profiles.
+  /v1/assistants/{assistant_id}/managed-speech/stt/transcribe/:
+    post:
+      operationId: assistants_managed_speech_stt_transcribe_create
+      description: Transcribe pre-recorded audio through Vellum's managed Deepgram
+        speech-to-text proxy. Vellum validates the request, checks billing eligibility,
+        calls Deepgram with managed credentials, bills the transcribed duration, and
+        returns the transcript.
       parameters:
       - in: path
         name: assistant_id
@@ -1522,6 +1429,18 @@ paths:
         required: true
       tags:
       - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechSTTRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechSTTRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ManagedSpeechSTTRequestRequest'
+        required: true
       security:
       - AssistantAPIKey: []
       responses:
@@ -1529,7 +1448,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ManagedProfilesResponse'
+                $ref: '#/components/schemas/ManagedSpeechSTTResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '402':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedSpeechErrorResponse'
           description: ''
       x-vellum-api-clients:
       - platform
@@ -4200,6 +4149,71 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/low-balance-alert/:
+    get:
+      operationId: organizations_billing_low_balance_alert_retrieve
+      description: Return the per-org override (or null), effective, and default values.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LowBalanceAlertResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    put:
+      operationId: organizations_billing_low_balance_alert_update
+      description: Set (or clear, via null) the per-org low-balance threshold override.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LowBalanceAlertRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LowBalanceAlertRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LowBalanceAlertRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LowBalanceAlertResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/plans/:
     get:
       operationId: organizations_billing_plans_retrieve
@@ -4581,6 +4595,7 @@ paths:
       - VellumAPIKey: []
       - cookieAuth: []
       - XSessionTokenAuth: []
+      - AssistantAPIKey: []
       responses:
         '200':
           content:
@@ -5193,6 +5208,120 @@ paths:
         '404':
           description: No response body
         '409':
+          description: No response body
+      x-vellum-api-clients:
+      - platform
+  /v1/user/mfa/factors/:
+    get:
+      operationId: user_mfa_factors_list
+      tags:
+      - user
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MfaFactor'
+          description: ''
+        '429':
+          description: No response body
+        '502':
+          description: No response body
+      x-vellum-api-clients:
+      - platform
+    post:
+      operationId: user_mfa_factors_create
+      tags:
+      - user
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MfaEnrollResponse'
+          description: ''
+        '400':
+          description: No response body
+        '409':
+          description: No response body
+        '429':
+          description: No response body
+        '502':
+          description: No response body
+      x-vellum-api-clients:
+      - platform
+  /v1/user/mfa/factors/{id}/:
+    delete:
+      operationId: user_mfa_factors_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        description: The authentication factor id.
+        required: true
+      tags:
+      - user
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '204':
+          description: No response body
+        '404':
+          description: No response body
+        '429':
+          description: No response body
+        '502':
+          description: No response body
+      x-vellum-api-clients:
+      - platform
+  /v1/user/mfa/factors/verify/:
+    post:
+      operationId: user_mfa_factors_verify_create
+      tags:
+      - user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MfaVerifyRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MfaVerifyRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MfaVerifyRequestRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MfaVerifyResponse'
+          description: ''
+        '400':
+          description: No response body
+        '404':
+          description: No response body
+        '409':
+          description: No response body
+        '410':
+          description: No response body
+        '429':
+          description: No response body
+        '502':
           description: No response body
       x-vellum-api-clients:
       - platform
@@ -6154,6 +6283,11 @@ components:
           type: integer
           readOnly: true
           description: Monotonic per-session ordering, allocated atomically on write.
+        source_event_id:
+          type: string
+          readOnly: true
+          nullable: true
+          description: Optional upstream Doctor event ID used for idempotent replay.
         occurred_at:
           type: string
           format: date-time
@@ -6166,6 +6300,7 @@ components:
       - metadata
       - occurred_at
       - sequence
+      - source_event_id
     DoctorMessageKindEnum:
       enum:
       - user
@@ -6366,6 +6501,10 @@ components:
         content:
           type: string
           minLength: 1
+        source_event_id:
+          type: string
+          nullable: true
+          maxLength: 128
       required:
       - content
     DoctorSessionStatusEnum:
@@ -6642,6 +6781,31 @@ components:
       required:
       - expiresAt
       - token
+    LowBalanceAlertRequestRequest:
+      type: object
+      description: PUT /…/low-balance-alert/ request body. ``null`` clears the override.
+      properties:
+        threshold_usd:
+          type: string
+          nullable: true
+          minLength: 1
+      required:
+      - threshold_usd
+    LowBalanceAlertResponse:
+      type: object
+      description: GET/PUT /…/low-balance-alert/ response shape.
+      properties:
+        threshold_usd:
+          type: string
+          nullable: true
+        effective_threshold_usd:
+          type: string
+        default_threshold_usd:
+          type: string
+      required:
+      - default_threshold_usd
+      - effective_threshold_usd
+      - threshold_usd
     MachineSizeEnum:
       enum:
       - small
@@ -6702,72 +6866,6 @@ components:
       required:
       - debug_pod_name
       - enabled
-    ManagedProfile:
-      type: object
-      properties:
-        key:
-          type: string
-        intent:
-          type: string
-        provider:
-          type: string
-        connection_name:
-          type: string
-        source:
-          type: string
-        label:
-          type: string
-        description:
-          type: string
-        max_tokens:
-          type: integer
-        effort:
-          type: string
-        thinking:
-          $ref: '#/components/schemas/ManagedProfileThinking'
-        context_window:
-          $ref: '#/components/schemas/ManagedProfileContextWindow'
-      required:
-      - connection_name
-      - context_window
-      - description
-      - effort
-      - intent
-      - key
-      - label
-      - max_tokens
-      - provider
-      - source
-      - thinking
-    ManagedProfileContextWindow:
-      type: object
-      properties:
-        max_input_tokens:
-          type: integer
-      required:
-      - max_input_tokens
-    ManagedProfileThinking:
-      type: object
-      properties:
-        enabled:
-          type: boolean
-        stream_thinking:
-          type: boolean
-      required:
-      - enabled
-      - stream_thinking
-    ManagedProfilesResponse:
-      type: object
-      properties:
-        schema_version:
-          type: integer
-        profiles:
-          type: array
-          items:
-            $ref: '#/components/schemas/ManagedProfile'
-      required:
-      - profiles
-      - schema_version
     ManagedSearchProxyErrorResponse:
       type: object
       properties:
@@ -6819,6 +6917,125 @@ components:
       - body
       - headers
       - status
+    ManagedSpeechErrorResponse:
+      type: object
+      description: Error envelope shared by the managed speech STT/TTS endpoints.
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+      required:
+      - code
+      - detail
+    ManagedSpeechSTTRequestRequest:
+      type: object
+      description: Request body for the managed speech STT (speech-to-text) endpoint.
+      properties:
+        audioBase64:
+          type: string
+          minLength: 1
+        mimeType:
+          type: string
+          minLength: 1
+        source:
+          type: string
+      required:
+      - audioBase64
+      - mimeType
+    ManagedSpeechSTTResponse:
+      type: object
+      description: Response body for the managed speech STT endpoint.
+      properties:
+        text:
+          type: string
+        providerId:
+          type: string
+        model:
+          type: string
+        durationSeconds:
+          type: number
+          format: double
+      required:
+      - durationSeconds
+      - model
+      - providerId
+      - text
+    MfaEnrollResponse:
+      type: object
+      properties:
+        factor_id:
+          type: string
+        challenge_id:
+          type: string
+        qr_code:
+          type: string
+        secret:
+          type: string
+        uri:
+          type: string
+        issuer:
+          type: string
+        user:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - challenge_id
+      - created_at
+      - factor_id
+      - issuer
+      - qr_code
+      - secret
+      - uri
+      - user
+    MfaFactor:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        issuer:
+          type: string
+        user:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - id
+      - issuer
+      - type
+      - updated_at
+      - user
+    MfaVerifyRequestRequest:
+      type: object
+      properties:
+        challenge_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        code:
+          type: string
+          minLength: 1
+          maxLength: 6
+          pattern: ^\d{6}$
+      required:
+      - challenge_id
+      - code
+    MfaVerifyResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+      required:
+      - valid
     ModeEnum:
       enum:
       - restore_backup

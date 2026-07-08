@@ -144,9 +144,6 @@ function createMockDeps(
     ctx: {
       conversationId: "test-session-id",
       provider: { name: "anthropic" },
-      traceEmitter: {
-        emit: () => {},
-      },
       streamThinking: false,
       emitActivityState: (
         phase: string,

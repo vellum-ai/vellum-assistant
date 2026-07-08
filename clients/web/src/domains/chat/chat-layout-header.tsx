@@ -80,12 +80,8 @@ export function ChatLayoutHeader({
       }`}
       style={{
         background: "var(--surface-base)",
-        minHeight: electron
-          ? "44px"
-          : "calc(40px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
-        paddingTop: electron
-          ? 0
-          : "calc(16px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
+        minHeight: electron ? "44px" : "40px",
+        paddingTop: electron ? 0 : undefined,
       }}
     >
       <div

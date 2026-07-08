@@ -102,6 +102,18 @@
       "license": "MIT"
     },
     {
+      "name": "cofounder",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/cofounder",
+        "ref": "9c7d8febcd3bd2c04d7e063724383046ae88ce78"
+      },
+      "description": "AI co-founder that remembers your company context, challenges your thinking, and tracks your decisions.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/cofounder",
+      "license": "MIT"
+    },
+    {
       "name": "git-workflow",
       "source": {
         "source": "github",
@@ -147,6 +159,102 @@
       "description": "Fitness and nutrition companion. Logs meals, workouts, and weight; looks up nutrition data from OpenFoodFacts; calculates macro targets; and injects daily fitness context into every conversation.",
       "category": "health",
       "homepage": "https://github.com/vellum-ai/fitness-companion",
+      "license": "MIT"
+    },
+    {
+      "name": "motion-design",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/motion-design",
+        "ref": "9cdc798c26e0141dcdf6887d7707559c38bfe00e"
+      },
+      "description": "Teaches the assistant to build polished UI animations with Motion (motion.dev) for React: animated product mockups, chat replays, typing effects, and staggered reveals, with a complete animated chat example included.",
+      "category": "creative",
+      "homepage": "https://github.com/vellum-ai/motion-design",
+      "license": "MIT"
+    },
+    {
+      "name": "travel-planner",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/travel-planner",
+        "ref": "10c2c4878b017997cb6766b8204b9803c56bc6cf"
+      },
+      "description": "A travel EA for your assistant. Remembers how you travel (carrier, miles, hotel budget, card benefits), keeps per-trip records, watches Gmail for booking changes, syncs your calendar, and emails an EA-style trip brief 48 hours before departure.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/AnitaKirkovska/travel-planner",
+      "license": "MIT"
+    },
+    {
+      "name": "astrology-horoscope",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/astrology-horoscope",
+        "ref": "d226ce2e0a021e12cbf89ca7313f7c76a0bd8e39"
+      },
+      "description": "Western tropical natal chart and transit computation. Local ephemeris (astronomy-engine, no API keys) for planet positions, ascendant/midheaven, whole-sign houses, and aspects, plus a natal-reading skill that interprets the raw chart into a readable report.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/astrology-horoscope",
+      "license": "MIT"
+    },
+    {
+      "name": "polyglot",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/polyglot",
+        "ref": "ab607b7c60b64b0ac5c6bf01609840a004cfd002"
+      },
+      "description": "Ambient language acquisition through your assistant. Three graduated modes (practice, ambient, immersive) weave a target language into your real conversations, with SM-2 spaced repetition, error-pattern tracking, and CEFR level history.",
+      "category": "education",
+      "homepage": "https://github.com/vellum-ai/polyglot",
+      "license": "MIT"
+    },
+    {
+      "name": "amex-perk-reminder",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/amex-perk-reminder",
+        "ref": "48649b3e9f5c37153c7a8b2887a740eadd7c0b1e"
+      },
+      "description": "Track every credit on the Amex cards you hold (Platinum, Gold, Business Platinum, Delta Gold/Platinum/Reserve) with status-aware reminders before any window closes.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/AnitaKirkovska/amex-perk-reminder",
+      "license": "MIT"
+    },
+    {
+      "name": "google-drive-search",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/google-drive-search",
+        "ref": "ddd5013477cc1ec8d1fb174db6b599dbfe1cca21"
+      },
+      "description": "Local full-text search across your Google Drive. Indexes file metadata and document content into SQLite FTS5 for instant, private search.",
+      "category": "productivity",
+      "homepage": "https://github.com/ZeebBoyBlue/google-drive-search",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "coffee-aficionado",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/coffee-aficionado",
+        "ref": "b37a0b5adc2bda5559d3b21abe38e436093c1ff3"
+      },
+      "description": "Find great coffee beans and machines matched to your taste profile, budget, and kitchen. Persistent memory learns your preferences over time.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/coffee-aficionado",
+      "license": "MIT"
+    },
+    {
+      "name": "plant-doctor",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/plant-doctor",
+        "ref": "1115ac07a5b7f731600f037b743e011a84bd0597"
+      },
+      "description": "Diagnose plants from photos. Identifies the species, assesses health with visible evidence, and returns a care plan. Named plants get a persistent checkup history so you can track whether they are improving.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/plant-doctor",
       "license": "MIT"
     }
   ]

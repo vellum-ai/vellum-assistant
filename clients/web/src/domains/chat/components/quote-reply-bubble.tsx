@@ -3,12 +3,11 @@
  * selection. Displays the quoted passage and a text input for the user's
  * reply, with two actions:
  *
+ * - **Cancel** — dismisses the bubble without staging anything.
  * - **Add to Chat** — stages the quote+reply for inclusion in the next
  *   message the user sends from the composer.
- * - **Send Now** — immediately sends only the quote+reply as a new message.
  */
 
-import { MessageSquareQuote, Send, X } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
@@ -16,8 +15,6 @@ import {
   useRef,
   useState,
 } from "react";
-
-import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import {
   Button,
   Card,
@@ -25,12 +22,19 @@ import {
   Textarea,
   Typography,
 } from "@vellumai/design-library";
+import {
+  quoteBlockquoteAccentClassName,
+  quoteBlockquoteClassName,
+  quoteBlockquoteContentClassName,
+} from "@vellumai/design-library/components/markdown-message";
+
+import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 interface QuoteReplyBubbleProps {
-  onSendNow: (quotedText: string, replyText: string) => void;
+  onAddToChat?: () => void;
 }
 
-export function QuoteReplyBubble({ onSendNow }: QuoteReplyBubbleProps) {
+export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
   const replyBubble = useQuoteReplyStore.use.replyBubble();
   const closeReplyBubble = useQuoteReplyStore.use.closeReplyBubble();
   const addStagedQuote = useQuoteReplyStore.use.addStagedQuote();
@@ -57,15 +61,9 @@ export function QuoteReplyBubble({ onSendNow }: QuoteReplyBubbleProps) {
       replyText: replyText.trim(),
       sourceMessageId: replyBubble.sourceMessageId,
     });
-  }, [replyBubble, replyText, addStagedQuote]);
-
-  const handleSendNow = useCallback(() => {
-    if (!replyBubble || !replyText.trim()) {
-      return;
-    }
-    onSendNow(replyBubble.quotedText, replyText.trim());
+    onAddToChat?.();
     closeReplyBubble();
-  }, [replyBubble, replyText, onSendNow, closeReplyBubble]);
+  }, [replyBubble, replyText, addStagedQuote, onAddToChat, closeReplyBubble]);
 
   const handleKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
@@ -73,12 +71,8 @@ export function QuoteReplyBubble({ onSendNow }: QuoteReplyBubbleProps) {
         e.preventDefault();
         handleAddToChat();
       }
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        handleSendNow();
-      }
     },
-    [handleAddToChat, handleSendNow],
+    [handleAddToChat],
   );
 
   if (!replyBubble) {
@@ -113,9 +107,10 @@ export function QuoteReplyBubble({ onSendNow }: QuoteReplyBubbleProps) {
         side="top"
         align="center"
         sideOffset={8}
+        collisionPadding={12}
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="w-[360px] rounded-xl bg-transparent p-0 shadow-none"
+        className="w-[360px] rounded-xl bg-transparent p-0 shadow-none touch-mobile:w-[calc(100vw-24px)]"
       >
         <Card.Root
           padding="sm"
@@ -124,32 +119,18 @@ export function QuoteReplyBubble({ onSendNow }: QuoteReplyBubbleProps) {
           className="bg-[var(--surface-base)] shadow-lg"
         >
           <Card.Body padding="sm" className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <Typography
-                as="div"
-                variant="body-small-default"
-                className="flex min-w-0 items-center gap-1.5 text-[var(--content-tertiary)]"
-              >
-                <MessageSquareQuote className="h-3.5 w-3.5 shrink-0" />
-                <span>Quote &amp; Reply</span>
-              </Typography>
-              <Popover.Close asChild>
-                <Button
-                  variant="ghost"
-                  size="compact"
-                  iconOnly={<X />}
-                  expandOnMobile={false}
-                  aria-label="Close reply"
-                />
-              </Popover.Close>
-            </div>
-
             <Typography
               as="div"
               variant="body-small-default"
-              className="rounded-lg border-l-2 border-[var(--border-active)] bg-[var(--surface-lift)] px-3 py-2 text-[var(--content-secondary)]"
+              className={`${quoteBlockquoteClassName} mb-0`}
             >
-              {truncatedQuote}
+              <span
+                aria-hidden="true"
+                className={quoteBlockquoteAccentClassName}
+              />
+              <span className={`${quoteBlockquoteContentClassName} italic`}>
+                {truncatedQuote}
+              </span>
             </Typography>
 
             <Textarea
@@ -163,23 +144,21 @@ export function QuoteReplyBubble({ onSendNow }: QuoteReplyBubbleProps) {
               className="min-h-[64px] resize-none text-body-small-default"
             />
 
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex items-center justify-between gap-2">
               <Button
                 variant="outlined"
+                size="compact"
+                onClick={closeReplyBubble}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
                 size="compact"
                 onClick={handleAddToChat}
                 disabled={!replyText.trim()}
               >
                 Add to Chat
-              </Button>
-              <Button
-                variant="primary"
-                size="compact"
-                onClick={handleSendNow}
-                disabled={!replyText.trim()}
-                rightIcon={<Send />}
-              >
-                Send Now
               </Button>
             </div>
           </Card.Body>

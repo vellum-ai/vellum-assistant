@@ -1,8 +1,12 @@
 import { createAssistantMessage } from "../../agent/message-types.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
-import { addMessage } from "../../persistence/conversation-crud.js";
+import {
+  addMessage,
+  recordConversationPersistedSeq,
+} from "../../persistence/conversation-crud.js";
 import type { Message } from "../../providers/types.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
+import { getCurrentSeq } from "../assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../sync/resource-sync-events.js";
 
 // ---------------------------------------------------------------------------
@@ -39,7 +43,8 @@ export function emitCannedMessageComplete(
  * agent loop (the /compact, /clean, and summarize-up-to result cards) — and
  * emit the turn-style events clients expect for it: the full text as a single
  * `assistant_text_delta`, `message_complete` with the persisted assistant id,
- * and the messages-changed sync invalidation.
+ * the persisted-seq anchor advance (so a stale /messages reseed cannot erase
+ * the card), and the messages-changed sync invalidation.
  *
  * Callers that interleave other broadcasts between the persist and the
  * delta (the canned greeting and unknown-slash-command paths defer their
@@ -72,5 +77,6 @@ export async function persistCannedAssistantCard(opts: {
     conversationId,
     persistedAssistant.id,
   );
+  recordConversationPersistedSeq(conversationId, getCurrentSeq());
   publishConversationMessagesChanged(conversationId, originClientId);
 }

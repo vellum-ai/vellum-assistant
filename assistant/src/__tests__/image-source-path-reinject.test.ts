@@ -1,14 +1,21 @@
 import { describe, expect, test } from "bun:test";
 
-import { reinjectImageSourcePaths } from "../daemon/conversation-lifecycle.js";
+import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
+import { createUserMessage } from "../agent/message-types.js";
+import { reinjectAttachmentPathAnnotations } from "../daemon/conversation-lifecycle.js";
+import {
+  extractAttachmentStoredPaths,
+  extractImageSourcePaths,
+} from "../persistence/conversation-crud.js";
 import type { ContentBlock } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
-// reinjectImageSourcePaths — re-inject [Attached image source: /path]
-// annotations when loading conversation history from DB
+// reinjectAttachmentPathAnnotations — re-inject attachment path annotations
+// (image source paths + resolved stored paths) when loading conversation
+// history from DB
 // ---------------------------------------------------------------------------
 
-describe("reinjectImageSourcePaths", () => {
+describe("reinjectAttachmentPathAnnotations", () => {
   const baseContent: ContentBlock[] = [
     { type: "text", text: "what is this?" },
     {
@@ -21,7 +28,11 @@ describe("reinjectImageSourcePaths", () => {
     const metadata = JSON.stringify({
       imageSourcePaths: { "photo.jpg": "/Users/me/Desktop/photo.jpg" },
     });
-    const result = reinjectImageSourcePaths(baseContent, "user", metadata);
+    const result = reinjectAttachmentPathAnnotations(
+      baseContent,
+      "user",
+      metadata,
+    );
 
     expect(result).toHaveLength(3);
     const annotation = result[2] as { type: "text"; text: string };
@@ -35,7 +46,11 @@ describe("reinjectImageSourcePaths", () => {
     const metadata = JSON.stringify({
       imageSourcePaths: { "photo.jpg": "/Users/me/Desktop/photo.jpg" },
     });
-    const result = reinjectImageSourcePaths(baseContent, "assistant", metadata);
+    const result = reinjectAttachmentPathAnnotations(
+      baseContent,
+      "assistant",
+      metadata,
+    );
 
     // Should return the original content unchanged
     expect(result).toBe(baseContent);
@@ -43,7 +58,7 @@ describe("reinjectImageSourcePaths", () => {
   });
 
   test("returns content unchanged when metadata is null", () => {
-    const result = reinjectImageSourcePaths(baseContent, "user", null);
+    const result = reinjectAttachmentPathAnnotations(baseContent, "user", null);
     expect(result).toBe(baseContent);
     expect(result).toHaveLength(2);
   });
@@ -52,7 +67,11 @@ describe("reinjectImageSourcePaths", () => {
     const metadata = JSON.stringify({
       userMessageChannel: "desktop",
     });
-    const result = reinjectImageSourcePaths(baseContent, "user", metadata);
+    const result = reinjectAttachmentPathAnnotations(
+      baseContent,
+      "user",
+      metadata,
+    );
     expect(result).toBe(baseContent);
     expect(result).toHaveLength(2);
   });
@@ -61,7 +80,11 @@ describe("reinjectImageSourcePaths", () => {
     const metadata = JSON.stringify({
       imageSourcePaths: {},
     });
-    const result = reinjectImageSourcePaths(baseContent, "user", metadata);
+    const result = reinjectAttachmentPathAnnotations(
+      baseContent,
+      "user",
+      metadata,
+    );
     expect(result).toBe(baseContent);
     expect(result).toHaveLength(2);
   });
@@ -73,7 +96,11 @@ describe("reinjectImageSourcePaths", () => {
         "b.png": "/path/to/b.png",
       },
     });
-    const result = reinjectImageSourcePaths(baseContent, "user", metadata);
+    const result = reinjectAttachmentPathAnnotations(
+      baseContent,
+      "user",
+      metadata,
+    );
 
     expect(result).toHaveLength(3);
     const annotation = result[2] as { type: "text"; text: string };
@@ -84,7 +111,7 @@ describe("reinjectImageSourcePaths", () => {
   });
 
   test("gracefully handles malformed metadata JSON", () => {
-    const result = reinjectImageSourcePaths(
+    const result = reinjectAttachmentPathAnnotations(
       baseContent,
       "user",
       "not-valid-json{{{",
@@ -102,7 +129,11 @@ describe("reinjectImageSourcePaths", () => {
         "also_bad.jpg": null,
       },
     });
-    const result = reinjectImageSourcePaths(baseContent, "user", metadata);
+    const result = reinjectAttachmentPathAnnotations(
+      baseContent,
+      "user",
+      metadata,
+    );
 
     expect(result).toHaveLength(3);
     const annotation = result[2] as { type: "text"; text: string };
@@ -118,7 +149,11 @@ describe("reinjectImageSourcePaths", () => {
         "also_bad.jpg": null,
       },
     });
-    const result = reinjectImageSourcePaths(baseContent, "user", metadata);
+    const result = reinjectAttachmentPathAnnotations(
+      baseContent,
+      "user",
+      metadata,
+    );
     expect(result).toBe(baseContent);
     expect(result).toHaveLength(2);
   });
@@ -127,10 +162,116 @@ describe("reinjectImageSourcePaths", () => {
     const metadata = JSON.stringify({
       imageSourcePaths: { "photo.jpg": "/path/photo.jpg" },
     });
-    const result = reinjectImageSourcePaths(baseContent, "user", metadata);
+    const result = reinjectAttachmentPathAnnotations(
+      baseContent,
+      "user",
+      metadata,
+    );
 
     // First two blocks should be identical to the originals
     expect(result[0]).toEqual(baseContent[0]);
     expect(result[1]).toEqual(baseContent[1]);
+  });
+
+  test("adds stored path annotations from attachmentStoredPaths", () => {
+    const metadata = JSON.stringify({
+      attachmentStoredPaths: {
+        "0:report.pdf": "/conv/attachments/report-2.pdf",
+      },
+    });
+    const result = reinjectAttachmentPathAnnotations(
+      baseContent,
+      "user",
+      metadata,
+    );
+
+    expect(result).toHaveLength(3);
+    const annotation = result[2] as { type: "text"; text: string };
+    expect(annotation.text).toBe(
+      '[Attachment "report.pdf" is stored at: /conv/attachments/report-2.pdf]',
+    );
+  });
+
+  test("recovers filenames containing colons from stored path keys", () => {
+    const metadata = JSON.stringify({
+      attachmentStoredPaths: {
+        "0:notes: draft.txt": "/conv/attachments/notes: draft.txt",
+      },
+    });
+    const result = reinjectAttachmentPathAnnotations(
+      baseContent,
+      "user",
+      metadata,
+    );
+
+    const annotation = result[2] as { type: "text"; text: string };
+    expect(annotation.text).toBe(
+      '[Attachment "notes: draft.txt" is stored at: /conv/attachments/notes: draft.txt]',
+    );
+  });
+
+  test("emits image source lines before stored path lines in one block", () => {
+    const metadata = JSON.stringify({
+      imageSourcePaths: { "1:photo.jpg": "/Users/me/Desktop/photo.jpg" },
+      attachmentStoredPaths: {
+        "0:data.csv": "/conv/attachments/data-2.csv",
+        "1:photo.jpg": "/conv/attachments/photo.jpg",
+      },
+    });
+    const result = reinjectAttachmentPathAnnotations(
+      baseContent,
+      "user",
+      metadata,
+    );
+
+    expect(result).toHaveLength(3);
+    const annotation = result[2] as { type: "text"; text: string };
+    expect(annotation.text).toBe(
+      "[Attached image source: /Users/me/Desktop/photo.jpg]\n" +
+        '[Attachment "data.csv" is stored at: /conv/attachments/data-2.csv]\n' +
+        '[Attachment "photo.jpg" is stored at: /conv/attachments/photo.jpg]',
+    );
+  });
+
+  test("rebuilds the exact annotation block enrichMessageWithSourcePaths appends", () => {
+    // Prefix-cache parity tripwire: the block appended at persist time (from
+    // live attachment inputs) and the block rebuilt on history reload (from
+    // persisted metadata) must be byte-identical.
+    const attachments = [
+      {
+        filename: "data.csv",
+        mimeType: "text/csv",
+        data: "csvdata",
+        storedPath: "/conv/attachments/data-2.csv",
+      },
+      {
+        filename: "photo.jpg",
+        mimeType: "image/jpeg",
+        data: "img",
+        filePath: "/Users/me/Desktop/photo.jpg",
+        storedPath: "/conv/attachments/photo.jpg",
+      },
+    ];
+    const enriched = enrichMessageWithSourcePaths(
+      createUserMessage("compare", attachments),
+      attachments,
+    );
+    const liveBlock = enriched.content.at(-1) as {
+      type: "text";
+      text: string;
+    };
+
+    const metadata = JSON.stringify({
+      imageSourcePaths: extractImageSourcePaths(attachments),
+      attachmentStoredPaths: extractAttachmentStoredPaths(attachments),
+    });
+    const rebuilt = reinjectAttachmentPathAnnotations(
+      [{ type: "text", text: "compare" }],
+      "user",
+      metadata,
+    );
+    const rebuiltBlock = rebuilt.at(-1) as { type: "text"; text: string };
+
+    expect(rebuiltBlock.text).toBe(liveBlock.text);
   });
 });

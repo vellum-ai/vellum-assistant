@@ -1,5 +1,5 @@
 
-import { AlertCircle, Paperclip } from "lucide-react";
+import { AlertCircle, Folder, Paperclip, X } from "lucide-react";
 import type { ChangeEvent, FC } from "react";
 import { useCallback, useRef, useState } from "react";
 
@@ -44,6 +44,33 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                 sizeBytes={att.sizeBytes}
                 onCancel={onRemove}
               />
+            );
+          }
+          if (att.kind === "path-reference") {
+            return (
+              <div
+                key={att.localId}
+                className="flex max-w-[280px] shrink-0 items-center gap-2 rounded-lg bg-[var(--surface-base)] py-1 pl-2 pr-1"
+                title={att.path}
+              >
+                <Folder className="h-4 w-4 shrink-0 text-[var(--content-secondary)]" />
+                <div className="flex min-w-0 flex-col">
+                  <span className="min-w-0 truncate text-body-small-default text-[var(--content-secondary)]">
+                    {middleTruncate(att.filename)}
+                  </span>
+                  <span className="min-w-0 truncate text-label-small-default text-[var(--content-tertiary)]">
+                    {middleTruncate(att.path)}
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  expandOnMobile={false}
+                  iconOnly={<X />}
+                  onClick={() => onRemove(att.localId)}
+                  aria-label={`Remove ${att.filename}`}
+                />
+              </div>
             );
           }
           if (att.kind === "failed") {

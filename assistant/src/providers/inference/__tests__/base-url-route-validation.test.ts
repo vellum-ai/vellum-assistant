@@ -6,7 +6,7 @@
  * with mocked DB, config, and DNS resolution.
  */
 import { Database } from "bun:sqlite";
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -40,9 +40,22 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => false,
 }));
 
+// Mock platform detection: tests default to platform mode (SSRF enforced).
+// Individual tests can override via `mockIsPlatform = false`.
+let mockIsPlatform = true;
+
+mock.module("../../../config/env-registry.js", () => ({
+  getIsPlatform: () => mockIsPlatform,
+}));
+
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({ llm: {} }),
   getConfigReadOnly: () => ({ llm: {} }),
+  // Unused by these tests, but the route module's import chain
+  // (config/default-provider.js) needs the named exports to resolve.
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
 }));
 
 // Mock DNS resolution: all hostnames resolve to a public IP by default.
@@ -195,6 +208,10 @@ describe("base_url provider-type gate (create)", () => {
 // ---------------------------------------------------------------------------
 
 describe("base_url SSRF protection (create)", () => {
+  beforeEach(() => {
+    mockIsPlatform = true;
+  });
+
   test("rejects private IP (192.168.x.x)", async () => {
     await expect(
       handleCreate({
@@ -308,6 +325,89 @@ describe("base_url SSRF protection (create)", () => {
     expect(result).toBeDefined();
     expect((result as { baseUrl: string }).baseUrl).toBe(
       "https://api.example.com/v1",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Self-hosted mode: SSRF protection skipped
+// ---------------------------------------------------------------------------
+
+describe("base_url SSRF bypass for self-hosted daemons (create)", () => {
+  beforeEach(() => {
+    mockIsPlatform = false;
+  });
+
+  test("allows localhost when not platform-hosted", async () => {
+    /**
+     * Self-hosted users run LM Studio / vLLM / text-generation-webui on
+     * their own machine. localhost is the expected target.
+     */
+
+    // GIVEN a self-hosted daemon (IS_PLATFORM=false)
+    // WHEN creating a connection with a localhost base_url
+    const result = await handleCreate({
+      body: {
+        name: "local-lmstudio",
+        provider: "openai-compatible",
+        auth: { type: "api_key", credential: "cred-lmstudio" },
+        base_url: "http://localhost:1234/v1",
+        models: [{ id: "local-model" }],
+      },
+    });
+
+    // THEN the connection is created successfully
+    expect(result).toBeDefined();
+    expect((result as { baseUrl: string }).baseUrl).toBe(
+      "http://localhost:1234/v1",
+    );
+  });
+
+  test("allows private IP (192.168.x.x) when not platform-hosted", async () => {
+    /**
+     * Self-hosted users may run model servers on LAN machines.
+     */
+
+    // GIVEN a self-hosted daemon (IS_PLATFORM=false)
+    // WHEN creating a connection with a private IP base_url
+    const result = await handleCreate({
+      body: {
+        name: "lan-vllm",
+        provider: "openai-compatible",
+        auth: { type: "api_key", credential: "cred-lan" },
+        base_url: "http://192.168.1.100:8080/v1",
+        models: [{ id: "llama-3" }],
+      },
+    });
+
+    // THEN the connection is created successfully
+    expect(result).toBeDefined();
+    expect((result as { baseUrl: string }).baseUrl).toBe(
+      "http://192.168.1.100:8080/v1",
+    );
+  });
+
+  test("allows 127.0.0.1 when not platform-hosted", async () => {
+    /**
+     * Loopback address variant of localhost.
+     */
+
+    // GIVEN a self-hosted daemon (IS_PLATFORM=false)
+    // WHEN creating a connection with a 127.0.0.1 base_url
+    const result = await handleCreate({
+      body: {
+        name: "loopback-model",
+        provider: "openai-compatible",
+        auth: { type: "api_key", credential: "cred-loopback" },
+        base_url: "http://127.0.0.1:8080/v1",
+        models: [{ id: "model-a" }],
+      },
+    });
+
+    // THEN the connection is created successfully
+    expect(result).toBeDefined();
+    expect((result as { baseUrl: string }).baseUrl).toBe(
+      "http://127.0.0.1:8080/v1",
     );
   });
 });

@@ -24,7 +24,17 @@
  * Best-effort: `localStorage` can throw under privacy modes / quota, so every
  * access is guarded and a failure just degrades to the old restart-at-form
  * behavior.
+ *
+ * Web-only: inside the Electron host, read/write are no-ops so every app
+ * launch starts onboarding fresh. The refresh-resilience exists for the
+ * browser, where a stray reload mid-flow is easy; the desktop app has no
+ * reload affordance, and resuming a half-finished journey from a previous
+ * launch caused confusing states. `clearResearchSnapshot` stays live on both
+ * platforms so completion/retire still removes any snapshot an older build
+ * may have written.
  */
+
+import { isElectron } from "@/runtime/is-electron";
 
 import type { ResearchStatus } from "@/domains/onboarding/research-runner";
 import type { ResearchOnboardingValues } from "@/domains/onboarding/screens/research-onboarding-screen";
@@ -46,7 +56,8 @@ export type ResearchStep =
   | "meeting"
   | "looking"
   | "results"
-  | "suggestions";
+  | "suggestions"
+  | "finishing";
 
 /** Completed research output — only snapshotted once the turn settles "done". */
 export interface PersistedResearchResults {
@@ -94,6 +105,8 @@ function storageKey(userId: string | null): string | null {
 export function readResearchSnapshot(
   userId: string | null,
 ): ResearchOnboardingSnapshot | null {
+  // Desktop app: never resume — each launch starts onboarding fresh.
+  if (isElectron()) return null;
   const key = storageKey(userId);
   if (!key) return null;
   try {
@@ -110,6 +123,8 @@ export function writeResearchSnapshot(
   userId: string | null,
   snapshot: ResearchOnboardingSnapshot,
 ): void {
+  // Desktop app: don't persist steps — nothing should survive a relaunch.
+  if (isElectron()) return;
   const key = storageKey(userId);
   if (!key) return;
   try {

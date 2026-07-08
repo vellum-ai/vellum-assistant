@@ -17,10 +17,8 @@ import type { InjectionMatcher } from "../../../context/strip-injections.js";
 import { findConversationOrSubagent } from "../../../daemon/conversation-registry.js";
 import { resolveWorkspaceTopLevelContext } from "../../../daemon/conversation-workspace.js";
 import { readNowScratchpad } from "../../../daemon/now-scratchpad.js";
-import {
-  isPersonalMemoryAllowed,
-  type TrustContext,
-} from "../../../daemon/trust-context.js";
+import { isPersonalMemoryAllowed } from "../../../daemon/trust-context.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import { getConfigQuarantineNoticePath } from "../../../util/platform.js";
 import {
   type InjectionBlock,

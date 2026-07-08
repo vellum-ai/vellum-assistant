@@ -30,6 +30,7 @@ import { ErrorEventSchema } from "./events/error.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
+import { HookEventSchema } from "./events/hook-event.js";
 import { IdentityChangedEventSchema } from "./events/identity-changed.js";
 import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
@@ -52,7 +53,6 @@ import { ToolOutputChunkEventSchema } from "./events/tool-output-chunk.js";
 import { ToolResultEventSchema } from "./events/tool-result.js";
 import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
-import { TraceEventSchema } from "./events/trace-event.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
@@ -232,6 +232,12 @@ export {
   HomeFeedUpdatedEventSchema,
 } from "./events/home-feed-updated.js";
 export {
+  type HookEvent,
+  type HookEventOwner,
+  HookEventOwnerSchema,
+  HookEventSchema,
+} from "./events/hook-event.js";
+export {
   type IdentityChangedEvent,
   IdentityChangedEventSchema,
 } from "./events/identity-changed.js";
@@ -342,14 +348,6 @@ export {
   type ToolUseStartEvent,
   ToolUseStartEventSchema,
 } from "./events/tool-use-start.js";
-export {
-  type TraceEvent,
-  type TraceEventKind,
-  TraceEventKindSchema,
-  TraceEventSchema,
-  type TraceEventStatus,
-  TraceEventStatusSchema,
-} from "./events/trace-event.js";
 export {
   type UISurfaceCompleteEvent,
   UISurfaceCompleteEventSchema,
@@ -583,6 +581,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
   HomeFeedUpdatedEventSchema,
+  HookEventSchema,
   IdentityChangedEventSchema,
   InteractionResolvedEventSchema,
   MessageCompleteEventSchema,
@@ -605,7 +604,6 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ToolResultEventSchema,
   ToolUsePreviewStartEventSchema,
   ToolUseStartEventSchema,
-  TraceEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,

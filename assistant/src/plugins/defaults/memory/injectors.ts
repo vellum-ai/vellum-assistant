@@ -23,10 +23,8 @@ import type { Message } from "@vellumai/plugin-api";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
-import {
-  isPersonalMemoryAllowed,
-  type TrustContext,
-} from "../../../daemon/trust-context.js";
+import { isPersonalMemoryAllowed } from "../../../daemon/trust-context.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import { getLogger } from "../../../util/logger.js";
 import { getSandboxWorkingDir } from "../../../util/platform.js";
 import {

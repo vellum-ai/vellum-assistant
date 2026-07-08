@@ -1,11 +1,13 @@
 import { getIsContainerized } from "../config/env-registry.js";
 import { mapApprovalProvenance } from "../permissions/approval-provenance.js";
+import { buildChannelPermissionCellQuery } from "../permissions/channel-permission-query.js";
 import {
   check,
   classifyRisk,
   generateAllowlistOptions,
   generateScopeOptions,
   getCachedAssessment,
+  isDynamicSkillLoadInvocation,
 } from "../permissions/checker.js";
 import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
@@ -17,11 +19,15 @@ import type {
 } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import {
+  recordToolDenied,
+  recordToolPermissionPrompted,
+} from "../telemetry/tool-audit.js";
 import { getLogger } from "../util/logger.js";
+import { resolveExecutionTarget } from "./execution-target.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
-import type { ExecutionTarget } from "./types.js";
-import type { Tool, ToolContext, ToolLifecycleEvent } from "./types.js";
+import type { Tool, ToolContext } from "./types.js";
 
 const log = getLogger("permission-checker");
 
@@ -93,8 +99,6 @@ export class PermissionChecker {
     input: Record<string, unknown>,
     tool: Tool,
     context: ToolContext,
-    executionTarget: ExecutionTarget,
-    emitLifecycleEvent: (event: ToolLifecycleEvent) => void,
     startTime: number,
     computePreviewDiff: (
       toolName: string,
@@ -109,6 +113,8 @@ export class PermissionChecker {
         }
       | undefined,
   ): Promise<PermissionDecision> {
+    // Sandbox/host routing for the prompt comes from the tool's manifest.
+    const executionTarget = resolveExecutionTarget(tool);
     const { level: risk, reason: riskReason } = await classifyRisk(
       name,
       input,
@@ -153,16 +159,19 @@ export class PermissionChecker {
         context.signal,
       );
 
-      // Extract the matched rule ID for propagation. Returned as a top-level
-      // field on PermissionDecision so it reaches the executor even when
-      // riskMeta is absent (non-classifier tools like MCP don't populate it).
-      const matchedTrustRuleId = result.matchedRule?.id;
+      // Every threshold read for this invocation must consult the same
+      // channel-permission cell that check() used — otherwise a follow-up
+      // read of a looser global (the provenance snapshot below, the
+      // non-interactive guardian auto-approve further down) would override a
+      // stricter cell verdict. Derived once, from the same PolicyContext.
+      const cellQuery = buildChannelPermissionCellQuery(policyContext);
 
       // Resolved threshold snapshot for provenance. getAutoApproveThreshold
       // returns from cache (populated by check() above), so this is free.
       const conversationThreshold = await getAutoApproveThreshold(
         policyContext.conversationId,
         policyContext.executionContext,
+        cellQuery,
       );
       const riskThreshold = conversationThreshold as RiskThreshold;
 
@@ -198,31 +207,21 @@ export class PermissionChecker {
       }
 
       if (result.decision === "deny") {
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent({
-          type: "permission_denied",
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
+        recordToolDenied({
           conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          riskReason,
-          matchedTrustRuleId,
-          decision: "deny",
+          toolName: name,
+          input,
           reason: result.reason,
-          durationMs,
+          riskLevel,
+          durationMs: Date.now() - startTime,
+          wasPrompted: false,
         });
-        const provenance = mapApprovalProvenance("denied", {
-          matchedTrustRuleId,
-        });
+        const provenance = mapApprovalProvenance("denied", {});
         return {
           allowed: false,
           decision: "denied",
           riskLevel,
           content: result.reason,
-          matchedTrustRuleId,
           riskMeta,
           ...provenance,
           riskThreshold,
@@ -250,7 +249,6 @@ export class PermissionChecker {
           allowed: true,
           decision: "platform_auto_approve",
           riskLevel,
-          matchedTrustRuleId,
           riskMeta,
           ...mapApprovalProvenance("platform_auto_approve", {}),
           riskThreshold,
@@ -263,16 +261,17 @@ export class PermissionChecker {
         // is the owner - prompting makes no sense when there is no client.
         // Exception: requireFreshApproval tools cannot be auto-approved -
         // without a human present, bundle installation must be denied.
-        // Exception: inline-command skill loads (skill_load_dynamic:*) must
-        // never be silently auto-approved — they execute embedded commands
-        // and require explicit human review or a pinned trust rule.
+        // Exception: inline-command ("dynamic") skill loads must never be
+        // silently auto-approved — they execute embedded commands and
+        // require explicit human review or a pinned trust rule. A covering
+        // trust rule lowers the classified risk upstream (check() then
+        // returns "allow" before this branch), so any dynamic load that
+        // reaches this prompt path is uncovered and must stay prompted.
         // Exception: tools above the configured background threshold are
         // denied — unattended sessions must not auto-approve operations that
         // could cause significant damage if triggered by prompt injection
         // from untrusted content.
-        const isDynamicSkillLoad =
-          result.matchedRule?.pattern.startsWith("skill_load_dynamic:") ===
-          true;
+        const isDynamicSkillLoad = isDynamicSkillLoadInvocation(name, input);
         if (
           context.isInteractive === false &&
           resolveCapabilities(context.trustClass).canSelfApproveTools &&
@@ -281,10 +280,13 @@ export class PermissionChecker {
         ) {
           // getAutoApproveThreshold returns from cache (populated by check() above).
           // Deferred inside the non-interactive branch so interactive prompts
-          // don't pay the gateway I/O cost.
+          // don't pay the gateway I/O cost. The cell query is threaded through
+          // so a strict channel cell governs this auto-approve too — without
+          // it, a looser background global would silently bypass the cell.
           const bgThreshold = await getAutoApproveThreshold(
             context.conversationId,
             "background",
+            cellQuery,
           );
           const thresholdOrdinal: Record<string, number> = {
             none: -1,
@@ -309,7 +311,6 @@ export class PermissionChecker {
               allowed: true,
               decision: "guardian_auto_approve",
               riskLevel,
-              matchedTrustRuleId,
               riskMeta,
               ...mapApprovalProvenance("guardian_auto_approve", {}),
               riskThreshold: bgThreshold as RiskThreshold,
@@ -320,36 +321,25 @@ export class PermissionChecker {
         // Non-interactive sessions have no client to respond to prompts -
         // deny immediately instead of blocking for the full permission timeout.
         if (context.isInteractive === false) {
-          const durationMs = Date.now() - startTime;
           log.info(
             { toolName: name, riskLevel },
             "Auto-denying prompt for non-interactive session",
           );
-          emitLifecycleEvent({
-            type: "permission_denied",
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
+          recordToolDenied({
             conversationId: context.conversationId,
-            requestId: context.requestId,
-            riskLevel,
-            riskReason,
-            matchedTrustRuleId,
-            decision: "deny",
+            toolName: name,
+            input,
             reason: "Non-interactive session: no client to approve prompt",
-            durationMs,
+            riskLevel,
+            durationMs: Date.now() - startTime,
+            wasPrompted: false,
           });
           return {
             allowed: false,
             decision: "denied",
             riskLevel,
             content: `Permission denied: tool "${name}" requires user approval but no interactive client is connected. The tool was not executed. To allow this tool in non-interactive sessions, add a trust rule via permission settings.`,
-            matchedTrustRuleId,
             riskMeta,
-            // Do not pass matchedTrustRuleId here: an ask-rule match put us in
-            // the prompt path, but the *reason* for denial is no interactive
-            // client, not a deny rule. Always emit no_interactive_client.
             ...mapApprovalProvenance("denied", {}),
             riskThreshold,
           };
@@ -366,22 +356,7 @@ export class PermissionChecker {
           persistentDecisionsAllowed: !context.requireFreshApproval,
         };
 
-        emitLifecycleEvent({
-          type: "permission_prompt",
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          riskReason,
-          reason: result.reason,
-          allowlistOptions: promptOptions.allowlistOptions,
-          scopeOptions: promptOptions.scopeOptions,
-          diff: previewDiff,
-          persistentDecisionsAllowed: promptOptions.persistentDecisionsAllowed,
-        });
+        recordToolPermissionPrompted(name);
 
         const response = await this.prompter.prompt(
           name,
@@ -415,28 +390,20 @@ export class PermissionChecker {
             contextualDenial.length > 0
               ? `Permission denied (${name}): contextual policy`
               : "Permission denied by user";
-          const durationMs = Date.now() - startTime;
-          emitLifecycleEvent({
-            type: "permission_denied",
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
+          recordToolDenied({
             conversationId: context.conversationId,
-            requestId: context.requestId,
-            riskLevel,
-            riskReason,
-            matchedTrustRuleId,
-            decision: "deny",
+            toolName: name,
+            input,
             reason: denialReason,
-            durationMs,
+            riskLevel,
+            durationMs: Date.now() - startTime,
+            wasPrompted: true,
           });
           return {
             allowed: false,
             decision,
             riskLevel,
             content: denialMessage,
-            matchedTrustRuleId,
             riskMeta,
             ...mapApprovalProvenance(decision, {
               wasTimeout: response.wasTimeout,
@@ -452,7 +419,6 @@ export class PermissionChecker {
           decision,
           riskLevel,
           wasPrompted: true,
-          matchedTrustRuleId,
           riskMeta,
           ...mapApprovalProvenance(decision, { wasPrompted: true }),
           riskThreshold,
@@ -464,11 +430,9 @@ export class PermissionChecker {
         allowed: true,
         decision: "allow",
         riskLevel,
-        matchedTrustRuleId,
         riskMeta,
         ...mapApprovalProvenance("allow", {
           hasSandboxAutoApprove: result.hasSandboxAutoApprove,
-          matchedTrustRuleId,
         }),
         riskThreshold,
       };

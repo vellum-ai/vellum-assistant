@@ -296,11 +296,6 @@ subgraph "Text Q&A Session"
             CHAT_VIEW["ChatView<br/>bubbles + composer + stop"]
         end
 
-        subgraph "Debug Panel"
-            TRACE_STORE["TraceStore<br/>in-memory, per-session<br/>dedup + retention cap"]
-            DEBUG_PANEL["DebugPanel UI<br/>metrics strip + timeline"]
-        end
-
         subgraph "Dynamic Workspace"
             WORKSPACE["WorkspaceView<br/>toolbar + WKWebView + composer + optional docked chat"]
             DYN_PAGE["DynamicPageSurfaceView<br/>WKWebView + widget injection"]
@@ -359,12 +354,6 @@ subgraph "Text Q&A Session"
             DB_CONTACTS["contacts<br/>(migrating to gateway)"]
         end
 
-        subgraph "Tracing"
-            TRACE_EMITTER["TraceEmitter<br/>per-session, monotonic seq"]
-            TOOL_TRACE["ToolTraceListener<br/>event bus subscriber"]
-            EVENT_BUS["EventBus<br/>domain events"]
-        end
-
         subgraph "Skill Tool System"
             SKILL_CATALOG["Skill Catalog<br/>bundled + managed + workspace + extra"]
             SKILL_MANIFEST["SKILL.md + TOOLS.json<br/>per-skill directory"]
@@ -407,8 +396,7 @@ subgraph "Text Q&A Session"
         GW_FORWARD["Runtime Client<br/>POST /channels/inbound"]
         GW_TWILIO_VOICE["Twilio Voice Webhook<br/>/webhooks/twilio/voice"]
         GW_TWILIO_STATUS["Twilio Status Webhook<br/>/webhooks/twilio/status"]
-        GW_TWILIO_CONNECT["Twilio Connect-Action<br/>/webhooks/twilio/connect-action"]
-        GW_TWILIO_RELAY["Twilio Relay WS<br/>/webhooks/twilio/relay<br/>(bidirectional proxy)"]
+        GW_TWILIO_MEDIA["Twilio Media Stream WS<br/>/webhooks/twilio/media-stream/:callSessionId/:token<br/>(bidirectional proxy)"]
         GW_WA_WEBHOOK["WhatsApp Webhook<br/>/webhooks/whatsapp<br/>(HMAC-SHA256 validated)"]
         GW_SLACK_SOCKET["Slack Socket Mode<br/>WebSocket via<br/>apps.connections.open"]
         GW_SLACK_NORMALIZE["Slack Normalize<br/>app_mention events<br/>+ bot-mention stripping"]
@@ -529,8 +517,7 @@ subgraph "Text Q&A Session"
     %% Gateway flow — Twilio voice webhooks
     GW_TWILIO_VOICE -->|"HTTP"| HTTP_RT
     GW_TWILIO_STATUS -->|"HTTP"| HTTP_RT
-    GW_TWILIO_CONNECT -->|"HTTP"| HTTP_RT
-    GW_TWILIO_RELAY -->|"WebSocket proxy"| HTTP_RT
+    GW_TWILIO_MEDIA -->|"WebSocket proxy"| HTTP_RT
 
     %% Gateway flow — WhatsApp channel (Meta Cloud API)
     GW_WA_WEBHOOK -->|"HMAC-SHA256 verify<br/>+ normalize + dedup<br/>+ route resolver"| GW_FORWARD
@@ -550,13 +537,6 @@ subgraph "Text Q&A Session"
     %% Web server
     WEB_API -->|"HTTP"| RUNTIME_CLIENT
     RUNTIME_CLIENT -->|"HTTP"| HTTP_RT
-
-    %% Tracing data flow
-    SESSION_MGR --> TRACE_EMITTER
-    EVENT_BUS --> TOOL_TRACE
-    TOOL_TRACE --> TRACE_EMITTER
-    TRACE_EMITTER -->|"trace_event<br/>(SSE)"| TRACE_STORE
-    TRACE_STORE --> DEBUG_PANEL
 
     %% Integration data flow
     HANDLERS -->|"integration_connect"| INT_REGISTRY

@@ -2,7 +2,7 @@
  * Twilio webhook signature validation and related constants.
  */
 
-import { TwilioConversationRelayProvider } from "../../calls/twilio-provider.js";
+import { TwilioVoiceProvider } from "../../calls/twilio-provider.js";
 import { loadConfig } from "../../config/loader.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { getLogger } from "../../util/logger.js";
@@ -27,19 +27,17 @@ export const TWILIO_GATEWAY_WEBHOOK_RE = /^\/webhooks\/twilio\/(.+)$/;
 export const GATEWAY_SUBPATH_MAP: Record<string, string> = {
   voice: "voice-webhook",
   status: "status",
-  "connect-action": "connect-action",
 };
 
 /**
  * Direct Twilio webhook subpaths that are blocked in gateway_only mode.
- * Includes all public-facing webhook paths (voice, status, connect-action)
- * because the runtime must never serve as a direct ingress for external webhooks.
+ * Includes all public-facing webhook paths (voice, status) because the
+ * runtime must never serve as a direct ingress for external webhooks.
  * Internal forwarding endpoints (gateway->runtime) are unaffected.
  */
 export const GATEWAY_ONLY_BLOCKED_SUBPATHS = new Set([
   "voice-webhook",
   "status",
-  "connect-action",
 ]);
 
 /**
@@ -57,7 +55,7 @@ export async function validateTwilioWebhook(
 ): Promise<{ body: string } | Response> {
   const rawBody = await req.text();
 
-  const authToken = await TwilioConversationRelayProvider.getAuthToken();
+  const authToken = await TwilioVoiceProvider.getAuthToken();
 
   if (!authToken) {
     log.error(
@@ -95,7 +93,7 @@ export async function validateTwilioWebhook(
     ? publicBaseUrl + parsedUrl.pathname + parsedUrl.search
     : req.url;
 
-  const isValid = TwilioConversationRelayProvider.verifyWebhookSignature(
+  const isValid = TwilioVoiceProvider.verifyWebhookSignature(
     publicUrl,
     params,
     signature,

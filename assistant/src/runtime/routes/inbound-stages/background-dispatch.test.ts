@@ -105,7 +105,7 @@ import {
   getThreadTs,
   setThreadTs,
 } from "../../../channels/slack-thread-store.js";
-import type { TrustContext } from "../../../daemon/trust-context.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import type { MessageProcessor } from "../../http-types.js";
 import {
   isBoundGuardianActor,
@@ -438,7 +438,12 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     await flush();
 
     expect(slackStreamOps()).toEqual([
-      { action: "start", threadTs, markdownText: "Streamed DM reply." },
+      {
+        action: "start",
+        threadTs,
+        markdownText: "Streamed DM reply.",
+        taskDisplayMode: "plan",
+      },
       { action: "stop", streamTs },
     ]);
     expect(

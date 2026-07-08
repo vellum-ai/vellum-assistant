@@ -1,6 +1,5 @@
 import { RiskLevel } from "../../permissions/types.js";
-import { getSubagentManager } from "../../subagent/index.js";
-import { registerTool } from "../registry.js";
+import { notifyParentFromChild } from "../../subagent/notify.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -18,8 +17,7 @@ export async function executeSubagentNotifyParent(
     return { content: '"message" is required.', isError: true };
   }
 
-  const manager = getSubagentManager();
-  const sent = manager.notifyParent(context.conversationId, message, urgency);
+  const sent = notifyParentFromChild(context.conversationId, message, urgency);
 
   if (!sent) {
     return {
@@ -72,5 +70,3 @@ export const notifyParentTool = {
     return executeSubagentNotifyParent(input, context);
   },
 } satisfies ToolDefinition;
-
-registerTool(notifyParentTool);

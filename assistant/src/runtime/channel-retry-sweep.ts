@@ -10,7 +10,7 @@ import {
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { updateDeliveredSegmentCount } from "../persistence/delivery-channels.js";
 import {
   clearPayload,
@@ -436,6 +436,10 @@ export async function sweepFailedEvents(
         assistantId,
         {
           messageId: replyMessageId,
+          // The stored reply id may point at a bare <no_response/> row from
+          // the turn's final message; the turn boundary lets delivery fall
+          // through to the real reply written earlier in the same turn.
+          ...(event.messageId ? { sinceMessageId: event.messageId } : {}),
           startFromSegment: event.deliveredSegmentCount,
           ...(priorStreamMessageTs ? { messageTs: priorStreamMessageTs } : {}),
           onSegmentDelivered: (count) =>

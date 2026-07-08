@@ -61,12 +61,14 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     }),
 }));
 
-
 // Stub the credential hooks so the inline ProviderCreateForm renders without
 // issuing real daemon queries.
 mock.module("@/domains/settings/ai/use-stored-credential-presence", () => ({
-  credentialPresenceQueryKey: (assistantId: string, kind: string, name: string) =>
-    ["credentialPresence", assistantId, kind, name] as const,
+  credentialPresenceQueryKey: (
+    assistantId: string,
+    kind: string,
+    name: string,
+  ) => ["credentialPresence", assistantId, kind, name] as const,
   useStoredCredentialPresence: () => ({
     hasStoredCredential: false,
     isLoading: false,
@@ -80,9 +82,8 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   }),
 }));
 
-const { ProfileEditorModal } = await import(
-  "@/domains/settings/ai/profile-editor-modal"
-);
+const { ProfileEditorModal } =
+  await import("@/domains/settings/ai/profile-editor-modal");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -90,7 +91,10 @@ const { ProfileEditorModal } = await import(
 
 const ASSISTANT_ID = "asst-1";
 
-function makeConnection(name: string, provider = "anthropic"): ProviderConnection {
+function makeConnection(
+  name: string,
+  provider = "anthropic",
+): ProviderConnection {
   return {
     name,
     label: null,
@@ -265,15 +269,22 @@ function renderView(
   );
 }
 
+/** Finds a Toggle switch by its visible label (wired via aria-labelledby). */
+function findSwitchByLabel(label: string): HTMLButtonElement | null {
+  return (
+    Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[role="switch"]'),
+    ).find((el) => {
+      const labelId = el.getAttribute("aria-labelledby");
+      const labelEl = labelId ? document.getElementById(labelId) : null;
+      return labelEl?.textContent?.trim() === label;
+    }) ?? null
+  );
+}
+
 /** The Top P toggle is a switch labelled (via aria-labelledby) "Top P". */
-function topPSwitch(): HTMLElement {
-  const sw = Array.from(
-    document.querySelectorAll<HTMLElement>('[role="switch"]'),
-  ).find((el) => {
-    const labelId = el.getAttribute("aria-labelledby");
-    const labelEl = labelId ? document.getElementById(labelId) : null;
-    return labelEl?.textContent?.trim() === "Top P";
-  });
+function topPSwitch(): HTMLButtonElement {
+  const sw = findSwitchByLabel("Top P");
   if (!sw) throw new Error("expected a Top P switch");
   return sw;
 }
@@ -285,9 +296,9 @@ function topPSwitch(): HTMLElement {
  */
 function findTopPSlider(): HTMLElement | null {
   return (
-    Array.from(
-      document.querySelectorAll<HTMLElement>('[role="slider"]'),
-    ).find((el) => el.getAttribute("aria-valuemax") === "1") ?? null
+    Array.from(document.querySelectorAll<HTMLElement>('[role="slider"]')).find(
+      (el) => el.getAttribute("aria-valuemax") === "1",
+    ) ?? null
   );
 }
 
@@ -468,9 +479,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     // After create, the sub-form collapses and the provider is selected.
     await waitFor(() => {
-      expect(
-        document.body.textContent,
-      ).toContain(
+      expect(document.body.textContent).toContain(
         "New provider connection will show up in the Providers section.",
       );
     });
@@ -635,7 +644,10 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 // ---------------------------------------------------------------------------
 
 describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
-  function renderEdit(initialValues: Record<string, unknown>, connection: ProviderConnection) {
+  function renderEdit(
+    initialValues: Record<string, unknown>,
+    connection: ProviderConnection,
+  ) {
     return render(
       <Wrapper>
         <ProfileEditorModal
@@ -681,6 +693,28 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     // ...the bound model isn't auto-cleared, so the validation hint stays away
     // and Save remains enabled (the binding would persist intact).
     expect(document.body.textContent).not.toContain("Select a model.");
+    expect(getSaveBtn().disabled).toBe(false);
+  });
+
+  test("treats the vellum connection as available for a managed-routable provider (no stale-clear)", () => {
+    // A managed profile keeps its real provider (fireworks) but binds to the
+    // provider-agnostic `vellum` connection, whose own provider is the `vellum`
+    // sentinel. The editor must recognize that binding for managed-routable
+    // providers instead of flagging it "not found" and auto-clearing it on save.
+    renderEdit(
+      {
+        name: "balanced",
+        label: "Balanced",
+        provider: "fireworks",
+        model: "accounts/fireworks/models/kimi-k2p5",
+        provider_connection: "vellum",
+        status: "active",
+      },
+      makeConnection("vellum", "vellum"),
+    );
+
+    // The binding resolves — the stale "(not found)" marker is absent.
+    expect(document.body.textContent).not.toContain("vellum (not found)");
     expect(getSaveBtn().disabled).toBe(false);
   });
 
@@ -822,72 +856,142 @@ describe("ProfileEditorModal — Top P wiring", () => {
     });
     expect(saveCalls[0].entry.topP).toBeNull();
   });
+});
 
-  describe("managed profile in view mode", () => {
-    // A managed (platform-seeded) Balanced profile. Anthropic opus →
-    // visibility.topP is true, so the Top P control renders even in view mode.
-    const managedProfile = {
-      name: "balanced",
-      label: "Balanced",
-      provider: "anthropic",
-      model: "claude-opus-4-8",
-      source: "managed",
+// ---------------------------------------------------------------------------
+// Invariant (managed) profiles — server-stamped `invariant: true`
+// ---------------------------------------------------------------------------
+
+describe("ProfileEditorModal — invariant managed profiles in view mode", () => {
+  // A server-stamped managed profile. Anthropic opus → visibility.topP is
+  // true, so the Top P control renders and we can assert it is locked.
+  const invariantProfile = {
+    name: "default-a",
+    label: "Default A",
+    provider: "anthropic",
+    model: "claude-opus-4-8",
+    source: "managed",
+    invariant: true,
+    topP: 0.9,
+  };
+
+  test("an active invariant profile is fully read-only: no status toggle, disabled label and Top P, Save never armed", () => {
+    renderView(invariantProfile);
+
+    // No disable affordance: the Active toggle is not rendered at all.
+    expect(findSwitchByLabel("Active")).toBeNull();
+
+    // Label and Top P are locked.
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(true);
+    expect(topPSwitch().disabled).toBe(true);
+
+    // Save opens disabled and clicking the locked Top P toggle can't arm it.
+    expect(getSaveBtn().disabled).toBe(true);
+    fireEvent.click(topPSwitch());
+    expect(getSaveBtn().disabled).toBe(true);
+  });
+
+  test("a disabled invariant profile keeps an enable-only toggle; saving PATCHes exactly {status:'active'} as a merge", async () => {
+    const saveCalls: {
+      name: string;
+      entry: Record<string, unknown>;
+      options?: { mode?: "merge" | "replace" };
+    }[] = [];
+    const onSave = (
+      name: string,
+      entry: unknown,
+      options?: { mode?: "merge" | "replace" },
+    ) => {
+      saveCalls.push({
+        name,
+        entry: entry as Record<string, unknown>,
+        options,
+      });
+      return Promise.resolve();
     };
 
-    test("the Top P control is editable even though the modal is read-only", () => {
-      renderView(managedProfile);
+    renderView({ ...invariantProfile, status: "disabled" }, onSave);
 
-      // The Top P toggle stays interactive while the rest of the editor is
-      // locked (provider/model dropdowns are disabled in view mode).
-      expect((topPSwitch() as HTMLButtonElement).disabled).toBe(false);
+    // The re-enable affordance is present and Save starts disarmed.
+    const activeSwitch = findSwitchByLabel("Active");
+    expect(activeSwitch).not.toBeNull();
+    expect(getSaveBtn().disabled).toBe(true);
+
+    // Flip to active: Save arms, and the toggle disappears (the flip is
+    // one-directional — an active invariant profile can't be disabled).
+    fireEvent.click(activeSwitch!);
+    expect(getSaveBtn().disabled).toBe(false);
+    expect(findSwitchByLabel("Active")).toBeNull();
+
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
     });
+    // The body is exactly {status:"active"} — no label, no topP.
+    expect(saveCalls[0].entry).toEqual({ status: "active" });
+    expect(saveCalls[0].options?.mode).toBe("merge");
+  });
 
-    test("enabling Top P arms the otherwise close-only Save button", () => {
-      renderView(managedProfile);
+  test("an invariant profile opened in edit mode keeps the lock (defense-in-depth)", () => {
+    // The lock keys off the server-stamped wire flag alone, so even if a
+    // parent opens an invariant profile in edit mode the lock must hold:
+    // locked label and Top P, no delete/recreate save path.
+    renderEdit(invariantProfile);
 
-      // View mode opens with Save disabled (no policy fields touched yet).
-      expect(getSaveBtn().disabled).toBe(true);
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(true);
+    expect(topPSwitch().disabled).toBe(true);
 
-      // Turning Top P on is a tracked view-mode change → Save unlocks.
-      fireEvent.click(topPSwitch());
-      expect(getSaveBtn().disabled).toBe(false);
-    });
+    // The footer is the safe read-only footer: Save As New is offered and
+    // Save stays disarmed (no status change to flip on an active profile).
+    expect(getButton("Save As New")).not.toBeNull();
+    expect(getSaveBtn().disabled).toBe(true);
+  });
 
-    test("saving sends topP in a merge entry without seed-owned fields", async () => {
-      const saveCalls: {
-        name: string;
-        entry: Record<string, unknown>;
-        options?: { mode?: "merge" | "replace" };
-      }[] = [];
-      const onSave = (
-        name: string,
-        entry: unknown,
-        options?: { mode?: "merge" | "replace" },
-      ) => {
-        saveCalls.push({
-          name,
-          entry: entry as Record<string, unknown>,
-          options,
-        });
-        return Promise.resolve();
-      };
-
-      renderView(managedProfile, onSave);
-
-      // Enable Top P, then save.
-      fireEvent.click(topPSwitch());
-      fireEvent.click(getSaveBtn());
-
-      await waitFor(() => {
-        expect(saveCalls.length).toBe(1);
+  test("an invariant profile in edit mode saves an enable flip as a {status:'active'} merge, never delete/recreate", async () => {
+    const saveCalls: {
+      name: string;
+      entry: Record<string, unknown>;
+      options?: { mode?: "merge" | "replace" };
+    }[] = [];
+    const onSave = (
+      name: string,
+      entry: unknown,
+      options?: { mode?: "merge" | "replace" },
+    ) => {
+      saveCalls.push({
+        name,
+        entry: entry as Record<string, unknown>,
+        options,
       });
-      // The merge entry carries the new topP number...
-      expect(saveCalls[0].entry.topP).toBe(0.95);
-      expect(typeof saveCalls[0].entry.topP).toBe("number");
-      // ...as a deep-merge so seed-owned fields are never sent.
-      expect(saveCalls[0].options?.mode).toBe("merge");
-      expect(saveCalls[0].entry.provider).toBeUndefined();
-      expect(saveCalls[0].entry.model).toBeUndefined();
+      return Promise.resolve();
+    };
+
+    renderEdit({ ...invariantProfile, status: "disabled" }, onSave);
+
+    const activeSwitch = findSwitchByLabel("Active");
+    expect(activeSwitch).not.toBeNull();
+    fireEvent.click(activeSwitch!);
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
     });
+    // The body is exactly {status:"active"} as a merge — the replace path
+    // (delete/recreate) is never taken for invariant profiles.
+    expect(saveCalls[0].entry).toEqual({ status: "active" });
+    expect(saveCalls[0].options?.mode).toBe("merge");
+  });
+
+  test("Save As New from an invariant profile yields a fully editable create form", () => {
+    renderView(invariantProfile);
+
+    fireEvent.click(getButton("Save As New"));
+
+    // The duplicate drops the invariant lock: name and key are editable and
+    // the Active toggle is back.
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
+    expect(getInputByPlaceholder("e.g. fast-cheap").disabled).toBe(false);
+    expect(findSwitchByLabel("Active")).not.toBeNull();
   });
 });

@@ -34,17 +34,6 @@ import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
 import { resolveCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
-import { EventBus } from "../events/bus.js";
-import type { AssistantDomainEvents } from "../events/domain-events.js";
-import { createToolAuditListener } from "../events/tool-audit-listener.js";
-import { createToolDomainEventPublisher } from "../events/tool-domain-event-publisher.js";
-import { registerToolMetricsLoggingListener } from "../events/tool-metrics-listener.js";
-import { registerToolPermissionTelemetryListener } from "../events/tool-permission-telemetry-listener.js";
-import {
-  registerToolProfilingListener,
-  ToolProfiler,
-} from "../events/tool-profiling-listener.js";
-import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -52,6 +41,7 @@ import {
   getConversation,
   getMessages,
   resolveOverrideProfile,
+  setConversationEnabledPlugins,
   setConversationHistoryStrippedAt,
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
@@ -91,13 +81,14 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import { getSubagentManager } from "../subagent/index.js";
+import type { SubagentState } from "../subagent/types.js";
 import {
   type ActivationMomentParam,
   isActivationMomentParam,
 } from "../telemetry/activation-funnel.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions, getTool } from "../tools/registry.js";
-import type { ToolLifecycleEvent } from "../tools/types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { UserError } from "../util/errors.js";
@@ -115,7 +106,7 @@ import { undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
-  reinjectImageSourcePaths,
+  reinjectAttachmentPathAnnotations,
 } from "./conversation-lifecycle.js";
 import type {
   EnqueueMessageOptions,
@@ -183,7 +174,6 @@ import {
   resolveSummarizeBoundary,
   startsNewTurn,
 } from "./summarize-boundary.js";
-import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
 
@@ -248,8 +238,8 @@ export type {
 import {
   INTERNAL_GUARDIAN_TRUST_CONTEXT,
   isPersonalMemoryAllowed,
-  type TrustContext,
 } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;
@@ -264,6 +254,13 @@ export interface ConversationConstructorOptions {
    * access; non-native providers get nothing. Defaults to false.
    */
   enableNativeWebSearch?: boolean;
+  /**
+   * For subagent conversations, the id of the parent that spawned this one.
+   * Set once here (there is no setter) so it is the authoritative, non-writable
+   * source for {@link Conversation.isSubagent} and for routing child → parent
+   * notifications. Omitted for top-level conversations.
+   */
+  parentConversationId?: string;
 }
 
 export class Conversation {
@@ -277,9 +274,7 @@ export class Conversation {
   /** @internal */ prompter: PermissionPrompter;
   /** @internal */ secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
-  /** @internal */ profiler: ToolProfiler;
   /** @internal */ sendToClient: (msg: ServerMessage) => void;
-  /** @internal */ eventBus = new EventBus<AssistantDomainEvents>();
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
   /**
@@ -336,6 +331,16 @@ export class Conversation {
   inferenceProfile: string | null = null;
   /** @internal */ inferenceProfileSessionId: string | null = null;
   /** @internal */ inferenceProfileExpiresAt: number | null = null;
+  /**
+   * Per-conversation plugin scope mirrored from the DB row. `null` means no
+   * per-chat restriction (all globally-enabled plugins apply). Hydrated on load
+   * and kept in sync by {@link setEnabledPlugins}, which also persists the value
+   * back to the row, so the live instance is the source of truth; later
+   * tool/skill/hook filters intersect their candidate set against this via
+   * `getEffectiveEnabledPluginSet`.
+   * @internal
+   */
+  enabledPlugins: string[] | null = null;
   /** @internal */ currentRequestId?: string;
   /**
    * The {@link LLMCallSite} of the in-flight turn, set at turn start from
@@ -347,7 +352,16 @@ export class Conversation {
    */
   currentCallSite?: LLMCallSite;
   /** @internal */ hasNoClient = false;
-  /** @internal */ isSubagent = false;
+  /**
+   * For subagent conversations, the id of the parent that spawned this one; set
+   * once at construction and never reassigned. `undefined` for top-level
+   * conversations. It is the single source of truth for {@link isSubagent} and
+   * the authoritative (non-writable) routing target for child → parent
+   * notifications — as opposed to the durable subagent record, which lives under
+   * the sandbox workspace and could be tampered with by a sandbox-tool subagent.
+   * @internal
+   */
+  readonly parentConversationId?: string;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -578,7 +592,6 @@ export class Conversation {
     clientTimezone: string | null;
     timeSinceLastMessage: string | null;
   };
-  public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
   /** @internal */ modelOverride: string | undefined;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
@@ -636,12 +649,12 @@ export class Conversation {
     const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
     const enableNativeWebSearch = options?.enableNativeWebSearch ?? false;
     this.conversationId = conversationId;
+    this.parentConversationId = options?.parentConversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
     this.graphMemory = new ConversationGraphMemory(conversationId);
-    this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
       // Route through emitConfirmationStateChanged so the event reaches
@@ -673,21 +686,11 @@ export class Conversation {
     // Register call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);
 
-    // Tool infrastructure
+    // Tool infrastructure. The executor writes audit rows, permission
+    // telemetry, and profiler timings directly to their module-level terminals
+    // (tools/executor.ts → telemetry/tool-audit.ts + tools/tool-profiler.ts),
+    // keyed by conversation id — nothing tool-side is threaded through here.
     this.executor = new ToolExecutor(this.prompter);
-    this.profiler = new ToolProfiler();
-    registerToolMetricsLoggingListener(this.eventBus);
-    registerToolTraceListener(this.eventBus, this.traceEmitter);
-    registerToolProfilingListener(this.eventBus, this.profiler);
-    registerToolPermissionTelemetryListener(this.eventBus);
-    const auditToolLifecycleEvent = createToolAuditListener();
-    const publishToolDomainEvent = createToolDomainEventPublisher(
-      this.eventBus,
-    );
-    const handleToolLifecycleEvent = (event: ToolLifecycleEvent) => {
-      auditToolLifecycleEvent(event);
-      return publishToolDomainEvent(event);
-    };
 
     const toolDefs = getAllToolDefinitions();
     this.coreToolNames = new Set(toolDefs.map((d) => d.name));
@@ -696,7 +699,6 @@ export class Conversation {
       this.prompter,
       this.secretPrompter,
       this as ToolSetupContext,
-      handleToolLifecycleEvent,
     );
 
     const config = getConfig();
@@ -752,7 +754,9 @@ export class Conversation {
       isExclusiveTool: (name) => getTool(name)?.exclusive === true,
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
-        if (!conv) return null;
+        if (!conv) {
+          return null;
+        }
         return getResolvedConversationDirPath(
           this.conversationId,
           conv.createdAt,
@@ -865,7 +869,9 @@ export class Conversation {
    */
   syncLoopSystemPrompt(): void {
     const next = this.buildCurrentSystemPrompt();
-    if (next === this.systemPrompt) return;
+    if (next === this.systemPrompt) {
+      return;
+    }
     this.systemPrompt = next;
     this.agentLoop.setSystemPrompt(next);
   }
@@ -953,6 +959,7 @@ export class Conversation {
     this.inferenceProfile = conv?.inferenceProfile ?? null;
     this.inferenceProfileSessionId = conv?.inferenceProfileSessionId ?? null;
     this.inferenceProfileExpiresAt = conv?.inferenceProfileExpiresAt ?? null;
+    this.enabledPlugins = conv?.enabledPlugins ?? null;
     this.contextCompactedMessageCount = Math.max(
       0,
       conv?.contextCompactedMessageCount ?? 0,
@@ -1028,7 +1035,7 @@ export class Conversation {
         content = [{ type: "text", text: m.content }];
       }
 
-      content = reinjectImageSourcePaths(content, role, m.metadata);
+      content = reinjectAttachmentPathAnnotations(content, role, m.metadata);
 
       // Re-inject persisted injection blocks from metadata so it survives
       // conversation reloads (eviction, restart, fork).
@@ -1286,7 +1293,9 @@ export class Conversation {
   private restoreSurfaceStateFromHistory(): void {
     this.surfaceState.clear();
     for (const msg of this.messages) {
-      if (!Array.isArray(msg.content)) continue;
+      if (!Array.isArray(msg.content)) {
+        continue;
+      }
       for (const block of msg.content) {
         const b = block as unknown as Record<string, unknown>;
         if (b.type === "ui_surface" && typeof b.surfaceId === "string") {
@@ -1343,7 +1352,6 @@ export class Conversation {
     this.sendToClient = sendToClient;
     this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
-    this.traceEmitter.updateSender(sendToClient);
 
     // Replay last activity state so a reconnecting client sees the current phase
     // instead of being stuck on the last state it received before disconnection.
@@ -1368,8 +1376,38 @@ export class Conversation {
     this.subagentAllowedTools = tools;
   }
 
-  setIsSubagent(value: boolean): void {
-    this.isSubagent = value;
+  /**
+   * Set the conversation's per-chat plugin scope, updating both the persisted
+   * `enabled_plugins` row and the live instance (source of truth for the
+   * current turn). `null` clears the per-chat restriction. Callers do not
+   * persist separately.
+   *
+   * Persist first, then mutate the live instance: if the write throws, the
+   * live scope is left untouched rather than diverging from the row.
+   */
+  setEnabledPlugins(plugins: string[] | null): void {
+    setConversationEnabledPlugins(this.conversationId, plugins);
+    this.enabledPlugins = plugins;
+  }
+
+  /** True when this conversation was spawned as a subagent (has a parent). */
+  get isSubagent(): boolean {
+    return this.parentConversationId !== undefined;
+  }
+
+  /**
+   * The live subagent-manager children of this conversation, for the
+   * `<active_subagents>` status block. Returns `null` when this conversation
+   * is itself a subagent (no nesting) — callers treat `null` as "no block".
+   * Housing the subagent-manager access here keeps runtime-assembly free of a
+   * subagent import (`subagent/manager` imports this module, so the reverse
+   * edge would put runtime-assembly's importers on that cycle).
+   */
+  getSubagentChildren(): SubagentState[] | null {
+    if (this.isSubagent) {
+      return null;
+    }
+    return getSubagentManager().getChildrenOf(this.conversationId);
   }
 
   /**
@@ -2205,6 +2243,8 @@ export class Conversation {
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
+      /** See {@link runAgentLoopImpl} — hidden machine-signal turn marker. */
+      isHiddenPrompt?: boolean;
       callSite?: LLMCallSite;
       /**
        * Optional ad-hoc inference-profile override applied to every LLM call

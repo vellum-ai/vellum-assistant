@@ -16,6 +16,7 @@
  * over silently shipping a raw image to a provider that may reject it.
  */
 
+import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
 import {
   getCatalogProviderForModel,
@@ -64,13 +65,13 @@ function modelVision(model: string): boolean | undefined {
  */
 function profileVision(profileKey: string): boolean | undefined {
   const { llm } = getConfig();
-  const entry = llm.profiles[profileKey];
+  const entry = getEffectiveProfile(llm.profiles, profileKey);
   if (entry == null) return undefined;
 
   if (entry.mix != null) {
     let sawUnknown = false;
     for (const arm of entry.mix) {
-      const armEntry = llm.profiles[arm.profile];
+      const armEntry = getEffectiveProfile(llm.profiles, arm.profile);
       const armVision =
         armEntry == null ? undefined : resolveEntryVision(armEntry, llm);
       if (armVision === true) return true;
@@ -96,7 +97,7 @@ function resolveEntryVision(
   const model = entry.model ?? llm.default?.model;
 
   // Infer provider from model when missing (mirrors the resolver's
-  // withImpliedProviderForKnownModel).
+  // withImpliedProviders).
   const effectiveProvider =
     provider ??
     (typeof model === "string" ? getCatalogProviderForModel(model) : undefined);

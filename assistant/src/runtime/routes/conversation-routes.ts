@@ -3,6 +3,11 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
+import {
+  CLIENT_METADATA_HEADERS,
+  type ClientMetadataField,
+  sanitizeClientMetadataValue,
+} from "@vellumai/service-contracts/client-metadata";
 import { z } from "zod";
 
 import { enrichMessageWithSourcePaths } from "../../agent/attachments.js";
@@ -26,6 +31,7 @@ import {
   supportsHostProxy,
 } from "../../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
@@ -77,7 +83,7 @@ import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
-import type { TrustContext } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import {
   writeOnboardingSidecar,
@@ -105,7 +111,10 @@ import {
   getMessagesPaginated,
   hasMessages,
   isConversationProcessing,
+  isHiddenMessageMetadata,
   type MessageRow,
+  provenanceFromTrustContext,
+  recordConversationPersistedSeq,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
 import {
@@ -120,7 +129,10 @@ import { getConfiguredProvider } from "../../providers/provider-send-message.js"
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getSubagentManager } from "../../subagent/index.js";
-import { normalizeImageBase64 } from "../../util/image-conversion.js";
+import {
+  isHeicFilename,
+  normalizeImageBase64,
+} from "../../util/image-conversion.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getWorkspaceDir,
@@ -128,6 +140,7 @@ import {
 } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
+import { getCurrentSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   type GuardianPendingScope,
@@ -198,11 +211,12 @@ interface AlignedAttachments {
 
 /**
  * Align DB-hydrated attachment rows with the file-block refs `renderHistoryContent`
- * captured. When a file block was persisted with `_attachmentId` (user-message
- * uploads) we join on that id to position the chip inline; DB rows without a
- * matching ref go to the tail as orphan chips, and unmatched refs drop their
- * `attachment:N` entry. Assistant-authored file blocks carry no `_attachmentId`,
- * so when no ids match we fall back to positional alignment if the ref and row
+ * captured. When a file block carries an attachment id (user-message uploads —
+ * on `source.attachmentId` for reference blocks, or the legacy top-level
+ * `_attachmentId`) we join on that id to position the chip inline; DB rows
+ * without a matching ref go to the tail as orphan chips, and unmatched refs drop
+ * their `attachment:N` entry. Assistant-authored file blocks carry no id, so
+ * when no ids match we fall back to positional alignment if the ref and row
  * counts agree; otherwise we strip the markers and let chips fall to the tail.
  */
 function alignAttachments(
@@ -320,8 +334,9 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
 function isHiddenMessage(metadata: string | null): boolean {
   if (!metadata) return false;
   try {
-    const meta = JSON.parse(metadata) as { hidden?: unknown };
-    return meta?.hidden === true;
+    return isHiddenMessageMetadata(
+      JSON.parse(metadata) as Record<string, unknown>,
+    );
   } catch {
     return false;
   }
@@ -572,6 +587,11 @@ async function tryConsumeCanonicalGuardianReply(params: {
         conversationId: conversationId,
       });
       emitCannedMessageComplete(onEvent, conversationId, persistedAssistant.id);
+      // Both rows persisted above and no run is active (no unflushed stream
+      // content), so advance the snapshot↔stream anchor past the events just
+      // emitted. Otherwise `/messages` returns these rows while advertising
+      // the previous anchor, under-claiming what the snapshot reflects.
+      recordConversationPersistedSeq(conversationId, getCurrentSeq());
     }
     publishConversationMessagesChanged(conversationId, originClientId);
   } catch (err) {
@@ -604,43 +624,51 @@ function buildQueuedMessagePayloads(
   const conversation = findConversation(conversationId);
   if (!conversation) return [];
 
-  return conversation.snapshotQueuedMessages().map((item, index) => {
-    const text = item.displayContent ?? item.content;
-    const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
-      (a, idx) => ({
-        id: a.id ?? `${item.requestId}:attachment:${idx}`,
-        filename: a.filename,
-        mimeType: a.mimeType,
-        sizeBytes:
-          a.sizeBytes ?? (a.data ? Math.floor((a.data.length * 3) / 4) : 0),
-        kind: classifyKind(a.mimeType),
-        ...(a.mimeType.startsWith("image/") && a.data ? { data: a.data } : {}),
-        ...(a.thumbnailData ? { thumbnailData: a.thumbnailData } : {}),
-      }),
-    );
+  // Hidden sends are suppressed from the transcript at every stage — echo,
+  // persisted row, and here the in-memory queue window: a latest-page fetch
+  // while the item still awaits drain must not surface it as a queued bubble.
+  return conversation
+    .snapshotQueuedMessages()
+    .filter((item) => !isHiddenMessageMetadata(item.metadata))
+    .map((item, index) => {
+      const text = item.displayContent ?? item.content;
+      const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
+        (a, idx) => ({
+          id: a.id ?? `${item.requestId}:attachment:${idx}`,
+          filename: a.filename,
+          mimeType: a.mimeType,
+          sizeBytes:
+            a.sizeBytes ?? (a.data ? Math.floor((a.data.length * 3) / 4) : 0),
+          kind: classifyKind(a.mimeType),
+          ...(a.mimeType.startsWith("image/") && a.data
+            ? { data: a.data }
+            : {}),
+          ...(a.thumbnailData ? { thumbnailData: a.thumbnailData } : {}),
+        }),
+      );
 
-    const contentBlocks: ConversationContentBlock[] = [];
-    if (text.length > 0) contentBlocks.push({ type: "text", text });
-    for (const attachment of attachments) {
-      contentBlocks.push({ type: "attachment", attachment });
-    }
+      const contentBlocks: ConversationContentBlock[] = [];
+      if (text.length > 0) contentBlocks.push({ type: "text", text });
+      for (const attachment of attachments) {
+        contentBlocks.push({ type: "attachment", attachment });
+      }
 
-    return {
-      // The queued message has no DB row yet; its requestId is the stable
-      // identifier the queued-message delete/steer endpoints key on.
-      id: item.requestId,
-      role: "user" as const,
-      content: text,
-      timestamp: new Date(item.sentAt).toISOString(),
-      attachments,
-      ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
-      ...(item.clientMessageId
-        ? { clientMessageId: item.clientMessageId }
-        : {}),
-      queueStatus: "queued" as const,
-      queuePosition: index + 1,
-    };
-  });
+      return {
+        // The queued message has no DB row yet; its requestId is the stable
+        // identifier the queued-message delete/steer endpoints key on.
+        id: item.requestId,
+        role: "user" as const,
+        content: text,
+        timestamp: new Date(item.sentAt).toISOString(),
+        attachments,
+        ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
+        ...(item.clientMessageId
+          ? { clientMessageId: item.clientMessageId }
+          : {}),
+        queueStatus: "queued" as const,
+        queuePosition: index + 1,
+      };
+    });
 }
 
 export function handleListMessages({
@@ -817,19 +845,19 @@ export function handleListMessages({
         }
       | undefined;
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
-    let backgroundToolNotification: boolean | undefined;
+    let backgroundEventNotification: boolean | undefined;
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
-        // The backgrounded bash/host_bash completion wake persists a
-        // `<background_event source="background-tool">` row (see
-        // `persistWakeTriggerMessage`). Flag it so clients hide it from the
-        // transcript like a subagent/ACP notification — the inline card carries
-        // the status.
-        if (meta.backgroundEventSource === "background-tool") {
-          backgroundToolNotification = true;
+        // Every wake persists a `<background_event source="...">` trigger row
+        // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
+        // row so clients hide it from the transcript like a subagent/ACP
+        // notification — the user-facing "Conversation Woke" card (or, for a
+        // backgrounded bash run, the inline terminal card) carries the status.
+        if (typeof meta.backgroundEventSource === "string") {
+          backgroundEventNotification = true;
         }
         // `persistWakeTriggerMessage` stamps the structured completion onto the
         // same wake row, letting the web rebuild a terminal inline card from
@@ -892,7 +920,7 @@ export function handleListMessages({
       sentAt,
       subagentNotification,
       acpNotification,
-      backgroundToolNotification,
+      backgroundEventNotification,
       backgroundToolCompletion,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
@@ -926,34 +954,36 @@ export function handleListMessages({
       );
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => {
-          if (a.mimeType.startsWith("image/")) {
-            const full = getAttachmentById(a.id, { hydrateFileData: true });
-            // Stored HEIF/HEIC content is hydrated as JPEG display data —
-            // Chromium-based clients cannot decode HEIF. Filename and
-            // sizeBytes keep describing the stored file, which
-            // /attachments/:id/content serves verbatim for downloads.
-            const display = full?.dataBase64
-              ? normalizeImageBase64(a.mimeType, full.dataBase64)
+          // Hydrate image rows for inline thumbnails. Legacy HEIC can be
+          // stored under application/octet-stream (empty File.type fallback),
+          // so `.heic`/`.heif` rows are hydrated by filename too;
+          // normalizeImageBase64 sniffs the bytes and rewrites only genuine
+          // HEIF, which Chromium-based clients cannot decode. Filename and
+          // sizeBytes keep describing the stored original, which
+          // /attachments/:id/content serves verbatim for downloads.
+          const isImage = a.mimeType.startsWith("image/");
+          const isLegacyHeic = !isImage && isHeicFilename(a.originalFilename);
+          const full =
+            isImage || isLegacyHeic
+              ? getAttachmentById(a.id, { hydrateFileData: true })
               : null;
-            return {
-              id: a.id,
-              filename: a.originalFilename,
-              mimeType: display?.mimeType ?? a.mimeType,
-              sizeBytes: a.sizeBytes,
-              kind: a.kind,
-              ...(display ? { data: display.dataBase64 } : {}),
-              ...(a.thumbnailBase64
-                ? { thumbnailData: a.thumbnailBase64 }
-                : {}),
-              fileBacked: true,
-            };
-          }
+          const display = full?.dataBase64
+            ? normalizeImageBase64(a.mimeType, full.dataBase64)
+            : null;
+          // Image rows carry data even when unconverted (thumbnails); a
+          // non-image row only becomes renderable once conversion yields a
+          // JPEG, so it stays metadata-only when conversion is unavailable.
+          const useDisplay =
+            display && (isImage || display.converted) ? display : null;
           return {
             id: a.id,
             filename: a.originalFilename,
-            mimeType: a.mimeType,
+            mimeType: useDisplay?.mimeType ?? a.mimeType,
             sizeBytes: a.sizeBytes,
-            kind: a.kind,
+            kind: useDisplay?.converted
+              ? classifyKind(useDisplay.mimeType)
+              : a.kind,
+            ...(useDisplay ? { data: useDisplay.dataBase64 } : {}),
             ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
             fileBacked: true,
           };
@@ -1085,8 +1115,8 @@ export function handleListMessages({
         ? { subagentNotification: m.subagentNotification }
         : {}),
       ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
-      ...(m.backgroundToolNotification
-        ? { backgroundToolNotification: true }
+      ...(m.backgroundEventNotification
+        ? { backgroundEventNotification: true }
         : {}),
       ...(m.backgroundToolCompletion
         ? { backgroundToolCompletion: m.backgroundToolCompletion }
@@ -1242,6 +1272,51 @@ export function persistOnboardingArtifacts(onboarding: {
   });
 }
 
+type ClientMetadataBag = Partial<Record<ClientMetadataField, string>>;
+
+/**
+ * Read the sanitized client-metadata headers (browser family/version, OS
+ * surface, build version) sent by web-bundle clients. Values are persisted
+ * under `metadata.client` on the user message, which `turn-events-store`
+ * projects onto `TurnTelemetryEvent.client` for analytics. Returns
+ * `undefined` when no valid header is present so callers can omit the bag.
+ */
+function readClientMetadataHeaders(
+  headers: Record<string, string> | undefined,
+): ClientMetadataBag | undefined {
+  if (!headers) {
+    return undefined;
+  }
+  const bag: ClientMetadataBag = {};
+  for (const [field, headerName] of Object.entries(
+    CLIENT_METADATA_HEADERS,
+  ) as Array<[ClientMetadataField, string]>) {
+    const value = sanitizeClientMetadataValue(headers[headerName]);
+    if (value) {
+      bag[field] = value;
+    }
+  }
+  return Object.keys(bag).length > 0 ? bag : undefined;
+}
+
+/**
+ * Attach the client-metadata bag to a persist-time metadata object under the
+ * `client` key. Passes `metadata` through untouched (including `undefined`)
+ * when there is no client metadata.
+ */
+function withClientMetadata(
+  metadata: Record<string, unknown> | undefined,
+  clientMetadata: ClientMetadataBag | undefined,
+): Record<string, unknown> | undefined {
+  if (!clientMetadata) {
+    return metadata;
+  }
+  return {
+    ...(metadata ?? {}),
+    client: clientMetadata,
+  };
+}
+
 export async function handleSendMessage(
   { body: rawBody, headers }: RouteHandlerArgs,
   deps: {
@@ -1271,6 +1346,7 @@ export async function handleSendMessage(
     clientId?: string;
     clientMessageId?: string;
     inferenceProfile?: string | null;
+    enabledPlugins?: string[] | null;
     riskThreshold?: string;
     onboarding?: {
       tools: string[];
@@ -1294,6 +1370,7 @@ export async function handleSendMessage(
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   const principalType = headers?.["x-vellum-principal-type"];
   const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const clientMetadata = readClientMetadataHeaders(headers);
 
   const { conversationKey, content, attachmentIds } = body;
   const inboundConversationId =
@@ -1321,7 +1398,7 @@ export async function handleSendMessage(
     );
   }
   if (requestedInferenceProfile !== undefined) {
-    const profiles = getConfig().llm.profiles ?? {};
+    const profiles = getEffectiveProfiles(getConfig().llm.profiles);
     if (
       !Object.prototype.hasOwnProperty.call(profiles, requestedInferenceProfile)
     ) {
@@ -1329,6 +1406,18 @@ export async function handleSendMessage(
         `Profile "${requestedInferenceProfile}" is not defined in llm.profiles`,
       );
     }
+  }
+  // `undefined` leaves the stored scope untouched; `null` clears it to the
+  // default; `[]` scopes the chat to no plugins.
+  const requestedEnabledPlugins = body.enabledPlugins;
+  if (
+    requestedEnabledPlugins != null &&
+    (!Array.isArray(requestedEnabledPlugins) ||
+      requestedEnabledPlugins.some((p) => typeof p !== "string"))
+  ) {
+    throw new BadRequestError(
+      "enabledPlugins must be an array of strings or null",
+    );
   }
   if (
     requestedRiskThreshold !== undefined &&
@@ -1558,6 +1647,10 @@ export async function handleSendMessage(
       sessionId: null,
       expiresAt: null,
     });
+  }
+
+  if (requestedEnabledPlugins !== undefined) {
+    conversation.setEnabledPlugins(requestedEnabledPlugins);
   }
 
   // Store pre-chat onboarding context on the conversation when this is the
@@ -1826,6 +1919,10 @@ export async function handleSendMessage(
           conversationId,
           persistedAssistant.id,
         );
+        // Rows persisted before this deferred burst; advance the
+        // snapshot↔stream anchor past the events just emitted so `/messages`
+        // never returns these rows behind a stale anchor.
+        recordConversationPersistedSeq(conversationId, getCurrentSeq());
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.setProcessing(false);
         silentlyWithLog(
@@ -1930,13 +2027,20 @@ export async function handleSendMessage(
       attachments,
       onEvent: broadcastMessage,
       requestId,
-      metadata: {
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-        ...(body.automated === true ? { automated: true } : {}),
-      },
+      metadata: withClientMetadata(
+        {
+          userMessageChannel: sourceChannel,
+          assistantMessageChannel: sourceChannel,
+          userMessageInterface: sourceInterface,
+          assistantMessageInterface: sourceInterface,
+          ...(body.automated === true ? { automated: true } : {}),
+          // Carry the transcript-suppression flag through the queue so a
+          // hidden send that lands mid-turn stays hidden when drained —
+          // the drain path persists this metadata and skips the echo.
+          ...(body.hidden === true ? { hidden: true } : {}),
+        },
+        clientMetadata,
+      ),
       isInteractive,
       sourceActorPrincipalId,
       transport,
@@ -1957,21 +2061,34 @@ export async function handleSendMessage(
     // here must not turn the 202 response into a 500 — that would leave
     // the client showing "Failed to send" for a message the daemon will
     // process from the queue.
-    try {
-      // Supersede interactions left pending by the in-flight turn: auto-deny
-      // confirmations (with canonical/client sync) and steer to the enqueued
-      // message if an ask_question is parked. Centralized so the CLI signal
-      // path (signals/user-message.ts) gets identical handling.
-      supersedePendingInteractionsOnEnqueue(mapping.conversationId, requestId);
+    //
+    // Supersede encodes user intent — a typed message while a prompt is open
+    // means the user chose to move on. A hidden send is a machine signal
+    // (e.g. the channel-setup wizard-close marker), not a user decision: it
+    // must not auto-deny live approval prompts or steer a parked
+    // ask_question to a message the user never typed. Daemon-injected
+    // synthetic messages (subagent/ACP notifications) skip this path the
+    // same way by enqueuing directly.
+    if (body.hidden !== true) {
+      try {
+        // Supersede interactions left pending by the in-flight turn: auto-deny
+        // confirmations (with canonical/client sync) and steer to the enqueued
+        // message if an ask_question is parked. Centralized so the CLI signal
+        // path (signals/user-message.ts) gets identical handling.
+        supersedePendingInteractionsOnEnqueue(
+          mapping.conversationId,
+          requestId,
+        );
 
-      // Expire any orphaned canonical requests that survived without a
-      // matching in-memory pending interaction (e.g. prompter timeouts).
-      expireOrphanedCanonicalRequests(mapping.conversationId);
-    } catch (err) {
-      log.warn(
-        { err, conversationId: mapping.conversationId },
-        "Post-enqueue auto-deny failed — queued message unaffected",
-      );
+        // Expire any orphaned canonical requests that survived without a
+        // matching in-memory pending interaction (e.g. prompter timeouts).
+        expireOrphanedCanonicalRequests(mapping.conversationId);
+      } catch (err) {
+        log.warn(
+          { err, conversationId: mapping.conversationId },
+          "Post-enqueue auto-deny failed — queued message unaffected",
+        );
+      }
     }
 
     return {
@@ -1987,7 +2104,11 @@ export async function handleSendMessage(
   // before dispatching, so an idle conversation with lingering confirmations
   // (e.g. the user never responded to a tool-approval prompt) must deny
   // them before starting the new turn.
-  if (conversation.hasAnyPendingConfirmation()) {
+  // Hidden sends are machine signals, not user decisions — like the queue
+  // branch's supersede bypass above, they must not deny confirmations that
+  // outlived a turn (e.g. a guardian approval still awaiting a channel
+  // reply). The next visible send performs the cleanup instead.
+  if (body.hidden !== true && conversation.hasAnyPendingConfirmation()) {
     for (const interaction of pendingInteractions.getByConversation(
       mapping.conversationId,
     )) {
@@ -2055,7 +2176,7 @@ export async function handleSendMessage(
         content: rawContent,
         attachments,
         requestId: crypto.randomUUID(),
-        metadata: slashMeta,
+        metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
       if (persisted.deduplicated) {
@@ -2121,6 +2242,8 @@ export async function handleSendMessage(
           conversationId,
           persistedAssistant.id,
         );
+        // Same anchor advance as the canned-greeting path above.
+        recordConversationPersistedSeq(conversationId, getCurrentSeq());
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.setProcessing(false);
         silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
@@ -2152,7 +2275,7 @@ export async function handleSendMessage(
         content: rawContent,
         attachments,
         requestId: crypto.randomUUID(),
-        metadata: slashMeta,
+        metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
     } catch (err) {
@@ -2243,7 +2366,7 @@ export async function handleSendMessage(
         content: rawContent,
         attachments,
         requestId: crypto.randomUUID(),
-        metadata: slashMeta,
+        metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
       if (persisted.deduplicated) {
@@ -2304,13 +2427,15 @@ export async function handleSendMessage(
     content: resolvedContent,
     attachments,
     requestId,
-    metadata:
+    metadata: withClientMetadata(
       body.automated === true || body.hidden === true
         ? {
             ...(body.automated === true ? { automated: true } : {}),
             ...(body.hidden === true ? { hidden: true } : {}),
           }
         : undefined,
+      clientMetadata,
+    ),
     clientMessageId,
   });
 
@@ -2337,6 +2462,15 @@ export async function handleSendMessage(
       requestId,
       clientMessageId,
     });
+    // The row this echo announces was durably persisted above, so advance
+    // the snapshot↔stream anchor to the echo's seq (stamped inline by
+    // `broadcastMessage`). Without this, `/messages` returns the row while
+    // still advertising the previous flush's anchor — under-claiming, which
+    // breaks the contract that the snapshot reflects all of this
+    // conversation's events through the advertised seq. Safe to claim here:
+    // the agent loop for this turn hasn't started, so no streamed-but-
+    // unflushed content exists for this conversation.
+    recordConversationPersistedSeq(mapping.conversationId, getCurrentSeq());
   }
   publishConversationMessagesChanged(mapping.conversationId, originClientId);
 
@@ -2346,6 +2480,7 @@ export async function handleSendMessage(
       onEvent: broadcastMessage,
       isInteractive,
       isUserMessage: true,
+      ...(body.hidden === true ? { isHiddenPrompt: true } : {}),
     })
     .catch((err) => {
       log.error(
@@ -2808,12 +2943,19 @@ export const ROUTES: RouteDefinition[] = [
         )
         .optional(),
       inferenceProfile: z.string().nullable().optional(),
+      enabledPlugins: z
+        .array(z.string())
+        .nullable()
+        .optional()
+        .describe(
+          "Plugin ids that scope this conversation to a subset of installed plugins (first-party defaults are always available). When present on a message, it sets/updates the conversation's plugin scope (the web client sends it only on the first message of a new chat). null clears the scope to default (all enabled plugins); omitting the field leaves the existing scope unchanged.",
+        ),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
       hidden: z
         .boolean()
         .optional()
         .describe(
-          "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used to prime a proactive assistant greeting without showing the triggering user message. Honored on the standard send path only.",
+          "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used for machine signals the user never typed (proactive-greeting priming, channel-setup wizard close). Suppression covers the queued path too: a hidden send that lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send path only — slash-command content bypasses it.",
         ),
       onboarding: z
         .object({

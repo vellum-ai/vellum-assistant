@@ -243,6 +243,9 @@ declare global {
         drain(): Promise<string[]>;
         onFile(callback: (filePath: string) => void): () => void;
       };
+      paths?: {
+        getPathForFile(file: File): string | null;
+      };
       feedback?: {
         diagnostics(): Promise<Record<string, unknown>>;
         logs(): Promise<string>;

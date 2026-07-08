@@ -13,9 +13,10 @@ mock.module("../config/env.js", () => ({
 
 import {
   FALLBACK_TURN_TRUST,
+  mapChatTypeToConversationType,
   resolveTrustClass,
-  type TrustContext,
 } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 
 afterAll(() => {
   mock.restore();
@@ -70,5 +71,32 @@ describe("resolveTrustClass", () => {
     // the fail-safe sibling to LUM-2665; see LUM-2669.
     fakeHttpAuthDisabled = true;
     expect(resolveTrustClass(FALLBACK_TURN_TRUST)).toBe("unknown");
+  });
+});
+
+describe("mapChatTypeToConversationType", () => {
+  test("maps DM-shaped chat types to dm", () => {
+    expect(mapChatTypeToConversationType("im")).toBe("dm"); // Slack DM
+    expect(mapChatTypeToConversationType("private")).toBe("dm"); // Telegram DM
+  });
+
+  test("maps closed-group chat types to private", () => {
+    expect(mapChatTypeToConversationType("mpim")).toBe("private"); // Slack multi-party DM
+    expect(mapChatTypeToConversationType("group")).toBe("private");
+    expect(mapChatTypeToConversationType("supergroup")).toBe("private");
+  });
+
+  test("maps Slack 'channel' to undefined — public and private are indistinguishable", () => {
+    // The gateway forwards every non-DM Slack conversation as "channel"
+    // without a public/private distinction. Mapping it to "public" would let
+    // a permissive public-channel matrix cell govern private channels, so
+    // the channel-type tier must not match at all.
+    expect(mapChatTypeToConversationType("channel")).toBeUndefined();
+  });
+
+  test("maps unknown or absent chat types to undefined", () => {
+    expect(mapChatTypeToConversationType(undefined)).toBeUndefined();
+    expect(mapChatTypeToConversationType("")).toBeUndefined();
+    expect(mapChatTypeToConversationType("broadcast")).toBeUndefined();
   });
 });

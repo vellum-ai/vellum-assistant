@@ -28,6 +28,13 @@ import {
   type UsageGroupedBucketRow,
   type UsageGroupedSeriesBucket,
 } from "./usage-grouped-buckets.js";
+import {
+  type GroupByDimension,
+  USAGE_GROUP_BY_DIMENSIONS,
+  type UsageBucketOptions,
+  type UsageDayBucket,
+  type UsageTimeRange,
+} from "./usage-types.js";
 
 // ---------------------------------------------------------------------------
 // Write
@@ -292,12 +299,6 @@ export function queryUnreportedUsageEvents(
 // Aggregation — time-range queries for the usage dashboard
 // ---------------------------------------------------------------------------
 
-/** Epoch-millis time range (inclusive on both ends). */
-export interface UsageTimeRange {
-  from: number;
-  to: number;
-}
-
 export type UsageAggregationFilter = ScheduleAttributionFilter;
 
 /** Aggregate totals across a time range. */
@@ -314,34 +315,6 @@ export interface UsageTotals {
 }
 
 export type UsageGranularity = "daily" | "hourly";
-
-/** A single time bucket with its aggregate totals. */
-export interface UsageDayBucket {
-  /**
-   * Stable unique identifier for the bucket. Safe for use as a SwiftUI/React
-   * list key. Distinct even for DST fall-back duplicate hours (which share the
-   * same `date` string). Daily buckets use `date` directly; hourly buckets use
-   * "YYYY-MM-DD HH:00|<offsetMinutes>" to disambiguate repeated local hours.
-   */
-  bucketId: string;
-  /**
-   * Local-time bucket key in the requested tz:
-   * "YYYY-MM-DD" (daily) or "YYYY-MM-DD HH:00" (hourly).
-   * NOT unique: on DST fall-back days, two 01:00 hourly buckets share this key.
-   * Use `bucketId` as a list identifier and `date` for display/sort only.
-   */
-  date: string;
-  /**
-   * Human-readable label for the bucket, formatted in the requested tz.
-   * Hourly: "3pm". Daily: "Apr 11".
-   */
-  displayLabel?: string;
-  /** Direct input tokens only; cache traffic is tracked separately in totals. */
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalEstimatedCostUsd: number;
-  eventCount: number;
-}
 
 /** A grouped breakdown row. */
 export interface UsageGroupBreakdown {
@@ -451,6 +424,7 @@ export function getConversationUsageTotals(conversationId: string): {
     total_output: number;
     total_cost: number | null;
   }>(
+    "usage:getConversationTotals",
     /*sql*/ `
     SELECT
       COALESCE(SUM(input_tokens + COALESCE(cache_creation_input_tokens, 0) + COALESCE(cache_read_input_tokens, 0)), 0) AS total_input,
@@ -479,6 +453,7 @@ export function getUsageCostForConversationWindow({
   to: number;
 }): number {
   const rows = rawAll<{ total_cost: number | null }>(
+    "usage:costForConversationWindow",
     /*sql*/ `
     SELECT COALESCE(SUM(estimated_cost_usd), 0) AS total_cost
     FROM llm_usage_events
@@ -520,6 +495,7 @@ export function getUsageCostForRun({
     params.push(conversationId, from, to);
   }
   const rows = rawAll<{ total_cost: number | null }>(
+    "usage:costForRun",
     /*sql*/ `
     SELECT COALESCE(SUM(estimated_cost_usd), 0) AS total_cost
     FROM llm_usage_events
@@ -538,6 +514,7 @@ export function getUsageCostForRun({
  */
 export function listRunConversationIds(cronRunId: string): string[] {
   const rows = rawAll<{ conversation_id: string }>(
+    "usage:listRunConversationIds",
     /*sql*/ `
     SELECT DISTINCT conversation_id
     FROM llm_usage_events
@@ -558,6 +535,7 @@ export function getUsageTotals(
 ): UsageTotals {
   const where = buildUsageAggregationWhere(range, filter);
   const rows = rawAll<TotalsRow>(
+    "usage:getTotals",
     /*sql*/ `
     SELECT
       COALESCE(SUM(input_tokens), 0)                              AS total_input_tokens,
@@ -618,6 +596,7 @@ function fetchRawBucketRows(
 ): UsageEventBucketRow[] {
   const where = buildUsageAggregationWhere(range, filter);
   return rawAll<UsageEventBucketRow>(
+    "usage:fetchRawBucketRows",
     /*sql*/ `
     SELECT
       (created_at / ${USAGE_PREAGG_BUCKET_MS}) * ${USAGE_PREAGG_BUCKET_MS} AS created_at,
@@ -632,16 +611,6 @@ function fetchRawBucketRows(
     `,
     ...where.params,
   );
-}
-
-/** Options for bucket aggregation. */
-export interface UsageBucketOptions {
-  /**
-   * When true, emit a zero-value bucket for every day (or hour) in the range
-   * even if no events fall inside it. Defaults to false so the CLI and other
-   * callers only see active periods; the chart route opts in.
-   */
-  fillEmpty?: boolean;
 }
 
 /**
@@ -681,18 +650,6 @@ export function getUsageHourBuckets(
   const rows = fetchRawBucketRows(range, filter);
   return bucketEventsByHour(rows, range, tz, options);
 }
-
-export const USAGE_GROUP_BY_DIMENSIONS = [
-  "actor",
-  "provider",
-  "model",
-  "conversation",
-  "call_site",
-  "inference_profile",
-  "schedule",
-] as const;
-
-export type GroupByDimension = (typeof USAGE_GROUP_BY_DIMENSIONS)[number];
 
 export const USAGE_SERIES_GROUP_BY_DIMENSIONS = [
   "actor",
@@ -766,6 +723,7 @@ export function getUsageGroupBreakdown(
   if (groupBy === "conversation") {
     const where = buildUsageAggregationWhere(range, normalizedFilter, "e");
     const rows = rawAll<GroupRow>(
+      "usage:groupBreakdown:conversation",
       /*sql*/ `
       SELECT
         CASE WHEN e.conversation_id IS NULL THEN 'Other'
@@ -818,6 +776,7 @@ export function getUsageGroupBreakdown(
       selectExpression: "schedule_attr_runs.job_id",
     });
     const rows = rawAll<GroupRow>(
+      "usage:groupBreakdown:schedule",
       /*sql*/ `
       WITH schedule_usage AS (
         SELECT
@@ -856,6 +815,7 @@ export function getUsageGroupBreakdown(
   const column = GROUP_BY_COLUMNS[groupBy];
   const where = buildUsageAggregationWhere(range, normalizedFilter, "e");
   const rows = rawAll<GroupRow>(
+    "usage:groupBreakdown:column",
     /*sql*/ `
     SELECT
       e.${column}                                      AS group_key,
@@ -903,6 +863,7 @@ export function getUsageGroupedSeries(
       selectExpression: "schedule_attr_runs.job_id",
     });
     rows = rawAll<UsageGroupedBucketRow>(
+      "usage:groupedSeries:schedule",
       /*sql*/ `
       WITH schedule_usage AS (
         SELECT
@@ -936,6 +897,7 @@ export function getUsageGroupedSeries(
     const column = GROUP_BY_COLUMNS[groupBy];
     const where = buildUsageAggregationWhere(range, normalizedFilter, "e");
     rows = rawAll<UsageGroupedBucketRow>(
+      "usage:groupedSeries:column",
       /*sql*/ `
       SELECT
         (e.created_at / ${USAGE_PREAGG_BUCKET_MS}) * ${USAGE_PREAGG_BUCKET_MS} AS created_at,

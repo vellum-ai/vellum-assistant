@@ -26,7 +26,7 @@ describe("trust-context guards", () => {
 
   it("guardianPrincipalId is not typed as string | null in TrustContext", () => {
     const source = readFileSync(
-      join(srcDir, "daemon", "trust-context.ts"),
+      join(srcDir, "daemon", "trust-context-types.ts"),
       "utf-8",
     );
 
@@ -170,7 +170,7 @@ describe("trust-context guards", () => {
 
   it("guardianPrincipalId is typed as string | null in GuardianBinding, and reads never coerce null to ''", () => {
     const source = readFileSync(
-      join(srcDir, "channels", "channel-verification-sessions.ts"),
+      join(srcDir, "runtime", "channel-verification-service.ts"),
       "utf-8",
     );
 

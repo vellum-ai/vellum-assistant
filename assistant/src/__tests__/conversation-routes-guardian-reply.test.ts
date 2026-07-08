@@ -86,13 +86,14 @@ mock.module("../persistence/conversation-crud.js", () => ({
     options?: { metadata?: Record<string, unknown> },
   ) => addMessageMock(conversationId, role, content, options),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
 }));
 
+const realLocalActorIdentity = await import(
+  "../runtime/local-actor-identity.js"
+);
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-  }),
+  ...realLocalActorIdentity,
 }));
 
 mock.module("../runtime/trust-context-resolver.js", () => ({

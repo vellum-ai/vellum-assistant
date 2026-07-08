@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ChannelDeliveryResult } from "@vellumai/gateway-client";
+import { ChannelReplyPayloadSchema } from "@vellumai/gateway-client";
 
 type DeliverCall = { callbackUrl: string; payload: Record<string, unknown> };
 
@@ -18,6 +19,10 @@ mock.module("./gateway-client.js", () => ({
     callbackUrl: string,
     payload: Record<string, unknown>,
   ) => {
+    // Every payload the session emits must be valid on the wire — in
+    // particular a task-only append must satisfy the contract's
+    // markdownText-or-tasks refinement.
+    ChannelReplyPayloadSchema.parse(payload);
     deliverCalls.push({ callbackUrl, payload });
     return deliverImpl(callbackUrl, payload);
   },
@@ -59,7 +64,8 @@ const messageComplete = (messageId: string): ServerMessage =>
 
 const taskProgressShow = (
   surfaceId: string,
-  steps: Array<{ label: string; status: string }>,
+  steps: Array<{ label: string; status: string; detail?: string }>,
+  templateTitle?: string,
 ): ServerMessage =>
   ({
     type: "ui_surface_show",
@@ -69,7 +75,10 @@ const taskProgressShow = (
     data: {
       title: "Task progress",
       template: "task_progress",
-      templateData: { steps },
+      templateData: {
+        ...(templateTitle ? { title: templateTitle } : {}),
+        steps,
+      },
     },
   }) as ServerMessage;
 
@@ -91,6 +100,11 @@ const slackStreamOps = (): Array<Record<string, unknown>> =>
   deliverCalls
     .map((call) => call.payload.slackStream as Record<string, unknown>)
     .filter(Boolean);
+
+const streamedMarkdown = (): string =>
+  slackStreamOps()
+    .map((op) => (op.markdownText as string | undefined) ?? "")
+    .join("");
 
 beforeEach(() => {
   deliverCalls.length = 0;
@@ -204,6 +218,7 @@ describe("createSlackReplySession", () => {
         action: "start",
         threadTs: THREAD_TS,
         markdownText: "The complete answer.",
+        taskDisplayMode: "plan",
       },
       { action: "stop", streamTs: "stream-ts-1" },
     ]);
@@ -234,6 +249,7 @@ describe("createSlackReplySession", () => {
         action: "start",
         threadTs: THREAD_TS,
         markdownText: "The complete answer.",
+        taskDisplayMode: "plan",
         recipientUserId: "U123",
         recipientTeamId: "T123",
       },
@@ -261,6 +277,7 @@ describe("createSlackReplySession", () => {
         action: "start",
         threadTs: THREAD_TS,
         markdownText: "First half. ",
+        taskDisplayMode: "plan",
       },
       {
         action: "append",
@@ -353,10 +370,9 @@ describe("createSlackReplySession", () => {
     expect(reconciliation).toEqual({ mode: "fallback" });
   });
 
-  test("defers task progress that advances without new body text to stop", async () => {
-    // `chat.appendStream` requires `markdown_text`, so a plan that advances
-    // during tool work without new text is not appended on its own; the
-    // updated task state lands on the final `stopStream`.
+  test("appends task-only progress that advances without new body text", async () => {
+    // `chat.appendStream` accepts a chunks-only call, so a plan that advances
+    // during tool work lands live instead of waiting for the final stop.
     // @see https://docs.slack.dev/reference/methods/chat.appendStream/
     const session = createSlackReplySession({
       sourceChannel: "slack",
@@ -382,15 +398,14 @@ describe("createSlackReplySession", () => {
     );
     await tick(15);
 
-    const ops = slackStreamOps();
-    // No append is emitted for a task-only update, and no append ever omits
-    // its required markdown text.
-    for (const op of ops) {
-      if (op.action === "append") {
-        expect(typeof op.markdownText).toBe("string");
-      }
-    }
-    expect(ops.some((op) => op.action === "append")).toBe(false);
+    expect(slackStreamOps().at(-1)).toEqual({
+      action: "append",
+      streamTs: "stream-ts-1",
+      tasks: [
+        { id: "task-0", title: "Search docs", status: "complete" },
+        { id: "task-1", title: "Summarize", status: "in_progress" },
+      ],
+    });
 
     await session.finish();
 
@@ -401,6 +416,86 @@ describe("createSlackReplySession", () => {
         { id: "task-0", title: "Search docs", status: "complete" },
         { id: "task-1", title: "Summarize", status: "in_progress" },
       ],
+    });
+  });
+
+  test("does not re-append unchanged task progress", async () => {
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+    })!;
+
+    session.observeEvent(
+      taskProgressShow("surface-1", [
+        { label: "Search docs", status: "in_progress" },
+      ]),
+    );
+    session.observeEvent(textDelta("Working on it."));
+    await tick(15);
+    session.observeEvent(
+      taskProgressUpdate("surface-1", [
+        { label: "Search docs", status: "in_progress" },
+      ]),
+    );
+    await tick(15);
+
+    // The start already delivered this exact plan state; a matching update
+    // must not spend an append on it.
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start"]);
+  });
+
+  test("leaves progress to stop when the task-only append fails", async () => {
+    deliverImpl = async (_url, payload) => {
+      const op = payload.slackStream as {
+        action: string;
+        markdownText?: string;
+      };
+      if (op.action === "append" && op.markdownText === undefined) {
+        throw new Error("chunks-only append rejected");
+      }
+      return { ok: true, ts: "stream-ts-1" };
+    };
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+    })!;
+
+    session.observeEvent(textDelta("Working on it."));
+    await tick(15);
+    session.observeEvent(
+      taskProgressShow("surface-1", [
+        { label: "Search docs", status: "in_progress" },
+      ]),
+    );
+    await tick(15);
+    session.observeEvent(
+      taskProgressUpdate("surface-1", [
+        { label: "Search docs", status: "completed" },
+      ]),
+    );
+    await tick(15);
+    const reconciliation = await session.finish();
+
+    // The first rejection disables task-only appends for the session, so
+    // later progress updates do not retry a doomed call.
+    const taskOnlyAttempts = slackStreamOps().filter(
+      (op) => op.action === "append" && op.markdownText === undefined,
+    );
+    expect(taskOnlyAttempts.length).toBe(1);
+
+    // The failed task-only append does not degrade the stream; the plan
+    // still lands on the final stop.
+    expect(reconciliation.mode).toBe("streamed");
+    expect(slackStreamOps().at(-1)).toEqual({
+      action: "stop",
+      streamTs: "stream-ts-1",
+      tasks: [{ id: "task-0", title: "Search docs", status: "complete" }],
     });
   });
 
@@ -502,6 +597,82 @@ describe("createSlackReplySession", () => {
     });
   });
 
+  test("inserts a space between segments fused across a tool boundary", async () => {
+    // The model ends one segment with a period and opens the next with a
+    // capital letter, supplying no separating whitespace on either side.
+    // Concatenating them raw would fuse "Sentence one.Sentence two.".
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+    })!;
+
+    session.observeEvent(textDelta("Sentence one."));
+    session.observeEvent(toolUseStart("toolu_1"));
+    session.observeEvent(textDelta("Sentence two."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    expect(streamedMarkdown()).toBe("Sentence one. Sentence two.");
+  });
+
+  test("inserts a space between separate model responses", async () => {
+    // Multiple `message_complete` events fire within one streamed turn (one
+    // per model response). Text from the second response must not fuse onto
+    // the first.
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+    })!;
+
+    session.observeEvent(textDelta("First response."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    session.observeEvent(textDelta("Second response."));
+    session.observeEvent(messageComplete("assistant-msg-2"));
+    await session.finish();
+
+    expect(streamedMarkdown()).toBe("First response. Second response.");
+  });
+
+  test("does not double-space a boundary the model already spaced", async () => {
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+    })!;
+
+    session.observeEvent(textDelta("Before the tool."));
+    session.observeEvent(toolUseStart("toolu_1"));
+    session.observeEvent(textDelta(" After the tool."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    expect(streamedMarkdown()).toBe("Before the tool. After the tool.");
+  });
+
+  test("does not fuse mid-word deltas within a single segment", async () => {
+    // Intra-segment token deltas carry the model's own spacing and must never
+    // be altered — only tool/message boundaries introduce a separating space.
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+    })!;
+
+    session.observeEvent(textDelta("super"));
+    session.observeEvent(textDelta("cali"));
+    session.observeEvent(textDelta("fragilistic"));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    expect(streamedMarkdown()).toBe("supercalifragilistic");
+  });
+
   test("opens the stream in plan mode and advances task cards", async () => {
     const session = createSlackReplySession({
       sourceChannel: "slack",
@@ -548,5 +719,108 @@ describe("createSlackReplySession", () => {
       ],
     });
     expect(reconciliation.mode).toBe("streamed");
+  });
+
+  test("renders a plan created after the stream opened", async () => {
+    // The model typically streams an acknowledgment before it creates the
+    // task_progress surface. Slack fixes the task display mode when the
+    // stream starts, so the start must open in plan mode even with no plan
+    // active yet — otherwise the late-arriving task cards can never render
+    // as a plan.
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+    })!;
+
+    session.observeEvent(textDelta("On it — starting now."));
+    await tick(15);
+    session.observeEvent(
+      taskProgressShow("surface-1", [
+        { label: "Search docs", status: "in_progress" },
+        { label: "Summarize", status: "pending" },
+      ]),
+    );
+    await tick(15);
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    expect(slackStreamOps()).toEqual([
+      {
+        action: "start",
+        threadTs: THREAD_TS,
+        markdownText: "On it — starting now.",
+        taskDisplayMode: "plan",
+      },
+      {
+        action: "append",
+        streamTs: "stream-ts-1",
+        tasks: [
+          { id: "task-0", title: "Search docs", status: "in_progress" },
+          { id: "task-1", title: "Summarize", status: "pending" },
+        ],
+      },
+      {
+        action: "stop",
+        streamTs: "stream-ts-1",
+        tasks: [
+          { id: "task-0", title: "Search docs", status: "in_progress" },
+          { id: "task-1", title: "Summarize", status: "pending" },
+        ],
+      },
+    ]);
+  });
+
+  test("carries the plan title and step details onto stream ops", async () => {
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+    })!;
+
+    session.observeEvent(
+      taskProgressShow(
+        "surface-1",
+        [
+          {
+            label: "Check weather",
+            status: "in_progress",
+            detail: "Fetching the forecast",
+          },
+          { label: "Summarize", status: "pending" },
+        ],
+        "Quick Briefing",
+      ),
+    );
+    session.observeEvent(textDelta("Working on it."));
+    await tick(15);
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    const ops = slackStreamOps();
+    expect(ops[0]).toEqual({
+      action: "start",
+      threadTs: THREAD_TS,
+      markdownText: "Working on it.",
+      taskDisplayMode: "plan",
+      planTitle: "Quick Briefing",
+      tasks: [
+        {
+          id: "task-0",
+          title: "Check weather",
+          status: "in_progress",
+          details: "Fetching the forecast",
+        },
+        { id: "task-1", title: "Summarize", status: "pending" },
+      ],
+    });
+    expect(ops.at(-1)).toMatchObject({
+      action: "stop",
+      planTitle: "Quick Briefing",
+    });
   });
 });

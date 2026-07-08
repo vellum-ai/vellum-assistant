@@ -54,6 +54,7 @@ import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
 import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/memory-v2-activation-log-store.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
+import { resolveMediaSourceData } from "../providers/media-resolve.js";
 import type {
   ContentBlock,
   ImageContent,
@@ -100,6 +101,7 @@ import type {
   WebSearchMetadata,
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
+import { referenceMediaBlocksForPersist } from "./persist-media-references.js";
 import type { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("agent-loop-handlers");
@@ -143,7 +145,6 @@ export interface PendingToolResult {
 
 /** Mutable state shared across event handlers within a single agent loop run. */
 export interface EventHandlerState {
-  llmCallStartedEmitted: boolean;
   /**
    * Profile key whose `model_profile` notice has been assembled into the turn
    * context but not yet marked notified. Set when the turn injects the notice,
@@ -169,6 +170,13 @@ export interface EventHandlerState {
   readonly exchangeRawResponses: unknown[];
   model: string;
   providerErrorUserMessage: string | null;
+  /**
+   * Stable classified code of the most recent provider error
+   * (`classifyConversationError(...).code`). Carried into the turn's
+   * telemetry outcome stamp when the loop terminates on the provider-error
+   * path.
+   */
+  providerErrorCode: string | null;
   persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
   /**
@@ -370,7 +378,6 @@ export interface EventHandlerDeps {
 
 export function createEventHandlerState(): EventHandlerState {
   return {
-    llmCallStartedEmitted: false,
     pendingNotifiedInferenceProfile: null,
     pendingDirectiveDisplayBuffer: "",
     firstAssistantText: "",
@@ -384,6 +391,7 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeRawResponses: [],
     model: "",
     providerErrorUserMessage: null,
+    providerErrorCode: null,
     persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -665,30 +673,6 @@ function schedulePartialFlush(
 // disagree even for tool-call-only responses where text_delta never fires
 // (and therefore the started event would otherwise fall back here *after*
 // the AsyncLocalStorage context in CallSiteRoutingProvider has already exited).
-function emitLlmCallStartedIfNeeded(
-  state: EventHandlerState,
-  deps: EventHandlerDeps,
-  providerNameOverride?: string,
-): void {
-  if (state.llmCallStartedEmitted) {
-    return;
-  }
-  state.llmCallStartedEmitted = true;
-  const providerName = providerNameOverride ?? deps.ctx.provider.name;
-  deps.ctx.traceEmitter.emit(
-    "llm_call_started",
-    `LLM call to ${providerName}`,
-    {
-      requestId: deps.reqId,
-      status: "info",
-      attributes: {
-        provider: providerName,
-        model: state.model || "unknown",
-      },
-    },
-  );
-}
-
 // ── Client Payload Size Caps ─────────────────────────────────────────
 // tool_input_delta streams accumulated JSON as tools run. For non-app
 // tools the client discards it (extractCodePreview only handles app tools),
@@ -911,7 +895,6 @@ function handleTextDelta(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "text_delta" }>,
 ): void {
-  emitLlmCallStartedIfNeeded(state, deps);
   state.pendingDirectiveDisplayBuffer += event.text;
   const drained = drainDirectiveDisplayBuffer(
     state.pendingDirectiveDisplayBuffer,
@@ -972,7 +955,6 @@ function handleThinkingDelta(
   if (!deps.ctx.streamThinking) {
     return;
   }
-  emitLlmCallStartedIfNeeded(state, deps);
   deps.onEvent({
     type: "assistant_thinking_delta",
     thinking: event.thinking,
@@ -1306,8 +1288,24 @@ export async function finalizePendingToolResultRow(
     conversationId,
     metadata,
   );
+  // `getConversation` returns `ConversationRow | null`, so `!= null` gates on a
+  // real row (skipping media referencing / disk sync when the conversation was
+  // not found rather than asking those helpers to resolve a missing id).
+  const conv = getConversation(conversationId);
+  // Swap any base64 media the tools produced (screenshots, generated images)
+  // for workspace references so the blob stays in the attachment store, out of
+  // this row and the lexical index. Runs once, here at finalize (on-arrival
+  // writes keep base64 for durability); the send boundary re-inflates the refs.
+  const blocks = buildToolResultBlocks(state.pendingToolResults);
   const contentJson = JSON.stringify(
-    buildToolResultBlocks(state.pendingToolResults),
+    conv != null
+      ? referenceMediaBlocksForPersist(
+          conversationId,
+          conv.createdAt,
+          rowId,
+          blocks as ContentBlock[],
+        )
+      : blocks,
   );
   await persistLoopMessageContent(
     rowId,
@@ -1316,10 +1314,6 @@ export async function finalizePendingToolResultRow(
     rlog,
   );
   // Sync the row to the JSONL disk view so it stays in lockstep with the DB.
-  // `getConversation` returns `ConversationRow | null`, so `!= null` gates on a
-  // real row (skipping the sync when the conversation was not found rather than
-  // asking the disk-view to resolve a missing id).
-  const conv = getConversation(conversationId);
   if (conv != null) {
     syncMessageToDisk(conversationId, rowId, conv.createdAt);
   }
@@ -1370,8 +1364,8 @@ export async function finalizePendingToolResultRow(
       );
     }
     // Dual-write the finalized tool-result content into the lexical index. The
-    // reserve+finalize path bypasses `onMessagePersisted`, so enqueue here to
-    // keep the lexical index in lockstep with the segment index.
+    // reserve+finalize path bypasses the `addMessage` persist path, so enqueue
+    // here to keep the lexical index in lockstep with the segment index.
     enqueueLexicalIndexForMessage(rowId);
   }
   for (const id of state.pendingToolResults.keys()) {
@@ -1431,7 +1425,9 @@ export async function handleToolResult(
     (b): b is ImageContent => b.type === "image",
   );
   const imageDataList = imageBlocks?.length
-    ? imageBlocks.map((b) => b.source.data)
+    ? imageBlocks
+        .map((b) => resolveMediaSourceData(b.source)?.data)
+        .filter((d): d is string => d != null)
     : undefined;
 
   // Perform state mutations before deps.onEvent() so that if onEvent throws
@@ -1878,6 +1874,7 @@ function handleError(
     buildConversationErrorMessage(deps.ctx.conversationId, classified),
   );
   state.providerErrorUserMessage = classified.userMessage;
+  state.providerErrorCode = classified.code;
   state.persistProviderErrorAsAssistantMessage =
     shouldPersistProviderErrorAsAssistantMessage(classified);
 }
@@ -2177,27 +2174,6 @@ export async function handleMessageComplete(
   }
 
   deps.ctx.currentTurnSurfaces = [];
-
-  // Emit trace event. Char count is computed from the cleaned +
-  // redacted text blocks (UI surface blocks filtered out via the
-  // type guard) — same shape as what was just persisted.
-  const charCount = contentForPersistence
-    .filter(
-      (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
-    )
-    .reduce((sum, b) => sum + b.text.length, 0);
-  const toolUseCount = event.message.content.filter(
-    (b) => b.type === "tool_use",
-  ).length;
-  deps.ctx.traceEmitter.emit(
-    "assistant_message",
-    "Assistant message complete",
-    {
-      requestId: deps.reqId,
-      status: "success",
-      attributes: { charCount, toolUseCount },
-    },
-  );
 }
 
 function handleUsage(
@@ -2249,14 +2225,12 @@ function handleUsage(
   // so the next call in the turn serializes only its own marks. Non-fatal: a
   // tracking hiccup must never escalate into a turn-level throw.
   let latencyBreakdownJson: string | undefined;
-  let ttftMs: number | undefined;
   try {
     const segment = deps.latencyTracker?.serializeSince(state.latencyCursor);
     if (segment) {
       state.latencyCursor = segment.cursor;
       if (segment.breakdown) {
         latencyBreakdownJson = JSON.stringify(segment.breakdown);
-        ttftMs = segment.breakdown.ttftMs ?? undefined;
       }
     }
   } catch (err) {
@@ -2281,31 +2255,6 @@ function handleUsage(
       deps.rlog.warn({ err }, "Failed to persist LLM request log (non-fatal)");
     }
   }
-
-  // Pass providerName so that if text_delta never fired (tool-call-only
-  // responses), the started event uses the same resolved name as finished.
-  emitLlmCallStartedIfNeeded(state, deps, providerName);
-
-  deps.ctx.traceEmitter.emit(
-    "llm_call_finished",
-    `LLM call to ${providerName} finished`,
-    {
-      requestId: deps.reqId,
-      status: "success",
-      attributes: {
-        provider: providerName,
-        model: event.model,
-        inputTokens: event.inputTokens,
-        outputTokens: event.outputTokens,
-        latencyMs: event.providerDurationMs,
-        // Time-to-first-token for this call (network + provider queue + first
-        // token), so the Logs-tab trace timeline reflects TTFT alongside the
-        // whole-call latency. Omitted when no token streamed (pure tool call).
-        ...(ttftMs != null ? { ttftMs } : {}),
-      },
-    },
-  );
-  state.llmCallStartedEmitted = false;
 
   // Emit a lightweight per-call usage progress event so clients can show
   // live-updating token/cost metrics. This is a UI hint only — no DB writes.

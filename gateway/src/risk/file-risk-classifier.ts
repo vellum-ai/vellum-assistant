@@ -9,17 +9,19 @@
  * - file_read: Low by default, High if targeting the actor token signing key.
  * - file_write / file_edit: Low by default, High if targeting skill source
  *   code, the workspace hooks directory, the user plugins directory, the
- *   workspace tools directory, the workspace routes directory, or the
- *   workspace workflows directory.
+ *   workspace tools directory, the workspace routes directory, the workspace
+ *   workflows directory, or the monitoring data directory.
  * - host_file_read: Medium (tool registry default; no special escalation).
  * - host_file_write / host_file_edit: Medium by default, High if targeting
  *   skill source code, the workspace hooks directory, the user plugins
  *   directory, the workspace tools directory, the workspace routes
- *   directory, or the workspace workflows directory.
+ *   directory, the workspace workflows directory, or the monitoring data
+ *   directory.
  * - host_file_transfer: Medium by default, High if the host-side path
  *   targets skill source code, the workspace hooks directory, the user
  *   plugins directory, the workspace tools directory, the workspace
- *   routes directory, or the workspace workflows directory.
+ *   routes directory, the workspace workflows directory, or the monitoring
+ *   data directory.
  *
  * The tools and routes directories are escalated for the same reason as
  * plugins: any file written under `<workspace>/tools/` is dynamic-imported
@@ -78,6 +80,14 @@ export interface FileClassificationContext {
   routesDir: string;
   /** Absolute path to the workspace workflows directory (saved workflow scripts). */
   workflowsDir: string;
+  /**
+   * Absolute path to the monitoring data directory
+   * (`<workspace>/data/monitoring`). The plugin source-versions sentinel
+   * lives here — a forged sentinel can trick the daemon into importing
+   * plugin code from arbitrary paths, so writes to this directory are
+   * code-injection risk and must clear the High-risk approval gate.
+   */
+  monitoringDir: string;
   /**
    * Absolute paths of all skill source root directories (managed, bundled,
    * and any extra dirs from config). The classifier checks whether a file
@@ -286,6 +296,25 @@ function isWorkflowsPath(
 }
 
 /**
+ * Check whether a resolved absolute path falls inside the monitoring data
+ * directory (or IS the directory itself). The plugin source-versions
+ * sentinel lives under this directory; a forged sentinel can redirect the
+ * daemon's plugin loader to arbitrary paths, so writes here are treated as
+ * code-injection risk.
+ */
+function isMonitoringPath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  const normalizedMonitoringDir = normalizeDirPath(context.monitoringDir);
+  const monitoringDirNoTrailingSlash = normalizedMonitoringDir.slice(0, -1);
+  return (
+    resolvedPath === monitoringDirNoTrailingSlash ||
+    resolvedPath.startsWith(normalizedMonitoringDir)
+  );
+}
+
+/**
  * Check whether a resolved absolute path falls under any skill source
  * directory.
  */
@@ -397,6 +426,8 @@ function classifyCodeInjectionSink(
   if (isRoutesPath(resolvedPath, context)) return high("routes directory");
   if (isWorkflowsPath(resolvedPath, context))
     return high("workflows directory");
+  if (isMonitoringPath(resolvedPath, context))
+    return high("monitoring directory");
   return null;
 }
 

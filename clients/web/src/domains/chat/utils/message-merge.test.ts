@@ -392,7 +392,7 @@ describe("mergeAdjacentAssistantMessages · skip predicates", () => {
     const notification = makeAssistant({
       id: "a-2",
       ...textBody(""),
-      isBackgroundToolNotification: true,
+      isBackgroundEventNotification: true,
     });
     const result = mergeAdjacentAssistantMessages([real, notification]);
     expect(result).toHaveLength(2);

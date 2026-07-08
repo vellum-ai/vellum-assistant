@@ -145,7 +145,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "doordash",
@@ -175,7 +175,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-02T21:39:37.000Z"
     },
     {
       "id": "email-setup",
@@ -271,20 +271,6 @@
       "updatedAt": "2026-06-03T03:10:07.000Z"
     },
     {
-      "id": "github-watcher",
-      "name": "github-watcher",
-      "description": "Install a recurring GitHub watcher — a scheduled poll of GitHub notifications (review requests, mentions, assignments) that only spends an LLM call when there's something new. Use for ongoing, hands-off GitHub monitoring (e.g. \"keep an eye on my repos\", \"ping me about review requests\", \"watch my GitHub notifications\").",
-      "metadata": {
-        "emoji": "👀",
-        "vellum": {
-          "category": "development",
-          "display-name": "GitHub Watcher"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T00:38:07.000Z"
-    },
-    {
       "id": "gmail",
       "name": "gmail",
       "description": "Manage Gmail email — drafting, sending, organizing, filters, vacation replies, and inbox analysis",
@@ -298,7 +284,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-23T21:50:11.000Z"
+      "updatedAt": "2026-07-07T04:41:23.000Z"
     },
     {
       "id": "google-calendar",
@@ -310,11 +296,16 @@
         "vellum": {
           "category": "calendar",
           "display-name": "Google Calendar",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "activation-hints": [
+            "check my availability this week",
+            "find open time slots / when am I free",
+            "cross-calendar free/busy across my connected accounts"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-07T04:41:13.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -489,7 +480,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "mcp-setup",
@@ -626,11 +617,16 @@
         "vellum": {
           "category": "calendar",
           "display-name": "Outlook Calendar",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "activation-hints": [
+            "check my availability this week",
+            "find open time slots / when am I free",
+            "cross-calendar free/busy across my connected accounts"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-07T04:41:13.000Z"
     },
     {
       "id": "plugin-builder",
@@ -657,7 +653,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-30T00:15:51.000Z"
+      "updatedAt": "2026-07-08T19:30:57.000Z"
     },
     {
       "id": "public-ingress",
@@ -693,7 +689,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "restaurant-reservation",
@@ -754,7 +750,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "slack",
@@ -795,7 +791,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T00:41:12.000Z"
+      "updatedAt": "2026-07-02T15:56:47.000Z"
     },
     {
       "id": "start-the-day",
@@ -836,7 +832,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "stripe-link-wallet",
@@ -950,12 +946,12 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-07T20:33:02.000Z"
     },
     {
       "id": "vellum-conversation-management",
       "name": "vellum-conversation-management",
-      "description": "Manage conversation threads (rename, list, export, wipe)",
+      "description": "Manage conversation threads (rename, list, export)",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -964,7 +960,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-06T16:01:24.000Z"
     },
     {
       "id": "vellum-github-app-setup",

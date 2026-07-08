@@ -203,7 +203,7 @@ const capturedRunAgentLoopOptions: CapturedRunAgentLoopOptions[] = [];
 class FakeConversation {
   constructor() {}
   updateClient() {}
-  setIsSubagent() {}
+
   setTrustContext() {}
   setAuthContext() {}
   getAuthContext() {
@@ -294,6 +294,10 @@ mock.module("../config/loader.js", () => ({
         provider: "anthropic",
         model: "claude-opus-4-7",
         provider_connection: "anthropic-conn",
+      },
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
       },
     },
     rateLimit: { maxRequestsPerMinute: 0 },

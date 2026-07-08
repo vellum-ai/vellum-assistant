@@ -81,13 +81,12 @@ const { handleListContacts, handleGetContact, ROUTES } =
 
 // Daemon-native contact: INFO is hydrated locally; channel-level ACL fields
 // (status/policy/verification) are gateway-owned and absent on native reads.
-// The fixture's `role` is ignored — the serve layer derives role from the
-// gateway guardian id set.
+// `role` is likewise absent — the serve layer derives it from the gateway
+// guardian id set.
 const nativeContact = {
   id: "ct_2",
   displayName: "Bob",
   notes: null,
-  role: "contact",
   contactType: "human",
   lastInteraction: 4200,
   interactionCount: 4,
@@ -102,7 +101,6 @@ const nativeContact = {
       address: "+15550200",
       isPrimary: true,
       externalChatId: null,
-      inviteId: null,
       lastSeenAt: 4100,
       interactionCount: 4,
       lastInteraction: 4200,
@@ -305,7 +303,41 @@ describe("contacts read API relays from the gateway", () => {
   });
 });
 
-describe("filtered/native contact reads stay daemon-native", () => {
+// Gateway rich-read for the native contact (ct_2), with telemetry values
+// DISTINCT from the local nativeContact fixture so tests can prove the served
+// telemetry is gateway-sourced (hydrated), not the local aggregation.
+const nativeGatewayRead = {
+  id: "ct_2",
+  displayName: "Bob",
+  role: "contact",
+  notes: null,
+  contactType: "human",
+  lastInteraction: 9200,
+  interactionCount: 11,
+  createdAt: 1000,
+  updatedAt: 1500,
+  channels: [
+    {
+      id: "ch_2",
+      contactId: "ct_2",
+      type: "phone",
+      address: "+15550200",
+      isPrimary: true,
+      externalUserId: null,
+      status: "active",
+      policy: "allow",
+      verifiedAt: null,
+      verifiedVia: null,
+      lastSeenAt: 9100,
+      interactionCount: 11,
+      lastInteraction: 9200,
+      revokedReason: null,
+      blockedReason: null,
+    },
+  ],
+};
+
+describe("filtered/native contact reads: daemon filters, gateway hydrates telemetry", () => {
   const listRoute = ROUTES.find((r) => r.operationId === "listContacts")!;
   const listResponseSchema = listRoute.responseBody as z.ZodTypeAny;
   const searchRoute = ROUTES.find((r) => r.operationId === "search_contacts")!;
@@ -313,7 +345,9 @@ describe("filtered/native contact reads stay daemon-native", () => {
 
   beforeEach(() => {
     ipcCalls = [];
-    ipcResult = {};
+    // Telemetry hydration relays `contacts_list_rich` with an ids filter; return
+    // the gateway rich-read for ct_2 by default so hydration succeeds.
+    ipcResult = { ok: true, contacts: [nativeGatewayRead] };
     ipcError = undefined;
     ipcCallPersistentMock.mockClear();
     contactStoreReadGuard.mockClear();
@@ -323,28 +357,55 @@ describe("filtered/native contact reads stay daemon-native", () => {
     getGuardianContactIdsMock.mockClear();
   });
 
-  test("query-filtered list serves daemon-native INFO and validates against the response schema", async () => {
+  test("query-filtered list hydrates telemetry from the gateway (not local aggregation)", async () => {
     searchContactsResult = [nativeContact];
 
     const result = await handleListContacts({ query: "Bob", limit: "10" });
 
-    // No gateway relay for a true search.
-    expect(ipcCalls).toEqual([]);
+    // Filtering stays daemon-native; telemetry is hydrated via an ids-scoped
+    // gateway rich read.
     expect(searchContactsMock).toHaveBeenCalled();
+    expect(ipcCalls).toEqual([
+      { method: "contacts_list_rich", params: { ids: ["ct_2"] } },
+    ]);
 
     const [contact] = result.contacts;
-    // INFO telemetry is present (re-hydrated locally, not dropped).
-    expect(contact.interactionCount).toBe(4);
-    expect(contact.lastInteraction).toBe(4200);
+    // Telemetry comes from the gateway (11/9200/9100), NOT the local fixture
+    // (4/4200/4100).
+    expect(contact.interactionCount).toBe(11);
+    expect(contact.lastInteraction).toBe(9200);
     const channel = contact.channels[0] as Record<string, unknown>;
-    expect(channel.interactionCount).toBe(4);
-    expect(channel.lastSeenAt).toBe(4100);
+    expect(channel.interactionCount).toBe(11);
+    expect(channel.lastSeenAt).toBe(9100);
+    expect(channel.lastInteraction).toBe(9200);
     expect(channel.externalUserId).toBe("+15550200");
     // Non-guardian id derives role "contact" (no name override).
     expect((contact as { role: string }).role).toBe("contact");
     expect(contact.displayName).toBe("Bob");
-    // Channel-level ACL fields (status/policy) are gateway-owned and absent.
+    // Channel-level ACL fields (status/policy) are gateway-owned and absent on
+    // the daemon-native shape.
     expect("status" in channel).toBe(false);
+    expect(() => listResponseSchema.parse(result)).not.toThrow();
+  });
+
+  test("telemetry degrades to default (0 counts, null timestamps) when the gateway hydration fails", async () => {
+    searchContactsResult = [nativeContact];
+    ipcError = new IpcCallError("gateway down", {
+      statusCode: 503,
+      errorCode: "UNAVAILABLE",
+    });
+
+    const result = await handleListContacts({ query: "Bob", limit: "10" });
+
+    // Search results are still returned; the interaction counts default to 0
+    // (never null, so callers render a real number) and the timestamps null.
+    const [contact] = result.contacts;
+    expect(contact.interactionCount).toBe(0);
+    expect(contact.lastInteraction).toBeNull();
+    const channel = contact.channels[0] as Record<string, unknown>;
+    expect(channel.interactionCount).toBe(0);
+    expect(channel.lastSeenAt).toBeNull();
+    expect(contact.displayName).toBe("Bob");
     expect(() => listResponseSchema.parse(result)).not.toThrow();
   });
 
@@ -372,15 +433,18 @@ describe("filtered/native contact reads stay daemon-native", () => {
     expect(contact.displayName).toBe("Bob");
   });
 
-  test("POST search with a filter validates against the response schema", async () => {
+  test("POST search with a filter hydrates telemetry and validates against the response schema", async () => {
     searchContactsResult = [nativeContact];
 
     const contacts = (await searchRoute.handler({
       body: { query: "Bob" },
-    })) as unknown[];
+    })) as Array<{ interactionCount: number | null }>;
 
-    expect(ipcCalls).toEqual([]);
     expect(searchContactsMock).toHaveBeenCalled();
+    expect(ipcCalls).toEqual([
+      { method: "contacts_list_rich", params: { ids: ["ct_2"] } },
+    ]);
+    expect(contacts[0].interactionCount).toBe(11);
     expect(() => searchResponseSchema.parse(contacts)).not.toThrow();
   });
 });

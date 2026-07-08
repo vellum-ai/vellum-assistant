@@ -6,6 +6,10 @@ import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
+  isAnthropicDelegatingGateway,
+  isAnthropicModel,
+} from "./anthropic-gateway-shared.js";
+import {
   buildProviderAdapter,
   createAdapterFromConnection,
 } from "./inference/adapter-factory.js";
@@ -30,14 +34,18 @@ const providers = new Map<string, Provider>();
 const routingSources = new Map<string, "user-key" | "managed-proxy">();
 const NATIVE_WEB_SEARCH_PROVIDER_IDS = new Set(["anthropic", "openai"]);
 
-/** Per-connection provider cache, keyed by connection name and model. */
+/** Per-connection provider cache, keyed by connection name, effective provider, and model. */
 const connectionProviders = new Map<string, Provider>();
 
 function getConnectionProviderCacheKey(
   connection: ProviderConnection,
   model: string,
+  effectiveProvider: string,
 ): string {
-  return `${connection.name}\u0000${model}`;
+  // `effectiveProvider` differs from `connection.provider` only for the
+  // provider-agnostic Vellum-managed connection, where one connection name
+  // serves multiple upstreams — include it so those entries don't collide.
+  return `${connection.name}\u0000${effectiveProvider}\u0000${model}`;
 }
 
 function registerProvider(name: string, provider: Provider): void {
@@ -112,7 +120,7 @@ export function isNativeWebSearchCapableProvider(
   if (NATIVE_WEB_SEARCH_PROVIDER_IDS.has(providerName)) {
     return true;
   }
-  if (providerName === "openrouter" && model.startsWith("anthropic/")) {
+  if (isAnthropicDelegatingGateway(providerName) && isAnthropicModel(model)) {
     return true;
   }
   return false;
@@ -257,14 +265,23 @@ export async function initializeProviders(
 export async function resolveProviderFromConnection(
   connection: ProviderConnection,
   config: ProvidersConfig,
-  opts: { model?: string } = {},
+  opts: { model?: string; providerOverride?: string } = {},
 ): Promise<Provider | null> {
-  const model = opts.model ?? resolveModel(config, connection.provider);
-  const cacheKey = getConnectionProviderCacheKey(connection, model);
+  // The provider-agnostic Vellum-managed connection carries only the `vellum`
+  // sentinel on its row, so callers pass the resolved profile's provider here.
+  // For every other connection this is `undefined` and the effective provider
+  // is the connection's own — no behavior change.
+  const effectiveProvider = opts.providerOverride ?? connection.provider;
+  const model = opts.model ?? resolveModel(config, effectiveProvider);
+  const cacheKey = getConnectionProviderCacheKey(
+    connection,
+    model,
+    effectiveProvider,
+  );
   const cached = connectionProviders.get(cacheKey);
   if (cached) return cached;
 
-  const authResult = await resolveAuth(connection.auth, connection.provider, {
+  const authResult = await resolveAuth(connection.auth, effectiveProvider, {
     baseUrl: connection.baseUrl,
   });
   if (!authResult.ok) {
@@ -293,7 +310,7 @@ export async function resolveProviderFromConnection(
     (config.timeouts?.providerStreamTimeoutSec ?? 1800) * 1000;
   const useNativeWebSearch = shouldUseNativeWebSearch(
     config,
-    connection.provider,
+    effectiveProvider,
     model,
   );
 
@@ -304,6 +321,7 @@ export async function resolveProviderFromConnection(
       model,
       streamTimeoutMs,
       useNativeWebSearch,
+      provider: effectiveProvider,
     },
   );
 

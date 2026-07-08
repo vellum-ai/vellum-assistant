@@ -16,15 +16,6 @@ let mockManagedSearchProxyCalls: Array<{
   signal?: AbortSignal;
 }> = [];
 
-// Capture the registered tool
-let capturedTool: any = null;
-
-mock.module("../../registry.js", () => ({
-  registerTool: (tool: any) => {
-    capturedTool = tool;
-  },
-}));
-
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({
     services: {
@@ -70,8 +61,8 @@ mock.module("../managed-search-proxy.js", () => ({
   },
 }));
 
-// Force the module to load (triggers registerTool)
-await import("../web-search.js");
+// Import after the mocks above so the module under test sees them.
+const { webSearchTool } = await import("../web-search.js");
 
 describe("web_search tool", () => {
   let originalFetch: typeof globalThis.fetch;
@@ -97,8 +88,10 @@ describe("web_search tool", () => {
     globalThis.fetch = originalFetch;
   });
 
-  function execute(input: Record<string, unknown>, context: any = {}) {
-    return capturedTool.execute(input, context);
+  // Return type is `any` so assertions can poke at provider-specific
+  // metadata shapes without narrowing at every site.
+  function execute(input: Record<string, unknown>, context: any = {}): any {
+    return webSearchTool.execute(input, context);
   }
 
   // ---- Input validation ---------------------------------------------------
@@ -733,10 +726,13 @@ describe("web_search tool", () => {
       capturedUrl = url;
       capturedBody = JSON.parse(init?.body as string);
       capturedHeaders = new Headers(init?.headers);
-      return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ success: true, data: { web: [] } }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }) as any;
 
     await execute({ query: "test query", count: 50, freshness: "pm" });
@@ -755,10 +751,13 @@ describe("web_search tool", () => {
     let capturedBody: any = null;
     globalThis.fetch = (async (_url: string, init?: RequestInit) => {
       capturedBody = JSON.parse(init?.body as string);
-      return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ success: true, data: { web: [] } }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }) as any;
 
     await execute({ query: "test", freshness: "invalid" });
@@ -769,10 +768,13 @@ describe("web_search tool", () => {
     mockWebSearchProvider = "firecrawl";
     mockFirecrawlSecureKey = "fc-key";
     globalThis.fetch = (async () => {
-      return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ success: true, data: { web: [] } }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }) as any;
 
     const result = await execute({ query: "obscure query" });
@@ -872,10 +874,13 @@ describe("web_search tool", () => {
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
       capturedUrl = url;
-      return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ success: true, data: { web: [] } }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }) as any;
 
     const result = await execute({ query: "fallback test" });

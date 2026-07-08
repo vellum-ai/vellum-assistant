@@ -34,6 +34,20 @@ function installFinePointer() {
   };
 }
 
+function installCoarsePointer() {
+  const originalMatchMedia = window.matchMedia;
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: () => ({ matches: true }),
+  });
+  return () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: originalMatchMedia,
+    });
+  };
+}
+
 function installImmediateAnimationFrame() {
   const originalAnimationFrame = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
@@ -45,7 +59,20 @@ function installImmediateAnimationFrame() {
   };
 }
 
-function installSelection(anchorNode: Node) {
+function installSelection(
+  anchorNode: Node,
+  rect: DOMRect = {
+    top: 120,
+    left: 80,
+    width: 160,
+    height: 24,
+    right: 240,
+    bottom: 144,
+    x: 80,
+    y: 120,
+    toJSON: () => ({}),
+  },
+) {
   const originalGetSelection = window.getSelection;
   const selection = {
     isCollapsed: false,
@@ -53,17 +80,7 @@ function installSelection(anchorNode: Node) {
     anchorNode,
     toString: () => "competitive research",
     getRangeAt: () => ({
-      getBoundingClientRect: () => ({
-        top: 120,
-        left: 80,
-        width: 160,
-        height: 24,
-        right: 240,
-        bottom: 144,
-        x: 80,
-        y: 120,
-        toJSON: () => ({}),
-      }),
+      getBoundingClientRect: () => rect,
     }),
     removeAllRanges: () => {},
   } as unknown as Selection;
@@ -77,6 +94,20 @@ function installSelection(anchorNode: Node) {
     Object.defineProperty(window, "getSelection", {
       configurable: true,
       value: originalGetSelection,
+    });
+  };
+}
+
+function installViewportHeight(innerHeight: number) {
+  const originalInnerHeight = window.innerHeight;
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: innerHeight,
+  });
+  return () => {
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: originalInnerHeight,
     });
   };
 }
@@ -128,10 +159,90 @@ describe("TextSelectionPopover", () => {
       restorePointer();
     }
   });
+
+  test("shows Reply below coarse-pointer text selections", async () => {
+    const restorePointer = installCoarsePointer();
+    const restoreAnimationFrame = installImmediateAnimationFrame();
+    try {
+      const containerRef = createRef<HTMLDivElement | null>();
+      render(
+        <>
+          <div ref={containerRef}>
+            <div data-message-id="msg-1" data-message-role="assistant">
+              <span data-testid="selected-text">competitive research</span>
+            </div>
+          </div>
+          <TextSelectionPopover containerRef={containerRef} />
+        </>,
+      );
+
+      const selectedText = screen.getByTestId("selected-text");
+      const restoreSelection = installSelection(
+        selectedText.firstChild ?? selectedText,
+      );
+      try {
+        document.dispatchEvent(new Event("selectionchange"));
+        await screen.findByRole("button", { name: "Reply" });
+      } finally {
+        restoreSelection();
+      }
+
+      const popoverContent = document.body.querySelector(
+        '[data-slot="popover-content"]',
+      );
+      expect(popoverContent?.getAttribute("data-selection-placement")).toBe(
+        "bottom",
+      );
+    } finally {
+      restoreAnimationFrame();
+      restorePointer();
+    }
+  });
+
+  test("moves coarse-pointer Reply above selections when there is no space below", async () => {
+    const restorePointer = installCoarsePointer();
+    const restoreAnimationFrame = installImmediateAnimationFrame();
+    const restoreViewportHeight = installViewportHeight(160);
+    try {
+      const containerRef = createRef<HTMLDivElement | null>();
+      render(
+        <>
+          <div ref={containerRef}>
+            <div data-message-id="msg-1" data-message-role="assistant">
+              <span data-testid="selected-text">competitive research</span>
+            </div>
+          </div>
+          <TextSelectionPopover containerRef={containerRef} />
+        </>,
+      );
+
+      const selectedText = screen.getByTestId("selected-text");
+      const restoreSelection = installSelection(
+        selectedText.firstChild ?? selectedText,
+      );
+      try {
+        document.dispatchEvent(new Event("selectionchange"));
+        await screen.findByRole("button", { name: "Reply" });
+      } finally {
+        restoreSelection();
+      }
+
+      const popoverContent = document.body.querySelector(
+        '[data-slot="popover-content"]',
+      );
+      expect(popoverContent?.getAttribute("data-selection-placement")).toBe(
+        "top",
+      );
+    } finally {
+      restoreViewportHeight();
+      restoreAnimationFrame();
+      restorePointer();
+    }
+  });
 });
 
 describe("QuoteReplyBubble", () => {
-  test("renders the reply editor with shared design-system primitives", async () => {
+  test("renders the reply editor with Cancel and Add to Chat", async () => {
     useQuoteReplyStore.setState({
       replyBubble: {
         quotedText:
@@ -141,7 +252,7 @@ describe("QuoteReplyBubble", () => {
       },
     });
 
-    render(<QuoteReplyBubble onSendNow={() => {}} />);
+    render(<QuoteReplyBubble />);
 
     await waitFor(() => {
       expect(
@@ -150,15 +261,73 @@ describe("QuoteReplyBubble", () => {
     });
     expect(document.body.querySelector('[data-slot="card"]')).toBeTruthy();
     expect(document.body.querySelector('[data-slot="textarea"]')).toBeTruthy();
+    const quoteBlock = screen.getByText(
+      "here's the anthropic competitive research brief from last night",
+    );
+    expect(quoteBlock.className).toContain("flex-1");
+    expect(quoteBlock.parentElement?.className).toContain("mx-0");
+    expect(quoteBlock.parentElement?.className).toContain("gap-3");
+    expect(quoteBlock.previousElementSibling?.className).toContain("h-5");
+    expect(quoteBlock.previousElementSibling?.className).toContain("w-0.5");
     expect(
-      screen.getByRole("button", { name: "Close reply" }).getAttribute("data-slot"),
+      screen.getByRole("button", { name: "Cancel" }).getAttribute("data-slot"),
     ).toBe("button");
     expect(
       screen.getByRole("button", { name: "Add to Chat" }).getAttribute("data-slot"),
     ).toBe("button");
-    expect(
-      screen.getByRole("button", { name: "Send Now" }).getAttribute("data-slot"),
-    ).toBe("button");
+    expect(screen.queryByRole("button", { name: "Close reply" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send Now" })).toBeNull();
+  });
+
+  test("Cancel dismisses the bubble without staging", async () => {
+    useQuoteReplyStore.setState({
+      replyBubble: {
+        quotedText: "quoted context",
+        sourceMessageId: "msg-1",
+        anchorRect: { top: 120, left: 180, width: 0, height: 0 },
+      },
+    });
+
+    render(<QuoteReplyBubble />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    expect(useQuoteReplyStore.getState().replyBubble).toBeNull();
+    expect(useQuoteReplyStore.getState().stagedQuotes).toHaveLength(0);
+  });
+
+  test("Enter stages the reply, closes the bubble, and focuses the composer", async () => {
+    const composerInput = document.createElement("textarea");
+    document.body.appendChild(composerInput);
+    useQuoteReplyStore.setState({
+      replyBubble: {
+        quotedText: "quoted context",
+        sourceMessageId: "msg-1",
+        anchorRect: { top: 120, left: 180, width: 0, height: 0 },
+      },
+    });
+
+    render(
+      <QuoteReplyBubble
+        onAddToChat={() => composerInput.focus()}
+      />,
+    );
+
+    const replyInput = await screen.findByPlaceholderText("Type your reply…");
+    fireEvent.change(replyInput, { target: { value: "use this context" } });
+    fireEvent.keyDown(replyInput, { key: "Enter", shiftKey: false });
+
+    expect(useQuoteReplyStore.getState().stagedQuotes).toMatchObject([
+      {
+        quotedText: "quoted context",
+        replyText: "use this context",
+        sourceMessageId: "msg-1",
+      },
+    ]);
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText("Type your reply…")).toBeNull();
+    });
+    expect(document.activeElement).toBe(composerInput);
   });
 });
 
@@ -178,8 +347,35 @@ describe("StagedQuotesStrip", () => {
     render(<StagedQuotesStrip />);
 
     expect(document.body.querySelector('[data-slot="card"]')).toBeTruthy();
+    const quoteText = screen.getByText("competitive research");
+    expect(quoteText.className).toContain("flex-1");
+    expect(quoteText.parentElement?.className).toContain("gap-3");
+    expect(quoteText.previousElementSibling?.className).toContain("h-5");
     expect(
       screen.getByRole("button", { name: "Remove quote" }).getAttribute("data-slot"),
     ).toBe("button");
+  });
+
+  test("editing a staged reply updates the store", () => {
+    useQuoteReplyStore.setState({
+      stagedQuotes: [
+        {
+          id: "quote-1",
+          quotedText: "competitive research",
+          replyText: "old reply",
+          sourceMessageId: "msg-1",
+        },
+      ],
+    });
+
+    render(<StagedQuotesStrip />);
+
+    const replyField = screen.getByLabelText("Edit reply");
+    expect((replyField as HTMLTextAreaElement).value).toBe("old reply");
+    fireEvent.change(replyField, { target: { value: "a revised reply" } });
+
+    expect(useQuoteReplyStore.getState().stagedQuotes[0]?.replyText).toBe(
+      "a revised reply",
+    );
   });
 });

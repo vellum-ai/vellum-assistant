@@ -33,9 +33,6 @@ function makeContact(
     id: "ct_1",
     displayName: "Alice",
     notes: null,
-    role: "contact",
-    lastInteraction: null,
-    interactionCount: 0,
     createdAt: 1,
     updatedAt: 1,
     contactType: "human",
@@ -57,7 +54,6 @@ describe("global-search contacts recency source", () => {
         id: "ct_1",
         displayName: "Alice",
         updatedAt: 5000,
-        lastInteraction: 9999,
       }),
     ];
 

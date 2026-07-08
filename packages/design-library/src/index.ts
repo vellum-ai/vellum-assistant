@@ -24,6 +24,11 @@ export {
   type ResizablePanelProps,
 } from "./components/resizable-panel";
 export {
+  ScrollShadow,
+  type ScrollShadowProps,
+  type ScrollShadowOrientation,
+} from "./components/scroll-shadow";
+export {
   Tag,
   tagVariants,
   type TagProps,
@@ -172,7 +177,11 @@ export {
 } from "./components/panel-item/marquee-text";
 export {
   MarkdownMessage,
+  quoteBlockquoteAccentClassName,
+  quoteBlockquoteClassName,
+  quoteBlockquoteContentClassName,
   type MarkdownMessageProps,
+  type MarkdownImageComponent,
   type MarkdownLinkComponent,
 } from "./components/markdown-message";
 export {

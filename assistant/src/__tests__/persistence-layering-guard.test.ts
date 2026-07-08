@@ -37,16 +37,28 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
  * TECH DEBT — residual `persistence/` → `memory/` feature back-imports.
  *
  * A genuine coupling to the memory *feature* that violates the one-way
- * memory → persistence direction would be pinned here so the guard fails the
- * moment a NEW back-import is introduced. It is currently EMPTY: persistence
- * reaches the memory feature only through the `memory-lifecycle-hooks` seam
- * (persistence calls registered handlers; memory never gets imported), never by
- * importing memory internals. Do not add an entry without a decoupling plan.
+ * memory → persistence direction is pinned here so the guard fails the moment
+ * a NEW back-import is introduced. Do not add an entry without a decoupling
+ * plan.
+ *
+ * Current entries, both on the conversation write paths:
+ * - `fork-conversation-memory` — the memory plugin's fork-time state carry,
+ *   invoked synchronously inside the fork transaction (see the module
+ *   docstring for why it is a direct call rather than a first-class `hooks`
+ *   dispatch like the other lifecycle events).
+ * - `indexer` — the plain `addMessage` path invokes `indexMessageNow` to feed
+ *   the persisted message into memory segment indexing, matching the other
+ *   (non-persistence) write seams that already call it directly.
  *
  * Keyed by the importing persistence file (relative to repo root); the value
  * is the set of allowed `memory/<specifier>` module paths it may import.
  */
-const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {};
+const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
+  "assistant/src/persistence/conversation-crud.ts": new Set([
+    "fork-conversation-memory",
+    "indexer",
+  ]),
+};
 
 /**
  * PERMANENT exception — the migration registry, NOT tech debt.
@@ -97,7 +109,9 @@ describe("persistence-layering boundary", () => {
       for (const rel of new Glob(`${subdir}/*.ts`).scanSync({
         cwd: join(repoRoot, ASSISTANT_SRC),
       })) {
-        if (rel.endsWith(".test.ts")) continue;
+        if (rel.endsWith(".test.ts")) {
+          continue;
+        }
         persistenceModules.add(rel.split("/").pop()!.replace(/\.ts$/, ""));
       }
     }
@@ -115,7 +129,9 @@ describe("persistence-layering boundary", () => {
         repoRoot,
       )) {
         const target = stripJs(resolvedFromRoot);
-        if (!target.startsWith(memoryPrefix)) continue;
+        if (!target.startsWith(memoryPrefix)) {
+          continue;
+        }
         const rest = target.slice(memoryPrefix.length);
         // Only flag top-level memory/<basename> that shadows a persistence module.
         if (!rest.includes("/") && persistenceModules.has(rest)) {
@@ -199,7 +215,9 @@ describe("persistence-layering boundary", () => {
         }
       }
       for (const spec of allowed) {
-        if (!actual.has(spec)) stale.push(`${file} -> memory/${spec}`);
+        if (!actual.has(spec)) {
+          stale.push(`${file} -> memory/${spec}`);
+        }
       }
     }
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 
@@ -99,5 +99,57 @@ describe("AttachmentPreviewModal content loading", () => {
     renderModal(ATTACHMENT);
 
     expect(await screen.findByText("Failed to load preview.")).toBeDefined();
+  });
+
+  test("falls back to the non-image card when the fetched image can't be decoded", async () => {
+    renderModal(ATTACHMENT);
+
+    const img = await screen.findByAltText("photo.png");
+    fireEvent.error(img);
+
+    // The broken image is replaced by the non-image fallback card (file icon +
+    // download), so an undecodable full-size image never shows a broken glyph.
+    expect(screen.queryByAltText("photo.png")).toBeNull();
+    expect(screen.getByText("Download")).toBeDefined();
+  });
+
+  test("renders a video with a thumbnail poster and fetches content from the daemon", async () => {
+    const videoAttachment: DisplayAttachment = {
+      id: "att-video",
+      filename: "clip.mp4",
+      mimeType: "video/mp4",
+      sizeBytes: 5_000_000,
+      previewUrl: null,
+      thumbnailUrl: "data:image/jpeg;base64,AAAA",
+    };
+    renderModal(videoAttachment);
+
+    // The <video> element should appear with the thumbnail as its poster and
+    // the fetched blob URL as its src — NOT the thumbnail as src (the bug).
+    const video = await screen.findByTestId("video-preview");
+    expect(video.getAttribute("poster")).toBe("data:image/jpeg;base64,AAAA");
+    expect(video.getAttribute("src")).toBe("blob:preview-mock");
+    expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+  });
+
+  test("small video with inline data still lazy-fetches to blob URL (CSP fix)", async () => {
+    // Simulates what deriveDisplayUrls produces for a small video that DID
+    // arrive with inline data: previewUrl is null (not a data: URI) because
+    // Electron CSP media-src allows blob: but not data:.
+    const smallVideo: DisplayAttachment = {
+      id: "att-small-video",
+      filename: "small.mp4",
+      mimeType: "video/mp4",
+      sizeBytes: 100_000,
+      previewUrl: null,
+      thumbnailUrl: "data:image/jpeg;base64,BBBB",
+    };
+    renderModal(smallVideo);
+
+    const video = await screen.findByTestId("video-preview");
+    // src must be a blob URL, not a data: URI — CSP-safe for Electron.
+    expect(video.getAttribute("src")).toBe("blob:preview-mock");
+    expect(video.getAttribute("poster")).toBe("data:image/jpeg;base64,BBBB");
+    expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
   });
 });

@@ -56,6 +56,15 @@ describe("empty-state greeting cache", () => {
     expect(getCachedEmptyStateGreeting()).toBe("hey there");
   });
 
+  test("keeps cached greetings separate by timezone scope", () => {
+    setCachedEmptyStateGreeting("hey eastern", "America/New_York");
+    setCachedEmptyStateGreeting("hey central", "America/Chicago");
+
+    expect(getCachedEmptyStateGreeting("America/New_York")).toBe("hey eastern");
+    expect(getCachedEmptyStateGreeting("America/Chicago")).toBe("hey central");
+    expect(getCachedEmptyStateGreeting("Europe/Skopje")).toBeNull();
+  });
+
   test("returns null once the TTL is exceeded", () => {
     setCachedEmptyStateGreeting("stale");
     checkpointStore.set(

@@ -66,6 +66,17 @@ export async function retireLocal(
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
 
+  // Stop the CES sibling — it is stopped by its PID file, a no-op when the
+  // PID file is absent (e.g. the sibling was never started or already exited).
+  const cesPidFile = join(vellumDir, "ces.pid");
+  const cesStopped = await stopProcessByPidFile(
+    cesPidFile,
+    "credential-executor",
+  );
+  if (cesStopped) {
+    reporter.log("credential-executor stopped.");
+  }
+
   // Stop Qdrant — the daemon's graceful shutdown tries to stop it via
   // qdrantManager.stop(), but if the daemon was SIGKILL'd (after 2s timeout)
   // Qdrant may still be running as an orphan. Check both the current PID file

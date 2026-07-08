@@ -19,6 +19,8 @@
  * POST   /v1/messages/queued/:id/steer — steer to a queued message
  */
 
+import { isDeepStrictEqual } from "node:util";
+
 import { z } from "zod";
 
 import { LlmContextResponseSchema } from "../../api/responses/llm-context-response.js";
@@ -39,9 +41,15 @@ import {
   withSuppressedConfigDiskWrites,
   withSuppressedConfigDiskWritesSync,
 } from "../../config/loader.js";
+import { completeCustomProfile } from "../../config/profile-materialization.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
-import { LLMConfigFragment, ProfileEntry } from "../../config/schemas/llm.js";
+import {
+  DefaultProviderSchema,
+  LLMConfigBase,
+  LLMConfigFragment,
+  ProfileEntry,
+} from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { ServiceModeSchema } from "../../config/schemas/services.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
@@ -80,13 +88,17 @@ import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/me
 import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/v2/constants.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
+import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
 import {
   createConnection,
+  getConnection,
+  LEGACY_MANAGED_CONNECTION_NAMES,
   listConnections,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  VELLUM_MANAGED_CONNECTION_NAME,
 } from "../../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
+import { MANAGED_ROUTABLE_PROVIDERS } from "../../providers/vellum-model-routing.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { validateAllowlistFile } from "../../security/secret-allowlist.js";
 import {
@@ -118,7 +130,13 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
   summary?: LlmContextSummaryResponse;
 };
 
-import { MANAGED_PROFILE_NAMES } from "../../config/seed-inference-profiles.js";
+import {
+  getEffectiveProfile,
+  getEffectiveProfiles,
+  INVARIANT_PROFILE_NAMES,
+  MANAGED_PROFILE_NAMES,
+} from "../../config/default-profile-catalog.js";
+import { DEFAULT_PROFILE_KEYS } from "../../config/default-profile-names.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 
 const RESERVED_PROFILE_NAMES = new Set([
@@ -139,12 +157,6 @@ const INFERENCE_PROFILE_UI_KEYS = new Set([
   "topP",
   "thinking",
 ]);
-
-// Fields a MANAGED profile may edit. Beyond `label` (display name) and
-// `status` (enabled/disabled), users can tune `topP` — the seed contract
-// owns provider/model/connection, but top_p is a per-profile sampling knob
-// the UI exposes on the managed Balanced profile.
-const MANAGED_PROFILE_EDITABLE_KEYS = new Set(["label", "status", "topP"]);
 
 function asMutablePlainObject(value: unknown): Record<string, unknown> | null {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
@@ -190,11 +202,15 @@ function replaceInferenceProfileConfig(
 ): void {
   const existingLlm = asMutablePlainObject(raw.llm);
   const llm = existingLlm ?? {};
-  if (!existingLlm) raw.llm = llm;
+  if (!existingLlm) {
+    raw.llm = llm;
+  }
 
   const existingProfiles = asMutablePlainObject(llm.profiles);
   const profiles = existingProfiles ?? {};
-  if (!existingProfiles) llm.profiles = profiles;
+  if (!existingProfiles) {
+    llm.profiles = profiles;
+  }
 
   const existingProfile = asMutablePlainObject(profiles[name]) ?? {};
   const nextProfile: Record<string, unknown> = { ...existingProfile };
@@ -269,8 +285,12 @@ function applyStoredProviderToLlmContextResult(
 type LlmContextView = "full" | "summary";
 
 function resolveLlmContextView(view: string | undefined): LlmContextView {
-  if (view === undefined || view === "full") return "full";
-  if (view === "summary") return "summary";
+  if (view === undefined || view === "full") {
+    return "full";
+  }
+  if (view === "summary") {
+    return "summary";
+  }
   throw new BadRequestError(
     `Invalid view parameter: ${view}. Expected "full" or "summary".`,
   );
@@ -282,7 +302,9 @@ function resolveLlmContextView(view: string | undefined): LlmContextView {
  * for malformed/legacy rows — a bad blob must never break the inspector.
  */
 function parseLatencyBreakdown(raw: string | null): LatencyBreakdown | null {
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   try {
     const parsed = LatencyBreakdownSchema.safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : null;
@@ -491,7 +513,9 @@ function synthesizeLegacyInferenceModeForPlatform(
   root: Record<string, unknown>,
 ): void {
   const services = readPlainObject(root.services);
-  if (!services) return;
+  if (!services) {
+    return;
+  }
   let inference = readPlainObject(services.inference);
   if (!inference) {
     inference = {};
@@ -518,9 +542,13 @@ function stripTransportHeadersRecursively(value: unknown): void {
   }
 
   const object = readPlainObject(value);
-  if (!object) return;
+  if (!object) {
+    return;
+  }
   const transport = readPlainObject(object.transport);
-  if (transport) delete transport.headers;
+  if (transport) {
+    delete transport.headers;
+  }
   for (const child of Object.values(object)) {
     stripTransportHeadersRecursively(child);
   }
@@ -532,9 +560,13 @@ function containsTransportHeadersRecursively(value: unknown): boolean {
   }
 
   const object = readPlainObject(value);
-  if (!object) return false;
+  if (!object) {
+    return false;
+  }
   const transport = readPlainObject(object.transport);
-  if (transport && Object.hasOwn(transport, "headers")) return true;
+  if (transport && Object.hasOwn(transport, "headers")) {
+    return true;
+  }
   return Object.values(object).some((child) =>
     containsTransportHeadersRecursively(child),
   );
@@ -542,15 +574,21 @@ function containsTransportHeadersRecursively(value: unknown): boolean {
 
 function sanitizeMcpTransportHeadersForSettingsRead(config: unknown): void {
   const root = readPlainObject(config);
-  if (!root) return;
+  if (!root) {
+    return;
+  }
   const mcp = readPlainObject(root.mcp);
-  if (!mcp || !Object.hasOwn(mcp, "servers")) return;
+  if (!mcp || !Object.hasOwn(mcp, "servers")) {
+    return;
+  }
   if (Array.isArray(mcp.servers)) {
     stripTransportHeadersRecursively(mcp.servers);
     return;
   }
   const servers = readPlainObject(mcp.servers);
-  if (!servers) return;
+  if (!servers) {
+    return;
+  }
   for (const server of Object.values(servers)) {
     stripTransportHeadersRecursively(server);
   }
@@ -559,19 +597,25 @@ function sanitizeMcpTransportHeadersForSettingsRead(config: unknown): void {
 function patchContainsMcpTransportHeaders(patch: unknown): boolean {
   const root = readPlainObject(patch);
   const mcp = readPlainObject(root?.mcp);
-  if (!mcp || !Object.hasOwn(mcp, "servers")) return false;
+  if (!mcp || !Object.hasOwn(mcp, "servers")) {
+    return false;
+  }
   if (Array.isArray(mcp.servers)) {
     return containsTransportHeadersRecursively(mcp.servers);
   }
   const servers = readPlainObject(mcp.servers);
-  if (!servers) return false;
+  if (!servers) {
+    return false;
+  }
   return Object.values(servers).some((server) =>
     containsTransportHeadersRecursively(server),
   );
 }
 
 function rejectMcpTransportHeaderWrite(patch: unknown): void {
-  if (!patchContainsMcpTransportHeaders(patch)) return;
+  if (!patchContainsMcpTransportHeaders(patch)) {
+    return;
+  }
   throw new BadRequestError(
     "MCP authentication headers must be managed through MCP server add/update APIs, not generic config writes.",
   );
@@ -579,6 +623,7 @@ function rejectMcpTransportHeaderWrite(patch: unknown): void {
 
 const WireProfileEntry = ProfileEntry.extend({
   supportsVision: z.boolean().optional(),
+  invariant: z.boolean().optional(),
 })
   .passthrough()
   .meta({ id: "ProfileEntry" });
@@ -613,6 +658,7 @@ const ConfigGetResponseSchema = z
         default: LLMConfigFragment.extend({
           provider_connection: z.string().optional(),
         }).optional(),
+        defaultProvider: DefaultProviderSchema.optional(),
         profiles: z.record(z.string(), WireProfileEntry).optional(),
         profileOrder: z.array(z.string()).optional(),
         activeProfile: z.string().optional(),
@@ -780,7 +826,8 @@ function handleGetConfig() {
   try {
     const config = applyContextDefaultsToRawConfig(loadRawConfig());
     sanitizeMcpTransportHeadersForSettingsRead(config);
-    enrichProfilesWithVisionFlag(config);
+    overlayEffectiveProfilesForWire(config);
+    enrichProfilesForWire(config);
     return config;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -789,25 +836,217 @@ function handleGetConfig() {
 }
 
 /**
- * Annotate each profile in `config.llm.profiles` with `supportsVision`
- * resolved from the model catalog. The flag is wire-only — it is never
- * persisted to disk. Unknown (provider, model) pairs default to `true`
- * (fail-open) so image upload remains available for custom / unlisted models.
+ * Replace `llm.profiles` in an outgoing config response with the effective
+ * profile view (code-catalog default bodies + workspace overlays). Default
+ * profile CONTENT is code-owned and the workspace holds at most a thin stub,
+ * but clients (settings UI, sticky-profile pickers) need the full bodies to
+ * render labels/models — so the wire view materializes them. Wire-only:
+ * `normalizeManagedProfileWrites` reduces echoed bodies back to the
+ * workspace-owned fields on the write paths, so a `config get` →
+ * `config set` round-trip never persists catalog content.
  */
-function enrichProfilesWithVisionFlag(config: unknown): void {
+function overlayEffectiveProfilesForWire(config: unknown): void {
   const root = readPlainObject(config);
-  if (!root) return;
-  const llm = readPlainObject(root.llm);
-  if (!llm) return;
-  const profiles = readPlainObject(llm.profiles);
-  if (!profiles) return;
+  if (!root) {
+    return;
+  }
+  const existingLlm = readPlainObject(root.llm);
+  const llm = existingLlm ?? {};
+  if (!existingLlm) {
+    root.llm = llm;
+  }
+  llm.profiles = getEffectiveProfiles(
+    readPlainObject(llm.profiles) as Record<string, ProfileEntry> | undefined,
+  );
+}
 
+/**
+ * Per-profile keys that exist only on the wire — stamped onto config
+ * responses by {@link enrichProfilesForWire}, never persisted to disk.
+ * {@link stripWireOnlyProfileKeys} removes them from incoming writes so a
+ * `config get` → `config set`/PATCH round-trip isn't rejected for phantom
+ * fields; keep the stamp and strip lists in lock-step.
+ */
+const WIRE_ONLY_PROFILE_KEYS = new Set(["invariant", "supportsVision"]);
+
+/**
+ * Delete the wire-only keys ({@link WIRE_ONLY_PROFILE_KEYS}) from every
+ * profile entry in a config-write fragment, in place.
+ */
+function stripWireOnlyProfileKeys(patch: unknown): void {
+  const root = readPlainObject(patch);
+  const llm = readPlainObject(root?.llm);
+  const profiles = readPlainObject(llm?.profiles);
+  if (!profiles) {
+    return;
+  }
   for (const profile of Object.values(profiles)) {
     const entry = readPlainObject(profile);
-    if (!entry) continue;
+    if (!entry) {
+      continue;
+    }
+    for (const key of WIRE_ONLY_PROFILE_KEYS) {
+      delete entry[key];
+    }
+  }
+}
+
+/**
+ * Normalize managed default-profile entries in a config-write fragment, in
+ * place, so a `config get` → write round-trip of the enriched wire view is a
+ * no-op while genuine edit attempts still reach the invariant guard's
+ * precise rejections:
+ *
+ * - A default name backed by a user-source on-disk entry is a legacy shadow
+ *   and stays fully editable — left untouched here.
+ * - Echo-stripping: any field whose incoming value equals the current
+ *   effective (wire) value is deleted from the fragment — it is catalog
+ *   content the client read from us, not user input. Values that DIFFER stay
+ *   in the fragment for {@link assertInvariantProfilesPreserved} to reject
+ *   (or, for `status`, to judge as the one legal transition).
+ * - A default name with NO on-disk entry is catalog-owned: after
+ *   echo-stripping, any remaining content field, a `disabled` status, or a
+ *   non-managed `source` is rejected — default names cannot be newly
+ *   shadowed or given content. A clean echo reduces to a no-op
+ *   `{source: "managed"}` stub.
+ *
+ * Entries are mutated (never replaced) so the normalization also reaches
+ * `handleSetConfig`'s `raw` write, which shares object references with the
+ * inspected patch shape.
+ */
+function normalizeManagedProfileWrites(patch: unknown): void {
+  const root = readPlainObject(patch);
+  const llm = readPlainObject(root?.llm);
+  const profiles = readPlainObject(llm?.profiles);
+  if (!profiles) {
+    return;
+  }
+
+  const currentProfiles = readPlainObject(
+    readPlainObject(loadRawConfig().llm)?.profiles,
+  ) as Record<string, ProfileEntry> | undefined;
+
+  for (const name of Object.keys(profiles)) {
+    if (!MANAGED_PROFILE_NAMES.has(name)) {
+      continue;
+    }
+    const entry = readPlainObject(profiles[name]);
+    if (!entry) {
+      continue;
+    }
+
+    const current = readPlainObject(currentProfiles?.[name]);
+    if (current && current.source !== "managed") {
+      // Legacy user-owned shadow: fully editable, normal custom-profile rules.
+      continue;
+    }
+
+    const effective = readPlainObject(
+      getEffectiveProfile(currentProfiles, name),
+    );
+    for (const key of Object.keys(entry)) {
+      if (key === "source" || key === "status") {
+        continue;
+      }
+      const matchesEffective =
+        effective != null &&
+        key in effective &&
+        isDeepStrictEqual(entry[key], effective[key]);
+      if (current == null || !(key in current)) {
+        // Not on disk: a value matching the wire view is a client echo of
+        // catalog content — drop it. Anything else stays for the guard.
+        if (matchesEffective) {
+          delete entry[key];
+        }
+        continue;
+      }
+      // The key exists on disk (a frozen overlay field, or stale content an
+      // overlay persisted). Deleting it would read as a key removal on a
+      // full-entry SET, so instead: an echo of the wire value that differs
+      // from disk is pinned back to the on-disk value (no change for the
+      // guard to reject); everything else is left for the guard's
+      // frozen-field comparison.
+      if (matchesEffective && !isDeepStrictEqual(entry[key], current[key])) {
+        entry[key] = current[key];
+      }
+    }
+
+    if (current) {
+      // Existing stub: the guard compares the merged result against it and
+      // rejects everything but the status re-enable.
+      if (entry.source === undefined) {
+        entry.source = "managed";
+      }
+      continue;
+    }
+
+    // No on-disk entry: the name is catalog-owned. Nothing but a clean echo
+    // (which reduced to source/status above) may pass.
+    if ("source" in entry && entry.source !== "managed") {
+      throw new BadRequestError(
+        `Cannot create profile "${name}" — the name is reserved for a code-defined default profile.`,
+      );
+    }
+    if (
+      "status" in entry &&
+      entry.status != null &&
+      entry.status !== "active"
+    ) {
+      throw new BadRequestError(`Cannot disable managed profile "${name}".`);
+    }
+    const residual = Object.keys(entry).filter(
+      (key) => key !== "source" && key !== "status",
+    );
+    if (residual.length > 0) {
+      throw new BadRequestError(
+        `Cannot edit managed profile "${name}" fields [${residual.join(", ")}]. ` +
+          `Managed profiles are read-only; duplicate to a custom profile to customize.`,
+      );
+    }
+    entry.source = "managed";
+  }
+}
+
+/**
+ * Annotate each profile in `config.llm.profiles` with wire-only flags
+ * (`WIRE_ONLY_PROFILE_KEYS`) — never persisted to disk:
+ *
+ * - `supportsVision`: resolved from the model catalog. Unknown (provider,
+ *   model) pairs default to `true` (fail-open) so image upload remains
+ *   available for custom / unlisted models.
+ * - `invariant`: `true` for managed-source entries of the managed profile
+ *   names (`INVARIANT_PROFILE_NAMES`); absent otherwise. Source-gated to
+ *   match `assertInvariantProfilesPreserved` — a user-owned profile sharing
+ *   a managed name is fully editable, so it must render as a normal custom
+ *   profile.
+ */
+function enrichProfilesForWire(config: unknown): void {
+  const root = readPlainObject(config);
+  if (!root) {
+    return;
+  }
+  const llm = readPlainObject(root.llm);
+  if (!llm) {
+    return;
+  }
+  const profiles = readPlainObject(llm.profiles);
+  if (!profiles) {
+    return;
+  }
+
+  for (const [name, profile] of Object.entries(profiles)) {
+    const entry = readPlainObject(profile);
+    if (!entry) {
+      continue;
+    }
+    if (INVARIANT_PROFILE_NAMES.has(name) && entry.source === "managed") {
+      entry.invariant = true;
+    }
     const provider = entry.provider;
     const model = entry.model;
-    if (typeof provider !== "string" || typeof model !== "string") continue;
+    if (typeof provider !== "string" || typeof model !== "string") {
+      continue;
+    }
 
     const catalogProvider = PROVIDER_CATALOG.find((p) => p.id === provider);
     const catalogModel = catalogProvider?.models.find((m) => m.id === model);
@@ -849,17 +1088,23 @@ function handleGetConfigSchema({ queryParams = {} }: RouteHandlerArgs) {
 
 function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
   const llm = asMutablePlainObject(body.llm);
-  if (!llm) return;
+  if (!llm) {
+    return;
+  }
   if ("profiles" in llm && llm.profiles === null) {
     throw new BadRequestError(
       "Cannot null llm.profiles — managed profiles would be deleted.",
     );
   }
   const profiles = asMutablePlainObject(llm.profiles);
-  if (!profiles) return;
+  if (!profiles) {
+    return;
+  }
   const existingProfiles = asMutablePlainObject(getConfig().llm.profiles) ?? {};
   for (const name of Object.keys(profiles)) {
-    if (profiles[name] !== null || !MANAGED_PROFILE_NAMES.has(name)) continue;
+    if (profiles[name] !== null || !MANAGED_PROFILE_NAMES.has(name)) {
+      continue;
+    }
     // Only block deletion when the on-disk entry is Vellum-managed. A
     // user-owned profile sharing a managed name carries a non-managed `source`
     // and is freely deletable.
@@ -867,6 +1112,180 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
     if (existing?.source === "managed") {
       throw new BadRequestError(`Cannot delete managed profile "${name}".`);
     }
+  }
+}
+
+/**
+ * Enforce the managed-profile invariants at the config-write choke point.
+ *
+ * Protects the thin managed stubs (`INVARIANT_PROFILE_NAMES`) that live in
+ * workspace config. Default profile CONTENT is code-owned and only exists on
+ * the wire, so the guard's job is the stub itself: it checks entries present
+ * in the OLD config, and `normalizeManagedProfileWrites` reduces incoming
+ * managed entries to the workspace-owned fields before this comparison runs.
+ *
+ * Invariance is gated on managed ownership: a name is enforced only when the
+ * OLD entry's `source` is `"managed"`. A user-owned profile sharing a
+ * managed name stays fully editable and deletable — for os-beta that state
+ * is real and supported, because the flag-gated reconcile refuses to
+ * overwrite a same-named user profile.
+ *
+ * For each invariant name where the OLD raw config carries a managed-source
+ * plain-object entry at `llm.profiles[name]`:
+ *
+ * - The NEW raw config must still carry a plain-object entry at the same
+ *   path — deletion, non-object overwrite, and subtree replacement are all
+ *   rejected by this single check, regardless of route.
+ * - `status` is one-directional: effective status is
+ *   `entry.status !== "disabled"` (absence/null = active). An active managed
+ *   profile can never be disabled; a changed `status` must be `"active"`,
+ *   `null`, or absent — re-enabling a disabled profile. Any other value is
+ *   rejected.
+ * - Wire-only keys (`WIRE_ONLY_PROFILE_KEYS`) are ignored on both sides:
+ *   incoming writes have them stripped, but configs persisted before the
+ *   strip existed may still carry them on disk, and treating that stale key
+ *   as a removed field would reject every round-trip write until reboot
+ *   reseeds the profile.
+ * - Every other field is frozen: any changed, added, or removed key across
+ *   the union of both entries' keys (except `status` and the wire-only keys)
+ *   is rejected. A pre-existing on-disk override (e.g. `topP`) is preserved
+ *   but frozen — it passes the guard only while it doesn't change.
+ */
+function assertInvariantProfilesPreserved(
+  oldRaw: Record<string, unknown>,
+  newRaw: Record<string, unknown>,
+): void {
+  const oldProfiles = asMutablePlainObject(
+    asMutablePlainObject(oldRaw.llm)?.profiles,
+  );
+  if (!oldProfiles) {
+    return;
+  }
+  const newProfiles = asMutablePlainObject(
+    asMutablePlainObject(newRaw.llm)?.profiles,
+  );
+
+  for (const name of INVARIANT_PROFILE_NAMES) {
+    const oldEntry = asMutablePlainObject(oldProfiles[name]);
+    if (!oldEntry) {
+      continue;
+    }
+    if (oldEntry.source !== "managed") {
+      continue;
+    }
+
+    const newEntry = newProfiles
+      ? asMutablePlainObject(newProfiles[name])
+      : null;
+    if (!newEntry) {
+      throw new BadRequestError(
+        `Cannot delete or replace managed profile "${name}". Managed profiles are read-only.`,
+      );
+    }
+
+    if (!isDeepStrictEqual(oldEntry.status, newEntry.status)) {
+      if (newEntry.status === "disabled") {
+        throw new BadRequestError(`Cannot disable managed profile "${name}".`);
+      }
+      if (newEntry.status !== "active" && newEntry.status != null) {
+        throw new BadRequestError(
+          `Cannot set status ${JSON.stringify(newEntry.status)} on managed profile "${name}". ` +
+            `Only re-enabling (status "active") is allowed.`,
+        );
+      }
+    }
+
+    const changedKeys = [
+      ...new Set([...Object.keys(oldEntry), ...Object.keys(newEntry)]),
+    ].filter(
+      (key) =>
+        key !== "status" &&
+        !WIRE_ONLY_PROFILE_KEYS.has(key) &&
+        !isDeepStrictEqual(oldEntry[key], newEntry[key]),
+    );
+    if (changedKeys.length > 0) {
+      throw new BadRequestError(
+        `Cannot edit managed profile "${name}" fields [${changedKeys.join(", ")}]. ` +
+          `Managed profiles are read-only; duplicate to a custom profile to customize.`,
+      );
+    }
+  }
+}
+
+/**
+ * `{...raw, ...completed}` recursively: completed (schema-known) values win,
+ * raw keys the schema stripped survive at every depth.
+ */
+function mergePreservingUnknownKeys(
+  raw: Record<string, unknown>,
+  completed: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...raw, ...completed };
+  for (const [key, value] of Object.entries(completed)) {
+    const rawValue = raw[key];
+    if (
+      readPlainObject(value) !== undefined &&
+      readPlainObject(rawValue) !== undefined
+    ) {
+      out[key] = mergePreservingUnknownKeys(
+        rawValue as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * Custom profiles persist as complete overrides: any user-source, non-mix
+ * profile entry this write creates or changes is completed against
+ * `llm.default` (`completeCustomProfile`) before it lands on disk, so no
+ * write path can persist a new partial profile. Entries the write did not
+ * touch are left byte-identical — an unrelated config write must not rewrite
+ * profile entries. Entries that do not parse as a `ProfileEntry` are also
+ * left untouched; full-config parsing owns their rejection/recovery.
+ */
+function completeChangedCustomProfiles(
+  preWrite: Record<string, unknown>,
+  raw: Record<string, unknown>,
+): void {
+  const profiles = asMutablePlainObject(readPlainObject(raw.llm)?.profiles);
+  if (!profiles) {
+    return;
+  }
+  const parsedDefault = LLMConfigBase.safeParse(
+    readPlainObject(raw.llm)?.default ?? {},
+  );
+  if (!parsedDefault.success) {
+    return;
+  }
+  const prior = readPlainObject(readPlainObject(preWrite.llm)?.profiles) ?? {};
+  for (const [name, entry] of Object.entries(profiles)) {
+    if (isDeepStrictEqual(entry, prior[name])) {
+      continue;
+    }
+    const parsedEntry = ProfileEntry.safeParse(entry);
+    if (!parsedEntry.success) {
+      continue;
+    }
+    // `source: "managed"` is only meaningful on catalog-owned names. On any
+    // other name it would skip completion (and read as a locked entry), so a
+    // body claiming it is normalized to user-owned before completing.
+    const entryData =
+      parsedEntry.data.source === "managed" && !MANAGED_PROFILE_NAMES.has(name)
+        ? { ...parsedEntry.data, source: "user" as const }
+        : parsedEntry.data;
+    // Merge the completed known fields over the original raw entry at every
+    // depth: `safeParse` strips keys the schema doesn't know (top-level and
+    // inside nested objects like `contextWindow`), and dropping them here
+    // would delete forward-compatible fields whenever the entry is edited.
+    profiles[name] = mergePreservingUnknownKeys(
+      readPlainObject(entry) ?? {},
+      completeCustomProfile(parsedDefault.data, entryData) as Record<
+        string,
+        unknown
+      >,
+    );
   }
 }
 
@@ -881,6 +1300,14 @@ async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
 ): Promise<void> {
+  // `loadRawConfig()` reads fresh from disk and the save hasn't happened yet,
+  // so it is the pre-write state; raw-to-raw comparison avoids parsed-vs-raw
+  // false diffs. Runs before the watcher-suppress/save sequence so a
+  // rejection needs no suppress-flag or cache cleanup.
+  const preWrite = loadRawConfig();
+  completeChangedCustomProfiles(preWrite, raw);
+  assertInvariantProfilesPreserved(preWrite, raw);
+
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write
   // ~200ms later, sees a stale fingerprint, and calls initializeProviders a
@@ -931,6 +1358,8 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   ) {
     throw new BadRequestError("Body must be a non-empty JSON object");
   }
+  stripWireOnlyProfileKeys(body);
+  normalizeManagedProfileWrites(body);
   rejectManagedProfileDeletion(body as Record<string, unknown>);
   rejectMcpTransportHeaderWrite(body);
 
@@ -942,7 +1371,8 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
 
   const merged = applyContextDefaultsToRawConfig(loadRawConfig());
   sanitizeMcpTransportHeadersForSettingsRead(merged);
-  enrichProfilesWithVisionFlag(merged);
+  overlayEffectiveProfilesForWire(merged);
+  enrichProfilesForWire(merged);
   return merged;
 }
 
@@ -981,15 +1411,60 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
       "`value` is required (use `null` to clear a key)",
     );
   }
+  // A leaf-path SET targeting a wire-only profile key is dropped without
+  // writing — the same treatment PATCH gives wire-only keys embedded in a
+  // profile fragment.
+  const pathSegments = path.split(".");
+  if (
+    pathSegments[0] === "llm" &&
+    pathSegments[1] === "profiles" &&
+    pathSegments.length >= 4 &&
+    WIRE_ONLY_PROFILE_KEYS.has(pathSegments[3]!)
+  ) {
+    return { ok: true };
+  }
   // Build the equivalent patch shape so the managed-profile guard can
-  // inspect the touched subtree.
+  // inspect the touched subtree. `setNestedValue` places `value` into
+  // `patchShape` by reference, so stripping wire-only profile keys here
+  // also strips the object written to `raw` below.
   const patchShape: Record<string, unknown> = {};
   setNestedValue(patchShape, path, value);
+  stripWireOnlyProfileKeys(patchShape);
+  normalizeManagedProfileWrites(patchShape);
   rejectManagedProfileDeletion(patchShape);
   rejectMcpTransportHeaderWrite(patchShape);
 
   const raw = loadRawConfig();
+  // A SET below the entry level (`llm.profiles.<name>.<leaf>`) writes the
+  // primitive leaf directly into `raw`, bypassing the by-reference
+  // normalization above — creating an entry for a managed-owned name would
+  // leave it source-less, and a source-less entry reads as a user shadow
+  // that blocks the catalog body. Stamp the managed marker onto the written
+  // entry when the name was absent or managed-owned before this write.
+  const managedEntryName =
+    pathSegments[0] === "llm" &&
+    pathSegments[1] === "profiles" &&
+    pathSegments.length >= 3 &&
+    MANAGED_PROFILE_NAMES.has(pathSegments[2]!)
+      ? pathSegments[2]!
+      : undefined;
+  const priorManagedEntry = managedEntryName
+    ? readPlainObject(
+        readPlainObject(readPlainObject(raw.llm)?.profiles)?.[managedEntryName],
+      )
+    : undefined;
   setNestedValue(raw, path, value);
+  if (
+    managedEntryName &&
+    (priorManagedEntry == null || priorManagedEntry.source === "managed")
+  ) {
+    const written = readPlainObject(
+      readPlainObject(readPlainObject(raw.llm)?.profiles)?.[managedEntryName],
+    );
+    if (written && written.source === undefined) {
+      written.source = "managed";
+    }
+  }
 
   await commitConfigWrite(raw, "set");
   return { ok: true };
@@ -1006,7 +1481,9 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
 function handleValidateAllowlist() {
   try {
     const errors = validateAllowlistFile();
-    if (errors == null) return { exists: false } as const;
+    if (errors == null) {
+      return { exists: false } as const;
+    }
     return { exists: true, errors } as const;
   } catch (err) {
     // `validateAllowlistFile` does a raw `JSON.parse` on
@@ -1049,30 +1526,41 @@ async function handleReplaceInferenceProfile({
   const isManaged =
     MANAGED_PROFILE_NAMES.has(name) &&
     (existingProfile == null || existingProfile.source === "managed");
-  // A managed profile name with no materialized entry (e.g. a flag-gated profile
-  // whose flag is off) cannot be patched: writing label/status here would persist
-  // a source-less stub that later blocks the real managed profile from being
-  // seeded. Reject rather than create a placeholder.
-  if (MANAGED_PROFILE_NAMES.has(name) && existingProfile == null) {
+  // A flag-gated managed name (`os-beta`) with no materialized entry cannot
+  // be patched: it only resolves while the flag reconcile has created its
+  // stub, so writing status here would persist an entry that fights the
+  // reconcile. The always-available defaults are catalog-owned even when
+  // absent — a status re-enable on them just creates the thin stub.
+  if (
+    MANAGED_PROFILE_NAMES.has(name) &&
+    existingProfile == null &&
+    !(DEFAULT_PROFILE_KEYS as readonly string[]).includes(name)
+  ) {
     throw new BadRequestError(
       `Profile "${name}" is not currently available and cannot be edited.`,
     );
   }
   if (isManaged) {
-    // Managed profiles are daemon-seeded — provider, model, and the
-    // connection binding all belong to the seed contract and can't be
-    // reshaped by the user. The fields that ARE user policy (display label,
-    // enabled status, and the topP sampling knob) are allowed through so
-    // users can rename a managed profile, temporarily disable it, or tune
-    // top_p without duplicating it.
+    // Managed profiles are daemon-seeded and read-only — the commit guard
+    // (`assertInvariantProfilesPreserved`) rejects every write to them
+    // except re-enabling a disabled profile. Enforce the same contract up
+    // front: the only body a managed PUT accepts is a pure status re-enable
+    // (`{status: "active"}`, or `{status: null}` to clear back to
+    // active-by-absence). Rejecting here keeps the error message ahead of
+    // any side effects and mirrors the guard's wording.
     const requestedKeys = Object.keys(parsed.data);
-    const disallowed = requestedKeys.filter(
-      (k) => !MANAGED_PROFILE_EDITABLE_KEYS.has(k),
-    );
-    if (disallowed.length > 0) {
+    const isStatusReenable =
+      requestedKeys.length === 1 &&
+      requestedKeys[0] === "status" &&
+      (parsed.data.status === "active" || parsed.data.status === null);
+    if (!isStatusReenable) {
+      const disallowed = requestedKeys.filter((k) => k !== "status");
+      const detail =
+        disallowed.length > 0 ? ` fields [${disallowed.join(", ")}]` : "";
       throw new BadRequestError(
-        `Cannot edit managed profile "${name}" fields [${disallowed.join(", ")}]. ` +
-          `Only label, status, and topP may be edited; duplicate to a custom profile to change other fields.`,
+        `Cannot edit managed profile "${name}"${detail}. ` +
+          `Managed profiles are read-only (a disabled profile can be re-enabled); ` +
+          `duplicate to a custom profile to customize.`,
       );
     }
   }
@@ -1098,7 +1586,9 @@ async function handleReplaceInferenceProfile({
         `Mix profile "${name}" cannot also set [${extraneous.join(", ")}] — a mix only references other profiles plus metadata (label, description, status).`,
       );
     }
-    const existingProfiles = getConfig().llm.profiles ?? {};
+    // Validate arms against the effective view (matches the resolver and
+    // `LLMSchema.superRefine`), not the raw workspace record.
+    const existingProfiles = getEffectiveProfiles(getConfig().llm.profiles);
     parsed.data.mix.forEach((arm, index) => {
       if (arm.profile === name) {
         throw new BadRequestError(
@@ -1121,14 +1611,31 @@ async function handleReplaceInferenceProfile({
 
   // When the UI sends provider but no provider_connection, derive the connection
   // now so the config deep-merge doesn't inherit a stale connection from the
-  // default layer.
+  // default layer. Managed entries are excluded: the managed gate above
+  // already rejected any provider-carrying fragment, so their only surviving
+  // body is a status re-enable, which derives no connection. A user-owned
+  // profile sharing a managed name is fully editable, so it takes the
+  // derivation like any other custom profile.
   const fragment = parsed.data as Record<string, unknown>;
   if (!isManaged && fragment.provider && !fragment.provider_connection) {
     const provider = fragment.provider as string;
     const db = getDb();
-    const [active] = listConnections(db, { provider });
+    // Exclude the orphaned legacy `*-managed` rows: they may still linger in
+    // provider_connections on upgraded workspaces (hidden from the list route
+    // until a follow-up migration deletes them). Auto-binding to one would keep
+    // the profile stale and break it once those rows are removed.
+    const [active] = listConnections(db, { provider }).filter(
+      (c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name),
+    );
     if (active) {
       fragment.provider_connection = active.name;
+    } else if (
+      MANAGED_ROUTABLE_PROVIDERS.has(provider) &&
+      getConnection(db, VELLUM_MANAGED_CONNECTION_NAME)
+    ) {
+      // Managed-routable providers are served by the single Vellum-managed
+      // connection; prefer it over lazily creating a personal connection.
+      fragment.provider_connection = VELLUM_MANAGED_CONNECTION_NAME;
     } else if (!PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
       const connectionName = `${provider}-personal`;
       const isKeyless = provider === "ollama";
@@ -1150,12 +1657,12 @@ async function handleReplaceInferenceProfile({
 
   const raw = loadRawConfig();
   if (isManaged) {
-    // Partial overlay: keep every existing key intact, only update label
-    // and/or status from the fragment. Using `replaceInferenceProfileConfig`
-    // here would wipe the UI-owned seed fields (provider, model, advanced
-    // params) because that function assumes the body carries the full UI
-    // surface.
-    patchManagedProfileFields(raw, name, fragment);
+    // Partial overlay: keep every existing key intact, only apply the status
+    // re-enable (the sole body the managed gate above admits). Using
+    // `replaceInferenceProfileConfig` here would wipe the seed-owned fields
+    // (provider, model, advanced params) because that function assumes the
+    // body carries the full UI surface.
+    applyManagedProfileReenable(raw, name, fragment.status as "active" | null);
   } else {
     replaceInferenceProfileConfig(raw, name, fragment);
   }
@@ -1173,37 +1680,38 @@ async function handleReplaceInferenceProfile({
 }
 
 /**
- * Apply a `{label?, status?, topP?}` patch to a managed profile entry, preserving
+ * Apply the disabled→active re-enable to a managed profile entry, preserving
  * every other field already on disk (provider, model, advanced params, etc).
- * Caller is responsible for having already restricted the fragment to the
- * managed-allowed keys.
+ * `status: "active"` sets the key; `null` clears it (active-by-absence).
  */
-function patchManagedProfileFields(
+function applyManagedProfileReenable(
   raw: Record<string, unknown>,
   name: string,
-  fragment: Record<string, unknown>,
+  status: "active" | null,
 ): void {
   const existingLlm = asMutablePlainObject(raw.llm);
   const llm = existingLlm ?? {};
-  if (!existingLlm) raw.llm = llm;
+  if (!existingLlm) {
+    raw.llm = llm;
+  }
 
   const existingProfiles = asMutablePlainObject(llm.profiles);
   const profiles = existingProfiles ?? {};
-  if (!existingProfiles) llm.profiles = profiles;
+  if (!existingProfiles) {
+    llm.profiles = profiles;
+  }
 
-  const existingProfile = asMutablePlainObject(profiles[name]) ?? {};
-  const nextProfile: Record<string, unknown> = { ...existingProfile };
-  // For each managed-editable key: send `null` to clear, a value to set,
-  // omit to leave untouched. Iterating the allowlist keeps persistence in
-  // lock-step with the guard above — a key can't slip through the gate
-  // without also being written.
-  for (const key of MANAGED_PROFILE_EDITABLE_KEYS) {
-    if (!(key in fragment)) continue;
-    if (fragment[key] === null) {
-      delete nextProfile[key];
-    } else {
-      nextProfile[key] = fragment[key];
-    }
+  const nextProfile: Record<string, unknown> = {
+    ...(asMutablePlainObject(profiles[name]) ?? {}),
+  };
+  // Only reached for managed-owned names (the route's managed gate), so a
+  // freshly created stub must carry the managed marker the effective view
+  // and write guards key on.
+  nextProfile.source = "managed";
+  if (status === null) {
+    delete nextProfile.status;
+  } else {
+    nextProfile.status = status;
   }
   profiles[name] = nextProfile;
 }
@@ -1255,8 +1763,12 @@ function resolveConversationKind(
   if (source === MEMORY_V2_CONSOLIDATION_SOURCE) {
     return "background_memory_consolidation";
   }
-  if (conversationType === "background") return "background";
-  if (conversationType === "scheduled") return "scheduled";
+  if (conversationType === "background") {
+    return "background";
+  }
+  if (conversationType === "scheduled") {
+    return "scheduled";
+  }
   return "user";
 }
 

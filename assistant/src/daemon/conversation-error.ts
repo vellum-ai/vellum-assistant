@@ -131,6 +131,13 @@ const STALE_WEB_SEARCH_CONTENT_PATTERNS = [
   /invalid\s+`?encrypted_content`?\s+in\s+`?(?:web_)?search_result`?\s+block/i,
 ];
 
+// Empty-request-messages: Anthropic's 400 "messages: at least one message is
+// required". Reaching the provider with zero messages is an internal
+// request-construction failure (e.g. over-aggressive history filtering /
+// provenance scoping), never bad user input — so it earns a clear, non-alarming
+// banner instead of the raw provider-rejection string.
+const EMPTY_REQUEST_MESSAGES_PATTERNS = [/at least one message is required/i];
+
 // Streaming corruption patterns (Anthropic SDK throws non-HTTP errors for SSE issues)
 const STREAMING_ERROR_PATTERNS = [
   /unexpected event order/i,
@@ -252,17 +259,22 @@ export function classifyConversationError(
   }
 
   if (error instanceof ConnectionResolutionError) {
+    const profileName = error.profileName ?? attribution.profileName;
+    const connectionName = displayableConnectionName(error.connectionName);
     return {
       code: "PROVIDER_NOT_CONFIGURED",
-      userMessage:
-        "No compatible provider connection found for this profile. Check your provider connections in Settings → Models & Services.",
+      userMessage: connectionResolutionUserMessage(
+        error,
+        connectionName,
+        profileName,
+      ),
       retryable: true,
-      debugDetails,
+      // The reason discriminant rides in debugDetails so telemetry can
+      // distinguish the five failure classes without a new wire field.
+      debugDetails: `connection_resolution:${error.reason} — ${debugDetails}`,
       errorCategory: "provider_not_configured",
-      ...(error.connectionName ? { connectionName: error.connectionName } : {}),
-      ...(attribution.profileName
-        ? { profileName: attribution.profileName }
-        : {}),
+      ...(connectionName ? { connectionName } : {}),
+      ...(profileName ? { profileName } : {}),
     };
   }
 
@@ -272,6 +284,39 @@ export function classifyConversationError(
     ...classified,
     debugDetails,
   };
+}
+
+/**
+ * Internal throw sites use sentinel pseudo-names (`<llm.default>`,
+ * `<resolved-callsite>`) when no real connection row is involved; those must
+ * not render as literal connection names.
+ */
+function displayableConnectionName(name: string): string | undefined {
+  return name && !name.startsWith("<") ? name : undefined;
+}
+
+function connectionResolutionUserMessage(
+  error: ConnectionResolutionError,
+  connectionName: string | undefined,
+  profileName: string | undefined,
+): string {
+  const connection = connectionName
+    ? `Provider connection "${connectionName}"`
+    : "The provider connection";
+  const usedBy = profileName ? ` (used by profile "${profileName}")` : "";
+  const fixPath = "Settings → Models & Services";
+  switch (error.reason) {
+    case "lookup_failed":
+      return `${connection}${usedBy} couldn't be read from the connections database. Restart the assistant, then check ${fixPath}.`;
+    case "not_found":
+      return `${connection}${usedBy} no longer exists. Pick a provider in ${fixPath}.`;
+    case "provider_mismatch":
+      return `${connection}${usedBy} is bound to a different provider than the profile declares. Update the profile's connection in ${fixPath}.`;
+    case "missing_connection":
+      return `No provider connection is configured${usedBy}. Add an API key or log in via ${fixPath}.`;
+    case "model_incompatible":
+      return `${error.model ? `Model "${error.model}"` : "The requested model"} isn't available on ${connectionName ? `connection "${connectionName}"` : "the configured connection"}${usedBy}. Pick a different model or connection in ${fixPath}.`;
+  }
 }
 
 /**
@@ -361,6 +406,9 @@ function classifyCore(
     }
     // 4xx (non-429) — check for context-too-large, ordering errors, then generic fallback
     if (error.statusCode >= 400) {
+      if (isEmptyRequestMessages(message)) {
+        return emptyRequestMessagesClassification();
+      }
       if (isContextTooLarge(message)) {
         return {
           code: "CONTEXT_TOO_LARGE",
@@ -449,6 +497,32 @@ function classifyCore(
 /** Check whether an error message indicates a context-too-large failure. */
 export function isContextTooLarge(message: string): boolean {
   return CONTEXT_TOO_LARGE_PATTERNS.some((p) => p.test(message));
+}
+
+/**
+ * Check whether an error message indicates the request reached the provider
+ * with an empty `messages` array. See `EMPTY_REQUEST_MESSAGES_PATTERNS`.
+ */
+function isEmptyRequestMessages(message: string): boolean {
+  return EMPTY_REQUEST_MESSAGES_PATTERNS.some((p) => p.test(message));
+}
+
+/**
+ * Classification for a request that reached the provider with no messages to
+ * send. This is an internal request-construction failure, so the user-facing
+ * copy avoids surfacing the raw provider 400.
+ */
+function emptyRequestMessagesClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_API",
+    userMessage:
+      "This request failed to be sent to the model because there was no content.",
+    retryable: true,
+    errorCategory: "empty_request_messages",
+  };
 }
 
 function isVisionNotSupported(message: string): boolean {
@@ -601,6 +675,13 @@ function classifyByMessage(
   error: unknown,
   message: string,
 ): Omit<ClassifiedConversationError, "debugDetails"> {
+  // Empty-request-messages is always an internal construction failure — check
+  // it before the provider/network patterns so a ProviderError that carries the
+  // message but no statusCode still gets the friendly banner.
+  if (isEmptyRequestMessages(message)) {
+    return emptyRequestMessagesClassification();
+  }
+
   // Check context-too-large before other patterns
   if (isContextTooLarge(message)) {
     return {

@@ -11,6 +11,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Input } from "@vellumai/design-library/components/input";
 
+import { MOBILE_INPUT_NO_ZOOM } from "@/domains/onboarding/onboarding-step-layout";
+
 interface PriorAssistantSelectionScreenProps {
   selectedAssistants: Set<string>;
   onChange: (next: Set<string>) => void;
@@ -169,6 +171,7 @@ export function PriorAssistantSelectionScreen({
                 value={otherText}
                 onChange={(e) => setOtherText(e.target.value)}
                 helperText="Separate multiple assistants with commas"
+                className={MOBILE_INPUT_NO_ZOOM}
                 fullWidth
               />
               {otherEntries.length > 0 ? (

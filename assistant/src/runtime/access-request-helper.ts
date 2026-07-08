@@ -27,6 +27,11 @@ import type { GuardianResolutionSource } from "../notifications/signal.js";
 import { getLogger } from "../util/logger.js";
 import { resolveAnchoredGuardian } from "./anchored-guardian.js";
 import { CHALLENGE_TTL_MS } from "./channel-verification-service.js";
+import {
+  type AccessRequestTrigger,
+  introductionMode,
+  serializeRequesterSignals,
+} from "./introduction-policy.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("access-request-helper");
@@ -34,6 +39,8 @@ const log = getLogger("access-request-helper");
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export type { AccessRequestTrigger } from "./introduction-policy.js";
 
 export interface AccessRequestParams {
   canonicalAssistantId: string;
@@ -45,12 +52,16 @@ export interface AccessRequestParams {
   previousMemberStatus?: Exclude<ChannelStatus, "unverified">;
   /** Preview of the requester's original message, shown to the guardian. */
   messagePreview?: string;
+  /** The sender is a bot / integration account (no verification handshake possible). */
+  isBot?: boolean;
   /** Slack-specific: user is from an external workspace (Slack Connect). */
   isStranger?: boolean;
   /** Slack-specific: user is a guest / restricted account. */
   isRestricted?: boolean;
   /** Slack message timestamp for permalink construction. */
   messageTs?: string;
+  /** Defaults to `denied` — see {@link AccessRequestTrigger}. */
+  trigger?: AccessRequestTrigger;
 }
 
 export type AccessRequestResult =
@@ -60,6 +71,7 @@ export type AccessRequestResult =
       reason:
         | "no_sender_id"
         | "already_denied"
+        | "already_introduced"
         | "approval_pending_verification";
     };
 
@@ -178,10 +190,12 @@ export async function notifyGuardianOfAccessRequest(
     actorUsername,
     previousMemberStatus,
     messagePreview,
+    isBot,
     isStranger,
     isRestricted,
     messageTs,
   } = params;
+  const trigger: AccessRequestTrigger = params.trigger ?? "denied";
 
   if (!actorExternalId) {
     return { notified: false, reason: "no_sender_id" };
@@ -298,7 +312,15 @@ export async function notifyGuardianOfAccessRequest(
     guardianExternalUserId: guardianExternalUserId ?? undefined,
     guardianPrincipalId: guardianPrincipalId ?? undefined,
     toolName: "ingress_access_request",
-    questionText: `${senderIdentifier} is requesting access to the assistant`,
+    questionText: introductionMode(trigger).questionText(senderIdentifier),
+    requesterSignals: serializeRequesterSignals({
+      isBot,
+      isStranger,
+      isRestricted,
+    }),
+    // Persisted so decision-time policy (resolvers, expiry sweep) can
+    // suppress requester-facing lifecycle notices for admitted-mode nudges.
+    ...(trigger === "admitted" ? { trigger } : {}),
     expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
   });
 
@@ -327,7 +349,9 @@ export async function notifyGuardianOfAccessRequest(
     ...(sameChannelOnly ? { routingIntent: "single_channel" as const } : {}),
     attentionHints: {
       requiresAction: true,
-      urgency: "high",
+      // An admitted sender is already conversing — the guardian should
+      // classify them eventually, but nothing is blocked on the decision.
+      urgency: introductionMode(trigger).urgency,
       isAsyncBackground: false,
       visibleInSourceNow: false,
     },
@@ -344,14 +368,20 @@ export async function notifyGuardianOfAccessRequest(
       guardianResolutionSource,
       previousMemberStatus: previousMemberStatus ?? null,
       messagePreview: messagePreview ?? null,
+      ...(isBot !== undefined ? { isBot } : {}),
       ...(isStranger !== undefined ? { isStranger } : {}),
       ...(isRestricted !== undefined ? { isRestricted } : {}),
       ...(messageTs ? { messageTs } : {}),
+      ...(trigger === "admitted" ? { trigger } : {}),
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {
-      if (info.sourceEventName !== "ingress.access_request" || vellumDeliveryId)
+      if (
+        info.sourceEventName !== "ingress.access_request" ||
+        vellumDeliveryId
+      ) {
         return;
+      }
       vellumDeliveryId = recordApprovalCardDelivery({
         requestId: canonicalRequest.id,
         channel: "vellum",
@@ -391,9 +421,65 @@ export async function notifyGuardianOfAccessRequest(
       actorExternalId,
       senderIdentifier,
       guardianBindingChannel,
+      trigger,
     },
     "Guardian notified of access request",
   );
 
   return { notified: true, created: true, requestId: canonicalRequest.id };
+}
+
+/**
+ * Introduction nudge for a floor-admitted sender (LUM-2742): fires the
+ * standard introduction card so the guardian can classify a sender who
+ * cleared the admission floor without ever being reviewed. The conversation proceeds
+ * regardless of whether — or how — the guardian decides.
+ *
+ * At most one nudge per (assistant, channel, actor, external chat): any
+ * prior access request whose `requesterChatId` matches this
+ * `conversationExternalId` suppresses it, in every terminal state — an
+ * admitted sender loses nothing when the guardian ignores the card, so
+ * re-prompting in the same chat is noise. The key is the external chat id
+ * (a Slack channel or DM, a Telegram chat), deliberately coarser than the
+ * per-thread internal conversation rows: threads in one Slack channel share
+ * one nudge, so a busy channel cannot mint a card per thread. A prior
+ * request from a *different* chat does not suppress (a channel poster who
+ * later DMs the assistant is new context worth one more nudge); the
+ * actor-level pending-dedupe, terminal-deny, and handshake-window
+ * suppressions inside {@link notifyGuardianOfAccessRequest} still apply, so
+ * two live cards are never minted for the same actor.
+ */
+export async function maybeNotifyGuardianOfAdmittedContact(
+  params: Omit<AccessRequestParams, "trigger">,
+): Promise<AccessRequestResult> {
+  if (!params.actorExternalId) {
+    return { notified: false, reason: "no_sender_id" };
+  }
+
+  const conversationId = accessRequestConversationId(
+    params.canonicalAssistantId,
+    params.sourceChannel,
+    params.actorExternalId,
+  );
+  const alreadyIntroducedHere = listCanonicalGuardianRequests({
+    kind: "access_request",
+    requesterExternalUserId: params.actorExternalId,
+    sourceChannel: params.sourceChannel,
+    conversationId,
+  }).some(
+    (request) => request.requesterChatId === params.conversationExternalId,
+  );
+  if (alreadyIntroducedHere) {
+    log.debug(
+      {
+        sourceChannel: params.sourceChannel,
+        actorExternalId: params.actorExternalId,
+        conversationExternalId: params.conversationExternalId,
+      },
+      "Suppressing admitted-contact introduction nudge — prior request exists for this conversation",
+    );
+    return { notified: false, reason: "already_introduced" };
+  }
+
+  return notifyGuardianOfAccessRequest({ ...params, trigger: "admitted" });
 }

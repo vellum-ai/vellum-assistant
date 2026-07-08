@@ -8,6 +8,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { readStdinSync } from "../../util/read-stdin.js";
 import { existsSync, readFileSync } from "../lib/cache-fs.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
@@ -16,9 +17,6 @@ import { log } from "../logger.js";
 
 /** Warn (stderr) when a raw payload exceeds this byte count. */
 const MAX_PAYLOAD_BYTES = 1_000_000; // 1 MB
-
-/** Standard input file descriptor. */
-const STDIN_FD = 0;
 
 // ── TTL parsing ───────────────────────────────────────────────────────
 
@@ -102,11 +100,6 @@ function parseJsonPayload(raw: string, source: string): unknown {
  * Read JSON payload from stdin when piped. Throws when stdin is a TTY
  * (no piped input) or when the input is empty/invalid JSON, so the CLI
  * can surface actionable parse errors.
- *
- * Reads file descriptor 0 directly rather than reopening the `/dev/stdin`
- * path. When the caller is a spawned subprocess whose stdin is a pipe (e.g.
- * `Bun.spawn(..., { stdin: "pipe" })`), `open("/dev/stdin")` fails with ENXIO
- * because a pipe read-end cannot be reopened by path; the fd is readable.
  */
 function readPayloadFromStdin(): unknown {
   if (process.stdin.isTTY) {
@@ -119,7 +112,7 @@ function readPayloadFromStdin(): unknown {
 
   let raw: string;
   try {
-    raw = readFileSync(STDIN_FD, "utf-8");
+    raw = readStdinSync();
   } catch (err) {
     throw new Error(
       `Failed to read stdin: ${err instanceof Error ? err.message : String(err)}.\n` +

@@ -1,4 +1,6 @@
 import { AppViewerContainer } from "@/components/app-viewer-container";
+import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
+import { cn } from "@/utils/misc";
 import type { OpenedAppState } from "@/stores/viewer-store";
 
 interface MobileAppOverlayProps {
@@ -50,36 +52,65 @@ export function MobileAppOverlay({
   route,
   onAction,
 }: MobileAppOverlayProps) {
-  if (!openedAppState) return null;
+  const shellStyle = useMobileOverlayViewportStyle();
+
+  if (!openedAppState) {
+    return null;
+  }
 
   return (
     <div
-      className="fixed inset-x-0 bottom-0 z-30 h-[100dvh] transition-transform duration-300 ease-out"
+      className={cn(
+        "fixed inset-x-0 z-30 transition-transform duration-300 ease-out",
+        // While minimized, the shell's transparent safe-area padding band
+        // sits directly above the visible strip — over the lifted composer —
+        // so the shell must not hit-test; the inner sheet wrapper (which
+        // starts below the padding) re-enables pointer events for the strip.
+        isAppMinimized && "pointer-events-none",
+      )}
       style={{
-        paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-        paddingBottom: "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
-        paddingLeft: "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
-        paddingRight: "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
+        ...shellStyle,
+        // Minimized: slide down until only the nav bar peeks above the bottom
+        // edge. The bar is 64px tall on mobile (`py-3` 24px + 40px
+        // `touch-mobile:` buttons). Both insets the shell's padding applies
+        // must be subtracted: the top inset because `paddingTop` shifts the
+        // content down, and the hook's effective bottom inset
+        // (`--overlay-safe-area-bottom`) so the strip clears the iOS home
+        // indicator while the keyboard is closed yet sits flush on the
+        // keyboard while it's open (the hook zeroes the inset then).
         transform: isAppMinimized
-          ? "translateY(calc(100% - var(--app-strip-h, 56px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px))))"
+          ? "translateY(calc(100% - var(--app-strip-h, 64px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) - var(--overlay-safe-area-bottom, 0px)))"
           : "translateY(0)",
       }}
     >
-      <AppViewerContainer
-        appId={openedAppState.appId}
-        appName={openedAppState.name}
-        html={openedAppState.html}
-        assistantId={assistantId ?? ""}
-        onClose={onClose}
-        onEdit={onToggleMinimized}
-        onShare={onShare}
-        isSharing={isSharing}
-        onDeploy={onDeploy}
-        isDeploying={isDeploying}
-        isEditing={isAppMinimized}
-        route={route}
-        onAction={onAction}
-      />
+      {/* The minimized strip overlays the chat, so it needs a top-directional
+          shadow to read as a layer above it. The shadow lives on this inner
+          wrapper — not the outer fixed box — because the outer box's
+          `paddingTop` (safe-area inset) would paint the shadow above the
+          sheet's visible top edge. */}
+      <div
+        className={cn(
+          "h-full rounded-xl",
+          isAppMinimized &&
+            "pointer-events-auto shadow-[0_-4px_16px_rgba(0,0,0,0.15)]",
+        )}
+      >
+        <AppViewerContainer
+          appId={openedAppState.appId}
+          appName={openedAppState.name}
+          html={openedAppState.html}
+          assistantId={assistantId ?? ""}
+          onClose={onClose}
+          onEdit={onToggleMinimized}
+          onShare={onShare}
+          isSharing={isSharing}
+          onDeploy={onDeploy}
+          isDeploying={isDeploying}
+          isEditing={isAppMinimized}
+          route={route}
+          onAction={onAction}
+        />
+      </div>
     </div>
   );
 }

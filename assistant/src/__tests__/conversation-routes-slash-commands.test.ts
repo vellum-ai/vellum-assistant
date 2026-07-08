@@ -147,6 +147,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
 }));
 
 mock.module("../persistence/conversation-disk-view.js", () => ({
@@ -176,11 +177,11 @@ mock.module("../daemon/conversation-process.js", () => ({
   formatCompactResult: formatCompactResultMock,
 }));
 
+const realLocalActorIdentity = await import(
+  "../runtime/local-actor-identity.js"
+);
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-  }),
+  ...realLocalActorIdentity,
 }));
 
 mock.module("../runtime/trust-context-resolver.js", () => ({

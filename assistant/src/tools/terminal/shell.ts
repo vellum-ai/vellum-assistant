@@ -27,13 +27,12 @@ import {
   getOrStartSession,
   getSessionEnv,
 } from "../network/script-proxy/index.js";
-import { registerTool } from "../registry.js";
 import {
   formatShellOutput,
   MAX_OUTPUT_LENGTH,
 } from "../shared/shell-output.js";
+import type { ProxyEnvVars } from "../tool-types.js";
 import type {
-  ProxyEnvVars,
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
@@ -762,5 +761,3 @@ function buildKillTree(
     }
   };
 }
-
-registerTool(shellTool);

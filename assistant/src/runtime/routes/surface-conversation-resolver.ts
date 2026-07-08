@@ -53,6 +53,7 @@ export async function resolveSurfaceConversation(
   // unrelated rows.
   const escaped = surfaceId.replace(/[\\%_]/g, "\\$&");
   const row = rawGet<{ conversation_id: string }>(
+    "surfaceResolver:resolveConversation",
     `SELECT conversation_id FROM messages
      WHERE content LIKE ? ESCAPE '\\'
      ORDER BY created_at DESC

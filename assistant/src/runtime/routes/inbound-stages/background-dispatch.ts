@@ -22,7 +22,7 @@ import {
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
-import type { TrustContext } from "../../../daemon/trust-context.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
   linkMessage,
   storeReplyMessageId,
@@ -46,7 +46,7 @@ import type {
   MessageProcessor,
   SlackInboundMessageMetadata,
 } from "../../http-types.js";
-import { hasDeliverableAssistantText } from "../../slack-no-response.js";
+import { hasDeliverableAssistantText } from "../../no-response.js";
 import { createSlackReplySession } from "../../slack-reply-session.js";
 import type { TaskProgressData } from "../../slack-task-progress.js";
 import {

@@ -118,7 +118,7 @@ describe("plugin tool contributions", () => {
     resetPluginRegistryForTests();
     // Clear the tool registry completely so we can make vacuous-free
     // assertions about which tools are present. We don't need any of the
-    // eager/host tools for these tests.
+    // core/host tools for these tests.
     __clearRegistryForTesting();
     await rm(TEST_WORKSPACE_DIR, { recursive: true, force: true });
   });

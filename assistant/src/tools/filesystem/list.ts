@@ -1,5 +1,4 @@
 import { RiskLevel } from "../../permissions/types.js";
-import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type {
@@ -86,5 +85,3 @@ export const fileListTool = {
     return { content: result.value.listing, isError: false };
   },
 } satisfies ToolDefinition;
-
-registerTool(fileListTool);

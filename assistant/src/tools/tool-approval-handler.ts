@@ -1,48 +1,108 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
 import type { ChannelId } from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
 import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
+import type { AutoApproveThreshold } from "../permissions/approval-policy.js";
 import {
   isUnparseableToolArgs,
   unparseableToolArgsMessage,
 } from "../providers/unparseable-tool-args.js";
-import { resolveCapabilities } from "../runtime/capabilities.js";
+import {
+  resolveCapabilities,
+  type SensitiveToolApproval,
+} from "../runtime/capabilities.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
+import { recordToolDenied, recordToolError } from "../telemetry/tool-audit.js";
 import { getLogger } from "../util/logger.js";
+import { resolveExecutionTarget } from "./execution-target.js";
 import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
+import { suggestToolName } from "./tool-name-aliases.js";
+import { recordToolCompletion } from "./tool-profiler.js";
+import type { ExecutionTarget } from "./tool-types.js";
 import {
-  type ExecutionTarget,
   isDiskPressureCleanupToolName,
+  type OwnerInfo,
   type Tool,
   type ToolContext,
   type ToolExecutionResult,
-  type ToolLifecycleEvent,
 } from "./types.js";
 import { enforceVerificationControlPlanePolicy } from "./verification-control-plane-policy.js";
 
 const log = getLogger("tool-approval-handler");
 
+/**
+ * Compose the guardian-facing approval question. The question is about the
+ * tool — phrased with the same `Approve tool:` pattern the
+ * confirmation-request bridge uses — and the requester appears only as
+ * parenthetical context, never as the subject of the decision.
+ */
 function buildToolGrantQuestionText(
   toolName: string,
   input: Record<string, unknown>,
   context: ToolContext,
 ): string {
-  const senderLabel =
+  const requesterLabel =
     context.requesterDisplayName ||
     context.requesterIdentifier ||
-    context.requesterExternalUserId ||
-    "A trusted contact";
+    context.requesterExternalUserId;
+  const requesterNote = requesterLabel
+    ? ` (requested by ${requesterLabel})`
+    : "";
   const inputSummary = redactSecrets(summarizeToolInput(toolName, input));
-  return inputSummary
-    ? `${senderLabel} wants to use "${toolName}": ${inputSummary}`
-    : `${senderLabel} is requesting permission to use "${toolName}"`;
+  const summaryPart = inputSummary ? ` — ${inputSummary}` : "";
+  return `Approve tool: ${toolName}${summaryPart}${requesterNote}`;
+}
+
+/**
+ * Compose the error message for a registered tool that is not part of the
+ * current turn's active tool set, naming the gate that actually excluded it.
+ * Ordered most-specific first:
+ *
+ * 1. Subagent allowlist — loading a skill cannot widen a subagent's
+ *    allowlist, so this outranks the skill hint.
+ * 2. Skill-owned tool whose skill is not loaded — the one case where
+ *    "load the skill" is the correct instruction.
+ * 3. Plugin-owned tool filtered by plugin enablement.
+ * 4. `remember` while memory is disabled.
+ * 5. Context gating (no connected client, channel capabilities, …) — no
+ *    load hint; list the active tools so the model can re-plan with what
+ *    actually exists this turn.
+ */
+export function buildInactiveToolMessage(args: {
+  name: string;
+  owner: OwnerInfo | undefined;
+  subagentAllowedTools: ReadonlySet<string> | undefined;
+  memoryEnabled: boolean;
+  activeToolNames: ReadonlySet<string>;
+}): string {
+  const { name, owner, subagentAllowedTools, memoryEnabled, activeToolNames } =
+    args;
+  if (subagentAllowedTools && !subagentAllowedTools.has(name)) {
+    const allowed = [...subagentAllowedTools].sort().join(", ");
+    return `Tool "${name}" is not available to this subagent. This subagent may only use: ${allowed}.`;
+  }
+  if (owner?.kind === "skill") {
+    return `Tool "${name}" is not currently active. Load the "${owner.id}" skill that provides this tool first.`;
+  }
+  if (owner?.kind === "plugin") {
+    return `Tool "${name}" belongs to the "${owner.id}" plugin, which is not enabled for this conversation.`;
+  }
+  if (name === "remember" && !memoryEnabled) {
+    return `Tool "remember" is unavailable because memory is disabled for this assistant.`;
+  }
+  if (activeToolNames.size === 0) {
+    return `Tool "${name}" is not available in this context. No tools are active this turn.`;
+  }
+  const available = [...activeToolNames].sort().join(", ");
+  return `Tool "${name}" is not available in this context. Available tools: ${available}`;
 }
 
 /** Default polling interval for inline grant wait (ms). */
@@ -155,31 +215,94 @@ export async function waitForInlineGrant(
 
 const UI_SURFACE_TOOLS = new Set(["ui_show", "ui_update", "ui_dismiss"]);
 
-function requiresGuardianApprovalForActor(
+/**
+ * Tool-sensitivity predicate: does invoking this tool require an approval
+ * decision at all? This is purely about the tool and where it executes —
+ * actor identity never feeds in here (it enters the decision only through
+ * the `CapabilitySet` floor, see {@link resolveSensitiveToolDecision}).
+ */
+export function isSensitiveTool(
   toolName: string,
   executionTarget: ExecutionTarget,
 ): boolean {
   // UI surface tools are passive, user-visible operations (cards, forms,
-  // tables). User input is voluntary and user-controlled — skip the guardian
-  // gate so they work during fresh onboarding before trust is established.
+  // tables). User input is voluntary and user-controlled — they are not
+  // sensitive, so they work during fresh onboarding before trust is
+  // established.
   if (UI_SURFACE_TOOLS.has(toolName)) {
     return false;
   }
 
-  // Side-effect tools always require guardian approval for untrusted actors.
-  // Read-only host execution is also blocked because it can leak sensitive
-  // local information (e.g. shell/file reads).
+  // Side-effect tools are sensitive. Read-only host execution is too,
+  // because it can leak sensitive local information (e.g. shell/file reads).
   return isSideEffectTool(toolName) || executionTarget === "host";
 }
 
-function guardianApprovalDeniedMessage(
-  trustClass: ToolContext["trustClass"],
+/**
+ * Threshold for the approval cell governing an invocation — the matrix axis
+ * of the sensitive-tool composition. Shares the auto-approve threshold
+ * vocabulary defined in `permissions/approval-policy.ts`.
+ */
+export type ApprovalCellThreshold = AutoApproveThreshold;
+
+/**
+ * Outcome of the sensitive-tool composition:
+ * - `proceed`: no scoped grant needed (tool not sensitive, or the actor's
+ *   capability set self-approves; lane-B risk/threshold policy in
+ *   `permissions/approval-policy.ts` still applies downstream).
+ * - `escalate-and-wait`: a scoped grant is required; on a grant miss,
+ *   escalate to the guardian and wait inline.
+ * - `deny`: a scoped grant is required; on a grant miss, fail closed.
+ */
+export type SensitiveToolDecision = "proceed" | "escalate-and-wait" | "deny";
+
+/**
+ * Single composition point for the sensitive-tool approval decision:
+ * approval-cell threshold × tool risk level × `CapabilitySet` floor.
+ *
+ * The decision is about the tool; actor identity feeds in only through the
+ * already-resolved `sensitiveToolApproval` capability. That floor is
+ * deterministic and cannot be lifted by the other axes: when the capability
+ * is not `"self"`, a sensitive invocation without a grant always escalates
+ * or denies. `cellThreshold` and `riskLevel` are composition axes the
+ * decision does not consult — no threshold/risk combination may lift the
+ * outcome above the floor.
+ */
+export function resolveSensitiveToolDecision(input: {
+  sensitive: boolean;
+  /**
+   * Approval-matrix cell axis. The decision does not consult it — the floor
+   * alone resolves the outcome — so callers pass `undefined` rather than
+   * paying a threshold lookup to populate it.
+   */
+  cellThreshold: ApprovalCellThreshold | undefined;
+  /**
+   * Risk level as known at gate time. The full risk classification runs
+   * after this gate (in the permission checker), so callers may only have
+   * the pre-classification level here — composing decisions on this axis
+   * requires moving classification ahead of the gate first.
+   */
+  riskLevel: string;
+  sensitiveToolApproval: SensitiveToolApproval;
+}): SensitiveToolDecision {
+  if (!input.sensitive || input.sensitiveToolApproval === "self") {
+    return "proceed";
+  }
+  return input.sensitiveToolApproval;
+}
+
+/**
+ * Denial copy is about the tool (an action requiring guardian approval),
+ * never about who the requester is.
+ */
+function sensitiveToolDeniedMessage(
+  decision: SensitiveToolDecision,
   toolName: string,
 ): string {
-  if (resolveCapabilities(trustClass).sensitiveToolApproval === "deny") {
+  if (decision === "deny") {
     return `Permission denied for "${toolName}": this action requires guardian approval from a verified channel identity.`;
   }
-  return `Permission denied for "${toolName}": this action requires guardian approval and the current actor is not the guardian.`;
+  return `Permission denied for "${toolName}": this action requires guardian approval before it can run.`;
 }
 
 export type PreExecutionGateResult =
@@ -211,33 +334,71 @@ export class ToolApprovalHandler {
    * Returns the resolved Tool if all gates pass, or an early-return
    * ToolExecutionResult if any gate blocks execution.
    */
+  /**
+   * Audit a gate that failed the invocation with an error (never executed).
+   * All pre-execution gate errors are anticipated control flow (abort, unknown
+   * tool, disk pressure, unparseable args), so they audit as expected failures.
+   */
+  private auditGateError(
+    context: ToolContext,
+    name: string,
+    input: Record<string, unknown>,
+    riskLevel: string,
+    startTime: number,
+    errorMessage: string,
+  ): void {
+    const durationMs = Date.now() - startTime;
+    recordToolError({
+      conversationId: context.conversationId,
+      requestId: context.requestId,
+      toolName: name,
+      input,
+      errorMessage,
+      isExpected: true,
+      riskLevel,
+      durationMs,
+      attribution: context.attribution ?? null,
+    });
+    recordToolCompletion(context.conversationId, name, durationMs, true);
+  }
+
+  /** Audit a gate that blocked the invocation (deterministic, no user prompt). */
+  private auditGateDenied(
+    context: ToolContext,
+    name: string,
+    input: Record<string, unknown>,
+    riskLevel: string,
+    startTime: number,
+    reason: string,
+  ): void {
+    recordToolDenied({
+      conversationId: context.conversationId,
+      toolName: name,
+      input,
+      reason,
+      riskLevel,
+      durationMs: Date.now() - startTime,
+      wasPrompted: false,
+    });
+  }
+
   async checkPreExecutionGates(
     name: string,
     input: Record<string, unknown>,
     context: ToolContext,
-    executionTarget: ExecutionTarget,
     riskLevel: string,
     startTime: number,
-    emitLifecycleEvent: (event: ToolLifecycleEvent) => void,
   ): Promise<PreExecutionGateResult> {
     // Bail out immediately if the session was aborted before this tool started.
     if (context.signal?.aborted) {
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "error",
-        toolName: name,
-        executionTarget,
+      this.auditGateError(
+        context,
+        name,
         input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
         riskLevel,
-        decision: "error",
-        durationMs,
-        errorMessage: "Cancelled",
-        isExpected: true,
-        errorCategory: "tool_failure",
-      });
+        startTime,
+        "Cancelled",
+      );
       return {
         allowed: false,
         result: { content: "Cancelled", isError: true },
@@ -252,22 +413,7 @@ export class ToolApprovalHandler {
     // mangled. Fail loudly instead so the model retries.
     if (isUnparseableToolArgs(input)) {
       const msg = unparseableToolArgsMessage(name, input._raw);
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "error",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: "error",
-        durationMs,
-        errorMessage: msg,
-        isExpected: true,
-        errorCategory: "tool_failure",
-      });
+      this.auditGateError(context, name, input, riskLevel, startTime, msg);
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
@@ -287,25 +433,27 @@ export class ToolApprovalHandler {
         },
         "Guardian-only policy blocked tool invocation",
       );
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "permission_denied",
-        toolName: name,
-        executionTarget,
+      this.auditGateDenied(
+        context,
+        name,
         input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
         riskLevel,
-        decision: "deny",
-        reason: guardianCheck.reason!,
-        durationMs,
-      });
+        startTime,
+        guardianCheck.reason!,
+      );
       return {
         allowed: false,
         result: { content: guardianCheck.reason!, isError: true },
       };
     }
+
+    // Resolve the tool once, up front. Its manifest execution target
+    // (sandbox/host) gates the sensitive-tool check below; its absence is the
+    // "unknown tool" gate further down. Looking it up here also means the
+    // sandbox/host routing reflects the tool actually registered under this
+    // name at execution time.
+    const tool = getTool(name);
+    const executionTarget = resolveExecutionTarget(tool ?? { name });
 
     // Determine whether this invocation requires a scoped grant. Capture
     // the consume params now but defer the actual atomic consumption until
@@ -317,16 +465,20 @@ export class ToolApprovalHandler {
       | Parameters<typeof consumeGrantForInvocation>[0]
       | null = null;
 
-    const guardianApprovalRequired = requiresGuardianApprovalForActor(
-      name,
-      executionTarget,
-    );
+    const sensitive = isSensitiveTool(name, executionTarget);
+    const { sensitiveToolApproval } = resolveCapabilities(context.trustClass);
+    // cellThreshold stays unresolved: the decision does not consult it
+    // (the floor is deterministic), and resolving a live threshold here
+    // would block grant consumption — including already-approved calls and
+    // voice abort handling — on a gateway IPC read.
+    const sensitiveDecision = resolveSensitiveToolDecision({
+      sensitive,
+      cellThreshold: undefined,
+      riskLevel,
+      sensitiveToolApproval,
+    });
 
-    if (
-      resolveCapabilities(context.trustClass).sensitiveToolApproval !==
-        "self" &&
-      guardianApprovalRequired
-    ) {
+    if (sensitiveDecision !== "proceed") {
       const inputDigest = computeToolApprovalDigest(name, input);
       needsGrantConsumption = true;
       deferredConsumeParams = {
@@ -348,29 +500,13 @@ export class ToolApprovalHandler {
       !isDiskPressureCleanupToolName(name)
     ) {
       const msg = `Tool "${name}" is not available during disk pressure cleanup mode.`;
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "error",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: "error",
-        durationMs,
-        errorMessage: msg,
-        isExpected: true,
-        errorCategory: "tool_failure",
-      });
+      this.auditGateError(context, name, input, riskLevel, startTime, msg);
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
-    // Look up the tool before the allowedToolNames gate so a name no skill
-    // provides surfaces as "Unknown tool" (with the real list) instead of
-    // the misleading "load the skill" hint.
-    const tool = getTool(name);
+    // Reject a name no tool provides before the allowedToolNames gate, so it
+    // surfaces as "Unknown tool" (with the real list) instead of the
+    // misleading "load the skill" hint. (`tool` was resolved up front.)
     if (!tool) {
       const allowedToolNames = context.allowedToolNames;
       // List every registered tool. Tools that need an external resolver
@@ -378,55 +514,33 @@ export class ToolApprovalHandler {
       // from their `execute()` when no resolver is connected, rather than
       // being filtered out here — listing them surfaces a clearer path
       // than hiding their names entirely.
-      const available = getAllTools()
+      const availableNames = getAllTools()
         .map((t) => t.name)
         .filter((n) => !allowedToolNames || allowedToolNames.has(n))
-        .sort()
-        .join(", ");
-      const msg = `Unknown tool: ${name}. Available tools: ${available}`;
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "error",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: "error",
-        durationMs,
-        errorMessage: msg,
-        isExpected: true,
-        errorCategory: "tool_failure",
-      });
+        .sort();
+      const suggestion = suggestToolName(name, availableNames);
+      const didYouMean = suggestion ? ` Did you mean "${suggestion}"?` : "";
+      const msg = `Unknown tool: ${name}.${didYouMean} Available tools: ${availableNames.join(", ")}`;
+      this.auditGateError(context, name, input, riskLevel, startTime, msg);
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
     // Gate tools not active for the current turn
     if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
-      const owner = getToolOwner(name);
-      const ownerSkillId = owner?.kind === "skill" ? owner.id : undefined;
-      const loadHint = ownerSkillId
-        ? `Load the "${ownerSkillId}" skill that provides this tool first.`
-        : `Load the skill that provides this tool first.`;
-      const msg = `Tool "${name}" is not currently active. ${loadHint}`;
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "error",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: "error",
-        durationMs,
-        errorMessage: msg,
-        isExpected: true,
-        errorCategory: "tool_failure",
+      let memoryEnabled = true;
+      try {
+        memoryEnabled = getConfig().memory?.enabled !== false;
+      } catch {
+        // Config unavailable — leave the memory hint out rather than guess.
+      }
+      const msg = buildInactiveToolMessage({
+        name,
+        owner: getToolOwner(name),
+        subagentAllowedTools: context.subagentAllowedTools,
+        memoryEnabled,
+        activeToolNames: context.allowedToolNames,
       });
+      this.auditGateError(context, name, input, riskLevel, startTime, msg);
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
@@ -456,20 +570,7 @@ export class ToolApprovalHandler {
           },
           "Channel permission policy blocked tool invocation",
         );
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent({
-          type: "permission_denied",
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          decision: "deny",
-          reason: msg,
-          durationMs,
-        });
+        this.auditGateDenied(context, name, input, riskLevel, startTime, msg);
         return { allowed: false, result: { content: msg, isError: true } };
       }
     }
@@ -510,22 +611,14 @@ export class ToolApprovalHandler {
       // sees a consistent "Cancelled" result instead of a spurious
       // guardian_approval_required denial during voice barge-in.
       if (grantResult.reason === "aborted") {
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent({
-          type: "error",
-          toolName: name,
-          executionTarget,
+        this.auditGateError(
+          context,
+          name,
           input,
-          workingDir: context.workingDir,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
           riskLevel,
-          decision: "error",
-          durationMs,
-          errorMessage: "Cancelled",
-          isExpected: true,
-          errorCategory: "tool_failure",
-        });
+          startTime,
+          "Cancelled",
+        );
         return {
           allowed: false,
           result: { content: "Cancelled", isError: true },
@@ -544,8 +637,7 @@ export class ToolApprovalHandler {
       // Actors with no identity (unknown) remain fail-closed with no
       // escalation or wait.
       if (
-        resolveCapabilities(context.trustClass).sensitiveToolApproval ===
-          "escalate-and-wait" &&
+        sensitiveDecision === "escalate-and-wait" &&
         context.assistantId &&
         context.executionChannel &&
         context.requesterExternalUserId
@@ -613,22 +705,14 @@ export class ToolApprovalHandler {
             updateCanonicalGuardianRequest(escalation.requestId, {
               followupState: null,
             });
-            const durationMs = Date.now() - startTime;
-            emitLifecycleEvent({
-              type: "error",
-              toolName: name,
-              executionTarget,
+            this.auditGateError(
+              context,
+              name,
               input,
-              workingDir: context.workingDir,
-              conversationId: context.conversationId,
-              requestId: context.requestId,
               riskLevel,
-              decision: "error",
-              durationMs,
-              errorMessage: "Cancelled",
-              isExpected: true,
-              errorCategory: "tool_failure",
-            });
+              startTime,
+              "Cancelled",
+            );
             return {
               allowed: false,
               result: { content: "Cancelled", isError: true },
@@ -669,20 +753,14 @@ export class ToolApprovalHandler {
             },
             "Inline grant wait ended without approval - denying trusted contact tool invocation",
           );
-          const durationMs = Date.now() - startTime;
-          emitLifecycleEvent({
-            type: "permission_denied",
-            toolName: name,
-            executionTarget,
+          this.auditGateDenied(
+            context,
+            name,
             input,
-            workingDir: context.workingDir,
-            conversationId: context.conversationId,
-            requestId: context.requestId,
             riskLevel,
-            decision: "deny",
-            reason: escalationMessage,
-            durationMs,
-          });
+            startTime,
+            escalationMessage,
+          );
           return {
             allowed: false,
             result: { content: escalationMessage, isError: true },
@@ -692,7 +770,7 @@ export class ToolApprovalHandler {
       }
 
       // Unknown/unverified actors or escalation failures - generic denial.
-      const reason = guardianApprovalDeniedMessage(context.trustClass, name);
+      const reason = sensitiveToolDeniedMessage(sensitiveDecision, name);
       log.warn(
         {
           toolName: name,
@@ -705,20 +783,7 @@ export class ToolApprovalHandler {
         },
         "Guardian approval gate blocked untrusted actor tool invocation (no matching grant)",
       );
-      const durationMs = Date.now() - startTime;
-      emitLifecycleEvent({
-        type: "permission_denied",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: "deny",
-        reason,
-        durationMs,
-      });
+      this.auditGateDenied(context, name, input, riskLevel, startTime, reason);
       return { allowed: false, result: { content: reason, isError: true } };
     }
 

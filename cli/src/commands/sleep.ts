@@ -168,6 +168,17 @@ export async function sleep(): Promise<void> {
     console.log("Gateway stopped.");
   }
 
+  // Stop the CES sibling — it is stopped by its PID file, a no-op when the
+  // PID file is absent (e.g. the sibling was never started or already exited).
+  const cesPidFile = join(vellumDir, "ces.pid");
+  const cesStopped = await stopProcessByPidFile(
+    cesPidFile,
+    "credential-executor",
+  );
+  if (cesStopped) {
+    console.log("credential-executor stopped.");
+  }
+
   // Stop the nginx ingress if one is fronting this gateway — otherwise it
   // keeps running against a dead upstream and serves 502s.
   const ingressStopped = await stopIngressNginx(join(vellumDir, "workspace"));

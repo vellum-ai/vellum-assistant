@@ -40,11 +40,11 @@ Plugins can also be discovered and managed from the Plugins tab in the app, or s
 
 A single plugin can contribute several different kinds of behavior. Each surface is discovered by convention from a named subdirectory. Missing directories are simply skipped, so a plugin contributes only what it ships.
 
-| Surface                                    | Lives in          | What it does                                                                                                                  |
-| ------------------------------------------ | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| [Lifecycle hooks](references/hooks.md)     | `hooks/<name>.ts` | Run code at fixed points in the Assistant's lifecycle to read or transform what flows through.                                |
-| [Skills](references/skills.md)             | `skills/<name>/`  | Directories of instructions and associated assets, scripts, and resources that the Assistant loads dynamically when relevant. |
-| [Model-visible tools](references/tools.md) | `tools/<name>.ts` | Add new tools the model can call. Plugin tools land in the same catalog as built-in tools.                                    |
+| Surface                                    | Lives in          | What it does                                                                                                                     |
+| ------------------------------------------ | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| [Lifecycle hooks](references/hooks.md)     | `hooks/<name>.ts` | Run code at fixed points in the Assistant's lifecycle to read or transform what flows through, and broadcast progress to the UI. |
+| [Skills](references/skills.md)             | `skills/<name>/`  | Directories of instructions and associated assets, scripts, and resources that the Assistant loads dynamically when relevant.    |
+| [Model-visible tools](references/tools.md) | `tools/<name>.ts` | Add new tools the model can call. Plugin tools land in the same catalog as built-in tools.                                       |
 
 The two extensibility patterns serve different goals. **Plugins are for distribution**: you intend to share the capability, publish to the marketplace, or install it across multiple assistants. The plugin manifest (`package.json`), the `@vellumai/plugin-api` peer dependency, and the install flow exist to make a capability portable, versioned, and discoverable by others.
 
@@ -58,13 +58,14 @@ Vellum's plugin model was designed to line up with the agent harnesses you may a
 
 ## Before you write a single file
 
-Ask before building. Five questions, in this order. Stop if the user is unclear on any of them.
+Ask before building. Six questions, in this order. Stop if the user is unclear on any of them.
 
 1. **What job does the plugin do?** One sentence, plain language. If you cannot write this, the plugin should not be built yet.
 2. **Which surfaces does it ship?** Tools (model calls), hooks (lifecycle transforms), and skills (on-demand instructions) are the three. Most plugins ship one or two, not all three. See `references/plugins.md` for the directory layout and manifest, and the surface-specific references for each surface's contract.
 3. **Does it need credentials?** An API key, OAuth token, or webhook secret is not a value that belongs in a `.ts` file. For LLM inference credentials, use `getConfiguredProvider()` from `@vellumai/plugin-api` to route through the workspace's stored credentials without handling plaintext. For other credential types (OAuth tokens, webhook secrets), store them via the credential vault and resolve at runtime through the assistant's credential system.
-4. **Where will the source live?** A GitHub repo, ideally under the user's own namespace. The marketplace entry pins to a full commit SHA.
-5. **Is the user writing TypeScript or compiling ahead?** In-repo Bun/Node compile on assistant start is the default. If they want a different build, ask now.
+4. **Does it keep state?** A plugin is fully self-contained: durable state lives in its `data/` directory (`InitContext.pluginStorageDir`), with schema created idempotently by the `init` hook, handles closed in `shutdown`, and per-conversation rows purged in `conversation-deleted`. A plugin never persists state in the assistant's database or elsewhere in the workspace. See "State is plugin-owned" in `references/plugins.md`.
+5. **Where will the source live?** A GitHub repo, ideally under the user's own namespace. The marketplace entry pins to a full commit SHA.
+6. **Is the user writing TypeScript or compiling ahead?** In-repo Bun/Node compile on assistant start is the default. If they want a different build, ask now.
 
 You have an alignment problem if the user cannot answer questions 1 and 2. Push back and clarify before scaffolding. The most expensive waste of plugin-authoring time is building a plugin whose job is fuzzy.
 
@@ -110,6 +111,7 @@ Once merged, users install by name: `assistant plugins install my-plugin`. The n
 - Job and surfaces locked in the alignment pass (questions 1 and 2 answered).
 - Directory matches the loader convention (`hooks/`, `tools/`, `skills/`, optional `src/`).
 - `package.json` declares `name`, `version`, and a real `peerDependencies["@vellumai/plugin-api"]` range.
+- Any durable state lives in `data/`, created by `init` and cleaned up by `shutdown` / `conversation-deleted`.
 - Each surface has been exercised locally with a working example.
 - A `marketplace.json` entry exists with a full SHA in `source.ref`, and the Vellum team's review is in flight.
 

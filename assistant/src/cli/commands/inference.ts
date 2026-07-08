@@ -9,11 +9,10 @@
  * The `llm` alias exposes only `send`.
  */
 
-import { readFileSync } from "node:fs";
-
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { readStdinSync } from "../../util/read-stdin.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { attachProvidersSubcommand } from "./inference-providers.js";
@@ -168,7 +167,7 @@ Examples:
 
         if (!messageText && !process.stdin.isTTY) {
           try {
-            messageText = readFileSync("/dev/stdin", "utf-8").trim();
+            messageText = readStdinSync().trim();
           } catch {
             // stdin not available or empty
           }

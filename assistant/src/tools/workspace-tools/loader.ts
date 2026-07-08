@@ -93,12 +93,8 @@ import {
   unregisterWorkspaceTool,
 } from "../registry.js";
 import { finalizeTool } from "../tool-defaults.js";
-import type {
-  RiskLevel,
-  Tool,
-  ToolDefinition,
-  ToolExecutionResult,
-} from "../types.js";
+import type { RiskLevel } from "../tool-types.js";
+import type { Tool, ToolDefinition, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("workspace-tool-loader");
 

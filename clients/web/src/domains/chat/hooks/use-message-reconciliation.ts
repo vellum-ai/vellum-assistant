@@ -13,11 +13,14 @@ import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
 import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
+import { patchConversation } from "@/utils/conversation-cache";
 import {
   serverHasAssistantProgress,
   serverSnapshotHasNewContent,
 } from "@/domains/chat/utils/reconcile-detection";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
+import { ingestServerEventsTail } from "@/domains/chat/api/events-tail";
+import { supportsEventsTail } from "@/lib/backwards-compat/events-tail";
 import {
   fetchConversationMessages,
   RECONCILE_LATEST_PAGE_LIMIT,
@@ -75,6 +78,10 @@ export function useMessageReconciliation({
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelReconciliation = useCallback(() => {
+    // Below-floor only. The poll loop is the sole thing that arms a timer,
+    // and it runs only below the events-tail floor. At/above the floor
+    // there is no loop, so the cancel is fully off.
+    if (supportsEventsTail()) return;
     if (reconcileTimerRef.current) {
       clearTimeout(reconcileTimerRef.current);
       reconcileTimerRef.current = null;
@@ -95,6 +102,7 @@ export function useMessageReconciliation({
       serverMessages: ConversationMessage[],
       conversationId: string,
       serverSeq: number | null,
+      serverProcessing: boolean | undefined,
       authoritative = false,
     ): {
       changed: boolean;
@@ -132,17 +140,51 @@ export function useMessageReconciliation({
         0,
       );
 
+      // Adopt the daemon's authoritative `processing` flag when it reports the
+      // conversation idle but our rolling snapshot still shows it processing.
+      // This is the sole path that samples the flag independently of the SSE
+      // stream, so it's the only place that learns a turn ended when the
+      // terminal event (`message_complete` / `assistant_activity_state(idle)`)
+      // was dropped on a disconnect. Propagating it lets the existing
+      // authoritative CLOSE-gate in `shouldShowThinkingIndicator` /
+      // `isAssistantBusy` (`snapshotProcessing === false`) settle the turn —
+      // no client-side stuck-turn heuristic. `undefined` (older daemons) does
+      // nothing, preserving prior behavior.
+      const localSnapshotProcessing =
+        useChatSessionStore.getState().snapshot?.processing;
+      const serverClearedProcessing =
+        serverProcessing === false && localSnapshotProcessing === true;
+
       // Refresh the single source — history flows into the query cache and the
       // transcript (its union with the live turn) re-renders. No client-side
-      // merge: the server snapshot is authoritative for persisted history.
-      if (changed || authoritative) {
+      // merge: the server snapshot is authoritative for persisted history. A
+      // reseed also carries the fresh `processing: false` onto the snapshot, so
+      // a server-cleared turn reconciles through the same path as new content.
+      if (changed || authoritative || serverClearedProcessing) {
         const assistantId =
           useStreamStore.getState().streamContext?.assistantId ?? null;
         if (assistantId) {
           void queryClient.invalidateQueries({
             queryKey: conversationHistoryQueryKey(assistantId, conversationId),
           });
+          if (serverClearedProcessing) {
+            // Mirror the terminal handlers' cache patch so the conversation-row
+            // half of the processing state (sidebar dot, `activeConversation
+            // ?.isProcessing`) can't stay latched `true` after the server has
+            // gone idle. See `handleMessageComplete`.
+            patchConversation(queryClient, assistantId, conversationId, {
+              isProcessing: false,
+            });
+          }
         }
+      }
+
+      if (serverClearedProcessing) {
+        recordDiagnostic("reconciliation_processing_cleared", {
+          conversationId,
+          changed,
+          assistantProgress,
+        });
       }
 
       recordDiagnostic("reconciliation_applied", {
@@ -150,6 +192,7 @@ export function useMessageReconciliation({
         assistantProgress,
         messagesAdded,
         authoritative,
+        serverProcessing,
         oldestPageTimestamp: initialPageOldestTsRef.current,
         server: summarizeRuntimeMessages(serverMessages),
       });
@@ -165,8 +208,12 @@ export function useMessageReconciliation({
       conversationId: string,
       serverSeq: number | null,
     ): boolean =>
-      reconcileFromServerDetailed(serverMessages, conversationId, serverSeq)
-        .changed,
+      reconcileFromServerDetailed(
+        serverMessages,
+        conversationId,
+        serverSeq,
+        undefined,
+      ).changed,
     [reconcileFromServerDetailed],
   );
 
@@ -176,6 +223,7 @@ export function useMessageReconciliation({
       snapshotTurnId: string | null,
       snapshotConversationId: string,
       serverSeq: number | null,
+      serverProcessing: boolean | undefined,
       authoritative = false,
     ): ReconcileActiveConversationResult => {
       const { changed, assistantProgress, messagesAdded } =
@@ -183,6 +231,7 @@ export function useMessageReconciliation({
           serverMessages,
           snapshotConversationId,
           serverSeq,
+          serverProcessing,
           authoritative,
         );
 
@@ -202,12 +251,12 @@ export function useMessageReconciliation({
       //   - Same turn id we snapshotted at fetch time, and the store
       //     still says we're sending.
       //
-      // Trade-off: in the (rare) case where SSE missed `message_complete`
-      // but the server's persisted view exactly matches what local
-      // already rendered, this rescue cannot fire. The user would need
-      // to reload — but that scenario is also genuinely indistinguishable
-      // from "live mid-stream paused between deltas", so the safe call
-      // is to never auto-idle without positive structural evidence.
+      // The case where SSE missed the terminal event but the server's
+      // persisted view already matches what local rendered (`changed`
+      // false) is handled separately, upstream: `reconcileFromServerDetailed`
+      // adopts the server's `processing: false` onto the snapshot, and the
+      // `snapshotProcessing` CLOSE-gate in `shouldShowThinkingIndicator`
+      // settles the indicator without a content diff.
       const wasStuck =
         changed &&
         assistantProgress &&
@@ -217,7 +266,7 @@ export function useMessageReconciliation({
       if (wasStuck) {
         // The rescue must clear BOTH the turn-store (so the local
         // lifecycle becomes idle) AND the conversation-level processing
-        // key (so `canStopGeneration` and the sidebar processing dot
+        // key (so `isAssistantBusy` and the sidebar processing dot
         // can settle). `endTurn` does both atomically — without that
         // pairing the rescue would leave `activeConversationIsProcessing`
         // stuck because the graduation effect in `useAttentionTracking`
@@ -259,8 +308,96 @@ export function useMessageReconciliation({
     [reconcileFromServerDetailed],
   );
 
+  const reconcileActiveConversation = useCallback(
+    async (
+      authoritative = false,
+    ): Promise<ReconcileActiveConversationResult> => {
+      const empty: ReconcileActiveConversationResult = {
+        changed: false,
+        messagesAdded: 0,
+        assistantProgress: false,
+      };
+      const streamState = useStreamStore.getState();
+      const ctx = streamState.streamContext;
+      if (!ctx) return empty;
+
+      // Snapshot the turn identity before the async fetch so the
+      // POLL_RECONCILED dispatch is scoped to THIS turn. If the user
+      // starts a new send while the fetch is in-flight, the turnId guard
+      // in the store prevents stale reconciliation from idling it.
+      const snapshotTurnId = useTurnStore.getState().activeTurnId;
+      const snapshotEpoch = streamState.streamEpoch;
+
+      try {
+        const snapshot = await fetchConversationMessages(
+          ctx.assistantId,
+          ctx.conversationId,
+          { latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT },
+        );
+        const serverMessages = snapshot?.messages ?? [];
+        const serverSeq = snapshot?.seq ?? null;
+        const serverProcessing = snapshot?.processing;
+        if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
+        // If the epoch changed during the fetch (e.g. page went hidden
+        // and back), this reconciliation is stale — bail out.
+        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) return empty;
+        // Pair the snapshot with the daemon's buffered event tail above its
+        // anchor BEFORE reconciling: the reconcile invalidates history, and
+        // the reseed replay reads the client event ring — priming it first
+        // lets the reseed fold events the live connection never delivered
+        // (snapshot at anchor + log from anchor), instead of trusting the
+        // snapshot alone. No-op below the events-tail floor.
+        await ingestServerEventsTail(
+          ctx.assistantId,
+          ctx.conversationId,
+          serverSeq,
+        );
+        if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
+        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) return empty;
+        recordDiagnostic("reconciliation_active_fetch", {
+          assistantId: ctx.assistantId,
+          conversationId: ctx.conversationId,
+          epoch: snapshotEpoch,
+          serverProcessing,
+          server: summarizeRuntimeMessages(serverMessages),
+        });
+        return reconcileFetchedMessages(
+          serverMessages,
+          snapshotTurnId,
+          ctx.conversationId,
+          serverSeq,
+          serverProcessing,
+          authoritative,
+        );
+      } catch (err) {
+        // Re-throw so callers that await the result (e.g. the
+        // reconnect-recovery reconcile in reconcile-on-reopen) can
+        // distinguish "fetch succeeded, nothing new" from "fetch failed."
+        // Fire-and-forget callers already have their own .catch() handlers.
+        recordDiagnostic("reconciliation_active_fetch_error", {
+          assistantId: ctx.assistantId,
+          conversationId: ctx.conversationId,
+          epoch: snapshotEpoch,
+        });
+        throw err;
+      }
+    },
+    [
+    reconcileFetchedMessages,
+  ]);
+
   const startReconciliationLoop = useCallback(
     (epoch: number) => {
+      // Below-floor only. At/above the events-tail floor there is no poll
+      // loop: recovery is driven entirely by the event-triggered
+      // `reconcileActiveConversation()` calls (reopen / seq-gap /
+      // sync-tag), which pair the snapshot with the `/events/tail`
+      // catch-up. So the loop-invoking method is fully off above the floor
+      // and the callers' invocations become no-ops there. Below the floor
+      // the daemon doesn't serve the endpoint, so the poll-until-stable
+      // loop is retained to wait out the partial-persist debounce.
+      if (supportsEventsTail()) return;
+
       cancelReconciliation();
       recordDiagnostic("reconciliation_loop_start", { epoch });
 
@@ -297,11 +434,13 @@ export function useMessageReconciliation({
             if (epoch !== useStreamStore.getState().streamEpoch) return;
             const serverMessages = snapshot?.messages ?? [];
             const serverSeq = snapshot?.seq ?? null;
+            const serverProcessing = snapshot?.processing;
             recordDiagnostic("reconciliation_fetch", {
               assistantId: ctx.assistantId,
               conversationId: ctx.conversationId,
               epoch,
               stableCount,
+              serverProcessing,
               server: summarizeRuntimeMessages(serverMessages),
             });
 
@@ -310,7 +449,9 @@ export function useMessageReconciliation({
               snapshotTurnId,
               ctx.conversationId,
               serverSeq,
+              serverProcessing,
             );
+
             if (changed) {
               stableCount = 0;
             } else {
@@ -359,73 +500,8 @@ export function useMessageReconciliation({
 
       reconcileTimerRef.current = setTimeout(tick, RECONCILE_DELAY_MS);
     },
-    [
-      cancelReconciliation,
-      reconcileFetchedMessages,
-    ],
+    [cancelReconciliation, reconcileFetchedMessages],
   );
-
-  const reconcileActiveConversation = useCallback(
-    async (
-      authoritative = false,
-    ): Promise<ReconcileActiveConversationResult> => {
-      const empty: ReconcileActiveConversationResult = {
-        changed: false,
-        messagesAdded: 0,
-        assistantProgress: false,
-      };
-      const streamState = useStreamStore.getState();
-      const ctx = streamState.streamContext;
-      if (!ctx) return empty;
-
-      // Snapshot the turn identity before the async fetch so the
-      // POLL_RECONCILED dispatch is scoped to THIS turn. If the user
-      // starts a new send while the fetch is in-flight, the turnId guard
-      // in the store prevents stale reconciliation from idling it.
-      const snapshotTurnId = useTurnStore.getState().activeTurnId;
-      const snapshotEpoch = streamState.streamEpoch;
-
-      try {
-        const snapshot = await fetchConversationMessages(
-          ctx.assistantId,
-          ctx.conversationId,
-          { latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT },
-        );
-        const serverMessages = snapshot?.messages ?? [];
-        const serverSeq = snapshot?.seq ?? null;
-        if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
-        // If the epoch changed during the fetch (e.g. page went hidden
-        // and back), this reconciliation is stale — bail out.
-        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) return empty;
-        recordDiagnostic("reconciliation_active_fetch", {
-          assistantId: ctx.assistantId,
-          conversationId: ctx.conversationId,
-          epoch: snapshotEpoch,
-          server: summarizeRuntimeMessages(serverMessages),
-        });
-        return reconcileFetchedMessages(
-          serverMessages,
-          snapshotTurnId,
-          ctx.conversationId,
-          serverSeq,
-          authoritative,
-        );
-      } catch (err) {
-        // Re-throw so callers that await the result (e.g. the
-        // reconnect-recovery reconcile in reconcile-on-reopen) can
-        // distinguish "fetch succeeded, nothing new" from "fetch failed."
-        // Fire-and-forget callers already have their own .catch() handlers.
-        recordDiagnostic("reconciliation_active_fetch_error", {
-          assistantId: ctx.assistantId,
-          conversationId: ctx.conversationId,
-          epoch: snapshotEpoch,
-        });
-        throw err;
-      }
-    },
-    [
-    reconcileFetchedMessages,
-  ]);
 
   return {
     reconcileFromServer,

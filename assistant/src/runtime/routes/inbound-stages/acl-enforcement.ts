@@ -1,71 +1,54 @@
 /**
  * Ingress ACL enforcement stage: resolves the inbound actor to a member
- * record, enforces allow/deny/escalate policies, handles invite token
- * intercepts, and notifies the guardian of denied access requests.
+ * record, enforces allow/deny/escalate policies, and notifies the guardian
+ * of denied access requests.
+ *
+ * Invite code/token redemption is intercepted at gateway ingress; redeemed
+ * messages never reach this stage.
  */
-import type { AdmissionPolicy, SourceMetadata } from "@vellumai/gateway-client";
-import { isTrustClass } from "@vellumai/gateway-client";
+import type {
+  AdmissionPolicy,
+  SourceMetadata,
+  TrustVerdict,
+} from "@vellumai/gateway-client";
 
-import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
+import type { VerificationSessionWire } from "../../../channels/gateway-verification-sessions.js";
+import {
+  createOutboundSessionConditional,
+  findActiveSession,
+  getPendingSession,
+  resolveBootstrapToken,
+} from "../../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../../channels/types.js";
-import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
 import { channelStatusToMemberStatus } from "../../../contacts/member-status.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/notification-utils.js";
-import {
-  deleteInbound,
-  recordInbound,
-} from "../../../persistence/delivery-crud.js";
-import { markProcessed } from "../../../persistence/delivery-status.js";
-import {
-  findByInviteCodeHash,
-  findByInviteCodeHashAnyChannel,
-} from "../../../persistence/invite-store.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";
-import { hashVoiceCode } from "../../../util/voice-code.js";
 import {
   isAccessRequestDenied,
   isApprovalHandshakeInProgress,
   notifyGuardianOfAccessRequest,
 } from "../../access-request-helper.js";
-import { resolveAnchoredGuardian } from "../../anchored-guardian.js";
-import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
-import {
-  createOutboundSession,
-  findActiveSession,
-  getPendingSession,
-  resolveBootstrapToken,
-} from "../../channel-verification-service.js";
 import { deliverChannelReply } from "../../gateway-client.js";
-import {
-  redeemInvite,
-  redeemInviteByCode,
-} from "../../invite-redemption-service.js";
-import { getInviteRedemptionReply } from "../../invite-redemption-templates.js";
 import type { VerdictMember } from "../../trust-verdict-consumer.js";
-import { verdictMemberFromVerdict } from "../../trust-verdict-consumer.js";
+import {
+  verdictMemberFromVerdict,
+  verdictUsability,
+} from "../../trust-verdict-consumer.js";
 
 const log = getLogger("runtime-http");
 
 /**
  * Resolve the guardian's display name for use in requester-facing messages.
  *
- * Uses the assistant's anchored vellum principal to validate the guardian
- * binding, matching the same strategy used by `notifyGuardianOfAccessRequest`.
- * This prevents stale or cross-assistant bindings from leaking a wrong name.
- * Cosmetic copy, not an admission decision, so a null gateway list degrades
- * gracefully to the default reference.
+ * Cosmetic copy read from the gateway-stamped verdict's `guardianDisplayName`
+ * — the deny decision was already made from the same verdict, so the name
+ * needs no independent validation. An absent field (or absent verdict)
+ * degrades to the default reference.
  */
-async function resolveGuardianLabel(sourceChannel: ChannelId): Promise<string> {
-  // Cosmetic copy, not an admission decision: no local-store fallback, and a
-  // missing anchor principal degrades to the default reference.
-  const anchored = resolveAnchoredGuardian({
-    guardians: await getGuardianDelivery(),
-    sourceChannel,
-    requireAnchorPrincipal: true,
-  });
-  return resolveGuardianName(anchored?.displayName);
+function resolveGuardianLabel(verdict: TrustVerdict | undefined): string {
+  return resolveGuardianName(verdict?.guardianDisplayName);
 }
 
 /**
@@ -80,16 +63,16 @@ async function resolveGuardianLabel(sourceChannel: ChannelId): Promise<string> {
  * - Guardian notified: the standard "I'll let <guardian> know" copy.
  * - Otherwise: the plain not-approved copy.
  */
-export async function composeAccessDenialReply(params: {
-  sourceChannel: ChannelId;
+export function composeAccessDenialReply(params: {
+  verdict: TrustVerdict | undefined;
   guardianNotified: boolean;
   handshakeInProgress: boolean;
-}): Promise<string> {
+}): string {
   if (params.handshakeInProgress) {
-    return `Your access request was approved! Reply here with the 6-digit verification code to finish connecting — if you don't have it, ask ${await resolveGuardianLabel(params.sourceChannel)} for it.`;
+    return `Your access request was approved! Reply here with the 6-digit verification code to finish connecting — if you don't have it, ask ${resolveGuardianLabel(params.verdict)} for it.`;
   }
   if (params.guardianNotified) {
-    return `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(params.sourceChannel)} know you tried talking to me and get back to you.`;
+    return `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(params.verdict)} know you tried talking to me and get back to you.`;
   }
   return "Sorry, you haven't been approved to message this assistant.";
 }
@@ -111,7 +94,6 @@ export interface AclEnforcementParams {
   actorUsername: string | undefined;
   replyCallbackUrl: string | undefined;
   assistantId: string;
-  externalMessageId: string;
   /**
    * Effective admission policy for this request (gateway floor resolved with
    * any per-conversation override). When set, ACL skips its hard-deny paths
@@ -155,22 +137,46 @@ function failClosedDeny(): AclResult {
   };
 }
 
+/**
+ * Resolve a `gv_`-prefixed bootstrap payload to its verification session via
+ * the gateway. Inbound messages arrive through the gateway, so an unreachable
+ * gateway here is a narrow race, not a steady state: treat the read as "no
+ * valid session" and keep the deny.
+ */
+async function resolveBootstrapSessionForAcl(
+  sourceChannel: ChannelId,
+  payload: string,
+): Promise<VerificationSessionWire | null> {
+  try {
+    // Strip the 'gv_' prefix; the gateway hashes the raw token.
+    return await resolveBootstrapToken(sourceChannel, payload.slice(3));
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel },
+      "Ingress ACL: bootstrap token resolution failed (gateway unreachable), keeping deny",
+    );
+    return null;
+  }
+}
+
 export interface AclResult {
   resolvedMember: VerdictMember | null;
   /** When set, the caller must return this response immediately. */
   earlyResponse?: Record<string, unknown>;
   /**
-   * True when a valid `pending_bootstrap` session was resolved during ACL
-   * enforcement. The caller must skip the admission policy floor so the
-   * bootstrap intercept stage can handle identity binding and emit its reply.
+   * The `pending_bootstrap` session resolved during ACL enforcement. When
+   * set, the caller must skip the admission policy floor and thread this
+   * session to the bootstrap intercept stage so it does not re-resolve the
+   * token — a second gateway lookup could transiently fail and drop the
+   * bootstrap sender into normal processing with the floor already skipped.
    */
-  isValidatedBootstrap?: boolean;
+  validatedBootstrapSession?: VerificationSessionWire;
 }
 
 /**
  * Enforce ingress ACL rules: member lookup, non-member/inactive denial,
- * policy enforcement (allow/deny/escalate bypass), invite token intercepts,
- * and guardian notification for denied access.
+ * policy enforcement (allow/deny/escalate bypass), and guardian
+ * notification for denied access.
  */
 export async function enforceIngressAcl(
   params: AclEnforcementParams,
@@ -188,89 +194,95 @@ export async function enforceIngressAcl(
     actorUsername,
     replyCallbackUrl,
     assistantId,
-    externalMessageId,
     effectiveAdmissionPolicy,
     isCallbackInteraction,
   } = params;
 
-  let isValidatedBootstrap = false;
+  let validatedBootstrapSession: VerificationSessionWire | undefined;
 
-  // Trust signals from Slack users.info, forwarded via sourceMetadata.
+  // Identity signals forwarded via sourceMetadata: bot flag (Slack users.info
+  // / Telegram is_bot) plus Slack workspace trust signals.
+  const isBot = sourceMetadata?.isBot ?? undefined;
   const isStranger = sourceMetadata?.isStranger ?? undefined;
   const isRestricted = sourceMetadata?.isRestricted ?? undefined;
 
   // Slack message timestamp for permalink construction.
   const messageTs = sourceMetadata?.messageId ?? undefined;
 
-  // Absent verdict = gateway could not vouch for this actor → fail-closed deny.
-  // A PRESENT verdict with no member (stranger) still flows through the
-  // intercepts below; only a missing verdict short-circuits here.
-  const verdict = sourceMetadata?.trustVerdict;
-  if (verdict == null) {
-    log.info(
-      { sourceChannel, externalUserId: canonicalSenderId },
-      "Ingress ACL: absent trust verdict, denying fail-closed",
-    );
+  // The shared usability predicate is the fail-closed gate: an unusable
+  // verdict soft-denies with NO stranger-lane side effects (no access-request
+  // card, no verification challenge, no canned reply) — never fail-stranger.
+  // A PRESENT memberless stranger verdict is usable and flows through the
+  // stranger lane below. The switch preserves this stage's per-reason log
+  // lines; TEXT does not fall back to local ACL reads, the sender can retry.
+  const usability = verdictUsability(sourceMetadata?.trustVerdict);
+  if (!usability.usable) {
+    switch (usability.reason) {
+      case "missing":
+        log.info(
+          { sourceChannel, externalUserId: canonicalSenderId },
+          "Ingress ACL: absent trust verdict, denying fail-closed",
+        );
+        break;
+      case "resolution failed":
+        log.warn(
+          { sourceChannel, externalUserId: canonicalSenderId },
+          "Ingress ACL: gateway trust resolution failed, denying fail-closed",
+        );
+        break;
+      case "member unresolvable":
+        log.info(
+          { sourceChannel, externalUserId: canonicalSenderId },
+          "Ingress ACL: member verdict with unresolvable ACL, denying fail-closed",
+        );
+        break;
+      case "unrecognized trust class":
+        log.warn(
+          {
+            sourceChannel,
+            externalUserId: canonicalSenderId,
+            trustClass: sourceMetadata?.trustVerdict?.trustClass,
+          },
+          "Ingress ACL: unrecognized trust class on verdict, denying fail-safe",
+        );
+        break;
+      case "guardian without member":
+        log.warn(
+          { sourceChannel, externalUserId: canonicalSenderId },
+          "Ingress ACL: guardian verdict without a member row, denying fail-safe",
+        );
+        break;
+    }
     return failClosedDeny();
   }
-
-  // Gateway attempted resolution but failed (DB error) → fail-closed deny,
-  // distinct from an absent verdict and from a real stranger. TEXT does not
-  // fall back to local ACL reads; the sender can retry.
-  if (verdict.resolutionFailed === true) {
-    log.warn(
-      { sourceChannel, externalUserId: canonicalSenderId },
-      "Ingress ACL: gateway trust resolution failed, denying fail-closed",
-    );
-    return failClosedDeny();
-  }
+  const { verdict } = usability;
 
   // Member resolved from the gateway verdict (ACL + identity only); null for a
-  // stranger verdict, which falls through to the non-member intercepts.
+  // stranger verdict, which falls through to the non-member deny lane.
   const resolvedMember: VerdictMember | null =
     verdictMemberFromVerdict(verdict);
 
-  // A verdict carrying member identity but no resolvable member
-  // (malformed/unknown ACL) fails closed, not treated as a stranger.
-  if (!resolvedMember && (verdict.contactId || verdict.channelId)) {
-    log.info(
-      { sourceChannel, externalUserId: canonicalSenderId },
-      "Ingress ACL: member verdict with unresolvable ACL, denying fail-closed",
-    );
-    return failClosedDeny();
-  }
-
-  // An unrecognized trust class is an unresolvable verdict (version skew,
-  // malformed payload), not a stranger. Fail safe: soft-deny with no
-  // stranger-lane side effects (no access-request card, no verification
-  // challenge, no canned reply) — never fail-stranger.
-  if (!isTrustClass(verdict.trustClass)) {
-    log.warn(
-      {
-        sourceChannel,
-        externalUserId: canonicalSenderId,
-        trustClass: verdict.trustClass,
-      },
-      "Ingress ACL: unrecognized trust class on verdict, denying fail-safe",
-    );
-    return failClosedDeny();
-  }
-
   // ── Guardian short-circuit ──
-  // A verdict classified `guardian` is admitted even when it carries no
-  // per-channel member row (`resolvedMember` null) or an inactive one. The
-  // gateway classifies guardians by principal, so a guardian speaking on a
-  // channel where they hold no same-channel binding must not fall through the
-  // member-vs-stranger gates below — those would misroute the guardian into
-  // the stranger lane and fire an access request at the guardian themselves.
+  // A verdict classified `guardian` is admitted even when its same-channel
+  // member row is inactive (e.g. pending): the gateway classifies guardians
+  // by principal, so a guardian speaking on a channel where they hold no
+  // active guardian binding must not fall through the member-vs-stranger
+  // gates below — those would misroute the guardian into the stranger lane
+  // and fire an access request at the guardian themselves.
   if (verdict.trustClass === "guardian") {
+    // verdictUsability guarantees guardian verdicts carry a resolvable
+    // member row; narrow for TS.
+    if (!resolvedMember) {
+      return failClosedDeny();
+    }
+
     // The gateway never classifies a blocked/revoked same-channel row as
     // guardian (explicit per-channel governance wins over the principal
     // check), so a verdict claiming both is contradictory. Fail safe:
     // soft-deny with no stranger-lane side effects.
     if (
-      resolvedMember?.status === "blocked" ||
-      resolvedMember?.status === "revoked"
+      resolvedMember.status === "blocked" ||
+      resolvedMember.status === "revoked"
     ) {
       log.warn(
         {
@@ -288,7 +300,7 @@ export async function enforceIngressAcl(
     // classification. Deny with the accurate policy_deny reason but none of
     // the stranger-lane side effects — the canned "ask the guardian" reply
     // would be addressed at the guardian themselves.
-    if (resolvedMember?.policy === "deny") {
+    if (resolvedMember.policy === "deny") {
       log.info(
         { sourceChannel, externalUserId: canonicalSenderId },
         "Ingress ACL: guardian member row carries policy deny, denying",
@@ -317,12 +329,6 @@ export async function enforceIngressAcl(
     commandIntentForAcl?.type === "start" &&
     typeof commandIntentForAcl.payload === "string" &&
     commandIntentForAcl.payload.startsWith("gv_");
-  const inviteAdapter = getInviteAdapterRegistry().get(sourceChannel);
-  const inviteToken = inviteAdapter?.extractInboundToken?.({
-    commandIntent: commandIntentForAcl,
-    content: trimmedContent,
-    sourceMetadata,
-  });
 
   if (canonicalSenderId || hasSenderIdentityClaim) {
     if (!resolvedMember) {
@@ -333,76 +339,19 @@ export async function enforceIngressAcl(
       // any `/start gv_<garbage>` would bypass the not_a_member gate and
       // fall through to normal /start processing.
       if (isBootstrapCommand) {
-        const bootstrapPayload = commandIntentForAcl!.payload!;
-        const bootstrapTokenForAcl = bootstrapPayload.slice(3); // strip 'gv_' prefix
-        const bootstrapSessionForAcl = resolveBootstrapToken(
+        const bootstrapSessionForAcl = await resolveBootstrapSessionForAcl(
           sourceChannel,
-          bootstrapTokenForAcl,
+          commandIntentForAcl!.payload!,
         );
-        if (
-          bootstrapSessionForAcl &&
-          bootstrapSessionForAcl.status === "pending_bootstrap"
-        ) {
+        if (bootstrapSessionForAcl?.status === "pending_bootstrap") {
           denyNonMember = false;
-          isValidatedBootstrap = true;
+          validatedBootstrapSession = bootstrapSessionForAcl;
         } else {
           log.info(
             { sourceChannel, hasValidBootstrapSession: false },
             "Ingress ACL: bootstrap command bypass denied — no valid pending_bootstrap session",
           );
         }
-      }
-
-      // ── Invite token intercept (non-member) ──
-      // /start invite deep links grant access without guardian approval.
-      // Runs BEFORE the policy-aware bypass so a valid /start iv_<token>
-      // always redeems and creates a member record — even when the
-      // admission policy is `strangers` (which would otherwise admit the
-      // sender as a non-member before the token is consumed).
-      if (inviteToken && denyNonMember) {
-        const inviteResult = await handleInviteTokenIntercept({
-          rawToken: inviteToken,
-          sourceChannel,
-          externalChatId: conversationExternalId,
-          externalMessageId,
-          senderExternalUserId: canonicalSenderId ?? rawSenderId,
-          senderName: actorDisplayName,
-          senderUsername: actorUsername,
-          replyCallbackUrl,
-          assistantId,
-          canonicalAssistantId,
-        });
-        if (inviteResult)
-          return {
-            resolvedMember: null,
-            earlyResponse: inviteResult,
-          };
-      }
-
-      // ── 6-digit invite code intercept (non-member) ──
-      // On channels with codeRedemptionEnabled, a bare 6-digit message may be
-      // an invite code. Attempt redemption; on failure (no matching code) fall
-      // through to normal processing — the number may be a regular message.
-      // Runs before the policy-aware bypass for the same reason as the token
-      // intercept above.
-      if (denyNonMember && /^\d{6}$/.test(trimmedContent)) {
-        const codeInterceptResult = await handleInviteCodeIntercept({
-          code: trimmedContent,
-          sourceChannel,
-          externalChatId: conversationExternalId,
-          externalMessageId,
-          senderExternalUserId: canonicalSenderId ?? rawSenderId,
-          senderName: actorDisplayName,
-          senderUsername: actorUsername,
-          replyCallbackUrl,
-          assistantId,
-          canonicalAssistantId,
-        });
-        if (codeInterceptResult)
-          return {
-            resolvedMember: null,
-            earlyResponse: codeInterceptResult,
-          };
       }
 
       // ── Policy-aware non-member bypass ──
@@ -418,7 +367,6 @@ export async function enforceIngressAcl(
       //    stranger there still can't reach the floor, but suppressing its
       //    self-verify challenge is a default-onboarding behavior change left
       //    for a separate §8.2 decision.
-      // Runs AFTER invite intercepts so valid tokens redeem first.
       if (
         denyNonMember &&
         (effectiveAdmissionPolicy === "strangers" ||
@@ -449,16 +397,21 @@ export async function enforceIngressAcl(
 
         // Slack-specific: send a verification challenge directly to the
         // user's DM instead of requiring guardian-mediated approval. The
-        // user can reply with the code in the DM to self-verify.
+        // user can reply with the code in the DM to self-verify. Bots are
+        // excluded — a bot cannot return a code, so it goes straight to the
+        // guardian-notify lane and its introduction card offers direct trust.
         if (
           sourceChannel === "slack" &&
+          isBot !== true &&
           (canonicalSenderId ?? rawSenderId) &&
           !terminallyDenied &&
           !isCallbackInteraction
         ) {
-          const slackVerifyResult = initiateSlackVerificationChallenge({
+          const slackVerifyResult = await initiateVerificationChallenge({
             sourceChannel,
             senderUserId: (canonicalSenderId ?? rawSenderId)!,
+            hasInterceptableVerificationSession:
+              verdict.hasInterceptableVerificationSession,
           });
 
           if (slackVerifyResult.initiated) {
@@ -475,6 +428,7 @@ export async function enforceIngressAcl(
                   trimmedContent,
                   MESSAGE_PREVIEW_MAX_LENGTH,
                 ),
+                isBot,
                 isStranger,
                 isRestricted,
                 messageTs,
@@ -504,7 +458,7 @@ export async function enforceIngressAcl(
               try {
                 await deliverChannelReply(dmCallbackUrl, {
                   chatId: senderUserId,
-                  text: `I don't recognize you yet! I've let ${await resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
+                  text: `I don't recognize you yet! I've let ${resolveGuardianLabel(verdict)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
                   assistantId,
                 });
               } catch (err) {
@@ -537,9 +491,11 @@ export async function enforceIngressAcl(
           !terminallyDenied &&
           !isCallbackInteraction
         ) {
-          const emailVerifyResult = initiateEmailVerificationChallenge({
+          const emailVerifyResult = await initiateVerificationChallenge({
             sourceChannel,
             senderUserId: (canonicalSenderId ?? rawSenderId)!,
+            hasInterceptableVerificationSession:
+              verdict.hasInterceptableVerificationSession,
           });
 
           if (emailVerifyResult.initiated) {
@@ -555,6 +511,7 @@ export async function enforceIngressAcl(
                   trimmedContent,
                   MESSAGE_PREVIEW_MAX_LENGTH,
                 ),
+                isBot,
                 isStranger,
                 isRestricted,
                 messageTs,
@@ -605,6 +562,7 @@ export async function enforceIngressAcl(
                 trimmedContent,
                 MESSAGE_PREVIEW_MAX_LENGTH,
               ),
+              isBot,
               isStranger,
               isRestricted,
               messageTs,
@@ -621,8 +579,8 @@ export async function enforceIngressAcl(
           }
         }
 
-        const replyText = await composeAccessDenialReply({
-          sourceChannel,
+        const replyText = composeAccessDenialReply({
+          verdict,
           guardianNotified,
           handshakeInProgress,
         });
@@ -670,18 +628,13 @@ export async function enforceIngressAcl(
         // (pending/revoked), but never for blocked members.
         let denyInactiveMember = true;
         if (!isBlockedMember && isBootstrapCommand) {
-          const bootstrapPayload = commandIntentForAcl!.payload!;
-          const bootstrapTokenForAcl = bootstrapPayload.slice(3);
-          const bootstrapSessionForAcl = resolveBootstrapToken(
+          const bootstrapSessionForAcl = await resolveBootstrapSessionForAcl(
             sourceChannel,
-            bootstrapTokenForAcl,
+            commandIntentForAcl!.payload!,
           );
-          if (
-            bootstrapSessionForAcl &&
-            bootstrapSessionForAcl.status === "pending_bootstrap"
-          ) {
+          if (bootstrapSessionForAcl?.status === "pending_bootstrap") {
             denyInactiveMember = false;
-            isValidatedBootstrap = true;
+            validatedBootstrapSession = bootstrapSessionForAcl;
           } else {
             log.info(
               {
@@ -692,63 +645,6 @@ export async function enforceIngressAcl(
               "Ingress ACL: inactive member bootstrap bypass denied",
             );
           }
-        }
-
-        // ── Invite token intercept (inactive member) ──
-        // Invite tokens can reactivate revoked/pending members without
-        // requiring guardian approval, but blocked members are excluded so
-        // they are short-circuited at the ACL layer rather than entering the
-        // redemption path. Runs BEFORE the policy-aware bypass so a valid
-        // invite always redeems and reactivates the member record, rather
-        // than the bypass admitting the sender in their inactive state.
-        if (!isBlockedMember && inviteToken && denyInactiveMember) {
-          const inviteResult = await handleInviteTokenIntercept({
-            rawToken: inviteToken,
-            sourceChannel,
-            externalChatId: conversationExternalId,
-            externalMessageId,
-            senderExternalUserId: canonicalSenderId ?? rawSenderId,
-            senderName: actorDisplayName,
-            senderUsername: actorUsername,
-            replyCallbackUrl,
-            assistantId,
-            canonicalAssistantId,
-          });
-          if (inviteResult)
-            return {
-              resolvedMember: null,
-              earlyResponse: inviteResult,
-            };
-        }
-
-        // ── 6-digit invite code intercept (inactive member) ──
-        // Codes can reactivate revoked/pending members; non-matching codes
-        // fall through. Blocked members are excluded here for consistency —
-        // the redemption service would reject them anyway, but early exit
-        // avoids unnecessary work. Runs before the policy-aware bypass for
-        // the same reason as the token intercept above.
-        if (
-          !isBlockedMember &&
-          denyInactiveMember &&
-          /^\d{6}$/.test(trimmedContent)
-        ) {
-          const codeInterceptResult = await handleInviteCodeIntercept({
-            code: trimmedContent,
-            sourceChannel,
-            externalChatId: conversationExternalId,
-            externalMessageId,
-            senderExternalUserId: canonicalSenderId ?? rawSenderId,
-            senderName: actorDisplayName,
-            senderUsername: actorUsername,
-            replyCallbackUrl,
-            assistantId,
-            canonicalAssistantId,
-          });
-          if (codeInterceptResult)
-            return {
-              resolvedMember: null,
-              earlyResponse: codeInterceptResult,
-            };
         }
 
         // ── Policy-aware inactive-member bypass ──
@@ -767,7 +663,6 @@ export async function enforceIngressAcl(
         //   there, verifying reaches `trusted_contact` (rank 3 ≥ floor 3), so
         //   the challenge legitimately upgrades the sender into access.
         // In every case skip the deny gate so the admission stage decides.
-        // Runs AFTER invite intercepts so valid tokens redeem first.
         //
         // A guardian-denied sender is persisted as an unverified contact and is
         // admitted here on the same rank-vs-floor terms as any other unverified
@@ -813,17 +708,21 @@ export async function enforceIngressAcl(
 
           // Slack-specific: re-verify inactive members via DM challenge
           // (same as non-member path). Blocked members are excluded —
-          // the guardian made an explicit decision to block them.
+          // the guardian made an explicit decision to block them. Bots are
+          // excluded — a bot cannot return a code.
           if (
             sourceChannel === "slack" &&
+            isBot !== true &&
             resolvedMember.status !== "blocked" &&
             (canonicalSenderId ?? rawSenderId) &&
             !terminallyDenied &&
             !isCallbackInteraction
           ) {
-            const slackVerifyResult = initiateSlackVerificationChallenge({
+            const slackVerifyResult = await initiateVerificationChallenge({
               sourceChannel,
               senderUserId: (canonicalSenderId ?? rawSenderId)!,
+              hasInterceptableVerificationSession:
+                verdict.hasInterceptableVerificationSession,
             });
 
             if (slackVerifyResult.initiated) {
@@ -842,6 +741,7 @@ export async function enforceIngressAcl(
                     trimmedContent,
                     MESSAGE_PREVIEW_MAX_LENGTH,
                   ),
+                  isBot,
                   isStranger,
                   isRestricted,
                   messageTs,
@@ -867,7 +767,7 @@ export async function enforceIngressAcl(
                 try {
                   await deliverChannelReply(dmCallbackUrl, {
                     chatId: senderUserId,
-                    text: `I don't recognize you yet! I've let ${await resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
+                    text: `I don't recognize you yet! I've let ${resolveGuardianLabel(verdict)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
                     assistantId,
                   });
                 } catch (err) {
@@ -920,6 +820,7 @@ export async function enforceIngressAcl(
                     trimmedContent,
                     MESSAGE_PREVIEW_MAX_LENGTH,
                   ),
+                  isBot,
                   isStranger,
                   isRestricted,
                   messageTs,
@@ -937,8 +838,8 @@ export async function enforceIngressAcl(
             }
           }
 
-          const inactiveReplyText = await composeAccessDenialReply({
-            sourceChannel,
+          const inactiveReplyText = composeAccessDenialReply({
+            verdict,
             guardianNotified,
             handshakeInProgress,
           });
@@ -1024,360 +925,7 @@ export async function enforceIngressAcl(
 
   return {
     resolvedMember,
-    ...(isValidatedBootstrap && { isValidatedBootstrap }),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Invite token intercept
-// ---------------------------------------------------------------------------
-
-/**
- * Handle an inbound invite token for a non-member or inactive member.
- *
- * Redeems the invite, delivers a deterministic reply, and returns a Response
- * to short-circuit the handler. Returns `null` when the intercept should not
- * fire (e.g. already_member outcome — let normal flow handle it).
- */
-async function handleInviteTokenIntercept(params: {
-  rawToken: string;
-  sourceChannel: ChannelId;
-  externalChatId: string;
-  externalMessageId: string;
-  senderExternalUserId?: string;
-  senderName?: string;
-  senderUsername?: string;
-  replyCallbackUrl?: string;
-  assistantId?: string;
-  canonicalAssistantId: string;
-}): Promise<Record<string, unknown> | null> {
-  const {
-    rawToken,
-    sourceChannel,
-    externalChatId,
-    externalMessageId,
-    senderExternalUserId,
-    senderName,
-    senderUsername,
-    replyCallbackUrl,
-    assistantId,
-    canonicalAssistantId,
-  } = params;
-
-  // Record the inbound event for dedup tracking BEFORE performing redemption.
-  // Without this, duplicate webhook deliveries (common with Telegram) would
-  // not be tracked: the first delivery redeems the invite and returns early,
-  // then the retry finds an active member, passes ACL, and the raw
-  // /start iv_<token> message leaks into the agent pipeline.
-  const dedupResult = recordInbound(
-    sourceChannel,
-    externalChatId,
-    externalMessageId,
-    { assistantId: canonicalAssistantId },
-  );
-
-  if (dedupResult.duplicate) {
-    return {
-      accepted: true,
-      duplicate: true,
-      eventId: dedupResult.eventId,
-    };
-  }
-
-  const outcome = await redeemInvite({
-    rawToken,
-    sourceChannel,
-    externalUserId: senderExternalUserId,
-    externalChatId,
-    displayName: senderName,
-    username: senderUsername,
-    assistantId: canonicalAssistantId,
-  });
-
-  log.info(
-    {
-      sourceChannel,
-      externalChatId: params.externalChatId,
-      ok: outcome.ok,
-      type: outcome.ok ? outcome.type : undefined,
-      reason: !outcome.ok ? outcome.reason : undefined,
-    },
-    "Invite token intercept: redemption result",
-  );
-
-  // already_member means the user has an active record — let the normal
-  // flow handle them (they passed ACL or the member is active).
-  if (outcome.ok && outcome.type === "already_member") {
-    // Deliver a quick acknowledgement and short-circuit so the user
-    // does not trigger the deny gate or a duplicate agent loop.
-    const replyText = getInviteRedemptionReply(outcome);
-    if (replyCallbackUrl) {
-      try {
-        await deliverChannelReply(replyCallbackUrl, {
-          chatId: externalChatId,
-          text: replyText,
-          assistantId,
-        });
-      } catch (err) {
-        log.error(
-          { err, externalChatId },
-          "Failed to deliver invite already-member reply",
-        );
-      }
-    }
-    markProcessed(dedupResult.eventId);
-    return {
-      accepted: true,
-      eventId: dedupResult.eventId,
-      inviteRedemption: "already_member",
-    };
-  }
-
-  const replyText = getInviteRedemptionReply(outcome);
-
-  if (replyCallbackUrl) {
-    try {
-      await deliverChannelReply(replyCallbackUrl, {
-        chatId: externalChatId,
-        text: replyText,
-        assistantId,
-      });
-    } catch (err) {
-      log.error(
-        { err, externalChatId },
-        "Failed to deliver invite redemption reply",
-      );
-    }
-  }
-
-  if (outcome.ok && outcome.type === "redeemed") {
-    markProcessed(dedupResult.eventId);
-    return {
-      accepted: true,
-      eventId: dedupResult.eventId,
-      inviteRedemption: "redeemed",
-      memberId: outcome.memberId,
-    };
-  }
-
-  // Failed redemption — inform the user and deny
-  markProcessed(dedupResult.eventId);
-  return {
-    accepted: true,
-    eventId: dedupResult.eventId,
-    denied: true,
-    inviteRedemption: outcome.reason,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 6-digit invite code intercept
-// ---------------------------------------------------------------------------
-
-/**
- * Handle a bare 6-digit message as a potential invite code redemption.
- *
- * Checks channel policy (codeRedemptionEnabled), attempts redemption via
- * `redeemInviteByCode`, and returns a Response to short-circuit the handler
- * on success. Returns `null` when the code does not match any active invite,
- * allowing the message to fall through to normal processing.
- */
-async function handleInviteCodeIntercept(params: {
-  code: string;
-  sourceChannel: ChannelId;
-  externalChatId: string;
-  externalMessageId: string;
-  senderExternalUserId?: string;
-  senderName?: string;
-  senderUsername?: string;
-  replyCallbackUrl?: string;
-  assistantId?: string;
-  canonicalAssistantId: string;
-}): Promise<Record<string, unknown> | null> {
-  const {
-    code,
-    sourceChannel,
-    externalChatId,
-    externalMessageId,
-    senderExternalUserId,
-    senderName,
-    senderUsername,
-    replyCallbackUrl,
-    assistantId,
-    canonicalAssistantId,
-  } = params;
-
-  // Skip channels that don't support code redemption
-  if (!isInviteCodeRedemptionEnabled(sourceChannel)) {
-    return null;
-  }
-
-  // Pre-check: verify a matching invite exists before committing to handle
-  // this message. A bare 6-digit number may be a regular message, so we
-  // must not record inbound dedup until we know the code maps to an invite.
-  const codeHash = hashVoiceCode(code);
-  const candidateInvite = findByInviteCodeHash(codeHash, sourceChannel);
-  if (!candidateInvite) {
-    // The code doesn't match any invite on this channel. Before falling
-    // through to normal processing, check if it matches on a different
-    // channel — if so, inform the user instead of silently ignoring it.
-    const crossChannelInvite = findByInviteCodeHashAnyChannel(codeHash);
-    if (crossChannelInvite) {
-      // Record inbound for dedup tracking — without this, duplicate webhook
-      // deliveries would re-enter ACL and send the mismatch reply again.
-      const dedupResult = recordInbound(
-        sourceChannel,
-        externalChatId,
-        externalMessageId,
-        { assistantId: canonicalAssistantId },
-      );
-
-      if (dedupResult.duplicate) {
-        return {
-          accepted: true,
-          duplicate: true,
-          eventId: dedupResult.eventId,
-        };
-      }
-
-      const mismatchReply = "This invite is not valid for this channel.";
-      if (replyCallbackUrl) {
-        try {
-          await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
-            text: mismatchReply,
-            assistantId,
-          });
-        } catch (err) {
-          log.error(
-            { err, externalChatId },
-            "Failed to deliver invite code channel-mismatch reply",
-          );
-        }
-      }
-      markProcessed(dedupResult.eventId);
-      return {
-        accepted: true,
-        eventId: dedupResult.eventId,
-        denied: true,
-        inviteRedemption: "channel_mismatch",
-      };
-    }
-    return null;
-  }
-
-  // Record the inbound event for dedup tracking BEFORE performing redemption,
-  // matching the token intercept path. Without this, duplicate webhook
-  // deliveries could slip through: the first delivery redeems the invite and
-  // activates membership, then a retry finds an active member, passes ACL,
-  // and the raw 6-digit message leaks into the agent pipeline.
-  const dedupResult = recordInbound(
-    sourceChannel,
-    externalChatId,
-    externalMessageId,
-    { assistantId: canonicalAssistantId },
-  );
-
-  if (dedupResult.duplicate) {
-    return {
-      accepted: true,
-      duplicate: true,
-      eventId: dedupResult.eventId,
-    };
-  }
-
-  let outcome: Awaited<ReturnType<typeof redeemInviteByCode>>;
-  try {
-    outcome = await redeemInviteByCode({
-      code,
-      sourceChannel,
-      externalUserId: senderExternalUserId,
-      externalChatId,
-      displayName: senderName,
-      username: senderUsername,
-      assistantId: canonicalAssistantId,
-    });
-  } catch (err) {
-    // Redemption threw — roll back the dedup record so webhook retries
-    // can re-attempt instead of short-circuiting as duplicates.
-    log.error(
-      { err, sourceChannel, externalChatId },
-      "Invite code intercept: redemption threw, rolling back dedup record",
-    );
-    deleteInbound(dedupResult.eventId);
-    throw err;
-  }
-
-  log.info(
-    {
-      sourceChannel,
-      externalChatId,
-      ok: outcome.ok,
-      type: outcome.ok ? outcome.type : undefined,
-      reason: !outcome.ok ? outcome.reason : undefined,
-    },
-    "Invite code intercept: redemption result",
-  );
-
-  // already_member: deliver acknowledgement and short-circuit
-  if (outcome.ok && outcome.type === "already_member") {
-    const replyText = getInviteRedemptionReply(outcome);
-    if (replyCallbackUrl) {
-      try {
-        await deliverChannelReply(replyCallbackUrl, {
-          chatId: externalChatId,
-          text: replyText,
-          assistantId,
-        });
-      } catch (err) {
-        log.error(
-          { err, externalChatId },
-          "Failed to deliver invite code already-member reply",
-        );
-      }
-    }
-    markProcessed(dedupResult.eventId);
-    return {
-      accepted: true,
-      eventId: dedupResult.eventId,
-      inviteRedemption: "already_member",
-    };
-  }
-
-  const replyText = getInviteRedemptionReply(outcome);
-
-  if (replyCallbackUrl) {
-    try {
-      await deliverChannelReply(replyCallbackUrl, {
-        chatId: externalChatId,
-        text: replyText,
-        assistantId,
-      });
-    } catch (err) {
-      log.error(
-        { err, externalChatId },
-        "Failed to deliver invite code redemption reply",
-      );
-    }
-  }
-
-  if (outcome.ok && outcome.type === "redeemed") {
-    markProcessed(dedupResult.eventId);
-    return {
-      accepted: true,
-      eventId: dedupResult.eventId,
-      inviteRedemption: "redeemed",
-      memberId: outcome.memberId,
-    };
-  }
-
-  // Failed redemption (expired, revoked, etc.) — inform and deny
-  markProcessed(dedupResult.eventId);
-  return {
-    accepted: true,
-    eventId: dedupResult.eventId,
-    denied: true,
-    inviteRedemption: !outcome.ok ? outcome.reason : undefined,
+    ...(validatedBootstrapSession && { validatedBootstrapSession }),
   };
 }
 
@@ -1391,51 +939,91 @@ interface VerificationChallengeResult {
 }
 
 /**
- * Create an outbound verification session for a Slack user. The guardian
- * receives the verification code via the notification pipeline (not a
- * direct DM to the requester). The session is identity-bound with
- * `verificationPurpose: "trusted_contact"` so consuming the code
- * creates a trusted contact record (not a guardian binding).
+ * Create an outbound verification session for an unknown sender (Slack and
+ * email deny lanes). The guardian receives the verification code via the
+ * notification pipeline (not a direct DM to the requester). The session is
+ * identity-bound with `verificationPurpose: "trusted_contact"` so consuming
+ * the code creates a trusted contact record (not a guardian binding).
  */
-function initiateSlackVerificationChallenge(params: {
+async function initiateVerificationChallenge(params: {
   sourceChannel: ChannelId;
   senderUserId: string;
-}): VerificationChallengeResult {
-  const { sourceChannel, senderUserId } = params;
+  /** Channel-scoped session-presence stamp from the trust verdict. */
+  hasInterceptableVerificationSession?: boolean;
+}): Promise<VerificationChallengeResult> {
+  const { sourceChannel, senderUserId, hasInterceptableVerificationSession } =
+    params;
 
   // Skip if there is already a pending challenge or active session for
   // this sender to avoid flooding them with duplicate codes. We scope by
   // sender identity (expectedExternalUserId) so that a pending session for
   // user A does not suppress challenges for user B.
-  const existingChallenge = getPendingSession(sourceChannel);
-  const existingSession = findActiveSession(sourceChannel);
-  const senderHasPending =
-    (existingChallenge &&
-      existingChallenge.expectedExternalUserId === senderUserId) ||
-    (existingSession &&
-      existingSession.expectedExternalUserId === senderUserId);
-  if (senderHasPending) {
-    log.debug(
-      {
-        sourceChannel,
-        senderUserId,
-        hasChallenge: !!existingChallenge,
-        hasSession: !!existingSession,
-      },
-      "Slack verification: skipping — existing challenge/session for this sender",
-    );
-    return { initiated: false };
+  //
+  // The verdict stamp is only trusted as a fast-path NEGATIVE: `false` means
+  // the gateway saw no interceptable session for this CHANNEL at verdict
+  // time, so the sender-scoped checks below cannot match — skip both IPC
+  // reads and mint (the conditional mint's atomic claim stays the second
+  // line of defense against races). A `true` or absent stamp (voice-relay /
+  // legacy verdicts) is channel-scoped, not sender-scoped, so it falls back
+  // to the reads to preserve the exact dedup semantics.
+  if (hasInterceptableVerificationSession !== false) {
+    // Inbound messages arrive through the gateway, so an unreachable gateway
+    // here is a narrow race, not a steady state: treat it as "no active
+    // session but do not create" (creating would fail anyway) and fall
+    // through to the normal deny.
+    let existingChallenge: VerificationSessionWire | null;
+    let existingSession: VerificationSessionWire | null;
+    try {
+      [existingChallenge, existingSession] = await Promise.all([
+        getPendingSession(sourceChannel),
+        findActiveSession(sourceChannel),
+      ]);
+    } catch (err) {
+      log.warn(
+        { err, sourceChannel, senderUserId },
+        "Verification challenge: session reads failed (gateway unreachable), skipping challenge",
+      );
+      return { initiated: false };
+    }
+    const senderHasPending =
+      (existingChallenge &&
+        existingChallenge.expectedExternalUserId === senderUserId) ||
+      (existingSession &&
+        existingSession.expectedExternalUserId === senderUserId);
+    if (senderHasPending) {
+      log.debug(
+        {
+          sourceChannel,
+          senderUserId,
+          hasChallenge: !!existingChallenge,
+          hasSession: !!existingSession,
+        },
+        "Verification challenge: skipping — existing challenge/session for this sender",
+      );
+      return { initiated: false };
+    }
   }
 
   try {
-    const session = createOutboundSession({
+    // Sender-scoped atomic claim: a concurrent duplicate webhook from the
+    // SAME sender loses and gets a conflict instead of revoking the winner's
+    // challenge; a different sender may still supersede (revoke-prior).
+    const session = await createOutboundSessionConditional({
       channel: sourceChannel,
       expectedExternalUserId: senderUserId,
       expectedChatId: senderUserId,
       identityBindingStatus: "bound",
       destinationAddress: senderUserId,
       verificationPurpose: "trusted_contact",
+      ifNoneActiveForExternalUserId: senderUserId,
     });
+    if ("conflict" in session) {
+      log.debug(
+        { sourceChannel, senderUserId, reason: session.reason },
+        "Verification challenge: skipping — concurrent mint already claimed the channel",
+      );
+      return { initiated: false };
+    }
 
     // The verification code is delivered to the guardian via the access
     // request notification flow. The guardian decides whether to share
@@ -1443,64 +1031,14 @@ function initiateSlackVerificationChallenge(params: {
 
     log.info(
       { sourceChannel, senderUserId, sessionId: session.sessionId },
-      "Slack verification challenge initiated for unknown contact",
+      "Verification challenge initiated for unknown contact",
     );
 
     return { initiated: true, sessionId: session.sessionId };
   } catch (err) {
     log.error(
       { err, sourceChannel, senderUserId },
-      "Failed to initiate Slack verification challenge",
-    );
-    return { initiated: false };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Email verification challenge
-// ---------------------------------------------------------------------------
-
-function initiateEmailVerificationChallenge(params: {
-  sourceChannel: ChannelId;
-  senderUserId: string;
-}): VerificationChallengeResult {
-  const { sourceChannel, senderUserId } = params;
-
-  const existingChallenge = getPendingSession(sourceChannel);
-  const existingSession = findActiveSession(sourceChannel);
-  const senderHasPending =
-    (existingChallenge &&
-      existingChallenge.expectedExternalUserId === senderUserId) ||
-    (existingSession &&
-      existingSession.expectedExternalUserId === senderUserId);
-  if (senderHasPending) {
-    log.debug(
-      { sourceChannel, senderUserId },
-      "Email verification: skipping — existing challenge/session for this sender",
-    );
-    return { initiated: false };
-  }
-
-  try {
-    const session = createOutboundSession({
-      channel: sourceChannel,
-      expectedExternalUserId: senderUserId,
-      expectedChatId: senderUserId,
-      identityBindingStatus: "bound",
-      destinationAddress: senderUserId,
-      verificationPurpose: "trusted_contact",
-    });
-
-    log.info(
-      { sourceChannel, senderUserId, sessionId: session.sessionId },
-      "Email verification challenge initiated for unknown contact",
-    );
-
-    return { initiated: true, sessionId: session.sessionId };
-  } catch (err) {
-    log.error(
-      { err, sourceChannel, senderUserId },
-      "Failed to initiate email verification challenge",
+      "Failed to initiate verification challenge",
     );
     return { initiated: false };
   }

@@ -8,7 +8,12 @@ import {
   test,
 } from "bun:test";
 
-import type { BatchTranscriber, SttTranscribeRequest } from "../stt/types.js";
+import type {
+  BatchTranscriber,
+  StreamingTranscriber,
+  SttStreamServerEvent,
+  SttTranscribeRequest,
+} from "../stt/types.js";
 
 // ---------------------------------------------------------------------------
 // Module mocks — must be declared before the module under test is imported.
@@ -18,6 +23,16 @@ import type { BatchTranscriber, SttTranscribeRequest } from "../stt/types.js";
 mock.module("../providers/speech-to-text/resolve.js", () => ({
   resolveTelephonySttCapability: jest.fn(),
   resolveBatchTranscriber: jest.fn(),
+  resolveStreamingTranscriber: jest.fn(),
+}));
+
+// Mock the config loader so the session's telephony-streaming flag read
+// never touches the real filesystem config.
+const configState = { telephonyStreaming: true };
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    calls: { voice: { telephonyStreaming: configState.telephonyStreaming } },
+  }),
 }));
 
 // Mock the logger to suppress output during tests
@@ -34,6 +49,7 @@ mock.module("../util/logger.js", () => ({
 import { MediaStreamSttSession } from "../calls/media-stream-stt-session.js";
 import {
   resolveBatchTranscriber,
+  resolveStreamingTranscriber,
   resolveTelephonySttCapability,
 } from "../providers/speech-to-text/resolve.js";
 
@@ -110,6 +126,65 @@ function makeMockTranscriber(text = "hello world"): BatchTranscriber {
   };
 }
 
+/**
+ * Controllable fake streaming transcriber. `deferStart` keeps `start()`
+ * pending until `finishStart()` (or rejects on `failStart()`), letting
+ * tests exercise the startup frame buffer.
+ */
+class FakeStreamingTranscriber implements StreamingTranscriber {
+  readonly providerId = "deepgram" as const;
+  readonly boundaryId = "daemon-streaming" as const;
+
+  onEvent: ((event: SttStreamServerEvent) => void) | null = null;
+  sentAudio: { audio: Buffer; mimeType: string }[] = [];
+  stopCalled = false;
+
+  private startGate: Promise<void> = Promise.resolve();
+  private releaseStart: () => void = () => {};
+  private rejectStart: (err: Error) => void = () => {};
+
+  constructor(opts: { deferStart?: boolean } = {}) {
+    if (opts.deferStart) {
+      this.startGate = new Promise<void>((resolve, reject) => {
+        this.releaseStart = resolve;
+        this.rejectStart = reject;
+      });
+    }
+  }
+
+  async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
+    this.onEvent = onEvent;
+    await this.startGate;
+  }
+
+  sendAudio(audio: Buffer, mimeType: string): void {
+    this.sentAudio.push({ audio, mimeType });
+  }
+
+  stop(): void {
+    this.stopCalled = true;
+  }
+
+  finishStart(): void {
+    this.releaseStart();
+  }
+
+  failStart(err: Error): void {
+    this.rejectStart(err);
+  }
+
+  emit(event: SttStreamServerEvent): void {
+    this.onEvent?.(event);
+  }
+}
+
+/** Flush the microtask queue (fake timers keep setTimeout frozen). */
+async function flushAsync(rounds = 20): Promise<void> {
+  for (let i = 0; i < rounds; i++) {
+    await Promise.resolve();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -117,6 +192,12 @@ function makeMockTranscriber(text = "hello world"): BatchTranscriber {
 describe("MediaStreamSttSession", () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    jest.clearAllMocks();
+
+    // Most tests exercise the batch path — flip the kill-switch off so the
+    // session selects batch mode deterministically. Streaming-mode tests
+    // set it back to true.
+    configState.telephonyStreaming = false;
 
     // Default: provider is supported and transcriber is available
     (resolveTelephonySttCapability as jest.Mock).mockResolvedValue({
@@ -127,6 +208,7 @@ describe("MediaStreamSttSession", () => {
     (resolveBatchTranscriber as jest.Mock).mockResolvedValue(
       makeMockTranscriber(),
     );
+    (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -581,6 +663,421 @@ describe("MediaStreamSttSession", () => {
       // No turn should have started, so no transcript emitted
       expect(onSpeechStart).not.toHaveBeenCalled();
       expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      session.dispose();
+    });
+  });
+
+  // ── Telephony streaming flag ─────────────────────────────────────
+
+  test("flag off: never resolves a streaming transcriber", async () => {
+    configState.telephonyStreaming = false;
+    const session = new MediaStreamSttSession({}, {});
+
+    session.handleMessage(makeStartMessage());
+    await flushAsync();
+
+    expect(resolveStreamingTranscriber).not.toHaveBeenCalled();
+    session.dispose();
+  });
+
+  // ── Streaming mode ────────────────────────────────────────────────
+
+  describe("streaming mode", () => {
+    beforeEach(() => {
+      configState.telephonyStreaming = true;
+    });
+
+    /** Start a session with an already-started streaming transcriber. */
+    async function startStreamingSession(
+      callbacks: ConstructorParameters<typeof MediaStreamSttSession>[1] = {},
+      config: ConstructorParameters<typeof MediaStreamSttSession>[0] = {},
+    ): Promise<{ session: MediaStreamSttSession; fake: FakeStreamingTranscriber }> {
+      const fake = new FakeStreamingTranscriber();
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const session = new MediaStreamSttSession(config, callbacks);
+      session.handleMessage(makeStartMessage());
+      await flushAsync();
+
+      return { session, fake };
+    }
+
+    test("resolves the streaming transcriber at 16 kHz with boundary finals", async () => {
+      const { session } = await startStreamingSession();
+
+      expect(resolveStreamingTranscriber).toHaveBeenCalledTimes(1);
+      expect(resolveStreamingTranscriber).toHaveBeenCalledWith({
+        sampleRate: 16_000,
+        utteranceBoundaryFinals: true,
+      });
+
+      session.dispose();
+    });
+
+    test("buffers frames until start() resolves, then flushes in order", async () => {
+      const fake = new FakeStreamingTranscriber({ deferStart: true });
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const session = new MediaStreamSttSession({}, {});
+      session.handleMessage(makeStartMessage());
+      await flushAsync();
+
+      // start() is still pending — frames must be buffered, not sent.
+      for (let i = 0; i < 3; i++) {
+        session.handleMessage(makeMediaMessage());
+      }
+      expect(fake.sentAudio).toHaveLength(0);
+
+      fake.finishStart();
+      await flushAsync();
+
+      // Buffered frames flushed: 20 mu-law bytes @8k -> 40 PCM16 bytes
+      // -> 80 bytes resampled to 16k.
+      expect(fake.sentAudio).toHaveLength(3);
+      expect(fake.sentAudio[0].audio.length).toBe(80);
+      expect(fake.sentAudio[0].mimeType).toBe("audio/pcm;rate=16000");
+
+      // Post-start frames go straight through.
+      session.handleMessage(makeMediaMessage());
+      expect(fake.sentAudio).toHaveLength(4);
+
+      expect(session.streamingStartupFramesDropped).toBe(0);
+      session.dispose();
+    });
+
+    test("startup buffer overflow drops oldest frames and counts them", async () => {
+      const fake = new FakeStreamingTranscriber({ deferStart: true });
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const session = new MediaStreamSttSession(
+        { streamingStartupBufferFrames: 2 },
+        {},
+      );
+      session.handleMessage(makeStartMessage());
+      await flushAsync();
+
+      // Distinguish frames by payload length: frame i has 20+i mu-law
+      // bytes, so its resampled PCM is (20+i)*4 bytes.
+      for (let i = 0; i < 5; i++) {
+        const payload = Buffer.alloc(20 + i, 0x00).toString("base64");
+        session.handleMessage(makeMediaMessage(payload));
+      }
+
+      fake.finishStart();
+      await flushAsync();
+
+      expect(fake.sentAudio).toHaveLength(2);
+      // Oldest frames (i=0,1,2) dropped — the newest two (i=3,4) survive.
+      expect(fake.sentAudio.map((f) => f.audio.length)).toEqual([92, 96]);
+      expect(session.streamingStartupFramesDropped).toBe(3);
+
+      session.dispose();
+    });
+
+    test("onSpeechStart fires from local VAD, not transcriber partials", async () => {
+      const onSpeechStart = jest.fn();
+      const onTranscriptFinal = jest.fn();
+      const { session, fake } = await startStreamingSession({
+        onSpeechStart,
+        onTranscriptFinal,
+      });
+
+      // A partial arriving before any speech-bearing frame must not
+      // trigger barge-in or a reply.
+      fake.emit({ type: "partial", text: "hel" });
+      expect(onSpeechStart).not.toHaveBeenCalled();
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      // Local VAD sees speech -> barge-in fires.
+      session.handleMessage(makeMediaMessage());
+      expect(onSpeechStart).toHaveBeenCalledTimes(1);
+
+      session.dispose();
+    });
+
+    test("final events map to onTranscriptFinal; empty finals are suppressed", async () => {
+      const onTranscriptFinal = jest.fn();
+      const { session, fake } = await startStreamingSession({
+        onTranscriptFinal,
+      });
+
+      session.handleMessage(makeMediaMessage());
+      fake.emit({ type: "final", text: "hello caller" });
+
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "hello caller",
+        expect.any(Number),
+      );
+
+      fake.emit({ type: "final", text: "   " });
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+
+      session.dispose();
+    });
+
+    test("local VAD turn end never triggers batch transcription in streaming mode", async () => {
+      const onTranscriptFinal = jest.fn();
+      const { session } = await startStreamingSession(
+        { onTranscriptFinal },
+        { turnDetector: { silenceThresholdMs: 300 } },
+      );
+
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+
+      expect(resolveBatchTranscriber).not.toHaveBeenCalled();
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      session.dispose();
+    });
+
+    test("transcriber errors map to onError", async () => {
+      const onError = jest.fn();
+      const { session, fake } = await startStreamingSession({ onError });
+
+      fake.emit({
+        type: "error",
+        category: "provider-error",
+        message: "socket dropped",
+      });
+
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith("provider-error", "socket dropped");
+
+      session.dispose();
+    });
+
+    test("stop event stops the transcriber and fires onStop", async () => {
+      const onStop = jest.fn();
+      const { session, fake } = await startStreamingSession({ onStop });
+
+      session.handleMessage(makeStopMessage());
+
+      expect(fake.stopCalled).toBe(true);
+      expect(onStop).toHaveBeenCalledTimes(1);
+
+      session.dispose();
+    });
+
+    test("dispose() stops the transcriber and suppresses late events", async () => {
+      const onTranscriptFinal = jest.fn();
+      const { session, fake } = await startStreamingSession({
+        onTranscriptFinal,
+      });
+
+      session.dispose();
+      expect(fake.stopCalled).toBe(true);
+
+      fake.emit({ type: "final", text: "too late" });
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+    });
+
+    test("falls back to batch when no streaming transcriber is available", async () => {
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(null);
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal },
+      );
+
+      session.handleMessage(makeStartMessage());
+      await flushAsync();
+
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "hello world",
+        expect.any(Number),
+      );
+
+      session.dispose();
+    });
+
+    test("unexpected provider close mid-call falls back to batch for subsequent turns", async () => {
+      const onTranscriptFinal = jest.fn();
+      const { session, fake } = await startStreamingSession(
+        { onTranscriptFinal },
+        { turnDetector: { silenceThresholdMs: 300 } },
+      );
+
+      // Provider closes the stream without the session asking it to.
+      fake.emit({ type: "closed" });
+
+      // A subsequent caller turn must be transcribed via batch.
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+
+      expect(resolveBatchTranscriber).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "hello world",
+        expect.any(Number),
+      );
+
+      session.dispose();
+    });
+
+    test("deliberate stop does not trigger batch fallback on close", async () => {
+      const onStop = jest.fn();
+      const onTranscriptFinal = jest.fn();
+      const { session, fake } = await startStreamingSession(
+        { onStop, onTranscriptFinal },
+        { turnDetector: { silenceThresholdMs: 300 } },
+      );
+
+      session.handleMessage(makeStopMessage());
+      fake.emit({ type: "closed" });
+
+      // Late media after the stop must not be batch-transcribed.
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+
+      expect(onStop).toHaveBeenCalledTimes(1);
+      expect(resolveTelephonySttCapability).not.toHaveBeenCalled();
+      expect(resolveBatchTranscriber).not.toHaveBeenCalled();
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      session.dispose();
+    });
+
+    test("close after dispose does not trigger batch fallback", async () => {
+      const { session, fake } = await startStreamingSession();
+
+      session.dispose();
+      fake.emit({ type: "closed" });
+
+      expect(resolveTelephonySttCapability).not.toHaveBeenCalled();
+    });
+
+    test("turn completed during transcriber startup is transcribed on batch fallback", async () => {
+      const fake = new FakeStreamingTranscriber({ deferStart: true });
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal },
+      );
+
+      session.handleMessage(makeStartMessage());
+      await flushAsync();
+
+      // Speech arrives and the local VAD completes the turn while the
+      // provider session is still starting.
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      // Startup then fails — the completed turn must not be stranded.
+      fake.failStart(new Error("connect timeout"));
+      await flushAsync();
+
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "hello world",
+        expect.any(Number),
+      );
+
+      session.dispose();
+    });
+
+    test("multiple turns completed during transcriber startup are transcribed in order on batch fallback", async () => {
+      const fake = new FakeStreamingTranscriber({ deferStart: true });
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      // Echo the audio byte count so each turn's transcript is
+      // distinguishable and ordering is observable.
+      const transcribe = jest.fn(async (req: SttTranscribeRequest) => ({
+        text: `bytes-${req.audio.length}`,
+      }));
+      (resolveBatchTranscriber as jest.Mock).mockResolvedValue({
+        providerId: "openai-whisper",
+        boundaryId: "daemon-batch",
+        transcribe,
+      });
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal },
+      );
+
+      session.handleMessage(makeStartMessage());
+      await flushAsync();
+
+      // Turn 1: one speech chunk, completed by the local VAD while the
+      // provider session is still starting.
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+
+      // Turn 2: two speech chunks, also completed during startup.
+      session.handleMessage(makeMediaMessage());
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+
+      expect(onTranscriptFinal).not.toHaveBeenCalled();
+
+      // Startup then fails — BOTH completed turns must be transcribed,
+      // in completion order.
+      fake.failStart(new Error("connect timeout"));
+      await flushAsync();
+
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(2);
+      const sizes = transcribe.mock.calls.map(
+        ([req]: [SttTranscribeRequest]) => req.audio.length,
+      );
+      // Turn 2 carried twice the audio of turn 1 (net of WAV header).
+      expect(sizes[0]).toBeLessThan(sizes[1]);
+      expect(onTranscriptFinal).toHaveBeenNthCalledWith(
+        1,
+        `bytes-${sizes[0]}`,
+        expect.any(Number),
+      );
+      expect(onTranscriptFinal).toHaveBeenNthCalledWith(
+        2,
+        `bytes-${sizes[1]}`,
+        expect.any(Number),
+      );
+
+      session.dispose();
+    });
+
+    test("falls back to batch when the streaming transcriber fails to start", async () => {
+      const fake = new FakeStreamingTranscriber({ deferStart: true });
+      (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
+
+      const onTranscriptFinal = jest.fn();
+      const session = new MediaStreamSttSession(
+        { turnDetector: { silenceThresholdMs: 300 } },
+        { onTranscriptFinal },
+      );
+
+      session.handleMessage(makeStartMessage());
+      await flushAsync();
+
+      fake.failStart(new Error("connect timeout"));
+      await flushAsync();
+
+      session.handleMessage(makeMediaMessage());
+      jest.advanceTimersByTime(400);
+      await flushAsync();
+
+      expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
+      expect(onTranscriptFinal).toHaveBeenCalledWith(
+        "hello world",
+        expect.any(Number),
+      );
 
       session.dispose();
     });

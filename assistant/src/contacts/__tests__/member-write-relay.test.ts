@@ -17,11 +17,32 @@ type IpcCall = { method: string; params?: Record<string, unknown> };
 let ipcCalls: IpcCall[] = [];
 let ipcVerified = true;
 let ipcThrows = false;
+let createContactChannelId = "gw-ch1";
+let revokeOk = true;
 
 const ipcCallPersistentMock = mock(
   async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
-    if (ipcThrows) throw new Error("gateway unavailable");
+    if (ipcThrows) {
+      throw new Error("gateway unavailable");
+    }
+    if (method === "create_contact") {
+      return { contactId: "gw-c1", channelId: createContactChannelId };
+    }
+    if (method === "mark_channel_revoked") {
+      return {
+        ok: revokeOk,
+        didWrite: true,
+        channel: {
+          id: (params?.contactChannelId as string) ?? "gw-ch1",
+          contactId: "gw-c1",
+          type: "slack",
+          address: "addr",
+          status: "revoked",
+          revokedReason: (params?.reason as string) ?? null,
+        },
+      };
+    }
     return {
       ok: true,
       verified: ipcVerified,
@@ -57,14 +78,23 @@ const upsertContactChannelMock = mock(
     return localResult;
   },
 );
+const actualContactStore = await import("../contact-store.js");
+mock.module("../contact-store.js", () => ({
+  ...actualContactStore,
+  findContactChannel: () => null,
+}));
+
 const actualContactsWrite = await import("../contacts-write.js");
 mock.module("../contacts-write.js", () => ({
   ...actualContactsWrite,
   upsertContactChannel: upsertContactChannelMock,
 }));
 
-const { activateMemberChannel, seedUnverifiedMemberChannel } =
-  await import("../member-write-relay.js");
+const {
+  activateMemberChannel,
+  blockSenderChannel,
+  seedUnverifiedMemberChannel,
+} = await import("../member-write-relay.js");
 
 describe("activateMemberChannel gateway-first relay", () => {
   beforeEach(() => {
@@ -87,7 +117,6 @@ describe("activateMemberChannel gateway-first relay", () => {
       externalChatId: "chat-1",
       displayName: "Mom",
       contactId: "target-mom",
-      inviteId: "inv-1",
       verifiedVia: "invite",
     });
 
@@ -122,7 +151,6 @@ describe("activateMemberChannel gateway-first relay", () => {
       externalChatId: "chat-1",
       displayName: "Mom",
       username: undefined,
-      inviteId: "inv-1",
       contactId: "target-mom",
     });
     for (const aclKey of [
@@ -278,5 +306,73 @@ describe("seedUnverifiedMemberChannel gateway-first relay", () => {
     });
 
     expect(ipcCalls).toHaveLength(1);
+  });
+});
+
+describe("blockSenderChannel gateway-first relay", () => {
+  beforeEach(() => {
+    ipcCalls = [];
+    ipcThrows = false;
+    createContactChannelId = "gw-ch1";
+    revokeOk = true;
+  });
+
+  test("ensures a contact row exists, then revokes the gateway channel", async () => {
+    const result = await blockSenderChannel({
+      sourceChannel: "slack",
+      externalUserId: "U-BLOCKED",
+      displayName: "Mallory",
+      reason: "introduction_block",
+    });
+
+    expect(result.revoked).toBe(true);
+    expect(ipcCalls.map((c) => c.method)).toEqual([
+      "create_contact",
+      "mark_channel_revoked",
+    ]);
+    expect(ipcCalls[0]!.params).toEqual({
+      channelType: "slack",
+      address: "U-BLOCKED",
+      displayName: "Mallory",
+    });
+    expect(ipcCalls[1]!.params).toEqual({
+      contactChannelId: "gw-ch1",
+      reason: "introduction_block",
+    });
+  });
+
+  test("fails closed when the gateway returns no channel id", async () => {
+    createContactChannelId = "";
+
+    const result = await blockSenderChannel({
+      sourceChannel: "slack",
+      externalUserId: "U-BLOCKED",
+    });
+
+    expect(result.revoked).toBe(false);
+    // The revoke must not be attempted against an unknown channel.
+    expect(ipcCalls.map((c) => c.method)).toEqual(["create_contact"]);
+  });
+
+  test("fails closed when the gateway relay throws", async () => {
+    ipcThrows = true;
+
+    const result = await blockSenderChannel({
+      sourceChannel: "slack",
+      externalUserId: "U-BLOCKED",
+    });
+
+    expect(result.revoked).toBe(false);
+  });
+
+  test("fails closed when the revoke is refused", async () => {
+    revokeOk = false;
+
+    const result = await blockSenderChannel({
+      sourceChannel: "slack",
+      externalUserId: "U-BLOCKED",
+    });
+
+    expect(result.revoked).toBe(false);
   });
 });

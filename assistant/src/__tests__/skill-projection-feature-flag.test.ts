@@ -30,6 +30,8 @@ const DECLARED_FLAG_KEY = "contacts";
 
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
+  // Pass-through: these tests don't exercise per-chat plugin scoping.
+  filterSkillsByEnabledPlugins: (skills: unknown) => skills,
 }));
 
 mock.module("../config/loader.js", () => ({

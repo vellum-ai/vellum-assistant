@@ -70,7 +70,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../types.js",
     "../injector-order.js",
   ],
-  "image-fallback": ["node:crypto", "node:fs", "node:path"],
+  "image-fallback": ["bun:sqlite", "node:crypto", "node:fs", "node:path"],
   "image-recovery": [
     "../../../agent/image-optimize.js",
     "../../../context/image-dimensions.js",
@@ -97,6 +97,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../channels/types.js",
     "../../../../cli/program.js",
     "../../../../config/assistant-feature-flags.js",
+    "../../../../config/default-profile-catalog.js",
     "../../../../config/loader.js",
     "../../../../config/memory-v3-gate.js",
     "../../../../config/schema.js",
@@ -144,6 +145,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../skills/catalog-cache.js",
     "../../../../skills/install-meta.js",
     "../../../../skills/skill-memory.js",
+    "../../../../telemetry/watchdog-events-store.js",
     "../../../../tools/skills/delete-managed.js",
     "../../../../util/abort-reasons.js",
     "../../../../util/errors.js",
@@ -165,6 +167,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../context/compactor.js",
     "../../../context/strip-injections.js",
     "../../../context/token-estimator.js",
+    "../../../conversations/job-handlers/summarization.js",
     "../../../daemon/date-context.js",
     "../../../daemon/disk-pressure-background-gate.js",
     "../../../daemon/embedding-reconcile.js",
@@ -173,25 +176,32 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../daemon/skill-memory-refresh.js",
     "../../../daemon/tool-setup-types.js",
     "../../../daemon/trust-context.js",
-    "../../../jobs/register-job-handlers.js",
+    "../../../daemon/trust-context-types.js",
+    "../../../home/job-handlers/conversation-starters.js",
+    "../../../media/job-handlers/media-processing.js",
     "../../../permissions/types.js",
     "../../../persistence/checkpoints.js",
+    "../../../persistence/cleanup-schedule-state.js",
     "../../../persistence/conversation-crud.js",
     "../../../persistence/db-connection.js",
+    "../../../persistence/db-maintenance.js",
     "../../../persistence/embeddings/embedding-backend.js",
+    "../../../persistence/embeddings/embedding-billing-breaker.js",
     "../../../persistence/embeddings/embedding-runtime-manager.js",
     "../../../persistence/embeddings/embedding-types.js",
     "../../../persistence/embeddings/messages-lexical-index.js",
+    "../../../persistence/embeddings/qdrant-circuit-breaker.js",
     "../../../persistence/embeddings/qdrant-client.js",
     "../../../persistence/embeddings/qdrant-manager.js",
+    "../../../persistence/job-handlers/cleanup.js",
+    "../../../persistence/job-handlers/message-lexical-backfill.js",
     "../../../persistence/job-handlers/message-lexical.js",
     "../../../persistence/job-utils.js",
     "../../../persistence/jobs-store.js",
-    "../../../persistence/jobs-worker.js",
-    "../../../persistence/memory-lifecycle-hooks.js",
     "../../../persistence/message-content.js",
     "../../../persistence/raw-query.js",
     "../../../persistence/schema/index.js",
+    "../../../persistence/worker-control.js",
     "../../../prompts/persona-resolver.js",
     "../../../prompts/system-prompt.js",
     "../../../runtime/actor-trust-resolver.js",
@@ -200,6 +210,8 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../runtime/capabilities.js",
     "../../../runtime/services/auto-analysis-enqueue.js",
     "../../../runtime/services/auto-analysis-guard.js",
+    "../../../runtime/services/conversation-analyze-job.js",
+    "../../../tools/registry.js",
     "../../../tools/types.js",
     "../../../types.js",
     "../../../util/logger.js",
@@ -207,6 +219,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../util/promise-guard.js",
     "../../../util/sqlite-retry.js",
     "../../../util/strip-comment-lines.js",
+    "../../../util/worker-memory.js",
     "../../types.js",
     "../injection-presence.js",
     "../injector-order.js",
@@ -245,6 +258,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../daemon/conversation-workspace.js",
     "../../../daemon/now-scratchpad.js",
     "../../../daemon/trust-context.js",
+    "../../../daemon/trust-context-types.js",
     "../../../util/platform.js",
     "../../types.js",
     "../injection-presence.js",
@@ -393,22 +407,59 @@ function parseNamedSymbols(clause: string): string[] {
     .filter((name) => name.length > 0);
 }
 
+/** Sentinel returned by {@link symbolsImportedFrom} for a namespace import
+ *  (`import * as NS from "X"` / `import type * as NS from "X"`): it binds the
+ *  module's entire export surface, so it counts as importing every re-exported
+ *  symbol. `*` cannot collide with a real named-import identifier. */
+const NAMESPACE_IMPORT = "*";
+
 /** Symbols a plugin file imports from a host module whose specifier ends with
- *  `hostPathSuffix` (e.g. `providers/types.js`), across multi-line clauses. */
+ *  `hostPathSuffix` (e.g. `providers/types.js`), across multi-line clauses. A
+ *  namespace import yields the {@link NAMESPACE_IMPORT} sentinel — it reaches
+ *  the whole surface, so it must not slip past the anti-backslide check. */
 function symbolsImportedFrom(source: string, hostPathSuffix: string): string[] {
   const escaped = hostPathSuffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(
-    String.raw`import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]*` +
-      escaped +
-      String.raw`)['"]`,
+  const from = String.raw`\s*from\s*['"]([^'"]*` + escaped + String.raw`)['"]`;
+  const namedRegex = new RegExp(
+    String.raw`import\s+(?:type\s+)?\{([^}]*)\}` + from,
+    "g",
+  );
+  const namespaceRegex = new RegExp(
+    String.raw`import\s+(?:type\s+)?\*\s+as\s+\w+` + from,
     "g",
   );
   const symbols: string[] = [];
   let match: RegExpExecArray | null;
-  while ((match = regex.exec(source)) !== null) {
+  while ((match = namedRegex.exec(source)) !== null) {
     symbols.push(...parseNamedSymbols(match[1]!));
   }
+  while (namespaceRegex.exec(source) !== null) {
+    symbols.push(NAMESPACE_IMPORT);
+  }
   return symbols;
+}
+
+/** Anti-backslide violations for one plugin file against one guarded host
+ *  module: any re-exported symbol imported by name, plus any namespace import
+ *  (which binds the whole surface, and thus every guarded symbol). */
+function guardedImportViolations(
+  file: PluginFile,
+  hostPathSuffix: string,
+  guarded: ReadonlySet<string>,
+): string[] {
+  const violations: string[] = [];
+  for (const symbol of symbolsImportedFrom(file.source, hostPathSuffix)) {
+    if (symbol === NAMESPACE_IMPORT) {
+      violations.push(
+        `  - ${file.relPath}: "import * as … from ${hostPathSuffix}" reaches all re-exported symbols`,
+      );
+    } else if (guarded.has(symbol)) {
+      violations.push(
+        `  - ${file.relPath}: "${symbol}" from ${hostPathSuffix}`,
+      );
+    }
+  }
+  return violations;
 }
 
 describe("plugin import boundary", () => {
@@ -484,26 +535,18 @@ describe("plugin import boundary", () => {
   test("plugins import plugin-api-provided types from @vellumai/plugin-api, not host modules", () => {
     const violations: string[] = [];
     for (const file of files) {
-      for (const symbol of symbolsImportedFrom(
-        file.source,
-        "providers/types.js",
-      )) {
-        if (PLUGIN_API_PROVIDER_TYPES.has(symbol)) {
-          violations.push(
-            `  - ${file.relPath}: "${symbol}" from providers/types.js`,
-          );
-        }
-      }
-      for (const symbol of symbolsImportedFrom(
-        file.source,
-        "config/schemas/llm.js",
-      )) {
-        if (PLUGIN_API_LLM_TYPES.has(symbol)) {
-          violations.push(
-            `  - ${file.relPath}: "${symbol}" from config/schemas/llm.js`,
-          );
-        }
-      }
+      violations.push(
+        ...guardedImportViolations(
+          file,
+          "providers/types.js",
+          PLUGIN_API_PROVIDER_TYPES,
+        ),
+        ...guardedImportViolations(
+          file,
+          "config/schemas/llm.js",
+          PLUGIN_API_LLM_TYPES,
+        ),
+      );
     }
 
     const message = [
@@ -516,5 +559,59 @@ describe("plugin import boundary", () => {
     ].join("\n");
 
     expect(violations, message).toEqual([]);
+  });
+});
+
+describe("anti-backslide symbol extraction", () => {
+  const fileWith = (source: string): PluginFile => ({
+    plugin: "compaction",
+    relPath: "src/plugins/defaults/compaction/example.ts",
+    absPath: "/example.ts",
+    source,
+  });
+
+  test("a re-exported type imported by name is flagged", () => {
+    const file = fileWith(
+      `import type { Message } from "../../../providers/types.js";`,
+    );
+    expect(
+      guardedImportViolations(
+        file,
+        "providers/types.js",
+        PLUGIN_API_PROVIDER_TYPES,
+      ),
+    ).not.toEqual([]);
+  });
+
+  test("the allowed ToolDefinition named import stays clean", () => {
+    const file = fileWith(
+      `import type { ToolDefinition } from "../../../providers/types.js";`,
+    );
+    expect(
+      guardedImportViolations(
+        file,
+        "providers/types.js",
+        PLUGIN_API_PROVIDER_TYPES,
+      ),
+    ).toEqual([]);
+  });
+
+  // A namespace import binds the whole surface (`NS.Message`), so it must be
+  // caught even though the anti-backslide check extracts no named symbols and
+  // the specifier is already in the ratchet baseline.
+  test("a namespace import of a guarded module is flagged", () => {
+    for (const source of [
+      `import * as ProviderTypes from "../../../providers/types.js";`,
+      `import type * as ProviderTypes from "../../../providers/types.js";`,
+    ]) {
+      expect(
+        guardedImportViolations(
+          fileWith(source),
+          "providers/types.js",
+          PLUGIN_API_PROVIDER_TYPES,
+        ),
+        source,
+      ).not.toEqual([]);
+    }
   });
 });

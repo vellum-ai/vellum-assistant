@@ -16,7 +16,13 @@
  * loading / empty presentation while the turn is still streaming.
  */
 
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -68,11 +74,11 @@ function useChosenAvatar() {
 /** The chosen assistant as a live avatar (for the heading rows). */
 export function MiniAssistant({
   size = 64,
-  isStreaming = false,
+  isAssistantBusy = false,
 }: {
   size?: number;
   /** Morph the body while active (e.g. during the looking-you-up carousel). */
-  isStreaming?: boolean;
+  isAssistantBusy?: boolean;
 }) {
   const { components, chosen } = useChosenAvatar();
   if (!components || !chosen) return <div style={{ width: size, height: size }} />;
@@ -82,7 +88,7 @@ export function MiniAssistant({
         components={components}
         traits={chosen}
         size={size}
-        isStreaming={isStreaming}
+        isAssistantBusy={isAssistantBusy}
       />
     </div>
   );
@@ -219,12 +225,35 @@ export function MeetingCreatedStep({
 // Looking you up (loading carousel)
 // ---------------------------------------------------------------------------
 
-const LOOKING_MESSAGES = [
+// Rotating status lines shown while the web-research turn settles in the
+// background. They loop until `ready`, so the copy is pure flavor — it never
+// gates progress. The personality rewrite is NOT narrated here: it runs
+// decoupled and is finished off in the dedicated FinishingUpStep, so this quick
+// loader isn't held hostage to the persona turn.
+const WEB_SEARCH_MESSAGES = [
   "Searching the web to get to know you…",
   "Reading public profiles…",
+  "Skimming the highlights…",
   "Connecting the dots…",
-  "Almost there…",
+  "Piecing it together…",
 ];
+
+// Persona-rewrite lines, shown by FinishingUpStep while the personality turn
+// wraps up right before the chat handoff.
+const PERSONALITY_MESSAGES = [
+  "Updating my personality…",
+  "Finding my voice…",
+  "Getting into character…",
+];
+
+// Shared closing line both carousels settle on.
+const LOOKING_CLOSING_MESSAGE = "Almost there…";
+
+/** The web-search carousel: search lines, then the shared closer. */
+const LOOKING_MESSAGES = [...WEB_SEARCH_MESSAGES, LOOKING_CLOSING_MESSAGE];
+
+/** The finishing carousel: persona lines, then the shared closer. */
+const FINISHING_MESSAGES = [...PERSONALITY_MESSAGES, LOOKING_CLOSING_MESSAGE];
 
 /** How long each rotating message lingers before advancing to the next. */
 const LOOKING_MESSAGE_INTERVAL_MS = 2800;
@@ -243,9 +272,9 @@ export function LookingYouUpStep({
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
   /**
-   * The research turn has settled (results are ready, or there were none). Until
-   * then the carousel keeps rotating — looping the messages — so we never land
-   * on an empty "this is what I found" page.
+   * The web-research turn has settled (results are ready, or there were none).
+   * Until then the carousel keeps rotating — looping the messages — so we never
+   * land on an empty "this is what I found" page.
    */
   ready: boolean;
 }) {
@@ -274,7 +303,7 @@ export function LookingYouUpStep({
       {/* Top-align so the avatar stays put as messages change line count
           (centering would bob it up and down between carousel lines). */}
       <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
-        <MiniAssistant isStreaming />
+        <MiniAssistant isAssistantBusy />
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
@@ -286,6 +315,72 @@ export function LookingYouUpStep({
             transition={{ duration: 0.35 }}
           >
             {LOOKING_MESSAGES[index]}
+          </motion.p>
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Finishing up (personality-rewrite loading carousel)
+// ---------------------------------------------------------------------------
+
+/**
+ * Terminal loading carousel shown after "Let's chat" while the personality
+ * rewrite finishes in the background. The rewrite runs decoupled from the
+ * looking-you-up (web-search) carousel — it lands here at the very end so that
+ * quick step, and the results, aren't held hostage to the persona turn. Loops
+ * its lines until `ready` (the rewrite settled), then snaps to the closing line
+ * and hands off — so the user never drops into chat before the persona they
+ * configured is fully written. No nav: the user has already committed to
+ * entering the chat.
+ */
+export function FinishingUpStep({
+  onDone,
+  ready,
+}: {
+  onDone: () => void;
+  /** The personality rewrite has settled; hand off after the closing line. */
+  ready: boolean;
+}) {
+  const tone = DARK_TONE;
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const lastIndex = FINISHING_MESSAGES.length - 1;
+    if (ready) {
+      // Snap to the closing line first (so we don't hand off mid-list), hold a
+      // beat, then enter chat.
+      if (index !== lastIndex) {
+        setIndex(lastIndex);
+        return;
+      }
+      const done = setTimeout(onDone, LOOKING_MESSAGE_INTERVAL_MS);
+      return () => clearTimeout(done);
+    }
+    const next = setTimeout(
+      () => setIndex((i) => (i + 1) % FINISHING_MESSAGES.length),
+      LOOKING_MESSAGE_INTERVAL_MS,
+    );
+    return () => clearTimeout(next);
+  }, [index, ready, onDone]);
+
+  return (
+    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
+      <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
+        <MiniAssistant isAssistantBusy />
+        <AnimatePresence mode="wait">
+          <motion.p
+            key={index}
+            className="text-[2.6rem] leading-none"
+            style={{ fontFamily: "var(--font-serif)" }}
+            initial={{ y: 12, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -12, opacity: 0 }}
+            transition={{ duration: 0.35 }}
+          >
+            {FINISHING_MESSAGES[index]}
           </motion.p>
         </AnimatePresence>
       </div>

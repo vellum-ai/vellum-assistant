@@ -2,6 +2,8 @@ import { isDeepStrictEqual } from "node:util";
 
 import { getLogger } from "../util/logger.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
+import { OS_BETA_PROFILE_TEMPLATE } from "./default-profile-catalog.js";
+import { OS_BETA_PROFILE_KEY } from "./default-profile-names.js";
 import {
   getConfigReadOnly,
   invalidateConfigCache,
@@ -10,10 +12,7 @@ import {
 } from "./loader.js";
 import type { ProfileEntry } from "./schemas/llm.js";
 import {
-  materializeProfile,
   OS_BETA_FEATURE_FLAG_KEY,
-  OS_BETA_PROFILE_KEY,
-  OS_BETA_PROFILE_TEMPLATE,
   readObject,
 } from "./seed-inference-profiles.js";
 
@@ -93,24 +92,21 @@ function enableProfile(
   previous: Record<string, unknown> | null,
   isByokMode: boolean,
 ): boolean {
-  const effectiveTemplate = isByokMode
-    ? {
-        ...OS_BETA_PROFILE_TEMPLATE,
-        label: `${OS_BETA_PROFILE_TEMPLATE.label} (Managed)`,
-      }
-    : OS_BETA_PROFILE_TEMPLATE;
-  const next = materializeProfile(
-    effectiveTemplate,
-    OS_BETA_PROFILE_TEMPLATE.provider,
-    OS_BETA_PROFILE_TEMPLATE.connectionName,
-  ) as Record<string, unknown>;
+  // The profile's content is code-owned (`default-profile-catalog.ts`) and
+  // resolves through the effective view once this stub exists; the workspace
+  // entry carries only the overlay fields (`source`, `label`, `status`,
+  // `topP`).
+  const next: Record<string, unknown> = { source: "managed" };
 
-  // BYOK installs seed managed profiles disabled: the managed inference
-  // connection backing this profile isn't usable until the user enables it, so a
-  // fresh OS Beta entry starts disabled to avoid offering an unusable route. A
-  // user's own status override (preserved below) wins on later reconciles.
+  // BYOK installs create the stub disabled: the managed inference connection
+  // backing this profile isn't usable until the user enables it, so a fresh
+  // OS Beta entry starts disabled to avoid offering an unusable route. The
+  // " (Managed)" label suffix disambiguates it from personal profiles in
+  // pickers. A user's own overrides (preserved below) win on later
+  // reconciles.
   if (isByokMode && !previous) {
     next.status = "disabled";
+    next.label = `${OS_BETA_PROFILE_TEMPLATE.label} (Managed)`;
   }
 
   if (previous) {
@@ -190,10 +186,8 @@ function disableProfile(
     removed.has(llm.advisorProfile)
   ) {
     // Repoint the advisor at the managed Quality profile (the strongest).
-    // `quality-optimized` is a canonical name seeded unconditionally every boot,
-    // so target it even if it has not been materialized yet this startup — this
-    // reconcile can run before the seeder in the boot sequence, and the later
-    // seeder won't rewrite an already-set `advisorProfile`.
+    // `quality-optimized` is an always-available code-catalog default, so it
+    // resolves whether or not a workspace stub exists.
     llm.advisorProfile = "quality-optimized";
   }
 

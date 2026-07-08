@@ -185,7 +185,6 @@ describe("VellumAcpClientHandler", () => {
       expect(sent).toHaveLength(0);
       expect(handler.pendingRequestIds.size).toBe(0);
     });
-
   });
 });
 
@@ -264,6 +263,8 @@ describe("AcpSessionManager", () => {
         initialize: mock(() => Promise.resolve()),
         createSession: mock(() => Promise.resolve("proto-session")),
         cancel: mock(() => Promise.resolve()),
+        markStderr: () => 0,
+        stderrSince: () => "",
       };
       const fakeHandler = new VellumAcpClientHandler(
         "test-session",
@@ -324,6 +325,8 @@ describe("AcpSessionManager", () => {
       const fakeProcess = {
         prompt: () => promptPromise,
         kill: mock(() => {}),
+        markStderr: () => 0,
+        stderrSince: () => "",
       };
       const fakeHandler = new VellumAcpClientHandler(
         "test-session-2",

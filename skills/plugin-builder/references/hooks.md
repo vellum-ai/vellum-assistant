@@ -22,7 +22,7 @@ The loop moves a conversation turn through a series of **lifecycle events**. The
 
 The loop can iterate several times within a single user turn: every tool result returns to a fresh model call, and a `post-model-call` hook can choose to continue rather than end the turn. Because of this, `pre-model-call`, `post-model-call`, and `post-tool-use` can each fire more than once per turn.
 
-The Assistant also hooks into Lifecycle Events that sit outside the Agent Loop: `init` fires at bootstrap, and `shutdown` fires at teardown.
+The Assistant also hooks into Lifecycle Events that sit outside the Agent Loop: `init` fires at bootstrap, `shutdown` fires at teardown, and `conversation-deleted` fires after a conversation is deleted from storage.
 
 ## Hooks reference
 
@@ -32,7 +32,8 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 **Context:** `InitContext`
 **When:** Once, when the plugin is first registered (on boot or install).
-**Use it to:** Validate config and open resources. Throwing aborts the plugin's load.
+**Use it to:** Validate config and open resources. This is where plugin-owned storage is set up: create data files under `pluginStorageDir` and apply the plugin's own schema, idempotently — `init` runs on every boot. Throwing aborts the plugin's load.
+**Example:** [image-fallback](https://github.com/vellum-ai/vellum-assistant/blob/main/assistant/src/plugins/defaults/image-fallback/hooks/init.ts)
 
 | Field              | Type           | Access    | Description                                                                                            |
 | ------------------ | -------------- | --------- | ------------------------------------------------------------------------------------------------------ |
@@ -48,17 +49,18 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 **Use it to:** Read or rewrite the message list the model is about to see.
 **Example:** [advisor](https://github.com/vellum-ai/vellum-assistant/blob/5a79f009573790dd085223a0133135410a6fe41d/assistant/src/plugins/defaults/advisor/hooks/user-prompt-submit.ts)
 
-| Field              | Type                     | Access    | Description                                                                                                               |
-| ------------------ | ------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `conversationId`   | `string`                 | Read-only | Conversation the prompt was submitted on.                                                                                 |
-| `userMessageId`    | `string`                 | Read-only | Persisted id of the user message that triggered the turn.                                                                 |
-| `requestId`        | `string`                 | Read-only | Stable id for the request driving this turn.                                                                              |
-| `modelProfileKey`  | `string`                 | Read-only | Effective inference profile identity for the model this turn will use. Profileless configs receive the resolved model id. |
-| `isNonInteractive` | `boolean`                | Read-only | True when no human is present to answer clarifications (scheduled or headless runs).                                      |
-| `prompt`           | `string`                 | Read-only | Resolved text of the user prompt, after slash-command expansion.                                                          |
-| `originalMessages` | `ReadonlyArray<Message>` | Read-only | The user's original message list. Snapshot only, never mutate.                                                            |
-| `latestMessages`   | `Message[]`              | Mutable   | The working list that flows into the agent loop. Mutate in place or replace via the return value.                         |
-| `logger`           | `PluginLogger`           | Read-only | Logger scoped to the current turn.                                                                                        |
+| Field              | Type                     | Access    | Description                                                                                                                                                                                                                             |
+| ------------------ | ------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversationId`   | `string`                 | Read-only | Conversation the prompt was submitted on.                                                                                                                                                                                               |
+| `userMessageId`    | `string`                 | Read-only | Persisted id of the user message that triggered the turn.                                                                                                                                                                               |
+| `requestId`        | `string`                 | Read-only | Stable id for the request driving this turn.                                                                                                                                                                                            |
+| `modelProfileKey`  | `string`                 | Read-only | Effective inference profile identity for the model this turn will use. Profileless configs receive the resolved model id.                                                                                                               |
+| `isNonInteractive` | `boolean`                | Read-only | True when no human is present to answer clarifications (scheduled or headless runs).                                                                                                                                                    |
+| `prompt`           | `string`                 | Read-only | Resolved text of the user prompt, after slash-command expansion.                                                                                                                                                                        |
+| `originalMessages` | `ReadonlyArray<Message>` | Read-only | The user's original message list. Snapshot only, never mutate.                                                                                                                                                                          |
+| `latestMessages`   | `Message[]`              | Mutable   | The working list that flows into the agent loop. Mutate in place or replace via the return value.                                                                                                                                       |
+| `logger`           | `PluginLogger`           | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation / request identity. Log through it; no manual tagging needed.                                                                                                   |
+| `broadcast`        | `HookBroadcast`          | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn. |
 
 ### `post-compact`
 
@@ -67,14 +69,16 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 **Use it to:** Re-apply context that compaction dropped (for example memory injections) onto the compacted history before the next model call.
 **Example:** [memory-v3-shadow](https://github.com/vellum-ai/vellum-assistant/blob/5a79f009573790dd085223a0133135410a6fe41d/assistant/src/plugins/defaults/memory-v3-shadow/hooks/post-compact.ts)
 
-| Field              | Type                  | Access    | Description                                                                                                                                                   |
-| ------------------ | --------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `history`          | `Message[]`           | Mutable   | The compacted message history to re-inject onto. The loop resumes the turn from the settled value.                                                            |
-| `requestId`        | `string`              | Read-only | Stable id of the request driving this turn. Forward it onto the injector so re-applied blocks are attributed to the originating request.                      |
-| `conversationId`   | `string`              | Read-only | Conversation the turn being compacted is scoped to.                                                                                                           |
-| `isNonInteractive` | `boolean`             | Read-only | True when no human is present to answer clarifications (scheduled, background, or headless runs).                                                             |
-| `modelProfileKey`  | `string`              | Read-only | Effective inference profile identity for the model the compacted turn will keep using. Profileless configs receive the resolved model id.                     |
-| `injectionMode`    | `"full" \| "minimal"` | Read-only | Volume of runtime injection to re-apply. 'full' restores the complete context, 'minimal' is the reduced volume overflow recovery selects. Defaults to 'full'. |
+| Field              | Type                  | Access    | Description                                                                                                                                                                                                                             |
+| ------------------ | --------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `history`          | `Message[]`           | Mutable   | The compacted message history to re-inject onto. The loop resumes the turn from the settled value.                                                                                                                                      |
+| `requestId`        | `string`              | Read-only | Stable id of the request driving this turn. Forward it onto the injector so re-applied blocks are attributed to the originating request.                                                                                                |
+| `conversationId`   | `string`              | Read-only | Conversation the turn being compacted is scoped to.                                                                                                                                                                                     |
+| `isNonInteractive` | `boolean`             | Read-only | True when no human is present to answer clarifications (scheduled, background, or headless runs).                                                                                                                                       |
+| `modelProfileKey`  | `string`              | Read-only | Effective inference profile identity for the model the compacted turn will keep using. Profileless configs receive the resolved model id.                                                                                               |
+| `injectionMode`    | `"full" \| "minimal"` | Read-only | Volume of runtime injection to re-apply. 'full' restores the complete context, 'minimal' is the reduced volume overflow recovery selects. Defaults to 'full'.                                                                           |
+| `logger`           | `PluginLogger`        | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation / request identity. Log through it; no manual tagging needed.                                                                                                   |
+| `broadcast`        | `HookBroadcast`       | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn. |
 
 ### `pre-model-call`
 
@@ -90,7 +94,8 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 | `systemPrompt`         | `string \| null`      | Mutable   | The system prompt about to be sent. Replace it to edit the request; guard the null case.                                                                                                                                                                                                                                                                         |
 | `modelProfile`         | `string \| null`      | Mutable   | The inference profile this call routes to. Set it to a profile key to send the call there (the lever a model-router hook uses to pick a profile per call), or leave it as is for the default resolution. Seeded from the call's resolved override, and null when none applies. Gate on callSite first, and discover the routable keys with `getModelProfiles()`. |
 | `deferAssistantOutput` | `boolean`             | Mutable   | Set true to suppress the live token stream so a post-model-call hook can emit the final text instead.                                                                                                                                                                                                                                                            |
-| `logger`               | `PluginLogger`        | Read-only | Logger scoped to the current turn.                                                                                                                                                                                                                                                                                                                               |
+| `logger`               | `PluginLogger`        | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation / request identity. Log through it; no manual tagging needed.                                                                                                                                                                                                                            |
+| `broadcast`            | `HookBroadcast`       | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn.                                                                                                                          |
 
 ### `post-model-call`
 
@@ -108,7 +113,8 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 | `error`          | `Error \| undefined`    | Read-only | The provider rejection that ended the call, on a rejection outcome; absent on a finalized reply. Hooks that only act on a real reply should guard on it and return early.                                                                                         |
 | `stopReason`     | `string \| null`        | Read-only | Provider-reported stop reason, or null when none was reported (also null on a rejection).                                                                                                                                                                         |
 | `decision`       | `PostModelCallDecision` | Mutable   | Seeded to 'stop'. Set it to 'continue' to re-query the model. Honored only at actionable outcomes (a no-tool reply or a provider rejection); the loop does not gate it on call site, so self-gate via callSite to avoid re-querying background or subagent calls. |
-| `logger`         | `PluginLogger`          | Read-only | Logger scoped to the current turn.                                                                                                                                                                                                                                |
+| `logger`         | `PluginLogger`          | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation / request identity. Log through it; no manual tagging needed.                                                                                                                             |
+| `broadcast`      | `HookBroadcast`         | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn.                           |
 
 ### `post-tool-use`
 
@@ -117,14 +123,15 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 **Use it to:** Transform the tool result, for example truncating oversized output to fit the context window.
 **Example:** [tool-result-truncate](https://github.com/vellum-ai/vellum-assistant/blob/5a79f009573790dd085223a0133135410a6fe41d/assistant/src/plugins/defaults/tool-result-truncate/hooks/post-tool-use.ts)
 
-| Field               | Type                     | Access    | Description                                                                                                                              |
-| ------------------- | ------------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `conversationId`    | `string`                 | Read-only | Conversation the tool ran on.                                                                                                            |
-| `toolResponse`      | `ToolResultContent`      | Mutable   | The tool result block. Mutate its content in place or replace the block.                                                                 |
-| `messages`          | `ReadonlyArray<Message>` | Read-only | History up to and including the assistant turn that issued the call. The result is not in it yet.                                        |
-| `additionalContext` | `string \| null`         | Mutable   | Extra model-only guidance appended after the tool result, for example retry coaching. Defaults to null; set a string to append guidance. |
-| `maxInputTokens`    | `number`                 | Read-only | The model's context-window size in tokens, for deriving a character budget.                                                              |
-| `logger`            | `PluginLogger`           | Read-only | Logger scoped to the current turn.                                                                                                       |
+| Field               | Type                     | Access    | Description                                                                                                                                                                                                                             |
+| ------------------- | ------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversationId`    | `string`                 | Read-only | Conversation the tool ran on.                                                                                                                                                                                                           |
+| `toolResponse`      | `ToolResultContent`      | Mutable   | The tool result block. Mutate its content in place or replace the block.                                                                                                                                                                |
+| `messages`          | `ReadonlyArray<Message>` | Read-only | History up to and including the assistant turn that issued the call. The result is not in it yet.                                                                                                                                       |
+| `additionalContext` | `string \| null`         | Mutable   | Extra model-only guidance appended after the tool result, for example retry coaching. Defaults to null; set a string to append guidance.                                                                                                |
+| `maxInputTokens`    | `number`                 | Read-only | The model's context-window size in tokens, for deriving a character budget.                                                                                                                                                             |
+| `logger`            | `PluginLogger`           | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation / request identity. Log through it; no manual tagging needed.                                                                                                   |
+| `broadcast`         | `HookBroadcast`          | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn. |
 
 ### `stop`
 
@@ -133,19 +140,34 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 **Use it to:** Run teardown: release per-turn resources or clear per-turn state, knowing nothing will re-enter the loop this run. It cannot continue the loop; the retry decision lives in post-model-call.
 **Example:** [max-tokens-continue](https://github.com/vellum-ai/vellum-assistant/blob/5a79f009573790dd085223a0133135410a6fe41d/assistant/src/plugins/defaults/max-tokens-continue/hooks/stop.ts)
 
-| Field            | Type                     | Access    | Description                                                                                                                                                                                |
-| ---------------- | ------------------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `conversationId` | `string`                 | Read-only | Conversation the run belongs to.                                                                                                                                                           |
-| `messages`       | `ReadonlyArray<Message>` | Read-only | Full conversation history at the terminal stop. Provided for inspection; mutating it has no effect, since the loop will not run again this turn.                                           |
-| `exitReason`     | `AgentLoopExitReason`    | Read-only | Which terminal state the turn reached (for example `no_tool_calls`, `max_tokens_reached`, `error`, `checkpoint_handoff`). A hook that should act only on a particular ending guards on it. |
-| `error`          | `Error \| undefined`     | Read-only | The rejection that ended the turn, when it ended on one; absent on a clean stop.                                                                                                           |
-| `logger`         | `PluginLogger`           | Read-only | Logger scoped to the current turn.                                                                                                                                                         |
+| Field            | Type                     | Access    | Description                                                                                                                                                                                                                             |
+| ---------------- | ------------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversationId` | `string`                 | Read-only | Conversation the run belongs to.                                                                                                                                                                                                        |
+| `messages`       | `ReadonlyArray<Message>` | Read-only | Full conversation history at the terminal stop. Provided for inspection; mutating it has no effect, since the loop will not run again this turn.                                                                                        |
+| `exitReason`     | `AgentLoopExitReason`    | Read-only | Which terminal state the turn reached (for example `no_tool_calls`, `max_tokens_reached`, `error`, `checkpoint_handoff`). A hook that should act only on a particular ending guards on it.                                              |
+| `error`          | `Error \| undefined`     | Read-only | The rejection that ended the turn, when it ended on one; absent on a clean stop.                                                                                                                                                        |
+| `logger`         | `PluginLogger`           | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation / request identity. Log through it; no manual tagging needed.                                                                                                   |
+| `broadcast`      | `HookBroadcast`          | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn. |
+
+### `conversation-deleted`
+
+**Context:** `ConversationDeletedContext`
+**When:** Once per deleted conversation, after its rows are removed. Fires from the shared delete primitives, so every delete caller (route, retrospective cleanup, GC) dispatches it.
+**Use it to:** Clean up per-conversation state your plugin keeps (caches, queued work, external records) keyed by the conversation id. Fire-and-forget: hooks run async with no ordering guarantee relative to the caller, and by the time a hook runs the conversation's rows are gone.
+**Example:** [memory](https://github.com/vellum-ai/vellum-assistant/blob/main/assistant/src/plugins/defaults/memory/hooks/conversation-deleted.ts)
+
+| Field            | Type            | Access    | Description                                                                                                                                                                                                                             |
+| ---------------- | --------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversationId` | `string`        | Read-only | ID of the conversation that was deleted.                                                                                                                                                                                                |
+| `logger`         | `PluginLogger`  | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation identity. Log through it; no manual tagging needed.                                                                                                             |
+| `broadcast`      | `HookBroadcast` | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn. |
 
 ### `shutdown`
 
 **Context:** `ShutdownContext`
 **When:** Once, when the Assistant tears down the plugin (process exit, unload).
-**Use it to:** Best-effort cleanup. Do not rely on it for critical writes; persist durably during normal operation instead.
+**Use it to:** Best-effort cleanup: close storage handles opened in `init` and release other resources. Do not rely on it for critical writes; persist durably during normal operation instead.
+**Example:** [image-fallback](https://github.com/vellum-ai/vellum-assistant/blob/main/assistant/src/plugins/defaults/image-fallback/hooks/shutdown.ts)
 
 | Field              | Type     | Access    | Description                                        |
 | ------------------ | -------- | --------- | -------------------------------------------------- |
@@ -166,21 +188,23 @@ Within a single plugin, hooks for the same name are not duplicated: each plugin 
 
 These are the hook-related exports from [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api). Each context type's full field contract is documented in the hook sections above.
 
-| Export                    | Kind  | Purpose                                                                                                                           |
-| ------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `HOOKS`                   | const | Wired hook names keyed by constant (INIT, PRE_MODEL_CALL, and so on). Reference hooks by this instead of free-form strings.       |
-| `HookName`                | type  | Union of every wired hook name declared in HOOKS.                                                                                 |
-| `HookFunction`            | type  | Signature every hook implements: `(ctx) => Promise<Partial<ctx> \| void>`.                                                        |
-| `InitContext`             | type  | Passed to the init hook at bootstrap.                                                                                             |
-| `ShutdownContext`         | type  | Passed to the shutdown hook at teardown.                                                                                          |
-| `UserPromptSubmitContext` | type  | Passed to user-prompt-submit, before a turn's messages reach the agent loop.                                                      |
-| `PreModelCallContext`     | type  | Passed to pre-model-call, before each provider call.                                                                              |
-| `PostToolUseContext`      | type  | Passed to post-tool-use, once per tool result.                                                                                    |
-| `PostModelCallContext`    | type  | Passed to post-model-call at every model-call outcome (a finalized reply or a provider rejection); carries the continue decision. |
-| `PostCompactContext`      | type  | Passed to post-compact, after the loop compacts a conversation mid-turn.                                                          |
-| `StopContext`             | type  | Passed to stop, the terminal hook, once the turn has committed to ending.                                                         |
-| `PostModelCallDecision`   | type  | The post-model-call decision shape: whether to end the turn or continue.                                                          |
-| `AgentLoopExitReason`     | type  | Which terminal state a turn reached, carried on StopContext.                                                                      |
+| Export                       | Kind  | Purpose                                                                                                                           |
+| ---------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `HOOKS`                      | const | Wired hook names keyed by constant (INIT, PRE_MODEL_CALL, and so on). Reference hooks by this instead of free-form strings.       |
+| `HookName`                   | type  | Union of every wired hook name declared in HOOKS.                                                                                 |
+| `HookFunction`               | type  | Signature every hook implements: `(ctx) => Promise<Partial<ctx> \| void>`.                                                        |
+| `HookBroadcast`              | type  | Signature of `ctx.broadcast(detail)`: emit a transient `hook_event` to UIs watching the conversation.                             |
+| `InitContext`                | type  | Passed to the init hook at bootstrap.                                                                                             |
+| `ShutdownContext`            | type  | Passed to the shutdown hook at teardown.                                                                                          |
+| `UserPromptSubmitContext`    | type  | Passed to user-prompt-submit, before a turn's messages reach the agent loop.                                                      |
+| `PreModelCallContext`        | type  | Passed to pre-model-call, before each provider call.                                                                              |
+| `PostToolUseContext`         | type  | Passed to post-tool-use, once per tool result.                                                                                    |
+| `PostModelCallContext`       | type  | Passed to post-model-call at every model-call outcome (a finalized reply or a provider rejection); carries the continue decision. |
+| `PostCompactContext`         | type  | Passed to post-compact, after the loop compacts a conversation mid-turn.                                                          |
+| `StopContext`                | type  | Passed to stop, the terminal hook, once the turn has committed to ending.                                                         |
+| `ConversationDeletedContext` | type  | Passed to conversation-deleted, after a conversation is deleted from storage.                                                     |
+| `PostModelCallDecision`      | type  | The post-model-call decision shape: whether to end the turn or continue.                                                          |
+| `AgentLoopExitReason`        | type  | Which terminal state a turn reached, carried on StopContext.                                                                      |
 
 ## Anatomy of a hook
 

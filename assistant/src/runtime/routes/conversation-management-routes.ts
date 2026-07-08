@@ -6,9 +6,9 @@
  * POST   /v1/conversations/fork           — fork an existing conversation
  * POST   /v1/conversations/summarize      — summarize context up to a message
  * PUT    /v1/conversations/:id/inference-profile — set per-conversation inference profile
+ * PUT    /v1/conversations/:id/enabledplugins — set per-conversation plugin scope
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
- * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
  * DELETE /v1/conversations/:id            — delete a single conversation
  * POST   /v1/conversations/:id/archive    — archive a conversation
  * POST   /v1/conversations/:id/unarchive  — restore an archived conversation
@@ -22,6 +22,7 @@
 import { z } from "zod";
 
 import { formatSummarizeUpToResult } from "../../daemon/conversation-process.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   destroyActiveConversation,
   getOrCreateConversation as getOrCreateConversationInstance,
@@ -42,10 +43,10 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
+  setConversationEnabledPlugins,
   setConversationSurfaced,
   unarchiveConversation,
   updateConversationTitle,
-  wipeConversation,
 } from "../../persistence/conversation-crud.js";
 import {
   getOrCreateConversation,
@@ -58,9 +59,10 @@ import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
-import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import {
+  publishConversationEnabledPluginsChanged,
   publishConversationListAndMetadataChanged,
   publishConversationListChanged,
   publishConversationTitleChanged,
@@ -327,6 +329,49 @@ async function handleSetInferenceProfile({
   return result;
 }
 
+async function handleUpdateConversationEnabledPlugins({
+  pathParams = {},
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  const enabledPlugins = body.enabledPlugins as string[] | null | undefined;
+  // The field is required; `null` is the explicit "clear the scope" signal.
+  // A missing field (malformed/empty body) must not silently clear the scope.
+  if (enabledPlugins === undefined) {
+    throw new BadRequestError(
+      "enabledPlugins is required (use null to clear the scope)",
+    );
+  }
+  if (
+    enabledPlugins !== null &&
+    (!Array.isArray(enabledPlugins) ||
+      enabledPlugins.some((p) => typeof p !== "string"))
+  ) {
+    throw new BadRequestError(
+      "enabledPlugins must be an array of strings or null",
+    );
+  }
+
+  const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
+  const conversation = getConversation(resolvedId);
+  if (!conversation) {
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
+  }
+
+  // `null` clears the per-chat scope back to the default (all enabled
+  // plugins); a `string[]` scopes the chat to those plugin ids.
+  const nextEnabledPlugins = enabledPlugins;
+  setConversationEnabledPlugins(resolvedId, nextEnabledPlugins);
+  findConversation(resolvedId)?.setEnabledPlugins(nextEnabledPlugins);
+
+  publishConversationEnabledPluginsChanged(
+    resolvedId,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
+
+  return { conversationId: resolvedId, enabledPlugins: nextEnabledPlugins };
+}
+
 function handleRenameConversation({
   pathParams = {},
   body = {},
@@ -365,52 +410,6 @@ async function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
     headers["x-vellum-client-id"]?.trim() || undefined,
   );
   return undefined;
-}
-
-async function handleWipeConversation({
-  pathParams = {},
-  headers,
-}: RouteHandlerArgs) {
-  const resolvedId = resolveOrThrow(pathParams.id!);
-
-  await cancelScheduleIfLast(resolvedId);
-
-  destroyActiveConversation(resolvedId);
-  const result = wipeConversation(resolvedId);
-  for (const segId of result.segmentIds) {
-    enqueueMemoryJob("delete_qdrant_vectors", {
-      targetType: "segment",
-      targetId: segId,
-    });
-  }
-  for (const summaryId of result.deletedSummaryIds) {
-    enqueueMemoryJob("delete_qdrant_vectors", {
-      targetType: "summary",
-      targetId: summaryId,
-    });
-  }
-  log.info(
-    {
-      conversationId: resolvedId,
-      summariesDeleted: result.deletedSummaryIds.length,
-      jobsCancelled: result.cancelledJobCount,
-    },
-    "Wiped conversation and reverted memory changes",
-  );
-  publishConversationListAndMetadataChanged(
-    "deleted",
-    resolvedId,
-    headers?.["x-vellum-client-id"]?.trim() || undefined,
-  );
-
-  void stripConversationIds(resolvedId);
-
-  return {
-    wiped: true,
-    unsupersededItems: 0,
-    deletedSummaries: result.deletedSummaryIds.length,
-    cancelledJobs: result.cancelledJobCount,
-  };
 }
 
 async function handleDeleteConversation({
@@ -786,6 +785,30 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleSetInferenceProfile,
   },
   {
+    operationId: "conversations_by_id_enabledplugins_put",
+    endpoint: "conversations/:id/enabledplugins",
+    method: "PUT",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Set conversation enabled plugins",
+    description:
+      "Scope a single conversation to a subset of installed plugins " +
+      "(first-party defaults are always available). Pass null to clear the " +
+      "scope back to the default (all enabled plugins).",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      enabledPlugins: z.array(z.string()).nullable(),
+    }),
+    responseBody: z.object({
+      conversationId: z.string(),
+      enabledPlugins: z.array(z.string()).nullable(),
+    }),
+    handler: handleUpdateConversationEnabledPlugins,
+  },
+  {
     operationId: "renameConversation",
     endpoint: "conversations/:id/name",
     method: "PATCH",
@@ -816,27 +839,6 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["conversations"],
     responseStatus: "204",
     handler: handleClearAllConversations,
-  },
-  {
-    operationId: "wipeConversation",
-    endpoint: "conversations/:id/wipe",
-    method: "POST",
-    policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
-    },
-    summary: "Wipe a conversation",
-    description:
-      "Delete all messages in a conversation and revert associated memory changes.",
-    tags: ["conversations"],
-    pathParams: [{ name: "id", type: "uuid" }],
-    responseBody: z.object({
-      wiped: z.boolean(),
-      unsupersededItems: z.number().int(),
-      deletedSummaries: z.number().int(),
-      cancelledJobs: z.number().int(),
-    }),
-    handler: handleWipeConversation,
   },
   {
     operationId: "deleteConversation",

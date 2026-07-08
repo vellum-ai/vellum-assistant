@@ -94,6 +94,9 @@ const realDbConnection = {
 };
 const realDense = { ...(await import("../dense.js")) };
 const realPageContent = { ...(await import("../page-content.js")) };
+const realConversationRegistry = {
+  ...(await import("../../../../../daemon/conversation-registry.js")),
+};
 
 let providerStub: Provider | null = null;
 mock.module("@vellumai/plugin-api", () => ({
@@ -218,6 +221,7 @@ mock.module("../page-content.js", () => ({
 // daemon module graph out of this test process — same call as injection.test.ts).
 const histories = new Map<string, Message[]>();
 mock.module("../../../../../daemon/conversation-registry.js", () => ({
+  ...realConversationRegistry,
   findConversationOrSubagent: (conversationId: string) => {
     const messages = histories.get(conversationId);
     return messages ? { messages } : undefined;

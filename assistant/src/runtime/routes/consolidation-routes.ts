@@ -26,8 +26,8 @@ import {
   hasActiveJobOfType,
   MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
 } from "../../persistence/jobs-store.js";
-import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../persistence/jobs-worker.js";
 import { getUsageCostForConversationWindow } from "../../persistence/llm-usage-store.js";
+import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../plugins/defaults/memory/jobs-worker.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/v2/constants.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
@@ -53,7 +53,9 @@ function readLastRunAt(): number | null {
   const raw = getMemoryCheckpoint(
     GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
   );
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : null;
 }

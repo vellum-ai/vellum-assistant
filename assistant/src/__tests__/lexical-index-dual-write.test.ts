@@ -12,7 +12,16 @@
 // machinery. Memory config is real (default-enabled), flipped on disk for the
 // disabled case.
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -22,11 +31,11 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-// Stub the segment indexer so `onMessagePersisted` runs cheaply. The lexical
-// enqueue in the hook is a separate call and still fires. Other exports are
-// provided so any transitive importer of this module resolves. `throwFromIndex`
-// lets a test simulate a transient segment-indexing failure to prove the
-// lexical enqueue survives it.
+// Stub the segment indexer so the persist path's memory indexing runs cheaply.
+// The lexical enqueue is a separate call on the persist path and still fires.
+// Other exports are provided so any transitive importer of this module
+// resolves. `throwFromIndex` lets a test simulate a transient segment-indexing
+// failure to prove the lexical enqueue survives it.
 let throwFromIndex = false;
 mock.module("../plugins/defaults/memory/indexer.js", () => ({
   MIN_SEGMENT_CHARS: 50,
@@ -47,6 +56,10 @@ import {
 } from "../config/loader.js";
 import { consolidateAssistantMessages } from "../daemon/conversation-history.js";
 import {
+  registerPluginHooks,
+  unregisterPluginHooks,
+} from "../hooks/registry.js";
+import {
   addMessage,
   createConversation,
   deleteConversation,
@@ -56,21 +69,36 @@ import {
   forkConversation,
   getMessages,
   updateMessageContent,
-  wipeConversation,
 } from "../persistence/conversation-crud.js";
 import { getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import type { MemoryJobType } from "../persistence/jobs-store.js";
-import {
-  getMemoryPersistenceHooks,
-  type MemoryPersistenceHooks,
-  registerMemoryPersistenceHooks,
-} from "../persistence/memory-lifecycle-hooks.js";
+import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import { memoryJobs } from "../persistence/schema/index.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
+import memoryConversationDeleted from "../plugins/defaults/memory/hooks/conversation-deleted.js";
+import type { PluginHooks } from "../plugins/types.js";
 
 await initializeDb();
+
+// Register the memory plugin's `conversation-deleted` hook the way boot does,
+// so the delete primitives' dispatch reaches the plugin's job sweep.
+registerPluginHooks("default-memory", {
+  "conversation-deleted": memoryConversationDeleted,
+} as PluginHooks);
+
+/** Poll until `read()` returns a defined value or the timeout elapses. */
+async function waitFor<T>(
+  read: () => T | undefined,
+  timeoutMs = 2000,
+): Promise<T | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = read();
+    if (value !== undefined || Date.now() > deadline) return value;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 function countJobs(type: MemoryJobType, conversationId?: string): number {
   const rows = getMemoryDb()!
@@ -127,7 +155,6 @@ function setMemoryEnabled(enabled: boolean): void {
 describe("messages lexical-index dual-write", () => {
   beforeEach(() => {
     resetMemoryJobs();
-    registerDefaultPluginPersistenceHooks();
   });
 
   afterEach(() => {
@@ -149,7 +176,8 @@ describe("messages lexical-index dual-write", () => {
   test("lexical job is still enqueued when segment indexing (indexMessageNow) throws", async () => {
     // The sparse lexical job is independent of the dense embedding path, so a
     // transient segment-indexing failure must not leave the message missing
-    // from the lexical index. `addMessage` catches the hook throw as non-fatal.
+    // from the lexical index. `addMessage` catches the indexing throw as
+    // non-fatal.
     throwFromIndex = true;
     const conv = createConversation("Segment failure thread");
     const message = await addMessage(
@@ -189,7 +217,8 @@ describe("messages lexical-index dual-write", () => {
     const beforeFork = countJobs("index_message_lexical");
     expect(beforeFork).toBe(3);
 
-    // The fork copies every source row directly, bypassing onMessagePersisted.
+    // The fork copies every source row directly, bypassing the addMessage
+    // persist path (and its lexical enqueue).
     const fork = forkConversation({ conversationId: source.id });
     expect(fork.id).not.toBe(source.id);
 
@@ -202,16 +231,6 @@ describe("messages lexical-index dual-write", () => {
     }
   });
 
-  test("wipeConversation enqueues a purge_conversation_lexical job for the conversation", async () => {
-    const conv = createConversation("Lexical wipe thread");
-    await addMessage(conv.id, "user", "index me then wipe me");
-
-    resetMemoryJobs();
-    wipeConversation(conv.id);
-
-    expect(countJobs("purge_conversation_lexical", conv.id)).toBe(1);
-  });
-
   test("deleteConversation (direct, no route) enqueues a purge for the conversation", async () => {
     // Retrospective startup cleanup calls deleteConversation directly, bypassing
     // the HTTP route — the purge must still fire from the shared primitive.
@@ -222,6 +241,48 @@ describe("messages lexical-index dual-write", () => {
     deleteConversation(conv.id);
 
     expect(countJobs("purge_conversation_lexical", conv.id)).toBe(1);
+  });
+
+  test("deleteConversation fails its pending memory jobs but leaves host jobs runnable", async () => {
+    const conv = createConversation("Cancel pending jobs thread");
+    await addMessage(conv.id, "user", "index me then delete me");
+
+    resetMemoryJobs();
+    // One memory-plugin job type, one host-owned job type — both keyed by the
+    // conversation id.
+    enqueueMemoryJob("graph_extract", { conversationId: conv.id });
+    enqueueMemoryJob("conversation_analyze", { conversationId: conv.id });
+
+    deleteConversation(conv.id);
+
+    const jobStatus = (type: MemoryJobType): string | undefined =>
+      getMemoryDb()!
+        .select({ status: memoryJobs.status, payload: memoryJobs.payload })
+        .from(memoryJobs)
+        .where(eq(memoryJobs.type, type))
+        .all()
+        .find((r) => {
+          try {
+            return (
+              (JSON.parse(r.payload) as { conversationId?: string })
+                .conversationId === conv.id
+            );
+          } catch {
+            return false;
+          }
+        })?.status;
+
+    // The hook dispatch is fire-and-forget, so wait for the plugin's sweep to
+    // land before asserting.
+    const graphExtractStatus = await waitFor(() =>
+      jobStatus("graph_extract") === "failed" ? "failed" : undefined,
+    );
+    expect(graphExtractStatus).toBe("failed");
+    // The sweep is scoped to the plugin's own job types: host-owned jobs —
+    // including the purge the delete primitive itself enqueued — stay
+    // runnable.
+    expect(jobStatus("conversation_analyze")).toBe("pending");
+    expect(jobStatus("purge_conversation_lexical")).toBe("pending");
   });
 
   test("deleteConversationGently (retrospective GC) enqueues a purge for the conversation", async () => {
@@ -334,93 +395,52 @@ describe("messages lexical-index dual-write", () => {
   });
 });
 
-// The delete paths must route their cleanup through the persistence-hook seam
-// rather than importing memory internals directly, so persistence stays
-// decoupled from the plugin: single-message deletes fire `onMessagesDeleted`,
-// and whole-conversation deletes fire `onConversationDeleted` from the shared
-// `deleteConversation`/`deleteConversationGently` primitive (covering every
-// caller, not just the HTTP route).
-describe("delete paths route through the persistence-hook seam", () => {
-  const deletedBatches: string[][] = [];
+// Whole-conversation deletes must dispatch the `conversation-deleted` hook
+// from the shared `deleteConversation`/`deleteConversationGently` primitive
+// (covering every caller, not just the HTTP route). Captured through a
+// registered test hook — the same chain a user plugin would subscribe on.
+describe("delete paths dispatch the conversation-deleted hook", () => {
   const deletedConversations: string[] = [];
-  const spyHooks: MemoryPersistenceHooks = {
-    onMessagePersisted() {},
-    onConversationForked() {},
-    onConversationWiped() {
-      return 0;
-    },
-    onConversationDeleted(id) {
-      deletedConversations.push(id);
-    },
-    onMessagesDeleted(ids) {
-      deletedBatches.push(ids);
-    },
-    async onAllConversationsCleared() {},
-    onWorkerStartup() {},
-    countMemoryBufferLines() {
-      return 0;
-    },
-  };
+
+  beforeAll(() => {
+    registerPluginHooks("test-conversation-deleted-capture", {
+      "conversation-deleted": async (ctx: { conversationId: string }) => {
+        deletedConversations.push(ctx.conversationId);
+      },
+    } as PluginHooks);
+  });
+
+  afterAll(() => {
+    unregisterPluginHooks("test-conversation-deleted-capture");
+  });
 
   beforeEach(() => {
     resetMemoryJobs();
-    deletedBatches.length = 0;
     deletedConversations.length = 0;
-    registerMemoryPersistenceHooks(spyHooks);
   });
 
-  afterEach(() => {
-    // Restore the real memory hooks so later tests are unaffected.
-    registerDefaultPluginPersistenceHooks();
-  });
-
-  test("the spy hook is installed", () => {
-    expect(getMemoryPersistenceHooks()).toBe(spyHooks);
-  });
-
-  test("deleteConversation fires onConversationDeleted (covers all callers, not just the route)", async () => {
-    const conv = createConversation("Seam conversation delete");
+  test("deleteConversation dispatches conversation-deleted (covers all callers, not just the route)", async () => {
+    const conv = createConversation("Hook conversation delete");
     await addMessage(conv.id, "user", "hello");
 
-    deletedConversations.length = 0;
     deleteConversation(conv.id);
 
-    expect(deletedConversations).toEqual([conv.id]);
+    // The dispatch is fire-and-forget; wait for the chain to land.
+    const seen = await waitFor(() =>
+      deletedConversations.includes(conv.id) ? true : undefined,
+    );
+    expect(seen).toBe(true);
   });
 
-  test("deleteConversationGently fires onConversationDeleted (the retrospective-GC path)", async () => {
-    const conv = createConversation("Seam gentle delete");
+  test("deleteConversationGently dispatches conversation-deleted (the retrospective-GC path)", async () => {
+    const conv = createConversation("Hook gentle delete");
     await addMessage(conv.id, "user", "hello");
 
-    deletedConversations.length = 0;
     await deleteConversationGently(conv.id);
 
-    expect(deletedConversations).toEqual([conv.id]);
-  });
-
-  test("deleteMessageById fires onMessagesDeleted with the single id", async () => {
-    const conv = createConversation("Seam single delete");
-    const message = await addMessage(conv.id, "user", "delete me via seam");
-
-    deletedBatches.length = 0;
-    deleteMessageById(message.id);
-
-    expect(deletedBatches).toEqual([[message.id]]);
-  });
-
-  test("deleteLastExchange fires onMessagesDeleted with every removed id", async () => {
-    const conv = createConversation("Seam undo");
-    await addMessage(conv.id, "user", "first turn");
-    await addMessage(conv.id, "assistant", "first reply");
-    const lastUser = await addMessage(conv.id, "user", "undo this");
-    const lastAssistant = await addMessage(conv.id, "assistant", "and this");
-
-    deletedBatches.length = 0;
-    deleteLastExchange(conv.id);
-
-    expect(deletedBatches).toHaveLength(1);
-    expect(new Set(deletedBatches[0])).toEqual(
-      new Set([lastUser.id, lastAssistant.id]),
+    const seen = await waitFor(() =>
+      deletedConversations.includes(conv.id) ? true : undefined,
     );
+    expect(seen).toBe(true);
   });
 });

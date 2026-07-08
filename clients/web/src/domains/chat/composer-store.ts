@@ -56,10 +56,26 @@ export interface FailedAttachmentUpload extends LocalAttachmentMetadata {
   error: string;
 }
 
+/**
+ * Reference to a native filesystem path (e.g. a dropped folder in the Electron
+ * desktop app). Unlike file attachments, nothing is uploaded — the path is
+ * inserted into the sent message as textual context so the assistant knows
+ * which folder to work with. The renderer only holds the path string.
+ */
+export interface PathReferenceAttachment {
+  kind: "path-reference";
+  localId: string;
+  /** Absolute filesystem path resolved by the Electron host. */
+  path: string;
+  /** Basename shown in the chip UI (usually the folder name). */
+  filename: string;
+}
+
 export type ChatAttachment =
   | PendingAttachmentUpload
   | UploadedAttachment
-  | FailedAttachmentUpload;
+  | FailedAttachmentUpload
+  | PathReferenceAttachment;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -130,6 +146,13 @@ function canQueueFile(file: File): boolean {
   return isAutoResizableImage(file) && file.size <= IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES;
 }
 
+/** Extract the trailing path segment for the chip label, stripping any trailing separator. */
+function basenameOf(path: string): string {
+  const trimmed = path.replace(/[/\\]+$/, "");
+  const lastSep = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return lastSep === -1 ? trimmed : trimmed.slice(lastSep + 1);
+}
+
 // ---------------------------------------------------------------------------
 // Store shape
 // ---------------------------------------------------------------------------
@@ -187,6 +210,12 @@ export interface ComposerActions {
 
   // --- Attachment actions ---
   addFiles: (files: FileList | File[], assistantId: string | null) => void;
+  /**
+   * Queue one or more native filesystem paths as `path-reference` attachments.
+   * Nothing is uploaded — the path is included in the sent message content so
+   * the assistant can operate against the folder in place.
+   */
+  addPathReferences: (paths: string[]) => void;
   removeAttachment: (localId: string) => void;
   /** Clear all attachments (e.g. after successful send). Does NOT revoke
    * preview URLs — sent message bubbles still need them. */
@@ -446,6 +475,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
                     mimeType: storedMime,
                     sizeBytes: storedSize,
                     previewUrl,
+                    thumbnailUrl: null,
                   } satisfies UploadedAttachment)
                 : att,
             ),
@@ -459,6 +489,29 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
         }
       })();
     }
+  },
+
+  addPathReferences: (paths) => {
+    const additions: PathReferenceAttachment[] = [];
+    for (const path of paths) {
+      const trimmed = path.trim();
+      if (!trimmed) {
+        continue;
+      }
+      additions.push({
+        kind: "path-reference",
+        localId: createLocalId(),
+        path: trimmed,
+        filename: basenameOf(trimmed) || trimmed,
+      });
+    }
+    if (additions.length === 0) {
+      return;
+    }
+    set((s) => ({
+      attachments: [...s.attachments, ...additions],
+      attachmentLastError: null,
+    }));
   },
 
   removeAttachment: (localId) => {
@@ -515,18 +568,21 @@ function markFailed(
   detail: string,
 ) {
   set((s) => ({
-    attachments: s.attachments.map((att) =>
-      att.localId === localId
-        ? ({
-            kind: "failed",
-            localId,
-            filename: att.filename,
-            mimeType: att.mimeType,
-            sizeBytes: att.sizeBytes,
-            error: detail,
-          } satisfies FailedAttachmentUpload)
-        : att,
-    ),
+    attachments: s.attachments.map((att) => {
+      // Only uploading attachments can transition to failed — path-references
+      // and already-uploaded rows aren't part of the upload flow.
+      if (att.localId !== localId || att.kind !== "uploading") {
+        return att;
+      }
+      return {
+        kind: "failed",
+        localId,
+        filename: att.filename,
+        mimeType: att.mimeType,
+        sizeBytes: att.sizeBytes,
+        error: detail,
+      } satisfies FailedAttachmentUpload;
+    }),
   }));
 }
 
@@ -555,6 +611,17 @@ export function selectUploadedIds(attachments: ChatAttachment[]): string[] {
   return attachments
     .filter((att): att is UploadedAttachment => att.kind === "uploaded")
     .map((att) => att.id);
+}
+
+/** Native filesystem paths queued as path-reference attachments, in insertion order. */
+export function selectPathReferencePaths(
+  attachments: ChatAttachment[],
+): string[] {
+  return attachments
+    .filter(
+      (att): att is PathReferenceAttachment => att.kind === "path-reference",
+    )
+    .map((att) => att.path);
 }
 
 // ---------------------------------------------------------------------------

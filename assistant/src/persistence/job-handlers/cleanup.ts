@@ -86,61 +86,6 @@ SELECT changes();`,
 }
 
 /**
- * Delete trace events older than the configured retention period.
- * Processes in batches to avoid long DB locks and excessive WAL growth.
- * Re-enqueues itself if more rows remain.
- *
- * Same async dispatch + integer inlining shape as
- * {@link pruneOldLlmRequestLogsJob}.
- */
-export async function pruneOldTraceEventsJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
-  const rawRetention = job.payload.retentionDays;
-  const retentionDays =
-    typeof rawRetention === "number" &&
-    Number.isFinite(rawRetention) &&
-    rawRetention >= 0
-      ? rawRetention
-      : config.memory.cleanup.traceEventRetentionDays;
-
-  // 0 means disabled
-  if (retentionDays === 0) return;
-
-  const cutoffMs = Math.floor(Date.now() - retentionDays * 86_400_000);
-  if (!Number.isFinite(cutoffMs)) return;
-
-  const result = await runAsyncSqlite(
-    `DELETE FROM trace_events WHERE rowid IN (SELECT rowid FROM trace_events WHERE created_at < ${cutoffMs} LIMIT ${PRUNE_LOG_BATCH_LIMIT});
-SELECT changes();`,
-    "cleanup:prune-trace-events",
-  );
-  if (!result.ok) {
-    log.warn(
-      { error: result.error, backend: result.backend },
-      "pruneOldTraceEventsJob: DELETE failed",
-    );
-    return;
-  }
-
-  const deleted = parseDeletedCount(result.stdout);
-
-  if (deleted >= PRUNE_LOG_BATCH_LIMIT) {
-    enqueueMemoryJob("prune_old_trace_events", { retentionDays });
-  }
-
-  log.info(
-    {
-      deleted,
-      retentionDays,
-      cutoffMs,
-    },
-    "Pruned old trace events",
-  );
-}
-
-/**
  * Delete audit-log (`tool_invocations`) entries older than the configured
  * retention window. Retention comes from `auditLog.retentionDays` (0 = keep
  * forever). The DELETE itself lives in {@link rotateToolInvocations}; this
@@ -218,6 +163,7 @@ export function pruneOldConversationsJob(
   const cutoffMs = Date.now() - retentionDays * 86_400_000;
 
   const stale = rawAll<{ id: string }>(
+    "cleanup:pruneOldConversations:stale",
     `SELECT id FROM conversations WHERE updated_at < ? ORDER BY updated_at ASC LIMIT ?`,
     cutoffMs,
     PRUNE_BATCH_LIMIT,
@@ -231,6 +177,7 @@ export function pruneOldConversationsJob(
       // Re-check staleness inside the transaction to avoid racing with a conversation
       // that became active again between the initial SELECT and this DELETE.
       const still = rawAll<{ id: string }>(
+        "cleanup:pruneOldConversations:recheck",
         `SELECT id FROM conversations WHERE id = ? AND updated_at < ?`,
         id,
         cutoffMs,
@@ -239,12 +186,32 @@ export function pruneOldConversationsJob(
 
       // Non-cascading tables. llm_request_logs lives in the dedicated logs
       // connection, so it is deleted there (outside this main-DB transaction).
-      rawLogsRun(`DELETE FROM llm_request_logs WHERE conversation_id = ?`, id);
-      rawRun(`DELETE FROM tool_invocations WHERE conversation_id = ?`, id);
-      rawRun(`DELETE FROM messages WHERE conversation_id = ?`, id);
-      rawRun(`DELETE FROM skill_loaded_events WHERE conversation_id = ?`, id);
+      rawLogsRun(
+        "cleanup:pruneOldConversations:logs",
+        `DELETE FROM llm_request_logs WHERE conversation_id = ?`,
+        id,
+      );
+      rawRun(
+        "cleanup:pruneOldConversations:toolInv",
+        `DELETE FROM tool_invocations WHERE conversation_id = ?`,
+        id,
+      );
+      rawRun(
+        "cleanup:pruneOldConversations:messages",
+        `DELETE FROM messages WHERE conversation_id = ?`,
+        id,
+      );
+      rawRun(
+        "cleanup:pruneOldConversations:skills",
+        `DELETE FROM skill_loaded_events WHERE conversation_id = ?`,
+        id,
+      );
       // Conversation row deletion cascades to remaining dependent tables
-      rawRun(`DELETE FROM conversations WHERE id = ?`, id);
+      rawRun(
+        "cleanup:pruneOldConversations:conv",
+        `DELETE FROM conversations WHERE id = ?`,
+        id,
+      );
       pruned++;
     });
   }

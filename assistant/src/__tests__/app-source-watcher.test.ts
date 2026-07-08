@@ -120,6 +120,17 @@ describe("AppSourceWatcher", () => {
     expect(onChangeSpy).not.toHaveBeenCalled();
   });
 
+  test(".git/ files are filtered out (apps-directory git repo churn)", async () => {
+    watcher.start(onChangeSpy);
+    capturedWatchCallback!("change", ".git/objects/ab/cdef");
+    capturedWatchCallback!("change", ".git/index");
+    capturedWatchCallback!("change", ".git/refs/heads/main");
+    capturedWatchCallback!("change", ".git/logs/HEAD");
+
+    await new Promise((r) => setTimeout(r, 600));
+    expect(onChangeSpy).not.toHaveBeenCalled();
+  });
+
   test("files directly in apps/ (no subdirectory) are filtered out", async () => {
     watcher.start(onChangeSpy);
     capturedWatchCallback!("change", "my-app.json");

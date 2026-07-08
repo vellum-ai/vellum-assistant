@@ -9,6 +9,7 @@
  */
 
 import { ROUTES as MEMORY_EVAL_ROUTES } from "../../plugins/defaults/memory/routes/memory-eval-routes.js";
+import { ROUTES as MEMORY_GRAPH_ROUTES } from "../../plugins/defaults/memory/routes/memory-graph-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/routes/memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/routes/memory-v2-routes.js";
 import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/routes/memory-v3-routes.js";
@@ -52,9 +53,11 @@ import { ROUTES as CONVERSATION_MESSAGE_ROUTES } from "./conversation-routes.js"
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
 import { ROUTES as CONVERSATIONS_IMPORT_ROUTES } from "./conversations-import-routes.js";
 import { ROUTES as CREDENTIAL_PROMPT_ROUTES } from "./credential-prompt-routes.js";
+import { ROUTES as CREDENTIAL_REQUEST_ROUTES } from "./credential-request-routes.js";
 import { ROUTES as CREDENTIAL_ROUTES } from "./credential-routes.js";
 import { ROUTES as DEBUG_BASH_ROUTES } from "./debug-bash-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
+import { ROUTES as DEFAULT_PROVIDER_ROUTES } from "./default-provider-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DISK_PRESSURE_ROUTES } from "./disk-pressure-routes.js";
@@ -84,7 +87,9 @@ import { ROUTES as INFERENCE_PROVIDER_CONNECTION_ROUTES } from "./inference-prov
 import { ROUTES as INFERENCE_SEND_ROUTES } from "./inference-send-routes.js";
 import { ROUTES as A2A_ROUTES } from "./integrations/a2a.js";
 import { ROUTES as SLACK_CHANNEL_CONFIG_ROUTES } from "./integrations/slack/channel.js";
+import { ROUTES as SLACK_CHANNELS_ROUTES } from "./integrations/slack/channels.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
+import { ROUTES as SLACK_USERS_ROUTES } from "./integrations/slack/users.js";
 import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
 import { ROUTES as TWILIO_ROUTES } from "./integrations/twilio.js";
 import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
@@ -118,6 +123,7 @@ import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-rout
 import { ROUTES as RETROSPECTIVE_ROUTES } from "./retrospective-routes.js";
 import { ROUTES as SANITY_ROUTES } from "./sanity-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
+import { ROUTES as SCHEDULE_WORKER_ROUTES } from "./schedule-worker-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
 import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
@@ -131,7 +137,6 @@ import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
 import { ROUTES as SURFACE_CONTENT_ROUTES } from "./surface-content-routes.js";
 import { ROUTES as TASK_ROUTES } from "./task-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
-import { ROUTES as TRACE_EVENT_ROUTES } from "./trace-event-routes.js";
 import { ROUTES as TRUST_RULES_ROUTES } from "./trust-rules-routes.js";
 import { ROUTES as TTS_ROUTES } from "./tts-routes.js";
 import type { RouteDefinition } from "./types.js";
@@ -143,7 +148,6 @@ import { ROUTES as USER_ROUTES_CLI } from "./user-routes-cli.js";
 import { ROUTES as WAKE_CONVERSATION_ROUTES } from "./wake-conversation-routes.js";
 import { ROUTES as WATCHER_ROUTES } from "./watcher-routes.js";
 import { ROUTES as WEBHOOK_ROUTES } from "./webhook-routes.js";
-import { ROUTES as WIPE_CONVERSATION_ROUTES } from "./wipe-conversation-routes.js";
 import { ROUTES as WORK_ITEM_ROUTES } from "./work-items-routes.js";
 import { ROUTES as WORKFLOW_ROUTES } from "./workflow-routes.js";
 import { ROUTES as WORKSPACE_COMMIT_ROUTES } from "./workspace-commit-routes.js";
@@ -187,6 +191,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_MESSAGE_ROUTES,
   ...CONSOLIDATION_ROUTES,
   ...CREDENTIAL_PROMPT_ROUTES,
+  ...CREDENTIAL_REQUEST_ROUTES,
   ...CREDENTIAL_ROUTES,
   ...DEFER_ROUTES,
   ...CONVERSATION_COMPACTION_ROUTES,
@@ -194,6 +199,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_STARTER_ROUTES,
   ...DEBUG_BASH_ROUTES,
   ...DEBUG_ROUTES,
+  ...DEFAULT_PROVIDER_ROUTES,
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,
   ...DOMAIN_ROUTES,
@@ -228,6 +234,7 @@ export const ROUTES: RouteDefinition[] = [
   ...LOG_EXPORT_ROUTES,
   ...LLM_CALL_SITES_ROUTES,
   ...MEMORY_EVAL_ROUTES,
+  ...MEMORY_GRAPH_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MEMORY_V2_ROUTES,
   ...MEMORY_V3_ROUTES,
@@ -253,6 +260,7 @@ export const ROUTES: RouteDefinition[] = [
   ...MONITORING_ROUTES,
   ...RETROSPECTIVE_ROUTES,
   ...SCHEDULE_ROUTES,
+  ...SCHEDULE_WORKER_ROUTES,
   ...SANITY_ROUTES,
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,
@@ -261,7 +269,9 @@ export const ROUTES: RouteDefinition[] = [
   ...A2A_ROUTES,
   ...SLACK_CHANNEL_CONFIG_ROUTES,
   ...SLACK_CHANNEL_RESOLVE_ROUTES,
+  ...SLACK_CHANNELS_ROUTES,
   ...SLACK_SHARE_ROUTES,
+  ...SLACK_USERS_ROUTES,
   ...STT_ROUTES,
   ...SUGGEST_TRUST_RULE_ROUTES,
   ...SUBAGENT_ROUTES,
@@ -271,7 +281,6 @@ export const ROUTES: RouteDefinition[] = [
   ...TWILIO_ROUTES,
   ...TASK_ROUTES,
   ...TELEMETRY_ROUTES,
-  ...TRACE_EVENT_ROUTES,
   ...TRUST_RULES_ROUTES,
   ...TTS_ROUTES,
   ...UI_REQUEST_ROUTES,
@@ -282,7 +291,6 @@ export const ROUTES: RouteDefinition[] = [
   ...WORKFLOW_ROUTES,
   ...WATCHER_ROUTES,
   ...WEBHOOK_ROUTES,
-  ...WIPE_CONVERSATION_ROUTES,
   ...WORKSPACE_COMMIT_ROUTES,
   ...WAKE_CONVERSATION_ROUTES,
   ...WORKSPACE_ROUTES,

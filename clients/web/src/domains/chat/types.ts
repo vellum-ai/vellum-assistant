@@ -39,6 +39,12 @@ export interface ChatError {
    * lose their message after a failed send rollback.
    */
   restoreContent?: string;
+  /**
+   * URL the banner offers to open via an action button. Set when an
+   * automatic `window.open` was blocked (no user activation on SSE-driven
+   * opens) — the button click is a real user gesture, so it succeeds.
+   */
+  actionUrl?: string;
 }
 
 export interface PendingSecretState {

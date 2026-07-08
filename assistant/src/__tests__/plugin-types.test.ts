@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
   type InitContext,
@@ -38,7 +38,6 @@ describe("plugin core types", () => {
     const manifest: PluginManifest = {
       name: "sample-plugin",
       version: "0.1.0",
-      requiresFlag: ["sample-feature"],
       config: { parse: (input: unknown) => input },
     };
 

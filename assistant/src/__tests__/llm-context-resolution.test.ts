@@ -10,6 +10,10 @@ describe("resolveEffectiveContextWindow", () => {
         provider: "openai",
         model: "gpt-5.5",
       },
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
+      },
     });
 
     const resolved = resolveEffectiveContextWindow({
@@ -31,6 +35,8 @@ describe("resolveEffectiveContextWindow", () => {
         contextWindow: { maxInputTokens: 100000 },
       },
       profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
         long: {
           contextWindow: { maxInputTokens: 150000 },
         },
@@ -121,6 +127,10 @@ describe("resolveEffectiveContextWindow", () => {
         model: "custom-model",
         contextWindow: { maxInputTokens: 300000 },
       },
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
+      },
     });
 
     const resolved = resolveEffectiveContextWindow({
@@ -142,6 +152,10 @@ describe("resolveEffectiveContextWindow", () => {
         model: "gpt-5.5",
         contextWindow: { maxInputTokens: 2000000 },
       },
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
+      },
     });
 
     const resolved = resolveEffectiveContextWindow({
@@ -161,6 +175,8 @@ describe("resolveEffectiveContextWindow", () => {
         model: "gpt-5.5",
       },
       profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
         capped: {
           contextWindow: { maxInputTokens: 150000 },
         },

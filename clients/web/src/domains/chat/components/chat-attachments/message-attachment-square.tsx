@@ -22,12 +22,17 @@ import {
     middleTruncate,
     type AttachmentIconKind,
 } from "@/domains/chat/components/chat-attachments/utils";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 
 interface MessageAttachmentSquareProps {
   filename: string;
   mimeType: string;
   sizeBytes: number;
   previewUrl: string | null;
+  /** JPEG thumbnail URL (from daemon thumbnailData). Used as a background
+   *  image for video attachment chips so they show a poster frame instead of
+   *  a bare icon. Null for non-video or when no thumbnail is available. */
+  thumbnailUrl?: string | null;
   /** Called when the user clicks the thumbnail to open a full-screen preview. */
   onPreview?: () => void;
   /** Called when the user clicks a download button. */
@@ -58,14 +63,22 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
   mimeType,
   sizeBytes,
   previewUrl,
+  thumbnailUrl,
   onPreview,
   onDownload,
 }) => {
   const kind = classifyAttachment(mimeType, filename);
   const hasImagePreview = kind === "image" && previewUrl !== null;
+  const hasVideoThumbnail = kind === "video" && thumbnailUrl != null;
+  const backgroundImageUrl = hasImagePreview
+    ? previewUrl
+    : hasVideoThumbnail
+      ? thumbnailUrl
+      : null;
   const isClickable = onPreview != null;
   const displayName = middleTruncate(filename, 18);
   const displaySize = formatAttachmentSize(sizeBytes);
+  const isNative = useIsNativePlatform();
 
   const handleDownloadClick = useCallback(
     (e: MouseEvent) => {
@@ -98,12 +111,12 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
         <div
           className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]"
           style={
-            hasImagePreview
-              ? { backgroundImage: `url(${JSON.stringify(previewUrl)})` }
+            backgroundImageUrl
+              ? { backgroundImage: `url(${JSON.stringify(backgroundImageUrl)})` }
               : undefined
           }
         >
-          {hasImagePreview ? null : ICON_BY_KIND[kind]}
+          {backgroundImageUrl ? null : ICON_BY_KIND[kind]}
         </div>
         {onDownload && (
           <div className="pointer-events-none absolute inset-0 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover/square:pointer-events-auto group-hover/square:opacity-100 group-focus-within/square:pointer-events-auto group-focus-within/square:opacity-100">
@@ -127,12 +140,16 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
       >
         {displayName}
       </Typography>
-      <Typography
-        variant="label-small-default"
-        className="text-[var(--content-disabled)]"
-      >
-        {displaySize}
-      </Typography>
+      {/* The file size adds noise on the narrow native layout, so the native
+          shell hides it; web/electron keep it. */}
+      {!isNative && (
+        <Typography
+          variant="label-small-default"
+          className="text-[var(--content-disabled)]"
+        >
+          {displaySize}
+        </Typography>
+      )}
     </div>
   );
 };

@@ -8,9 +8,9 @@
  * from the local credential store, executes the requested operation through
  * the egress proxy, and returns sanitised results.
  *
- * This module re-exports the public API surface. For entrypoints see:
- * - `main.ts` — local mode (stdio transport, child process)
- * - `managed-main.ts` — managed mode (Unix socket transport, sidecar)
+ * This module re-exports the public API surface. For the entrypoint see
+ * `main.ts` — unified for both local (bare-metal sibling) and managed
+ * (Kubernetes sidecar) modes, selected by `getCesMode()`.
  */
 
 export {

@@ -15,7 +15,10 @@ function isDuplicateColumnError(err: unknown): boolean {
 
 function ensureDisplayOrderColumns(): void {
   try {
-    rawRun("ALTER TABLE conversations ADD COLUMN display_order INTEGER");
+    rawRun(
+      "conversation:migrateDisplayOrder",
+      "ALTER TABLE conversations ADD COLUMN display_order INTEGER",
+    );
   } catch (err) {
     if (!isDuplicateColumnError(err)) {
       log.error({ err }, "Failed to add display_order column");
@@ -23,7 +26,10 @@ function ensureDisplayOrderColumns(): void {
     }
   }
   try {
-    rawRun("ALTER TABLE conversations ADD COLUMN is_pinned INTEGER DEFAULT 0");
+    rawRun(
+      "conversation:migrateIsPinned",
+      "ALTER TABLE conversations ADD COLUMN is_pinned INTEGER DEFAULT 0",
+    );
   } catch (err) {
     if (!isDuplicateColumnError(err)) {
       log.error({ err }, "Failed to add is_pinned column");

@@ -123,6 +123,23 @@ export interface DeepgramRealtimeOptions {
    * composer) preserve their current lean URL + response shape.
    */
   diarize?: boolean;
+  /**
+   * Emit `final` events only at utterance boundaries. Default: false.
+   *
+   * Deepgram commits a long sentence as multiple `is_final` segments
+   * before the speaker pauses. When `true`, committed segment texts are
+   * withheld and accumulated, and a single aggregated `final` is emitted
+   * when Deepgram signals an utterance boundary (`speech_final` on a
+   * Results frame, or an `UtteranceEnd` frame), or when the session
+   * closes with text still pending. Boundary signals with no accumulated
+   * text emit nothing. Aggregated finals omit `speakerLabel` /
+   * `confidence` (segment-level scores do not compose across segments).
+   *
+   * Used by telephony call ingestion so replies trigger once per caller
+   * utterance. When `false`, every `is_final` segment emits its own
+   * `final` event (chat composer / live-voice behavior).
+   */
+  utteranceBoundaryFinals?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,6 +266,19 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    */
   private readonly diarize: boolean;
 
+  /**
+   * Whether `final` events are gated on utterance boundaries — see
+   * {@link DeepgramRealtimeOptions.utteranceBoundaryFinals}.
+   */
+  private readonly utteranceBoundaryFinals: boolean;
+
+  /**
+   * Committed (`is_final`) segment texts withheld until the next
+   * utterance boundary. Only populated when
+   * {@link utteranceBoundaryFinals} is enabled.
+   */
+  private pendingFinalSegments: string[] = [];
+
   /** The live WebSocket connection, set during start(). */
   private ws: WsLike | null = null;
 
@@ -290,6 +320,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       options.keepaliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS;
     this.sampleRate = options.sampleRate ?? 16_000;
     this.diarize = options.diarize ?? false;
+    this.utteranceBoundaryFinals = options.utteranceBoundaryFinals ?? false;
   }
 
   // ── StreamingTranscriber interface ──────────────────────────────────
@@ -497,10 +528,11 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
     // `UtteranceEnd` is an endpointing signal — no transcript text, but
     // it confirms the previous is_final segment is a natural boundary.
-    // We don't need to emit an additional event since we already emit
-    // finals on is_final=true.
+    // In utterance-boundary mode it flushes any withheld segments; in
+    // pass-through mode finals were already emitted on is_final=true.
     if (frame.type === "UtteranceEnd") {
       log.debug("Received UtteranceEnd signal");
+      this.flushPendingUtterance();
       return;
     }
 
@@ -543,6 +575,16 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         : undefined;
 
     if (frame.is_final) {
+      if (this.utteranceBoundaryFinals) {
+        // Withhold committed segments until an utterance boundary.
+        if (text.length > 0) {
+          this.pendingFinalSegments.push(text);
+        }
+        if (frame.speech_final) {
+          this.flushPendingUtterance();
+        }
+        return;
+      }
       // Committed transcript — emit as final.
       this.emitEvent({
         type: "final",
@@ -631,8 +673,24 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   }
 
   /**
+   * Emit a single aggregated `final` for the withheld `is_final` segments
+   * of the current utterance. No-op when nothing is pending, so boundary
+   * signals over silence emit nothing.
+   */
+  private flushPendingUtterance(): void {
+    if (this.pendingFinalSegments.length === 0) {
+      return;
+    }
+    const text = this.pendingFinalSegments.join(" ");
+    this.pendingFinalSegments = [];
+    this.emitEvent({ type: "final", text });
+  }
+
+  /**
    * Emit a `closed` event and clean up all resources (timers, WebSocket).
-   * Idempotent — safe to call multiple times.
+   * Flushes any withheld utterance text first so boundary-gated sessions
+   * never lose committed transcript on close. Idempotent — safe to call
+   * multiple times.
    */
   private emitClosedAndCleanup(): void {
     if (this.closed) return;
@@ -641,6 +699,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.clearTimers();
     this.forceClose();
 
+    this.flushPendingUtterance();
     this.emitEvent({ type: "closed" });
     this.onEvent = null;
   }

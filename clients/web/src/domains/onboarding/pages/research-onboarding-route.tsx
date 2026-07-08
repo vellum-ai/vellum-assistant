@@ -18,11 +18,12 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Navigate, useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
+import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
+import { isLocalMode } from "@/lib/local-mode";
 import { useAuthStore } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
@@ -35,10 +36,12 @@ import {
   buildResearchPrompt,
   type ResearchSubject,
 } from "@/domains/onboarding/research-prompt";
+import { shouldAdoptExistingAssistant } from "@/domains/onboarding/adopt-existing-assistant";
 import { useBackgroundHatch } from "@/domains/onboarding/use-background-hatch";
 import { useResearchRunner } from "@/domains/onboarding/research-runner";
 import { sendResearchCorrection } from "@/domains/onboarding/send-research-correction";
 import { applyPersonality } from "@/domains/onboarding/apply-personality";
+import { buildLetsChatKickoffMessage } from "@/domains/onboarding/lets-chat-kickoff";
 import {
   clearResearchSnapshot,
   readResearchSnapshot,
@@ -71,6 +74,7 @@ import { LetsChatTomorrowStep } from "@/domains/onboarding/screens/lets-chat-tom
 import {
   MeetingCreatedStep,
   LookingYouUpStep,
+  FinishingUpStep,
   ResearchResultsStep,
   SuggestionsStep,
   LetsChatReadyStep,
@@ -80,14 +84,6 @@ import {
   OnboardingStageSizeProvider,
   useElementSize,
 } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
-
-/**
- * Hidden kickoff sent on the user's behalf when they hit "Let's chat" at the
- * end of the personality-onboarding flow. It drives the assistant's first reply
- * but renders no user bubble, so the chat opens with the assistant proactively
- * greeting the user in the persona they just configured.
- */
-const LETS_CHAT_KICKOFF_MESSAGE = "hey, what's up";
 
 /** Build the research subject from the collected form values. */
 function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject {
@@ -119,14 +115,10 @@ export function ResearchOnboardingRoute() {
     useOnboardingFocusStore.use.setPendingAvatarTraits();
   const requestSidebarCollapse =
     useOnboardingFocusStore.use.requestSidebarCollapse();
-  // Belt-and-suspenders gate: the spike lives at a dedicated path AND behind
-  // this flag (off by default; enable locally via the feature-flags panel).
-  const enabled = useClientFeatureFlagStore.use.researchOnboarding();
-  // Sub-gate for the "Create my personality" step; when off it's skipped
-  // entirely (pitch → integration, with the back nav mirrored).
-  const personalityEnabled =
-    useClientFeatureFlagStore.use.personalityOnboarding();
-  const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
+  // Research/personality onboarding is now THE onboarding — it fully replaces
+  // the legacy pre-chat funnel and is no longer flag-gated, so the route always
+  // renders and the "Create my personality" step is always shown.
+  const personalityEnabled = true;
 
   // Sub-steps share this route: details form → avatar/name picker →
   // introduction → pitch (the "different" step, which carousels its lines to
@@ -228,12 +220,40 @@ export function ResearchOnboardingRoute() {
   // suggestions for the in-flow result steps. The research turn is gated on the
   // LATER of the details submit (subject) and hatch readiness: `start()` is
   // called on submit and internally awaits the hatch.
+  // A local-hosting onboarding (hosting=local/docker) already provisioned its
+  // assistant in the hatching screen, so the background hatch ADOPTS it rather
+  // than running a managed hatch; when the query string is missing, a live
+  // gateway-auth session is the same evidence (see
+  // `shouldAdoptExistingAssistant`). Vellum-Cloud onboarding runs the managed
+  // hatch.
+  const [searchParams] = useSearchParams();
+  const hostingParam = searchParams.get("hosting");
+  const adoptExistingAssistant = shouldAdoptExistingAssistant({
+    hostingParam,
+    localMode: isLocalMode(),
+    gatewayAuthSession: isGatewayAuthMode(),
+  });
+  // The hatching screen names the assistant it provisioned in the `assistant`
+  // param, pinning adoption to that exact one — a stale selection or leftover
+  // lockfile entries from previous sessions can't answer for it.
+  const adoptAssistantId = searchParams.get("assistant") ?? undefined;
+  // The day-2 check-in offer ("letschat" → "meeting") books through the
+  // platform's managed Google Calendar OAuth. A local-hosting onboarding can
+  // run with no platform session at all (the assistant itself is fully
+  // local), where that connect can only fail — skip the calendar steps
+  // entirely and go straight to the research reveal. Vellum-cloud onboarding
+  // keeps them: a managed hatch implies a platform session.
+  const skipCheckinSteps = adoptExistingAssistant;
   const {
     start: startHatch,
     ready: hatchReady,
     assistantId: hatchedAssistantId,
+    error: hatchError,
     awaitReady: awaitHatchReady,
-  } = useBackgroundHatch();
+  } = useBackgroundHatch({
+    adoptExisting: adoptExistingAssistant,
+    adoptAssistantId,
+  });
   const research = useResearchRunner();
   // Stable across renders (useCallback in the runner); safe as effect deps.
   const { start: startResearch, hydrate: hydrateResearch } = research;
@@ -262,17 +282,13 @@ export function ResearchOnboardingRoute() {
 
   // Landing on the form means a fresh run — clear any stale focus state left
   // behind by an abandoned previous attempt so the form itself never renders
-  // chrome-less — and kick off the background hatch (idempotent).
-  //
-  // Gate the hatch on the flag: a cold visit starts with `researchOnboarding`
-  // defaulting to false until LD hydrates, and this effect runs before the
-  // `!enabled` redirect below. Without the gate a flag-off visitor would
-  // provision + poll an assistant before being bounced away.
+  // chrome-less — and kick off the background hatch (idempotent). This is now
+  // the default onboarding, so the hatch fires unconditionally on mount.
   useEffect(() => {
     exitFocus();
     setPendingAvatarTraits(null);
-    if (enabled && flagsHydrated) startHatch();
-  }, [exitFocus, setPendingAvatarTraits, startHatch, enabled, flagsHydrated]);
+    startHatch();
+  }, [exitFocus, setPendingAvatarTraits, startHatch]);
 
   // Resume a journey saved by a previous session (a page refresh). Runs once,
   // as soon as the user id is known, BEFORE the persistence write / research
@@ -304,11 +320,19 @@ export function ResearchOnboardingRoute() {
           },
           awaitHatchReady,
         );
-      setStep(resolveResumeStep(snapshot));
+      // A snapshot written before the calendar steps were dropped from the
+      // local flow (or by a signed-in web session) may resume onto them —
+      // remap to the research reveal the skip lands on.
+      const resumeStep = resolveResumeStep(snapshot);
+      setStep(
+        skipCheckinSteps && (resumeStep === "letschat" || resumeStep === "meeting")
+          ? "looking"
+          : resumeStep,
+      );
       setForwardStack([]);
     }
     setRestored(true);
-  }, [restored, userId, hydrateResearch, awaitHatchReady]);
+  }, [restored, userId, hydrateResearch, awaitHatchReady, skipCheckinSteps]);
 
   // Persist the journey as it advances so a refresh can resume it. Gated on
   // `restored` so we don't overwrite the snapshot before reading it, and only
@@ -364,7 +388,7 @@ export function ResearchOnboardingRoute() {
   // resume hydrates the status to "done". The meeting is never re-booked here:
   // that only fires from the calendar step, which a resume skips past.
   useEffect(() => {
-    if (!restored || !enabled || !flagsHydrated) return;
+    if (!restored) return;
     if (!formValues || research.status !== "idle") return;
     startResearch({
       awaitAssistantId: awaitHatchReady,
@@ -378,8 +402,6 @@ export function ResearchOnboardingRoute() {
     });
   }, [
     restored,
-    enabled,
-    flagsHydrated,
     formValues,
     researchConversationId,
     research.status,
@@ -484,6 +506,31 @@ export function ResearchOnboardingRoute() {
       });
   }
 
+  // Final personality-onboarding handoff: wait out any background capability
+  // installs (so the primed chat can discover their skills), any removal
+  // correction (so rejected claims can't leak in), and the personality rewrite
+  // (so the greeting lands in the configured persona), then drop into a fresh
+  // chat with the hidden kickoff. `personalityAppliedRef` usually resolves
+  // instantly here — the "finishing" step already held for it — but the await is
+  // kept as a backstop. Best-effort; none of these reject.
+  async function finishAndEnterChat() {
+    // Only ever called from the terminal steps, which render under a
+    // `formValues`-narrowed guard — but that narrowing doesn't reach this
+    // top-level definition, so re-check for the type (and as a safety net).
+    if (!formValues) return;
+    await Promise.all([
+      research.awaitPluginInstalls(),
+      researchCorrectionRef.current,
+      personalityAppliedRef.current,
+    ]);
+    enterAssistant(
+      formValues,
+      faceValues,
+      buildLetsChatKickoffMessage(faceValues?.name),
+      { hidden: true },
+    );
+  }
+
   function handleFormSubmit(values: ResearchOnboardingValues) {
     setFormValues(values);
     // Fire the research turn now; the runner awaits hatch readiness internally,
@@ -548,14 +595,6 @@ export function ResearchOnboardingRoute() {
     goForwardTo("meeting");
   }
 
-  if (!enabled) {
-    // A cold load starts with the default-off value while the LD flag is still
-    // being fetched; wait for that response before bouncing so a flag that's
-    // actually `true` isn't redirected away on first render.
-    if (!flagsHydrated) return null;
-    return <Navigate to={routes.assistant} replace />;
-  }
-
   // The later steps share one persistent toned backdrop (assistant color +
   // eyes + tone characters) so the avatars stay put while the foreground
   // content swaps. Extra edge characters pop in per step to build excitement.
@@ -568,16 +607,18 @@ export function ResearchOnboardingRoute() {
     "looking",
     "results",
     "suggestions",
+    "finishing",
   ];
   if (tonedSteps.includes(step) && formValues) {
     // After the calendar, the background blends to black and the giant bottom
     // eyes collapse into the small avatar beside the text. Extra edge
     // characters are revealed by the looking-you-up carousel (see edgeAvatars).
-    const postCalendar = ["meeting", "looking", "results", "suggestions"].includes(step);
+    const postCalendar = ["meeting", "looking", "results", "suggestions", "finishing"].includes(step);
     // The edge crowd is gone from the pitch/setup steps — there it's just the
     // top team and the eyes. The crowd builds up one character per message
-    // during the looking-you-up carousel, then stays on for the result steps.
-    const peekLevel = ["looking", "results", "suggestions"].includes(step)
+    // during the looking-you-up carousel, then stays on for the result steps and
+    // the finishing hand-off.
+    const peekLevel = ["looking", "results", "suggestions", "finishing"].includes(step)
       ? edgeAvatars
       : 0;
     return (
@@ -626,6 +667,7 @@ export function ResearchOnboardingRoute() {
                   awaitAssistantId: awaitHatchReady,
                   values: personalityValues,
                   userName: formValues?.firstName?.trim() || undefined,
+                  assistantName: faceValues?.name?.trim() || undefined,
                 }).finally(() => setPersonalityPending(false));
                 setPersonalityLocked(true);
               }
@@ -637,7 +679,7 @@ export function ResearchOnboardingRoute() {
         )}
         {step === "integration" && (
           <IntegrationStep
-            onClaim={() => goForwardTo("letschat")}
+            onClaim={() => goForwardTo(skipCheckinSteps ? "looking" : "letschat")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
             onBack={() =>
               goBackTo(personalityEnabled ? "personality" : "different")
@@ -649,6 +691,7 @@ export function ResearchOnboardingRoute() {
           <LetsChatTomorrowStep
             assistantId={hatchedAssistantId}
             assistantReady={hatchReady}
+            hatchError={hatchError}
             onConnected={handleCheckinConnected}
             missingCalendarScope={missingCalendarScope}
             onRetry={() => setMissingCalendarScope(false)}
@@ -672,13 +715,14 @@ export function ResearchOnboardingRoute() {
         {step === "looking" && (
           <LookingYouUpStep
             onDone={() => goForwardTo(noClaims ? "suggestions" : "results")}
-            onBack={() => goBackTo("letschat")}
+            onBack={() => goBackTo(skipCheckinSteps ? "integration" : "letschat")}
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
             onForward={onForward}
-            // Hold the loader until BOTH the research turn and the personality
-            // rewrite have settled, so the results/chat never open on a persona
-            // that's still being written.
-            ready={!researchLoading && !personalityPending}
+            // Gate only on the web-search turn — the personality rewrite runs
+            // decoupled in the background and is finished off in its own step
+            // right before the chat handoff (see the "finishing" step), so this
+            // quick loading state isn't held hostage to the persona turn.
+            ready={!researchLoading}
           />
         )}
         {step === "results" && (
@@ -728,21 +772,17 @@ export function ResearchOnboardingRoute() {
                 RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
                 { userId, outcome: "completed" },
               );
-              // Wait out any background capability installs so the primed chat
-              // can discover their skills, any removal correction so rejected
-              // claims can't leak into it, and the personality rewrite so the
-              // greeting lands in the persona the user just configured — same
-              // gating as the suggestion click, plus the persona.
-              await Promise.all([
-                research.awaitPluginInstalls(),
-                researchCorrectionRef.current,
-                personalityAppliedRef.current,
-              ]);
-              // Drop into a fresh chat with the hidden kickoff so the assistant
-              // opens by greeting the user in the persona they configured.
-              enterAssistant(formValues, faceValues, LETS_CHAT_KICKOFF_MESSAGE, {
-                hidden: true,
-              });
+              // If the personality rewrite is still running, show the dedicated
+              // "finishing" carousel that holds until it settles, then enters
+              // chat — so the persona is fully written first without the invisible
+              // "Starting…" button stalling on a long turn. If it's already done,
+              // drop straight into chat.
+              if (personalityPending) {
+                setForwardStack([]);
+                setStep("finishing");
+                return;
+              }
+              await finishAndEnterChat();
             }}
             onBack={() => goBackTo(noClaims ? "looking" : "results")}
             onForward={onForward}
@@ -786,6 +826,15 @@ export function ResearchOnboardingRoute() {
             }}
             onBack={() => goBackTo(noClaims ? "looking" : "results")}
             onForward={onForward}
+          />
+        )}
+        {step === "finishing" && (
+          <FinishingUpStep
+            // Hold the carousel until the personality rewrite settles, then hand
+            // off. `finishAndEnterChat` also awaits the (usually already-resolved)
+            // plugin installs + correction before dropping into chat.
+            ready={!personalityPending}
+            onDone={() => void finishAndEnterChat()}
           />
         )}
         </OnboardingStageSizeProvider>

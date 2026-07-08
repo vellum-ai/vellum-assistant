@@ -14,11 +14,13 @@
  *    If none exists, images are replaced with a fail-open placeholder so the
  *    model at least knows an image was present.
  * 3. Replaces each image block with a `[Image …]` text caption via
- *    {@link captionImageBlocks} (which also persists the original and caches
- *    captions across turns).
+ *    {@link captionImagesInMessages} (which also persists the original and
+ *    caches captions across turns), sweeping top-level blocks and images
+ *    nested in `tool_result` blocks alike.
  *
  * The companion `post-tool-use` hook applies the same substitution to images a
- * tool returns (e.g. a browser screenshot).
+ * tool returns (e.g. a browser screenshot), and `post-compact` re-sweeps the
+ * rebuilt history after a mid-turn compaction.
  */
 
 import {
@@ -27,7 +29,7 @@ import {
 } from "@vellumai/plugin-api";
 
 import {
-  captionImageBlocks,
+  captionImagesInMessages,
   needsImageFallback,
 } from "../src/caption-blocks.js";
 import { findVisionProfile } from "../src/vision-caption.js";
@@ -40,14 +42,12 @@ const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   const visionProfileKey = findVisionProfile();
 
   // Scan all messages for image blocks and replace them with captions.
-  let imageCount = 0;
-  for (const message of ctx.latestMessages) {
-    imageCount += await captionImageBlocks(
-      message.content,
-      visionProfileKey,
-      ctx.logger,
-    );
-  }
+  const imageCount = await captionImagesInMessages(
+    ctx.latestMessages,
+    ctx.conversationId,
+    visionProfileKey,
+    ctx.logger,
+  );
 
   if (imageCount > 0) {
     ctx.logger.info(

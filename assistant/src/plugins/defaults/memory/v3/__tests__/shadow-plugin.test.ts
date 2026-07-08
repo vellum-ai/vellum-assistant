@@ -92,11 +92,15 @@ let selectorEnabledCfg = false;
 // Drives the `memory-v3-injection-gate` feature flag through the shared
 // assistant-feature-flags mock below (default off).
 let gateFlagEnabled = false;
+// Mutable `memory.v3.gate.enabled` config kill-switch carried by the mocked
+// config (default on, mirroring the schema default).
+let gateEnabledCfg = true;
 let messages: Array<{ role: string; content: string }> = [];
 
-// Schema defaults for `memory.v3.gate` (the tuning the mocked config carries and
-// the gate-config threading test asserts against). No `enabled` field — that is
-// the feature flag, threaded in by `observeTurn`.
+// Schema defaults for `memory.v3.gate` (the tuning the mocked config carries
+// and the gate-config threading test asserts against). Includes the default-on
+// `enabled` kill-switch; `observeTurn` overwrites `enabled` with the effective
+// flag AND config value.
 const GATE_DEFAULTS = MemoryV3GateSchema.parse({});
 
 // A synthetic skill capability slug the page index carries. Its rendered
@@ -224,9 +228,10 @@ mock.module("../../../../../config/loader.js", () => ({
         },
         edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
         entity: { enabled: true, idfFloor: 4, cap: 8 },
-        // Gate TUNING only (schema defaults, no `enabled`); `observeTurn` spreads
-        // this and adds the flag-derived `enabled` before passing to orchestrate.
-        gate: GATE_DEFAULTS,
+        // Gate tuning (schema defaults) with the mutable `enabled` kill-switch;
+        // `observeTurn` spreads this and overwrites `enabled` with the effective
+        // flag AND config value before passing to orchestrate.
+        gate: { ...GATE_DEFAULTS, enabled: gateEnabledCfg },
       },
       qdrant: { vectorSize: 8, onDisk: false },
     },
@@ -455,6 +460,7 @@ beforeEach(() => {
   extraRealConceptPages = 0;
   selectorEnabledCfg = false;
   gateFlagEnabled = false;
+  gateEnabledCfg = true;
   messages = [
     {
       role: "user",
@@ -701,6 +707,19 @@ describe("memory-v3 engine", () => {
     // Flag off → the gate is wired in but inert, and the tuning fields are the
     // schema defaults the config carries.
     expect(deps.gateConfig?.enabled).toBe(false);
+    expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
+  });
+
+  test("flag on + gate.enabled:false config kill-switch → gate threads inert", async () => {
+    gateFlagEnabled = true;
+    gateEnabledCfg = false;
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { gateConfig?: unknown };
+    // The config kill-switch wins over the flag: the effective `enabled` is
+    // false, so selection always runs.
     expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
   });
 

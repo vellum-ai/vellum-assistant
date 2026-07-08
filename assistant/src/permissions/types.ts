@@ -1,7 +1,4 @@
-export type {
-  AllowlistOption,
-  ScopeOption,
-} from "../tools/tool-types.js";
+export type { AllowlistOption, ScopeOption } from "../tools/tool-types.js";
 export { RiskLevel } from "../tools/tool-types.js";
 
 export type ApprovalMode = "prompted" | "auto" | "blocked" | "unknown";
@@ -35,19 +32,6 @@ export const THRESHOLD_ORDINAL: Record<string, number> = {
   high: 2,
 };
 
-/** A persistent trust rule stored on disk and used for permission matching. */
-export interface TrustRule {
-  id: string;
-  tool: string;
-  pattern: string;
-  decision: "allow" | "deny" | "ask";
-  priority: number;
-  createdAt: number;
-  scope?: string;
-  executionTarget?: string;
-  userModifiedAt?: number;
-}
-
 export type UserDecision = "allow" | "deny";
 
 export function isAllowDecision(decision: UserDecision): boolean {
@@ -57,7 +41,6 @@ export function isAllowDecision(decision: UserDecision): boolean {
 export interface PermissionCheckResult {
   decision: "allow" | "deny" | "prompt";
   reason: string;
-  matchedRule?: TrustRule;
   /** True when the decision was taken via the sandbox auto-approve path. */
   hasSandboxAutoApprove?: boolean;
 }
@@ -87,6 +70,16 @@ export interface PolicyContext {
   trustClass?: string;
   /** Source channel the turn arrived on (e.g. "vellum" for internal jobs). */
   sourceChannel?: string;
+  /**
+   * External channel ID of the current chat (e.g. Slack channel ID), for the
+   * channel-ID tier of permission-matrix cell resolution.
+   */
+  channelExternalId?: string;
+  /**
+   * Conversation type on the permission-matrix axis (dm | private | public),
+   * for the channel-type tier of cell resolution.
+   */
+  channelConversationType?: string;
   /**
    * Whether procedural-memory-as-skills is active for this assistant (memory-v3
    * is live). Precomputed in {@link buildPolicyContext} so the checker can gate
