@@ -449,6 +449,7 @@ export class WorkspaceGitService {
                 // These calls are OUTSIDE the rev-parse try/catch so that
                 // normalization errors are not misclassified as "no commits".
                 this.ensureGitignoreRulesLocked();
+                await this.untrackIgnoredFilesLocked();
                 this.ensureBranchGuardHookLocked();
                 await this.ensureCommitIdentityLocked();
                 await this.ensureBranchGuardConfigLocked();
@@ -807,6 +808,49 @@ export class WorkspaceGitService {
         WORKSPACE_GITIGNORE_RULES.join("\n") +
         "\n";
       writeFileSync(gitignorePath, gitignore, "utf-8");
+    }
+  }
+
+  /**
+   * Drop tracked files that are now matched by ignore rules from the index
+   * (working tree untouched). Ignore rules only affect untracked paths, so a
+   * workspace that committed runtime state (e.g. embedding-models/) before a
+   * rule existed would otherwise keep committing it forever. The staged
+   * deletions ride along with the next commit. Best-effort: failures are
+   * logged, never block init. Must be called with the mutex lock held.
+   */
+  private async untrackIgnoredFilesLocked(): Promise<void> {
+    try {
+      const { stdout } = await this.execGitStreaming([
+        "ls-files",
+        "-z",
+        "--cached",
+        "--ignored",
+        "--exclude-standard",
+      ]);
+      const files = stdout.split("\0").filter(Boolean);
+      if (files.length === 0) {
+        return;
+      }
+      // Chunked to stay under OS argv limits on bloated workspaces.
+      const chunkSize = 200;
+      for (let i = 0; i < files.length; i += chunkSize) {
+        await this.execGit([
+          "rm",
+          "--cached",
+          "-r",
+          "-q",
+          "--ignore-unmatch",
+          "--",
+          ...files.slice(i, i + chunkSize),
+        ]);
+      }
+      log.info(
+        { fileCount: files.length },
+        "Untracked newly ignored files from workspace index",
+      );
+    } catch (err) {
+      log.warn({ err }, "Failed to untrack newly ignored files");
     }
   }
 

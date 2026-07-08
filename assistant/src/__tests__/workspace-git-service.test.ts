@@ -725,6 +725,47 @@ describe("WorkspaceGitService", () => {
       expect(contentAfter).toContain("session-token");
     });
 
+    test("existing repo with committed runtime state gets it untracked on init", async () => {
+      // Repo that committed runtime state before the ignore rule existed
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      mkdirSync(join(testDir, "embedding-models"), { recursive: true });
+      writeFileSync(join(testDir, "embedding-models", "model.bin"), "weights");
+      writeFileSync(join(testDir, "notes.md"), "keep me");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Now-ignored path is dropped from the index; tracked files survive.
+      const tracked = execFileSync("git", ["ls-files"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(tracked).not.toContain("embedding-models/model.bin");
+      expect(tracked).toContain("notes.md");
+
+      // Working tree is untouched — only the index entry is removed.
+      expect(existsSync(join(testDir, "embedding-models", "model.bin"))).toBe(
+        true,
+      );
+
+      // The staged deletion rides along with the next commit and the file
+      // is not re-added despite `git add -A`.
+      await service.commitChanges("next turn");
+      const headFiles = execFileSync(
+        "git",
+        ["ls-tree", "-r", "--name-only", "HEAD"],
+        { cwd: testDir, encoding: "utf-8" },
+      );
+      expect(headFiles).not.toContain("embedding-models/model.bin");
+      expect(headFiles).toContain("notes.md");
+    });
+
     test("existing repo with old data/ rule gets it replaced with selective rules", async () => {
       // Set up a pre-existing git repo with the OLD broad data/ rule
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
