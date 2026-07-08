@@ -5,6 +5,7 @@ import {
   handleApprovalRequired,
   handleBackupPrompt,
   handleError,
+  handleFeedbackPrompt,
   handleMessageComplete,
   handleMessageDelta,
   handleStatus,
@@ -46,6 +47,7 @@ function createMockContext(initialEntries: ChatEntry[] = []): DoctorPanelContext
     get entries() {
       return entries;
     },
+    getEntries: () => entries,
     calls,
     updateEntries: (updater) => {
       entries = updater(entries);
@@ -140,6 +142,16 @@ describe("parseDoctorEvent", () => {
   test("parses backup_prompt event", () => {
     const event = parseDoctorEvent(JSON.stringify({ type: "backup_prompt", toolName: "tool" }));
     expect(event).toEqual({ type: "backup_prompt", toolName: "tool" });
+  });
+
+  test("parses feedback_prompt event", () => {
+    const event = parseDoctorEvent(
+      JSON.stringify({ type: "feedback_prompt", source_event_id: "123-0" }),
+    );
+    expect(event).toEqual({
+      type: "feedback_prompt",
+      source_event_id: "123-0",
+    });
   });
 
   test("parses status event", () => {
@@ -447,6 +459,38 @@ describe("handleBackupPrompt", () => {
     expect(entry.meta.toolName).toBe("dangerous_tool");
     expect(ctx.calls.setThinking).toEqual([false]);
     expect(ctx.calls.setPendingBackup).toEqual([true]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleFeedbackPrompt
+// ---------------------------------------------------------------------------
+
+describe("handleFeedbackPrompt", () => {
+  test("appends feedback_prompt entry", () => {
+    const ctx = createMockContext();
+
+    handleFeedbackPrompt(ctx);
+
+    expect(ctx.entries).toHaveLength(1);
+    expect(ctx.entries[0]!.kind).toBe("feedback_prompt");
+    expect(ctx.entries[0]!.content).toBe("Share feedback");
+  });
+
+  test("does not append duplicate feedback prompts", () => {
+    const ctx = createMockContext([
+      {
+        id: "feedback-1",
+        kind: "feedback_prompt",
+        content: "Share feedback",
+        timestamp: 0,
+      },
+    ]);
+
+    handleFeedbackPrompt(ctx);
+
+    expect(ctx.entries).toHaveLength(1);
+    expect(ctx.calls.appendEntry).toEqual([]);
   });
 });
 

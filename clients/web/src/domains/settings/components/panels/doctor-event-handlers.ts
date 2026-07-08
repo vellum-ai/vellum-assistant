@@ -64,9 +64,13 @@ export function handleToolResult(
     const idx = prev.findIndex(
       (e) => e.kind === "tool_call" && e.meta.toolCallId === event.toolCallId,
     );
-    if (idx === -1) return prev;
+    if (idx === -1) {
+      return prev;
+    }
     const existing = prev[idx]!;
-    if (existing.kind !== "tool_call") return prev;
+    if (existing.kind !== "tool_call") {
+      return prev;
+    }
     const updated = [...prev];
     updated[idx] = {
       ...existing,
@@ -107,6 +111,13 @@ export function handleBackupPrompt(ctx: DoctorPanelContext, event: { toolName: s
     content: event.toolName,
     meta: { toolName: event.toolName },
   });
+}
+
+export function handleFeedbackPrompt(ctx: DoctorPanelContext): void {
+  if (ctx.getEntries().some((entry) => entry.kind === "feedback_prompt")) {
+    return;
+  }
+  ctx.appendEntry({ kind: "feedback_prompt", content: "Share feedback" });
 }
 
 export function handleStatus(

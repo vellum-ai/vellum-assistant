@@ -5,6 +5,7 @@ import type { DoctorMessage } from "@/generated/api/types.gen";
 import {
   hasPendingApproval,
   hasPendingBackup,
+  isDoctorOpeningFeedbackMessage,
   isReplayableDoctorSourceEventId,
   latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
@@ -12,6 +13,7 @@ import {
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
+  shouldShowDoctorOpeningFeedbackPrompt,
 } from "@/domains/settings/components/panels/doctor-history";
 import type { ChatEntry } from "@/domains/settings/components/panels/doctor-history";
 
@@ -217,6 +219,20 @@ describe("mapPersistedMessagesToEntries", () => {
     expect(entries[0]!.content).toBe("Session ended with error");
   });
 
+  test("maps status 'feedback_prompt' to a feedback prompt entry", () => {
+    const entries = mapPersistedMessagesToEntries([
+      msg({ kind: "status", content: "feedback_prompt" }),
+    ]);
+    expect(entries).toEqual([
+      {
+        id: "msg-1",
+        kind: "feedback_prompt",
+        content: "Share feedback",
+        timestamp: Date.parse("2026-01-01T00:00:00Z"),
+      },
+    ]);
+  });
+
   test("skips unknown status content", () => {
     const entries = mapPersistedMessagesToEntries([
       msg({ kind: "status", content: "active" }),
@@ -302,6 +318,89 @@ describe("mapPersistedMessagesToEntries", () => {
 
   test("returns empty array for empty input", () => {
     expect(mapPersistedMessagesToEntries([])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isDoctorOpeningFeedbackMessage
+// ---------------------------------------------------------------------------
+
+describe("isDoctorOpeningFeedbackMessage", () => {
+  test("detects direct opening feedback messages", () => {
+    expect(
+      isDoctorOpeningFeedbackMessage(
+        "hi I have feedback that I hate the color theme",
+      ),
+    ).toBe(true);
+    expect(
+      isDoctorOpeningFeedbackMessage("i have feedback for u this app is buggy"),
+    ).toBe(true);
+  });
+
+  test("detects bug and feature request language", () => {
+    expect(isDoctorOpeningFeedbackMessage("I want to file a bug")).toBe(true);
+    expect(
+      isDoctorOpeningFeedbackMessage("feature request: compact mode"),
+    ).toBe(true);
+  });
+
+  test("does not match ordinary diagnostic openings", () => {
+    expect(isDoctorOpeningFeedbackMessage("my assistant will not start")).toBe(
+      false,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldShowDoctorOpeningFeedbackPrompt
+// ---------------------------------------------------------------------------
+
+describe("shouldShowDoctorOpeningFeedbackPrompt", () => {
+  test("shows for feedback in the first user message", () => {
+    expect(
+      shouldShowDoctorOpeningFeedbackPrompt(
+        [
+          {
+            id: "greeting",
+            kind: "assistant",
+            content: "Hi, I'm the Doctor.",
+            timestamp: 0,
+          },
+        ],
+        "hi I have feedback that I hate the color theme",
+      ),
+    ).toBe(true);
+  });
+
+  test("does not show for non-feedback diagnostic openings", () => {
+    expect(
+      shouldShowDoctorOpeningFeedbackPrompt([], "my assistant will not start"),
+    ).toBe(false);
+  });
+
+  test("does not show after a user message already exists", () => {
+    expect(
+      shouldShowDoctorOpeningFeedbackPrompt(
+        [{ id: "1", kind: "user", content: "hello", timestamp: 0 }],
+        "I have feedback",
+      ),
+    ).toBe(false);
+  });
+
+  test("does not show when a feedback prompt already exists", () => {
+    expect(
+      shouldShowDoctorOpeningFeedbackPrompt(
+        [
+          {
+            id: "1",
+            kind: "feedback_prompt",
+            content: "Share feedback",
+            timestamp: 0,
+          },
+        ],
+        "I have feedback",
+      ),
+    ).toBe(false);
   });
 });
 

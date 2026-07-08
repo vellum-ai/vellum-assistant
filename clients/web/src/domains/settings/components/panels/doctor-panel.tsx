@@ -11,6 +11,7 @@ import {
   AssistantMessage,
   BackupPromptBlock,
   ErrorMessage,
+  FeedbackPromptBlock,
   StatusMessage,
   ToolCallBlock,
   UserMessage,
@@ -26,6 +27,7 @@ import {
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
+  shouldShowDoctorOpeningFeedbackPrompt,
 } from "@/domains/settings/components/panels/doctor-history";
 import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
 import {
@@ -286,7 +288,17 @@ export function DoctorPanel() {
     onMutate(variables) {
       const content = variables.body.content;
       const store = useDoctorPanelStore.getState();
+      const shouldShowFeedbackPrompt = shouldShowDoctorOpeningFeedbackPrompt(
+        store.entries,
+        content,
+      );
       store.appendEntry({ kind: "user", content });
+      if (shouldShowFeedbackPrompt) {
+        store.appendEntry({
+          kind: "feedback_prompt",
+          content: "Share feedback",
+        });
+      }
       store.setInputValue("");
       if (APPROVAL_RESPONSES.has(content.toLowerCase())) {
         store.setPendingApproval(false);
@@ -553,6 +565,14 @@ export function DoctorPanel() {
                             handleSend(response);
                           }}
                           disabled={!pendingBackup || sending}
+                        />
+                      </div>
+                    );
+                  case "feedback_prompt":
+                    return (
+                      <div key={entry.id} className="max-w-[90%]">
+                        <FeedbackPromptBlock
+                          onOpenFeedback={() => setFeedbackOpen(true)}
                         />
                       </div>
                     );

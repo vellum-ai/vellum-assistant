@@ -36,6 +36,7 @@ export interface BackupPromptMeta {
 export type ChatEntry =
   | (ChatEntryBase & { kind: "user" })
   | (ChatEntryBase & { kind: "assistant" })
+  | (ChatEntryBase & { kind: "feedback_prompt" })
   | (ChatEntryBase & { kind: "tool_call"; meta: ToolCallMeta })
   | (ChatEntryBase & { kind: "approval"; meta: ApprovalMeta })
   | (ChatEntryBase & { kind: "backup_prompt"; meta: BackupPromptMeta })
@@ -46,6 +47,7 @@ export type ChatEntry =
 export type NewChatEntry =
   | { kind: "user"; content: string }
   | { kind: "assistant"; content: string }
+  | { kind: "feedback_prompt"; content: string }
   | { kind: "tool_call"; content: string; meta: ToolCallMeta }
   | { kind: "approval"; content: string; meta: ApprovalMeta }
   | { kind: "backup_prompt"; content: string; meta: BackupPromptMeta }
@@ -61,6 +63,38 @@ function metaRecord(metadata: unknown): Record<string, unknown> {
     return metadata as Record<string, unknown>;
   }
   return {};
+}
+
+export function isDoctorOpeningFeedbackMessage(content: string): boolean {
+  const normalized = content.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes("feedback") ||
+    normalized.includes("bug report") ||
+    normalized.includes("feature request") ||
+    normalized.includes("report a bug") ||
+    normalized.includes("report an issue") ||
+    normalized.includes("submit a bug") ||
+    normalized.includes("submit an issue") ||
+    normalized.includes("file a bug") ||
+    normalized.includes("file an issue") ||
+    normalized.includes("file a suggestion") ||
+    normalized.includes("submit a suggestion")
+  );
+}
+
+export function shouldShowDoctorOpeningFeedbackPrompt(
+  entries: readonly ChatEntry[],
+  content: string,
+): boolean {
+  return (
+    !entries.some((entry) => entry.kind === "user") &&
+    !entries.some((entry) => entry.kind === "feedback_prompt") &&
+    isDoctorOpeningFeedbackMessage(content)
+  );
 }
 
 const REPLAYABLE_DOCTOR_SOURCE_EVENT_ID = /^\d+-\d+$/;
@@ -196,6 +230,13 @@ export function mapPersistedMessagesToEntries(
             content: "Session ended with error",
             timestamp,
           });
+        } else if (message.content === "feedback_prompt") {
+          entries.push({
+            id: message.id,
+            kind: "feedback_prompt",
+            content: "Share feedback",
+            timestamp,
+          });
         }
         break;
       }
@@ -268,6 +309,9 @@ export function serializeSessionToText(entries: ChatEntry[]): string {
         break;
       case "assistant":
         lines.push(`Doctor: ${entry.content}`);
+        break;
+      case "feedback_prompt":
+        lines.push("Feedback Prompt: Share feedback");
         break;
       case "tool_call": {
         const { toolName, input, result, isError } = entry.meta;
