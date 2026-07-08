@@ -114,14 +114,14 @@ export function ActivityStepsPanel({
           // Drilled into a step: back chevron + the step's title replace the
           // run summary, so the header always names what the body shows.
           <span className="flex min-w-0 items-center gap-1 py-0.5">
+            {/* Full-size ghost icon button, mirroring the shell's close X. */}
             <Button
               variant="ghost"
-              size="compact"
               iconOnly={<ChevronLeft />}
               aria-label="Back to all steps"
               tooltip="All steps"
               onClick={() => setStepDetail(null)}
-              className="-ml-2 shrink-0"
+              className="-ml-2.5 shrink-0"
             />
             <Typography
               variant="title-medium"
