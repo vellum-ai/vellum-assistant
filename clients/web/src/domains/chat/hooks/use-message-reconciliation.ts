@@ -147,7 +147,7 @@ export function useMessageReconciliation({
       // terminal event (`message_complete` / `assistant_activity_state(idle)`)
       // was dropped on a disconnect. Propagating it lets the existing
       // authoritative CLOSE-gate in `shouldShowThinkingIndicator` /
-      // `canStopGeneration` (`snapshotProcessing === false`) settle the turn —
+      // `isAssistantBusy` (`snapshotProcessing === false`) settle the turn —
       // no client-side stuck-turn heuristic. `undefined` (older daemons) does
       // nothing, preserving prior behavior.
       const localSnapshotProcessing =
@@ -266,7 +266,7 @@ export function useMessageReconciliation({
       if (wasStuck) {
         // The rescue must clear BOTH the turn-store (so the local
         // lifecycle becomes idle) AND the conversation-level processing
-        // key (so `canStopGeneration` and the sidebar processing dot
+        // key (so `isAssistantBusy` and the sidebar processing dot
         // can settle). `endTurn` does both atomically — without that
         // pairing the rescue would leave `activeConversationIsProcessing`
         // stuck because the graduation effect in `useAttentionTracking`

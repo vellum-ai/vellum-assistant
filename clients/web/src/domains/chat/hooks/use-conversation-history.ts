@@ -191,7 +191,7 @@ export function useConversationHistory({
       // ride every (re)seed: the stream reducer can only advance a defined
       // flag (`nextProcessingState` pins `undefined` forever), and the
       // `snapshotProcessing === false` close-gate in
-      // `shouldShowThinkingIndicator` / `canStopGeneration` starves without it.
+      // `shouldShowThinkingIndicator` / `isAssistantBusy` starves without it.
       processing: pagination.latestPage?.processing,
     });
 

@@ -54,7 +54,7 @@ describe("TTS provider catalog", () => {
   });
 
   test("every entry declares a valid mediaStreamPlayback output format", () => {
-    const validFormats = new Set(["pcm", "wav", "none"]);
+    const validFormats = new Set(["pcm", "none"]);
     for (const entry of entries) {
       expect(validFormats.has(entry.mediaStreamPlayback.outputFormat)).toBe(
         true,

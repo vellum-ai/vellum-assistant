@@ -14,6 +14,7 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { DetailCard } from "@/components/detail-card";
+import { VoiceTranscriptToggles } from "@/components/voice-transcript-toggles";
 import {
     getLocalSetting,
     removeLocalSetting,
@@ -38,6 +39,7 @@ import {
     getPreferredInputDeviceId,
 } from "@/utils/voice-input-device";
 import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
+import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
 
 const LS_CONVERSATION_TIMEOUT = "vellum:voice:conversationTimeoutSeconds";
 
@@ -84,7 +86,24 @@ export function VoicePage() {
       <MicrophoneCard />
       <PushToTalkCard />
       <ConversationTimeoutCard />
+      <TranscriptionCard />
     </div>
+  );
+}
+
+function TranscriptionCard() {
+  return (
+    <DetailCard
+      title="Transcription"
+      subtitle="Show live text of what you and the assistant say during a voice conversation."
+    >
+      <div className="flex flex-col gap-2">
+        <VoiceTranscriptToggles showDescription />
+        <p className={`${labelClasses} pt-1`}>
+          {VOICE_TRANSCRIPT_RECOMMENDATION}
+        </p>
+      </div>
+    </DetailCard>
   );
 }
 

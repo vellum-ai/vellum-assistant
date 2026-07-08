@@ -172,8 +172,7 @@ describe("sleep command", () => {
       undefined,
       7000,
     );
-    // The CES sibling (CES_STANDALONE opt-in) is stopped by its PID file; a
-    // no-op when absent on the default topology.
+    // The CES sibling is stopped by its PID file; a no-op when absent.
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
       3,
       join(assistantRootDir, "ces.pid"),

@@ -80,4 +80,4 @@ EXPOSE 8090
 ENV CES_MODE=managed
 ENV CES_HEALTH_PORT=8090
 
-CMD ["bun", "run", "src/managed-main.ts"]
+CMD ["bun", "run", "src/main.ts"]

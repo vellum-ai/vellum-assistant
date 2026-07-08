@@ -215,6 +215,10 @@ Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/co
 
 The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/<name>/...`), and `skills/` must not import from `assistant/`. Both directions are enforced by `assistant/src/__tests__/skill-boundary-guard.test.ts`.
 
+## Plugin Self-Containment
+
+A plugin owns its state end-to-end: durable data lives in the plugin's storage dir (`InitContext.pluginStorageDir`), schema is created idempotently by the plugin's `init` hook, handles close in `shutdown`, and per-conversation rows are purged in `conversation-deleted`. Plugin state never goes in the main database or the global migration chain (`assistant/src/persistence/migrations/` / `steps.ts`). Full rules, the canonical `image-fallback` example, and the guard test: `assistant/src/plugins/AGENTS.md`. When creating or scaffolding a plugin, follow the `plugin-builder` skill (`skills/plugin-builder/`).
+
 ## Tooling Direction
 
 New non-skill tool registrations are strongly discouraged — see `assistant/src/tools/AGENTS.md`.

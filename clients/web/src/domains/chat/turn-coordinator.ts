@@ -11,7 +11,7 @@
  * Both must transition on every terminal event. Without this coordinator
  * each terminal site (SSE handlers, error handlers, polling rescue) had
  * to remember to call into both stores, and "forget the second call"
- * was the canonical bug: `canStopGeneration` and the sidebar dot would
+ * was the canonical bug: `isAssistantBusy` and the sidebar dot would
  * stay lit after the assistant message rendered.
  *
  * `endTurn` makes the two-store transition a single call. New terminal

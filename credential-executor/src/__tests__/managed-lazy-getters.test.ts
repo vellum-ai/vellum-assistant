@@ -228,7 +228,7 @@ describe("managed lazy getters — lazy resolution timing", () => {
         apiKeyRef,
       });
 
-    // Build a deps object with getters, mirroring managed-main.ts httpDeps
+    // Build a deps object with getters, mirroring main.ts httpDeps
     const httpDeps = {
       get managedSubjectOptions() {
         return getManagedSubjectOptions();

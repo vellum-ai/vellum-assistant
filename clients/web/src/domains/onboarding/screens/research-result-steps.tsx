@@ -74,11 +74,11 @@ function useChosenAvatar() {
 /** The chosen assistant as a live avatar (for the heading rows). */
 export function MiniAssistant({
   size = 64,
-  isStreaming = false,
+  isAssistantBusy = false,
 }: {
   size?: number;
   /** Morph the body while active (e.g. during the looking-you-up carousel). */
-  isStreaming?: boolean;
+  isAssistantBusy?: boolean;
 }) {
   const { components, chosen } = useChosenAvatar();
   if (!components || !chosen) return <div style={{ width: size, height: size }} />;
@@ -88,7 +88,7 @@ export function MiniAssistant({
         components={components}
         traits={chosen}
         size={size}
-        isStreaming={isStreaming}
+        isAssistantBusy={isAssistantBusy}
       />
     </div>
   );
@@ -303,7 +303,7 @@ export function LookingYouUpStep({
       {/* Top-align so the avatar stays put as messages change line count
           (centering would bob it up and down between carousel lines). */}
       <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
-        <MiniAssistant isStreaming />
+        <MiniAssistant isAssistantBusy />
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
@@ -369,7 +369,7 @@ export function FinishingUpStep({
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
-        <MiniAssistant isStreaming />
+        <MiniAssistant isAssistantBusy />
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
