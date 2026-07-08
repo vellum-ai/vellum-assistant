@@ -23,7 +23,7 @@ export type {
   ApprovalCopyGenerator,
   ComposeApprovalMessageGenerativeOptions,
 } from "./message-composer-types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 
 // ---------------------------------------------------------------------------
 // Approval conversation flow types

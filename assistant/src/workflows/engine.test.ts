@@ -12,7 +12,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import type { WorkflowsConfig } from "../config/schemas/workflows.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import type { ResolvedCapabilities } from "./capabilities.js";

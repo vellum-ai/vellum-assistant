@@ -83,7 +83,7 @@ import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
-import type { TrustContext } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import {
   writeOnboardingSidecar,

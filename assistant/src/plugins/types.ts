@@ -18,7 +18,7 @@ import type {
   InboundActorContext,
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
