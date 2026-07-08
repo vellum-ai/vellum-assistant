@@ -23,6 +23,7 @@ import {
   latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
+  reconnectPendingPromptState,
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
@@ -371,7 +372,16 @@ export function DoctorPanel() {
     if (!sessionId) {
       return;
     }
-    useDoctorPanelStore.getState().setSessionStatus("active");
+    const store = useDoctorPanelStore.getState();
+    // failStream cleared the pending prompt flags, but a prompt that was
+    // showing is still awaiting a reply server-side and is not replayed
+    // past the stored cursor — restore the flags from the transcript.
+    const { pendingApproval, pendingBackup } = reconnectPendingPromptState(
+      store.entries,
+    );
+    store.setPendingApproval(pendingApproval);
+    store.setPendingBackup(pendingBackup);
+    store.setSessionStatus("active");
     connectSSE(assistantId, sessionId);
   };
 

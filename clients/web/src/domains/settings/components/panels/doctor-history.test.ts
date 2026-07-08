@@ -9,6 +9,7 @@ import {
   latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
+  reconnectPendingPromptState,
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
@@ -634,5 +635,58 @@ describe("selectLatestHistorySession", () => {
 
   test("returns null for empty list", () => {
     expect(selectLatestHistorySession([])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reconnectPendingPromptState
+// ---------------------------------------------------------------------------
+
+describe("reconnectPendingPromptState", () => {
+  test("restores pendingApproval when a stream error was appended after the prompt", () => {
+    const entries: ChatEntry[] = [
+      { id: "1", kind: "user", content: "x", timestamp: 0 },
+      {
+        id: "2",
+        kind: "approval",
+        content: "exec",
+        timestamp: 0,
+        meta: { toolName: "exec", input: {}, toolCallId: "tc-1", description: "" },
+      },
+      { id: "3", kind: "error", content: "Doctor is temporarily unavailable", timestamp: 0 },
+    ];
+    expect(reconnectPendingPromptState(entries)).toEqual({
+      pendingApproval: true,
+      pendingBackup: false,
+    });
+  });
+
+  test("restores pendingBackup past error and status entries", () => {
+    const entries: ChatEntry[] = [
+      {
+        id: "1",
+        kind: "backup_prompt",
+        content: "tool",
+        timestamp: 0,
+        meta: { toolName: "tool" },
+      },
+      { id: "2", kind: "status", content: "reconnecting", timestamp: 0 },
+      { id: "3", kind: "error", content: "Event stream disconnected", timestamp: 0 },
+    ];
+    expect(reconnectPendingPromptState(entries)).toEqual({
+      pendingApproval: false,
+      pendingBackup: true,
+    });
+  });
+
+  test("restores nothing when no prompt was pending", () => {
+    const entries: ChatEntry[] = [
+      { id: "1", kind: "assistant", content: "done", timestamp: 0 },
+      { id: "2", kind: "error", content: "Event stream disconnected", timestamp: 0 },
+    ];
+    expect(reconnectPendingPromptState(entries)).toEqual({
+      pendingApproval: false,
+      pendingBackup: false,
+    });
   });
 });
