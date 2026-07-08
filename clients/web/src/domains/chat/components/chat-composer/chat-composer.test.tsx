@@ -39,6 +39,16 @@ mock.module("@/runtime/is-electron", () => ({
   isElectron: () => mockIsElectron,
 }));
 
+// Capacitor-iOS detection. The composer skips the first-run prefs card on the
+// native iOS shell (a dismissible pre-prompt before the `getUserMedia`
+// permission alert violates `docs/CAPACITOR.md` § OS permission requests) and
+// starts the session directly. Defaults to non-iOS (web) so the existing
+// first-run tests exercise the card path unchanged.
+let mockIsNativeIOS = false;
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeIOS: () => mockIsNativeIOS,
+}));
+
 // Live-voice integration. The session controller (`useLiveVoice`) lives in
 // the layout-mounted `useLiveVoiceSessionController`, NOT in the composer —
 // the composer only reads the real `useLiveVoiceStore` (self-contained
@@ -138,6 +148,7 @@ mock.module("@/domains/chat/voice/voice-recording-store", () => ({
 
 function resetLiveVoiceMocks() {
   mockIsElectron = false;
+  mockIsNativeIOS = false;
   mockVoiceMode = false;
   mockVoicePhase = "idle";
   setAudioLevelSpy.mockClear();
@@ -876,6 +887,44 @@ describe("ChatComposer — live-voice integration", () => {
     expect(queryByTestId("first-run-card")).toBeNull();
     expect(liveStarterSpy).not.toHaveBeenCalled();
     expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
+  });
+
+  test("Capacitor iOS: first-ever entry skips the card and starts directly (permission alert reached)", () => {
+    // GIVEN the native iOS shell, the flag on, no session, and a first-ever
+    // entry — a dismissible pre-prompt here would violate CAPACITOR.md
+    // § OS permission requests, so the card must be skipped.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockIsNativeIOS = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+
+    // WHEN the user clicks the entry-point mic
+    const { getByLabelText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN no card renders and the session starts straight away so the OS
+    // getUserMedia alert is the next thing the user sees. The first-run flag
+    // is left untouched (the card, not the mic, owns marking it seen).
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+  });
+
+  test("Capacitor iOS: returning-user entry still starts directly (unchanged)", () => {
+    // GIVEN the native iOS shell with the first run already consumed
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockIsNativeIOS = true;
+    // resetLiveVoiceMocks already sets firstRunSeen: true
+
+    // WHEN the user clicks the entry-point mic
+    const { getByLabelText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN it behaves exactly like the returning-user path on any platform
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
   });
 
   test("owned active session swaps the action row for the voice bar (mutual exclusion by absence)", () => {

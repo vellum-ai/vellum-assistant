@@ -149,6 +149,25 @@ export function detectClientOs(): ClientOs {
 }
 
 /**
+ * True only on the native Capacitor iOS runtime (the WKWebView shell) —
+ * `Capacitor.isNativePlatform()` AND `Capacitor.getPlatform() === "ios"`.
+ *
+ * Distinct from `isIOSBrowser()` (iOS mobile Safari/Chrome, NOT the shell) and
+ * from `isNativePlatform()` (true for the iOS AND Android shells). Use this to
+ * gate iOS-shell-only behavior — most notably any pre-permission UI before an
+ * OS permission alert (`getUserMedia`, `Notification.requestPermission`, etc.),
+ * which per `docs/CAPACITOR.md` § OS permission requests must be skipped (or
+ * carry zero exit affordances) so it leads directly to the system alert per
+ * Apple HIG / App Store Review 5.1.1(iv). Android is excluded because no native
+ * Capacitor Android shell ships today (mirrors `isRemotePushSupported`);
+ * revisit if one does. Safe server-side — falls through to `false` before
+ * hydration.
+ */
+export function isNativeIOS(): boolean {
+  return isNativePlatform() && Capacitor.getPlatform() === "ios";
+}
+
+/**
  * Browser attribution for turn telemetry (`metadata.client.browser_family` /
  * `.browser_version`). Family is engine-level: Chromium derivatives without
  * their own brand entry (Opera, Brave, Arc) report as `"chrome"`.

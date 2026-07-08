@@ -49,6 +49,7 @@ import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import { isNativeIOS } from "@/runtime/platform-detection";
 import { isPointerCoarse } from "@/utils/pointer";
 import { Button, Notice, Popover } from "@vellumai/design-library";
 
@@ -299,7 +300,15 @@ export function ChatComposer({
     if (!assistantId) {
       return;
     }
-    if (!useVoicePrefsStore.getState().firstRunSeen) {
+    // First-run preferences card — shown on every platform EXCEPT Capacitor
+    // iOS. On the iOS shell a dismissible pre-prompt before the live-voice
+    // `getUserMedia` permission alert violates `docs/CAPACITOR.md` § OS
+    // permission requests (Apple HIG / App Store Review 5.1.1(iv)) and the
+    // `voice/live-voice/pcm-capture.ts` caller contract, which require any
+    // pre-permission UI to lead directly to the system alert. On iOS we
+    // therefore start directly (same as the returning-user path) so the OS
+    // alert is reached without an intervening dismissible modal.
+    if (!useVoicePrefsStore.getState().firstRunSeen && !isNativeIOS()) {
       setFirstRunCardOpen(true);
       return;
     }
