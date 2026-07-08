@@ -36,12 +36,22 @@ import {
 import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-sse";
 import { useDoctorAutoScroll } from "@/domains/settings/components/panels/use-doctor-auto-scroll";
 import {
+  DOCTOR_UNAVAILABLE_MESSAGE,
+  DOCTOR_UNAVAILABLE_STATUSES,
+} from "@/domains/settings/components/panels/doctor-errors";
+import {
   assistantsDoctorHistoryListOptions,
   assistantsDoctorHistoryRetrieveOptions,
-  useAssistantsDoctorSessionsMessagesCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { type Options, assistantsDoctorSessionsCreate } from "@/generated/api/sdk.gen";
-import type { AssistantsDoctorSessionsCreateData } from "@/generated/api/types.gen";
+import {
+  type Options,
+  assistantsDoctorSessionsCreate,
+  assistantsDoctorSessionsMessagesCreate,
+} from "@/generated/api/sdk.gen";
+import type {
+  AssistantsDoctorSessionsCreateData,
+  AssistantsDoctorSessionsMessagesCreateData,
+} from "@/generated/api/types.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -253,6 +263,9 @@ export function DoctorPanel() {
             "You've used all of your available Doctor sessions for this month. Please try again next month.",
           );
         }
+        if (response && DOCTOR_UNAVAILABLE_STATUSES.has(response.status)) {
+          throw new ApiError(response.status, DOCTOR_UNAVAILABLE_MESSAGE);
+        }
         throw error;
       }
       return data!;
@@ -282,7 +295,26 @@ export function DoctorPanel() {
     },
   });
 
-  const sendMutation = useAssistantsDoctorSessionsMessagesCreateMutation({
+  // Custom mutationFn for the same reason as startMutation: the generated
+  // hook discards response.status, which we need to give Doctor-service
+  // unavailability (502/503/504) a distinct message.
+  const sendMutation = useMutation({
+    async mutationFn(
+      options: Options<AssistantsDoctorSessionsMessagesCreateData>,
+    ) {
+      const { data, error, response } =
+        await assistantsDoctorSessionsMessagesCreate({
+          ...options,
+          throwOnError: false,
+        });
+      if (error) {
+        if (response && DOCTOR_UNAVAILABLE_STATUSES.has(response.status)) {
+          throw new ApiError(response.status, DOCTOR_UNAVAILABLE_MESSAGE);
+        }
+        throw error;
+      }
+      return data!;
+    },
     onMutate(variables) {
       const content = variables.body.content;
       const store = useDoctorPanelStore.getState();
@@ -299,7 +331,9 @@ export function DoctorPanel() {
       captureError(error, { context: "send_doctor_message" });
       useDoctorPanelStore.getState().appendEntry({
         kind: "error",
-        content: extractErrorMessage(error, undefined, "Failed to send message"),
+        content: error instanceof ApiError
+          ? error.message
+          : extractErrorMessage(error, undefined, "Failed to send message"),
       });
     },
   });

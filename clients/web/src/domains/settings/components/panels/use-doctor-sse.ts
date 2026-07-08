@@ -34,6 +34,7 @@ import {
   handleToolCall,
   handleToolResult,
 } from "@/domains/settings/components/panels/doctor-event-handlers";
+import { doctorStreamTerminalMessage } from "@/domains/settings/components/panels/doctor-errors";
 import { shouldResetDoctorSseReconnectBudget } from "@/domains/settings/components/panels/doctor-sse-reconnect";
 import {
   assistantsDoctorHistoryRetrieve,
@@ -429,11 +430,7 @@ export function useDoctorSSE() {
 
           if (reconnectAttempt >= MAX_DOCTOR_SSE_RECONNECT_ATTEMPTS) {
             captureError(streamError, { context: "doctor_sse_stream" });
-            failStream(
-              failedStatus
-                ? `Failed to connect to event stream (${failedStatus}). Start a new session to continue.`
-                : "Event stream disconnected. Start a new session to continue.",
-            );
+            failStream(doctorStreamTerminalMessage(failedStatus));
             return;
           }
 
