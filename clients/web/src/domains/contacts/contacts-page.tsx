@@ -8,6 +8,7 @@ import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
+import { isVerifiedContactChannel } from "@/domains/contacts/channel-linking";
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
 import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog";
@@ -482,6 +483,7 @@ export function ContactsPage({
         role: c.role,
         contactType: c.contactType,
         channelTypes: channelTypeLabels(c.channels, a2aChannel),
+        verified: isVerifiedContact(c.channels),
       })),
     selection,
     onAddContact: handleAddContact,
@@ -657,6 +659,18 @@ const CHANNEL_TYPE_LABEL: Record<string, string> = {
   whatsapp: "WhatsApp",
   a2a: "A2A",
 };
+
+/**
+ * A contact reads as verified when any non-revoked channel is verified, or is
+ * a connected A2A peer (A2A channels never carry a verification handshake).
+ */
+function isVerifiedContact(channels: ContactChannelPayload[]): boolean {
+  return channels.some(
+    (ch) =>
+      ch.status !== "revoked" &&
+      (ch.type === "a2a" || isVerifiedContactChannel(ch)),
+  );
+}
 
 function channelTypeLabels(
   channels: ContactChannelPayload[],

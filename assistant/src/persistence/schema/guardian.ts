@@ -96,6 +96,11 @@ export const canonicalGuardianRequests = sqliteTable(
     // captured at creation so decision-time policy reads the same identity
     // facts the introduction card was rendered from.
     requesterSignals: text("requester_signals"),
+    // What prompted an access request: 'denied' (refused sender awaiting a
+    // let-them-in decision) or 'admitted' (floor-admitted sender nudged for
+    // trust assignment). NULL means 'denied'. Resolvers and the expiry sweep
+    // suppress requester-facing lifecycle notices for 'admitted'.
+    trigger: text("request_trigger"),
     status: text("status").notNull().default("pending"),
     answerText: text("answer_text"),
     decidedByExternalUserId: text("decided_by_external_user_id"),
