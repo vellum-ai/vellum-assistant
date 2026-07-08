@@ -14,10 +14,11 @@ import { Glob } from "bun";
  * into the assistant's global persistence layer to own state:
  *
  * - `persistence/migrations/` and `persistence/steps` (the global
- *   migration chain), `persistence/schema` (main-DB tables), and
- *   `persistence/db-connection` (the raw DB handle) are frozen to the
- *   grandfathered `memory` plugin, whose main-DB tables predate the rule.
- *   New plugins keep their state in plugin-owned storage.
+ *   migration chain), `persistence/schema` (main-DB tables),
+ *   `persistence/db-connection` (the raw DB handle), and
+ *   `persistence/raw-query` (raw SQL against the main DB) are frozen to
+ *   the grandfathered `memory` plugin, whose main-DB tables predate the
+ *   rule. New plugins keep their state in plugin-owned storage.
  *
  * Service-API imports (e.g. `persistence/conversation-crud`) are allowed —
  * the boundary is about owning state, not reading through APIs.
@@ -30,7 +31,7 @@ const MAIN_DB_GRANDFATHERED_PLUGINS = new Set(["memory"]);
 
 /** Import specifiers that mean a plugin is owning main-DB state. */
 const MAIN_DB_STATE_PATTERN =
-  /\b(?:from\s*|import\s*\(\s*)["'][^"']*persistence\/(?:schema(?:\/[^"']*)?|db-connection|migrations\/[^"']*|steps)(?:\.js)?["']/;
+  /\b(?:from\s*|import\s*\(\s*)["'][^"']*persistence\/(?:schema(?:\/[^"']*)?|db-connection|raw-query|migrations\/[^"']*|steps)(?:\.js)?["']/;
 
 function scanDefaultPlugins(
   pattern: RegExp,
