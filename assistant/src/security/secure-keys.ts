@@ -225,7 +225,11 @@ async function resolveBackendAsync(
       // - We're on ces-http but an operation returned unreachable (HTTP
       //   endpoint is actually down even though isAvailable() returned true,
       //   since it only checks env vars, not actual connectivity).
-      const reconnected = await attemptCesReconnection();
+      // Mutating ops bypass the cooldown here too, so a write during the
+      // window lands on CES rather than on a fallback CES never sees.
+      const reconnected = await attemptCesReconnection({
+        ignoreCooldown: options.forceReconnect,
+      });
       if (reconnected) {
         // setCesClient() cleared the cache — fall through to re-resolve.
       } else {

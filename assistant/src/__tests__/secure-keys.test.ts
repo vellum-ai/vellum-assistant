@@ -485,5 +485,35 @@ describe("secure-keys", () => {
       expect(counter.runs).toBe(1);
       expect(result.unreachable).toBe(true);
     });
+
+    test("set during the cooldown upgrades from the encrypted-store fallback to CES", async () => {
+      // No CES client installed — the resolver lands on the encrypted store,
+      // the fallback used when CES fails at startup.
+      await getSecureKeyAsync("prime-key");
+
+      const fresh = makeMockCesClient(true);
+      const counter = { runs: 0 };
+      setCesReconnect(async () => {
+        counter.runs++;
+        // First attempt fails; later attempts hand back a live CES client.
+        return counter.runs === 1 ? undefined : fresh;
+      });
+
+      // A read attempts the CES upgrade (and fails), stamping the cooldown.
+      await getSecureKeyAsync("prime-key");
+      expect(counter.runs).toBe(1);
+
+      const ok = await setSecureKeyAsync("credential/vellum/api_key", "sk-2");
+
+      expect(ok).toBe(true);
+      expect(counter.runs).toBe(2);
+      expect(fresh.sets).toEqual([
+        { account: "credential/vellum/api_key", value: "sk-2" },
+      ]);
+      // The write went to CES, not the local fallback store.
+      expect(
+        encryptedStore.getKey("credential/vellum/api_key"),
+      ).toBeUndefined();
+    });
   });
 });
