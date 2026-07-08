@@ -235,6 +235,18 @@ describe("AnthropicProvider — semantic reason stamping", () => {
     expect(err.apiErrorType).toBe("rate_limit_error");
   });
 
+  test("surfaces the inner human message, not JSON, when the SDK stringifies the body", async () => {
+    const inner = "You do not have access to this model on your current plan.";
+    // Real SDK behaviour: no top-level message, so error.message is the raw JSON body.
+    const body = anthropicBody("permission_error", inner);
+    const err = await reasonFor(
+      new FakeAPIError(403, JSON.stringify(body), body),
+    );
+    expect(err.reason).toBe("model_restricted");
+    expect(err.message).toContain(inner);
+    expect(err.message).not.toContain("{");
+  });
+
   test("context overflow → ContextOverflowError with reason context_overflow", async () => {
     nextThrown = new FakeAPIError(
       400,

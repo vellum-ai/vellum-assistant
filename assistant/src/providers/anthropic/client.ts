@@ -88,6 +88,19 @@ function readAnthropicErrorCode(
 }
 
 /**
+ * The SDK JSON-stringifies the nested body into `error.message` when there is
+ * no top-level message, so read the inner human message for display.
+ */
+function readAnthropicMessage(
+  error: InstanceType<typeof Anthropic.APIError>,
+): string | undefined {
+  const body = error.error as
+    { message?: string; error?: { message?: string } } | undefined;
+  const inner = body?.error?.message ?? body?.message;
+  return typeof inner === "string" && inner.length > 0 ? inner : undefined;
+}
+
+/**
  * Map an Anthropic `APIError` to a semantic {@link ProviderErrorReason} from
  * its error type and/or status. Order matters: billing precedes credentials,
  * and the 403 branch disambiguates a model/plan restriction from generic auth.
@@ -1618,7 +1631,7 @@ export class AnthropicProvider implements Provider {
         const rewrittenMessage =
           isAbortMessage && innerTimeoutFired
             ? `Anthropic stream timed out after ${Math.round(elapsedMs / 1000)}s (inner streamTimeoutMs)`
-            : error.message;
+            : (readAnthropicMessage(error) ?? error.message);
         // Only include the `(status)` parenthetical when the SDK surfaced a
         // real HTTP status. Abort paths and mid-stream protocol errors have
         // `error.status === undefined`, and string-interpolating that produces
