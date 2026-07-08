@@ -41,9 +41,14 @@ import {
   withSuppressedConfigDiskWrites,
   withSuppressedConfigDiskWritesSync,
 } from "../../config/loader.js";
+import { completeCustomProfile } from "../../config/profile-materialization.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
-import { LLMConfigFragment, ProfileEntry } from "../../config/schemas/llm.js";
+import {
+  LLMConfigBase,
+  LLMConfigFragment,
+  ProfileEntry,
+} from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { ServiceModeSchema } from "../../config/schemas/services.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
@@ -196,11 +201,15 @@ function replaceInferenceProfileConfig(
 ): void {
   const existingLlm = asMutablePlainObject(raw.llm);
   const llm = existingLlm ?? {};
-  if (!existingLlm) raw.llm = llm;
+  if (!existingLlm) {
+    raw.llm = llm;
+  }
 
   const existingProfiles = asMutablePlainObject(llm.profiles);
   const profiles = existingProfiles ?? {};
-  if (!existingProfiles) llm.profiles = profiles;
+  if (!existingProfiles) {
+    llm.profiles = profiles;
+  }
 
   const existingProfile = asMutablePlainObject(profiles[name]) ?? {};
   const nextProfile: Record<string, unknown> = { ...existingProfile };
@@ -275,8 +284,12 @@ function applyStoredProviderToLlmContextResult(
 type LlmContextView = "full" | "summary";
 
 function resolveLlmContextView(view: string | undefined): LlmContextView {
-  if (view === undefined || view === "full") return "full";
-  if (view === "summary") return "summary";
+  if (view === undefined || view === "full") {
+    return "full";
+  }
+  if (view === "summary") {
+    return "summary";
+  }
   throw new BadRequestError(
     `Invalid view parameter: ${view}. Expected "full" or "summary".`,
   );
@@ -288,7 +301,9 @@ function resolveLlmContextView(view: string | undefined): LlmContextView {
  * for malformed/legacy rows — a bad blob must never break the inspector.
  */
 function parseLatencyBreakdown(raw: string | null): LatencyBreakdown | null {
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   try {
     const parsed = LatencyBreakdownSchema.safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : null;
@@ -497,7 +512,9 @@ function synthesizeLegacyInferenceModeForPlatform(
   root: Record<string, unknown>,
 ): void {
   const services = readPlainObject(root.services);
-  if (!services) return;
+  if (!services) {
+    return;
+  }
   let inference = readPlainObject(services.inference);
   if (!inference) {
     inference = {};
@@ -524,9 +541,13 @@ function stripTransportHeadersRecursively(value: unknown): void {
   }
 
   const object = readPlainObject(value);
-  if (!object) return;
+  if (!object) {
+    return;
+  }
   const transport = readPlainObject(object.transport);
-  if (transport) delete transport.headers;
+  if (transport) {
+    delete transport.headers;
+  }
   for (const child of Object.values(object)) {
     stripTransportHeadersRecursively(child);
   }
@@ -538,9 +559,13 @@ function containsTransportHeadersRecursively(value: unknown): boolean {
   }
 
   const object = readPlainObject(value);
-  if (!object) return false;
+  if (!object) {
+    return false;
+  }
   const transport = readPlainObject(object.transport);
-  if (transport && Object.hasOwn(transport, "headers")) return true;
+  if (transport && Object.hasOwn(transport, "headers")) {
+    return true;
+  }
   return Object.values(object).some((child) =>
     containsTransportHeadersRecursively(child),
   );
@@ -548,15 +573,21 @@ function containsTransportHeadersRecursively(value: unknown): boolean {
 
 function sanitizeMcpTransportHeadersForSettingsRead(config: unknown): void {
   const root = readPlainObject(config);
-  if (!root) return;
+  if (!root) {
+    return;
+  }
   const mcp = readPlainObject(root.mcp);
-  if (!mcp || !Object.hasOwn(mcp, "servers")) return;
+  if (!mcp || !Object.hasOwn(mcp, "servers")) {
+    return;
+  }
   if (Array.isArray(mcp.servers)) {
     stripTransportHeadersRecursively(mcp.servers);
     return;
   }
   const servers = readPlainObject(mcp.servers);
-  if (!servers) return;
+  if (!servers) {
+    return;
+  }
   for (const server of Object.values(servers)) {
     stripTransportHeadersRecursively(server);
   }
@@ -565,19 +596,25 @@ function sanitizeMcpTransportHeadersForSettingsRead(config: unknown): void {
 function patchContainsMcpTransportHeaders(patch: unknown): boolean {
   const root = readPlainObject(patch);
   const mcp = readPlainObject(root?.mcp);
-  if (!mcp || !Object.hasOwn(mcp, "servers")) return false;
+  if (!mcp || !Object.hasOwn(mcp, "servers")) {
+    return false;
+  }
   if (Array.isArray(mcp.servers)) {
     return containsTransportHeadersRecursively(mcp.servers);
   }
   const servers = readPlainObject(mcp.servers);
-  if (!servers) return false;
+  if (!servers) {
+    return false;
+  }
   return Object.values(servers).some((server) =>
     containsTransportHeadersRecursively(server),
   );
 }
 
 function rejectMcpTransportHeaderWrite(patch: unknown): void {
-  if (!patchContainsMcpTransportHeaders(patch)) return;
+  if (!patchContainsMcpTransportHeaders(patch)) {
+    return;
+  }
   throw new BadRequestError(
     "MCP authentication headers must be managed through MCP server add/update APIs, not generic config writes.",
   );
@@ -808,7 +845,9 @@ function handleGetConfig() {
  */
 function overlayEffectiveProfilesForWire(config: unknown): void {
   const root = readPlainObject(config);
-  if (!root) return;
+  if (!root) {
+    return;
+  }
   const existingLlm = readPlainObject(root.llm);
   const llm = existingLlm ?? {};
   if (!existingLlm) {
@@ -886,9 +925,13 @@ function normalizeManagedProfileWrites(patch: unknown): void {
   ) as Record<string, ProfileEntry> | undefined;
 
   for (const name of Object.keys(profiles)) {
-    if (!MANAGED_PROFILE_NAMES.has(name)) continue;
+    if (!MANAGED_PROFILE_NAMES.has(name)) {
+      continue;
+    }
     const entry = readPlainObject(profiles[name]);
-    if (!entry) continue;
+    if (!entry) {
+      continue;
+    }
 
     const current = readPlainObject(currentProfiles?.[name]);
     if (current && current.source !== "managed") {
@@ -900,7 +943,9 @@ function normalizeManagedProfileWrites(patch: unknown): void {
       getEffectiveProfile(currentProfiles, name),
     );
     for (const key of Object.keys(entry)) {
-      if (key === "source" || key === "status") continue;
+      if (key === "source" || key === "status") {
+        continue;
+      }
       const matchesEffective =
         effective != null &&
         key in effective &&
@@ -975,21 +1020,31 @@ function normalizeManagedProfileWrites(patch: unknown): void {
  */
 function enrichProfilesForWire(config: unknown): void {
   const root = readPlainObject(config);
-  if (!root) return;
+  if (!root) {
+    return;
+  }
   const llm = readPlainObject(root.llm);
-  if (!llm) return;
+  if (!llm) {
+    return;
+  }
   const profiles = readPlainObject(llm.profiles);
-  if (!profiles) return;
+  if (!profiles) {
+    return;
+  }
 
   for (const [name, profile] of Object.entries(profiles)) {
     const entry = readPlainObject(profile);
-    if (!entry) continue;
+    if (!entry) {
+      continue;
+    }
     if (INVARIANT_PROFILE_NAMES.has(name) && entry.source === "managed") {
       entry.invariant = true;
     }
     const provider = entry.provider;
     const model = entry.model;
-    if (typeof provider !== "string" || typeof model !== "string") continue;
+    if (typeof provider !== "string" || typeof model !== "string") {
+      continue;
+    }
 
     const catalogProvider = PROVIDER_CATALOG.find((p) => p.id === provider);
     const catalogModel = catalogProvider?.models.find((m) => m.id === model);
@@ -1031,17 +1086,23 @@ function handleGetConfigSchema({ queryParams = {} }: RouteHandlerArgs) {
 
 function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
   const llm = asMutablePlainObject(body.llm);
-  if (!llm) return;
+  if (!llm) {
+    return;
+  }
   if ("profiles" in llm && llm.profiles === null) {
     throw new BadRequestError(
       "Cannot null llm.profiles — managed profiles would be deleted.",
     );
   }
   const profiles = asMutablePlainObject(llm.profiles);
-  if (!profiles) return;
+  if (!profiles) {
+    return;
+  }
   const existingProfiles = asMutablePlainObject(getConfig().llm.profiles) ?? {};
   for (const name of Object.keys(profiles)) {
-    if (profiles[name] !== null || !MANAGED_PROFILE_NAMES.has(name)) continue;
+    if (profiles[name] !== null || !MANAGED_PROFILE_NAMES.has(name)) {
+      continue;
+    }
     // Only block deletion when the on-disk entry is Vellum-managed. A
     // user-owned profile sharing a managed name carries a non-managed `source`
     // and is freely deletable.
@@ -1150,6 +1211,83 @@ function assertInvariantProfilesPreserved(
 }
 
 /**
+ * `{...raw, ...completed}` recursively: completed (schema-known) values win,
+ * raw keys the schema stripped survive at every depth.
+ */
+function mergePreservingUnknownKeys(
+  raw: Record<string, unknown>,
+  completed: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...raw, ...completed };
+  for (const [key, value] of Object.entries(completed)) {
+    const rawValue = raw[key];
+    if (
+      readPlainObject(value) !== undefined &&
+      readPlainObject(rawValue) !== undefined
+    ) {
+      out[key] = mergePreservingUnknownKeys(
+        rawValue as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * Custom profiles persist as complete overrides: any user-source, non-mix
+ * profile entry this write creates or changes is completed against
+ * `llm.default` (`completeCustomProfile`) before it lands on disk, so no
+ * write path can persist a new partial profile. Entries the write did not
+ * touch are left byte-identical — an unrelated config write must not rewrite
+ * profile entries. Entries that do not parse as a `ProfileEntry` are also
+ * left untouched; full-config parsing owns their rejection/recovery.
+ */
+function completeChangedCustomProfiles(
+  preWrite: Record<string, unknown>,
+  raw: Record<string, unknown>,
+): void {
+  const profiles = asMutablePlainObject(readPlainObject(raw.llm)?.profiles);
+  if (!profiles) {
+    return;
+  }
+  const parsedDefault = LLMConfigBase.safeParse(
+    readPlainObject(raw.llm)?.default ?? {},
+  );
+  if (!parsedDefault.success) {
+    return;
+  }
+  const prior = readPlainObject(readPlainObject(preWrite.llm)?.profiles) ?? {};
+  for (const [name, entry] of Object.entries(profiles)) {
+    if (isDeepStrictEqual(entry, prior[name])) {
+      continue;
+    }
+    const parsedEntry = ProfileEntry.safeParse(entry);
+    if (!parsedEntry.success) {
+      continue;
+    }
+    // `source: "managed"` is only meaningful on catalog-owned names. On any
+    // other name it would skip completion (and read as a locked entry), so a
+    // body claiming it is normalized to user-owned before completing.
+    const entryData =
+      parsedEntry.data.source === "managed" && !MANAGED_PROFILE_NAMES.has(name)
+        ? { ...parsedEntry.data, source: "user" as const }
+        : parsedEntry.data;
+    // Merge the completed known fields over the original raw entry at every
+    // depth: `safeParse` strips keys the schema doesn't know (top-level and
+    // inside nested objects like `contextWindow`), and dropping them here
+    // would delete forward-compatible fields whenever the entry is edited.
+    profiles[name] = mergePreservingUnknownKeys(
+      readPlainObject(entry) ?? {},
+      completeCustomProfile(parsedDefault.data, entryData) as Record<
+        string,
+        unknown
+      >,
+    );
+  }
+}
+
+/**
  * Persist a mutated raw config object to disk and synchronize the running
  * daemon (file-watcher, embedding cache, provider registry).
  *
@@ -1164,7 +1302,9 @@ async function commitConfigWrite(
   // so it is the pre-write state; raw-to-raw comparison avoids parsed-vs-raw
   // false diffs. Runs before the watcher-suppress/save sequence so a
   // rejection needs no suppress-flag or cache cleanup.
-  assertInvariantProfilesPreserved(loadRawConfig(), raw);
+  const preWrite = loadRawConfig();
+  completeChangedCustomProfiles(preWrite, raw);
+  assertInvariantProfilesPreserved(preWrite, raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write
@@ -1339,7 +1479,9 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
 function handleValidateAllowlist() {
   try {
     const errors = validateAllowlistFile();
-    if (errors == null) return { exists: false } as const;
+    if (errors == null) {
+      return { exists: false } as const;
+    }
     return { exists: true, errors } as const;
   } catch (err) {
     // `validateAllowlistFile` does a raw `JSON.parse` on
@@ -1619,8 +1761,12 @@ function resolveConversationKind(
   if (source === MEMORY_V2_CONSOLIDATION_SOURCE) {
     return "background_memory_consolidation";
   }
-  if (conversationType === "background") return "background";
-  if (conversationType === "scheduled") return "scheduled";
+  if (conversationType === "background") {
+    return "background";
+  }
+  if (conversationType === "scheduled") {
+    return "scheduled";
+  }
   return "user";
 }
 
