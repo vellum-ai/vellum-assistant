@@ -13,6 +13,7 @@ export const INFERENCE_PROVIDERS = [
   "fireworks",
   "together",
   "openrouter",
+  "vercel-ai-gateway",
   "gemini",
   "ollama",
   "minimax",

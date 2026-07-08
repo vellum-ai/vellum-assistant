@@ -12,7 +12,7 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
-import { isAboutAssistantPath, routes } from "@/utils/routes";
+import { isAboutAssistantPath, isConversationPath, routes } from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
@@ -48,7 +48,7 @@ import {
 import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { openPopoutWindow } from "@/runtime/popout-window";
+import { isPopoutWindow, openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
@@ -66,6 +66,8 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
+import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
+import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -123,7 +125,7 @@ export function ChatLayout() {
   // navigations (e.g. conversation switching via Cmd+Up/Down). ChatLayout is a
   // persistent layout route — it stays mounted when child routes change, so
   // this initial value remains stable for the window's lifetime.
-  const [isPopout] = useState(() => location.search.includes("popout=1"));
+  const [isPopout] = useState(() => isPopoutWindow(location.search));
 
   // SPIKE — research-onboarding focused presentation. When set, a full-viewport
   // overlay (rendered below, on top of this layout) covers the chrome so the
@@ -142,6 +144,13 @@ export function ChatLayout() {
     (s) => s.assistantState.kind,
   );
   const isAssistantActive = assistantStateKind === "active";
+
+  // Live-voice session controller. Owned at layout scope — not by the
+  // composer — so a session survives every chat-side navigation (thread
+  // switch, Home/Library, the fullscreen app viewer) with the title-bar
+  // pill as its control surface. The composer starts/stops sessions
+  // through the seams this registers in `useLiveVoiceStore`.
+  useLiveVoiceSessionController();
 
   // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
@@ -538,10 +547,7 @@ export function ChatLayout() {
   // is intentionally left intact — many other consumers (SSE streams,
   // attention tracking, message reconciliation) rely on it persisting
   // across route changes.
-  const isOnConversationRoute =
-    location.pathname === routes.assistant ||
-    location.pathname === `${routes.assistant}/` ||
-    location.pathname.startsWith(`${routes.conversations}/`);
+  const isOnConversationRoute = isConversationPath(location.pathname);
   const sidebarActiveConversationId = isOnConversationRoute
     ? (activeConversationId ?? undefined)
     : undefined;
@@ -650,7 +656,18 @@ export function ChatLayout() {
           sidebarWidth={sidebarWidth}
           toggleSidebar={toggleSidebar}
           topBarCenter={topBarCenter}
-          topBarRightSlot={topBarRightSlot}
+          // The voice-session pill is composed here — NOT registered through
+          // useChatLayoutSlotsStore — because slot registration is owned by
+          // per-route hooks that unmount on navigation, exactly when the pill
+          // must persist. The host renders null when no session is active (or
+          // while viewing the owning thread's composer), so the header is
+          // unaffected otherwise.
+          topBarRightSlot={
+            <>
+              {topBarRightSlot}
+              <VoiceSessionPillHost />
+            </>
+          }
           canGoBack={canGoBack}
           canGoForward={canGoForward}
           onGoBack={handleGoBack}
@@ -672,6 +689,10 @@ export function ChatLayout() {
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
           <Outlet  />
+          {/* A popout narrowed below the mobile breakpoint lands in this
+              branch — still headerless, so it still needs the floating
+              session surface (see the desktop popout branch below). */}
+          {isPopout ? <VoiceSessionPillHost variant="standalone" /> : null}
           {drawerVisible || drawerDragging ? (
             <div
               ref={drawerRef}
@@ -711,8 +732,15 @@ export function ChatLayout() {
           ) : null}
         </main>
       ) : isPopout ? (
-        <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4">
+        <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4">
           <Outlet />
+          {/* Pop-outs render no header, but they DO support in-window
+              conversation switching (Cmd+Up/Down) — so a live session started
+              here can lose its owning composer exactly like in the main
+              window. The standalone variant floats the pill (or the failed
+              chip) over the top-right corner; it renders nothing while the
+              on-screen composer owns the session. */}
+          <VoiceSessionPillHost variant="standalone" />
         </main>
       ) : (
         <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">

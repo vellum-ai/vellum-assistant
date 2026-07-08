@@ -1,5 +1,3 @@
-import * as Sentry from "@sentry/node";
-
 import { disposeAcpSessionManager } from "../acp/index.js";
 import { stopCes } from "../credential-execution/ces-runtime.js";
 import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
@@ -241,7 +239,6 @@ async function shutdown(): Promise<void> {
     }
   }
 
-  await Sentry.flush(2000);
   clearTimeout(forceTimer);
   stopBackgroundServicesAndCleanupPidFile();
   process.exit(exitCode);
@@ -279,7 +276,6 @@ function handleShutdownSignal(signal: string, message: string): void {
 
 function handleFatalError(err: unknown, message: string): void {
   log.error({ err }, message);
-  Sentry.captureException(err);
   exitCode = 1;
   if (!isStartupComplete()) {
     exitDuringStartup(1);

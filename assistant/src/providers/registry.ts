@@ -6,6 +6,10 @@ import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
+  isAnthropicDelegatingGateway,
+  isAnthropicModel,
+} from "./anthropic-gateway-shared.js";
+import {
   buildProviderAdapter,
   createAdapterFromConnection,
 } from "./inference/adapter-factory.js";
@@ -116,7 +120,7 @@ export function isNativeWebSearchCapableProvider(
   if (NATIVE_WEB_SEARCH_PROVIDER_IDS.has(providerName)) {
     return true;
   }
-  if (providerName === "openrouter" && model.startsWith("anthropic/")) {
+  if (isAnthropicDelegatingGateway(providerName) && isAnthropicModel(model)) {
     return true;
   }
   return false;

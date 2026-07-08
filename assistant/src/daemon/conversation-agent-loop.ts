@@ -36,10 +36,6 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import type { UserPromptSubmitInputContext } from "../hooks/types.js";
 import {
-  clearSentryConversationContext,
-  setSentryConversationContext,
-} from "../instrument.js";
-import {
   addMessage,
   deleteMessageById,
   getConversation,
@@ -63,11 +59,11 @@ import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memo
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import { enqueueAutoAnalysisOnCompaction } from "../runtime/services/auto-analysis-enqueue.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
+import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
@@ -571,6 +567,17 @@ export async function runAgentLoopImpl(
   const state = createEventHandlerState();
   let persistedErrorAssistantMessage = false;
   let deletedReservedAssistantMessage = false;
+  // Abnormal turn outcome for telemetry, stamped onto the user-message row in
+  // the `finally` (before processing clears, so the reporter's settled-turn
+  // barrier guarantees the stamp ships with the turn event). Unset = the turn
+  // replied normally and carries no stamp.
+  let abnormalOutcome:
+    | { outcome: "failed" | "cancelled"; failureCode?: string }
+    | undefined;
+  // True once a replied terminal SSE (message_complete / generation_handoff)
+  // has been emitted. Guards the catch block: an error thrown afterwards
+  // (deferred turn-tail bookkeeping) must not relabel a visibly-replied turn.
+  let turnReplied = false;
 
   const publishLoopMessagesChanged = (): void => {
     if (
@@ -583,21 +590,16 @@ export async function runAgentLoopImpl(
     }
   };
 
-  // Populate Sentry scope with conversation-specific tags so any exception
-  // captured during this turn (e.g. inside agent/loop.ts) can be
-  // filtered by conversation, assistant, or user in the dashboard.
-  setSentryConversationContext({
-    assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-    conversationId: ctx.conversationId,
-    messageCount: ctx.messages.length,
-    userIdentifier:
-      ctx.trustContext?.guardianPrincipalId ??
-      ctx.trustContext?.requesterExternalUserId,
-  });
-
   try {
     if (diskPressureDecision.action === "block") {
       const message = formatDiskPressureBlockedMessage();
+      // The user message is already persisted, so this turn will be reported
+      // by the telemetry scan; label it failed (the early return still runs
+      // the `finally`, which stamps `abnormalOutcome`).
+      abnormalOutcome = {
+        outcome: "failed",
+        failureCode: DISK_PRESSURE_ERROR_CODE,
+      };
       rlog.warn(
         { reason: diskPressureDecision.reason },
         "Blocked turn during disk pressure cleanup mode",
@@ -1083,12 +1085,19 @@ export async function runAgentLoopImpl(
         new Error("context_length_exceeded"),
         { phase: "agent_loop" },
       );
+      // Exhausted-overflow exit: the reduction ladder is spent and the turn
+      // ends without a real reply, so label it failed for telemetry.
+      abnormalOutcome = { outcome: "failed", failureCode: classified.code };
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     } else if (
       overflowTerminalReason === "budget_yield_unrecovered" &&
       !abortController.signal.aborted
     ) {
       budgetYieldClassification = budgetYieldUnrecoveredClassification();
+      abnormalOutcome = {
+        outcome: "failed",
+        failureCode: budgetYieldClassification.code,
+      };
       onEvent(
         buildConversationErrorMessage(
           ctx.conversationId,
@@ -1229,6 +1238,15 @@ export async function runAgentLoopImpl(
       !abortController.signal.aborted &&
       !yieldedForHandoff
     ) {
+      // The turn is terminating on the provider-error path: its only
+      // assistant output (if any) is the synthetic error message persisted
+      // below. Label the turn `failed` for telemetry either way.
+      abnormalOutcome = {
+        outcome: "failed",
+        ...(state.providerErrorCode
+          ? { failureCode: state.providerErrorCode }
+          : {}),
+      };
       // Drop any reservation stranded by the failed LLM call. The B3
       // pre-allocation path reserves an empty assistant row at
       // `llm_call_started`; when the call exits through the provider-error
@@ -1363,6 +1381,7 @@ export async function runAgentLoopImpl(
     // so the client can re-enable the UI without delay. Disk sync and the rest
     // of the bookkeeping run in `runDeferredTurnTail` after this SSE.
     if (abortController.signal.aborted) {
+      abnormalOutcome = { outcome: "cancelled" };
       ctx.emitActivityState("idle", "generation_cancelled", {
         anchor: "global",
         requestId: reqId,
@@ -1397,6 +1416,7 @@ export async function runAgentLoopImpl(
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {
+        abnormalOutcome = { outcome: "cancelled" };
         ctx.emitActivityState("idle", "generation_cancelled", {
           anchor: "global",
           requestId: reqId,
@@ -1407,6 +1427,7 @@ export async function runAgentLoopImpl(
         });
         publishLoopMessagesChanged();
       } else if (yieldedForHandoff) {
+        turnReplied = true;
         onEvent({
           type: "generation_handoff",
           conversationId: ctx.conversationId,
@@ -1424,6 +1445,7 @@ export async function runAgentLoopImpl(
         });
         publishLoopMessagesChanged();
       } else {
+        turnReplied = true;
         ctx.emitActivityState("idle", "message_complete", {
           anchor: "global",
           requestId: reqId,
@@ -1462,6 +1484,12 @@ export async function runAgentLoopImpl(
       aborted: abortController.signal.aborted,
     };
     if (isUserCancellation(err, errorCtx)) {
+      // Only label the turn when it hadn't already replied — a cancellation
+      // surfacing after the terminal SSE (deferred turn-tail bookkeeping)
+      // must not relabel a visibly-replied turn.
+      if (!turnReplied) {
+        abnormalOutcome = { outcome: "cancelled" };
+      }
       ctx.emitActivityState("idle", "generation_cancelled", {
         anchor: "global",
         requestId: reqId,
@@ -1479,6 +1507,9 @@ export async function runAgentLoopImpl(
       });
       rlog.error({ err }, "Conversation processing error");
       const classified = classifyConversationError(err, errorCtx);
+      if (!turnReplied) {
+        abnormalOutcome = { outcome: "failed", failureCode: classified.code };
+      }
       onEvent({
         type: "error",
         conversationId: ctx.conversationId,
@@ -1531,6 +1562,16 @@ export async function runAgentLoopImpl(
     // cancelled turn always unwinds before any resend can start a new one.
     // There is therefore only ever one turn alive, and clearing the shared
     // state below cannot clobber a concurrent turn.
+    // Stamp the turn's abnormal outcome (failed / cancelled) onto its
+    // user-message row BEFORE processing clears: the telemetry reporter's
+    // settled-turn barrier only releases this turn once the conversation
+    // stops processing, so ordering the stamp first guarantees the turn
+    // event ships with the outcome. A normally-replied turn stamps nothing.
+    if (abnormalOutcome) {
+      stampTurnOutcome(userMessageId, abnormalOutcome.outcome, {
+        failureCode: abnormalOutcome.failureCode,
+      });
+    }
     ctx.abortController = null;
     ctx.setProcessing(false);
     ctx.onConfirmationOutcome = undefined;
@@ -1564,10 +1605,6 @@ export async function runAgentLoopImpl(
     // consolidates when it summarizes old messages (cache miss is expected).
 
     ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
-
-    // Clear conversation tags so they don't leak into unrelated error captures
-    // (e.g. unhandledRejection from a different async chain).
-    clearSentryConversationContext();
   }
 }
 

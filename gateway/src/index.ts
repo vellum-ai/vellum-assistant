@@ -140,6 +140,7 @@ import {
   createChannelPermissionOverridesListHandler,
   createChannelPermissionOverrideSetHandler,
   createChannelPermissionOverrideDeleteHandler,
+  createChannelPermissionResolveHandler,
 } from "./http/routes/channel-permission-overrides.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
@@ -556,6 +557,8 @@ async function main() {
     createChannelPermissionOverrideSetHandler();
   const handleChannelPermissionOverrideDelete =
     createChannelPermissionOverrideDeleteHandler();
+  const handleChannelPermissionResolve =
+    createChannelPermissionResolveHandler();
 
   const handleAgentCard = createAgentCardHandler(configFileCache);
 
@@ -1638,6 +1641,15 @@ async function main() {
       scope: "settings.write",
       handler: (req) => handleChannelPermissionOverrideDelete(req),
     },
+    // Resolve is a read (settings.read) despite the POST verb — the body
+    // carries a composite query, same rationale as /delete above.
+    {
+      path: /^\/v1\/channel-permission-overrides\/resolve\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelPermissionResolve(req),
+    },
 
     // ── Channel permission overrides — assistant-scoped variants ──
     // Matrix cells are gateway-global, so the assistant id is matched and
@@ -1662,6 +1674,13 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => handleChannelPermissionOverrideDelete(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-permission-overrides\/resolve\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelPermissionResolve(req),
     },
 
     // ── Trust rules v3 — assistant-scoped variants ──

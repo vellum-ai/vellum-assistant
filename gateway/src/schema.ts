@@ -3450,6 +3450,31 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/channel-permission-overrides/resolve": {
+        post: {
+          summary: "Resolve the effective channel-permission threshold",
+          description:
+            "Authenticated gateway endpoint that resolves the cascade for one coordinate (adapter, optional channelType/channelExternalId, contact-type) and returns the winning cell's threshold and scope, or null when no cell matches so the caller falls through to the global thresholds. Read-only; a POST verb path because the composite query travels in the body, same rationale as /delete.",
+          operationId: "channelPermissionResolve",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Resolution returned (resolved or null)" },
+            "400": { description: "Invalid request payload or adapter" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
       "/v1/channel-permission-overrides/delete": {
         post: {
           summary: "Delete a channel-permission matrix cell",

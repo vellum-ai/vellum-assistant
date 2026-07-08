@@ -2,9 +2,86 @@ import { describe, expect, test } from "bun:test";
 
 import {
   attachmentsToContentBlocks,
+  attachmentsToReferenceBlocks,
   enrichMessageWithSourcePaths,
 } from "../agent/attachments.js";
 import { createUserMessage } from "../agent/message-types.js";
+
+// ---------------------------------------------------------------------------
+// attachmentsToReferenceBlocks
+// ---------------------------------------------------------------------------
+
+describe("attachmentsToReferenceBlocks", () => {
+  test("builds an image workspace_ref with dimension hints, no base64", () => {
+    const blocks = attachmentsToReferenceBlocks([
+      {
+        attachmentId: "att-1",
+        filename: "photo.png",
+        mimeType: "image/png",
+        sizeBytes: 1234,
+        width: 800,
+        height: 600,
+      },
+    ]);
+
+    expect(blocks).toEqual([
+      {
+        type: "image",
+        source: {
+          type: "workspace_ref",
+          media_type: "image/png",
+          attachmentId: "att-1",
+          sizeBytes: 1234,
+          width: 800,
+          height: 600,
+        },
+      },
+    ]);
+    // The large blob never appears in the persisted block.
+    expect(JSON.stringify(blocks)).not.toContain("data");
+  });
+
+  test("builds a file workspace_ref with filename and extracted text", () => {
+    const blocks = attachmentsToReferenceBlocks([
+      {
+        attachmentId: "att-2",
+        filename: "report.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 42,
+        extractedText: "hello",
+      },
+    ]);
+
+    expect(blocks).toEqual([
+      {
+        type: "file",
+        source: {
+          type: "workspace_ref",
+          media_type: "application/pdf",
+          attachmentId: "att-2",
+          sizeBytes: 42,
+          filename: "report.pdf",
+        },
+        extracted_text: "hello",
+      },
+    ]);
+  });
+
+  test("omits image dimension hints when unknown", () => {
+    const [block] = attachmentsToReferenceBlocks([
+      {
+        attachmentId: "att-3",
+        filename: "photo.png",
+        mimeType: "image/png",
+        sizeBytes: 10,
+      },
+    ]);
+    const source = (block as unknown as { source: Record<string, unknown> })
+      .source;
+    expect("width" in source).toBe(false);
+    expect("height" in source).toBe(false);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // attachmentsToContentBlocks

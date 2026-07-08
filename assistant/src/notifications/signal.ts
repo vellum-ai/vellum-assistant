@@ -192,9 +192,12 @@ export const AccessRequestContextPayloadSchema = z.object({
   guardianResolutionSource: GuardianResolutionSourceSchema,
   previousMemberStatus: z.string().nullable(),
   messagePreview: z.string().nullable(),
+  isBot: z.boolean().optional(),
   isStranger: z.boolean().optional(),
   isRestricted: z.boolean().optional(),
   messageTs: z.string().optional(),
+  /** `admitted` marks an introduction nudge for a floor-admitted sender. */
+  trigger: z.enum(["denied", "admitted"]).optional(),
 });
 export type AccessRequestContextPayload = z.infer<
   typeof AccessRequestContextPayloadSchema

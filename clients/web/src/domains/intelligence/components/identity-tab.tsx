@@ -1,26 +1,21 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { getAssistant } from "@/assistant/api";
 import { fetchAssistantIdentity } from "@/assistant/identity";
 import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { ConceptGraphView } from "@/domains/intelligence/components/concept-graph/concept-graph-view";
 import { ConstellationView } from "@/domains/intelligence/components/constellation-view/constellation-view";
-import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
-import { installSkill } from "@/domains/intelligence/skills/install";
+import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
 import type { SkillInfo } from "@/domains/intelligence/skills/types";
-import {
-    skillsGetOptions,
-    skillsGetQueryKey,
-    useSkillsByIdDeleteMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-import { type Options } from "@/generated/daemon/sdk.gen";
-import type { IdentityGetResponse, SkillsGetData } from "@/generated/daemon/types.gen";
+import { skillsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { captureError } from "@/lib/sentry/capture-error";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
-import { Button, ConfirmDialog } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 
 export interface IdentityCardProps {
   assistantName: string;
@@ -177,7 +172,6 @@ interface IdentityTabProps {
 }
 
 export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
-  const queryClient = useQueryClient();
   const {
     components,
     traits,
@@ -189,10 +183,27 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
   const [assistantCreatedAt, setAssistantCreatedAt] = useState<string | null>(null);
   const [loadedAssistantId, setLoadedAssistantId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
-  const [installingSkillId, setInstallingSkillId] = useState<string | null>(null);
-  const [removingSkillId, setRemovingSkillId] = useState<string | null>(null);
-  const [skillPendingRemoval, setSkillPendingRemoval] = useState<SkillInfo | null>(null);
+  const [graphFullscreen, setGraphFullscreen] = useState(false);
+
+  // The concept graph only exists when the active backend exposes one (memory-v3)
+  // AND the memory-concept-graph flag is on; otherwise the endpoint reports
+  // `unsupported` and we fall back to the skills constellation, so this pane is
+  // never empty on backends/assistants without the graph. A failed graph fetch
+  // (daemon predating the route, transient error) falls back the same way
+  // rather than stranding the pane on the graph's error state.
+  const graphQuery = useQuery(memoryGraphOptions(assistantId));
+  const useSkillsFallback =
+    graphQuery.data?.kind === "unsupported" || graphQuery.isError;
+  // Fetched in parallel with the graph probe so the fallback constellation
+  // renders populated as soon as it is chosen, not one round-trip later.
+  const skillsQuery = useQuery({
+    ...skillsGetOptions({
+      path: { assistant_id: assistantId },
+      query: { kind: "installed" },
+    }),
+    select: (data): SkillInfo[] => data.skills,
+    enabled: Boolean(assistantId),
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -201,7 +212,7 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
       fetchAssistantIdentity(assistantId),
       getAssistant(assistantId).catch(() => ({ ok: false as const, status: 0, error: {} })),
     ]).then(([identityData, assistantResult]) => {
-      if (cancelled) return;
+      if (cancelled) {return;}
       setIdentity(identityData);
       if (assistantResult.ok) {
         setAssistantCreatedAt(assistantResult.data.created);
@@ -210,7 +221,7 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
       }
       setLoadedAssistantId(assistantId);
     }).catch((err) => {
-      if (cancelled) return;
+      if (cancelled) {return;}
       captureError(err, { context: "identity_tab_load" });
     });
 
@@ -220,17 +231,6 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
   }, [assistantId]);
 
   const isLoading = loadedAssistantId !== assistantId || isAvatarLoading;
-  const [constellationFullscreen, setConstellationFullscreen] = useState(false);
-
-  const skillsQuery = useQuery({
-    ...skillsGetOptions({
-      path: { assistant_id: assistantId },
-      query: { kind: "installed" },
-    }),
-    select: (data): SkillInfo[] => data.skills,
-    enabled: Boolean(assistantId),
-  });
-  const installedSkills = useMemo(() => skillsQuery.data ?? [], [skillsQuery.data]);
 
   const handleAvatarChange = useCallback(() => {
     invalidateAvatar();
@@ -247,92 +247,6 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
   const handleGenerateWithAI = useCallback(() => {
     onOpenThread?.("I'd like to create a custom AI-generated avatar.");
   }, [onOpenThread]);
-
-  const invalidateSkills = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: skillsGetQueryKey({
-        path: { assistant_id: assistantId },
-      } as Options<SkillsGetData>),
-    });
-  }, [assistantId, queryClient]);
-
-  const installMutation = useMutation({
-    mutationFn: (slug: string) => installSkill(assistantId, slug),
-    onMutate: (slug) => setInstallingSkillId(slug),
-    onSettled: () => {
-      setInstallingSkillId(null);
-      invalidateSkills();
-    },
-  });
-
-  const uninstallMutation = useSkillsByIdDeleteMutation({
-    onMutate: (variables) => setRemovingSkillId(variables.path.id),
-    onSettled: () => {
-      setRemovingSkillId(null);
-      invalidateSkills();
-    },
-  });
-
-  const handleInstall = useCallback(
-    (skill: SkillInfo) => {
-      installMutation.mutate(skill.slug ?? skill.id);
-    },
-    [installMutation],
-  );
-
-  const handleRemove = useCallback((skill: SkillInfo) => {
-    setSkillPendingRemoval(skill);
-  }, []);
-
-  const confirmRemove = useCallback(() => {
-    if (!skillPendingRemoval) {
-      return;
-    }
-    uninstallMutation.mutate({
-      path: { assistant_id: assistantId, id: skillPendingRemoval.id },
-    });
-    setSkillPendingRemoval(null);
-  }, [assistantId, skillPendingRemoval, uninstallMutation]);
-
-  const selectedSkill = useMemo(() => {
-    if (!selectedSkillId) {
-      return null;
-    }
-    return installedSkills.find((s) => s.id === selectedSkillId) ?? null;
-  }, [installedSkills, selectedSkillId]);
-
-  const removalDialog = (
-    <ConfirmDialog
-      open={skillPendingRemoval !== null}
-      title="Remove skill"
-      message={
-        skillPendingRemoval
-          ? `Remove "${skillPendingRemoval.name}" from this assistant?`
-          : ""
-      }
-      confirmLabel="Remove"
-      destructive
-      onConfirm={confirmRemove}
-      onCancel={() => setSkillPendingRemoval(null)}
-    />
-  );
-
-  if (selectedSkill) {
-    return (
-      <>
-        <SkillDetail
-          assistantId={assistantId}
-          skill={selectedSkill}
-          onBack={() => setSelectedSkillId(null)}
-          onInstall={() => handleInstall(selectedSkill)}
-          onRemove={() => handleRemove(selectedSkill)}
-          isInstalling={installingSkillId === (selectedSkill.slug ?? selectedSkill.id)}
-          isRemoving={removingSkillId === selectedSkill.id}
-        />
-        {removalDialog}
-      </>
-    );
-  }
 
   if (isLoading) {
     return (
@@ -363,7 +277,7 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
     <div className="flex h-full min-h-0 flex-col gap-6 lg:flex-row lg:items-stretch">
       <div
         className={`mx-auto w-full max-w-md lg:mx-0 lg:h-full lg:shrink-0 lg:overflow-y-auto ${
-          constellationFullscreen ? "hidden" : "flex"
+          graphFullscreen ? "hidden" : "flex"
         }`}
       >
         <IdentityCard
@@ -380,16 +294,24 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
       </div>
 
       <div className="min-h-[480px] min-w-0 flex-1 lg:min-h-0">
-        <ConstellationView
-          skills={installedSkills}
-          components={components}
-          traits={traits}
-          customImageUrl={customImageUrl}
-          className="h-full w-full"
-          isFullscreen={constellationFullscreen}
-          onToggleFullscreen={() => setConstellationFullscreen((v) => !v)}
-          onSelectSkill={setSelectedSkillId}
-        />
+        {useSkillsFallback ? (
+          <ConstellationView
+            skills={skillsQuery.data ?? []}
+            components={components}
+            traits={traits}
+            customImageUrl={customImageUrl}
+            className="h-full w-full"
+            isFullscreen={graphFullscreen}
+            onToggleFullscreen={() => setGraphFullscreen((v) => !v)}
+          />
+        ) : (
+          <ConceptGraphView
+            assistantId={assistantId}
+            className="h-full w-full"
+            isFullscreen={graphFullscreen}
+            onToggleFullscreen={() => setGraphFullscreen((v) => !v)}
+          />
+        )}
       </div>
 
       <AvatarManagementModal
@@ -403,7 +325,6 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
         onUploadImage={handleAvatarChange}
         onGenerateWithAI={onOpenThread ? handleGenerateWithAI : undefined}
       />
-      {removalDialog}
     </div>
   );
 }

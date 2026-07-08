@@ -876,6 +876,65 @@ describe("Anthropic models on OpenRouter", () => {
   });
 });
 
+describe("Anthropic models on the Vercel AI Gateway", () => {
+  test("prices anthropic/claude-opus-4.6 at Opus 4.6 rates", () => {
+    const result = resolvePricing(
+      "vercel-ai-gateway",
+      "anthropic/claude-opus-4.6",
+      1_000_000,
+      1_000_000,
+    );
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe(5 + 25);
+  });
+
+  test("prices bare claude-opus-4-6 slug returned unprefixed", () => {
+    const result = resolvePricing(
+      "vercel-ai-gateway",
+      "claude-opus-4-6-20260205",
+      1_000_000,
+      1_000_000,
+    );
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe(5 + 25);
+  });
+
+  test("returns unpriced for unknown anthropic model on the gateway", () => {
+    const result = resolvePricing(
+      "vercel-ai-gateway",
+      "anthropic/claude-neptune-99",
+      1_000_000,
+      1_000_000,
+    );
+    expect(result.pricingStatus).toBe("unpriced");
+    expect(result.estimatedCostUsd).toBeNull();
+  });
+
+  test("applies Anthropic cache discounts for prompt-cache reads via the gateway", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 1_000_000,
+      anthropicCacheCreation: null,
+    };
+    const gateway = resolvePricingForUsage(
+      "vercel-ai-gateway",
+      "anthropic/claude-opus-4.6",
+      usage,
+    );
+    const direct = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+    );
+
+    expect(gateway.pricingStatus).toBe("priced");
+    expect(gateway.estimatedCostUsd).toBeCloseTo(5 * 0.1, 10);
+    expect(gateway.estimatedCostUsd).toBe(direct.estimatedCostUsd);
+  });
+});
+
 describe("usesAnthropicPricingRules", () => {
   test("returns true for direct Anthropic", () => {
     expect(usesAnthropicPricingRules("anthropic", "claude-opus-4-6")).toBe(
@@ -897,6 +956,30 @@ describe("usesAnthropicPricingRules", () => {
 
   test("returns false for non-Anthropic OpenRouter models", () => {
     expect(usesAnthropicPricingRules("openrouter", "x-ai/grok-4")).toBe(false);
+  });
+
+  test("returns true for anthropic/* on the Vercel AI Gateway", () => {
+    expect(
+      usesAnthropicPricingRules(
+        "vercel-ai-gateway",
+        "anthropic/claude-sonnet-4.6",
+      ),
+    ).toBe(true);
+  });
+
+  test("returns true for bare claude-* slug on the Vercel AI Gateway", () => {
+    expect(
+      usesAnthropicPricingRules(
+        "vercel-ai-gateway",
+        "claude-opus-4-5-20250929",
+      ),
+    ).toBe(true);
+  });
+
+  test("returns false for non-Anthropic Vercel AI Gateway models", () => {
+    expect(usesAnthropicPricingRules("vercel-ai-gateway", "x-ai/grok-4")).toBe(
+      false,
+    );
   });
 
   test("returns false for other providers", () => {

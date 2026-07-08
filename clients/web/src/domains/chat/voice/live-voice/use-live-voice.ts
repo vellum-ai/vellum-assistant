@@ -75,6 +75,7 @@ import { useCallback, useEffect, useRef } from "react";
 
 import {
   LiveVoiceChannelClient,
+  RETRYABLE_LIVE_VOICE_CLOSE_CODES,
   type LiveVoiceClientError,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
 import {
@@ -86,6 +87,7 @@ import {
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import {
+  isLiveVoiceSessionActive,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -107,19 +109,36 @@ const SILENCE_DURATION_BEFORE_RELEASE_MS = 1000;
 const MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS = 120;
 
 // ---------------------------------------------------------------------------
+// Reconnect (hands-free only)
+// ---------------------------------------------------------------------------
+
+// Retryable close codes (velay 1012/1013) are defined by the transport
+// (RETRYABLE_LIVE_VOICE_CLOSE_CODES) and shared here so the transport's
+// pre-`ready` handling and this controller's reconnect gate stay in lockstep.
+
+/**
+ * Backoff before each hands-free reconnect attempt. The first delay clears the
+ * gateway's velay-tunnel re-registration window (~0.8s observed) so the retry
+ * doesn't race ahead of the tunnel and fail pre-`ready`; later attempts back
+ * off to ride out a longer outage. The array length caps the number of
+ * attempts — after the last one the session fails.
+ */
+const RECONNECT_BACKOFF_MS = [1200, 3000, 6000];
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 export interface UseLiveVoiceResult {
   /** Current session phase. */
   state: LiveVoiceSessionState;
-  /** In-flight partial user transcript. */
+  /** In-flight partial user transcript. Pinned at `""` when the consumer opted out via {@link UseLiveVoiceOptions.observeAudioState}. */
   partialTranscript: string;
-  /** Last finalized user transcript. */
+  /** Last finalized user transcript. Pinned at `""` when `observeAudioState` is false. */
   finalTranscript: string;
-  /** Accumulated assistant response text for the current turn. */
+  /** Accumulated assistant response text for the current turn. Pinned at `""` when `observeAudioState` is false. */
   assistantTranscript: string;
-  /** Smoothed mic amplitude in [0, 1]. */
+  /** Smoothed mic amplitude in [0, 1]. Pinned at `0` when `observeAudioState` is false. */
   inputAmplitude: number;
   /** Failure message when `state === "failed"`, else `null`. */
   error: string | null;
@@ -150,6 +169,28 @@ export interface UseLiveVoiceOptions {
     options: ConstructorParameters<typeof LiveVoiceAudioCapture>[0],
   ) => LiveVoiceAudioCapture;
   createPlayer?: () => LiveVoiceAudioPlayer;
+  /**
+   * When `false`, this hook instance does not subscribe to the high-frequency
+   * audio/transcript store fields — `inputAmplitude` (updated on every mic
+   * amplitude sample), `partialTranscript`, `finalTranscript`, and
+   * `assistantTranscript` — so those updates never re-render the consumer. The
+   * corresponding returned fields are pinned at their idle defaults (`0` /
+   * `""`); read them via `useLiveVoiceStore` (selectors or `getState()`)
+   * instead. The low-frequency `state`/`error` fields and the actions are
+   * unaffected.
+   *
+   * For consumers that only need the session phase + actions — e.g. the
+   * composer, whose voice bar polls amplitude with `getState()` inside its
+   * canvas draw loop. Must be stable for the lifetime of the hook instance.
+   * Defaults to `true` (subscribe to everything, the original behavior).
+   */
+  observeAudioState?: boolean;
+  /**
+   * Override the hands-free reconnect backoff schedule (ms per attempt; length
+   * caps the attempt count). Primarily a test seam so specs don't wait real
+   * seconds; production uses {@link RECONNECT_BACKOFF_MS}.
+   */
+  reconnectBackoffMs?: number[];
 }
 
 /**
@@ -157,6 +198,8 @@ export interface UseLiveVoiceOptions {
  * ref alongside the active primitives; replaced wholesale on each `start()`.
  */
 interface SessionContext {
+  /** Assistant the session is bound to; reused verbatim on reconnect. */
+  assistantId: string;
   client: LiveVoiceChannelClient;
   capture: LiveVoiceAudioCapture;
   player: LiveVoiceAudioPlayer;
@@ -212,14 +255,43 @@ function chunkDurationMs(buf: ArrayBuffer): number {
 export function useLiveVoice(
   options: UseLiveVoiceOptions = {},
 ): UseLiveVoiceResult {
+  const observeAudioState = options.observeAudioState ?? true;
   const state = useLiveVoiceStore.use.state();
-  const partialTranscript = useLiveVoiceStore.use.partialTranscript();
-  const finalTranscript = useLiveVoiceStore.use.finalTranscript();
-  const assistantTranscript = useLiveVoiceStore.use.assistantTranscript();
-  const inputAmplitude = useLiveVoiceStore.use.inputAmplitude();
+  // High-frequency / transcript fields are read through conditional selectors:
+  // when the consumer opted out, the selector returns the idle default, so the
+  // subscription exists but never produces a changed value — i.e. amplitude
+  // ticks and transcript deltas cannot re-render the consumer.
+  const partialTranscript = useLiveVoiceStore((s) =>
+    observeAudioState ? s.partialTranscript : "",
+  );
+  const finalTranscript = useLiveVoiceStore((s) =>
+    observeAudioState ? s.finalTranscript : "",
+  );
+  const assistantTranscript = useLiveVoiceStore((s) =>
+    observeAudioState ? s.assistantTranscript : "",
+  );
+  const inputAmplitude = useLiveVoiceStore((s) =>
+    observeAudioState ? s.inputAmplitude : 0,
+  );
   const error = useLiveVoiceStore.use.error();
 
   const sessionRef = useRef<SessionContext | null>(null);
+
+  // Monotonic count of `start()` calls for this hook instance. `stop()`
+  // captures it before its awaits and skips its trailing store reset when a
+  // newer session started in the meantime — the per-session `generation`
+  // can't cover this because `stop()` nulls `sessionRef` synchronously, so
+  // the racing session is a different context object entirely.
+  //
+  // Considered and rejected: guarding the trailing reset with
+  // `if (sessionRef.current !== null)` instead. That is behaviorally
+  // equivalent *today* only because `start()` assigns `sessionRef`
+  // synchronously; a refactor that introduces an await before that
+  // assignment would silently reopen the race — the null-check would see no
+  // session yet and wrongly reset the newer session's store state. The
+  // counter increments synchronously at `start()`'s entry, so it stays
+  // correct regardless of where awaits land later.
+  const startGenerationRef = useRef(0);
 
   // Keep the factories in a ref so start()/stop() stay stable across renders
   // even if callers pass inline option objects. The ref is updated in an effect
@@ -229,6 +301,30 @@ export function useLiveVoice(
   useEffect(() => {
     optionsRef.current = options;
   });
+
+  // Hands-free reconnect bookkeeping. `reconnectAttemptRef` counts consecutive
+  // retryable-close reconnects (reset to 0 on a fresh `start()` and on every
+  // `ready`); `reconnectTimerRef` holds the pending backoff timer so stop()/
+  // teardown()/unmount can cancel an in-flight reconnect. `connectSessionRef`
+  // lets the transport `closed` handler re-enter the connect flow without a
+  // useCallback self-reference cycle.
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectSessionRef = useRef<
+    | ((
+        assistantId: string,
+        conversationId: string | undefined,
+        startOptions: LiveVoiceStartOptions,
+      ) => Promise<void>)
+    | null
+  >(null);
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
 
   /**
    * Tear down the active session's primitives, clear the ref, and reset the
@@ -241,27 +337,39 @@ export function useLiveVoice(
    * set it *after* calling `teardown()`, so the reset can't clobber it.
    */
   const teardown = useCallback(() => {
+    // Cancel any pending hands-free reconnect first — teardown is terminal, so
+    // a queued reconnect must not resurrect the session behind idle UI.
+    clearReconnectTimer();
+    reconnectAttemptRef.current = 0;
     const session = sessionRef.current;
-    if (!session) return;
+    if (!session) {
+      // During the reconnect backoff gap `sessionRef` is null while the store
+      // still shows an active (`connecting`) session with live controls. An
+      // unmount here (its cleanup calls teardown) must still reset the store,
+      // or it strands non-idle with stale controls — dictation stays disabled
+      // and a phantom session lingers after navigation. Guard on non-idle so a
+      // teardown with nothing to do doesn't churn the store.
+      if (useLiveVoiceStore.getState().state !== "idle") {
+        useLiveVoiceStore.getState().reset();
+      }
+      return;
+    }
     sessionRef.current = null;
-    // Bump the generation so any in-flight async callbacks become stale no-ops.
-    session.generation += 1;
-    for (const unsubscribe of session.unsubscribes) unsubscribe();
-    session.unsubscribes = [];
-    session.client.close();
-    // dispose() stops playback *and* releases the AudioContext; a bare stop()
-    // would leak the context across repeated sessions until page unload.
-    void session.player.dispose();
-    void session.capture.shutdown();
+    disposeSessionPrimitives(session);
     useLiveVoiceStore.getState().reset();
-  }, []);
+  }, [clearReconnectTimer]);
 
   const stop = useCallback(async () => {
+    // A user-initiated stop ends the session outright — drop any pending
+    // reconnect and its attempt budget.
+    clearReconnectTimer();
+    reconnectAttemptRef.current = 0;
     const session = sessionRef.current;
     if (!session) {
       useLiveVoiceStore.getState().reset();
       return;
     }
+    const startGeneration = startGenerationRef.current;
     sessionRef.current = null;
     session.generation += 1;
     useLiveVoiceStore.getState().setState("ending");
@@ -271,36 +379,82 @@ export function useLiveVoice(
     // Release the AudioContext, not just the scheduled sources (see teardown).
     await session.player.dispose();
     await session.capture.shutdown();
+    // A start() that raced the awaits owns the store now (e.g. a second ✕
+    // click resets `ending` → idle mid-await, unblocking start()); wiping it
+    // here would leave that session's mic hot behind idle UI.
+    if (startGenerationRef.current !== startGeneration) return;
     useLiveVoiceStore.getState().reset();
+  }, [clearReconnectTimer]);
+
+  /**
+   * Manual push-to-talk release — same internal path as the automatic silence
+   * release. Guarded to `listening` so a stray click (or the store-registered
+   * control firing late) can't disturb another phase.
+   */
+  const release = useCallback(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    // Hands-free sessions have no manual push-to-talk to release: the server
+    // VAD owns utterance boundaries and mic forwarding stays on for the whole
+    // session. A release here would flip `forwardingAudio` off — which the
+    // hands-free `tts_done`/listening return never re-enables — so every later
+    // mic chunk is dropped and the session strands (looks live, accepts no
+    // turns). No-op instead; the "send now" affordance is manual-mode only.
+    if (session.handsFree) return;
+    if (useLiveVoiceStore.getState().state !== "listening") return;
+    releasePushToTalk(session);
   }, []);
 
-  const start = useCallback(
+  /**
+   * Stop in-flight assistant playback — the barge-in interrupt path without
+   * the amplitude gate. `interruptIfSpeaking` itself guards to `speaking`.
+   */
+  const interrupt = useCallback(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    interruptIfSpeaking(session, teardown);
+  }, [teardown]);
+
+  // The connect flow, shared by the user-facing `start()` and the hands-free
+  // reconnect path. `start()` owns the "already active" guard and resets the
+  // reconnect budget; `connectSession` assumes it may run. On reconnect it is
+  // invoked with the authoritative conversation id so the fresh session
+  // re-attaches to the same conversation.
+  const connectSession = useCallback(
     async (
       assistantId: string,
-      conversationId?: string,
-      startOptions?: LiveVoiceStartOptions,
+      conversationId: string | undefined,
+      startOptions: LiveVoiceStartOptions,
     ) => {
-      const current = sessionRef.current;
-      // A live session (anything but idle/failed) blocks a new start.
-      const phase = useLiveVoiceStore.getState().state;
-      if (current && phase !== "idle" && phase !== "failed") return;
-      if (current) teardown();
+      if (sessionRef.current) teardown();
+      startGenerationRef.current += 1;
 
       const store = useLiveVoiceStore.getState();
       store.reset();
       store.setState("connecting");
+      store.setSessionContext(assistantId, conversationId ?? null);
+      // Registered here (not on `ready`) so a globally mounted surface can
+      // drive the session from the moment it exists; cleared by the store
+      // reset in teardown()/stop().
+      store.setControls({ stop: () => void stop(), release, interrupt });
 
       const opts = optionsRef.current;
       const client = (opts.createClient ?? (() => new LiveVoiceChannelClient()))();
       const player = (opts.createPlayer ?? (() => new LiveVoiceAudioPlayer()))();
+      // Resume the playback AudioContext now, while we're still in the
+      // mic-button click's gesture. Deferring to the first `tts_audio` frame
+      // (its lazy creation point) lands outside any gesture, so the browser
+      // starts it suspended and the first turn's audio is silently dropped.
+      player.prewarm();
 
       const session: SessionContext = {
+        assistantId,
         client,
         capture: undefined as unknown as LiveVoiceAudioCapture,
         player,
         unsubscribes: [],
         generation: 0,
-        handsFree: startOptions?.handsFree === true,
+        handsFree: startOptions.handsFree === true,
         captureRunning: false,
         forwardingAudio: false,
         responseAudioStarted: false,
@@ -332,6 +486,17 @@ export function useLiveVoice(
           if (session.handsFree && frame.turnDetection !== "server_vad") {
             session.handsFree = false;
           }
+          // A `ready` means the (re)connection succeeded — clear the reconnect
+          // budget so a later, unrelated tunnel drop gets its full retry set.
+          reconnectAttemptRef.current = 0;
+          // When started from a new/empty conversation, `conversationId` was
+          // undefined at start() and the store published `null`. The server
+          // assigns (or confirms) the attached conversation on `ready`, so
+          // republish the authoritative id. `setConversationId` (not
+          // `setSessionContext`) so `startedConversationId` keeps its
+          // start-time value — session ownership for a draft-started session
+          // hinges on it (see `isLiveVoiceSessionOwnedBy`).
+          useLiveVoiceStore.getState().setConversationId(frame.conversationId);
           void startCapture(session, teardown);
         }),
         client.on("speechStarted", () => {
@@ -454,11 +619,57 @@ export function useLiveVoice(
           }
           finishWithError(session, teardown, err.message);
         }),
-        client.on("closed", () => {
+        client.on("closed", (info) => {
           // A transport close after a clean end()/teardown is expected; only an
-          // unexpected close while still attached needs cleanup. teardown()
-          // resets the store to idle.
+          // unexpected close while still attached needs cleanup.
           if (!live()) return;
+          // Hands-free resilience: velay tears down a proxied session with a
+          // retryable close code (1013 "assistant tunnel disconnected") when
+          // its tunnel to the assistant drops mid-conversation (deploy, key
+          // rotation, network blip). The runtime session is gone, but the
+          // conversation persists — so reconnect a fresh session to the same
+          // conversation instead of silently ending (which reads to the user
+          // as an unexplained cancel). Bounded by the backoff table; a manual
+          // (non-server_vad) session and a locally-initiated close never retry.
+          const backoff =
+            optionsRef.current.reconnectBackoffMs ?? RECONNECT_BACKOFF_MS;
+          if (
+            session.handsFree &&
+            info.code !== null &&
+            RETRYABLE_LIVE_VOICE_CLOSE_CODES.has(info.code) &&
+            reconnectAttemptRef.current < backoff.length
+          ) {
+            const attempt = reconnectAttemptRef.current;
+            reconnectAttemptRef.current = attempt + 1;
+            const delayMs = backoff[attempt] ?? 0;
+            // The server-assigned conversation id (republished on `ready`) so
+            // the fresh session resumes the same conversation.
+            const store = useLiveVoiceStore.getState();
+            const conversationId =
+              store.conversationId ?? store.startedConversationId ?? undefined;
+            const assistantId = session.assistantId;
+            // Drop the dead primitives but hold the UI in `connecting` (not
+            // idle) with a live stop control, so the surface shows a
+            // reconnect rather than a vanished session and the user can still
+            // bail during the gap.
+            sessionRef.current = null;
+            disposeSessionPrimitives(session);
+            const s = useLiveVoiceStore.getState();
+            s.setState("connecting");
+            s.setControls({ stop: () => void stop(), release, interrupt });
+            console.warn(
+              `live-voice: transport closed (code ${info.code}); reconnecting ` +
+                `(attempt ${attempt + 1}/${backoff.length})`,
+            );
+            reconnectTimerRef.current = setTimeout(() => {
+              reconnectTimerRef.current = null;
+              void connectSessionRef.current?.(assistantId, conversationId, {
+                handsFree: true,
+              });
+            }, delayMs);
+            return;
+          }
+          // Non-retryable (or budget exhausted): tear down to idle.
           teardown();
         }),
       );
@@ -469,12 +680,43 @@ export function useLiveVoice(
         ...(session.handsFree ? { turnDetection: "server_vad" as const } : {}),
       });
     },
-    [teardown],
+    [teardown, stop, release, interrupt],
+  );
+
+  // Let the transport `closed` handler re-enter the connect flow for a
+  // reconnect without a useCallback self-reference cycle. Updated in an effect
+  // (not during render) per the react-compiler "no refs during render" rule;
+  // the handler only reads it after a backoff timer, well after this commits.
+  useEffect(() => {
+    connectSessionRef.current = connectSession;
+  }, [connectSession]);
+
+  const start = useCallback(
+    async (
+      assistantId: string,
+      conversationId?: string,
+      startOptions?: LiveVoiceStartOptions,
+    ) => {
+      // A live session (anything but idle/failed) blocks a new start. Keyed
+      // on the store phase alone — NOT on `sessionRef` — because during
+      // `ending` stop() has already nulled the ref while its async teardown
+      // is still in flight; a start() admitted in that window would be wiped
+      // by stop()'s trailing reset (hot mic behind idle UI). `connecting`
+      // also covers an in-flight reconnect, so a mic click during the backoff
+      // gap doesn't spawn a second session.
+      if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) return;
+      // Fresh user-initiated session: drop any stale reconnect budget/timer.
+      clearReconnectTimer();
+      reconnectAttemptRef.current = 0;
+      await connectSession(assistantId, conversationId, startOptions ?? {});
+    },
+    [connectSession, clearReconnectTimer],
   );
 
   // Release everything if the consumer unmounts mid-session. teardown() also
   // resets the store to idle so a mid-session unmount doesn't strand it in a
-  // non-idle phase (which would keep dictation disabled via the composer).
+  // non-idle phase (which would keep dictation disabled via the composer) and
+  // cancels any pending reconnect so it can't fire after unmount.
   useEffect(() => () => teardown(), [teardown]);
 
   return {
@@ -492,6 +734,23 @@ export function useLiveVoice(
 // ---------------------------------------------------------------------------
 // Session helpers (operate on the session context; never re-render directly)
 // ---------------------------------------------------------------------------
+
+/**
+ * Release a session's primitives (event subscriptions, socket, playback
+ * AudioContext, mic capture) and bump its generation so any in-flight async
+ * callbacks become stale no-ops. Does NOT touch the store — callers set the
+ * next store phase themselves (`teardown()` → idle; the reconnect path →
+ * `connecting`). `dispose()` (not a bare `stop()`) releases the AudioContext,
+ * which a bare stop would leak across sessions until page unload.
+ */
+function disposeSessionPrimitives(session: SessionContext): void {
+  session.generation += 1;
+  for (const unsubscribe of session.unsubscribes) unsubscribe();
+  session.unsubscribes = [];
+  session.client.close();
+  void session.player.dispose();
+  void session.capture.shutdown();
+}
 
 /** Open the mic and begin streaming PCM. Failure transitions to `failed`. */
 async function startCapture(
@@ -594,11 +853,6 @@ function releasePushToTalk(session: SessionContext): void {
   s.setInputAmplitude(0);
 }
 
-/**
- * Resume listening for the next utterance: re-open the forwarding gate, clear
- * the per-utterance counters/flags, and move to `listening`. The mic is already
- * running (continuous capture), so there is nothing to restart here.
- */
 /**
  * Barge-in: stop playback and interrupt the server once per response, then end
  * the session (→ idle). The interrupted session is terminal on the runtime — it

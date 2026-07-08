@@ -222,17 +222,22 @@ function extractFileBlockMetadata(
       source && typeof source.filename === "string"
         ? source.filename
         : "attachment",
+    // A workspace_ref source carries `sizeBytes` directly; a legacy base64
+    // source carries the payload, whose byte length we estimate.
     sizeBytes:
-      source && typeof source.data === "string"
-        ? estimateBase64Bytes(source.data)
-        : 0,
+      source && typeof source.sizeBytes === "number"
+        ? source.sizeBytes
+        : source && typeof source.data === "string"
+          ? estimateBase64Bytes(source.data)
+          : 0,
   };
 }
 
 /**
  * Build the positional attachment reference for a `file` content block:
- * filename/mime/size from the block's source plus the persisted
- * `_attachmentId` when present (user-uploaded files).
+ * filename/mime/size from the block's source plus its attachment id. Reference
+ * blocks carry the id on `source.attachmentId`; legacy base64 blocks carry it
+ * on the top-level `_attachmentId`.
  */
 function fileBlockToAttachmentRef(
   block: Record<string, unknown>,
@@ -243,8 +248,15 @@ function fileBlockToAttachmentRef(
     mimeType: meta.mediaType,
     sizeBytes: meta.sizeBytes,
   };
-  if (typeof block._attachmentId === "string" && block._attachmentId) {
-    ref.attachmentId = block._attachmentId;
+  const source = isRecord(block.source) ? block.source : null;
+  const attachmentId =
+    source && typeof source.attachmentId === "string" && source.attachmentId
+      ? source.attachmentId
+      : typeof block._attachmentId === "string" && block._attachmentId
+        ? block._attachmentId
+        : null;
+  if (attachmentId) {
+    ref.attachmentId = attachmentId;
   }
   return ref;
 }

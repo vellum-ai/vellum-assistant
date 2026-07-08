@@ -178,6 +178,9 @@ function pluginDetail(name: string): PluginsByNameGetResponse {
     readme: null,
     ref: "main",
     artifact: null,
+    icon: null,
+    hasIcon: false,
+    iconVersion: null,
   };
 }
 

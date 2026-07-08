@@ -209,9 +209,18 @@ export interface TurnTraceToolCall {
  * has no response. A coalesced batch's shared response lives on the batch's
  * final turn's window, where the daemon already attributes it.
  */
+/** Tool definition included in the trace — name, description, and full input
+ * schema so the trace shows exactly what the model had available. */
+export interface TurnTraceToolDefinition {
+  name: string;
+  description: string;
+  /** JSON schema describing the tool's input arguments. */
+  input_schema: Record<string, unknown>;
+}
+
 export interface TurnTrace {
   /** Shape version so the platform/dbt can evolve parsing without ambiguity. */
-  schema_version: 1;
+  schema_version: 2;
   /**
    * Ordered message rows for the turn (the user message first, then assistant
    * responses and any tool-result rows), oldest-first by `(created_at, id)`.
@@ -223,6 +232,20 @@ export interface TurnTrace {
    * which complements the inline tool_use/tool_result blocks in `messages`.
    */
   tool_calls: TurnTraceToolCall[];
+  /**
+   * The system prompt sent to the provider for this turn. Read from the live
+   * conversation's cached prompt at trace assembly time. Null when the
+   * conversation has been evicted from memory by the time the trace is
+   * assembled (e.g. after a daemon restart).
+   */
+  system_prompt: string | null;
+  /**
+   * Tool definitions available to the model for this turn — name,
+   * description, and full input schema, matching what the provider received.
+   * Read from the live conversation's last resolved tool set. Empty when the
+   * conversation has been evicted.
+   */
+  tool_definitions: TurnTraceToolDefinition[];
 }
 
 /** Turn event — one per user message. */
@@ -278,6 +301,38 @@ export interface TurnTelemetryEvent extends TelemetryEventBase {
    * middleware hasn't been wired to yet).
    */
   client: TurnTelemetryClientInfo | null;
+  /**
+   * Explicit abnormal turn outcome, stamped by the daemon at turn end:
+   *
+   * - `"batched"` — the user message was coalesced into a later turn's
+   *   shared response (`drainBatch`); its own window holds no assistant
+   *   message by design. `batched_into` identifies the turn that replied.
+   * - `"failed"` — the agent loop terminated in a non-cancellation error.
+   *   Includes turns whose only assistant output is the synthetic
+   *   provider-error message, so failure analytics don't need to
+   *   text-match error copy.
+   * - `"cancelled"` — the user cancelled the turn (stop / barge-in).
+   *
+   * Omitted when the turn replied normally, when the daemon predates
+   * outcome stamping, or when the process died mid-turn before a stamp
+   * could land — so `absent + no assistant message in trace` isolates the
+   * genuinely anomalous (crashed/unknown) turns.
+   */
+  outcome?: "batched" | "failed" | "cancelled";
+  /**
+   * For `outcome: "batched"` turns: the `daemon_event_id` of the
+   * batch-final turn whose window carries the shared response. Omitted
+   * otherwise.
+   */
+  batched_into?: string;
+  /**
+   * For `outcome: "failed"` turns: the stable classified error code
+   * (`classifyConversationError(...).code`, a `ConversationErrorCode`
+   * value like `"PROVIDER_RATE_LIMIT"` or `"MANAGED_USAGE_LIMIT"`). Never
+   * free-form error text. Omitted otherwise or when the failure had no
+   * classification.
+   */
+  failure_code?: string;
   /**
    * Full per-turn transcript (user message + assistant responses + tool
    * calls/results). Present ONLY when trace collection is enabled — the daemon

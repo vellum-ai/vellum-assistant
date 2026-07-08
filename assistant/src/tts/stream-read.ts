@@ -1,10 +1,12 @@
 /**
- * Shared chunked-body reader for streaming TTS HTTP responses.
+ * Shared response-consumption helpers for streaming TTS HTTP responses.
  *
- * Reads a fetch response body to completion, forwarding each non-empty chunk
- * to an optional callback, and guards against stalled upstream streams with a
- * first-chunk timeout and an idle (between-chunks) timeout. On timeout the
- * reader is cancelled and the caller-supplied error is thrown.
+ * `readChunkedBody` reads a fetch response body to completion, forwarding each
+ * non-empty chunk to an optional callback, and guards against stalled upstream
+ * streams with a first-chunk timeout and an idle (between-chunks) timeout. On
+ * timeout the reader is cancelled and the caller-supplied error is thrown.
+ * `consumeSynthesisResponse` wraps it with the provider-common empty-response
+ * guards and the buffered (non-streaming) read path.
  */
 
 /** Default timeout waiting for the first chunk of a TTS stream (ms). */
@@ -13,15 +15,18 @@ const DEFAULT_FIRST_CHUNK_TIMEOUT_MS = 10_000;
 /** Default timeout waiting between consecutive chunks (ms). */
 const DEFAULT_IDLE_TIMEOUT_MS = 5_000;
 
-export interface ReadChunkedBodyOptions {
-  /** Invoked with each non-empty chunk as it arrives. */
-  onChunk?: (chunk: Uint8Array) => void;
-
+/** Stream-stall timeouts, injectable for tests. */
+export interface StreamReadTimeouts {
   /** Timeout waiting for the first chunk (ms). */
   firstChunkTimeoutMs?: number;
 
   /** Timeout waiting between consecutive chunks (ms). */
   idleTimeoutMs?: number;
+}
+
+export interface ReadChunkedBodyOptions extends StreamReadTimeouts {
+  /** Invoked with each non-empty chunk as it arrives. */
+  onChunk?: (chunk: Uint8Array) => void;
 
   /** Builds the error thrown when a read times out. */
   makeTimeoutError: (timeoutMs: number) => Error;
@@ -83,4 +88,48 @@ export async function readChunkedBody(
   }
 
   return Buffer.concat(chunks);
+}
+
+/** Discriminates the two empty-response failure modes for `makeEmptyError`. */
+export type EmptyResponseKind = "no-body" | "empty-audio";
+
+export interface ConsumeSynthesisResponseOptions extends StreamReadTimeouts {
+  /** When true, stream the body forwarding chunks; otherwise buffer it whole. */
+  stream: boolean;
+
+  /** Invoked with each non-empty chunk as it arrives (streaming only). */
+  onChunk?: (chunk: Uint8Array) => void;
+
+  /** Builds the error thrown when a streamed read times out. */
+  makeTimeoutError: (timeoutMs: number) => Error;
+
+  /** Builds the error thrown for a missing body or zero-byte audio. */
+  makeEmptyError: (kind: EmptyResponseKind) => Error;
+}
+
+/**
+ * Consume an OK TTS response into complete audio. The streaming path forwards
+ * chunks via `onChunk` guarded by stall timeouts; the buffer path reads the
+ * whole body. Throws via `makeEmptyError` when the response has no body
+ * (streaming) or yields zero audio bytes.
+ */
+export async function consumeSynthesisResponse(
+  response: Response,
+  options: ConsumeSynthesisResponseOptions,
+): Promise<Buffer> {
+  let audio: Buffer;
+  if (options.stream) {
+    if (!response.body) {
+      throw options.makeEmptyError("no-body");
+    }
+    audio = await readChunkedBody(response.body, options);
+  } else {
+    audio = Buffer.from(await response.arrayBuffer());
+  }
+
+  if (audio.byteLength === 0) {
+    throw options.makeEmptyError("empty-audio");
+  }
+
+  return audio;
 }

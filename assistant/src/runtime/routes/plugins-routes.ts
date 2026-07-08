@@ -23,6 +23,9 @@
  * `get_route_schema` so the gateway's IPC proxy stays in sync.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { z } from "zod";
 
 import {
@@ -40,6 +43,7 @@ import {
   PluginAlreadyInstalledError,
   PluginNotFoundError,
   PluginSourceUnavailableError,
+  sanitizePluginName,
 } from "../../cli/lib/install-from-github.js";
 import {
   type InstalledPluginInfo,
@@ -50,6 +54,7 @@ import {
   getPluginDetails,
   PluginDetailsNotFoundError,
 } from "../../cli/lib/plugin-details.js";
+import { readValidatedPluginIcon } from "../../cli/lib/plugin-icon-file.js";
 import {
   DEFAULT_PIN_HISTORY_LIMIT,
   listPinHistory,
@@ -82,6 +87,7 @@ import {
 } from "../../cli/lib/upgrade-plugin.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
+import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   getOriginClientId,
@@ -96,6 +102,7 @@ import {
   ServiceUnavailableError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { RouteResponse } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -137,6 +144,24 @@ const pluginInfoSchema = z.object({
     .optional()
     .describe(
       "Marketplace category slug (Skills taxonomy); null when origin/category is unknown, e.g. non-marketplace installs.",
+    ),
+  icon: z
+    .string()
+    .optional()
+    .describe(
+      "Author-declared emoji icon from the plugin's package.json vellum.icon; absent when none.",
+    ),
+  hasIcon: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether the plugin ships a valid author-bundled `icon.png` (PNG magic + dimensions + size validated). Drives whether a client fetches the bundled icon.",
+    ),
+  iconVersion: z
+    .string()
+    .optional()
+    .describe(
+      "Content hash of the validated `icon.png`; present only when `hasIcon` is true. Use it as a cache-buster for the bundled-icon endpoint.",
     ),
 });
 
@@ -273,6 +298,23 @@ const pluginDetailsResponseSchema = z.object({
     .nullable()
     .describe(
       "Prebuilt client artifact from `package.json` `vellum.artifact`, or null when the plugin ships none or its descriptor is incomplete (e.g. a placeholder sha256).",
+    ),
+  icon: z
+    .string()
+    .nullable()
+    .describe(
+      "Author-declared emoji icon from the plugin's `package.json` `vellum.icon`, or null when none.",
+    ),
+  hasIcon: z
+    .boolean()
+    .describe(
+      "Whether the locally installed copy ships a valid author-bundled `icon.png` (PNG magic + dimensions + size validated). Always false when the plugin is not installed.",
+    ),
+  iconVersion: z
+    .string()
+    .nullable()
+    .describe(
+      "Content hash of the validated `icon.png`; null when `hasIcon` is false. Use it as a cache-buster for the bundled-icon endpoint.",
     ),
 });
 
@@ -658,6 +700,9 @@ interface PluginView {
   path: string;
   issues?: string[];
   category?: string | null;
+  icon?: string;
+  hasIcon: boolean;
+  iconVersion?: string;
 }
 
 function projectPlugin(entry: InstalledPluginInfo): PluginView {
@@ -672,9 +717,16 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
     description: entry.packageJson?.description ?? null,
     version: entry.packageJson?.version ?? null,
     path: entry.target,
+    hasIcon: entry.hasIcon,
   };
   if (entry.issues.length > 0) {
     view.issues = [...entry.issues];
+  }
+  if (entry.packageJson?.icon !== undefined) {
+    view.icon = entry.packageJson.icon;
+  }
+  if (entry.iconVersion !== undefined) {
+    view.iconVersion = entry.iconVersion;
   }
   return view;
 }
@@ -1318,6 +1370,50 @@ function handleDisablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
 }
 
 // ---------------------------------------------------------------------------
+// Handler — icon (bundled icon.png)
+// ---------------------------------------------------------------------------
+
+/**
+ * Serve an installed plugin's validated author-bundled `icon.png` as
+ * `image/png`. Side-effect-free: the on-disk icon is re-validated on read and
+ * never mutated. `sanitizePluginName` rejects a traversal name (`../escape`)
+ * with a 400 before it becomes a filesystem path. The content-hash
+ * `iconVersion` is the `ETag` and the bytes are immutable-cacheable, so a byte
+ * change yields a new hash — clients refetch off the `hasIcon` / `iconVersion`
+ * fields on the list / detail responses.
+ */
+function handleGetPluginIcon({
+  pathParams = {},
+}: RouteHandlerArgs): RouteResponse {
+  let name: string;
+  try {
+    name = sanitizePluginName(pathParams.name ?? "");
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
+
+  const v = readValidatedPluginIcon(join(getWorkspacePluginsDir(), name));
+  if (!v.hasIcon || !v.path) {
+    throw new NotFoundError("Plugin icon not found");
+  }
+
+  const bytes = readFileSync(v.path);
+  return new RouteResponse(new Uint8Array(bytes), {
+    "Content-Type": "image/png",
+    "Content-Length": String(bytes.length),
+    // `private`: the icon is an authenticated, workspace-specific resource, so
+    // no shared/proxy cache may reuse it across requests. The content-hash
+    // ETag + immutable still let the browser cache aggressively.
+    "Cache-Control": "private, max-age=31536000, immutable",
+    ETag: `"${v.iconVersion}"`,
+    "X-Content-Type-Options": "nosniff",
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -1450,6 +1546,36 @@ export const ROUTES: RouteDefinition[] = [
       },
     },
     handler: handleGetPluginDetails,
+  },
+  {
+    operationId: "plugins_icon",
+    endpoint: "plugins/:name/icon",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Serve a plugin's bundled icon",
+    description:
+      "Serve the installed plugin's validated author-bundled `icon.png` as `image/png`. The PNG is re-validated on read (magic bytes + IHDR dimensions + size) and served with an immutable `Cache-Control` plus a content-hash `ETag` — the `iconVersion` reported by `GET /v1/plugins` and `GET /v1/plugins/:name` — so clients cache aggressively and only refetch when the hash changes. A plugin with no valid bundled icon returns 404; a malformed name returns 400. Pair with the `hasIcon` / `iconVersion` fields on the list and detail responses to decide whether to fetch.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description: "Install name (kebab-case).",
+      },
+    ],
+    responseBody: {
+      contentType: "image/png",
+      schema: { type: "string", format: "binary" },
+    },
+    additionalResponses: {
+      "404": {
+        description: "No installed plugin with the given name has an icon.",
+      },
+    },
+    handler: handleGetPluginIcon,
   },
   {
     operationId: "plugins_uninstall",

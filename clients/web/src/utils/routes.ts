@@ -221,6 +221,46 @@ export function isAboutAssistantPath(pathname: string): boolean {
   );
 }
 
+/**
+ * Whether `pathname` falls inside the conversation *area* — the `/assistant`
+ * index (draft conversation) or anything under `/assistant/conversations/`,
+ * including subroutes like the inspector
+ * (`/assistant/conversations/:id/inspect`). Use for "is the user working in
+ * the context of a conversation" semantics (e.g. the sidebar's active-row
+ * highlight). For "is the chat composer on screen" semantics use
+ * {@link isConversationChatPath} — the inspector has no composer.
+ */
+export function isConversationPath(pathname: string): boolean {
+  return (
+    pathname === routes.assistant ||
+    pathname === `${routes.assistant}/` ||
+    pathname.startsWith(`${routes.conversations}/`)
+  );
+}
+
+/**
+ * Whether `pathname` mounts the conversation chat surface — the `/assistant`
+ * index (draft conversation, via `ConversationRedirect`) or exactly
+ * `/assistant/conversations/:id` — i.e. a route where `ChatPage` renders the
+ * active conversation's composer. Stricter than {@link isConversationPath}:
+ * conversation subroutes such as the inspector
+ * (`/assistant/conversations/:id/inspect`) are excluded because `InspectPage`
+ * replaces `ChatPage` and has no composer.
+ */
+export function isConversationChatPath(pathname: string): boolean {
+  if (pathname === routes.assistant || pathname === `${routes.assistant}/`) {
+    return true;
+  }
+  const prefix = `${routes.conversations}/`;
+  if (!pathname.startsWith(prefix)) {
+    return false;
+  }
+  // Exactly one path segment after the prefix (a bare conversation id,
+  // tolerating a trailing slash) — deeper segments are other pages.
+  const rest = pathname.slice(prefix.length).replace(/\/+$/, "");
+  return rest.length > 0 && !rest.includes("/");
+}
+
 const WWW_DOMAIN = "vellum.ai";
 
 /** Full external URL for a legal/docs page hosted on the marketing site. */

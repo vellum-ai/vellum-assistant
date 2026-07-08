@@ -35,6 +35,12 @@ export const LiveVoiceProtocolErrorCode = {
   MissingRequiredField: "missing_required_field",
   InvalidField: "invalid_field",
   InvalidAudioPayload: "invalid_audio_payload",
+  /**
+   * Session startup was rejected because the daemon cannot run both audio
+   * legs (STT/TTS providers or credentials are unresolved). The error
+   * `message` names the offending provider(s) and missing credential(s).
+   */
+  CredentialsUnavailable: "credentials_unavailable",
 } as const;
 
 export type LiveVoiceProtocolErrorCode =

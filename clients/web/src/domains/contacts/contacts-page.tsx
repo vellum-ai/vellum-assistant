@@ -8,11 +8,12 @@ import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
+import { isVerifiedContactChannel } from "@/domains/contacts/channel-linking";
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
 import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog";
 import { ContactsList } from "@/domains/contacts/components/contacts-list";
-import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog";
+import { GenerateInviteLinkDialog } from "@/components/generate-invite-link-dialog";
 import { GuardianDetailView } from "@/domains/contacts/components/guardian-detail-view";
 import { LinkAccountDialog } from "@/domains/contacts/components/link-account-dialog";
 import { slackRosterOptions } from "@/domains/contacts/slack-users-query";
@@ -21,13 +22,13 @@ import {
   upsertContact,
   verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
-import {
-  isSetupChannelId,
-  type ChannelInfo,
-  type ContactChannelPayload,
-  type ContactPayload,
-  type ContactSelection,
+import type {
+  ChannelInfo,
+  ContactChannelPayload,
+  ContactPayload,
+  ContactSelection,
 } from "@/domains/contacts/types";
+import { isSetupChannelId } from "@/types/channel-types";
 import {
   channelsAvailableGetOptions,
   contactsGetOptions,
@@ -38,10 +39,10 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
 import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
-import { assistantDisplayName } from "@/domains/contacts/assistant-display-name";
-import { useAssistantChannels } from "@/domains/contacts/hooks/use-assistant-channels";
+import { assistantDisplayName } from "@/utils/assistant-display-name";
+import { useAssistantChannels } from "@/hooks/use-assistant-channels";
 import { useChannelProvenance } from "@/domains/contacts/hooks/use-channel-provenance";
-import { useInviteLinkDialog } from "@/domains/contacts/hooks/use-invite-link-dialog";
+import { useInviteLinkDialog } from "@/hooks/use-invite-link-dialog";
 import { useAccountLink } from "@/domains/contacts/hooks/use-account-link";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -482,6 +483,7 @@ export function ContactsPage({
         role: c.role,
         contactType: c.contactType,
         channelTypes: channelTypeLabels(c.channels, a2aChannel),
+        verified: isVerifiedContact(c.channels),
       })),
     selection,
     onAddContact: handleAddContact,
@@ -657,6 +659,18 @@ const CHANNEL_TYPE_LABEL: Record<string, string> = {
   whatsapp: "WhatsApp",
   a2a: "A2A",
 };
+
+/**
+ * A contact reads as verified when any non-revoked channel is verified, or is
+ * a connected A2A peer (A2A channels never carry a verification handshake).
+ */
+function isVerifiedContact(channels: ContactChannelPayload[]): boolean {
+  return channels.some(
+    (ch) =>
+      ch.status !== "revoked" &&
+      (ch.type === "a2a" || isVerifiedContactChannel(ch)),
+  );
+}
 
 function channelTypeLabels(
   channels: ContactChannelPayload[],

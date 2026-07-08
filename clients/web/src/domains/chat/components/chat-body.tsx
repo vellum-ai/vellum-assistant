@@ -76,6 +76,14 @@ export interface ChatBodyProps {
    */
   composerSlot: ReactNode;
 
+  /**
+   * Optional CSS length reserved at the bottom of the panel (applied as
+   * `padding-bottom` on the outer container). Used on mobile while the app
+   * overlay is minimized to its strip: the strip overlays the bottom of the
+   * chat, so the composer lifts above it instead of hiding underneath.
+   */
+  bottomInset?: string;
+
   /** Drag handlers attached to the outer container for attachment drag-and-drop. */
   dragHandlers: ChatBodyDragHandlers;
   /** True when an attachment drag is active; shows a drop-target overlay. */
@@ -178,6 +186,7 @@ export function ChatBody({
   variant,
   scrollAreaProps,
   composerSlot,
+  bottomInset,
   dragHandlers,
   isAttachmentDragOver,
   showScrollToLatest,
@@ -352,6 +361,7 @@ export function ChatBody({
     return (
       <div
         className={outerClass}
+        style={bottomInset ? { paddingBottom: bottomInset } : undefined}
         onDragEnter={dragHandlers.onDragEnter}
         onDragOver={dragHandlers.onDragOver}
         onDragLeave={dragHandlers.onDragLeave}
@@ -388,6 +398,7 @@ export function ChatBody({
   return (
     <div
       className={outerClass}
+      style={bottomInset ? { paddingBottom: bottomInset } : undefined}
       onDragEnter={dragHandlers.onDragEnter}
       onDragOver={dragHandlers.onDragOver}
       onDragLeave={dragHandlers.onDragLeave}

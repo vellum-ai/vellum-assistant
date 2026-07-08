@@ -6,13 +6,15 @@
  *
  * Tool images arrive nested in `toolResponse.contentBlocks` (the rich-content
  * companion to the tool result's text `content`), so the hook scans there
- * rather than the top-level message content the `user-prompt-submit` hook
- * handles. Both share {@link captionImageBlocks}.
+ * rather than the message-level sweep the `user-prompt-submit` and
+ * `post-compact` hooks run. All three share {@link captionImageBlocks}.
  *
  * Capability is read straight off `ctx.model` — the provider-reported model id
  * for the turn that issued this tool call — so the decision tracks the model
- * that actually ran, including a text-only override. The substitution is in
- * place, so the persisted/displayed tool result carries the caption too.
+ * that actually ran, including a text-only override. The hook receives a deep
+ * clone of the tool result, so the caption reaches the provider-bound history
+ * only — the persisted/displayed tool result keeps the original image, and
+ * later rebuild-from-persistence sweeps re-caption it from the cache.
  */
 
 import {
@@ -38,6 +40,7 @@ const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
 
   const imageCount = await captionImageBlocks(
     blocks,
+    ctx.conversationId,
     visionProfileKey,
     ctx.logger,
   );

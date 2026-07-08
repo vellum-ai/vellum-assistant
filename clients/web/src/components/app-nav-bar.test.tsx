@@ -180,7 +180,7 @@ describe("AppNavBar share + deploy", () => {
       />,
     );
     // One button rendered with the Share icon.
-    expect(html).toContain("lucide-arrow-up");
+    expect(html).toContain("lucide-share");
     expect(html).not.toContain("lucide-globe");
   });
 
@@ -193,7 +193,7 @@ describe("AppNavBar share + deploy", () => {
       />,
     );
     expect(html).toContain("lucide-globe");
-    expect(html).not.toContain("lucide-arrow-up");
+    expect(html).not.toContain("lucide-share");
   });
 
   test("collapses share + deploy into a single dropdown trigger when both are provided (desktop)", () => {
@@ -207,12 +207,12 @@ describe("AppNavBar share + deploy", () => {
       />,
     );
     // The dropdown trigger renders as a single Button wrapped in
-    // `data-testid="trigger"`, with the up-arrow icon. The Globe icon
+    // `data-testid="trigger"`, with the share icon. The Globe icon
     // should only appear inside the menu items (as a `menu-item` leftIcon),
     // not as a standalone button — so we check for the trigger testid,
     // not the global lucide-globe count.
     expect(html).toContain('data-testid="trigger"');
-    expect(html).toContain("lucide-arrow-up");
+    expect(html).toContain("lucide-share");
     // Menu items carry the Globe icon, so we look for it scoped to a
     // menu-item container rather than asserting its absence globally.
     const menuItemIcons = html.match(

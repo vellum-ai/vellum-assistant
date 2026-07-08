@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Vellum Gateway API",
-    "version": "0.10.6",
+    "version": "0.10.7",
     "description": "Auto-generated OpenAPI specification for the Vellum Gateway HTTP endpoints."
   },
   "servers": [{ "url": "", "description": "Same-origin (gateway)" }],
@@ -664,6 +664,83 @@
                     }
                   },
                   "required": ["cell"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/channel-permission-overrides/resolve": {
+      "post": {
+        "operationId": "channelPermissionResolve",
+        "summary": "Resolve the effective channel-permission threshold",
+        "tags": ["channel-permission-overrides"],
+        "description": "Read-only cascade resolution for one coordinate: walks channel → channel_type → adapter → workspace for the given selector keys and contact-type, returning the winning cell's threshold and scope, or null when no cell matches (the caller then falls through to the global thresholds). Same resolver the runtime evaluator uses over IPC.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "adapter": { "type": "string", "minLength": 1 },
+                  "channelType": {
+                    "type": "string",
+                    "enum": ["dm", "private", "public"]
+                  },
+                  "channelExternalId": { "type": "string", "minLength": 1 },
+                  "contactType": {
+                    "type": "string",
+                    "enum": [
+                      "guardian",
+                      "trusted_contact",
+                      "unverified_contact",
+                      "unknown"
+                    ]
+                  }
+                },
+                "required": ["adapter", "contactType"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "resolved": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "threshold": {
+                              "type": "string",
+                              "enum": ["none", "low", "medium", "high"]
+                            },
+                            "scope": {
+                              "type": "string",
+                              "enum": [
+                                "workspace",
+                                "adapter",
+                                "channel_type",
+                                "channel"
+                              ]
+                            }
+                          },
+                          "required": ["threshold", "scope"],
+                          "additionalProperties": false
+                        },
+                        { "type": "null" }
+                      ]
+                    }
+                  },
+                  "required": ["resolved"],
                   "additionalProperties": false
                 }
               }

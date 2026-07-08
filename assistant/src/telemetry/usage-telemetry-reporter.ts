@@ -432,20 +432,23 @@ export class UsageTelemetryReporter {
         BATCH_SIZE,
       );
 
-      // Trace completeness barrier (trace-eligible owners only).
+      // Turn completeness barrier (every turn event).
       //
-      // When trace collection is on, a turn's trace must only be sent once that
-      // turn is COMPLETE — otherwise a flush that races an in-progress reply
-      // would capture a partial transcript and the watermark would advance past
-      // the turn, leaving it permanently partial. So we report only the leading
-      // run of complete turns and STOP at the first incomplete (in-flight) one:
-      // the turn watermark is a single monotonic `(createdAt, id)` cursor, so a
-      // later complete turn cannot be reported past an earlier deferred one
-      // without skipping it. The deferred turn (and everything after it) is
-      // picked up on a later flush once its response settles.
-      //
-      // When trace collection is OFF, no turn is deferred and reporting timing
-      // is unchanged for everyone else — `turn_raw` behavior is untouched.
+      // A turn event must only be sent once that turn is COMPLETE, for two
+      // reasons sharing the same failure mode (the watermark advances on ship,
+      // so anything captured early is frozen forever):
+      //   - the consented `trace` would capture a partial mid-reply
+      //     transcript, and
+      //   - the `outcome` stamp (`messages.metadata.turnOutcome`, written by
+      //     the agent loop / drainBatch while the conversation is still
+      //     processing) would be missed, permanently mislabeling a
+      //     failed/cancelled/batched turn as normally-replied.
+      // So we report only the leading run of complete turns and STOP at the
+      // first incomplete (in-flight) one: the turn watermark is a single
+      // monotonic `(createdAt, id)` cursor, so a later complete turn cannot be
+      // reported past an earlier deferred one without skipping it. The
+      // deferred turn (and everything after it) is picked up on a later flush
+      // once its response settles.
       //
       // Trace eligibility is composed daemon-side to mirror the platform's
       // authoritative owner-based ingest gate, so traces for ineligible owners
@@ -462,7 +465,7 @@ export class UsageTelemetryReporter {
         getCachedShareDiagnostics() &&
         isDiagnosticsConsentVersionEligible(getCachedShareDiagnosticsVersion());
       let reportableTurnEvents = turnEvents;
-      if (traceEligible && turnEvents.length > 0) {
+      if (turnEvents.length > 0) {
         let barrier = turnEvents.length;
         for (let i = 0; i < turnEvents.length; i++) {
           const t = turnEvents[i];
@@ -605,6 +608,16 @@ export class UsageTelemetryReporter {
               );
             }
           }
+          // Narrow the raw metadata projection to the wire union — only
+          // `stampTurnOutcome` writes the key, but the JSON column is
+          // uncontrolled, so an unexpected value is dropped rather than
+          // shipped.
+          const outcome =
+            e.outcome === "batched" ||
+            e.outcome === "failed" ||
+            e.outcome === "cancelled"
+              ? e.outcome
+              : null;
           return {
             type: "turn",
             daemon_event_id: e.id,
@@ -615,6 +628,15 @@ export class UsageTelemetryReporter {
             interface_id: e.interfaceId,
             channel_id: e.channelId,
             client,
+            // Outcome stamps are omit-when-absent: a normally-replied turn's
+            // wire shape is byte-identical to a pre-outcome turn event.
+            ...(outcome ? { outcome } : {}),
+            ...(outcome === "batched" && e.batchedInto
+              ? { batched_into: e.batchedInto }
+              : {}),
+            ...(outcome === "failed" && e.failureCode
+              ? { failure_code: e.failureCode }
+              : {}),
             // Only attach `trace` when consent is on AND a bounded trace was
             // assembled. Omitting the key entirely when there's no trace keeps
             // the wire shape byte-identical to pre-trace turn events for the

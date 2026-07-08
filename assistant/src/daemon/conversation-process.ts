@@ -36,6 +36,7 @@ import {
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
+import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
 import {
@@ -1082,6 +1083,11 @@ async function drainBatch(
   // already received an error event and must not also receive the
   // assistant's streaming response for a turn that isn't theirs.
   const successfulBatch: QueuedMessage[] = [];
+  // `messages.id` of every successfully-persisted, non-deduplicated member,
+  // in persist order. All but the last are coalesced heads whose shared
+  // response lives on the final member's turn — stamped `batched` below so
+  // turn telemetry can tell them apart from failed turns.
+  const persistedMessageIds: string[] = [];
   for (let i = 0; i < batch.length; i++) {
     const qm = batch[i];
     qm.onEvent({
@@ -1183,6 +1189,7 @@ async function drainBatch(
         continue;
       }
       lastUserMessageId = batchPersistResult.id;
+      persistedMessageIds.push(batchPersistResult.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1319,6 +1326,18 @@ async function drainBatch(
     );
     conversation.preactivatedSkillIds = undefined;
     return;
+  }
+
+  // Every persisted member except the last is a coalesced-batch head: its
+  // window holds no assistant response because the shared response is
+  // attributed to the final member's turn. Stamp them `batched` (pointing at
+  // that final turn) so the turn-event scan reports them as coalesced rather
+  // than leaving them indistinguishable from failed turns. Stamping happens
+  // while the conversation is still processing, so the telemetry reporter's
+  // settled-turn barrier guarantees the stamp is visible before these turns
+  // ship.
+  for (const headId of persistedMessageIds.slice(0, -1)) {
+    stampTurnOutcome(headId, "batched", { batchedInto: lastUserMessageId });
   }
 
   // Tag turn-completion state with the last SUCCESSFUL persist so client-

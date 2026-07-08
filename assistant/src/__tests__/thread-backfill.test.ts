@@ -113,6 +113,7 @@ import type { MessageRow } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { recordInbound } from "../persistence/delivery-crud.js";
+import { base64Source } from "../providers/media-resolve.js";
 import type { Message } from "../providers/types.js";
 import {
   _backfillTriggerCache,
@@ -1010,7 +1011,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(textBlock?.text).toBe("uploaded the diagram");
     expect(textBlock?.text).not.toContain("<external_content");
     expect(imageBlock?.source.media_type).toBe("image/png");
-    expect(imageBlock?.source.data).toBe(imageBase64);
+    expect(base64Source(imageBlock!.source).data).toBe(imageBase64);
 
     const context = loadSlackChronologicalContext(conv.id, SLACK_CHANNEL_CAPS, {
       loader: readMessageRowsByConversation,

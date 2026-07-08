@@ -5,7 +5,6 @@ import {
   setPlatformUserId,
 } from "../config/env.js";
 import type { AssistantConfig } from "../config/types.js";
-import { setSentryOrganizationId, setSentryUserId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { gmailMessagingProvider } from "../messaging/providers/gmail/adapter.js";
 import { outlookMessagingProvider } from "../messaging/providers/outlook/adapter.js";
@@ -70,14 +69,13 @@ export async function initializeProvidersAndTools(
   }
 
   // Rehydrate the platform organization ID from the credential store so
-  // Sentry events include organization context after restarts.
+  // platform API calls include organization context after restarts.
   try {
     const key = credentialKey("vellum", "platform_organization_id");
     const persisted = await getSecureKeyAsync(key);
     const trimmed = persisted?.trim();
     if (trimmed) {
       setPlatformOrganizationId(trimmed);
-      setSentryOrganizationId(trimmed);
       log.info("Rehydrated platform organization ID from credential store");
     }
   } catch (err) {
@@ -95,7 +93,6 @@ export async function initializeProvidersAndTools(
     const trimmed = persisted?.trim();
     if (trimmed) {
       setPlatformUserId(trimmed);
-      setSentryUserId(trimmed);
       log.info("Rehydrated platform user ID from credential store");
     }
   } catch (err) {

@@ -45,6 +45,20 @@ import {
 /** Fail the session if no `ready` frame arrives within this window. */
 const CONNECT_TIMEOUT_MS = 10_000;
 
+/**
+ * WebSocket close codes that are transient and retryable rather than terminal.
+ * `1013` ("Try Again Later") is what velay sends when its tunnel to the
+ * assistant drops ("assistant tunnel disconnected"); `1012` ("Service Restart")
+ * is treated the same. The controller reconnects a hands-free session through
+ * these; the transport also uses them to distinguish a retryable close that
+ * lands *before* `ready` (which must reach the controller with its code) from a
+ * genuine pre-ready connection failure. A locally-initiated close (`code: null`)
+ * is never retryable.
+ */
+export const RETRYABLE_LIVE_VOICE_CLOSE_CODES: ReadonlySet<number> = new Set([
+  1012, 1013,
+]);
+
 /** Reason a live-voice session failed, surfaced via the `error` event. */
 export type LiveVoiceClientErrorReason =
   | "connection-failed"
@@ -61,6 +75,22 @@ export interface LiveVoiceClientError {
    * kept open — the session is still live. Absent means the client tore down.
    */
   readonly recoverable?: boolean;
+}
+
+/**
+ * Payload of the `closed` event. `code` is the WebSocket close code from the
+ * far side (velay/gateway/runtime) when the socket was closed remotely, or
+ * `null` when this client initiated the close (`close()`/`end()`/`fail()`).
+ *
+ * The distinction matters for reconnect: velay closes a proxied session with
+ * code 1013 ("Try Again Later") when its tunnel to the assistant drops — a
+ * transient, retryable condition the session controller should reconnect
+ * through rather than tear down. A local `null` close is deliberate and never
+ * reconnects.
+ */
+export interface LiveVoiceClientClosed {
+  readonly code: number | null;
+  readonly reason: string;
 }
 
 /**
@@ -89,7 +119,7 @@ export interface LiveVoiceClientEventMap {
   busy: LiveVoiceBusyServerFrame;
   error: LiveVoiceClientError;
   /** Fired exactly once when the transport closes (clean or otherwise). */
-  closed: void;
+  closed: LiveVoiceClientClosed;
 }
 
 export type LiveVoiceClientEventName = keyof LiveVoiceClientEventMap;
@@ -227,7 +257,7 @@ export class LiveVoiceChannelClient {
     ws.onmessage = (event) => this.handleMessage(event);
     ws.onerror = () =>
       this.fail("connection-failed", "Live-voice WebSocket error");
-    ws.onclose = () => this.handleClose();
+    ws.onclose = (event) => this.handleClose(event);
 
     this.connectTimeout = setTimeout(() => {
       if (this.state === "connecting") {
@@ -270,7 +300,9 @@ export class LiveVoiceChannelClient {
   close(): void {
     if (this.state === "closed") return;
     this.teardown();
-    this.emit("closed", undefined);
+    // Locally initiated: `code: null` tells the controller this was a
+    // deliberate close (never a reconnect trigger).
+    this.emit("closed", { code: null, reason: "client closed" });
   }
 
   private handleOpen(): void {
@@ -368,16 +400,25 @@ export class LiveVoiceChannelClient {
     }
   }
 
-  private handleClose(): void {
+  private handleClose(event: CloseEvent): void {
     if (this.state === "closed") return;
-    // An unexpected transport close before `ready` is a connection failure;
-    // otherwise it's a clean teardown.
-    if (this.state === "connecting") {
+    // An unexpected close before `ready` is normally a connection failure — but
+    // a *retryable* close (velay's 1012/1013) can land pre-`ready` when a
+    // reconnect races the tunnel's re-registration. Forward those as a normal
+    // close carrying the code so the controller can spend its remaining
+    // reconnect budget instead of failing the session on the first blip;
+    // genuine pre-ready closes still fail.
+    if (
+      this.state === "connecting" &&
+      !RETRYABLE_LIVE_VOICE_CLOSE_CODES.has(event.code)
+    ) {
       this.fail("connection-failed", "Live-voice WebSocket closed before ready");
       return;
     }
     this.teardown();
-    this.emit("closed", undefined);
+    // Forward the far-side close code so the controller can reconnect through a
+    // retryable tunnel drop (velay 1013).
+    this.emit("closed", { code: event.code, reason: event.reason });
   }
 
   private sendControlFrame(type: "ptt_release" | "interrupt"): void {
@@ -406,7 +447,8 @@ export class LiveVoiceChannelClient {
     if (this.state === "closed") return;
     this.teardown();
     this.emit("error", { reason, message, ...(code ? { code } : {}) });
-    this.emit("closed", undefined);
+    // Locally initiated after surfacing the failure; never a reconnect trigger.
+    this.emit("closed", { code: null, reason: message });
   }
 
   private teardown(): void {
