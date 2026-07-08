@@ -767,6 +767,43 @@ describe("WorkspaceGitService", () => {
       expect(headFiles).toContain("notes.md");
     });
 
+    test("untracking keeps avatar/sounds state and ignores user exclude files", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // Canonical user state that matches the media extension rules
+      mkdirSync(join(testDir, "data", "avatar"), { recursive: true });
+      writeFileSync(join(testDir, "data", "avatar", "avatar-image.png"), "img");
+      mkdirSync(join(testDir, "data", "sounds"), { recursive: true });
+      writeFileSync(join(testDir, "data", "sounds", "ding.mp3"), "snd");
+      // Media junk elsewhere that should be untracked
+      mkdirSync(join(testDir, "pkb"), { recursive: true });
+      writeFileSync(join(testDir, "pkb", "photo.png"), "junk");
+      // Tracked file matching only the user's repo-local exclude file — the
+      // untrack step must not consult it.
+      writeFileSync(join(testDir, "fixture-keep.md"), "keep");
+      writeFileSync(
+        join(testDir, ".git", "info", "exclude"),
+        "fixture-keep.md\n",
+      );
+      execFileSync("git", ["add", "-A", "-f"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const tracked = execFileSync("git", ["ls-files"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(tracked).toContain("data/avatar/avatar-image.png");
+      expect(tracked).toContain("data/sounds/ding.mp3");
+      expect(tracked).toContain("fixture-keep.md");
+      expect(tracked).not.toContain("pkb/photo.png");
+    });
+
     test("existing repo with old data/ rule gets it replaced with selective rules", async () => {
       // Set up a pre-existing git repo with the OLD broad data/ rule
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
@@ -874,7 +911,7 @@ describe("WorkspaceGitService", () => {
         cwd: testDir,
       });
       const gitignoreContent =
-        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\n/embedding-models/\n/external/\n/bin/\n/plugins-data/\nnode_modules/\n__pycache__/\n.venv/\nlogs/\n*.log\n*.sock\n*.pid\ndaemon-startup.lock\nsession-token\n*.sqlite*\n*.db\n*.db-*\n.DS_Store\n*.zip\n*.tar\n*.gz\n*.tgz\n*.bz2\n*.xz\n*.7z\n*.rar\n*.dmg\n*.iso\n*.png\n*.jpg\n*.jpeg\n*.gif\n*.webp\n*.heic\n*.bmp\n*.tiff\n*.mp3\n*.wav\n*.m4a\n*.flac\n*.ogg\n*.mp4\n*.mov\n*.avi\n*.mkv\n*.webm\n*.pdf\n*.gguf\n*.onnx\n*.safetensors\n*.pt\n*.pth\n";
+        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\n/embedding-models/\n/external/\n/bin/\n/plugins-data/\nnode_modules/\n__pycache__/\n.venv/\nlogs/\n*.log\n*.sock\n*.pid\ndaemon-startup.lock\nsession-token\n*.sqlite*\n*.db\n*.db-*\n.DS_Store\n*.zip\n*.tar\n*.gz\n*.tgz\n*.bz2\n*.xz\n*.7z\n*.rar\n*.dmg\n*.iso\n*.png\n*.jpg\n*.jpeg\n*.gif\n*.webp\n*.heic\n*.bmp\n*.tiff\n*.mp3\n*.wav\n*.m4a\n*.flac\n*.ogg\n*.mp4\n*.mov\n*.avi\n*.mkv\n*.webm\n*.pdf\n*.gguf\n*.onnx\n*.safetensors\n*.pt\n*.pth\n!data/avatar/**\n!data/sounds/**\n";
       writeFileSync(join(testDir, ".gitignore"), gitignoreContent);
       writeFileSync(join(testDir, "file.txt"), "content");
       execFileSync("git", ["add", "-A"], { cwd: testDir });

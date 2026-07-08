@@ -129,6 +129,10 @@ const WORKSPACE_GITIGNORE_RULES = [
   "*.safetensors",
   "*.pt",
   "*.pth",
+  // Canonical user state re-included despite the media rules above.
+  // Must stay after the extension rules: last matching pattern wins.
+  "!data/avatar/**",
+  "!data/sounds/**",
 ];
 
 const NULL_GIT_OID = "0000000000000000000000000000000000000000";
@@ -849,6 +853,10 @@ export class WorkspaceGitService {
    * rule existed would otherwise keep committing it forever. The staged
    * deletions ride along with the next commit. Best-effort: failures are
    * logged, never block init. Must be called with the mutex lock held.
+   *
+   * Deliberately reads only the workspace .gitignore (not --exclude-standard):
+   * the user's global/local exclude files must not cause deletions of files
+   * they force-added on purpose.
    */
   private async untrackIgnoredFilesLocked(): Promise<void> {
     try {
@@ -857,7 +865,7 @@ export class WorkspaceGitService {
         "-z",
         "--cached",
         "--ignored",
-        "--exclude-standard",
+        "--exclude-from=.gitignore",
       ]);
       const files = stdout.split("\0").filter(Boolean);
       if (files.length === 0) {
