@@ -1,6 +1,10 @@
 import type OpenAI from "openai";
 
 import type { ProviderErrorReason } from "../../util/errors.js";
+import {
+  INSUFFICIENT_CREDITS_PATTERNS,
+  VISION_NOT_SUPPORTED_PATTERNS,
+} from "../../util/provider-error-patterns.js";
 
 /**
  * Normalized view of an OpenAI-compatible `APIError`. The SDK reads
@@ -33,18 +37,6 @@ export interface NormalizedOpenAIAPIError {
   reason?: ProviderErrorReason;
 }
 
-// Vision-not-supported prose. A minimal local copy of the daemon-layer
-// VISION_NOT_SUPPORTED_PATTERNS — providers must not import from the daemon.
-const VISION_UNSUPPORTED_PATTERNS = [
-  /no endpoints found that support image input/i,
-  /does not support image/i,
-  /doesn't support image input/i,
-  /image input is not supported/i,
-  /this model does not support vision/i,
-  /vision is not supported/i,
-  /multi-?modal.*not.*support/i,
-];
-
 /**
  * Map an OpenAI-compatible error to a semantic {@link ProviderErrorReason}.
  * Order matters — the model-restriction check precedes the generic 401/403
@@ -73,14 +65,13 @@ export function deriveReason(
     return "model_not_found";
   }
 
-  if (VISION_UNSUPPORTED_PATTERNS.some((re) => re.test(haystack))) {
+  if (VISION_NOT_SUPPORTED_PATTERNS.some((re) => re.test(haystack))) {
     return "vision_unsupported";
   }
 
   if (
     status === 402 ||
-    /credit balance is too low/i.test(haystack) ||
-    /insufficient.*credits?/i.test(haystack)
+    INSUFFICIENT_CREDITS_PATTERNS.some((re) => re.test(haystack))
   ) {
     return "insufficient_credits";
   }
