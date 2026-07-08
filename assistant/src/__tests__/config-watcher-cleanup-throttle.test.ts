@@ -1,11 +1,11 @@
 /**
  * Regression test for Gap D: ConfigWatcher.refreshConfigFromSources must
  * reset the cleanup-scheduler throttle when memory.cleanup retention
- * settings change. Without this, a user flipping their retention setting
- * in the UI would have to wait up to 6 hours (the default
- * enqueueIntervalMs) before the change takes effect, because
- * maybeEnqueueScheduledCleanupJobs (in jobs-worker) early-returns while
- * the throttle is still within its window.
+ * settings change. Each cleanup job now runs on a cadence equal to its own
+ * retention window, so without this reset a user flipping their retention
+ * setting in the UI could wait out that entire window before the change
+ * takes effect, because maybeEnqueueScheduledCleanupJobs (in jobs-worker)
+ * skips a job while its throttle is still within its window.
  *
  * The shared throttle state lives in persistence/cleanup-schedule-state.ts so
  * that config-watcher can reset it without pulling jobs-worker's large
@@ -33,7 +33,6 @@ import { cleanupSettingsChanged } from "../daemon/config-watcher.js";
 describe("cleanupSettingsChanged", () => {
   const base: MemoryCleanupConfig = {
     enabled: true,
-    enqueueIntervalMs: 6 * 60 * 60 * 1000,
     supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
     conversationRetentionDays: 0,
     llmRequestLogRetentionMs: 1 * 24 * 60 * 60 * 1000,
@@ -74,12 +73,11 @@ describe("cleanupSettingsChanged", () => {
   });
 
   test("returns false when only non-tracked fields change", () => {
-    // enqueueIntervalMs and supersededItemRetentionMs are intentionally
-    // excluded — they are daemon tunables, not user-facing UI settings.
+    // supersededItemRetentionMs is intentionally excluded — it is a daemon
+    // tunable, not a user-facing UI setting.
     expect(
       cleanupSettingsChanged(base, {
         ...base,
-        enqueueIntervalMs: 1_000,
         supersededItemRetentionMs: 0,
       }),
     ).toBe(false);
@@ -136,7 +134,6 @@ interface TestConfig {
     enabled: boolean;
     cleanup: {
       enabled: boolean;
-      enqueueIntervalMs: number;
       supersededItemRetentionMs: number;
       conversationRetentionDays: number;
       llmRequestLogRetentionMs: number | null;
@@ -155,7 +152,6 @@ function makeConfig(
       enabled: true,
       cleanup: {
         enabled: true,
-        enqueueIntervalMs: 6 * 60 * 60 * 1000,
         supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
         conversationRetentionDays: 0,
         llmRequestLogRetentionMs: 1 * 24 * 60 * 60 * 1000,
@@ -276,10 +272,10 @@ describe("ConfigWatcher.refreshConfigFromSources cleanup throttle reset", () => 
     watcher.initFingerprint(diskConfig as never);
     primeConfigCache();
 
-    // enqueueIntervalMs is a daemon tunable, not a user-facing setting.
-    // The fingerprint changes but the tracked cleanup retention fields
-    // don't, so the throttle should NOT be reset.
-    diskConfig = makeConfig({ enqueueIntervalMs: 30_000 });
+    // supersededItemRetentionMs is a daemon tunable, not a user-facing
+    // setting. The fingerprint changes but the tracked cleanup retention
+    // fields don't, so the throttle should NOT be reset.
+    diskConfig = makeConfig({ supersededItemRetentionMs: 0 });
 
     const changed = await watcher.refreshConfigFromSources();
     expect(changed).toBe(true);
@@ -314,7 +310,7 @@ describe("ConfigWatcher.refreshConfigFromSources cleanup throttle reset", () => 
     // This is the user-facing regression guarantee: each time the user
     // changes retention via the UI, refreshConfigFromSources calls the
     // cleanup-schedule-state throttle reset so the next scheduler tick
-    // re-evaluates without waiting out the 6-hour window.
+    // re-evaluates without waiting out the retention-derived window.
     //
     // Because cleanup-schedule-state is mocked here, we verify the
     // CONTRACT (resetCleanupScheduleThrottle is called) rather than the

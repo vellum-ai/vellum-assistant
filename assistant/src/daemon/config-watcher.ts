@@ -174,7 +174,8 @@ export class ConfigWatcher {
     clearEmbeddingBackendCache();
     // If cleanup retention settings changed, reset the cleanup scheduler
     // throttle so the next worker tick re-enqueues jobs with the new values
-    // instead of waiting out the remaining enqueueIntervalMs (default 6h).
+    // instead of waiting out the remaining retention-derived cadence (which
+    // can be as long as the retention window itself).
     const nextCleanup = config.memory?.cleanup;
     if (cleanupSettingsChanged(prevCleanup, nextCleanup)) {
       resetCleanupScheduleThrottle();
