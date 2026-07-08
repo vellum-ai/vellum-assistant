@@ -139,10 +139,10 @@ export class MediaStreamOutput implements CallTransport {
   private audioStartCallback: (() => void) | null = null;
 
   /**
-   * The media-stream transport requires WAV (PCM) audio because its
+   * The media-stream transport requires raw PCM audio because its
    * mu-law transcoder cannot decode compressed formats (mp3, opus).
    */
-  readonly requiresWavAudio = true;
+  readonly requiresPcmAudio = true;
 
   constructor(ws: ServerWebSocket<unknown>, streamSid: string) {
     this.ws = ws;
@@ -503,11 +503,11 @@ export class MediaStreamOutput implements CallTransport {
     this.activePlaybackAbort = abortController;
 
     try {
-      // Request WAV so audioBufferToFrames gets PCM it can transcode
+      // Request PCM so audioBufferToFrames gets raw PCM it can transcode
       // to mu-law. Compressed formats (mp3, opus) would be sent as raw
       // bytes and produce garbled audio.
       const { provider, audioFormat } = await resolveCallTtsProvider({
-        preferWav: true,
+        requiresPcmAudio: true,
       });
       if (!provider) {
         log.warn(
@@ -621,8 +621,10 @@ export class MediaStreamOutput implements CallTransport {
 
       // Derive the format from the provider's actual content type rather
       // than the declared audioFormat. The declared format may not match
-      // reality (e.g. preferWav requests WAV but the provider returns mp3).
-      // audioBufferToFrames also sniffs magic bytes as a safety net.
+      // reality (e.g. requiresPcmAudio requests PCM but the provider
+      // returns mp3). For unknown content types, fall back to the declared
+      // format (PCM on this path — the bytes were requested as raw PCM,
+      // and audioBufferToFrames sniffs magic bytes as a safety net).
       const actualFormat: "mp3" | "wav" | "opus" | "pcm" =
         result.contentType.includes("wav") ||
         result.contentType.includes("x-wav")
