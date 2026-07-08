@@ -23,7 +23,6 @@ import {
   latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
-  reconnectPendingPromptState,
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
@@ -130,6 +129,7 @@ export function DoctorPanel() {
   const sessionId = useDoctorPanelStore.use.sessionId();
   const storeSessionStatus = useDoctorPanelStore.use.sessionStatus();
   const historyDismissed = useDoctorPanelStore.use.historyDismissed();
+  const reconnectSnapshot = useDoctorPanelStore.use.reconnectSnapshot();
 
   // Local UI state
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -369,18 +369,18 @@ export function DoctorPanel() {
   // if the session actually expired, reconnecting surfaces that instead
   // (404/410 → "Previous session expired").
   const handleReconnect = () => {
-    if (!sessionId) {
+    const store = useDoctorPanelStore.getState();
+    const snapshot = store.reconnectSnapshot;
+    if (!sessionId || !snapshot) {
       return;
     }
-    const store = useDoctorPanelStore.getState();
     // failStream cleared the pending prompt flags, but a prompt that was
-    // showing is still awaiting a reply server-side and is not replayed
-    // past the stored cursor — restore the flags from the transcript.
-    const { pendingApproval, pendingBackup } = reconnectPendingPromptState(
-      store.entries,
-    );
-    store.setPendingApproval(pendingApproval);
-    store.setPendingBackup(pendingBackup);
+    // showing when the transport died is still awaiting a reply
+    // server-side and is not replayed past the stored cursor — restore
+    // the flags from the snapshot taken at disconnect time.
+    store.setPendingApproval(snapshot.pendingApproval);
+    store.setPendingBackup(snapshot.pendingBackup);
+    store.setReconnectSnapshot(null);
     store.setSessionStatus("active");
     connectSSE(assistantId, sessionId);
   };
@@ -476,9 +476,14 @@ export function DoctorPanel() {
   const isSessionActive = sessionId !== null && storeSessionStatus === "active";
   const isSessionEnded = !isSessionActive && storeEntries.length > 0 &&
     (storeSessionStatus === "completed" || storeSessionStatus === "error");
-  // Only the error state is re-attachable: completed/expired sessions are
-  // terminal server-side, and without a sessionId there is nothing to rejoin.
-  const canReconnect = storeSessionStatus === "error" && sessionId !== null;
+  // Only a transport failure is re-attachable: the reconnect snapshot is
+  // set exclusively by failStream. Server-terminal errors (Doctor status
+  // "error" events) and completed/expired sessions never set it, and
+  // without a sessionId there is nothing to rejoin.
+  const canReconnect =
+    storeSessionStatus === "error" &&
+    sessionId !== null &&
+    reconnectSnapshot !== null;
   const sessionStatus = (isSessionActive || isSessionEnded)
     ? storeSessionStatus
     : (historyStatus ?? "idle");

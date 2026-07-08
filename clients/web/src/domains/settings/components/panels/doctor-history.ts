@@ -258,24 +258,6 @@ export function hasPendingBackup(entries: ChatEntry[]): boolean {
   return false;
 }
 
-/**
- * Pending prompt state to restore when reconnecting to a session after a
- * stream failure. `failStream` clears the pending flags and appends an
- * error entry after the prompt, but the prompt is still awaiting a reply
- * server-side — so error entries are ignored when locating the last
- * meaningful entry.
- */
-export function reconnectPendingPromptState(entries: ChatEntry[]): {
-  pendingApproval: boolean;
-  pendingBackup: boolean;
-} {
-  const settled = entries.filter((entry) => entry.kind !== "error");
-  return {
-    pendingApproval: hasPendingApproval(settled),
-    pendingBackup: hasPendingBackup(settled),
-  };
-}
-
 export function serializeSessionToText(entries: ChatEntry[]): string {
   const lines: string[] = [];
 

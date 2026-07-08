@@ -193,6 +193,14 @@ export function useDoctorSSE() {
         }
         controllerRef.current = null;
         const s = useDoctorPanelStore.getState();
+        // Transport failure — the session may still be live server-side.
+        // Snapshot the pending prompt flags so Reconnect can restore them.
+        // Server-terminal paths (status/error events) never set this, which
+        // is what gates the Reconnect affordance in the panel.
+        s.setReconnectSnapshot({
+          pendingApproval: s.pendingApproval,
+          pendingBackup: s.pendingBackup,
+        });
         s.setThinking(false);
         s.setPendingApproval(false);
         s.setPendingBackup(false);

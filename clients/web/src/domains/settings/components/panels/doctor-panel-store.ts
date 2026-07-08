@@ -53,6 +53,14 @@ export interface DoctorPanelState {
 
   /** Redis stream event IDs already folded into the active Doctor transcript. */
   processedSourceEventIds: Set<string>;
+
+  /**
+   * Pending prompt flags captured at the moment of a *transport* stream
+   * failure. Only `failStream` sets this — a server-terminal session error
+   * never does — so its presence is what marks an error state as
+   * re-attachable via Reconnect. Cleared on reconnect and on session reset.
+   */
+  reconnectSnapshot: { pendingApproval: boolean; pendingBackup: boolean } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +91,9 @@ export interface DoctorPanelActions {
 
   setStreamingEntryId: (id: string | null) => void;
   setEntries: (entries: ChatEntry[]) => void;
+  setReconnectSnapshot: (
+    v: { pendingApproval: boolean; pendingBackup: boolean } | null,
+  ) => void;
   resetReplayState: () => void;
   seedReplayState: (sourceEventIds: string[], latestSourceEventId: string | null) => void;
   recordReplayableSourceEventId: (sourceEventId: string) => boolean;
@@ -129,6 +140,7 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
   lastAssistantId: null,
   latestReplayableSourceEventId: null,
   processedSourceEventIds: new Set(),
+  reconnectSnapshot: null,
 
   // Actions
   nextId: () => {
@@ -158,6 +170,7 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
       streamingEntryId: null,
       latestReplayableSourceEventId: null,
       processedSourceEventIds: new Set(),
+      reconnectSnapshot: null,
     });
   },
 
@@ -175,6 +188,7 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
       entryCounter: 0,
       latestReplayableSourceEventId: null,
       processedSourceEventIds: new Set(),
+      reconnectSnapshot: null,
     });
   },
 
@@ -192,6 +206,7 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
       entryCounter: 0,
       latestReplayableSourceEventId: null,
       processedSourceEventIds: new Set(),
+      reconnectSnapshot: null,
     });
   },
 
@@ -204,6 +219,7 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
   setHistoryDismissed: (v) => set({ historyDismissed: v }),
   setStreamingEntryId: (id) => set({ streamingEntryId: id }),
   setEntries: (entries) => set({ entries }),
+  setReconnectSnapshot: (v) => set({ reconnectSnapshot: v }),
   resetReplayState: () => {
     set({
       latestReplayableSourceEventId: null,
