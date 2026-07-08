@@ -143,7 +143,7 @@ export function LetsChatTomorrowStep({
               className="cursor-pointer text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
               style={{ color: tone.fgMuted }}
             >
-              Skip for now
+              <span>Skip for now</span>
             </button>
           )}
         </div>
