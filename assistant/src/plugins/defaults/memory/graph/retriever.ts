@@ -10,6 +10,7 @@ import type { ContentBlock, ImageContent } from "@vellumai/plugin-api";
 import { getConfiguredProvider } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
+import { getAttachmentContent } from "../../../../persistence/attachments-store.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
 import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdrant-client.js";
@@ -980,9 +981,13 @@ export async function retrieveForTurn(
           i++
         ) {
           const img = imageBlocks[i];
+          // Resolve the image bytes whether stored inline or as a workspace
+          // attachment reference; skip when the attachment can't be read.
+          const imgBytes = getAttachmentContent(img.source);
+          if (!imgBytes) continue;
           const imageInput = {
             type: "image" as const,
-            data: Buffer.from(img.source.data, "base64"),
+            data: imgBytes,
             mimeType: img.source.media_type,
           };
           const imgResult = await embedWithRetry(opts.config, [imageInput], {

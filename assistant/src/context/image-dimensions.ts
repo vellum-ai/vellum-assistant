@@ -1,12 +1,34 @@
+import type { MediaSource } from "../providers/types.js";
+
 /**
- * Parses image dimensions from base64-encoded image data by reading binary headers.
- * Supports PNG, JPEG, GIF, and WebP formats.
- * Returns null if parsing fails for any reason (corrupt, truncated, unrecognized).
+ * Parse image pixel dimensions, either from a base64 payload (reading binary
+ * headers — PNG, JPEG, GIF, WebP) or from an image block's media `source`.
+ *
+ * For an `attachment_ref` source the dimensions come from the hints captured at
+ * persist time (no disk read); for an inline `base64` source they are parsed
+ * from the header. Returns null when parsing fails or the reference carries no
+ * dimension hints.
  */
 export function parseImageDimensions(
   base64Data: string,
   mediaType: string,
+): { width: number; height: number } | null;
+export function parseImageDimensions(
+  source: MediaSource,
+): { width: number; height: number } | null;
+export function parseImageDimensions(
+  arg: string | MediaSource,
+  mediaType?: string,
 ): { width: number; height: number } | null {
+  if (typeof arg !== "string") {
+    if (arg.type === "attachment_ref") {
+      return arg.width != null && arg.height != null
+        ? { width: arg.width, height: arg.height }
+        : null;
+    }
+    return parseImageDimensions(arg.data, arg.media_type);
+  }
+  const base64Data = arg;
   try {
     switch (mediaType) {
       case "image/png":

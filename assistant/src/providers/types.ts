@@ -9,31 +9,65 @@ export interface TextContent {
   text: string;
 }
 
+/**
+ * Media payload for an image or file content block. One unified type covers
+ * both blocks and both storage forms:
+ *
+ * - `base64` — the bytes travel inline with the block. This is the runtime
+ *   shape the provider transforms consume and the shape produced for a live
+ *   (in-flight) turn.
+ * - `attachment_ref` — the bytes live in the workspace attachment store,
+ *   addressed by `attachmentId`. This is the shape PERSISTED into
+ *   `messages.content`, keeping large blobs out of the DB row and the lexical
+ *   index. It is resolved back to inline bytes at the provider send boundary
+ *   (`providers/media-resolve.ts`); any consumer that needs the raw bytes from
+ *   stored content resolves it with `getAttachmentContent(source)`.
+ *
+ * `filename` is optional on both arms (present for file blocks and for
+ * generated-media references). For references, `sizeBytes` (and, for images,
+ * `width`/`height`) are captured at persist time so size-only consumers — the
+ * per-turn token estimator especially — can cost the block without reading the
+ * file back off disk.
+ */
+export interface Base64MediaSource {
+  type: "base64";
+  media_type: string;
+  data: string;
+  filename?: string;
+}
+
+export interface AttachmentRefMediaSource {
+  type: "attachment_ref";
+  media_type: string;
+  /** Attachment row id; resolve to bytes via `getAttachmentContent`. */
+  attachmentId: string;
+  /** Byte length of the referenced file. */
+  sizeBytes: number;
+  filename?: string;
+  /** Decoded pixel width, when the reference is an image. */
+  width?: number;
+  /** Decoded pixel height, when the reference is an image. */
+  height?: number;
+}
+
+export type MediaSource = Base64MediaSource | AttachmentRefMediaSource;
+
 export interface ImageContent {
   type: "image";
-  source: {
-    type: "base64";
-    media_type: string;
-    data: string;
-  };
+  source: MediaSource;
 }
 
 export interface FileContent {
   type: "file";
-  source: {
-    type: "base64";
-    media_type: string;
-    data: string;
-    filename: string;
-  };
+  source: MediaSource;
   extracted_text?: string;
   /**
-   * Internal id linking this block to a row in the attachments table.
-   * Set when the file block originates from a persisted user-message
-   * attachment so downstream consumers (DB joins, inline-chip
-   * positioning) can correlate the block back to its attachment id.
-   * Stripped by `daemon/handlers/shared.ts` before sending to the
-   * model.
+   * Internal id linking a base64 file block to a row in the attachments table
+   * so consumers (DB joins, inline-chip positioning) can correlate the block
+   * back to its attachment. Redundant once the block is a reference (use
+   * `source.attachmentId`); retained only while file media is still persisted
+   * inline as base64, and removed when file uploads move to references.
+   * Stripped by `daemon/handlers/shared.ts` before sending to the model.
    */
   _attachmentId?: string;
 }

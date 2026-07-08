@@ -16,6 +16,7 @@ import {
   type PluginLogger,
 } from "@vellumai/plugin-api";
 
+import { resolveMediaSourceData } from "../../../../providers/media-resolve.js";
 import {
   getCachedCaption,
   imageHash,
@@ -67,7 +68,11 @@ export async function captionImage(
   profileKey: string,
   logger: PluginLogger,
 ): Promise<string | null> {
-  const hash = imageHash(image.source.data);
+  // Hash the image's content (resolving a reference source to its bytes, a
+  // no-op for inline base64) so the caption cache keys on the image itself.
+  const resolved = resolveMediaSourceData(image.source);
+  if (!resolved) return null;
+  const hash = imageHash(resolved.data);
   const cached = getCachedCaption(hash, conversationId);
   if (cached !== undefined) {
     return cached;

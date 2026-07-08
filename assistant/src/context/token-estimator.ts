@@ -2,6 +2,7 @@ import {
   estimateGeminiAudioTokens,
   normalizeGeminiAudioMime,
 } from "../providers/gemini/inline-media.js";
+import { mediaSourceByteLength } from "../providers/media-resolve.js";
 import type {
   ContentBlock,
   Message,
@@ -98,8 +99,7 @@ export function estimateTextTokens(text: string | undefined): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
-function estimateAnthropicPdfTokens(base64Data: string): number {
-  const rawBytes = Math.ceil((base64Data.length * 3) / 4);
+function estimateAnthropicPdfTokens(rawBytes: number): number {
   return Math.max(
     ANTHROPIC_PDF_MIN_TOKENS,
     Math.ceil(rawBytes * ANTHROPIC_PDF_TOKENS_PER_BYTE),
@@ -111,13 +111,16 @@ function estimateFileDataTokens(
   options?: TokenEstimatorOptions,
 ): number {
   const providerName = options?.providerName;
+  // Size the payload from the source hint, resolving neither base64 nor a
+  // reference back to bytes — this runs on the per-turn hot path.
+  const byteLength = mediaSourceByteLength(block.source);
 
   // Anthropic sends PDFs as native document blocks and renders each page as an image
   if (
     providerName === "anthropic" &&
     block.source.media_type === "application/pdf"
   ) {
-    return estimateAnthropicPdfTokens(block.source.data);
+    return estimateAnthropicPdfTokens(byteLength);
   }
 
   // Gemini hears audio natively (inline base64) but bills it at ~32 tokens/sec.
@@ -127,15 +130,16 @@ function estimateFileDataTokens(
     providerName === "gemini" &&
     normalizeGeminiAudioMime(block.source.media_type) !== null
   ) {
-    return estimateGeminiAudioTokens(block.source.data);
+    return estimateGeminiAudioTokens(byteLength);
   }
 
-  // Gemini sends certain file types inline as base64
+  // Gemini sends certain file types inline as base64; cost the encoded payload
+  // (~4 base64 chars per 3 bytes) as text.
   if (
     providerName === "gemini" &&
     GEMINI_INLINE_FILE_MIME_TYPES.has(block.source.media_type)
   ) {
-    return estimateTextTokens(block.source.data);
+    return Math.ceil((Math.ceil(byteLength / 3) * 4) / CHARS_PER_TOKEN);
   }
 
   return 0;
@@ -185,7 +189,7 @@ function estimateImageTokens(
   block: Extract<ContentBlock, { type: "image" }>,
   options?: TokenEstimatorOptions,
 ): number {
-  const dims = parseImageDimensions(block.source.data, block.source.media_type);
+  const dims = parseImageDimensions(block.source);
   if (dims) {
     if (options?.providerName === "gemini") {
       return estimateGeminiImageTokens(dims.width, dims.height);
