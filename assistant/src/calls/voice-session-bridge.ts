@@ -460,9 +460,12 @@ export async function startVoiceTurn(
     // (under-claiming). Safe to claim here for the same reason as the text path.
     recordConversationPersistedSeq(opts.conversationId, getCurrentSeq());
     // Nudge subscribers to refetch `/messages`. Gated to real user turns:
-    // synthetic opener/verification rows are persisted un-hidden, so an early
-    // invalidation here would surface the internal "(call connected …)" prompt
-    // as a user bubble before the assistant reply streams.
+    // synthetic opener/verification rows are persisted un-hidden (unlike the
+    // text path's echo-suppressed rows, which are `hidden` and safe to
+    // announce), so an early invalidation here would surface the internal
+    // "(call connected …)" prompt as a user bubble before the assistant reply
+    // streams. Synthetic prompts still reach the transcript via the normal
+    // turn-end resync.
     publishConversationMessagesChanged(opts.conversationId);
   }
 
