@@ -39,11 +39,13 @@ export interface ChatUIState {
   /** Whether the turn phase is `"idle"` (no active turn in progress). */
   isIdle: boolean;
   showThinking: boolean;
-  isAssistantStreaming: boolean;
-  canStopGenerating: boolean;
   /** Whether the assistant is actively working (not waiting for user input).
    *  Single source of truth for the avatar spinner and stop button. */
   isAssistantBusy: boolean;
+  /** True when there is a live streaming assistant message in the transcript.
+   *  Used by the scroll-to-latest button pulse, which is a streaming signal
+   *  distinct from the busy/avatar signal. */
+  hasStreamingAssistantMessage: boolean;
   /** Whether the turn-level state blocks sending (pending secret or
    *  confirmation). Does NOT include typing-disabled conditions (loading
    *  history, maintenance, disk pressure, channel readonly) — the caller
@@ -158,12 +160,6 @@ export function useChatUIState(): ChatUIState {
 
   const showThinking = shouldShowThinkingIndicator(phase, activeToolCallCount, uiContext);
   const isAssistantBusy = isAssistantBusySelector(phase, uiContext);
-  // The avatar spinner and stop button both derive from isAssistantBusy so
-  // they can never disagree. showThinking is kept for the standalone
-  // thinking-dots row (which has its own display rules distinct from the
-  // spinner ring), but the avatar's streaming ring uses isAssistantBusy.
-  const isAssistantStreaming = isAssistantBusy || showThinking;
-  const canStopGenerating = isAssistantBusy;
   const isSendDisabledFromTurn = isSendDisabled(uiContext);
   const thinkingLabel = statusText;
 
@@ -171,9 +167,8 @@ export function useChatUIState(): ChatUIState {
     uiContext,
     isIdle: phase === "idle",
     showThinking,
-    isAssistantStreaming,
-    canStopGenerating,
     isAssistantBusy,
+    hasStreamingAssistantMessage,
     isSendDisabledFromTurn,
     thinkingLabel,
     liveAssistantMessageId,

@@ -238,9 +238,8 @@ export function ChatMainPanel({
     uiContext,
     isIdle,
     showThinking,
-    isAssistantStreaming,
-    canStopGenerating,
     isAssistantBusy,
+    hasStreamingAssistantMessage,
     isSendDisabledFromTurn,
     thinkingLabel,
     liveAssistantMessageId,
@@ -554,7 +553,7 @@ export function ChatMainPanel({
     // streaming reply materializes (notably across the onboarding draft→real
     // conversation switch, which resets the snapshot mid-turn).
     !activeConversationIsProcessing &&
-    !isAssistantStreaming &&
+    !isAssistantBusy &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
 
   const showDoctorAction =
@@ -845,9 +844,7 @@ export function ChatMainPanel({
     avatar,
     mainView,
     openedAppState,
-    isAssistantStreaming,
     isAssistantBusy,
-    activeConversationIsProcessing,
     onSelectStarter: handleSelectStarter,
     onSelectSuggestion: newThreadSuggestionsEnabled
       ? setSelectedSuggestion
@@ -930,7 +927,7 @@ export function ChatMainPanel({
       onVoiceError={setVoiceError}
       onVoiceBeforeStart={handleVoiceBeforeStart}
       onStopGenerating={handleStopGenerating}
-      canStopGenerating={canStopGenerating}
+      canStopGenerating={isAssistantBusy}
       assistantId={assistantId}
       // Routing-truth id (NOT `activeConversation?.conversationId`, which is
       // transiently undefined until the row loads and always undefined for
@@ -1034,7 +1031,7 @@ export function ChatMainPanel({
         scrollCoordinator.showScrollToLatest && messages.length > 0
       }
       onScrollToLatest={handleScrollToLatest}
-      isStreaming={isAssistantStreaming}
+      isStreaming={showThinking || hasStreamingAssistantMessage}
       refreshFeedback={refreshFeedback}
       onDismissRefreshFeedback={handleDismissRefreshFeedback}
       onRetryRefresh={handleRetryRefreshFromPill}

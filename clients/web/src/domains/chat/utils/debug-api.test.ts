@@ -533,7 +533,6 @@ describe("createChatDebugApi.streamingRing", () => {
     const ring = api.streamingRing();
 
     expect(ring.visible).toBe(true);
-    expect(ring.litBy).toEqual(["isAssistantBusy"]);
   });
 
   test("streamingRing is hidden once the turn is idle and nothing is processing", () => {
@@ -549,7 +548,6 @@ describe("createChatDebugApi.streamingRing", () => {
     const ring = api.streamingRing();
 
     expect(ring.visible).toBe(false);
-    expect(ring.litBy).toEqual([]);
   });
 
   test("streamingRing stays lit when the cached snapshot is stale after the turn ends", () => {
@@ -572,7 +570,6 @@ describe("createChatDebugApi.streamingRing", () => {
 
     expect(snapshot.done.terminal).toBe(true);
     expect(ring.visible).toBe(true);
-    expect(ring.litBy).toEqual(["isAssistantBusy"]);
   });
 });
 

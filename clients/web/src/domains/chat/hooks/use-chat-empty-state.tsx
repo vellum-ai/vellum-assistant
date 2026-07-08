@@ -41,9 +41,7 @@ export interface UseChatEmptyStateParams {
   mainView: string;
   /** Opened app state from viewer-store (non-null when editing an app). */
   openedAppState: { name: string; dirName?: string } | null;
-  isAssistantStreaming: boolean;
   isAssistantBusy: boolean;
-  activeConversationIsProcessing: boolean;
   onSelectStarter: (starter: ConversationStarter) => void;
   /**
    * Behind the new-thread-suggestions flag, clicking a library card invokes
@@ -84,9 +82,7 @@ export function useChatEmptyState({
   avatar,
   mainView,
   openedAppState,
-  isAssistantStreaming: _isAssistantStreaming,
   isAssistantBusy,
-  activeConversationIsProcessing: _activeConversationIsProcessing,
   onSelectStarter,
   onSelectSuggestion,
 }: UseChatEmptyStateParams): ChatEmptyStateResult {
