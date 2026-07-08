@@ -644,7 +644,6 @@ async function finalizeSuccessfulRetrospective(args: {
   ) {
     const authoredSkills = extractRetrospectiveRunSkillScaffolds(
       retrospectiveConversationId,
-      getConversation(retrospectiveConversationId)?.source ?? null,
     );
     if (authoredSkills.length > 0) {
       await insertSkillCardMessage(

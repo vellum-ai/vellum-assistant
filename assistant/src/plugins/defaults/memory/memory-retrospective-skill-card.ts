@@ -5,10 +5,11 @@
 // When a retrospective run authors NEW managed skills (successful
 // `scaffold_managed_skill` calls without `overwrite: true`), the finalize
 // path surfaces them to the user as a single `skill_card` ui_surface message
-// appended to the SOURCE conversation. The block is rendered by the web
-// client's surface router; the Anthropic provider strips `ui_surface` blocks
-// during request assembly, so the card never reaches the model as renderable
-// content.
+// appended to the SOURCE conversation. The ui_surface block is rendered by
+// the web client's surface router and is paired with a `_surfaceFallback`
+// text block (the approval-card pattern) so providers that drop `ui_surface`
+// blocks still send a non-empty assistant turn and flat-text consumers (CLI,
+// search, channel replies) see readable content.
 //
 // Everything here is best-effort: a card failure must never fail the
 // retrospective job.
@@ -16,6 +17,7 @@
 import {
   addMessage,
   getConversation,
+  isConversationProcessing,
 } from "../../../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../../../persistence/conversation-disk-view.js";
 import { publishConversationMessagesChanged } from "../../../runtime/sync/resource-sync-events.js";
@@ -42,7 +44,8 @@ export interface AuthoredSkill {
 
 /**
  * Pull the newly created skills out of a retrospective run's own work.
- * Mirrors `extractRetrospectiveRunRemembers`: `loadRetrospectiveRunMessages`
+ * Mirrors `extractRetrospectiveRunRemembers`: the run conversation's
+ * `source` kind is resolved internally, and `loadRetrospectiveRunMessages`
  * scopes fork-kind rows to the post-fork tail (the copied prefix contains
  * the source conversation's own inline tool calls) and returns `null` on
  * load failure or an undetectable fork boundary — treated here as "the run
@@ -56,11 +59,10 @@ export interface AuthoredSkill {
  */
 export function extractRetrospectiveRunSkillScaffolds(
   retrospectiveConversationId: string,
-  source: string | null | undefined,
 ): AuthoredSkill[] {
   const runMessages = loadRetrospectiveRunMessages(
     retrospectiveConversationId,
-    source,
+    getConversation(retrospectiveConversationId)?.source ?? null,
   );
   if (runMessages == null) {
     return [];
@@ -169,12 +171,15 @@ function readScaffoldInput(input: unknown): AuthoredSkill | null {
 }
 
 /**
- * Append the `skill_card` ui_surface message to the source conversation and
- * notify connected clients. The `surfaceId` (doubling as the insert's
- * idempotency nonce via `clientMessageId`) is derived from the run
- * conversation id, so a retried finalize cannot produce two cards for one
- * run. Skips when the source conversation no longer exists (deleted
- * mid-run). Best-effort — failures are logged and never thrown.
+ * Append the `skill_card` ui_surface message (plus its `_surfaceFallback`
+ * text sibling) to the source conversation and notify connected clients. The
+ * `surfaceId` (doubling as the insert's idempotency nonce via
+ * `clientMessageId`) is derived from the run conversation id, so a retried
+ * finalize cannot produce two cards for one run — a deduplicated insert also
+ * skips the disk-view sync and client broadcast. Skips when the source
+ * conversation no longer exists (deleted mid-run) or is mid-turn (inserting
+ * would splice the card into an in-flight display turn; the admission check
+ * ran minutes earlier). Best-effort — failures are logged and never thrown.
  */
 export async function insertSkillCardMessage(
   sourceConversationId: string,
@@ -190,8 +195,15 @@ export async function insertSkillCardMessage(
       );
       return;
     }
+    if (isConversationProcessing(sourceConversationId)) {
+      log.debug(
+        { sourceConversationId, runConversationId },
+        "skill card: source conversation is mid-turn; skipping",
+      );
+      return;
+    }
     const surfaceId = `skill-card-${runConversationId}`;
-    const block = {
+    const surfaceBlock = {
       type: "ui_surface",
       surfaceId,
       surfaceType: "skill_card",
@@ -206,16 +218,32 @@ export async function insertSkillCardMessage(
         })),
       },
     };
+    // Plain-text fallback (approval-card pattern): feeds the model, search,
+    // CLI display, and channel replies. Surface-capable clients skip it —
+    // `renderHistoryContent` keeps `_surfaceFallback` text out of the
+    // rendered content blocks so the card is never double-rendered.
+    const fallbackBlock = {
+      type: "text",
+      text: `New skill learned: ${skills.map((s) => s.name).join(", ")}`,
+      _surfaceFallback: true,
+    };
     const persisted = await addMessage(
       sourceConversationId,
       "assistant",
-      JSON.stringify([block]),
+      JSON.stringify([surfaceBlock, fallbackBlock]),
       {
         metadata: { kind: SKILL_CARD_MESSAGE_KIND, automated: true },
         skipIndexing: true,
         clientMessageId: surfaceId,
       },
     );
+    if (persisted.deduplicated) {
+      log.debug(
+        { sourceConversationId, runConversationId },
+        "skill card: message already exists (deduplicated); skipping sync and publish",
+      );
+      return;
+    }
     // Mirror `persistWakeTriggerMessage`: keep the conversation's disk view
     // in sync (its own failure is non-fatal so the client broadcast below
     // still fires), then tell connected clients the message list changed.

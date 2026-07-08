@@ -1846,11 +1846,12 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[2].role).toBe("user");
   });
 
-  test("assistant message carrying only a skill_card ui_surface block is stripped without breaking role alternation", async () => {
-    // Contract-shaped block persisted by the memory retrospective's
-    // skill-card insertion (memory-retrospective-skill-card.ts): the message
-    // content is ONLY the ui_surface block, so the provider must drop the
-    // block and keep the assistant turn alive via a placeholder.
+  test("assistant skill_card message: ui_surface is stripped and the _surfaceFallback text reaches the wire", async () => {
+    // Contract-shaped block pair persisted by the memory retrospective's
+    // skill-card insertion (memory-retrospective-skill-card.ts): the
+    // ui_surface card plus a `_surfaceFallback` text sibling. The provider
+    // must drop the ui_surface block and send the fallback text as the
+    // assistant turn's real content — no placeholder needed.
     const skillCardBlock = {
       type: "ui_surface",
       surfaceId: "skill-card-run-conv-1",
@@ -1868,9 +1869,14 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         ],
       },
     } as unknown as ContentBlock;
+    const fallbackBlock = {
+      type: "text",
+      text: "New skill learned: Example skill",
+      _surfaceFallback: true,
+    } as unknown as ContentBlock;
     const messages: Message[] = [
       userMsg("Start"),
-      { role: "assistant", content: [skillCardBlock] },
+      { role: "assistant", content: [skillCardBlock, fallbackBlock] },
       userMsg("Continue"),
     ];
     await provider.sendMessage(messages);
@@ -1881,15 +1887,17 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }>;
 
     // No ui_surface block (or any of its payload) reaches the wire; the
-    // assistant turn survives as a placeholder so alternation holds.
+    // assistant turn carries the fallback text (stripped of the internal
+    // `_surfaceFallback` marker), so alternation holds without a placeholder.
     expect(sent).toHaveLength(3);
     expect(
       sent.flatMap((m) => m.content).every((b) => b.type !== "ui_surface"),
     ).toBe(true);
     expect(JSON.stringify(sent)).not.toContain("skill_card");
+    expect(JSON.stringify(sent)).not.toContain("_surfaceFallback");
     expect(sent[1].role).toBe("assistant");
     expect(sent[1].content).toEqual([
-      { type: "text", text: PLACEHOLDER_BLOCKS_OMITTED },
+      { type: "text", text: "New skill learned: Example skill" },
     ]);
     for (let i = 1; i < sent.length; i++) {
       expect(sent[i].role).not.toBe(sent[i - 1].role);

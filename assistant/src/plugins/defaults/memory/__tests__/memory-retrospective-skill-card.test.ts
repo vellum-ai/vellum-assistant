@@ -20,6 +20,8 @@ let addMessageCalls: Array<{
   options: Record<string, unknown> | undefined;
 }> = [];
 let addMessageThrowsFor: string | null = null;
+let addMessageDeduplicatesFor: string | null = null;
+let processingConversationIds: string[] = [];
 
 let syncedToDisk: Array<{
   conversationId: string;
@@ -61,7 +63,8 @@ mock.module("../../../../persistence/conversation-crud.js", () => ({
       createdAt: 1111,
     };
   },
-  isConversationProcessing: (_id: string) => false,
+  isConversationProcessing: (id: string) =>
+    processingConversationIds.includes(id),
   forkConversationForRetrospective: async (_params: unknown) => ({
     id: "fork-conv-1",
   }),
@@ -81,7 +84,7 @@ mock.module("../../../../persistence/conversation-crud.js", () => ({
       role,
       content,
       createdAt: 42,
-      deduplicated: false,
+      deduplicated: addMessageDeduplicatesFor === conversationId,
     };
   },
   deleteConversation: (_id: string) => {},
@@ -287,6 +290,8 @@ describe("memory-retrospective skill card", () => {
     ];
     addMessageCalls = [];
     addMessageThrowsFor = null;
+    addMessageDeduplicatesFor = null;
+    processingConversationIds = [];
     syncedToDisk = [];
     publishedConversationIds = [];
     conversationOverrides = {};
@@ -300,6 +305,10 @@ describe("memory-retrospective skill card", () => {
   // -------------------------------------------------------------------------
 
   test("extractor returns only successful, non-overwrite scaffolds", () => {
+    conversationOverrides["retro-1"] = {
+      source: "memory-retrospective",
+      forkParentMessageId: null,
+    };
     messagesByConversationId["retro-1"] = [
       // Successful create — included.
       scaffoldMsg("tu-1", skillInput("skill-a", { emoji: "🧭" }), {
@@ -333,10 +342,7 @@ describe("memory-retrospective skill card", () => {
       toolResultMsg("tu-5", { createdAt: 2008 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds(
-      "retro-1",
-      "memory-retrospective",
-    );
+    const skills = extractRetrospectiveRunSkillScaffolds("retro-1");
 
     expect(skills).toEqual([
       {
@@ -348,7 +354,9 @@ describe("memory-retrospective skill card", () => {
     ]);
   });
 
-  test("extractor scopes fork-kind runs to the post-fork tail", () => {
+  test("extractor resolves the run's source itself and scopes fork-kind runs to the post-fork tail", () => {
+    // The fork-kind source comes from the conversation row (getConversation),
+    // not a caller-supplied parameter — tail scoping proves it was read.
     conversationOverrides["retro-fork-1"] = {
       source: "memory-retrospective-fork",
       forkParentMessageId: null,
@@ -369,24 +377,22 @@ describe("memory-retrospective skill card", () => {
       toolResultMsg("tu-tail", { createdAt: 2100 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds(
-      "retro-fork-1",
-      "memory-retrospective-fork",
-    );
+    const skills = extractRetrospectiveRunSkillScaffolds("retro-fork-1");
 
     expect(skills.map((s) => s.skillId)).toEqual(["tail-skill"]);
   });
 
   test("extractor degrades to empty for a fork-kind run with no detectable boundary", () => {
+    conversationOverrides["retro-fork-2"] = {
+      source: "memory-retrospective-fork",
+      forkParentMessageId: null,
+    };
     messagesByConversationId["retro-fork-2"] = [
       scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 1000 }),
       toolResultMsg("tu-1", { createdAt: 1100 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds(
-      "retro-fork-2",
-      "memory-retrospective-fork",
-    );
+    const skills = extractRetrospectiveRunSkillScaffolds("retro-fork-2");
 
     expect(skills).toEqual([]);
   });
@@ -434,6 +440,13 @@ describe("memory-retrospective skill card", () => {
           ],
         },
       },
+      // Plain-text fallback: fed to the model and flat-text consumers;
+      // surface-capable clients skip it via the `_surfaceFallback` flag.
+      {
+        type: "text",
+        text: "New skill learned: Skill A, Skill B",
+        _surfaceFallback: true,
+      },
     ]);
     expect(call.options).toEqual({
       metadata: { kind: "skill-authored-card", automated: true },
@@ -460,6 +473,32 @@ describe("memory-retrospective skill card", () => {
     ]);
 
     expect(addMessageCalls).toHaveLength(0);
+    expect(syncedToDisk).toHaveLength(0);
+    expect(publishedConversationIds).toHaveLength(0);
+  });
+
+  test("insert is a no-op when the source conversation is mid-turn", async () => {
+    processingConversationIds = ["src-conv-9"];
+
+    await insertSkillCardMessage("src-conv-9", "run-conv-1", [
+      { skillId: "skill-a", name: "Skill A", description: "Does A" },
+    ]);
+
+    expect(addMessageCalls).toHaveLength(0);
+    expect(syncedToDisk).toHaveLength(0);
+    expect(publishedConversationIds).toHaveLength(0);
+  });
+
+  test("deduplicated insert (retried finalize) skips disk sync and publish", async () => {
+    addMessageDeduplicatesFor = "src-conv-9";
+
+    await insertSkillCardMessage("src-conv-9", "run-conv-1", [
+      { skillId: "skill-a", name: "Skill A", description: "Does A" },
+    ]);
+
+    // The idempotent addMessage call still happens (it detects the dup)...
+    expect(addMessageCalls).toHaveLength(1);
+    // ...but the disk-view append and client broadcast do not repeat.
     expect(syncedToDisk).toHaveLength(0);
     expect(publishedConversationIds).toHaveLength(0);
   });
@@ -495,15 +534,24 @@ describe("memory-retrospective skill card", () => {
     const cards = cardMessagesFor("src-conv-1");
     expect(cards).toHaveLength(1);
     const blocks = JSON.parse(cards[0]!.content) as Array<{
-      surfaceId: string;
-      data: { skills: Array<{ skillId: string }> };
+      type: string;
+      surfaceId?: string;
+      data?: { skills: Array<{ skillId: string }> };
+      text?: string;
+      _surfaceFallback?: boolean;
     }>;
-    expect(blocks).toHaveLength(1);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]!.type).toBe("ui_surface");
     expect(blocks[0]!.surfaceId).toBe("skill-card-fork-conv-1");
-    expect(blocks[0]!.data.skills.map((s) => s.skillId)).toEqual([
+    expect(blocks[0]!.data!.skills.map((s) => s.skillId)).toEqual([
       "skill-a",
       "skill-b",
     ]);
+    expect(blocks[1]).toEqual({
+      type: "text",
+      text: "New skill learned: Skill skill-a, Skill skill-b",
+      _surfaceFallback: true,
+    });
     expect(publishedConversationIds).toEqual(["src-conv-1"]);
   });
 
