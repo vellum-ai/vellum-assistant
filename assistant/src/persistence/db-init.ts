@@ -1,6 +1,14 @@
+import { existsSync } from "node:fs";
+
 import { getLogger } from "../util/logger.js";
+import { getDbPath } from "../util/platform.js";
 import { runAsyncSqlite } from "./db-async-query.js";
-import { getDb } from "./db-connection.js";
+import {
+  getDb,
+  getLogsDb,
+  getMemoryDb,
+  getTelemetryDb,
+} from "./db-connection.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
 import { migrationSteps } from "./steps.js";
@@ -26,12 +34,17 @@ import { migrationSteps } from "./steps.js";
  *
  * Best-effort and non-fatal: on any failure (no `sqlite3` binary, lock
  * contention, timeout) we return and let the caller open normally — a blocking
- * recovery, i.e. exactly the prior behavior, never worse. The caller skips
- * this entirely under test (see `initializeDb`): un-awaited test callers rely on
- * the synchronous prefix of `initializeDb` creating the DB file before the
- * first yield, so no `await` may precede `getDb()` there.
+ * recovery, i.e. exactly the prior behavior, never worse.
+ *
+ * Returns immediately when there is no `-wal` sidecar: with nothing to fold,
+ * spawning the `sqlite3` subprocess would be pure overhead. This is the common
+ * case on a clean boot and in tests, whose seeded fixture DB is checkpointed and
+ * WAL-free.
  */
 export async function checkpointWalBeforeOpen(): Promise<void> {
+  if (!existsSync(`${getDbPath()}-wal`)) {
+    return;
+  }
   const log = getLogger("db-init");
   try {
     const result = await runAsyncSqlite(
@@ -67,16 +80,10 @@ export async function checkpointWalBeforeOpen(): Promise<void> {
 export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
   // Fold any post-crash WAL back into the database off the main event loop
   // before the first open, so a large WAL can't block /healthz through a
-  // synchronous in-process WAL recovery and trip the liveness probe.
-  //
-  // Skipped under test (NODE_ENV==="test", which Bun sets for `bun test`).
-  // Test workspaces are seeded with a freshly-VACUUMed fixture DB that has no
-  // WAL to fold, and un-awaited test callers depend on getDb() (below) creating
-  // the DB file during the synchronous prefix, before the first yield — any
-  // await ahead of getDb() would defer that and break them.
-  if (process.env.NODE_ENV !== "test") {
-    await checkpointWalBeforeOpen();
-  }
+  // synchronous in-process WAL recovery and trip the liveness probe. Returns
+  // immediately when there is no WAL to fold — the case on a clean boot and for
+  // the WAL-free fixture DB test workspaces are seeded with.
+  await checkpointWalBeforeOpen();
 
   const log = getLogger("db-init");
   const database = getDb();
@@ -116,6 +123,15 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
     validationOk = false;
     log.error({ err }, "validateMigrationState failed");
   }
+
+  // Open the dedicated logs/memory/telemetry connections so all four DBs are
+  // pinned to the current workspace once initializeDb() returns. On a fresh
+  // database the relocation steps (297/298/301) open these as a side effect;
+  // opening them here makes the postcondition hold in the already-migrated case
+  // too, where those steps are skipped via the checkpoint ledger.
+  getLogsDb();
+  getMemoryDb();
+  getTelemetryDb();
 
   // migrationsOk reflects BOTH no failed migration steps AND a passing
   // post-run validation, so an inconsistent schema keeps /readyz at 503.

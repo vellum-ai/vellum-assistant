@@ -37,21 +37,14 @@ process.env.VELLUM_WORKSPACE_DIR = testDir;
 process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
 process.exitCode = 0;
 
-// Seed this process's workspace with the "migrated" fixture: a pre-migrated set
-// of the four assistant DBs, built once by `scripts/build-test-fixtures.ts` and
-// pointed to via VELLUM_TEST_MIGRATED_FIXTURE_DIR. Copying it in means a test's
-// initializeDb() opens an already-migrated DB and the migration runner no-ops
-// via its checkpoint ledger, instead of every process re-running ~260 steps.
-// This is the default fixture ("b"); a test that needs an unmigrated workspace
-// ("a") calls useEmptyWorkspace() from `workspace-fixtures.js` to drop the DBs.
-//
-// When the var is unset — a lone `bun test <file>` without the runner — nothing
-// is copied and the test's initializeDb() runs the full chain (correct, just
-// slower for that one file). This is a plain recursive file copy (node stdlib
-// only), so it pulls no `src/` module into the preload's import chain.
-const migratedFixtureDir = process.env.VELLUM_TEST_MIGRATED_FIXTURE_DIR;
-if (migratedFixtureDir) {
-  cpSync(migratedFixtureDir, testDir, { recursive: true });
+// Seed this workspace from the prebuilt "migrated" fixture (a pre-migrated set
+// of the four assistant DBs) so a test's initializeDb() finds an already-migrated
+// DB and the migration runner no-ops instead of re-running the whole chain; when
+// VELLUM_TEST_FIXTURES_DIR is unset (a lone `bun test`) nothing is copied and the
+// full chain runs. Plain recursive file copy — no `src/` import.
+const fixturesDir = process.env.VELLUM_TEST_FIXTURES_DIR;
+if (fixturesDir) {
+  cpSync(join(fixturesDir, "migrated"), testDir, { recursive: true });
 }
 
 // Prevent tests from routing credential writes through the real CES

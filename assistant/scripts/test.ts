@@ -498,8 +498,9 @@ function mergeLcov(rawLcovDir: string, mergedPath: string): boolean {
 // runner no-ops via its checkpoint ledger instead of re-running the whole chain
 // ~1800 times. The subprocess (rather than an in-process import) keeps the
 // persistence graph out of this orchestrator and mirrors a real from-scratch
-// migration. The path is handed to workers via VELLUM_TEST_MIGRATED_FIXTURE_DIR,
-// which they inherit through Bun.spawn's default env inheritance.
+// migration. Workers are handed the fixtures root via VELLUM_TEST_FIXTURES_DIR
+// (inherited through Bun.spawn's default env inheritance); "migrated" is one
+// named fixture under it, leaving room for more.
 async function buildMigratedFixture(outWorkspaceDir: string): Promise<void> {
   const script = join(import.meta.dir, "build-test-fixtures.ts");
   const proc = Bun.spawn(["bun", "run", script, outWorkspaceDir], {
@@ -528,9 +529,8 @@ async function main(): Promise<void> {
   testFiles = sortLongestFirst(testFiles);
 
   const fixturesRoot = mkdtempSync(join(tmpdir(), "vellum-test-fixtures-"));
-  const migratedFixture = join(fixturesRoot, "migrated");
-  await buildMigratedFixture(migratedFixture);
-  process.env.VELLUM_TEST_MIGRATED_FIXTURE_DIR = migratedFixture;
+  await buildMigratedFixture(join(fixturesRoot, "migrated"));
+  process.env.VELLUM_TEST_FIXTURES_DIR = fixturesRoot;
 
   console.log(`Running ${testFiles.length} test files (${WORKERS} workers)`);
 
