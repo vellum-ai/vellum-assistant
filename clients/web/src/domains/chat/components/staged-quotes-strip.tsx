@@ -1,6 +1,7 @@
 /**
  * Renders the list of staged quote-replies above the composer. Each chip
- * shows a truncated preview of the quoted text and the user's annotation,
+ * shows a truncated preview of the quoted text and an editable reply field
+ * (kept in sync with the store so replies can be revised after staging),
  * with an X button to remove it.
  *
  * The strip is scrollable when multiple quotes are staged, capped at
@@ -8,6 +9,7 @@
  */
 
 import { MessageSquareQuote, X } from "lucide-react";
+import { useEffect, useRef } from "react";
 import {
   Button,
   Card,
@@ -33,6 +35,18 @@ function truncate(text: string, maxLen: number): string {
 
 function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
   const removeStagedQuote = useQuoteReplyStore.use.removeStagedQuote();
+  const updateStagedQuoteReply = useQuoteReplyStore.use.updateStagedQuoteReply();
+  const replyRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Auto-grow the reply field to fit its content.
+  useEffect(() => {
+    const el = replyRef.current;
+    if (!el) {
+      return;
+    }
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [quote.replyText]);
 
   return (
     <Card.Root
@@ -40,7 +54,7 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
       bordered
       className="group/quote bg-[var(--surface-lift)]"
     >
-      <Card.Body padding="sm" className="flex items-start gap-2">
+      <Card.Body padding="md" className="flex items-start gap-2.5">
         <MessageSquareQuote className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]" />
         <div className="min-w-0 flex-1">
           <Typography
@@ -56,13 +70,17 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
               {truncate(quote.quotedText, 80)}
             </span>
           </Typography>
-          <Typography
-            as="div"
-            variant="body-small-default"
-            className="mt-0.5 text-[var(--content-default)]"
-          >
-            {truncate(quote.replyText, 120)}
-          </Typography>
+          <textarea
+            ref={replyRef}
+            value={quote.replyText}
+            onChange={(e) =>
+              updateStagedQuoteReply(quote.id, e.target.value)
+            }
+            rows={1}
+            placeholder="Type your reply…"
+            aria-label="Edit reply"
+            className="mt-1.5 w-full resize-none overflow-hidden border-none bg-transparent p-0 text-body-small-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none"
+          />
         </div>
         <Button
           variant="ghost"
@@ -70,7 +88,7 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
           iconOnly={<X />}
           expandOnMobile={false}
           onClick={() => removeStagedQuote(quote.id)}
-          className="shrink-0 opacity-0 transition-opacity group-hover/quote:opacity-100 focus-visible:opacity-100"
+          className="shrink-0 self-center opacity-0 transition-opacity group-hover/quote:opacity-100 focus-visible:opacity-100"
           aria-label="Remove quote"
         />
       </Card.Body>
@@ -80,13 +98,30 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
 
 export function StagedQuotesStrip() {
   const stagedQuotes = useQuoteReplyStore.use.stagedQuotes();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const prevCountRef = useRef(stagedQuotes.length);
+
+  // When a quote is added, scroll the strip to the newest chip so it never
+  // lands silently below the fold. Deferred a frame so the freshly mounted
+  // chip (and its auto-grown reply field) is measured before we scroll.
+  useEffect(() => {
+    if (stagedQuotes.length > prevCountRef.current) {
+      const el = scrollRef.current;
+      if (el) {
+        requestAnimationFrame(() => {
+          el.scrollTop = el.scrollHeight;
+        });
+      }
+    }
+    prevCountRef.current = stagedQuotes.length;
+  }, [stagedQuotes.length]);
 
   if (stagedQuotes.length === 0) {
     return null;
   }
 
   return (
-    <div className="mb-2 max-h-[120px] overflow-y-auto">
+    <div ref={scrollRef} className="mb-2 max-h-[180px] overflow-y-auto">
       <div className="flex flex-col gap-1.5">
         {stagedQuotes.map((quote) => (
           <StagedQuoteChip key={quote.id} quote={quote} />
