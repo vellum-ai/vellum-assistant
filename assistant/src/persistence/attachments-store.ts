@@ -20,7 +20,6 @@ import { basename, dirname, extname, join } from "node:path";
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import type { MediaSource } from "../providers/types.js";
 import {
   jpegFilenameFor,
   normalizeImageBase64,
@@ -688,24 +687,16 @@ export function getFilePathBySourcePath(
 }
 
 /**
- * Return the raw binary content for a stored attachment, or for a media source
- * (image/file block `source`). This is the single place the base64-vs-reference
- * distinction is resolved: an inline `base64` source decodes in place, an
- * `attachment_ref` source (or a bare attachment id) reads the referenced file
- * from disk.
+ * Return the raw binary content for a stored attachment by reading from its
+ * on-disk file path (or its inline base64, for legacy rows).
  *
- * Returns null if the attachment does not exist or the file is missing.
+ * Returns null if the attachment does not exist or the file is missing. To
+ * resolve an image/file block's `source` (base64 or workspace reference) to
+ * bytes, use `mediaSourceBytes` / `resolveMediaSourceData` in
+ * `providers/media-resolve.ts`, which delegates here for the attachment route.
  */
-export function getAttachmentContent(attachmentId: string): Buffer | null;
-export function getAttachmentContent(source: MediaSource): Buffer | null;
-export function getAttachmentContent(arg: string | MediaSource): Buffer | null {
-  if (typeof arg !== "string") {
-    if (arg.type === "base64") {
-      return Buffer.from(arg.data, "base64");
-    }
-    return getAttachmentContent(arg.attachmentId);
-  }
-  const row = getAttachmentRow(arg);
+export function getAttachmentContent(attachmentId: string): Buffer | null {
+  const row = getAttachmentRow(attachmentId);
   if (!row) return null;
 
   try {

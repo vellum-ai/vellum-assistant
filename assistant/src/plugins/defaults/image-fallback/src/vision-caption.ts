@@ -14,9 +14,9 @@ import {
   getModelProfiles,
   type ImageContent,
   type PluginLogger,
+  resolveMediaSourceData,
 } from "@vellumai/plugin-api";
 
-import { resolveMediaSourceData } from "../../../../providers/media-resolve.js";
 import {
   getCachedCaption,
   imageHash,

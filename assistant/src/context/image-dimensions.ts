@@ -4,7 +4,7 @@ import type { MediaSource } from "../providers/types.js";
  * Parse image pixel dimensions, either from a base64 payload (reading binary
  * headers — PNG, JPEG, GIF, WebP) or from an image block's media `source`.
  *
- * For an `attachment_ref` source the dimensions come from the hints captured at
+ * For a `workspace_ref` source the dimensions come from the hints captured at
  * persist time (no disk read); for an inline `base64` source they are parsed
  * from the header. Returns null when parsing fails or the reference carries no
  * dimension hints.
@@ -21,7 +21,7 @@ export function parseImageDimensions(
   mediaType?: string,
 ): { width: number; height: number } | null {
   if (typeof arg !== "string") {
-    if (arg.type === "attachment_ref") {
+    if (arg.type === "workspace_ref") {
       return arg.width != null && arg.height != null
         ? { width: arg.width, height: arg.height }
         : null;

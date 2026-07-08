@@ -1,6 +1,6 @@
+import { mediaSourceBytes } from "../providers/media-resolve.js";
 import type { ContentBlock } from "../providers/types.js";
 import { escapeXmlAttr } from "../util/xml.js";
-import { getAttachmentContent } from "./attachments-store.js";
 
 export function extractTextFromStoredMessageContent(raw: string): string {
   try {
@@ -85,9 +85,9 @@ export function extractMediaBlocks(raw: string): Array<{
     for (let i = 0; i < parsed.length; i++) {
       const block = parsed[i] as ContentBlock;
       if (block.type === "image") {
-        // The source may be inline base64 or a workspace attachment reference;
-        // getAttachmentContent resolves both to raw bytes.
-        const bytes = getAttachmentContent(block.source);
+        // The source may be inline base64 or a workspace reference;
+        // mediaSourceBytes resolves both to raw bytes.
+        const bytes = mediaSourceBytes(block.source);
         if (!bytes) continue;
         results.push({
           type: "image" as const,

@@ -160,6 +160,13 @@ export { doesSupportVision } from "./vision-support.js";
 // float the chosen profile above the call-site layers when the plugin must
 // run on a specific profile regardless of workspace tuning.
 export { getConfiguredProvider } from "../providers/provider-send-message.js";
+// Resolve an image/file block's media `source` to its bytes as inline base64,
+// whether the source is inline base64 or a persisted workspace reference
+// (attachment-store row or a file on disk). Returns null when a reference can no
+// longer be read. Plugins that need the raw bytes of a media block — captioning
+// an image, embedding it, re-encoding it — use this instead of reaching into
+// the host attachment store, so they stay agnostic to how media is persisted.
+export { resolveMediaSourceData } from "../providers/media-resolve.js";
 // Classify a provider stop reason: whether the turn was truncated at the
 // output token cap (vs. a natural stop or a tool call). A `post-model-call`
 // hook reads it off `PostModelCallContext.stopReason` to decide whether to

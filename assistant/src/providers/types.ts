@@ -16,12 +16,12 @@ export interface TextContent {
  * - `base64` — the bytes travel inline with the block. This is the runtime
  *   shape the provider transforms consume and the shape produced for a live
  *   (in-flight) turn.
- * - `attachment_ref` — the bytes live in the workspace attachment store,
- *   addressed by `attachmentId`. This is the shape PERSISTED into
- *   `messages.content`, keeping large blobs out of the DB row and the lexical
- *   index. It is resolved back to inline bytes at the provider send boundary
- *   (`providers/media-resolve.ts`); any consumer that needs the raw bytes from
- *   stored content resolves it with `getAttachmentContent(source)`.
+ * - `workspace_ref` — the bytes live somewhere in the workspace, not inline.
+ *   This is the shape PERSISTED into `messages.content`, keeping large blobs
+ *   out of the DB row and the lexical index. It is resolved back to inline
+ *   bytes at the provider send boundary (`providers/media-resolve.ts`); any
+ *   consumer that needs the raw bytes from stored content resolves it with
+ *   `resolveMediaSourceData(source)`.
  *
  * `filename` is optional on both arms (present for file blocks and for
  * generated-media references). For references, `sizeBytes` (and, for images,
@@ -36,21 +36,49 @@ export interface Base64MediaSource {
   filename?: string;
 }
 
-export interface AttachmentRefMediaSource {
-  type: "attachment_ref";
+/**
+ * Fields common to every workspace reference, independent of how the bytes are
+ * located. `sizeBytes` (and, for images, `width`/`height`) are the persist-time
+ * hints that let size-only consumers cost the block without a disk read.
+ */
+interface WorkspaceRefBase {
+  type: "workspace_ref";
   media_type: string;
-  /** Attachment row id; resolve to bytes via `getAttachmentContent`. */
-  attachmentId: string;
+  filename?: string;
   /** Byte length of the referenced file. */
   sizeBytes: number;
-  filename?: string;
   /** Decoded pixel width, when the reference is an image. */
   width?: number;
   /** Decoded pixel height, when the reference is an image. */
   height?: number;
 }
 
-export type MediaSource = Base64MediaSource | AttachmentRefMediaSource;
+/**
+ * A reference to bytes stored in the workspace rather than inlined. We start
+ * with attachment-store rows (user uploads) and will extend the same shape to
+ * tool-result media (files on disk) in later PRs — hence the location is one of
+ * three mutually exclusive routes, at least one of which is always present:
+ *
+ * - `attachmentId` — an attachment-store row; resolves via the store.
+ * - `filePath` — an absolute workspace file path.
+ * - `dir` + `filename` — a workspace directory joined with the file's name.
+ *
+ * The union enforces at construction that a reference is always resolvable;
+ * `providers/media-resolve.ts` reads the routes in the order above.
+ */
+export type WorkspaceRefMediaSource = WorkspaceRefBase &
+  (
+    | { attachmentId: string; filePath?: string; dir?: string }
+    | { attachmentId?: undefined; filePath: string; dir?: string }
+    | {
+        attachmentId?: undefined;
+        filePath?: undefined;
+        dir: string;
+        filename: string;
+      }
+  );
+
+export type MediaSource = Base64MediaSource | WorkspaceRefMediaSource;
 
 export interface ImageContent {
   type: "image";

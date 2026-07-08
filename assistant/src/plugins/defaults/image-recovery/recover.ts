@@ -13,7 +13,11 @@
  * so a rejected image cannot resurface and re-reject on every later turn.
  */
 
-import type { ContentBlock, Message } from "@vellumai/plugin-api";
+import {
+  type ContentBlock,
+  type Message,
+  resolveMediaSourceData,
+} from "@vellumai/plugin-api";
 
 import { optimizeImageForTransport } from "../../../agent/image-optimize.js";
 import { parseImageDimensions } from "../../../context/image-dimensions.js";
@@ -21,7 +25,6 @@ import {
   getMessages,
   updateMessageContent,
 } from "../../../persistence/conversation-crud.js";
-import { resolveMediaSourceData } from "../../../providers/media-resolve.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("image-recovery");

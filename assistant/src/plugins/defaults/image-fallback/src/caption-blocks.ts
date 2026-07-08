@@ -36,9 +36,9 @@ import {
   type ImageContent,
   type Message,
   type PluginLogger,
+  resolveMediaSourceData,
 } from "@vellumai/plugin-api";
 
-import { resolveMediaSourceData } from "../../../../providers/media-resolve.js";
 import { persistImage } from "./image-persist.js";
 import { captionImage } from "./vision-caption.js";
 
