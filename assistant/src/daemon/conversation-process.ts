@@ -6,7 +6,10 @@
  * used by conversation-history.ts.
  */
 
-import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
+import {
+  attachmentsToContentBlocks,
+  enrichMessageWithSourcePaths,
+} from "../agent/attachments.js";
 import {
   createAssistantMessage,
   createUserMessage,
@@ -568,8 +571,8 @@ async function drainSingleMessage(
       // The in-memory userMessage (sent to the LLM) still uses the stripped content.
       const contentToPersist = serializePersistedUserMessageContent(
         next.content,
-        next.attachments,
         next.displayContent,
+        attachmentsToContentBlocks(next.attachments),
       );
       await addMessage(conversation.conversationId, "user", contentToPersist, {
         metadata: drainChannelMeta,
@@ -664,8 +667,8 @@ async function drainSingleMessage(
         "user",
         serializePersistedUserMessageContent(
           next.content,
-          next.attachments,
           next.displayContent,
+          attachmentsToContentBlocks(next.attachments),
         ),
         { metadata: drainChannelMeta },
       );
@@ -750,8 +753,8 @@ async function drainSingleMessage(
         "user",
         serializePersistedUserMessageContent(
           next.content,
-          next.attachments,
           next.displayContent,
+          attachmentsToContentBlocks(next.attachments),
         ),
         { metadata: drainChannelMeta },
       );
@@ -1545,8 +1548,8 @@ export async function processMessage(
         "user",
         serializePersistedUserMessageContent(
           content,
-          attachments,
           displayContent,
+          attachmentsToContentBlocks(attachments),
         ),
         { metadata: routerChannelMeta },
       );
@@ -1634,8 +1637,8 @@ export async function processMessage(
     // The in-memory userMessage (sent to the LLM) still uses the stripped content.
     const contentToPersist = serializePersistedUserMessageContent(
       content,
-      attachments,
       displayContent,
+      attachmentsToContentBlocks(attachments),
     );
     const persisted = await addMessage(
       conversation.conversationId,
@@ -1717,8 +1720,8 @@ export async function processMessage(
         "user",
         serializePersistedUserMessageContent(
           content,
-          attachments,
           displayContent,
+          attachmentsToContentBlocks(attachments),
         ),
         { metadata: pmChannelMeta },
       );
@@ -1794,8 +1797,8 @@ export async function processMessage(
         "user",
         serializePersistedUserMessageContent(
           content,
-          attachments,
           displayContent,
+          attachmentsToContentBlocks(attachments),
         ),
         { metadata: pmChannelMeta },
       );

@@ -212,14 +212,7 @@ function extractFileBlockMetadata(
       source && typeof source.filename === "string"
         ? source.filename
         : "attachment",
-    // A workspace_ref source carries `sizeBytes` directly; a legacy base64
-    // source carries the payload, whose byte length we estimate.
-    sizeBytes:
-      source && typeof source.sizeBytes === "number"
-        ? source.sizeBytes
-        : source && typeof source.data === "string"
-          ? estimateBase64Bytes(source.data)
-          : 0,
+    sizeBytes: source ? estimateBase64Bytes(source) : 0,
   };
 }
 

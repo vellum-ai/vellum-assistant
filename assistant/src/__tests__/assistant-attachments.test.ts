@@ -56,6 +56,23 @@ describe("estimateBase64Bytes", () => {
     // "YWJj" split across lines should still yield 3 bytes
     expect(estimateBase64Bytes("YW\nJj")).toBe(3);
   });
+
+  test("reads sizeBytes from a workspace_ref source", () => {
+    expect(
+      estimateBase64Bytes({ sizeBytes: 4096, media_type: "image/png" } as {
+        sizeBytes?: unknown;
+        data?: unknown;
+      }),
+    ).toBe(4096);
+  });
+
+  test("estimates from inline data on a base64 source", () => {
+    expect(estimateBase64Bytes({ data: "YWJj" })).toBe(3);
+  });
+
+  test("returns 0 for a source with neither sizeBytes nor data", () => {
+    expect(estimateBase64Bytes({})).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
