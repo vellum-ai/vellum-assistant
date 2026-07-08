@@ -89,7 +89,29 @@ mock.module("../config/loader.js", () => ({
         },
       },
       profiles: mockLlmProfiles,
-      callSites: {},
+      // The call-site tweak applies under BOTH resolution semantics (the
+      // legacy cascade layers it over llm.default; override-or-default
+      // applies it over the winner), so the small context window that the
+      // overflow/compaction tests depend on holds regardless of the
+      // override-or-default-resolution flag.
+      callSites: {
+        mainAgent: {
+          contextWindow: {
+            enabled: true,
+            maxInputTokens: 100000,
+            targetBudgetRatio: 0.3,
+            compactThreshold: 0.8,
+            summaryBudgetRatio: 0.05,
+            overflowRecovery: {
+              enabled: true,
+              safetyMarginRatio: 0.05,
+              maxAttempts: 3,
+              interactiveLatestTurnCompression: "summarize",
+              nonInteractiveLatestTurnCompression: "truncate",
+            },
+          },
+        },
+      },
       activeProfile: mockLlmActiveProfile,
       pricingOverrides: [],
     },

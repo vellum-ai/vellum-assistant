@@ -1,4 +1,13 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
+
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// This suite pins the LEGACY merge-cascade semantics — the kill-switch
+// (flag-off) path. The override-or-default (flag-on, shipped default)
+// semantics are pinned by llm-resolver-override-or-default.test.ts.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 import { z } from "zod";
 
