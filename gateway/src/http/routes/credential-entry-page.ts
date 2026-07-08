@@ -34,12 +34,6 @@ const PAGE_HTML = `<!DOCTYPE html>
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     background: #f5f5f7; color: #1a1f27;
   }
-  @media (prefers-color-scheme: dark) {
-    body { background: #111318; color: #e8eaed; }
-    .card { background: #1c1f26; border-color: #2c313a; }
-    input[type="password"] { background: #111318; border-color: #3a404b; color: #e8eaed; }
-    .muted { color: #9aa0aa; }
-  }
   .card {
     width: 100%; max-width: 420px; background: #fff; border: 1px solid #e2e5ea;
     border-radius: 12px; padding: 28px; box-shadow: 0 1px 4px rgba(0,0,0,0.06);
@@ -60,6 +54,15 @@ const PAGE_HTML = `<!DOCTYPE html>
   .error { color: #d64545; }
   .ok { color: #2e9e5b; }
   .hidden { display: none; }
+  /* Dark-mode overrides come LAST: they share specificity with the base
+     rules above, so source order decides the cascade. */
+  @media (prefers-color-scheme: dark) {
+    body { background: #111318; color: #e8eaed; }
+    .card { background: #1c1f26; border-color: #2c313a; box-shadow: none; }
+    input[type="password"] { background: #111318; border-color: #3a404b; color: #e8eaed; }
+    .muted { color: #9aa0aa; }
+    button { background: #5b6af5; }
+  }
 </style>
 </head>
 <body>
@@ -76,7 +79,7 @@ const PAGE_HTML = `<!DOCTYPE html>
   </form>
 
   <div id="done" class="hidden"><h1 class="ok">Credential saved</h1><p>The value is stored in the assistant's encrypted vault. This link has now been used and can't be opened again — you can close this tab.</p></div>
-  <div id="invalid" class="hidden"><h1 class="error">Invalid link</h1><p>This credential link isn't valid. Ask for a new one if a value still needs to be provided.</p></div>
+  <div id="invalid" class="hidden"><h1 class="error">Invalid link</h1><p id="invalidDetail">This credential link isn't valid — it may have expired long ago, been replaced, or been copied incompletely when it was shared. Ask for a new link if a value still needs to be provided.</p></div>
   <div id="expired" class="hidden"><h1 class="error">Link expired</h1><p>This credential link has expired. Ask for a new one and use it within its validity window.</p></div>
   <div id="used" class="hidden"><h1 class="error">Link already used</h1><p>Each link works exactly once. Ask for a new one if the value still needs to be provided.</p></div>
   <div id="failed" class="hidden"><h1 class="error">Link no longer valid</h1><p>The assistant could not store the credential, and for safety this one-time link cannot be reused. Ask for a new link and try again there.</p></div>
@@ -126,6 +129,12 @@ const PAGE_HTML = `<!DOCTYPE html>
   }
 
   if (!token) { show("invalid"); return; }
+  if (token.length < 40) {
+    document.getElementById("invalidDetail").textContent =
+      "This link looks incomplete — part of it was probably cut off when it was shared. Ask for a new link and open it directly.";
+    show("invalid");
+    return;
+  }
 
   post("/v1/credential-requests/peek", { token: token }).then(function (r) {
     if (!r.res.ok) { show(outcomeFor(r.res, r.body)); return; }
