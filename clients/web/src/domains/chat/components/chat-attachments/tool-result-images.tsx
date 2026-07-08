@@ -10,8 +10,8 @@ import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
-function inferImageMimeType(imageData: string): string {
-  const normalized = imageData.replace(/\s/g, "");
+function inferImageMimeType(base64: string): string {
+  const normalized = base64.replace(/\s/g, "");
   if (normalized.startsWith("iVBORw0KGgo")) {
     return "image/png";
   }
@@ -30,12 +30,34 @@ function inferImageMimeType(imageData: string): string {
   return "image/png";
 }
 
-function toolResultImageSrc(imageData: string, mimeType: string): string {
+const DATA_URI_RE = /^data:(image\/[a-z0-9.+-]+);base64,/i;
+
+/**
+ * Normalize a tool-result image payload — either raw base64 or a full
+ * `data:image/...;base64,` URI — into its MIME type, bare base64 payload, and
+ * a `data:` URL `src`. Data URIs carry their MIME type in the prefix; raw
+ * payloads fall back to magic-byte sniffing.
+ */
+function normalizeToolResultImage(imageData: string): {
+  mimeType: string;
+  base64: string;
+  src: string;
+} {
   const trimmed = imageData.trim();
-  if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(trimmed)) {
-    return trimmed;
+  const dataUriMatch = trimmed.match(DATA_URI_RE);
+  if (dataUriMatch) {
+    return {
+      mimeType: dataUriMatch[1]!.toLowerCase(),
+      base64: trimmed.slice(dataUriMatch[0].length),
+      src: trimmed,
+    };
   }
-  return `data:${mimeType};base64,${trimmed}`;
+  const mimeType = inferImageMimeType(trimmed);
+  return {
+    mimeType,
+    base64: trimmed,
+    src: `data:${mimeType};base64,${trimmed}`,
+  };
 }
 
 /**
@@ -58,9 +80,10 @@ function toolNameToFilePrefix(toolName?: string): string {
  * Project a message's tool-result images into synthetic {@link DisplayAttachment}
  * objects. The base64 payload is embedded directly as a data-URL `previewUrl`,
  * so the preview modal renders it without a daemon fetch and downloads save the
- * bytes straight from the URL. Filenames mirror the server's eventual naming
- * (`<tool-prefix>.png`); a tool that emits more than one image gets an index
- * suffix so the names stay distinct.
+ * bytes straight from the URL. Filenames use the server's `<tool-prefix>.<ext>`
+ * naming; a tool that emits more than one image additionally gets an index
+ * suffix so the names stay distinct (the server keeps same-named attachments
+ * apart by id instead).
  */
 function buildToolResultAttachments(
   toolCalls: ChatMessageToolCall[],
@@ -76,7 +99,7 @@ function buildToolResultAttachments(
     const prefix = toolNameToFilePrefix(tc.name);
     images.forEach((imageData, i) => {
       globalIndex += 1;
-      const mimeType = inferImageMimeType(imageData);
+      const { mimeType, base64, src } = normalizeToolResultImage(imageData);
       const ext = mimeType.split("/")[1] ?? "png";
       const base = tc.name ? prefix : `image-${globalIndex}`;
       const suffix = images.length > 1 ? `-${i + 1}` : "";
@@ -84,8 +107,8 @@ function buildToolResultAttachments(
         id: `tool-image:${tc.id}:${i}`,
         filename: `${base}${suffix}.${ext}`,
         mimeType,
-        sizeBytes: estimateBase64Bytes(imageData),
-        previewUrl: toolResultImageSrc(imageData, mimeType),
+        sizeBytes: estimateBase64Bytes(base64),
+        previewUrl: src,
       });
     });
   }
