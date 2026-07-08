@@ -115,6 +115,10 @@ function extractSuccessfulScaffolds(messages: MessageLike[]): AuthoredSkill[] {
       }
     } else if (msg.role === "user") {
       for (const b of parseBlocks(msg)) {
+        // guard:allow-tool-result-only — only the local tool executor's
+        // `tool_result` can resolve a `scaffold_managed_skill` candidate; a
+        // `web_search_tool_result` pairs a `server_tool_use`, never a scaffold
+        // call, so it can never match a pending id and is correctly skipped.
         if (b.type !== "tool_result" || typeof b.tool_use_id !== "string") {
           continue;
         }
