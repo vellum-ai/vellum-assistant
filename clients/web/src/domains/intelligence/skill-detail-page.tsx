@@ -33,9 +33,17 @@ export function SkillDetailPage() {
   const assistantId = useActiveAssistantId();
   const { skillId } = useParams<{ skillId: string }>();
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const { pathname } = location;
   const isMobile = useIsMobile();
   const swipeContainerRef = useRef<HTMLDivElement>(null);
+
+  // The Skills list passes its current query string (search/filter/category)
+  // as router state so the back button restores the same filtered view.
+  // Direct deep-links carry no state and fall back to the plain list.
+  const routerState = location.state as { listSearch?: unknown } | null;
+  const listSearch =
+    typeof routerState?.listSearch === "string" ? routerState.listSearch : "";
 
   const skillsQuery = useQuery({
     ...skillsGetOptions({
@@ -49,8 +57,8 @@ export function SkillDetailPage() {
     // Replace (rather than push) so browser Back doesn't bounce the user
     // back to the detail entry — which may be a not-found page after the
     // skill was removed via `onRemoved`.
-    navigate(routes.skills.root, { replace: true });
-  }, [navigate]);
+    navigate(`${routes.skills.root}${listSearch}`, { replace: true });
+  }, [navigate, listSearch]);
 
   // Register as the mobile back-swipe owner so a left-edge swipe navigates
   // back to the skills list instead of opening the nav drawer (`ChatLayout`
@@ -107,6 +115,13 @@ export function SkillDetailPage() {
 
   if (skillsQuery.isError) {
     return <SkillsErrorState />;
+  }
+
+  // A skill can be missing from a stale cached list while a refetch is in
+  // flight — e.g. a freshly-authored skill opened from the in-chat card or a
+  // cross-device link. Wait for the refetch before declaring it not found.
+  if (!skill && skillsQuery.isFetching) {
+    return <SkillsLoadingState />;
   }
 
   if (!skill) {
