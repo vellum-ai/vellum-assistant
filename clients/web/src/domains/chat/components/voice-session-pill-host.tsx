@@ -11,11 +11,12 @@
  * carried to another conversation via in-window switching (Cmd+Up/Down) must
  * still have a visible control.
  *
- * Visibility is the exact complement of the composer's voice bar so that for
- * any active session exactly one of the two surfaces renders: the pill shows
- * whenever a session is active AND the composer currently on screen (if any)
- * does not own it (`isLiveVoiceSessionOwnedBy`). Concretely, the pill shows
- * when:
+ * Visibility is the exact complement of the full-screen voice room — the
+ * owning-composer surface — so that for any active session exactly one of the
+ * two renders. Both derive from the shared {@link useIsVoiceRoomVisible}
+ * predicate (session active AND the on-screen composer owns it): the room shows
+ * when it is `true`, the pill when a session is active and it is `false`.
+ * Concretely, the pill shows when:
  *
  * - the user is viewing a different conversation than the session's,
  * - the user is off the chat routes entirely (Home, Library, …) or on a
@@ -72,10 +73,9 @@ import {
   getLiveVoiceInputAmplitude,
   isLiveVoiceSessionActive,
   releaseLiveVoiceTurn,
-  useIsLiveVoiceSessionOwnedBy,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { useConversationStore } from "@/stores/conversation-store";
+import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { useViewerStore } from "@/stores/viewer-store";
 
 export interface VoiceSessionPillHostProps {
@@ -97,7 +97,6 @@ export function VoiceSessionPillHost({
   const sessionAssistantId = useLiveVoiceStore.use.assistantId();
   const sessionConversationId = useLiveVoiceStore.use.conversationId();
 
-  const activeConversationId = useConversationStore.use.activeConversationId();
   const mainView = useViewerStore.use.mainView();
   const isMobile = useIsMobile();
   const location = useLocation();
@@ -109,16 +108,16 @@ export function VoiceSessionPillHost({
   // portal-overlay `app` view — keeps the composer mounted. The strict chat
   // predicate matters: conversation subroutes like the inspector
   // (`/assistant/conversations/:id/inspect`) render no composer, so the pill
-  // must stay up there even for the owning conversation.
+  // must stay up there even for the owning conversation. Retained here only for
+  // the failure surface below — the pill's own visibility keys off the room.
   const composerOnScreen =
     isConversationChatPath(location.pathname) &&
     !(mainView === "app" && !isMobile);
-  // Same ownership predicate the composer's voice bar uses, evaluated for the
-  // composer currently on screen — keeps the two surfaces exact complements.
-  const activeComposerOwnsSession =
-    useIsLiveVoiceSessionOwnedBy(activeConversationId);
-  const visible =
-    sessionActive && !(composerOnScreen && activeComposerOwnsSession);
+  // Exact complement of the full-screen voice room (the owning-composer
+  // surface): the pill shows for an active session precisely when the room does
+  // not. Both read the one shared predicate so they can never drift.
+  const voiceRoomVisible = useIsVoiceRoomVisible();
+  const visible = sessionActive && !voiceRoomVisible;
   // Failure surface: exact complement of the composer's failure Notice, which
   // any on-screen voice-enabled composer renders regardless of ownership.
   const showFailure = state === "failed" && error !== null && !composerOnScreen;
