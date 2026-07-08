@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
+import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-selection-store";
 import {
   AssistantChannelsList,
   type AssistantChannelsListProps,
@@ -38,6 +39,23 @@ function renderList(extraProps: Partial<AssistantChannelsListProps> = {}) {
   );
 }
 
+/** The left-rail adapter row whose label matches — the master-detail selector. */
+function adapterRow(label: string): HTMLElement {
+  const row = Array.from(
+    document.querySelectorAll<HTMLElement>('[data-slot="panel-item"]'),
+  ).find((el) => el.textContent?.includes(label));
+  if (!row) {
+    throw new Error(`No adapter row for "${label}"`);
+  }
+  return row;
+}
+
+beforeEach(() => {
+  // Selection lives in a module-level store; reset it so every test starts on
+  // the default Slack adapter.
+  useChannelAdapterSelectionStore.setState({ selectedAdapter: "slack" });
+});
+
 afterEach(() => {
   cleanup();
 });
@@ -50,17 +68,23 @@ describe("assistant channels list", () => {
     expect(document.body.textContent).toContain("Telegram");
   });
 
-  test("renders the adapter sub-tabs", () => {
+  test("renders the adapter list beside the detail panel, with no sub-tab strip", () => {
     renderList();
-    expect(document.querySelector('[data-slot="tabs"]')).not.toBeNull();
+    // Master-detail, not tabs: the left rail is a row of PanelItems and no
+    // Radix tab chrome is rendered.
+    expect(document.querySelector('[data-slot="tabs"]')).toBeNull();
+    expect(document.querySelectorAll('[data-slot="panel-item"]').length).toBe(
+      3,
+    );
     expect(document.body.textContent).toContain("Phone");
     expect(document.body.textContent).not.toContain("Phone Calling");
-    // Slack (connected) is the default tab: Tag chip + disconnect affordance.
+    // Slack (connected) is selected by default: its detail shows the Tag chip
+    // + disconnect affordance.
     expect(document.body.textContent).toContain("Connected");
     expect(document.body.textContent).toContain("Disconnect");
   });
 
-  test("the Slack sub-tab consolidates connection state into a single card", () => {
+  test("the Slack panel consolidates connection state into a single card", () => {
     renderList({
       onDisconnect: () => {},
       channelPolicies: { slack: "trusted_contacts" },
@@ -104,29 +128,27 @@ describe("assistant channels list", () => {
     expect(disconnected).toEqual(["slack"]);
   });
 
-  test("connected Telegram keeps the trust-floor dropdown", () => {
+  test("selecting connected Telegram reveals its trust-floor dropdown", () => {
     renderList({
       channels: [
-        { key: "telegram", status: "ready", address: "@vex_bot" },
         { key: "slack", status: "ready", address: "@vex" },
+        { key: "telegram", status: "ready", address: "@vex_bot" },
         { key: "phone", status: "not_configured" },
       ],
       channelPolicies: { telegram: "trusted_contacts" },
       onChannelPolicyChange: () => {},
     });
+    // Slack is selected by default and has no channel-wide floor control.
+    expect(document.body.textContent).not.toContain("Who can message Vex");
+
+    fireEvent.click(adapterRow("Telegram"));
     expect(document.body.textContent).toContain("Who can message Vex");
   });
 
-  test("disconnected tab swaps the empty state for the manual form on request", () => {
+  test("selecting a disconnected adapter swaps the empty state for the manual form on request", () => {
     renderList();
 
-    const telegramTab = Array.from(
-      document.querySelectorAll('[data-slot="tabs-trigger"]'),
-    ).find((t) => t.textContent === "Telegram");
-    expect(telegramTab).toBeDefined();
-    // Radix tab triggers select on mousedown (automatic activation), not click.
-    fireEvent.mouseDown(telegramTab!, { button: 0 });
-
+    fireEvent.click(adapterRow("Telegram"));
     expect(document.body.textContent).toContain("Telegram isn't connected");
     expect(document.body.textContent).not.toContain("Bot Token");
 
@@ -140,7 +162,7 @@ describe("assistant channels list", () => {
     expect(document.body.textContent).not.toContain("Telegram isn't connected");
   });
 
-  test("a setup deep link opens the manual form directly", () => {
+  test("a setup deep link selects that adapter and opens the manual form directly", () => {
     // The mobile chat-drawer handoff navigates to `?setup=<channel>` to
     // continue credential entry here — it must land on the form, not the
     // empty state whose Set up button would start another conversation.

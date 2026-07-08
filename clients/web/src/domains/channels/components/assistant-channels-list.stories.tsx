@@ -1,21 +1,22 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useLayoutEffect } from "react";
 
 import { DetailCard } from "@/components/detail-card";
+import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-selection-store";
+import type { SetupChannelId } from "@/types/channel-types";
 
 import { AssistantChannelsList } from "./assistant-channels-list";
 
 /**
  * The standalone Channels tab composition (`ChannelsPage` minus its data
- * wiring): a borderless page subtitle, then the channel sub-tabs in a card —
- * matching the sibling About Assistant tabs rather than the boxed
- * "Channels" card used inside the Contacts detail view. (The Channels tab
- * itself is gated on the `channel-trust-floors` flag in the About
- * Assistant nav.)
+ * wiring): a borderless page subtitle over the adapter master-detail — a left
+ * rail of adapters beside the selected adapter's detail panel, matching the
+ * sibling Contacts tab's Entries + detail shape.
  */
 // The Slack panel owns its own queries (`SlackChannelSection`), so stories
 // need a QueryClient. Requests fail in Storybook (no daemon), so the Slack
-// tab's channel list renders its error state; the list's full visuals live
+// panel's channel list renders its error state; the list's full visuals live
 // in the SlackChannelList stories, which mock data via props.
 const withQueryClient: Decorator = (Story) => (
   <QueryClientProvider
@@ -24,6 +25,20 @@ const withQueryClient: Decorator = (Story) => (
     <Story />
   </QueryClientProvider>
 );
+
+/**
+ * Pin the master-detail selection for a story. The active adapter lives in a
+ * module-level store that persists across story navigation, so each story
+ * seeds it explicitly rather than inheriting the previously-viewed adapter.
+ */
+function withSelectedAdapter(adapter: SetupChannelId): Decorator {
+  return function SelectAdapter(Story) {
+    useLayoutEffect(() => {
+      useChannelAdapterSelectionStore.setState({ selectedAdapter: adapter });
+    }, []);
+    return <Story />;
+  };
+}
 
 const meta: Meta<typeof AssistantChannelsList> = {
   title: "Channels/AssistantChannelsList",
@@ -58,9 +73,7 @@ const meta: Meta<typeof AssistantChannelsList> = {
           showBorder={false}
           subtitle="Manage where Example Assistant can be reached."
         />
-        <DetailCard>
-          <Story />
-        </DetailCard>
+        <Story />
       </div>
     ),
   ],
@@ -70,18 +83,20 @@ export default meta;
 
 type Story = StoryObj<typeof AssistantChannelsList>;
 
-export const ChannelsTab: Story = {};
+/** Default: Slack selected, its consolidated connection card in the detail panel. */
+export const ChannelsTab: Story = {
+  decorators: [withSelectedAdapter("slack")],
+};
 
 /**
- * Connected Slack tab: the consolidated connection card (logo, @handle,
- * Connected chip, low-weight Disconnect) with Thread Behavior in the body,
- * over the channel presence list. Slack shows no trust-floor dropdown even
- * with a policy handler wired — its floors are managed per conversation
- * type.
+ * Connected Slack: the consolidated connection card (logo, @handle, Connected
+ * chip, low-weight Disconnect) with Thread Behavior in the body, over the
+ * channel presence list. Slack shows no trust-floor dropdown even with a
+ * policy handler wired — its floors are managed per conversation type.
  */
 export const ChannelsTabSlackConnected: Story = {
+  decorators: [withSelectedAdapter("slack")],
   args: {
-    initialChannel: "slack",
     slackThreadMode: "mention_then_thread",
     onSlackThreadModeChange: () => {},
     channelPolicies: { slack: "trusted_contacts" },
@@ -89,8 +104,9 @@ export const ChannelsTabSlackConnected: Story = {
   },
 };
 
-/** Disconnected Slack tab: the setup wizard in the "Slack setup" card. */
+/** Disconnected Slack: the setup wizard in the "Slack setup" card. */
 export const ChannelsTabSlackDisconnected: Story = {
+  decorators: [withSelectedAdapter("slack")],
   args: {
     channels: [
       { key: "slack", status: "not_configured" },
@@ -100,33 +116,20 @@ export const ChannelsTabSlackDisconnected: Story = {
   },
 };
 
-/**
- * Disconnected Telegram tab: empty state with guided setup + manual escape
- * hatch. Telegram is listed first so it's the default tab — `initialChannel`
- * is reserved for setup deep links, which skip straight to the manual form.
- */
+/** Disconnected Telegram: empty state with guided setup + manual escape hatch. */
 export const ChannelsTabTelegramDisconnected: Story = {
-  args: {
-    channels: [
-      { key: "telegram", status: "not_configured" },
-      { key: "slack", status: "ready", address: "@example-assistant" },
-      { key: "phone", status: "not_configured" },
-    ],
-  },
+  decorators: [withSelectedAdapter("telegram")],
 };
 
-/** Disconnected Phone tab: empty state with guided setup + manual escape hatch. */
+/** Disconnected Phone: empty state with guided setup + manual escape hatch. */
 export const ChannelsTabPhoneDisconnected: Story = {
-  args: {
-    channels: [
-      { key: "phone", status: "not_configured" },
-      { key: "slack", status: "ready", address: "@example-assistant" },
-      { key: "telegram", status: "not_configured" },
-    ],
-  },
+  decorators: [withSelectedAdapter("phone")],
 };
 
-/** A `?setup=telegram` deep link (mobile chat handoff) lands on the manual form. */
+/**
+ * A `?setup=telegram` deep link (mobile chat handoff) selects Telegram and
+ * lands on its manual credential form rather than the empty state.
+ */
 export const ChannelsTabTelegramSetupHandoff: Story = {
   args: {
     initialChannel: "telegram",

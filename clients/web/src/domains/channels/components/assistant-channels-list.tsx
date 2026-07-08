@@ -1,17 +1,23 @@
 import { CheckCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Tabs } from "@vellumai/design-library/components/tabs";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import { DetailCard } from "@/components/detail-card";
 import { EmptyState } from "@/components/empty-state";
+import {
+  MobileSidebarDrawer,
+  MobileSidebarTrigger,
+} from "@/components/mobile-sidebar-drawer";
 import { assistantDisplayName as toAssistantDisplayName } from "@/utils/assistant-display-name";
+import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-selection-store";
+import { ChannelAdapterList } from "@/domains/channels/components/channel-adapter-list";
 import { SlackChannelCard } from "@/domains/channels/components/slack-channel-card";
 import { SlackChannelSection } from "@/domains/channels/components/slack-channel-section";
 import { SlackConnectionCard } from "@/domains/channels/components/slack-connection-card";
@@ -158,12 +164,13 @@ const CHANNEL_META: Record<
 };
 
 /**
- * The Slack/Telegram/Phone adapter sub-tabs plus their disconnect and
- * trust-floor confirmation dialogs, rendered by the Channels tab
- * (`ChannelsPage`). Owns which sub-tab is active and which confirmations
- * are pending; the queries and mutations behind the props live in
- * `useAssistantChannels`. The `channel-trust-floors` flag gates the
- * Channels tab itself (in `IntelligenceLayout`), not anything in here.
+ * The Channels tab's master-detail surface: a left rail listing the
+ * Slack/Telegram/Phone adapters (`ChannelAdapterList`) beside the selected
+ * adapter's detail panel, plus the disconnect and trust-floor confirmation
+ * dialogs. Rendered by the Channels tab (`ChannelsPage`). The active adapter
+ * persists in `adapter-selection-store`; the queries and mutations behind the
+ * props live in `useAssistantChannels`. The `channel-trust-floors` flag gates
+ * the Channels tab itself (in `IntelligenceLayout`), not anything in here.
  */
 export function AssistantChannelsList({
   assistantId,
@@ -187,11 +194,11 @@ export function AssistantChannelsList({
   onSaveTwilioCredentials,
   initialChannel = null,
 }: AssistantChannelsListProps) {
+  const selectedAdapter = useChannelAdapterSelectionStore.use.selectedAdapter();
+  const selectAdapter = useChannelAdapterSelectionStore.use.selectAdapter();
+
   const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(
     null,
-  );
-  const [activeChannel, setActiveChannel] = useState<ChannelKey>(
-    () => initialChannel ?? channels[0]?.key ?? "slack",
   );
   // Floor confirmation: non-null while a floor in POLICY_CONFIRMATIONS awaits
   // the user's go-ahead before persisting.
@@ -199,6 +206,15 @@ export function AssistantChannelsList({
     channelKey: ChannelKey;
     policy: AdmissionPolicy;
   } | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // A `?setup=<channel>` deep link selects that adapter on arrival; its panel
+  // then opens the manual credential form (see `initialManualEntry`).
+  useEffect(() => {
+    if (initialChannel) {
+      selectAdapter(initialChannel);
+    }
+  }, [initialChannel, selectAdapter]);
 
   const displayName = toAssistantDisplayName(assistantName);
   const disconnectMeta = pendingDisconnect
@@ -221,55 +237,89 @@ export function AssistantChannelsList({
     onChannelPolicyChange?.(channelKey, next);
   };
 
+  const handleSelect = (channelKey: ChannelKey) => {
+    selectAdapter(channelKey);
+    setDrawerOpen(false);
+  };
+
+  // The persisted selection falls back to the first adapter if it names one
+  // that isn't present (the adapter set is fixed, so this is defensive).
+  const selected =
+    channels.find((channel) => channel.key === selectedAdapter) ?? channels[0];
+
+  if (!selected) {
+    return null;
+  }
+
+  // Keyed on the adapter so switching selection remounts the panel: its
+  // credential-form state (`initialManualEntry`) is seeded once at mount,
+  // and each adapter should start fresh.
+  const detail = (
+    <ChannelPanel
+      key={selected.key}
+      channel={selected}
+      assistantId={assistantId}
+      assistantName={assistantName}
+      assistantDisplayName={displayName}
+      pending={pendingChannelKey === selected.key}
+      initialManualEntry={initialChannel === selected.key}
+      onSetup={onSetup ? () => onSetup(selected.key) : undefined}
+      onDisconnect={
+        onDisconnect ? () => setPendingDisconnect(selected.key) : undefined
+      }
+      onSaveTelegramToken={onSaveTelegramToken}
+      onSaveSlackConfig={onSaveSlackConfig}
+      slackSaveStatus={slackSaveStatus}
+      slackSaveError={slackSaveError}
+      slackThreadMode={slackThreadMode}
+      slackThreadModePending={slackThreadModePending}
+      onSlackThreadModeChange={onSlackThreadModeChange}
+      onSaveTwilioCredentials={onSaveTwilioCredentials}
+      policy={channelPolicies?.[selected.key]}
+      policySaving={policySavingKey === selected.key}
+      policyLoading={policiesLoading}
+      policyError={policiesError}
+      onPolicyChange={
+        onChannelPolicyChange
+          ? (next) => handlePolicyChange(selected.key, next)
+          : undefined
+      }
+    />
+  );
+
   return (
-    <div className="flex flex-col">
-      <Tabs.Root
-        value={activeChannel}
-        onValueChange={(value) => setActiveChannel(value as ChannelKey)}
-      >
-        <Tabs.List>
-          {channels.map((channel) => (
-            <Tabs.Trigger key={channel.key} value={channel.key}>
-              {getChannelLabel(channel.key)}
-            </Tabs.Trigger>
-          ))}
-        </Tabs.List>
-        {channels.map((channel) => (
-          <Tabs.Panel key={channel.key} value={channel.key} className="pt-4">
-            <ChannelPanel
-              channel={channel}
-              assistantId={assistantId}
-              assistantName={assistantName}
-              assistantDisplayName={displayName}
-              pending={pendingChannelKey === channel.key}
-              initialManualEntry={initialChannel === channel.key}
-              onSetup={onSetup ? () => onSetup(channel.key) : undefined}
-              onDisconnect={
-                onDisconnect
-                  ? () => setPendingDisconnect(channel.key)
-                  : undefined
-              }
-              onSaveTelegramToken={onSaveTelegramToken}
-              onSaveSlackConfig={onSaveSlackConfig}
-              slackSaveStatus={slackSaveStatus}
-              slackSaveError={slackSaveError}
-              slackThreadMode={slackThreadMode}
-              slackThreadModePending={slackThreadModePending}
-              onSlackThreadModeChange={onSlackThreadModeChange}
-              onSaveTwilioCredentials={onSaveTwilioCredentials}
-              policy={channelPolicies?.[channel.key]}
-              policySaving={policySavingKey === channel.key}
-              policyLoading={policiesLoading}
-              policyError={policiesError}
-              onPolicyChange={
-                onChannelPolicyChange
-                  ? (next) => handlePolicyChange(channel.key, next)
-                  : undefined
-              }
-            />
-          </Tabs.Panel>
-        ))}
-      </Tabs.Root>
+    <>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+        <div className="flex items-center sm:hidden">
+          <MobileSidebarTrigger onClick={() => setDrawerOpen(true)} />
+        </div>
+
+        <MobileSidebarDrawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          title="Channels"
+        >
+          <ChannelAdapterList
+            channels={channels}
+            selectedKey={selected.key}
+            onSelect={handleSelect}
+          />
+        </MobileSidebarDrawer>
+
+        <aside className="hidden w-[320px] shrink-0 self-start sm:sticky sm:top-0 sm:block">
+          <ChannelAdapterList
+            channels={channels}
+            selectedKey={selected.key}
+            onSelect={handleSelect}
+          />
+        </aside>
+
+        {/* Slack brings its own cards (connection card + channel list); the
+            other adapters render bare content, so wrap them in a card to match. */}
+        <section className="min-w-0 flex-1">
+          {selected.key === "slack" ? detail : <DetailCard>{detail}</DetailCard>}
+        </section>
+      </div>
 
       <ConfirmDialog
         open={pendingDisconnect !== null}
@@ -304,7 +354,7 @@ export function AssistantChannelsList({
         }}
         onCancel={() => setPendingPolicy(null)}
       />
-    </div>
+    </>
   );
 }
 
