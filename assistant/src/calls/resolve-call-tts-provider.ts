@@ -163,7 +163,7 @@ export async function resolveCallTtsProvider(
             ["mp3", "wav", "opus"].includes(configuredFormat)
               ? configuredFormat
               : "mp3"
-          ) as "mp3" | "wav" | "opus";
+          ) as Exclude<CallAudioFormat, "pcm">;
         })();
 
     return { provider, useSynthesizedPath, audioFormat };
