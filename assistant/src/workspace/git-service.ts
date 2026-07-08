@@ -60,6 +60,7 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
  * These are written to .gitignore on init and appended to existing .gitignore files.
  */
 const WORKSPACE_GITIGNORE_RULES = [
+  // Runtime state directories
   "data/db/",
   "data/qdrant/",
   "data/monitoring/",
@@ -69,21 +70,34 @@ const WORKSPACE_GITIGNORE_RULES = [
   "data/apps/*/records/",
   "data/apps/*/dist/",
   "data/apps/*.preview",
-  "plugins/*/node_modules/",
+  // Runtime-managed installs and caches — large and restorable
+  "/embedding-models/",
+  "/external/",
+  "/bin/",
+  "/plugins-data/",
+  "node_modules/",
+  "__pycache__/",
+  ".venv/",
+  // Logs and process state
   "logs/",
   "*.log",
   "*.sock",
   "*.pid",
-  "*.sqlite",
-  "*.sqlite-journal",
-  "*.sqlite-wal",
-  "*.sqlite-shm",
-  "*.db",
-  "*.db-journal",
-  "*.db-wal",
-  "*.db-shm",
-  "vellum.pid",
+  "daemon-startup.lock",
   "session-token",
+  // Databases (covers sidecar -journal/-wal/-shm files)
+  "*.sqlite*",
+  "*.db",
+  "*.db-*",
+  // OS junk
+  ".DS_Store",
+  // Large binary blobs
+  "*.zip",
+  "*.tar",
+  "*.gz",
+  "*.tgz",
+  "*.dmg",
+  "*.iso",
 ];
 
 const NULL_GIT_OID = "0000000000000000000000000000000000000000";
@@ -766,8 +780,13 @@ export class WorkspaceGitService {
         }
       }
 
+      // Exact line matching: a substring check would let an existing rule like
+      // "plugins/*/node_modules/" mask the broader "node_modules/" rule.
+      const existingLines = new Set(
+        content.split("\n").map((line) => line.trim()),
+      );
       const missingRules = WORKSPACE_GITIGNORE_RULES.filter(
-        (rule) => !content.includes(rule),
+        (rule) => !existingLines.has(rule),
       );
       if (hadLegacyDataRule || missingRules.length > 0) {
         let updated = content;

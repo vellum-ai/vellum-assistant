@@ -69,7 +69,9 @@ describe("WorkspaceGitService", () => {
       expect(content).toContain("*.sock");
       expect(content).toContain("*.pid");
       expect(content).toContain("session-token");
-      expect(content).toContain("plugins/*/node_modules/");
+      expect(content).toContain("node_modules/");
+      expect(content).toContain("/embedding-models/");
+      expect(content).toContain(".DS_Store");
     });
 
     test("sets git identity correctly", async () => {
@@ -830,7 +832,7 @@ describe("WorkspaceGitService", () => {
         cwd: testDir,
       });
       const gitignoreContent =
-        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\nplugins/*/node_modules/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.pid\nsession-token\n";
+        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\n/embedding-models/\n/external/\n/bin/\n/plugins-data/\nnode_modules/\n__pycache__/\n.venv/\nlogs/\n*.log\n*.sock\n*.pid\ndaemon-startup.lock\nsession-token\n*.sqlite*\n*.db\n*.db-*\n.DS_Store\n*.zip\n*.tar\n*.gz\n*.tgz\n*.dmg\n*.iso\n";
       writeFileSync(join(testDir, ".gitignore"), gitignoreContent);
       writeFileSync(join(testDir, "file.txt"), "content");
       execFileSync("git", ["add", "-A"], { cwd: testDir });
