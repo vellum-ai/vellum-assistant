@@ -22,9 +22,26 @@ mock.module("../util/logger.js", () => ({
 // Control the live-conversation lookup so `isTurnSettled` can be exercised
 // without a running agent loop. Returns `undefined` (no live conversation) by
 // default; tests set a fake with a chosen `isProcessing()`.
-let mockLiveConversation: { isProcessing: () => boolean } | undefined;
+let mockLiveConversation:
+  | {
+      isProcessing: () => boolean;
+      getCurrentSystemPrompt?: () => string;
+      getRegisteredToolNames?: () => Set<string>;
+    }
+  | undefined;
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: () => mockLiveConversation,
+}));
+
+// Stub the tool registry so trace assembly can resolve descriptions without
+// loading the real tool graph. Returns `undefined` by default; tests override
+// for specific tool names.
+let mockToolDescriptions: Record<string, string> = {};
+mock.module("../tools/registry.js", () => ({
+  getTool: (name: string) =>
+    mockToolDescriptions[name]
+      ? { description: mockToolDescriptions[name] }
+      : undefined,
 }));
 
 import { createConversation } from "../persistence/conversation-crud.js";
@@ -51,6 +68,7 @@ function purge(): void {
 beforeEach(() => {
   purge();
   mockLiveConversation = undefined;
+  mockToolDescriptions = {};
 });
 
 interface MessageSeed {
@@ -175,7 +193,7 @@ describe("assembleTurnTrace", () => {
 
     const trace = assembleTurnTrace(boundary(conv.id, "m-user-1", 1000));
 
-    expect(trace.schema_version).toBe(1);
+    expect(trace.schema_version).toBe(2);
     // Window stops before turn 2: only turn-1 message rows, oldest-first.
     expect(trace.messages.map((m) => m.id)).toEqual([
       "m-user-1",
@@ -199,6 +217,65 @@ describe("assembleTurnTrace", () => {
     });
     // Result is forwarded verbatim.
     expect(trace.tool_calls[0].result).toBe(JSON.stringify({ events: 2 }));
+  });
+
+  test("includes system_prompt and tool_definitions from the live conversation", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-asst-1",
+      role: "assistant",
+      content: [{ type: "text", text: "hi" }],
+      createdAt: 1100,
+    });
+
+    mockLiveConversation = {
+      isProcessing: () => false,
+      getCurrentSystemPrompt: () => "You are a helpful assistant.",
+      getRegisteredToolNames: () =>
+        new Set(["web_search", "file_read", "notify_parent"]),
+    };
+    mockToolDescriptions = {
+      web_search: "Search the web",
+      file_read: "Read a file",
+      // notify_parent intentionally not in the map — description should be ""
+    };
+
+    const trace = assembleTurnTrace(boundary(conv.id, "m-user-1", 1000));
+
+    expect(trace.system_prompt).toBe("You are a helpful assistant.");
+    expect(trace.tool_definitions).toEqual([
+      { name: "file_read", description: "Read a file" },
+      { name: "notify_parent", description: "" },
+      { name: "web_search", description: "Search the web" },
+    ]);
+  });
+
+  test("system_prompt is null and tool_definitions is empty when conversation is evicted", () => {
+    const conv = createConversation({ conversationType: "standard" });
+    insertMessage(conv.id, {
+      id: "m-user-1",
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+      createdAt: 1000,
+    });
+    insertMessage(conv.id, {
+      id: "m-asst-1",
+      role: "assistant",
+      content: [{ type: "text", text: "hi" }],
+      createdAt: 1100,
+    });
+
+    // No mockLiveConversation set — simulates evicted conversation.
+    const trace = assembleTurnTrace(boundary(conv.id, "m-user-1", 1000));
+
+    expect(trace.system_prompt).toBeNull();
+    expect(trace.tool_definitions).toEqual([]);
   });
 
   test("the final turn's window runs to the end of the conversation", () => {

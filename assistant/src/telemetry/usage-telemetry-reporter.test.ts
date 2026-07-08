@@ -123,7 +123,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 interface MockTurnTrace {
-  schema_version: 1;
+  schema_version: 2;
   messages: {
     id: string;
     role: string;
@@ -131,6 +131,8 @@ interface MockTurnTrace {
     content: unknown;
   }[];
   tool_calls: unknown[];
+  system_prompt: string | null;
+  tool_definitions: { name: string; description: string }[];
 }
 
 // Returns a non-null bounded trace by default; individual tests override the
@@ -141,7 +143,7 @@ function defaultBoundedTurnTrace(boundary: {
   userMessageCreatedAt: number;
 }): MockTurnTrace | null {
   return {
-    schema_version: 1,
+    schema_version: 2,
     messages: [
       {
         id: boundary.userMessageId,
@@ -151,6 +153,8 @@ function defaultBoundedTurnTrace(boundary: {
       },
     ],
     tool_calls: [],
+    system_prompt: "You are a helpful assistant.",
+    tool_definitions: [{ name: "web_search", description: "Search the web" }],
   };
 }
 
@@ -1107,7 +1111,7 @@ describe("UsageTelemetryReporter", () => {
     expect(turn.type).toBe("turn");
     expect(turn.daemon_event_id).toBe("evt-turn-trace");
     expect(turn.trace).toBeDefined();
-    expect(turn.trace.schema_version).toBe(1);
+    expect(turn.trace.schema_version).toBe(2);
     expect(turn.trace.messages[0].id).toBe("evt-turn-trace");
     expect(Array.isArray(turn.trace.tool_calls)).toBe(true);
   });
