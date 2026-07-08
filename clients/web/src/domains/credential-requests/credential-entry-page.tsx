@@ -32,6 +32,7 @@ type Phase =
   | { kind: "invalid" }
   | { kind: "expired" }
   | { kind: "used" }
+  | { kind: "store-failed" }
   | { kind: "error" };
 
 /** Re-renders every `intervalMs` so the expiry countdown ticks. */
@@ -174,9 +175,12 @@ export function CredentialEntryPage() {
         setPhase({ kind: result.status });
         break;
       case "store-failed":
-        setSubmitError(
-          "The assistant couldn't store the credential. Your value was not saved — try again.",
-        );
+        // The gateway burns the link on a failed store (the daemon may have
+        // partially written before the error, so the single-use claim never
+        // reopens). Retrying the same token would only return USED — this is
+        // a terminal state, not a retryable form error.
+        setValue("");
+        setPhase({ kind: "store-failed" });
         break;
       case "error":
         setSubmitError(
@@ -246,6 +250,17 @@ export function CredentialEntryPage() {
       >
         This credential link has already been used. Each link works exactly
         once — ask for a new one if the value still needs to be provided.
+      </StatusCard>
+    );
+  } else if (phase.kind === "store-failed") {
+    content = (
+      <StatusCard
+        icon={<AlertCircle className="h-5 w-5 text-red-600" aria-hidden />}
+        title="Link no longer valid"
+      >
+        The assistant could not store the credential, and for safety this
+        one-time link cannot be reused. Ask for a new link and try again
+        there.
       </StatusCard>
     );
   } else if (phase.kind === "error") {
