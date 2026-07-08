@@ -96,8 +96,13 @@ export function useNativeQuoteReply(
     };
 
     window.__vellumQuoteReplyFromSelection = openFromSelection;
+    // `selectstart` fires as the selection gesture begins — before iOS builds
+    // the edit menu — so native's `canReply` flag is current when the menu is
+    // evaluated. `selectionchange` keeps it in sync as the selection changes.
+    document.addEventListener("selectstart", postCanReply);
     document.addEventListener("selectionchange", postCanReply);
     return () => {
+      document.removeEventListener("selectstart", postCanReply);
       document.removeEventListener("selectionchange", postCanReply);
       if (window.__vellumQuoteReplyFromSelection === openFromSelection) {
         delete window.__vellumQuoteReplyFromSelection;

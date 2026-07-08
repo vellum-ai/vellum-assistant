@@ -71,37 +71,40 @@ export function activationZonePx(viewportWidth: number): number {
 
 /**
  * Whether the touched element is (or sits inside) a surface that owns
- * horizontal drags for its own text interaction — a text field or a
- * contenteditable region (e.g. the rich-text document editor). A widened-band
- * swipe beginning here would otherwise hijack caret placement / text selection
- * and navigate away, so over these surfaces the gesture stays edge-only.
+ * horizontal drags for its own text interaction: a text field or
+ * contenteditable region (caret placement, e.g. the rich-text document
+ * editor), or selectable transcript message text (text selection, marked by
+ * `data-message-id`). A widened-band swipe beginning here would otherwise
+ * hijack the caret / selection and navigate away, so over these surfaces the
+ * gesture stays edge-only.
  */
-export function isEditableTarget(target: EventTarget | null): boolean {
+export function ownsHorizontalTextDrag(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) {
     return false;
   }
   return (
     target.closest(
-      'input, textarea, select, [contenteditable]:not([contenteditable="false"])',
+      'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-message-id]',
     ) !== null
   );
 }
 
 /**
  * Whether a touch at `clientX` may arm the gesture, given the viewport width
- * and whether it began on an editable surface. Edge touches (within
- * `EDGE_SWIPE_HIT_ZONE_PX`) always arm, preserving deliberate edge swipe-back
- * everywhere; the widened band beyond the edge arms only off editable surfaces.
+ * and whether it began on a surface that owns horizontal text drags. Edge
+ * touches (within `EDGE_SWIPE_HIT_ZONE_PX`) always arm, preserving deliberate
+ * edge swipe-back everywhere; the widened band beyond the edge arms only off
+ * text-drag surfaces.
  */
 export function shouldArmAt(
   clientX: number,
   viewportWidth: number,
-  editable: boolean,
+  ownsTextDrag: boolean,
 ): boolean {
   if (clientX > activationZonePx(viewportWidth)) {
     return false;
   }
-  if (editable && clientX > EDGE_SWIPE_HIT_ZONE_PX) {
+  if (ownsTextDrag && clientX > EDGE_SWIPE_HIT_ZONE_PX) {
     return false;
   }
   return true;
@@ -262,7 +265,7 @@ export function useEdgeSwipe({
         !shouldArmAt(
           touch.clientX,
           window.innerWidth,
-          isEditableTarget(event.target),
+          ownsHorizontalTextDrag(event.target),
         )
       ) {
         return;
