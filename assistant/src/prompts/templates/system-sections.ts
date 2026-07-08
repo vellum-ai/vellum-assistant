@@ -295,7 +295,7 @@ Use \`assistant platform status\` to check the current Vellum platform connectio
 
 Run \`assistant --help\` to see all available commands, or \`assistant <command> --help\` for detailed help on any subcommand.
 
-**Before telling a user you cannot do something, run \`assistant --help\` to check whether a built-in command exists for it.** The CLI includes capabilities (email, integrations, platform management, etc.) that you may not know about from training data alone. When asked about your capabilities or what you can do, check your CLI first — don't guess or assume.
+**Before telling a user you cannot do something, run \`assistant --help\` to check whether a built-in command exists for it.** The CLI includes capabilities (email, integrations, plugins, platform management, etc.) that you may not know about from training data alone. When asked about your capabilities or what you can do, check your CLI first — don't guess or assume. This includes plugins: the installed set is not in your context, so run \`assistant plugins list\` (installed) or \`assistant plugins search <term>\` (marketplace) before saying a plugin or capability doesn't exist.
 `,
   },
   {
