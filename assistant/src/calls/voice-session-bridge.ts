@@ -459,8 +459,12 @@ export async function startVoiceTurn(
     // `/messages` returns the row while advertising the previous flush's anchor
     // (under-claiming). Safe to claim here for the same reason as the text path.
     recordConversationPersistedSeq(opts.conversationId, getCurrentSeq());
+    // Nudge subscribers to refetch `/messages`. Gated to real user turns:
+    // synthetic opener/verification rows are persisted un-hidden, so an early
+    // invalidation here would surface the internal "(call connected …)" prompt
+    // as a user bubble before the assistant reply streams.
+    publishConversationMessagesChanged(opts.conversationId);
   }
-  publishConversationMessagesChanged(opts.conversationId);
 
   // Hook into conversation to intercept confirmation_request and secret_request events.
   // Voice auto-denies/auto-allows/auto-resolves these since there's no interactive UI.
