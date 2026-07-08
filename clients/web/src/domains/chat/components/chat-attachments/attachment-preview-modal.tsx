@@ -92,11 +92,24 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   const isRehydrated =
     !attachment.previewUrl && attachment.id.startsWith("rehydrated:");
 
-  // Fetch content from the daemon only when there's no inline previewUrl and we
-  // have a real, resolvable id to fetch with.
+  // Detect when previewUrl is a thumbnail (data:image/jpeg) rather than the
+  // actual file content. The backend sends thumbnailData as a JPEG for video
+  // and other non-image attachments when inline data is too large — but the
+  // preview modal needs the real bytes to render a playable <video>. Without
+  // this check, shouldFetch is false (previewUrl is truthy) and the modal
+  // feeds a JPEG data URI to a <video> element, which renders controls but
+  // can't play. See LUM-2752.
+  const isThumbnailPreview =
+    !!attachment.previewUrl &&
+    attachment.previewUrl.startsWith("data:image/") &&
+    !attachment.mimeType.toLowerCase().startsWith("image/");
+
+  // Fetch content from the daemon when there's no inline previewUrl OR when
+  // the previewUrl is a thumbnail for a non-image attachment (video, etc.).
+  // In both cases we need the real bytes from the daemon's content endpoint.
   const shouldFetch =
     open &&
-    !attachment.previewUrl &&
+    (!attachment.previewUrl || isThumbnailPreview) &&
     !!assistantId &&
     !!attachment.id &&
     !isRehydrated;
@@ -133,7 +146,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     };
   }, [blob]);
 
-  const effectiveUrl = attachment.previewUrl ?? objectUrl;
+  // When the previewUrl is a thumbnail for a non-image attachment (video),
+  // prefer the fetched blob URL — the thumbnail is a JPEG and can't be played.
+  const effectiveUrl = isThumbnailPreview ? objectUrl : attachment.previewUrl ?? objectUrl;
 
   // A full-size image whose bytes the browser can't decode (e.g. HEIC on
   // Chromium, even after fetching the stored original) falls through to the
@@ -262,6 +277,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     if (isVideo && effectiveUrl) {
       return (
         <video
+          data-testid="preview-video"
           src={effectiveUrl}
           controls
           className="max-h-[80vh] max-w-[90vw] rounded"

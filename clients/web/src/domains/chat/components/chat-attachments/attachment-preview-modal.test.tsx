@@ -112,4 +112,38 @@ describe("AttachmentPreviewModal content loading", () => {
     expect(screen.queryByAltText("photo.png")).toBeNull();
     expect(screen.getByText("Download")).toBeDefined();
   });
+
+  test("fetches real content for video attachments with a thumbnail previewUrl", async () => {
+    // Video attachments receive a JPEG thumbnail as previewUrl (not the actual
+    // video). The modal must fetch the real bytes from the daemon rather than
+    // feeding the thumbnail to a <video> element. See LUM-2752.
+    renderModal({
+      ...ATTACHMENT,
+      filename: "clip.mp4",
+      mimeType: "video/mp4",
+      previewUrl: "data:image/jpeg;base64,THUMBNAIL",
+    });
+
+    const video = await screen.findByTestId("preview-video");
+    // The <video> src should be the blob URL from the daemon fetch, not the
+    // JPEG thumbnail data URI.
+    expect(video.getAttribute("src")).toBe("blob:preview-mock");
+    expect(video.getAttribute("src")).not.toBe("data:image/jpeg;base64,THUMBNAIL");
+    expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not fetch when an image attachment has a real inline previewUrl", () => {
+    // Image attachments with inline data are the one case where previewUrl
+    // IS the actual content — the modal should render it directly without
+    // hitting the daemon.
+    renderModal({
+      ...ATTACHMENT,
+      previewUrl: "data:image/png;base64,AAAA",
+    });
+
+    expect(screen.getByAltText("photo.png").getAttribute("src")).toBe(
+      "data:image/png;base64,AAAA",
+    );
+    expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
+  });
 });
