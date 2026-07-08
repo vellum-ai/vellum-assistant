@@ -4,14 +4,13 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 
+import { AVATAR_VISUAL_SPRING } from "./voice-motion";
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
 
 /**
- * Enter/scale spring played when the visual changes. Mirrors the app's
- * overshoot convention (constellation `NODE_SPRING`); `responding` gets a
- * bouncier pop to read as a burst of energy.
+ * Bouncier pop for the `responding` visual — reads as a burst of energy. The
+ * default per-visual spring is the shared `AVATAR_VISUAL_SPRING`.
  */
-const ENTER_SPRING = { type: "spring" as const, stiffness: 180, damping: 20 };
 const RESPOND_SPRING = {
   type: "spring" as const,
   visualDuration: 0.3,
@@ -107,7 +106,7 @@ export function VoiceAvatar({
     ? { duration: 0 }
     : visual === "responding"
       ? RESPOND_SPRING
-      : ENTER_SPRING;
+      : AVATAR_VISUAL_SPRING;
 
   return (
     <motion.div

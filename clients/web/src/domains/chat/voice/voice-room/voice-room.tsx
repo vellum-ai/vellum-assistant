@@ -36,19 +36,9 @@ import {
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
 import { VoiceAvatar } from "./voice-avatar";
+import { AVATAR_ENTER_SPRING } from "./voice-motion";
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
 import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
-
-/**
- * Avatar entry spring: rises from a smaller, lower offset to center with a
- * slight overshoot. Mirrors the app's `NODE_SPRING` overshoot convention
- * (defined locally to avoid a cross-domain import, as `voice-avatar.tsx` does).
- */
-const AVATAR_ENTER_SPRING = {
-  type: "spring" as const,
-  stiffness: 200,
-  damping: 18,
-};
 
 const AVATAR_SIZE = 220;
 /** The one-time "how to speak" hint auto-dismisses after this long. */
