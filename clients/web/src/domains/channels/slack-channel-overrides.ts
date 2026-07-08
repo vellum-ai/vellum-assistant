@@ -44,17 +44,17 @@ interface CapabilityTierMeta {
 export const CAPABILITY_TIER_META: Record<RiskThreshold, CapabilityTierMeta> = {
   none: {
     label: presetFromThreshold("none").label,
-    sublabel: "ask before acting",
+    sublabel: "ask before every action",
     tone: "negative",
   },
   low: {
     label: presetFromThreshold("low").label,
-    sublabel: "safe actions, ask for the rest",
+    sublabel: "low-risk actions, ask for the rest",
     tone: "warning",
   },
   medium: {
     label: presetFromThreshold("medium").label,
-    sublabel: "workspace actions too",
+    sublabel: "beyond its workspace too",
     tone: "info",
   },
   high: {

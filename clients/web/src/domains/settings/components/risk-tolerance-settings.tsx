@@ -153,9 +153,8 @@ export function RiskToleranceSettings() {
       <p className="mt-1 text-body-medium-lighter text-[var(--content-tertiary)]">
         Control which actions your assistant can take without asking first. Each
         action is classified by risk level — your access level determines which
-        levels auto-approve. Trust Rules take precedence at every level: actions
-        you&apos;ve allowed run without asking, and actions you&apos;ve blocked
-        never run.
+        levels auto-approve. Trust Rules fine-tune this for specific actions by
+        raising or lowering their risk.
       </p>
       {loadError && (
         <p className="mt-2 text-body-small-default text-[var(--system-negative-strong)]">

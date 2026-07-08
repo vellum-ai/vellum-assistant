@@ -26,8 +26,7 @@ export const THRESHOLD_PRESETS: ThresholdPreset[] = [
     id: "strict",
     label: "Strict",
     riskThreshold: "none",
-    description:
-      "Always ask before acting. Only actions your Trust Rules allow run on their own.",
+    description: "Always ask before acting. No actions are auto-approved.",
     icon: Lock,
   },
   {
@@ -35,7 +34,7 @@ export const THRESHOLD_PRESETS: ThresholdPreset[] = [
     label: "Conservative",
     riskThreshold: "low",
     description:
-      "Auto-approve low-risk actions like reading files and web searches.",
+      "Auto-approve low-risk actions, like web searches and reading and writing files in its own workspace.",
     icon: ShieldCheck,
   },
   {
@@ -43,7 +42,7 @@ export const THRESHOLD_PRESETS: ThresholdPreset[] = [
     label: "Relaxed",
     riskThreshold: "medium",
     description:
-      "Auto-approve low and medium-risk actions like writing files in your workspace.",
+      "Auto-approve low and medium-risk actions, like changing files outside its own workspace.",
     icon: Shield,
   },
   {
@@ -51,7 +50,7 @@ export const THRESHOLD_PRESETS: ThresholdPreset[] = [
     label: "Full access",
     riskThreshold: "high",
     description:
-      "Auto-approve all actions, including high-risk and unrecognized commands. Actions your Trust Rules block are still refused.",
+      "Auto-approve all actions, including high-risk and unrecognized commands. Your assistant will never ask for permission.",
     icon: ShieldOff,
   },
 ];

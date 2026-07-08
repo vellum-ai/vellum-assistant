@@ -28,13 +28,17 @@ const TONE_DOT_COLOR: Record<TagTone, string> = {
  * because it interpolates the assistant's name; the Trust Rules footnote
  * below the grid links out to the Privacy settings page.
  *
- * Grounded in the approval-policy decision order
- * (`assistant/src/permissions/approval-policy.ts`): a channel cell replaces
- * the global threshold for this channel, and Trust Rules apply at every
- * tier — deny rules block everywhere and allow rules auto-approve
- * everywhere, which is why the precedence note is a legend-level footnote
- * rather than per-tier copy (and why no tier promises to ask about
- * everything). Sensitive tools sit above the threshold entirely — for
+ * Grounded in the live approval pipeline
+ * (`assistant/src/permissions/checker.ts` → `approval-policy.ts`): each
+ * call's risk is classified first — with the user's Trust Rules applied as
+ * per-action risk re-classifications (low/medium/high) — and then compared
+ * against this channel's tier. At `none` nothing is within threshold, so
+ * every action prompts; Trust Rules move an action between levels (changing
+ * when it asks) but cannot bypass Strict or hard-block at Full access,
+ * which is why the footnote describes them as tuning, not overriding.
+ * Workspace file writes classify low, so they auto-run from Conservative
+ * up (`gateway/src/risk/file-risk-classifier.ts`); host-side file changes
+ * are medium. Sensitive tools sit above the threshold entirely — for
  * non-guardian actors they always escalate to the owner without a scoped
  * grant (`assistant/src/tools/tool-approval-handler.ts`), so the
  * full-access copy keeps that caveat.
@@ -47,23 +51,23 @@ function tierDescription(
     case "none":
       return (
         <>
-          {assistantName} replies in this channel, and asks you before taking
-          actions.
+          {assistantName} replies in this channel, but asks you before taking
+          any action.
         </>
       );
     case "low":
       return (
         <>
-          {assistantName} replies and runs low-risk actions on its own, like
-          reading files and web searches. Anything that writes, sends, or spends
-          asks first.
+          {assistantName} replies and runs low-risk actions on its own, like web
+          searches and reading and writing files in its own workspace. Riskier
+          actions ask first.
         </>
       );
     case "medium":
       return (
         <>
-          {assistantName} also acts in its own workspace, like editing files.
-          Riskier actions still ask first.
+          {assistantName} also runs medium-risk actions, like changing files
+          outside its own workspace. High-risk actions still ask first.
         </>
       );
     case "high":
@@ -131,8 +135,8 @@ export function SlackChannelTierLegend({
           >
             Trust Rules
           </Link>{" "}
-          apply at every level: actions you’ve allowed run without asking, and
-          actions you’ve blocked never run.
+          fine-tune these levels: a rule raises or lowers how risky a specific
+          action is treated, which changes when it asks first.
         </Typography>
       </Card.Footer>
     </Card.Root>

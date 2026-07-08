@@ -58,11 +58,13 @@ describe("CAPABILITY_TIER_META", () => {
   });
 
   test("sublabels use the behavior framing, not tool inventory", () => {
-    expect(CAPABILITY_TIER_META.none.sublabel).toBe("ask before acting");
+    expect(CAPABILITY_TIER_META.none.sublabel).toBe("ask before every action");
     expect(CAPABILITY_TIER_META.low.sublabel).toBe(
-      "safe actions, ask for the rest",
+      "low-risk actions, ask for the rest",
     );
-    expect(CAPABILITY_TIER_META.medium.sublabel).toBe("workspace actions too");
+    expect(CAPABILITY_TIER_META.medium.sublabel).toBe(
+      "beyond its workspace too",
+    );
     expect(CAPABILITY_TIER_META.high.sublabel).toBe("acts freely");
   });
 });
