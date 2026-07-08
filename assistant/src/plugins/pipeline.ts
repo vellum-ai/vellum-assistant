@@ -193,11 +193,14 @@ function isBlockish(block: unknown): block is ContentBlock {
         b.input !== null
       );
     case "tool_result":
-      // `contentBlocks` is validated recursively — media resolution recurses
-      // into it and dereferences nested image/file sources unguarded.
+      // `content` must be a string per the internal ToolResultContent
+      // contract — token estimation and serializers concatenate it directly;
+      // rich content belongs in `contentBlocks`, which is validated
+      // recursively because media resolution recurses into it and
+      // dereferences nested image/file sources unguarded.
       return (
         typeof b.tool_use_id === "string" &&
-        (typeof b.content === "string" || Array.isArray(b.content)) &&
+        typeof b.content === "string" &&
         (b.contentBlocks === undefined ||
           (Array.isArray(b.contentBlocks) && b.contentBlocks.every(isBlockish)))
       );
@@ -307,10 +310,10 @@ function sanitizeHookOutput<TInput extends object>(
 
   for (const field of spec.toolResults ?? []) {
     const value = rec[field] as { type?: unknown } | null;
-    if (
-      !isBlockish(value) ||
-      (value.type !== "tool_result" && value.type !== "web_search_tool_result")
-    ) {
+    // Strictly a client-tool `tool_result` (not `web_search_tool_result`):
+    // the loop pairs this block back to the assistant's tool_use, and a
+    // server-tool result would leave that call unpaired.
+    if (!isBlockish(value) || value.type !== "tool_result") {
       issues.push(`${field}: replaced with a non-tool_result — reverted`);
       rec[field] = prevRec[field];
     }

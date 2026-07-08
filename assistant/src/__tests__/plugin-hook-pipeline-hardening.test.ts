@@ -158,8 +158,10 @@ describe("hook output sanitization", () => {
               // Media resolution reads `source.type` off these unguarded.
               { type: "image" },
               { type: "file", source: { type: "base64" } },
-              // Serializers read `content` off tool results.
+              // Serializers read `content` off tool results and concatenate
+              // it as a string — missing or array content is rejected.
               { type: "tool_result", tool_use_id: "tu-1" },
+              { type: "tool_result", tool_use_id: "tu-4", content: [] },
               // Nested contentBlocks are validated recursively — media
               // resolution dereferences nested image/file sources unguarded.
               {
@@ -256,25 +258,33 @@ describe("hook output sanitization", () => {
       tool_use_id: "tu-1",
       content: "ok",
     };
-    entries = [
-      {
-        owner: { kind: "plugin", id: "p" },
-        fn: () => ({ toolResponse: "not a block" }),
-      },
-    ];
+    // A server-tool web_search_tool_result is also reverted — the loop pairs
+    // toolResponse back to the assistant's tool_use, which a server-tool
+    // result cannot satisfy.
+    for (const replacement of [
+      "not a block",
+      { type: "web_search_tool_result", tool_use_id: "tu-1", content: [] },
+    ]) {
+      entries = [
+        {
+          owner: { kind: "plugin", id: "p" },
+          fn: () => ({ toolResponse: replacement }),
+        },
+      ];
 
-    const final = await runHook("post-tool-use", {
-      conversationId: "conv-1",
-      toolResponse,
-      messages: [validUserMessage],
-      additionalContext: null,
-      model: "m",
-      callSite: null,
-      supportsDynamicUi: true,
-      maxInputTokens: 100_000,
-    });
+      const final = await runHook("post-tool-use", {
+        conversationId: "conv-1",
+        toolResponse,
+        messages: [validUserMessage],
+        additionalContext: null,
+        model: "m",
+        callSite: null,
+        supportsDynamicUi: true,
+        maxInputTokens: 100_000,
+      });
 
-    expect(final.toolResponse).toEqual(toolResponse);
+      expect(final.toolResponse).toEqual(toolResponse);
+    }
   });
 
   test("valid hook output passes through untouched", async () => {
