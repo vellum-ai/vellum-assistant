@@ -1,7 +1,7 @@
 import type { FishAudioConfig } from "../config/schemas/fish-audio.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
-import { readChunkedBody } from "../tts/stream-read.js";
+import { consumeSynthesisResponse } from "../tts/stream-read.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("fish-audio-client");
@@ -86,14 +86,17 @@ export async function synthesizeWithFishAudio(
     throw new Error(`Fish Audio API error (${response.status}): ${errorText}`);
   }
 
-  if (!response.body) {
-    throw new Error("Fish Audio API returned no body");
-  }
-
-  const audio = await readChunkedBody(response.body, {
+  const audio = await consumeSynthesisResponse(response, {
+    stream: true,
     onChunk: options?.onChunk,
     makeTimeoutError: (timeoutMs) =>
       new Error(`Fish Audio read timed out after ${timeoutMs}ms`),
+    makeEmptyError: (kind) =>
+      new Error(
+        kind === "no-body"
+          ? "Fish Audio API returned no body"
+          : "Fish Audio API returned empty audio",
+      ),
   });
 
   log.debug({ bytes: audio.byteLength }, "Fish Audio synthesis complete");
