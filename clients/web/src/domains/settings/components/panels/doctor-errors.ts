@@ -34,6 +34,10 @@ export function isExpectedDoctorApiError(error: unknown): boolean {
   );
 }
 
+export function isDoctorUnavailableStatus(status: number | null): boolean {
+  return status !== null && DOCTOR_UNAVAILABLE_STATUSES.has(status);
+}
+
 /**
  * Terminal error message for the Doctor SSE stream once the reconnect
  * budget is exhausted.
@@ -44,7 +48,7 @@ export function doctorStreamTerminalMessage(
   if (failedStatus === null) {
     return "Event stream disconnected. Start a new session to continue.";
   }
-  if (DOCTOR_UNAVAILABLE_STATUSES.has(failedStatus)) {
+  if (isDoctorUnavailableStatus(failedStatus)) {
     return DOCTOR_UNAVAILABLE_STREAM_MESSAGE;
   }
   return `Failed to connect to event stream (${failedStatus}). Start a new session to continue.`;
