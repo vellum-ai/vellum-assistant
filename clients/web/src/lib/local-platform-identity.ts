@@ -150,7 +150,9 @@ export function bootstrapLocalAssistantPlatformIdentity(
   // One retrying bootstrap per assistant — a second trigger while a loop is
   // waiting out a backoff delay would race the same registration and
   // secret-injection flow.
-  if (activeBootstraps.has(targetAssistantId)) return;
+  if (activeBootstraps.has(targetAssistantId)) {
+    return;
+  }
   activeBootstraps.add(targetAssistantId);
   const target = targetAssistantId;
 

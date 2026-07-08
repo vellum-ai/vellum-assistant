@@ -196,7 +196,9 @@ beforeEach(() => {
           });
         }
         const name = (parseRequestBody(init) as { name?: unknown })?.name;
-        if (typeof name === "string") storedSecrets.push(name);
+        if (typeof name === "string") {
+          storedSecrets.push(name);
+        }
         return jsonResponse({ ok: true });
       }
       return new Response("not found", { status: 404 });
