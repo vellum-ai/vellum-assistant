@@ -721,7 +721,15 @@ export class WorkspaceGitService {
   private async getStatusInternal(): Promise<GitStatus> {
     // Streamed via spawn (not execFile) so an oversized status from a bloated
     // working tree cannot exceed Node's default 1 MB maxBuffer and fail.
-    const { stdout } = await this.execGitStreaming(["status", "--porcelain"]);
+    // --untracked-files=all enumerates files inside untracked directories
+    // instead of a "dir/" placeholder, so the per-file size filter below can
+    // see them — otherwise a directory holding only oversized files would
+    // keep the workspace dirty forever.
+    const { stdout } = await this.execGitStreaming([
+      "status",
+      "--porcelain",
+      "--untracked-files=all",
+    ]);
 
     const staged: string[] = [];
     const modified: string[] = [];
@@ -801,17 +809,56 @@ export class WorkspaceGitService {
   }
 
   /**
-   * Stage all workspace changes, then unstage any file whose working-tree
-   * size exceeds workspaceGit.maxFileSizeBytes. Oversized files stay on
-   * disk untouched — they just never enter workspace history. Deletions
-   * always stage (they shrink the repo). Must be called with the lock held.
+   * Stage all workspace changes except files whose working-tree size exceeds
+   * workspaceGit.maxFileSizeBytes. Oversized files stay on disk untouched —
+   * they just never enter workspace history. Deletions always stage (they
+   * shrink the repo). Must be called with the lock held.
+   *
+   * Oversized paths are excluded from the add pathspec up front so git never
+   * hashes their blobs: an `add` of a multi-GB artifact would be slow enough
+   * to trip interactiveGitTimeoutMs and would bloat .git/objects even if the
+   * file were unstaged afterwards. A post-add scan then unstages any
+   * oversized blob that reached the index anyway (e.g. staged by an external
+   * `git add` before this ran).
    */
   private async stageAllLocked(): Promise<void> {
-    await this.execGit(["add", "-A"]);
+    // Streamed: output scales with the number of changed files.
+    const changed = await this.execGitStreaming([
+      "status",
+      "--porcelain",
+      "--untracked-files=all",
+      "-z",
+    ]);
+    const oversized = new Set<string>();
+    for (const entry of changed.stdout.split("\0")) {
+      // Entries are "XY <path>"; rename records append a bare origin-path
+      // entry, which fails the lstat inside isOversized and is skipped.
+      if (entry.length < 4) {
+        continue;
+      }
+      const path = entry.substring(3);
+      if (this.isOversized(path)) {
+        oversized.add(path);
+      }
+    }
+
+    if (oversized.size === 0) {
+      await this.execGit(["add", "-A"]);
+    } else {
+      // Pathspecs via stdin to stay clear of OS argv limits; literal magic
+      // so filenames containing glob characters are not pattern-matched.
+      const pathspecs = [
+        ".",
+        ...[...oversized].map((p) => `:(exclude,literal)${p}`),
+      ];
+      await this.execGitStreaming(
+        ["add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"],
+        { input: pathspecs.join("\0") },
+      );
+    }
 
     const base = await this.resolveStagedDiffBaseLocked();
-    // Streamed: output scales with the number of changed files.
-    const { stdout } = await this.execGitStreaming([
+    const staged = await this.execGitStreaming([
       "diff",
       "--cached",
       "--name-only",
@@ -819,25 +866,23 @@ export class WorkspaceGitService {
       "--diff-filter=ACMR",
       base,
     ]);
-    const oversized = stdout
+    const stagedOversized = staged.stdout
       .split("\0")
       .filter((p) => p.length > 0 && this.isOversized(p));
-    if (oversized.length === 0) {
-      return;
-    }
 
     // Batched to stay clear of OS argv limits.
-    for (let i = 0; i < oversized.length; i += 100) {
+    for (let i = 0; i < stagedOversized.length; i += 100) {
       await this.execGit([
         "reset",
         "-q",
         base,
         "--",
-        ...oversized.slice(i, i + 100),
+        ...stagedOversized.slice(i, i + 100),
       ]);
     }
 
-    const newlyWarned = oversized.filter(
+    const excluded = [...new Set([...oversized, ...stagedOversized])];
+    const newlyWarned = excluded.filter(
       (p) => !this.warnedOversizedPaths.has(p),
     );
     if (newlyWarned.length > 0) {
@@ -1035,10 +1080,12 @@ export class WorkspaceGitService {
    * workspace) cannot fail with `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`. Used for
    * read paths where output is unbounded; errors are enhanced identically to
    * {@link execGit} so callers can still distinguish timeouts and permissions.
+   * `options.input` is written to the child's stdin, which is closed either
+   * way so commands reading stdin to EOF (`--pathspec-from-file=-`) terminate.
    */
   private execGitStreaming(
     args: string[],
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; input?: string },
   ): Promise<{ stdout: string; stderr: string }> {
     const config = getConfig();
     const timeoutMs = config.workspaceGit?.interactiveGitTimeoutMs ?? 10_000;
@@ -1048,6 +1095,11 @@ export class WorkspaceGitService {
         env: cleanGitEnv(this.workspaceDir),
         signal: options?.signal,
       });
+
+      // Swallow EPIPE from a child that exits without reading stdin; the
+      // failure still surfaces through the close/error handlers below.
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(options?.input ?? "");
 
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];

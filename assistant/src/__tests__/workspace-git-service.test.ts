@@ -1550,6 +1550,55 @@ describe("WorkspaceGitService", () => {
       expect(tracked).not.toContain("big.bin");
     });
 
+    test("oversized blobs are never written to the object store", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const content = bigContent();
+      writeFileSync(join(testDir, "big.bin"), content);
+      writeFileSync(join(testDir, "small.txt"), "small");
+      await service.commitChanges("Add files");
+
+      // hash-object without -w computes the blob id git WOULD store
+      const blobSha = execFileSync("git", ["hash-object", "--stdin"], {
+        cwd: testDir,
+        input: content,
+        encoding: "utf-8",
+      }).trim();
+      expect(() =>
+        execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir }),
+      ).toThrow();
+      expect(trackedFiles()).toContain("small.txt");
+    });
+
+    test("untracked directory holding only oversized files reads clean", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      mkdirSync(join(testDir, "artifacts"), { recursive: true });
+      writeFileSync(join(testDir, "artifacts", "blob.bin"), bigContent());
+
+      const status = await service.getStatus();
+      expect(status.clean).toBe(true);
+
+      const result = await service.commitIfDirty(() => ({ message: "dir" }));
+      expect(result.committed).toBe(false);
+    });
+
+    test("commits small files from a directory that also holds an oversized file", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      mkdirSync(join(testDir, "mixed"), { recursive: true });
+      writeFileSync(join(testDir, "mixed", "blob.bin"), bigContent());
+      writeFileSync(join(testDir, "mixed", "note.txt"), "keep");
+      await service.commitChanges("Add mixed dir");
+
+      const tracked = trackedFiles();
+      expect(tracked).toContain("mixed/note.txt");
+      expect(tracked).not.toContain("mixed/blob.bin");
+    });
+
     test("deletion of an oversized tracked file is committed", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
