@@ -24826,6 +24826,29 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        conversations:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              title:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                              exists:
+                                type: boolean
+                              archivedAt:
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
+                            required:
+                              - id
+                              - title
+                              - exists
+                              - archivedAt
+                            additionalProperties: false
                         estimatedCostUsd:
                           type: number
                         createdAt:
@@ -24842,6 +24865,7 @@ paths:
                         - conversationId
                         - conversationExists
                         - conversationArchivedAt
+                        - conversations
                         - estimatedCostUsd
                         - createdAt
                       additionalProperties: false
