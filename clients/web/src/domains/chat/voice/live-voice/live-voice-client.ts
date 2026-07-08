@@ -64,6 +64,22 @@ export interface LiveVoiceClientError {
 }
 
 /**
+ * Payload of the `closed` event. `code` is the WebSocket close code from the
+ * far side (velay/gateway/runtime) when the socket was closed remotely, or
+ * `null` when this client initiated the close (`close()`/`end()`/`fail()`).
+ *
+ * The distinction matters for reconnect: velay closes a proxied session with
+ * code 1013 ("Try Again Later") when its tunnel to the assistant drops — a
+ * transient, retryable condition the session controller should reconnect
+ * through rather than tear down. A local `null` close is deliberate and never
+ * reconnects.
+ */
+export interface LiveVoiceClientClosed {
+  readonly code: number | null;
+  readonly reason: string;
+}
+
+/**
  * Typed event payloads. Names map 1:1 to the server frame types (camelCased),
  * plus `closed` for transport teardown. Frame `seq` is preserved so consumers
  * can order or dedupe.
@@ -89,7 +105,7 @@ export interface LiveVoiceClientEventMap {
   busy: LiveVoiceBusyServerFrame;
   error: LiveVoiceClientError;
   /** Fired exactly once when the transport closes (clean or otherwise). */
-  closed: void;
+  closed: LiveVoiceClientClosed;
 }
 
 export type LiveVoiceClientEventName = keyof LiveVoiceClientEventMap;
@@ -227,7 +243,7 @@ export class LiveVoiceChannelClient {
     ws.onmessage = (event) => this.handleMessage(event);
     ws.onerror = () =>
       this.fail("connection-failed", "Live-voice WebSocket error");
-    ws.onclose = () => this.handleClose();
+    ws.onclose = (event) => this.handleClose(event);
 
     this.connectTimeout = setTimeout(() => {
       if (this.state === "connecting") {
@@ -270,7 +286,9 @@ export class LiveVoiceChannelClient {
   close(): void {
     if (this.state === "closed") return;
     this.teardown();
-    this.emit("closed", undefined);
+    // Locally initiated: `code: null` tells the controller this was a
+    // deliberate close (never a reconnect trigger).
+    this.emit("closed", { code: null, reason: "client closed" });
   }
 
   private handleOpen(): void {
@@ -368,7 +386,7 @@ export class LiveVoiceChannelClient {
     }
   }
 
-  private handleClose(): void {
+  private handleClose(event: CloseEvent): void {
     if (this.state === "closed") return;
     // An unexpected transport close before `ready` is a connection failure;
     // otherwise it's a clean teardown.
@@ -377,7 +395,9 @@ export class LiveVoiceChannelClient {
       return;
     }
     this.teardown();
-    this.emit("closed", undefined);
+    // Remotely initiated: forward the far-side close code so the controller
+    // can reconnect through a retryable tunnel drop (velay 1013).
+    this.emit("closed", { code: event.code, reason: event.reason });
   }
 
   private sendControlFrame(type: "ptt_release" | "interrupt"): void {
@@ -406,7 +426,8 @@ export class LiveVoiceChannelClient {
     if (this.state === "closed") return;
     this.teardown();
     this.emit("error", { reason, message, ...(code ? { code } : {}) });
-    this.emit("closed", undefined);
+    // Locally initiated after surfacing the failure; never a reconnect trigger.
+    this.emit("closed", { code: null, reason: message });
   }
 
   private teardown(): void {
