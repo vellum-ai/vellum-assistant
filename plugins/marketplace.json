@@ -208,6 +208,18 @@
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/amex-perk-reminder",
       "license": "MIT"
+    },
+    {
+      "name": "google-drive-search",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/google-drive-search",
+        "ref": "ddd5013477cc1ec8d1fb174db6b599dbfe1cca21"
+      },
+      "description": "Local full-text search across your Google Drive. Indexes file metadata and document content into SQLite FTS5 for instant, private search.",
+      "category": "productivity",
+      "homepage": "https://github.com/ZeebBoyBlue/google-drive-search",
+      "license": "Apache-2.0"
     }
   ]
 }
