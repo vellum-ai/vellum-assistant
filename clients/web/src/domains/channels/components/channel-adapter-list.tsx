@@ -3,6 +3,7 @@ import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import { Tag } from "@vellumai/design-library/components/tag";
 
 import { ChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
+import { publicAsset } from "@/utils/public-asset";
 import type {
   AssistantChannelState,
   SetupChannelId,
@@ -73,10 +74,21 @@ function AdapterRow({ channel, selected, onClick }: AdapterRowProps) {
         onClick={onClick}
         className="flex h-auto w-full items-center gap-2 rounded-[6px] px-[8px] py-2 text-left"
       >
-        <ChannelIcon
-          channelId={channel.key}
-          className="h-4 w-4 shrink-0 text-[color:var(--content-secondary)]"
-        />
+        {channel.key === "slack" ? (
+          // Slack ships a real brand logo (the same asset the connection card
+          // uses); the shared ChannelIcon only has a `#` stand-in for it, so
+          // render the logo directly. Telegram/Phone use their Lucide glyphs.
+          <img
+            src={publicAsset("/images/integrations/slack.svg")}
+            alt=""
+            className="h-4 w-4 shrink-0"
+          />
+        ) : (
+          <ChannelIcon
+            channelId={channel.key}
+            className="h-4 w-4 shrink-0 text-[color:var(--content-secondary)]"
+          />
+        )}
         <span className="min-w-0 flex-1 truncate text-body-medium-default">
           {label}
         </span>
