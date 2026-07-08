@@ -138,6 +138,11 @@ function getFeedbackClient(): "electron" | "ios" | "web" {
 
 type FeedbackDiagnosticsProvider = () => Record<string, unknown> | null;
 
+interface ExtraLogFile {
+  filename: string;
+  contents: string;
+}
+
 interface LogExportWindow {
   startTime: number | null;
   endTime: number;
@@ -238,11 +243,16 @@ async function buildClientLogsFile(
   timeRange: TimeRange,
   assistantId: string | null,
   activeConversationId: string | null,
-  diagnosticsProvider?: FeedbackDiagnosticsProvider,
+  options: {
+    diagnosticsProvider?: FeedbackDiagnosticsProvider;
+    doctorSessionId?: string | null;
+    extraLogFiles?: readonly ExtraLogFile[];
+  } = {},
 ): Promise<File | null> {
   if (typeof CompressionStream === "undefined") {
     return null;
   }
+  const { diagnosticsProvider, doctorSessionId, extraLogFiles = [] } = options;
   const now = new Date();
   const range = TIME_RANGES.find((t) => t.value === timeRange);
   const endTime = now.getTime();
@@ -265,6 +275,7 @@ async function buildClientLogsFile(
     },
     assistant_id: assistantId,
     active_conversation_id: activeConversationId,
+    doctor_session_id: doctorSessionId ?? null,
     user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     language: typeof navigator !== "undefined" ? navigator.language : "",
     platform: typeof navigator !== "undefined" ? navigator.platform : "",
@@ -293,10 +304,9 @@ async function buildClientLogsFile(
     hardwareConcurrency:
       typeof navigator !== "undefined" ? navigator.hardwareConcurrency : null,
   };
-  const contextBytes = new TextEncoder().encode(
-    JSON.stringify(payload, null, 2),
-  );
-  const diagnosticsBytes = new TextEncoder().encode(
+  const encoder = new TextEncoder();
+  const contextBytes = encoder.encode(JSON.stringify(payload, null, 2));
+  const diagnosticsBytes = encoder.encode(
     JSON.stringify(chatDiagnostics, null, 2),
   );
   const tarParts: Uint8Array[] = [
@@ -312,6 +322,13 @@ async function buildClientLogsFile(
     JSON.stringify(buildDebugFlagSnapshot(), null, 2),
   );
   tarParts.push(buildTarEntry("web-debug-flags.json", debugFlagBytes));
+
+  for (const file of extraLogFiles) {
+    const contents = file.contents.trim();
+    if (contents) {
+      tarParts.push(buildTarEntry(file.filename, encoder.encode(contents)));
+    }
+  }
 
   // Capture the live chat debug API state for indicator-stuck and
   // stuck-prompt reports. This is a separate file so support can diff it
@@ -452,6 +469,8 @@ export interface ShareFeedbackModalProps {
   assistantId?: string | null;
   assistantVersion?: string | null;
   activeConversationId?: string | null;
+  doctorSessionId?: string | null;
+  doctorSessionLog?: string | null;
   getDiagnosticsSnapshot?: FeedbackDiagnosticsProvider;
 }
 
@@ -464,6 +483,8 @@ export function ShareFeedbackModal({
   assistantId,
   assistantVersion,
   activeConversationId,
+  doctorSessionId,
+  doctorSessionLog,
   getDiagnosticsSnapshot,
 }: ShareFeedbackModalProps) {
   const authUser = useAuthStore.use.user();
@@ -560,6 +581,10 @@ export function ShareFeedbackModal({
     setHasManuallyToggledLogs(true);
   };
 
+  const doctorLogFiles: ExtraLogFile[] = doctorSessionLog?.trim()
+    ? [{ filename: "doctor-session.txt", contents: doctorSessionLog }]
+    : [];
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape" && !isSubmitting) {
@@ -642,12 +667,17 @@ export function ShareFeedbackModal({
     setIsBuildingLogs(true);
     try {
       const logsFile =
-        includeLogs && selectedReason !== "feature_request"
+        (includeLogs && selectedReason !== "feature_request") ||
+        doctorLogFiles.length > 0
           ? await buildClientLogsFile(
               logTimeRange,
               assistantId ?? null,
               isElectron() ? (includeConversation ? (activeConversationId ?? null) : null) : (activeConversationId ?? null),
-              getDiagnosticsSnapshot,
+              {
+                diagnosticsProvider: getDiagnosticsSnapshot,
+                doctorSessionId,
+                extraLogFiles: doctorLogFiles,
+              },
             )
           : null;
       await mutation.mutateAsync({
@@ -660,6 +690,7 @@ export function ShareFeedbackModal({
           client_version: import.meta.env.VITE_APP_VERSION ?? undefined,
           ...(assistantId ? { assistant_id: assistantId } : {}),
           ...(assistantVersion ? { assistant_version: assistantVersion } : {}),
+          ...(doctorSessionId ? { doctor_session_id: doctorSessionId } : {}),
           ...(logsFile ? { logs_file: logsFile } : {}),
           ...(attachments.length ? { attachments } : {}),
         },
@@ -717,7 +748,11 @@ export function ShareFeedbackModal({
             ? (activeConversationId ?? null)
             : null
           : (activeConversationId ?? null),
-        getDiagnosticsSnapshot,
+        {
+          diagnosticsProvider: getDiagnosticsSnapshot,
+          doctorSessionId,
+          extraLogFiles: doctorLogFiles,
+        },
       );
       if (!logsFile) {
         setSubmitError(

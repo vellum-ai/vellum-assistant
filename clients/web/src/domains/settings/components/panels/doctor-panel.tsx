@@ -383,6 +383,11 @@ export function DoctorPanel() {
     () => (sessionId || storeEntries.length > 0 ? storeEntries : (!historyDismissed ? historyEntries : [])),
     [sessionId, storeEntries, historyDismissed, historyEntries],
   );
+  const visibleDoctorSessionId = sessionId ?? (!historyDismissed ? latestHistorySessionId : null);
+  const doctorSessionLog = useMemo(
+    () => serializeSessionToText(entries),
+    [entries],
+  );
 
   // Scroll coordinator — auto-follows streaming growth only while the
   // user is pinned to the latest message. Scrolling away (drag on
@@ -730,6 +735,8 @@ export function DoctorPanel() {
         onClose={handleCloseFeedback}
         initialMessage={feedbackDraft?.message}
         assistantId={assistantId}
+        doctorSessionId={visibleDoctorSessionId}
+        doctorSessionLog={doctorSessionLog}
       />
     </div>
   );
