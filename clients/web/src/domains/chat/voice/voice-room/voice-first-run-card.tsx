@@ -1,10 +1,10 @@
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
-import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { VoiceTranscriptToggles } from "@/components/voice-transcript-toggles";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
+import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
 
 /**
  * One-time preferences card shown the first time a user enters voice mode,
@@ -36,36 +36,6 @@ export interface VoiceFirstRunCardProps {
   onDismiss?: () => void;
 }
 
-function RecommendedOffBadge() {
-  return (
-    <span className="shrink-0 rounded-full bg-[var(--surface-active)] px-2 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
-      Recommended off
-    </span>
-  );
-}
-
-function TranscriptToggleRow({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (next: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-1">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="truncate text-body-medium-lighter text-[var(--content-default)]">
-          {label}
-        </span>
-        <RecommendedOffBadge />
-      </div>
-      <Toggle checked={checked} onChange={onChange} aria-label={label} />
-    </div>
-  );
-}
-
 export function VoiceFirstRunCard({
   assistantId,
   onStart,
@@ -73,13 +43,6 @@ export function VoiceFirstRunCard({
 }: VoiceFirstRunCardProps) {
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
-
-  const showUserTranscript = useVoicePrefsStore.use.showUserTranscript();
-  const showAssistantTranscript =
-    useVoicePrefsStore.use.showAssistantTranscript();
-  const setShowUserTranscript = useVoicePrefsStore.use.setShowUserTranscript();
-  const setShowAssistantTranscript =
-    useVoicePrefsStore.use.setShowAssistantTranscript();
 
   return (
     <Modal.Root
@@ -112,19 +75,10 @@ export function VoiceFirstRunCard({
         </Modal.Header>
         <Modal.Body>
           <div className="flex flex-col gap-1">
-            <TranscriptToggleRow
-              label="Show the words you say"
-              checked={showUserTranscript}
-              onChange={setShowUserTranscript}
-            />
-            <TranscriptToggleRow
-              label="Show the words the assistant says"
-              checked={showAssistantTranscript}
-              onChange={setShowAssistantTranscript}
-            />
+            <VoiceTranscriptToggles showRecommendedBadge />
             <p className="pt-2 text-body-small-default text-[var(--content-tertiary)]">
-              You can change these anytime in settings. We recommend keeping
-              both off to start. It feels more like a real conversation.
+              You can change these anytime in settings.{" "}
+              {VOICE_TRANSCRIPT_RECOMMENDATION}
             </p>
           </div>
         </Modal.Body>

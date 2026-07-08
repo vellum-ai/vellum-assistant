@@ -14,6 +14,7 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { DetailCard } from "@/components/detail-card";
+import { VoiceTranscriptToggles } from "@/components/voice-transcript-toggles";
 import {
     getLocalSetting,
     removeLocalSetting,
@@ -38,7 +39,7 @@ import {
     getPreferredInputDeviceId,
 } from "@/utils/voice-input-device";
 import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
-import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
+import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
 
 const LS_CONVERSATION_TIMEOUT = "vellum:voice:conversationTimeoutSeconds";
 
@@ -90,64 +91,16 @@ export function VoicePage() {
   );
 }
 
-function TranscriptRow({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: string;
-  description?: string;
-  checked: boolean;
-  onChange: (next: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-1">
-      <div>
-        <div className="text-body-medium-lighter text-[var(--content-default)]">
-          {label}
-        </div>
-        {description && (
-          <div className="text-body-small-default text-[var(--content-tertiary)]">
-            {description}
-          </div>
-        )}
-      </div>
-      <Toggle checked={checked} onChange={onChange} aria-label={label} />
-    </div>
-  );
-}
-
 function TranscriptionCard() {
-  const showUserTranscript = useVoicePrefsStore.use.showUserTranscript();
-  const showAssistantTranscript =
-    useVoicePrefsStore.use.showAssistantTranscript();
-  const setShowUserTranscript =
-    useVoicePrefsStore.use.setShowUserTranscript();
-  const setShowAssistantTranscript =
-    useVoicePrefsStore.use.setShowAssistantTranscript();
-
   return (
     <DetailCard
       title="Transcription"
       subtitle="Show live text of what you and the assistant say during a voice conversation."
     >
       <div className="flex flex-col gap-2">
-        <TranscriptRow
-          label="Show the words you say"
-          description="Live transcription while you speak."
-          checked={showUserTranscript}
-          onChange={setShowUserTranscript}
-        />
-        <TranscriptRow
-          label="Show the words the assistant says"
-          description="Text alongside the spoken response."
-          checked={showAssistantTranscript}
-          onChange={setShowAssistantTranscript}
-        />
+        <VoiceTranscriptToggles showDescription />
         <p className={`${labelClasses} pt-1`}>
-          We recommend keeping both off to start. It feels more like a real
-          conversation.
+          {VOICE_TRANSCRIPT_RECOMMENDATION}
         </p>
       </div>
     </DetailCard>
