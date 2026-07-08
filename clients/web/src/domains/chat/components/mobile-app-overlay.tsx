@@ -60,43 +60,48 @@ export function MobileAppOverlay({
 
   return (
     <div
-      className={cn(
-        "fixed inset-x-0 z-30 transition-transform duration-300 ease-out",
-        // The minimized strip overlays the chat, so it needs a
-        // top-directional shadow to read as a layer above it rather than
-        // blending in.
-        isAppMinimized && "shadow-[0_-4px_16px_rgba(0,0,0,0.15)]",
-      )}
+      className="fixed inset-x-0 z-30 transition-transform duration-300 ease-out"
       style={{
         ...shellStyle,
         // Minimized: slide down until only the nav bar peeks above the bottom
         // edge. The bar is 64px tall on mobile (`py-3` 24px + 40px
-        // `touch-mobile:` buttons). Both insets the shell's padding applies
-        // must be subtracted: the top inset because `paddingTop` shifts the
-        // content down, and the hook's effective bottom inset
-        // (`--overlay-safe-area-bottom`) so the strip clears the iOS home
-        // indicator while the keyboard is closed yet sits flush on the
-        // keyboard while it's open (the hook zeroes the inset then).
+        // `touch-mobile:` buttons), and both safe-area insets must be
+        // subtracted — the top inset because the shell's `paddingTop` shifts
+        // the content down, the bottom inset so the strip clears the iOS home
+        // indicator instead of hiding under it. Figma review (node 6629-6730):
+        // "moves it too far down, should be higher".
         transform: isAppMinimized
-          ? "translateY(calc(100% - var(--app-strip-h, 64px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) - var(--overlay-safe-area-bottom, 0px)))"
+          ? "translateY(calc(100% - var(--app-strip-h, 64px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) - var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))))"
           : "translateY(0)",
       }}
     >
-      <AppViewerContainer
-        appId={openedAppState.appId}
-        appName={openedAppState.name}
-        html={openedAppState.html}
-        assistantId={assistantId ?? ""}
-        onClose={onClose}
-        onEdit={onToggleMinimized}
-        onShare={onShare}
-        isSharing={isSharing}
-        onDeploy={onDeploy}
-        isDeploying={isDeploying}
-        isEditing={isAppMinimized}
-        route={route}
-        onAction={onAction}
-      />
+      {/* Figma review (node 6629-6730): the minimized strip overlays the
+          chat, so it needs a top-directional shadow to read as a layer above
+          it. The shadow lives on this inner wrapper — not the outer fixed
+          box — because the outer box's `paddingTop` (safe-area inset) would
+          paint the shadow above the sheet's visible top edge. */}
+      <div
+        className={cn(
+          "h-full",
+          isAppMinimized && "shadow-[0_-4px_16px_rgba(0,0,0,0.15)]",
+        )}
+      >
+        <AppViewerContainer
+          appId={openedAppState.appId}
+          appName={openedAppState.name}
+          html={openedAppState.html}
+          assistantId={assistantId ?? ""}
+          onClose={onClose}
+          onEdit={onToggleMinimized}
+          onShare={onShare}
+          isSharing={isSharing}
+          onDeploy={onDeploy}
+          isDeploying={isDeploying}
+          isEditing={isAppMinimized}
+          route={route}
+          onAction={onAction}
+        />
+      </div>
     </div>
   );
 }
