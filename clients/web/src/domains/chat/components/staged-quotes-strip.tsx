@@ -10,11 +10,7 @@
 
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
-import {
-  Button,
-  Card,
-  Typography,
-} from "@vellumai/design-library";
+import { Button, Card, Typography } from "@vellumai/design-library";
 import {
   quoteBlockquoteAccentClassName,
   quoteBlockquoteClassName,
@@ -35,7 +31,8 @@ function truncate(text: string, maxLen: number): string {
 
 function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
   const removeStagedQuote = useQuoteReplyStore.use.removeStagedQuote();
-  const updateStagedQuoteReply = useQuoteReplyStore.use.updateStagedQuoteReply();
+  const updateStagedQuoteReply =
+    useQuoteReplyStore.use.updateStagedQuoteReply();
   const replyRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Auto-grow the reply field to fit its content.
@@ -60,10 +57,7 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
           variant="body-small-default"
           className={`${quoteBlockquoteClassName} mb-0`}
         >
-          <span
-            aria-hidden="true"
-            className={quoteBlockquoteAccentClassName}
-          />
+          <span aria-hidden="true" className={quoteBlockquoteAccentClassName} />
           <span className={quoteBlockquoteContentClassName}>
             {truncate(quote.quotedText, 80)}
           </span>
@@ -71,9 +65,7 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
         <textarea
           ref={replyRef}
           value={quote.replyText}
-          onChange={(e) =>
-            updateStagedQuoteReply(quote.id, e.target.value)
-          }
+          onChange={(e) => updateStagedQuoteReply(quote.id, e.target.value)}
           rows={1}
           placeholder="Type your reply…"
           aria-label="Edit reply"
@@ -118,7 +110,7 @@ export function StagedQuotesStrip() {
   }
 
   return (
-    <div ref={scrollRef} className="mb-2 max-h-[180px] overflow-y-auto touch-mobile:px-3">
+    <div ref={scrollRef} className="mb-2 max-h-[180px] overflow-y-auto">
       <div className="flex flex-col gap-1.5">
         {stagedQuotes.map((quote) => (
           <StagedQuoteChip key={quote.id} quote={quote} />
