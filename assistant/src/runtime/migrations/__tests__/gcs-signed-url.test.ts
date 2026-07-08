@@ -8,8 +8,9 @@
  * - `http://` is rejected with reason `scheme`.
  * - A non-GCS host is rejected with reason `host`.
  * - A GCS URL with no signature query param is rejected with reason
- *   `missing_signature`; an unsigned URL on a non-default allowlist is
- *   accepted (allowlisted hosts don't issue GCS-style signatures).
+ *   `missing_signature`; SigV4 (`X-Amz-Signature`) is accepted only for
+ *   hosts on a non-default allowlist, and unsigned URLs are rejected
+ *   everywhere.
  * - A GCS URL with a non-default explicit port (e.g. `:1234`, `:80`) is
  *   rejected with reason `port`. A URL with `:443` is accepted because
  *   WHATWG URL normalizes the default HTTPS port to an empty port
@@ -112,11 +113,13 @@ describe("validateGcsSignedUrl", () => {
     expect(result).toEqual({ ok: false, reason: "missing_signature" });
   });
 
-  test("accepts an unsigned URL for a host on a non-default allowlist", () => {
-    // The local/minikube platform serves bundles over plain http with no
-    // GCS-style signature params — the explicit allowlist is the trust
-    // anchor there, so the signature requirement is skipped.
-    const url = "http://host.docker.internal:8000/bucket/object.tgz";
+  test("accepts a SigV4-signed URL for a host on a non-default allowlist", () => {
+    // The local/minikube platform serves SigV4 presigned URLs (SeaweedFS)
+    // over plain http — X-Amz-Signature satisfies the signature-shape
+    // requirement for explicitly allowlisted hosts.
+    const url =
+      "http://host.docker.internal:8000/bucket/object.tgz" +
+      "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeef";
 
     const result = validateGcsSignedUrl(url, {
       allowedHosts: ["host.docker.internal"],
@@ -128,8 +131,29 @@ describe("validateGcsSignedUrl", () => {
     }
   });
 
-  test("still rejects traversal in an unsigned allowlisted URL", () => {
-    const url = "http://host.docker.internal:8000/bucket/../secret";
+  test("rejects an unsigned URL even on a non-default allowlist", () => {
+    const url = "http://host.docker.internal:8000/bucket/object.tgz";
+
+    const result = validateGcsSignedUrl(url, {
+      allowedHosts: ["host.docker.internal"],
+    });
+    expect(result).toEqual({ ok: false, reason: "missing_signature" });
+  });
+
+  test("rejects X-Amz-Signature on the default GCS allowlist", () => {
+    // SigV4 is only meaningful for allowlisted S3-compatible hosts; a GCS
+    // URL signed with the wrong scheme's param is not a GCS presigned URL.
+    const url =
+      "https://storage.googleapis.com/bucket/key?X-Amz-Signature=deadbeef";
+
+    const result = validateGcsSignedUrl(url);
+    expect(result).toEqual({ ok: false, reason: "missing_signature" });
+  });
+
+  test("still rejects traversal in a SigV4-signed allowlisted URL", () => {
+    const url =
+      "http://host.docker.internal:8000/bucket/../secret" +
+      "?X-Amz-Signature=deadbeef";
 
     const result = validateGcsSignedUrl(url, {
       allowedHosts: ["host.docker.internal"],

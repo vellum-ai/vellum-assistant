@@ -14,12 +14,11 @@
  *   - The hostname is exactly `storage.googleapis.com`.
  *   - No explicit port is present (the default HTTPS port is required;
  *     WHATWG URL normalizes `:443` to an empty port string for HTTPS).
- *   - The URL carries a signature query param — either `X-Goog-Signature`
- *     (V4 signing) or `Signature` (V2 signing). If neither is present
- *     the URL is not a signed URL and we refuse it. Skipped for a
- *     non-default allowlist: those hosts (local/minikube platform serving
- *     bundles over plain http) don't issue GCS-style signatures at all,
- *     and the host allowlist itself is the trust anchor there.
+ *   - The URL carries a signature query param — `X-Goog-Signature` (GCS
+ *     V4) or `Signature` (GCS V2); for hosts on a non-default allowlist
+ *     (local/minikube SeaweedFS) SigV4's `X-Amz-Signature` is also
+ *     accepted. A URL with no signature param is not a presigned URL and
+ *     is refused.
  *   - The pathname does not contain `..` segments (traversal guard).
  *
  * On success we return the hostname and pathname for logging/telemetry.
@@ -92,18 +91,20 @@ export function validateGcsSignedUrl(
     return { ok: false, reason: "port" };
   }
 
-  // A non-default allowlist names hosts that don't issue GCS-style signed
-  // URLs (the local/minikube platform serves bundles over plain http), so
-  // requiring a signature there would reject every legitimate URL. The
-  // explicit allowlist is the trust anchor for those hosts — same rationale
-  // as the scheme/port relaxations above. The production default (GCS only)
-  // still requires a signature.
-  if (isDefaultHostList) {
-    const hasV4 = parsed.searchParams.has("X-Goog-Signature");
-    const hasV2 = parsed.searchParams.has("Signature");
-    if (!hasV4 && !hasV2) {
-      return { ok: false, reason: "missing_signature" };
-    }
+  // Every URL must carry a signature param — possession of a complete
+  // presigned URL is the capability, and this shape check keeps unsigned
+  // object paths from being fetched/PUT even on allowlisted hosts. GCS
+  // signs with X-Goog-Signature (V4) or Signature (V2); S3-compatible
+  // backends behind a non-default allowlist (local/minikube SeaweedFS)
+  // sign with X-Amz-Signature (SigV4), which is only accepted for
+  // explicitly allowlisted hosts. The storage backend itself verifies the
+  // signature; this validator only checks the shape.
+  const hasV4 = parsed.searchParams.has("X-Goog-Signature");
+  const hasV2 = parsed.searchParams.has("Signature");
+  const hasSigV4 =
+    !isDefaultHostList && parsed.searchParams.has("X-Amz-Signature");
+  if (!hasV4 && !hasV2 && !hasSigV4) {
+    return { ok: false, reason: "missing_signature" };
   }
 
   // Defense-in-depth: reject any `..` path segment. The WHATWG URL
