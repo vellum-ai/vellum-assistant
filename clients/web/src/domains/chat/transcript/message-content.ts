@@ -16,6 +16,7 @@ import type {
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
+import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
 import {
   containsInlineThinkingTag,
   parseInlineThinkingTags,
@@ -177,6 +178,42 @@ export function groupContentBlocks(
   }
 
   return groups;
+}
+
+/**
+ * Project an activity group's ordered items into the card-rendering shape:
+ * ordered `ToolCallCardItem`s (thinking text interleaved with tool calls)
+ * plus the flat tool-call list. Empty thinking segments and suppressed UI
+ * tools are dropped. Single source of truth for the transcript's
+ * `MultiActivityGroup` props and the activity-steps side panel's live
+ * re-derivation, so the two views cannot drift.
+ */
+export function activityItemsToCardData(items: ContentBlockActivityItem[]): {
+  cardItems: ToolCallCardItem[];
+  toolCalls: ChatMessageToolCall[];
+} {
+  const cardItems: ToolCallCardItem[] = [];
+  const toolCalls: ChatMessageToolCall[] = [];
+  for (const item of items) {
+    if (item.type === "thinking") {
+      if (item.thinking) {
+        cardItems.push({
+          kind: "thinking",
+          text: item.thinking,
+          startedAt: item.startedAt,
+          completedAt: item.completedAt,
+        });
+      }
+      continue;
+    }
+    const tc = item.toolCall;
+    if (isSuppressedUiTool(tc)) {
+      continue;
+    }
+    toolCalls.push(tc);
+    cardItems.push({ kind: "toolCall", toolCall: tc });
+  }
+  return { cardItems, toolCalls };
 }
 
 /**

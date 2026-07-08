@@ -14,6 +14,7 @@
  * - `viewBeforeDocument` / `viewBeforeSubagentDetail` / `viewBeforeToolDetail` / `viewBeforeWorkflowDetail` / `viewBeforeAcpRunDetail` — previous view for restoration
  * - `activeSubagentId` — subagent detail panel
  * - `activeToolDetail` — tool-call detail drawer payload
+ * - `activeActivitySteps` — activity-steps side panel payload (a group's full timeline)
  * - `activeWorkflowRunId` — workflow detail panel
  * - `activeAcpRunId` — ACP run detail panel
  * - `activeBackgroundTaskId` — background-task detail panel
@@ -28,6 +29,8 @@ import { create } from "zustand";
 
 import type { SetupChannelId } from "@/types/channel-types";
 import type { ProcessKind } from "@/domains/chat/process-registry/types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
 import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 
@@ -39,6 +42,7 @@ type OverlayView =
   | "document"
   | "subagent-detail"
   | "tool-detail"
+  | "activity-steps"
   | "workflow-detail"
   | "acp-run-detail"
   | "background-task-detail"
@@ -102,6 +106,7 @@ function resolveViewBefore(
     | "viewBeforeDocument"
     | "viewBeforeSubagentDetail"
     | "viewBeforeToolDetail"
+    | "viewBeforeActivitySteps"
     | "viewBeforeWorkflowDetail"
     | "viewBeforeAcpRunDetail"
     | "viewBeforeBackgroundTaskDetail"
@@ -112,6 +117,7 @@ function resolveViewBefore(
     mv === "document" ||
     mv === "subagent-detail" ||
     mv === "tool-detail" ||
+    mv === "activity-steps" ||
     mv === "workflow-detail" ||
     mv === "acp-run-detail" ||
     mv === "background-task-detail" ||
@@ -133,6 +139,7 @@ export type MainView =
   | "document"
   | "subagent-detail"
   | "tool-detail"
+  | "activity-steps"
   | "workflow-detail"
   | "acp-run-detail"
   | "background-task-detail"
@@ -224,6 +231,39 @@ export interface ToolDetailPayload {
   thinkingItemIndex?: number;
 }
 
+/**
+ * Payload for the activity-steps side panel — the full steps timeline of one
+ * contiguous thinking + tool run (a `MultiActivityGroup`).
+ *
+ * `messageId` + `groupIndex` are the stable identity of the activity group in
+ * the transcript: the open panel re-derives live items from the chat-session
+ * store (via `useLiveActivityGroup`) so it streams as new steps land. The
+ * embedded `items` / `toolCalls` are the open-time snapshot, used only when
+ * the live source can't be resolved (message paged out, or identity-less
+ * callers like stories).
+ */
+export interface ActivityStepsPayload {
+  messageId?: string;
+  groupIndex?: number;
+  items: ToolCallCardItem[];
+  toolCalls: ChatMessageToolCall[];
+}
+
+/**
+ * Whether two activity-steps payloads address the same transcript group.
+ * Keys on the stable (message, group) identity when present, falling back to
+ * the first tool-call id for identity-less callers.
+ */
+export function sameActivityStepsTarget(
+  a: ActivityStepsPayload,
+  b: ActivityStepsPayload,
+): boolean {
+  if (a.messageId != null || b.messageId != null) {
+    return a.messageId === b.messageId && a.groupIndex === b.groupIndex;
+  }
+  return a.toolCalls[0]?.id === b.toolCalls[0]?.id;
+}
+
 /** The identity fields a thinking drawer target is matched on. */
 type ThinkingTarget = Pick<
   ToolDetailPayload,
@@ -271,6 +311,8 @@ export interface ViewerState {
   viewBeforeSubagentDetail: Exclude<MainView, OverlayView>;
   activeToolDetail: ToolDetailPayload | null;
   viewBeforeToolDetail: Exclude<MainView, OverlayView>;
+  activeActivitySteps: ActivityStepsPayload | null;
+  viewBeforeActivitySteps: Exclude<MainView, OverlayView>;
   activeWorkflowRunId: string | null;
   viewBeforeWorkflowDetail: Exclude<MainView, OverlayView>;
   activeAcpRunId: string | null;
@@ -350,6 +392,16 @@ export interface ViewerActions {
   closeToolDetail: () => void;
   requestRuleEditorForActiveTool: () => void;
 
+  // --- Activity steps panel ---
+  openActivitySteps: (payload: ActivityStepsPayload) => void;
+  /**
+   * Open the activity-steps panel for `payload`, or close it when the panel
+   * is already showing the SAME group. Powers the multi-activity header where
+   * clicking the already-open group dismisses the panel.
+   */
+  toggleActivitySteps: (payload: ActivityStepsPayload) => void;
+  closeActivitySteps: () => void;
+
   // --- Channel setup ---
   openChannelSetup: (payload: ChannelSetupPayload) => void;
   closeChannelSetup: () => void;
@@ -389,6 +441,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeSubagentDetail: "chat",
   activeToolDetail: null,
   viewBeforeToolDetail: "chat",
+  activeActivitySteps: null,
+  viewBeforeActivitySteps: "chat",
   activeWorkflowRunId: null,
   viewBeforeWorkflowDetail: "chat",
   activeAcpRunId: null,
@@ -669,6 +723,40 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   requestRuleEditorForActiveTool: () => {
     if (!get().activeToolDetail) return;
     set((s) => ({ ruleEditorRequestSeq: s.ruleEditorRequestSeq + 1 }));
+  },
+
+  // --- Activity steps panel ---
+
+  openActivitySteps: (payload) => {
+    set({
+      mainView: "activity-steps",
+      activeActivitySteps: payload,
+      viewBeforeActivitySteps: resolveViewBefore(
+        get(),
+        "viewBeforeActivitySteps",
+      ),
+    });
+  },
+
+  toggleActivitySteps: (payload) => {
+    const state = get();
+    const active = state.activeActivitySteps;
+    const isSameTarget =
+      state.mainView === "activity-steps" &&
+      active != null &&
+      sameActivityStepsTarget(active, payload);
+    if (isSameTarget) {
+      get().closeActivitySteps();
+    } else {
+      get().openActivitySteps(payload);
+    }
+  },
+
+  closeActivitySteps: () => {
+    set({
+      mainView: get().viewBeforeActivitySteps,
+      activeActivitySteps: null,
+    });
   },
 
   // --- Document viewer ---

@@ -27,16 +27,15 @@ function makeToolCall(
 
 /**
  * Default, no-op pass-through props so each story only has to supply the
- * `toolCalls` (and optionally `items`). `autoExpand` defaults to `true` so the
- * expanded body (phase sections + step pills) shows by default — stories that
- * want the collapsed header pass `autoExpand: false`.
+ * `toolCalls` (and optionally `items`). The group renders as an inline header
+ * that opens the activity-steps side panel on click — see the
+ * `Chat/ActivityStepsPanel` stories for the timeline itself.
  */
 function baseProps(
   overrides: Partial<MultiActivityGroupProps> = {},
 ): MultiActivityGroupProps {
   return {
     toolCalls: [],
-    autoExpand: true,
     ...overrides,
   };
 }
@@ -334,27 +333,29 @@ export const GroupedWebSearch: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// Collapsed
+// Streaming
 // ---------------------------------------------------------------------------
 
-export const Collapsed: Story = {
+/**
+ * A run with a still-running tool: the header renders no status icon — the
+ * carousel title carries the loading signal via the avatar-tinted shimmer
+ * sweep (`StreamingShimmerText`).
+ */
+export const Streaming: Story = {
   render: () => {
     const items: ToolCallCardItem[] = [
       { kind: "thinking", text: "Checking the time, then the workspace." },
       {
         kind: "toolCall",
         toolCall: makeToolCall({
+          completedAt: undefined,
           input: { command: "date", activity: "Checking the current time" },
         }),
       },
     ];
     return (
       <MultiActivityGroup
-        {...baseProps({
-          autoExpand: false,
-          items,
-          toolCalls: toolCallsFromItems(items),
-        })}
+        {...baseProps({ items, toolCalls: toolCallsFromItems(items) })}
       />
     );
   },

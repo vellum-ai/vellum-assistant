@@ -101,17 +101,17 @@ describe("SingleActivity — thinking variant", () => {
     expect(useViewerStore.getState().mainView).toBe("chat");
   });
 
-  test("while streaming, shows the three-dot loader + reasoning preview (no brain)", () => {
+  test("while streaming, shimmers the reasoning preview label", () => {
     const { getByTestId, getByText, queryByText, container } = render(
       <SingleActivity variant="thinking" content={CONTENT} isStreaming />,
     );
 
     expect(getByText(CONTENT)).toBeTruthy();
     expect(queryByText("Thought process")).toBeNull();
-    // The brain glyph is swapped for the three-dot indicator, so only the
-    // trailing chevron remains as an svg.
+    // The label renders through the streaming shimmer; the brain glyph stays,
+    // so both it and the trailing chevron are present as svgs.
     expect(getByTestId("thought-process-loading")).toBeTruthy();
-    expect(container.querySelectorAll("svg").length).toBe(1);
+    expect(container.querySelectorAll("svg").length).toBe(2);
   });
 
   test("while streaming, labels with the first sentence from the latest paragraph", () => {
