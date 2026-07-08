@@ -58,6 +58,22 @@ describe("ChannelAdapterList", () => {
     expect(rowFor("Phone").textContent).toContain("Not connected");
   });
 
+  test("names each row with its adapter and status for screen readers", () => {
+    render(
+      <ChannelAdapterList
+        channels={CHANNELS}
+        selectedKey="slack"
+        onSelect={() => {}}
+      />,
+    );
+    // PanelItem forwards the label to the button's aria-label, so it must carry
+    // the connection status — not just the adapter name.
+    expect(rowFor("Slack").getAttribute("aria-label")).toBe("Slack, Connected");
+    expect(rowFor("Telegram").getAttribute("aria-label")).toBe(
+      "Telegram, Not connected",
+    );
+  });
+
   test("marks only the selected row as the current page", () => {
     render(
       <ChannelAdapterList

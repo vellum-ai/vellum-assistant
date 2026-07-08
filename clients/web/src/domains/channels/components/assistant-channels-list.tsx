@@ -207,14 +207,19 @@ export function AssistantChannelsList({
     policy: AdmissionPolicy;
   } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Capture the `?setup=<channel>` deep link once at mount. `useSetupChannelParam`
+  // consumes (clears) the param right after the first render, so reading the
+  // prop later races against this component's own store update; the frozen
+  // value reliably drives both the initial selection and the manual-entry seed.
+  const [setupChannel] = useState(initialChannel);
 
-  // A `?setup=<channel>` deep link selects that adapter on arrival; its panel
-  // then opens the manual credential form (see `initialManualEntry`).
+  // Select the deep-linked adapter on arrival; its panel then opens the manual
+  // credential form (see `initialManualEntry`).
   useEffect(() => {
-    if (initialChannel) {
-      selectAdapter(initialChannel);
+    if (setupChannel) {
+      selectAdapter(setupChannel);
     }
-  }, [initialChannel, selectAdapter]);
+  }, [setupChannel, selectAdapter]);
 
   const displayName = toAssistantDisplayName(assistantName);
   const disconnectMeta = pendingDisconnect
@@ -262,7 +267,7 @@ export function AssistantChannelsList({
       assistantName={assistantName}
       assistantDisplayName={displayName}
       pending={pendingChannelKey === selected.key}
-      initialManualEntry={initialChannel === selected.key}
+      initialManualEntry={setupChannel === selected.key}
       onSetup={onSetup ? () => onSetup(selected.key) : undefined}
       onDisconnect={
         onDisconnect ? () => setPendingDisconnect(selected.key) : undefined
@@ -289,7 +294,7 @@ export function AssistantChannelsList({
 
   return (
     <>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden sm:flex-row sm:gap-6">
         <div className="flex items-center sm:hidden">
           <MobileSidebarTrigger onClick={() => setDrawerOpen(true)} />
         </div>
@@ -306,7 +311,7 @@ export function AssistantChannelsList({
           />
         </MobileSidebarDrawer>
 
-        <aside className="hidden w-[320px] shrink-0 self-start sm:sticky sm:top-0 sm:block">
+        <aside className="hidden min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch sm:block">
           <ChannelAdapterList
             channels={channels}
             selectedKey={selected.key}
@@ -316,7 +321,7 @@ export function AssistantChannelsList({
 
         {/* Slack brings its own cards (connection card + channel list); the
             other adapters render bare content, so wrap them in a card to match. */}
-        <section className="min-w-0 flex-1">
+        <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {selected.key === "slack" ? detail : <DetailCard>{detail}</DetailCard>}
         </section>
       </div>

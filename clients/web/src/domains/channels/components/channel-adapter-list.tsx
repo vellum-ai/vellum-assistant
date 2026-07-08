@@ -3,7 +3,6 @@ import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import { Tag } from "@vellumai/design-library/components/tag";
 
 import { ChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
-import { publicAsset } from "@/utils/public-asset";
 import type {
   AssistantChannelState,
   SetupChannelId,
@@ -61,51 +60,30 @@ interface AdapterRowProps {
 
 function AdapterRow({ channel, selected, onClick }: AdapterRowProps) {
   const connected = channel.status === "ready";
+  const label = getChannelLabel(channel.key);
+  const statusLabel = connected ? "Connected" : "Not connected";
 
   return (
-    <PanelItem asChild active={selected} label={getChannelLabel(channel.key)}>
+    // `PanelItem` forwards `label` to the button's aria-label, so fold the
+    // status into it — otherwise screen readers announce only "Slack" and miss
+    // the connection state, which is the row's whole point.
+    <PanelItem asChild active={selected} label={`${label}, ${statusLabel}`}>
       <button
         type="button"
         onClick={onClick}
-        className="flex h-auto w-full items-center gap-3 rounded-[6px] px-[8px] py-2 text-left"
+        className="flex h-auto w-full items-center gap-2 rounded-[6px] px-[8px] py-2 text-left"
       >
-        <AdapterIcon channelKey={channel.key} />
-        <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
-          <span className="truncate text-body-medium-default">
-            {getChannelLabel(channel.key)}
-          </span>
-          <Tag tone={connected ? "positive" : "neutral"}>
-            {connected ? "Connected" : "Not connected"}
-          </Tag>
+        <ChannelIcon
+          channelId={channel.key}
+          className="h-4 w-4 shrink-0 text-[color:var(--content-secondary)]"
+        />
+        <span className="min-w-0 flex-1 truncate text-body-medium-default">
+          {label}
+        </span>
+        <span className="flex shrink-0 items-center">
+          <Tag tone={connected ? "positive" : "neutral"}>{statusLabel}</Tag>
         </span>
       </button>
     </PanelItem>
-  );
-}
-
-/**
- * Adapter tile: the Slack brand mark for Slack (its Lucide stand-in is a
- * bare `#`), and the shared Lucide channel glyph for the rest (Telegram's
- * paper plane, Phone's handset). Rendered in a uniform rounded square so the
- * three rows line up as consistent app tiles.
- */
-function AdapterIcon({ channelKey }: { channelKey: SetupChannelId }) {
-  if (channelKey === "slack") {
-    return (
-      <img
-        src={publicAsset("/images/integrations/slack.svg")}
-        alt=""
-        className="size-6 shrink-0 rounded-[6px] bg-[var(--surface-sunken)] p-1"
-      />
-    );
-  }
-
-  return (
-    <span className="flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-[var(--surface-sunken)]">
-      <ChannelIcon
-        channelId={channelKey}
-        className="size-3.5 text-[color:var(--content-secondary)]"
-      />
-    </span>
   );
 }
