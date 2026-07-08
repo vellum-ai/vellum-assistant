@@ -19,7 +19,7 @@
  * paged out, or identity-less callers like stories).
  */
 
-import { Brain, ChevronLeft } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { useState } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
@@ -99,46 +99,73 @@ export function ActivityStepsPanel({
   // The pill's click handler reads the raw call to build the detail payload.
   const toolCallById = new Map(toolCalls.map((tc) => [tc.id, tc]));
 
+  // Level-2 header title: the step's own label, prefixed by the back
+  // chevron. Mirrors `ToolDetailPanel`'s activity-first title for tools.
+  const stepDetailTitle = stepDetail
+    ? stepDetail.kind === "thinking"
+      ? "Thinking"
+      : stepDetail.activity || stepDetail.title
+    : "";
+
   return (
     <DetailShell
-      // Title cluster per Figma: title · N steps — inline at the same size,
-      // separated by a 3px midline dot, count in the secondary tone.
       titleNode={
-        <span className="flex min-w-0 items-center gap-1.5 py-0.5">
-          <Typography
-            variant="title-medium"
-            className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
-          >
-            {isRunning ? (
-              <StreamingShimmerText>{title}</StreamingShimmerText>
-            ) : (
-              title
-            )}
-          </Typography>
-          {cardData.stepCount ? (
-            <>
-              <span
-                aria-hidden
-                className="size-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
-              />
-              <Typography
-                variant="title-medium"
-                className="shrink-0 whitespace-nowrap leading-snug text-[var(--content-secondary)]"
-              >
-                {cardData.stepCount}
-              </Typography>
-            </>
-          ) : null}
-        </span>
+        stepDetail ? (
+          // Drilled into a step: back chevron + the step's title replace the
+          // run summary, so the header always names what the body shows.
+          <span className="flex min-w-0 items-center gap-1 py-0.5">
+            <Button
+              variant="ghost"
+              size="compact"
+              iconOnly={<ChevronLeft />}
+              aria-label="Back to all steps"
+              tooltip="All steps"
+              onClick={() => setStepDetail(null)}
+              className="-ml-2 shrink-0"
+            />
+            <Typography
+              variant="title-medium"
+              className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
+            >
+              {stepDetailTitle}
+            </Typography>
+          </span>
+        ) : (
+          // Timeline level, per Figma: title · N steps — inline at the same
+          // size, separated by a 3px midline dot, count in the secondary tone.
+          <span className="flex min-w-0 items-center gap-1.5 py-0.5">
+            <Typography
+              variant="title-medium"
+              className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
+            >
+              {isRunning ? (
+                <StreamingShimmerText>{title}</StreamingShimmerText>
+              ) : (
+                title
+              )}
+            </Typography>
+            {cardData.stepCount ? (
+              <>
+                <span
+                  aria-hidden
+                  className="size-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
+                />
+                <Typography
+                  variant="title-medium"
+                  className="shrink-0 whitespace-nowrap leading-snug text-[var(--content-secondary)]"
+                >
+                  {cardData.stepCount}
+                </Typography>
+              </>
+            ) : null}
+          </span>
+        )
       }
       closeLabel="Close steps"
       onClose={onClose}
     >
       {stepDetail ? (
-        <StepDetailLevel
-          detail={stepDetail}
-          onBack={() => setStepDetail(null)}
-        />
+        <StepDetailLevel detail={stepDetail} />
       ) : (
         <PhaseGroupedStepList
           steps={cardData.steps}
@@ -249,17 +276,12 @@ function TimelineStep({
 }
 
 /**
- * Level 2 — a single step's detail with the back affordance. Thinking details
- * render the live reasoning markdown; tool details reuse the shared
- * `ToolDetailBody` (technical details + streaming output).
+ * Level 2 — a single step's detail. The back affordance lives in the panel
+ * header (the chevron next to the step title). Thinking details render the
+ * live reasoning markdown; tool details reuse the shared `ToolDetailBody`
+ * (technical details + streaming output).
  */
-function StepDetailLevel({
-  detail,
-  onBack,
-}: {
-  detail: ToolDetailPayload;
-  onBack: () => void;
-}) {
+function StepDetailLevel({ detail }: { detail: ToolDetailPayload }) {
   // Live reasoning for thinking details — streams while the panel is open,
   // falling back to the click-time snapshot when the source can't be
   // resolved. Called unconditionally (hook rules); no-ops for tool details.
@@ -271,35 +293,11 @@ function StepDetailLevel({
 
   return (
     <div className="flex flex-col gap-4">
-      <Button
-        variant="ghost"
-        size="compact"
-        onClick={onBack}
-        aria-label="Back to all steps"
-        className="-ml-2 w-fit gap-1 text-[var(--content-secondary)]"
-      >
-        <ChevronLeft className="size-4 shrink-0" aria-hidden />
-        All steps
-      </Button>
       {detail.kind === "thinking" ? (
-        <div className="flex flex-col gap-3">
-          <span className="flex items-center gap-2">
-            <Brain
-              className="size-4 shrink-0 text-[var(--content-secondary)]"
-              aria-hidden
-            />
-            <Typography
-              variant="body-medium-default"
-              className="text-[var(--content-default)]"
-            >
-              Thinking
-            </Typography>
-          </span>
-          <ChatMarkdownMessage
-            content={liveThinking ?? detail.thinkingText ?? ""}
-            hardLineBreaks
-          />
-        </div>
+        <ChatMarkdownMessage
+          content={liveThinking ?? detail.thinkingText ?? ""}
+          hardLineBreaks
+        />
       ) : (
         <ToolDetailBody detail={detail} />
       )}

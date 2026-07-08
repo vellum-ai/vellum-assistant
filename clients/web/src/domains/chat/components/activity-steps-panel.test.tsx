@@ -116,14 +116,24 @@ describe("ActivityStepsPanel — level 1 timeline", () => {
 
 describe("ActivityStepsPanel — level 2 drill-in", () => {
   test("clicking a tool step shows its detail with a back button", () => {
-    const { getByLabelText, getByText, getByRole, queryByTestId } =
-      renderPanel();
+    const {
+      getAllByText,
+      getByLabelText,
+      getByText,
+      getByRole,
+      queryByTestId,
+      queryByText,
+    } = renderPanel();
     fireEvent.click(getByLabelText("View details: Checking git status"));
     // Level 2: the tool detail body (technical details + output).
     expect(getByText("Technical details")).toBeTruthy();
     expect(getByText("On branch main")).toBeTruthy();
-    // The timeline is replaced, and the back affordance is present.
+    // The timeline is replaced, and the header swaps to the step's title with
+    // the back chevron on its left (the run summary is gone). The activity
+    // label appears twice: the header title and the detail body's subtitle.
     expect(queryByTestId("phase-header")).toBeNull();
+    expect(queryByText(/Worked for/)).toBeNull();
+    expect(getAllByText("Checking git status").length).toBeGreaterThan(1);
     expect(getByRole("button", { name: /back to all steps/i })).toBeTruthy();
   });
 
