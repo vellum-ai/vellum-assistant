@@ -121,9 +121,12 @@ export function SkillDetailPage() {
   }
 
   // `refetchOnMount: "always"` means every mount revalidates — a failed
-  // background refetch sets `isError` while keeping the cached list, so only
-  // surface the full-page error when there's no data to fall back on.
-  if (skillsQuery.isError && !skills) {
+  // background refetch sets `isError` while keeping the cached list. Gate the
+  // full-page error on the RESOLVED skill, not on cached data existing: a
+  // cached list that contains the skill degrades to the cached detail, but a
+  // cached list that lacks it (e.g. a fresh skill) plus a failed revalidation
+  // must surface the error — not fall through to a false "Skill not found".
+  if (skillsQuery.isError && !skill) {
     return <SkillsErrorState />;
   }
 
