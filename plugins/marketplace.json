@@ -250,7 +250,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/plant-doctor",
-        "ref": "ccb5058589e589de019602776aac728c6adcda1b"
+        "ref": "1115ac07a5b7f731600f037b743e011a84bd0597"
       },
       "description": "Diagnose plants from photos. Identifies the species, assesses health with visible evidence, and returns a care plan. Named plants get a persistent checkup history so you can track whether they are improving.",
       "category": "lifestyle",
