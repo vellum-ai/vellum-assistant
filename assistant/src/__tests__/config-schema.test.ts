@@ -877,6 +877,7 @@ describe("AssistantConfigSchema", () => {
         language: "en-US",
         interruptSensitivity: "low",
         telephonyStreaming: true,
+        utteranceEndMs: 1000,
       },
       callerIdentity: {
         allowPerCallOverride: true,
@@ -1015,6 +1016,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.voice.language).toBe("en-US");
     expect(result.calls.voice.interruptSensitivity).toBe("low");
     expect(result.calls.voice.telephonyStreaming).toBe(true);
+    expect(result.calls.voice.utteranceEndMs).toBe(1000);
   });
 
   test("accepts valid calls.voice overrides", () => {
@@ -1023,11 +1025,35 @@ describe("AssistantConfigSchema", () => {
         voice: {
           language: "es-ES",
           telephonyStreaming: false,
+          utteranceEndMs: 2500,
         },
       },
     });
     expect(result.calls.voice.language).toBe("es-ES");
     expect(result.calls.voice.telephonyStreaming).toBe(false);
+    expect(result.calls.voice.utteranceEndMs).toBe(2500);
+  });
+
+  test("rejects calls.voice.utteranceEndMs outside the 500-5000 range", () => {
+    for (const utteranceEndMs of [400, 5001]) {
+      const result = AssistantConfigSchema.safeParse({
+        calls: { voice: { utteranceEndMs } },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        const msgs = result.error.issues.map((i) => i.message);
+        expect(msgs.some((m) => m.includes("calls.voice.utteranceEndMs"))).toBe(
+          true,
+        );
+      }
+    }
+  });
+
+  test("rejects non-integer calls.voice.utteranceEndMs", () => {
+    const result = AssistantConfigSchema.safeParse({
+      calls: { voice: { utteranceEndMs: 1000.5 } },
+    });
+    expect(result.success).toBe(false);
   });
 
   test("rejects non-boolean calls.voice.telephonyStreaming", () => {
