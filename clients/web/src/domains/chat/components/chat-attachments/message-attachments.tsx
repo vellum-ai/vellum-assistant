@@ -51,6 +51,7 @@ export const MessageAttachments: FC<MessageAttachmentsProps> = ({
             mimeType={att.mimeType}
             sizeBytes={att.sizeBytes}
             previewUrl={att.previewUrl}
+            thumbnailUrl={att.thumbnailUrl}
             onPreview={() => openPreview(att)}
             onDownload={() => handleDownload(att)}
           />

@@ -1,4 +1,5 @@
 import type { DisplayAttachment } from "@/types/attachment-types";
+import { deriveDisplayUrls } from "@/utils/attachment-urls";
 import type { ConversationMessageAttachment } from "@vellumai/assistant-api";
 
 /**
@@ -8,24 +9,26 @@ import type { ConversationMessageAttachment } from "@vellumai/assistant-api";
  * produced by text-parsing.
  *
  * Shared by `history.ts` (initial page load) and `reconcile.ts` (periodic
- * server sync) so attachment mapping logic stays in one place.
+ * server sync) so attachment mapping logic stays in one place. URL derivation
+ * is shared with the streaming path via {@link deriveDisplayUrls}.
  */
 export function runtimeAttachmentsToDisplay(
   runtimeAttachments: ConversationMessageAttachment[],
 ): DisplayAttachment[] {
   return runtimeAttachments.map((a) => {
-    let previewUrl: string | null = null;
-    if (a.data) {
-      previewUrl = `data:${a.mimeType};base64,${a.data}`;
-    } else if (a.thumbnailData) {
-      previewUrl = `data:image/jpeg;base64,${a.thumbnailData}`;
-    }
+    const { previewUrl, thumbnailUrl } = deriveDisplayUrls(
+      a.mimeType,
+      a.data,
+      a.thumbnailData,
+      true,
+    );
     return {
       id: a.id,
       filename: a.filename,
       mimeType: a.mimeType,
       sizeBytes: a.sizeBytes,
       previewUrl,
+      thumbnailUrl,
     };
   });
 }

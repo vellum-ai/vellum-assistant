@@ -99,6 +99,7 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
               mimeType={att.mimeType}
               sizeBytes={att.sizeBytes}
               previewUrl={previewAttachment.previewUrl}
+              thumbnailUrl={att.thumbnailUrl}
               onPreview={() => openPreview(previewAttachment)}
               onDownload={() => handleDownload(att)}
             />
