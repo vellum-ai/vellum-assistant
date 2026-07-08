@@ -392,13 +392,14 @@ function buildMarkdownComponents(
  * `$` into an italic math span. `–—` are literal members of the class; the
  * plain `-` stays last so it is never read as a range operator.
  *
- * A `+` is consumed only as part of a *suffixed* amount (`$1M+`, `$500K+` —
- * the "or more" idiom) so those amounts terminate at a clean boundary. It is
- * deliberately NOT a general boundary char: a bare `$1+1$` keeps `1` followed
- * by `+` with no boundary, so real arithmetic math is preserved.
+ * A trailing `+` (the "or more" idiom) is consumed as part of any amount,
+ * bare (`$50+`) or suffixed (`$1M+`, `$500K+`), so those amounts terminate at
+ * a clean boundary. It is deliberately NOT a general boundary char: in
+ * `$1+1$` the char after the `+` is a digit rather than a boundary, so real
+ * arithmetic math is preserved.
  */
 const CURRENCY_AMOUNT =
-  /\$(\d[\d,]*(?:\.\d+)?(?:(?:bn|tn|trn|[KMBT])\+?)?)(?=$|[\s).,;:!?%"'’\]}/–—-]|&)/gi;
+  /\$(\d[\d,]*(?:\.\d+)?(?:bn|tn|trn|[KMBT])?\+?)(?=$|[\s).,;:!?%"'’\]}/–—-]|&)/gi;
 
 /**
  * remark-math treats `$…$` as inline LaTeX, so monetary text like
