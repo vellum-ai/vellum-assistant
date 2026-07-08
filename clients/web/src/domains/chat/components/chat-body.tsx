@@ -289,7 +289,7 @@ export function ChatBody({
             <div className="pointer-events-auto pb-2.5">
               <ScrollToLatestButton
                 onClick={onScrollToLatest}
-                isStreaming={isAssistantBusy}
+                isAssistantBusy={isAssistantBusy}
               />
             </div>
           )}
