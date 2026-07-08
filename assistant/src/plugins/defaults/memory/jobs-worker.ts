@@ -13,6 +13,7 @@ import {
   setMemoryCheckpoint,
 } from "../../../persistence/checkpoints.js";
 import {
+  type CleanupJobKind,
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
 } from "../../../persistence/cleanup-schedule-state.js";
@@ -657,11 +658,21 @@ async function processJob(
   throw new Error(`Unknown memory job type: ${rawType}`);
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 /**
- * Enqueue periodic cleanup jobs using config-driven retention windows.
- * Enqueue is deduped in jobs-store, so repeated calls remain safe.
+ * Enqueue periodic cleanup jobs, each on a cadence equal to its own retention
+ * window. A job that keeps data for N is re-enqueued at most once per N:
+ * pruning that retains LLM logs for 1h runs hourly, pruning that retains
+ * conversations for 30d runs every 30d. Each job's throttle is tracked
+ * independently in cleanup-schedule-state, and enqueue is deduped in
+ * jobs-store, so repeated calls remain safe.
+ *
+ * Exported for tests; the worker calls it on every idle/drain tick.
+ *
+ * Returns true if at least one job was enqueued this call.
  */
-function maybeEnqueueScheduledCleanupJobs(
+export function maybeEnqueueScheduledCleanupJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
 ): boolean {
@@ -669,38 +680,64 @@ function maybeEnqueueScheduledCleanupJobs(
   if (!cleanup.enabled) {
     return false;
   }
-  if (nowMs - getLastScheduledCleanupEnqueueMs() < cleanup.enqueueIntervalMs) {
-    return false;
+
+  // A job is due when at least its full retention window has elapsed since the
+  // last enqueue for that job. The throttle resets to 0 on daemon restart and
+  // whenever ConfigWatcher observes a retention change, so a due job also fires
+  // promptly after either of those.
+  const isDue = (kind: CleanupJobKind, intervalMs: number): boolean =>
+    nowMs - getLastScheduledCleanupEnqueueMs(kind) >= intervalMs;
+
+  let enqueuedAny = false;
+
+  if (
+    cleanup.conversationRetentionDays > 0 &&
+    isDue("conversations", cleanup.conversationRetentionDays * MS_PER_DAY)
+  ) {
+    const jobId = enqueuePruneOldConversationsJob(
+      cleanup.conversationRetentionDays,
+    );
+    markScheduledCleanupEnqueued("conversations", nowMs);
+    enqueuedAny = true;
+    log.debug(
+      { jobId, retentionDays: cleanup.conversationRetentionDays },
+      "Enqueued scheduled prune_old_conversations",
+    );
   }
 
-  const pruneConversationsJobId =
-    cleanup.conversationRetentionDays > 0
-      ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
-      : null;
-  const pruneLlmRequestLogsJobId =
-    cleanup.llmRequestLogRetentionMs !== null
-      ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
-      : null;
+  if (
+    cleanup.llmRequestLogRetentionMs !== null &&
+    isDue("llm_request_logs", cleanup.llmRequestLogRetentionMs)
+  ) {
+    const jobId = enqueuePruneOldLlmRequestLogsJob(
+      cleanup.llmRequestLogRetentionMs,
+    );
+    markScheduledCleanupEnqueued("llm_request_logs", nowMs);
+    enqueuedAny = true;
+    log.debug(
+      { jobId, retentionMs: cleanup.llmRequestLogRetentionMs },
+      "Enqueued scheduled prune_old_llm_request_logs",
+    );
+  }
+
   // Audit-log (tool_invocations) retention is configured separately under
-  // `auditLog.retentionDays`, but rides this same cleanup cadence for now.
-  const pruneToolInvocationsJobId =
-    config.auditLog.retentionDays > 0
-      ? enqueuePruneOldToolInvocationsJob(config.auditLog.retentionDays)
-      : null;
-  markScheduledCleanupEnqueued(nowMs);
-  log.debug(
-    {
-      pruneConversationsJobId,
-      pruneLlmRequestLogsJobId,
-      pruneToolInvocationsJobId,
-      enqueueIntervalMs: cleanup.enqueueIntervalMs,
-      conversationRetentionDays: cleanup.conversationRetentionDays,
-      llmRequestLogRetentionMs: cleanup.llmRequestLogRetentionMs,
-      auditLogRetentionDays: config.auditLog.retentionDays,
-    },
-    "Enqueued scheduled memory cleanup jobs",
-  );
-  return true;
+  // `auditLog.retentionDays`; its prune cadence follows that window.
+  if (
+    config.auditLog.retentionDays > 0 &&
+    isDue("tool_invocations", config.auditLog.retentionDays * MS_PER_DAY)
+  ) {
+    const jobId = enqueuePruneOldToolInvocationsJob(
+      config.auditLog.retentionDays,
+    );
+    markScheduledCleanupEnqueued("tool_invocations", nowMs);
+    enqueuedAny = true;
+    log.debug(
+      { jobId, retentionDays: config.auditLog.retentionDays },
+      "Enqueued scheduled prune_old_tool_invocations",
+    );
+  }
+
+  return enqueuedAny;
 }
 
 // ── Graph maintenance scheduling ──────────────────────────────────

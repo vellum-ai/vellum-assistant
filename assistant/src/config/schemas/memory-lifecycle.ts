@@ -106,12 +106,6 @@ export const MemoryCleanupConfigSchema = z
       .boolean({ error: "memory.cleanup.enabled must be a boolean" })
       .default(true)
       .describe("Whether periodic memory cleanup is enabled"),
-    enqueueIntervalMs: z
-      .number({ error: "memory.cleanup.enqueueIntervalMs must be a number" })
-      .int("memory.cleanup.enqueueIntervalMs must be an integer")
-      .positive("memory.cleanup.enqueueIntervalMs must be a positive integer")
-      .default(6 * 60 * 60 * 1000)
-      .describe("How often cleanup jobs are enqueued in milliseconds"),
     supersededItemRetentionMs: z
       .number({
         error: "memory.cleanup.supersededItemRetentionMs must be a number",
