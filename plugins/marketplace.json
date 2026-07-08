@@ -232,6 +232,18 @@
       "category": "productivity",
       "homepage": "https://github.com/ZeebBoyBlue/google-drive-search",
       "license": "Apache-2.0"
+    },
+    {
+      "name": "coffee-aficionado",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/coffee-aficionado",
+        "ref": "b37a0b5adc2bda5559d3b21abe38e436093c1ff3"
+      },
+      "description": "Find great coffee beans and machines matched to your taste profile, budget, and kitchen. Persistent memory learns your preferences over time.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/coffee-aficionado",
+      "license": "MIT"
     }
   ]
 }
