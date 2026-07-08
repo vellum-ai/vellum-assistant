@@ -176,6 +176,22 @@ describe("VoiceRoom — push-to-talk fallback", () => {
     expect(controls.release).toHaveBeenCalledTimes(1);
   });
 
+  test("Space on the focused exit control is left for the button to activate (not swallowed)", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    const event = new KeyboardEvent("keydown", {
+      key: " ",
+      code: "Space",
+      bubbles: true,
+      cancelable: true,
+    });
+    exitButton()!.dispatchEvent(event);
+    // The global shortcut steps aside: no push-to-talk release, and Space's
+    // default (native button activation) is left intact.
+    expect(controls.release).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   test("Space is inert while the assistant is speaking", () => {
     startOwnedSession("speaking");
     render(<VoiceRoom />);

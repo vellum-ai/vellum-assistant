@@ -53,9 +53,42 @@ const AVATAR_SIZE = 220;
 /** The one-time "how to speak" hint auto-dismisses after this long. */
 const HINT_TIMEOUT_MS = 6000;
 
+/**
+ * Safe-area insets (see `docs/CAPACITOR.md`): the `var()` is set by
+ * `capacitor-plugin-safe-area` on Capacitor iOS, `env()` covers standard
+ * browsers with `viewport-fit=cover`, and `0px` covers desktop / non-notch
+ * devices — so these are inert everywhere except a notched iOS shell.
+ */
+const SAFE_AREA_TOP = "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))";
+const SAFE_AREA_BOTTOM =
+  "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))";
+const SAFE_AREA_LEFT =
+  "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))";
+const SAFE_AREA_RIGHT =
+  "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))";
+
 /** Whether Space / an orb tap should release the current turn in `state`. */
 function canReleaseTurn(state: LiveVoiceSessionState): boolean {
   return state === "idle" || state === "listening";
+}
+
+/**
+ * Whether the event target is (or sits within) an interactive control that
+ * owns Space as its own activation — a button, link, or other focusable
+ * control. The global Space push-to-talk shortcut must not swallow Space when
+ * one of these (e.g. the focused exit ✕) has focus, or keyboard users can't
+ * activate it. This is narrower than {@link isEditableTarget} (text fields);
+ * Escape stays global regardless of focus.
+ */
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return (
+    target.closest(
+      'button, a[href], [role="button"], [role="link"], select, [tabindex]:not([tabindex="-1"])',
+    ) !== null
+  );
 }
 
 export function VoiceRoom() {
@@ -98,6 +131,12 @@ function VoiceRoomOverlay() {
         return;
       }
       if (event.key === " " || event.code === "Space") {
+        // Let a focused interactive control (e.g. the exit ✕) handle Space as
+        // its own activation instead of swallowing it as push-to-talk. The orb
+        // is itself a button, so Space over it still releases via its onClick.
+        if (isInteractiveTarget(event.target)) {
+          return;
+        }
         if (canReleaseTurn(useLiveVoiceStore.getState().state)) {
           event.preventDefault();
           releaseLiveVoiceTurn();
@@ -123,6 +162,16 @@ function VoiceRoomOverlay() {
       role="dialog"
       aria-modal="true"
       aria-label="Voice session"
+      // This `fixed inset-0` overlay covers `ChatLayoutHeader`, so it loses the
+      // header's safe-area protection — pad the centered chrome (avatar, hint)
+      // inside the notch/home-indicator per docs/CAPACITOR.md. The ambient
+      // void is `absolute inset-0` and stays full-bleed behind the padding.
+      style={{
+        paddingTop: SAFE_AREA_TOP,
+        paddingBottom: SAFE_AREA_BOTTOM,
+        paddingLeft: SAFE_AREA_LEFT,
+        paddingRight: SAFE_AREA_RIGHT,
+      }}
       initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -137,7 +186,14 @@ function VoiceRoomOverlay() {
         type="button"
         onClick={endLiveVoiceSession}
         aria-label="Exit voice session"
-        className="absolute right-5 top-5 z-10 flex size-10 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+        // Absolute position is relative to the padding box, so the overlay's
+        // safe-area padding does not shift this — inset it from the notch /
+        // Dynamic Island directly, clamped to the desktop 1.25rem gap.
+        style={{
+          top: `max(1.25rem, ${SAFE_AREA_TOP})`,
+          right: `max(1.25rem, ${SAFE_AREA_RIGHT})`,
+        }}
+        className="absolute z-10 flex size-10 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60"
       >
         <X className="size-5" />
       </button>
