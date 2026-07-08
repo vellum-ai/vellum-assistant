@@ -5,7 +5,6 @@ import type { DoctorMessage } from "@/generated/api/types.gen";
 import {
   hasPendingApproval,
   hasPendingBackup,
-  isDoctorFeedbackMessage,
   isReplayableDoctorSourceEventId,
   latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
@@ -13,7 +12,6 @@ import {
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
-  shouldShowDoctorFeedbackPrompt,
 } from "@/domains/settings/components/panels/doctor-history";
 import type { ChatEntry } from "@/domains/settings/components/panels/doctor-history";
 
@@ -237,6 +235,24 @@ describe("mapPersistedMessagesToEntries", () => {
     ]);
   });
 
+  test("maps status 'feedback_prompt' metadata classification to a reason", () => {
+    const entries = mapPersistedMessagesToEntries([
+      msg({
+        kind: "status",
+        content: "feedback_prompt",
+        metadata: {
+          summary: "Compact mode would help.",
+          classification: "feature_request",
+        },
+      }),
+    ]);
+    expect(entries[0]).toMatchObject({
+      kind: "feedback_prompt",
+      content: "Compact mode would help.",
+      meta: { reason: "feature_request" },
+    });
+  });
+
   test("skips unknown status content", () => {
     const entries = mapPersistedMessagesToEntries([
       msg({ kind: "status", content: "active" }),
@@ -322,108 +338,6 @@ describe("mapPersistedMessagesToEntries", () => {
 
   test("returns empty array for empty input", () => {
     expect(mapPersistedMessagesToEntries([])).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// isDoctorFeedbackMessage
-// ---------------------------------------------------------------------------
-
-describe("isDoctorFeedbackMessage", () => {
-  test("detects direct feedback messages", () => {
-    expect(
-      isDoctorFeedbackMessage(
-        "hi I have feedback that I hate the color theme",
-      ),
-    ).toBe(true);
-    expect(
-      isDoctorFeedbackMessage("i have feedback for u this app is buggy"),
-    ).toBe(true);
-  });
-
-  test("detects bug and feature request language", () => {
-    expect(isDoctorFeedbackMessage("I want to file a bug")).toBe(true);
-    expect(isDoctorFeedbackMessage("feature request: compact mode")).toBe(
-      true,
-    );
-  });
-
-  test("does not match ordinary diagnostic messages", () => {
-    expect(isDoctorFeedbackMessage("my assistant will not start")).toBe(
-      false,
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// shouldShowDoctorFeedbackPrompt
-// ---------------------------------------------------------------------------
-
-describe("shouldShowDoctorFeedbackPrompt", () => {
-  test("shows for feedback in the first user message", () => {
-    expect(
-      shouldShowDoctorFeedbackPrompt(
-        [
-          {
-            id: "greeting",
-            kind: "assistant",
-            content: "Hi, I'm the Doctor.",
-            timestamp: 0,
-          },
-        ],
-        "hi I have feedback that I hate the color theme",
-      ),
-    ).toBe(true);
-  });
-
-  test("does not show for non-feedback diagnostic openings", () => {
-    expect(
-      shouldShowDoctorFeedbackPrompt([], "my assistant will not start"),
-    ).toBe(false);
-  });
-
-  test("shows after a previous user message", () => {
-    expect(
-      shouldShowDoctorFeedbackPrompt(
-        [{ id: "1", kind: "user", content: "hello", timestamp: 0 }],
-        "I have feedback",
-      ),
-    ).toBe(true);
-  });
-
-  test("shows after an earlier feedback prompt when a new user turn starts", () => {
-    expect(
-      shouldShowDoctorFeedbackPrompt(
-        [
-          { id: "1", kind: "user", content: "I have feedback", timestamp: 0 },
-          {
-            id: "2",
-            kind: "feedback_prompt",
-            content: "Share feedback",
-            timestamp: 0,
-          },
-          { id: "3", kind: "user", content: "more feedback", timestamp: 0 },
-        ],
-        "more feedback",
-      ),
-    ).toBe(true);
-  });
-
-  test("does not show twice for the same user turn", () => {
-    expect(
-      shouldShowDoctorFeedbackPrompt(
-        [
-          { id: "1", kind: "user", content: "I have feedback", timestamp: 0 },
-          {
-            id: "2",
-            kind: "feedback_prompt",
-            content: "Share feedback",
-            timestamp: 0,
-          },
-        ],
-        "I have feedback",
-      ),
-    ).toBe(false);
   });
 });
 

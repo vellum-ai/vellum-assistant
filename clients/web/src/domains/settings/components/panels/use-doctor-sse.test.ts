@@ -149,12 +149,14 @@ describe("parseDoctorEvent", () => {
       JSON.stringify({
         type: "feedback_prompt",
         summary: "The app colors are ugly.",
+        classification: "other",
         source_event_id: "123-0",
       }),
     );
     expect(event).toEqual({
       type: "feedback_prompt",
       summary: "The app colors are ugly.",
+      classification: "other",
       source_event_id: "123-0",
     });
   });
@@ -498,6 +500,22 @@ describe("handleFeedbackPrompt", () => {
     expect(ctx.entries).toHaveLength(2);
     expect(ctx.entries[1]!.content).toBe("The color theme is ugly.");
     expect(ctx.calls.appendEntry).toEqual([]);
+  });
+
+  test("stores feedback prompt reason from the event", () => {
+    const ctx = createMockContext();
+
+    handleFeedbackPrompt(ctx, {
+      summary: "Compact mode would help.",
+      classification: "feature_request",
+    });
+
+    expect(ctx.entries).toHaveLength(1);
+    expect(ctx.entries[0]).toMatchObject({
+      kind: "feedback_prompt",
+      content: "Compact mode would help.",
+      meta: { reason: "feature_request" },
+    });
   });
 
   test("appends another feedback prompt after a later user message", () => {

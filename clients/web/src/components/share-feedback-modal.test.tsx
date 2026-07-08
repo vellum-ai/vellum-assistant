@@ -63,7 +63,7 @@ describe("ShareFeedbackModal", () => {
         <ShareFeedbackModal
           open
           onClose={() => {}}
-          initialReason="other"
+          initialReason="bug_report"
           initialMessage="The app colors are ugly."
           doctorSessionId="doctor-session-123"
           doctorSessionLog="User: I have feedback\n\nFeedback Prompt: The app colors are ugly."
@@ -88,5 +88,35 @@ describe("ShareFeedbackModal", () => {
     ).text();
     expect(logsText).toContain("doctor-session.txt");
     expect(logsText).toContain("Feedback Prompt: The app colors are ugly.");
+  });
+
+  test("honors diagnostics opt-out for Doctor session transcripts", async () => {
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <ShareFeedbackModal
+          open
+          onClose={() => {}}
+          initialReason="other"
+          initialMessage="The app colors are ugly."
+          doctorSessionId="doctor-session-123"
+          doctorSessionLog="User: I have feedback\n\nFeedback Prompt: The app colors are ugly."
+        />
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Email"), "user@example.com");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => expect(feedbackRequests).toHaveLength(1));
+    const request = feedbackRequests[0] as {
+      body: { doctor_session_id?: string; logs_file?: File };
+    };
+    expect(request.body.doctor_session_id).toBe("doctor-session-123");
+    expect(request.body.logs_file).toBeUndefined();
   });
 });

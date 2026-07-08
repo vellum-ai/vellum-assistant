@@ -47,8 +47,7 @@ import { Input, Textarea } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Tooltip } from "@vellumai/design-library/components/tooltip";
-
-export type FeedbackReason = "bug_report" | "feature_request" | "other";
+import type { FeedbackReason } from "@/components/share-feedback-types";
 
 type TimeRange = "past_hour" | "past_24_hours" | "all_time";
 
@@ -667,8 +666,7 @@ export function ShareFeedbackModal({
     setIsBuildingLogs(true);
     try {
       const logsFile =
-        (includeLogs && selectedReason !== "feature_request") ||
-        doctorLogFiles.length > 0
+        includeLogs && selectedReason !== "feature_request"
           ? await buildClientLogsFile(
               logTimeRange,
               assistantId ?? null,

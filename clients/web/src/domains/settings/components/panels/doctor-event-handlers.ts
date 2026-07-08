@@ -10,6 +10,7 @@
 
 import type { DoctorPanelContext } from "@/domains/settings/components/panels/doctor-panel-store";
 import { hasDoctorFeedbackPromptSinceLastUser } from "@/domains/settings/components/panels/doctor-history";
+import type { FeedbackReason } from "@/components/share-feedback-types";
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -116,11 +117,16 @@ export function handleBackupPrompt(ctx: DoctorPanelContext, event: { toolName: s
 
 export function handleFeedbackPrompt(
   ctx: DoctorPanelContext,
-  event: { summary?: string },
+  event: {
+    summary?: string;
+    reason?: FeedbackReason;
+    classification?: FeedbackReason;
+  },
 ): void {
   const summary = event.summary?.trim();
+  const reason = event.reason ?? event.classification;
   if (hasDoctorFeedbackPromptSinceLastUser(ctx.getEntries())) {
-    if (summary) {
+    if (summary || reason) {
       ctx.updateEntries((entries) =>
         entries.map((entry, index) => {
           const isLastFeedbackPrompt =
@@ -128,13 +134,23 @@ export function handleFeedbackPrompt(
             !entries
               .slice(index + 1)
               .some((candidate) => candidate.kind === "feedback_prompt");
-          return isLastFeedbackPrompt ? { ...entry, content: summary } : entry;
+          return isLastFeedbackPrompt
+            ? {
+                ...entry,
+                ...(summary ? { content: summary } : {}),
+                ...(reason ? { meta: { ...entry.meta, reason } } : {}),
+              }
+            : entry;
         }),
       );
     }
     return;
   }
-  ctx.appendEntry({ kind: "feedback_prompt", content: summary || "Share feedback" });
+  ctx.appendEntry({
+    kind: "feedback_prompt",
+    content: summary || "Share feedback",
+    ...(reason ? { meta: { reason } } : {}),
+  });
 }
 
 export function handleStatus(

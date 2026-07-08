@@ -6,6 +6,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 
 import { ShareFeedbackModal } from "@/components/share-feedback-modal";
+import type { FeedbackReason } from "@/components/share-feedback-types";
 import {
   ApprovalBlock,
   AssistantMessage,
@@ -19,7 +20,6 @@ import {
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
   type ChatEntry,
-  doctorFeedbackPromptContent,
   hasPendingApproval,
   hasPendingBackup,
   latestReplayableDoctorSourceEventId,
@@ -28,7 +28,6 @@ import {
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
-  shouldShowDoctorFeedbackPrompt,
 } from "@/domains/settings/components/panels/doctor-history";
 import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
 import {
@@ -124,9 +123,10 @@ export function DoctorPanel() {
 
   // Local UI state
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedbackDraft, setFeedbackDraft] = useState<{ message?: string } | null>(
-    null,
-  );
+  const [feedbackDraft, setFeedbackDraft] = useState<{
+    message?: string;
+    reason?: FeedbackReason;
+  } | null>(null);
 
   const platformGate = usePlatformGate();
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -293,16 +293,6 @@ export function DoctorPanel() {
       const content = variables.body.content;
       const store = useDoctorPanelStore.getState();
       store.appendEntry({ kind: "user", content });
-      const shouldShowFeedbackPrompt = shouldShowDoctorFeedbackPrompt(
-        useDoctorPanelStore.getState().entries,
-        content,
-      );
-      if (shouldShowFeedbackPrompt) {
-        store.appendEntry({
-          kind: "feedback_prompt",
-          content: doctorFeedbackPromptContent(content),
-        });
-      }
       store.setInputValue("");
       if (APPROVAL_RESPONSES.has(content.toLowerCase())) {
         store.setPendingApproval(false);
@@ -342,9 +332,12 @@ export function DoctorPanel() {
     });
   };
 
-  const handleOpenFeedback = useCallback((message?: string) => {
-    const initialMessage = message?.trim() || undefined;
-    setFeedbackDraft({ message: initialMessage });
+  const handleOpenFeedback = useCallback((draft?: {
+    message?: string;
+    reason?: FeedbackReason;
+  }) => {
+    const initialMessage = draft?.message?.trim() || undefined;
+    setFeedbackDraft({ message: initialMessage, reason: draft?.reason });
     setFeedbackOpen(true);
   }, []);
 
@@ -593,11 +586,13 @@ export function DoctorPanel() {
                       <div key={entry.id} className="max-w-[90%]">
                         <FeedbackPromptBlock
                           onOpenFeedback={() =>
-                            handleOpenFeedback(
-                              entry.content === "Share feedback"
-                                ? undefined
-                                : entry.content,
-                            )
+                            handleOpenFeedback({
+                              message:
+                                entry.content === "Share feedback"
+                                  ? undefined
+                                  : entry.content,
+                              reason: entry.meta?.reason,
+                            })
                           }
                         />
                       </div>
@@ -733,6 +728,7 @@ export function DoctorPanel() {
       <ShareFeedbackModal
         open={feedbackOpen}
         onClose={handleCloseFeedback}
+        initialReason={feedbackDraft?.reason}
         initialMessage={feedbackDraft?.message}
         assistantId={assistantId}
         doctorSessionId={visibleDoctorSessionId}

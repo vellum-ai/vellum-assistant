@@ -2,6 +2,7 @@ import type {
   DoctorMessage,
   DoctorSessionStatusEnum,
 } from "@/generated/api/types.gen";
+import type { FeedbackReason } from "@/components/share-feedback-types";
 
 // ---------------------------------------------------------------------------
 // ChatEntry — discriminated union by `kind`
@@ -33,10 +34,14 @@ export interface BackupPromptMeta {
   toolName: string;
 }
 
+export interface FeedbackPromptMeta {
+  reason?: FeedbackReason;
+}
+
 export type ChatEntry =
   | (ChatEntryBase & { kind: "user" })
   | (ChatEntryBase & { kind: "assistant" })
-  | (ChatEntryBase & { kind: "feedback_prompt" })
+  | (ChatEntryBase & { kind: "feedback_prompt"; meta?: FeedbackPromptMeta })
   | (ChatEntryBase & { kind: "tool_call"; meta: ToolCallMeta })
   | (ChatEntryBase & { kind: "approval"; meta: ApprovalMeta })
   | (ChatEntryBase & { kind: "backup_prompt"; meta: BackupPromptMeta })
@@ -47,7 +52,7 @@ export type ChatEntry =
 export type NewChatEntry =
   | { kind: "user"; content: string }
   | { kind: "assistant"; content: string }
-  | { kind: "feedback_prompt"; content: string }
+  | { kind: "feedback_prompt"; content: string; meta?: FeedbackPromptMeta }
   | { kind: "tool_call"; content: string; meta: ToolCallMeta }
   | { kind: "approval"; content: string; meta: ApprovalMeta }
   | { kind: "backup_prompt"; content: string; meta: BackupPromptMeta }
@@ -63,27 +68,6 @@ function metaRecord(metadata: unknown): Record<string, unknown> {
     return metadata as Record<string, unknown>;
   }
   return {};
-}
-
-export function isDoctorFeedbackMessage(content: string): boolean {
-  const normalized = content.toLowerCase().replace(/\s+/g, " ").trim();
-  if (!normalized) {
-    return false;
-  }
-
-  return (
-    normalized.includes("feedback") ||
-    normalized.includes("bug report") ||
-    normalized.includes("feature request") ||
-    normalized.includes("report a bug") ||
-    normalized.includes("report an issue") ||
-    normalized.includes("submit a bug") ||
-    normalized.includes("submit an issue") ||
-    normalized.includes("file a bug") ||
-    normalized.includes("file an issue") ||
-    normalized.includes("file a suggestion") ||
-    normalized.includes("submit a suggestion")
-  );
 }
 
 function lastUserEntryIndex(entries: readonly ChatEntry[]): number {
@@ -103,21 +87,16 @@ export function hasDoctorFeedbackPromptSinceLastUser(
     .some((entry) => entry.kind === "feedback_prompt");
 }
 
-export function shouldShowDoctorFeedbackPrompt(
-  entries: readonly ChatEntry[],
-  content: string,
-): boolean {
-  return (
-    !hasDoctorFeedbackPromptSinceLastUser(entries) &&
-    isDoctorFeedbackMessage(content)
-  );
-}
-
-export function doctorFeedbackPromptContent(content: string): string {
-  return content.trim() || "Share feedback";
-}
-
 const REPLAYABLE_DOCTOR_SOURCE_EVENT_ID = /^\d+-\d+$/;
+
+function feedbackReasonFromMetadata(meta: Record<string, unknown>): FeedbackReason | undefined {
+  const rawReason = meta.reason ?? meta.classification;
+  return rawReason === "bug_report" ||
+    rawReason === "feature_request" ||
+    rawReason === "other"
+    ? rawReason
+    : undefined;
+}
 
 export function isReplayableDoctorSourceEventId(
   value: string | null | undefined,
@@ -253,10 +232,12 @@ export function mapPersistedMessagesToEntries(
         } else if (message.content === "feedback_prompt") {
           const summary =
             typeof meta.summary === "string" ? meta.summary.trim() : "";
+          const reason = feedbackReasonFromMetadata(meta);
           entries.push({
             id: message.id,
             kind: "feedback_prompt",
             content: summary || "Share feedback",
+            ...(reason ? { meta: { reason } } : {}),
             timestamp,
           });
         }

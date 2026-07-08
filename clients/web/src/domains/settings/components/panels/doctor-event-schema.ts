@@ -54,6 +54,8 @@ export const DoctorEventSchema = z.discriminatedUnion("type", [
     ...DoctorSourceEventFields,
     type: z.literal("feedback_prompt"),
     summary: z.string().optional(),
+    reason: z.enum(["bug_report", "feature_request", "other"]).optional(),
+    classification: z.enum(["bug_report", "feature_request", "other"]).optional(),
   }),
   z.object({
     ...DoctorSourceEventFields,
