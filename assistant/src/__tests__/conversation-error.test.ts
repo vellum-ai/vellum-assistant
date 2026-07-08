@@ -946,6 +946,17 @@ describe("classifyConversationError", () => {
       expect(result.errorCategory).toBe("context_too_large");
     });
 
+    it("honors a stamped reason on a statusless ProviderError (no HTTP status)", () => {
+      // SDK streaming failures throw with statusCode undefined but can still
+      // carry a reason; it must classify semantically, not fall to the fallback.
+      const err = new ProviderError("stream failed", "openai", undefined, {
+        reason: "insufficient_credits",
+      });
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("provider_billing");
+    });
+
     it("keeps reason-less ProviderErrors on the legacy status path", () => {
       const err = new ProviderError("Unauthorized", "anthropic", 401);
       const result = classifyConversationError(err, baseCtx);

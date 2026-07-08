@@ -294,22 +294,22 @@ function classifyCore(
   message: string,
   attribution: ConversationErrorAttribution = {},
 ): Omit<ClassifiedConversationError, "debugDetails"> {
-  // ProviderError with statusCode — deterministic classification
+  // Prefer the semantic reason stamped by the provider layer, regardless of
+  // HTTP status — statusless errors (e.g. SDK streaming failures) still carry a
+  // reason. Reasons that map cleanly win here; `bad_request`/`unknown` (and a
+  // reason-less error) fall through to the status switch + regex battery below.
+  if (error instanceof ProviderError && error.reason) {
+    const c = reasonToClassification(error.reason, {
+      routingSource: getProviderRoutingSource(error.provider),
+      attribution,
+      message,
+    });
+    if (c) return c;
+  }
+
+  // Reason-less (or bad_request/unknown) ProviderError with a status — the
+  // deterministic status switch + regex battery, sharing the same producers.
   if (error instanceof ProviderError && error.statusCode !== undefined) {
-    // Prefer the semantic reason stamped by the provider layer. Reasons that
-    // map cleanly to a classification win here; `bad_request`/`unknown` (and a
-    // reason-less error) fall through to the status switch + regex battery
-    // below, keeping the legacy behavior unchanged.
-    if (error.reason) {
-      const c = reasonToClassification(error.reason, {
-        routingSource: getProviderRoutingSource(error.provider),
-        attribution,
-        message,
-      });
-      if (c) return c;
-    }
-    // Reason-less fallback: status switch + regex battery, sharing the same
-    // classification producers as the reason path above.
     if (error.statusCode === 413) {
       return contextTooLargeClassification();
     }
