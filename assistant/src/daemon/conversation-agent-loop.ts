@@ -1102,12 +1102,19 @@ export async function runAgentLoopImpl(
         new Error("context_length_exceeded"),
         { phase: "agent_loop" },
       );
+      // Exhausted-overflow exit: the reduction ladder is spent and the turn
+      // ends without a real reply, so label it failed for telemetry.
+      abnormalOutcome = { outcome: "failed", failureCode: classified.code };
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     } else if (
       overflowTerminalReason === "budget_yield_unrecovered" &&
       !abortController.signal.aborted
     ) {
       budgetYieldClassification = budgetYieldUnrecoveredClassification();
+      abnormalOutcome = {
+        outcome: "failed",
+        failureCode: budgetYieldClassification.code,
+      };
       onEvent(
         buildConversationErrorMessage(
           ctx.conversationId,
