@@ -4,6 +4,7 @@ import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { INSUFFICIENT_CREDITS_PATTERNS } from "../../util/provider-error-patterns.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
@@ -115,8 +116,7 @@ export function deriveAnthropicReason(
 
   if (
     status === 402 ||
-    /credit balance is too low/i.test(haystack) ||
-    /insufficient.*credits?/i.test(haystack) ||
+    INSUFFICIENT_CREDITS_PATTERNS.some((re) => re.test(haystack)) ||
     /\bbilling\b/i.test(haystack)
   ) {
     return "insufficient_credits";

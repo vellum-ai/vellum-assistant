@@ -555,10 +555,11 @@ export class GeminiProvider implements Provider {
           `Gemini API error (${error.status}): ${error.message}`,
           "gemini",
           error.status,
-          {
-            reason: deriveGeminiReason(error),
-            ...(abortReason ? { abortReason } : {}),
-          },
+          // Skip reason on caller-abort: abortReason already carries the intent
+          // and short-circuits classification/retry (mirrors the Anthropic client).
+          abortReason
+            ? { abortReason }
+            : { reason: deriveGeminiReason(error) },
         );
       }
       throw new ProviderError(

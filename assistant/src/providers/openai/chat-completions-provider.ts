@@ -737,7 +737,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
             `This model (${model}) doesn't support image input. Remove the image or switch to a vision-capable model.`,
             this.name,
             error.status,
-            abortReason ? { abortReason } : undefined,
+            // Stamp the reason so classification is status-independent (a vision
+            // rejection returned as 401/403 must not read as an invalid key).
+            abortReason
+              ? { abortReason, reason: "vision_unsupported" }
+              : { reason: "vision_unsupported" },
           );
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);

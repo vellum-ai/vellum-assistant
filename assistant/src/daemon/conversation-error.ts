@@ -15,6 +15,10 @@ import {
   type ProviderErrorReason,
   ProviderNotConfiguredError,
 } from "../util/errors.js";
+import {
+  INSUFFICIENT_CREDITS_PATTERNS,
+  VISION_NOT_SUPPORTED_PATTERNS,
+} from "../util/provider-error-patterns.js";
 
 /**
  * Classified conversation error ready for client emission.
@@ -86,8 +90,7 @@ const MANAGED_USAGE_LIMIT_PATTERNS = [
 ];
 
 const PROVIDER_BILLING_PATTERNS = [
-  /credit balance is too low/i,
-  /insufficient.*credits?/i,
+  ...INSUFFICIENT_CREDITS_PATTERNS,
   /requires more credits/i,
   /can only afford/i,
 ];
@@ -150,15 +153,6 @@ const STREAMING_ERROR_PATTERNS = [
   /stream has ended.*this shouldn't happen/i,
 ];
 
-const VISION_NOT_SUPPORTED_PATTERNS = [
-  /no endpoints found that support image input/i,
-  /does not support image/i,
-  /doesn't support image input/i,
-  /image input is not supported/i,
-  /this model does not support vision/i,
-  /vision is not supported/i,
-  /multi-?modal.*not.*support/i,
-];
 
 const CANCEL_PATTERNS = [/abort/i, /cancel/i];
 
