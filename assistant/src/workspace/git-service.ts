@@ -2,6 +2,7 @@ import { execFile, spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   unlinkSync,
@@ -88,6 +89,14 @@ const WORKSPACE_GITIGNORE_RULES = [
 
 const NULL_GIT_OID = "0000000000000000000000000000000000000000";
 
+/**
+ * Git's well-known empty tree object id, used as the diff/reset base when
+ * HEAD does not exist yet (unborn branch, before the initial commit).
+ */
+const EMPTY_TREE_OID = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+const DEFAULT_MAX_FILE_SIZE_BYTES = 512000;
+
 const WORKSPACE_BRANCH_GUARD_HOOK = `#!/bin/sh
 set -eu
 
@@ -155,6 +164,7 @@ interface GitStatus {
  * - Mutex-protected operations: prevents concurrent git command conflicts
  * - Handles both new and existing workspaces transparently
  * - Synchronous initial commit within mutex to prevent races
+ * - Size guard: files over workspaceGit.maxFileSizeBytes never enter commits
  */
 export class WorkspaceGitService {
   private readonly workspaceDir: string;
@@ -165,6 +175,8 @@ export class WorkspaceGitService {
   private nextAllowedAttemptMs = 0;
   private initConsecutiveFailures = 0;
   private initNextAllowedAttemptMs = 0;
+  /** Oversized paths already logged, to avoid re-warning every commit cycle. */
+  private readonly warnedOversizedPaths = new Set<string>();
 
   constructor(workspaceDir: string) {
     this.workspaceDir = workspaceDir;
@@ -474,7 +486,7 @@ export class WorkspaceGitService {
             (f) => !autoCreatedInitFiles.has(f),
           );
 
-          await this.execGit(["add", "-A"]);
+          await this.stageAllLocked();
 
           const message = hasExistingFiles
             ? "Initial commit: migrated existing workspace"
@@ -506,8 +518,8 @@ export class WorkspaceGitService {
     await this.mutex.withLock(async () => {
       this.cleanStaleLockFile();
 
-      // Stage all changes
-      await this.execGit(["add", "-A"]);
+      // Stage all changes (minus oversized files)
+      await this.stageAllLocked();
 
       // Build commit message with metadata if provided
       let fullMessage = message;
@@ -652,7 +664,7 @@ export class WorkspaceGitService {
           return { committed: false, status, didRunGit: true as const };
         }
 
-        await this.execGit(["add", "-A"]);
+        await this.stageAllLocked();
 
         // Verify something was actually staged. Another service instance
         // (or external process) could have committed between our status
@@ -728,10 +740,16 @@ export class WorkspaceGitService {
       if (stagedStatus !== " " && stagedStatus !== "?") {
         staged.push(file);
       }
+      // Oversized files are invisible to auto-commit: they can never be
+      // committed (stageAllLocked unstages them), so reporting them here
+      // would keep the workspace permanently dirty and make every turn /
+      // heartbeat cycle re-attempt a commit that stages nothing.
       if (workingStatus === "M" || workingStatus === "D") {
-        modified.push(file);
+        if (!this.isOversized(file)) {
+          modified.push(file);
+        }
       }
-      if (status === "??") {
+      if (status === "??" && !this.isOversized(file)) {
         untracked.push(file);
       }
     }
@@ -743,6 +761,98 @@ export class WorkspaceGitService {
       clean:
         staged.length === 0 && modified.length === 0 && untracked.length === 0,
     };
+  }
+
+  private maxFileSizeBytes(): number {
+    return (
+      getConfig().workspaceGit?.maxFileSizeBytes ?? DEFAULT_MAX_FILE_SIZE_BYTES
+    );
+  }
+
+  /**
+   * Working-tree size check for a repo-relative path. Uses lstat so a
+   * symlink is measured by the link itself, not its target. Missing or
+   * unreadable paths (deletions, races) are treated as not oversized.
+   */
+  private isOversized(relPath: string): boolean {
+    try {
+      const stats = lstatSync(join(this.workspaceDir, relPath));
+      return stats.isFile() && stats.size > this.maxFileSizeBytes();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Resolve the base for staged-change comparisons: HEAD when it exists,
+   * the empty tree on an unborn branch. Transient git errors propagate so
+   * callers abort instead of diffing/resetting against the wrong base.
+   */
+  private async resolveStagedDiffBaseLocked(): Promise<string> {
+    try {
+      await this.execGit(["rev-parse", "--quiet", "--verify", "HEAD"]);
+      return "HEAD";
+    } catch (err) {
+      if ((err as ExecError).code === 1) {
+        return EMPTY_TREE_OID;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Stage all workspace changes, then unstage any file whose working-tree
+   * size exceeds workspaceGit.maxFileSizeBytes. Oversized files stay on
+   * disk untouched — they just never enter workspace history. Deletions
+   * always stage (they shrink the repo). Must be called with the lock held.
+   */
+  private async stageAllLocked(): Promise<void> {
+    await this.execGit(["add", "-A"]);
+
+    const base = await this.resolveStagedDiffBaseLocked();
+    // Streamed: output scales with the number of changed files.
+    const { stdout } = await this.execGitStreaming([
+      "diff",
+      "--cached",
+      "--name-only",
+      "-z",
+      "--diff-filter=ACMR",
+      base,
+    ]);
+    const oversized = stdout
+      .split("\0")
+      .filter((p) => p.length > 0 && this.isOversized(p));
+    if (oversized.length === 0) {
+      return;
+    }
+
+    // Batched to stay clear of OS argv limits.
+    for (let i = 0; i < oversized.length; i += 100) {
+      await this.execGit([
+        "reset",
+        "-q",
+        base,
+        "--",
+        ...oversized.slice(i, i + 100),
+      ]);
+    }
+
+    const newlyWarned = oversized.filter(
+      (p) => !this.warnedOversizedPaths.has(p),
+    );
+    if (newlyWarned.length > 0) {
+      for (const p of newlyWarned) {
+        this.warnedOversizedPaths.add(p);
+      }
+      log.warn(
+        {
+          workspaceDir: this.workspaceDir,
+          files: newlyWarned,
+          maxFileSizeBytes: this.maxFileSizeBytes(),
+        },
+        "Excluded oversized files from workspace commit",
+      );
+    }
   }
 
   /**

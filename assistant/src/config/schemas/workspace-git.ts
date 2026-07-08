@@ -26,6 +26,14 @@ export const WorkspaceGitConfigSchema = z
       .describe(
         "Maximum delay for exponential backoff after a git operation failure (ms)",
       ),
+    maxFileSizeBytes: z
+      .number({ error: "workspaceGit.maxFileSizeBytes must be a number" })
+      .int("workspaceGit.maxFileSizeBytes must be an integer")
+      .positive("workspaceGit.maxFileSizeBytes must be a positive integer")
+      .default(512000)
+      .describe(
+        "Files larger than this (bytes) are excluded from workspace auto-commits",
+      ),
     interactiveGitTimeoutMs: z
       .number({
         error: "workspaceGit.interactiveGitTimeoutMs must be a number",

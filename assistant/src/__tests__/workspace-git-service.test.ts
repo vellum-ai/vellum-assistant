@@ -1468,4 +1468,103 @@ describe("WorkspaceGitService", () => {
       expect(existsSync(markerPath)).toBe(false);
     });
   });
+
+  describe("oversized file exclusion", () => {
+    // Just over the default workspaceGit.maxFileSizeBytes (512000)
+    const bigContent = () => Buffer.alloc(512001, 120);
+
+    const trackedFiles = () =>
+      execFileSync("git", ["ls-files"], { cwd: testDir, encoding: "utf-8" })
+        .trim()
+        .split("\n");
+
+    test("commitChanges skips oversized files but commits the rest", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "small.txt"), "small");
+      writeFileSync(join(testDir, "big.bin"), bigContent());
+      await service.commitChanges("Add files");
+
+      const tracked = trackedFiles();
+      expect(tracked).toContain("small.txt");
+      expect(tracked).not.toContain("big.bin");
+      // The oversized file stays on disk untouched
+      expect(existsSync(join(testDir, "big.bin"))).toBe(true);
+    });
+
+    test("initial commit excludes oversized pre-existing files", async () => {
+      writeFileSync(join(testDir, "existing.txt"), "keep me");
+      writeFileSync(join(testDir, "huge.bin"), bigContent());
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const tracked = trackedFiles();
+      expect(tracked).toContain("existing.txt");
+      expect(tracked).not.toContain("huge.bin");
+    });
+
+    test("growth of a tracked file beyond the limit is not committed", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "notes.md"), "small");
+      await service.commitChanges("Add notes");
+
+      writeFileSync(join(testDir, "notes.md"), bigContent());
+      await service.commitChanges("Grow notes");
+
+      const committed = execFileSync("git", ["show", "HEAD:notes.md"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(committed).toBe("small");
+    });
+
+    test("getStatus treats a workspace with only oversized changes as clean", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "big.bin"), bigContent());
+
+      const status = await service.getStatus();
+      expect(status.untracked).not.toContain("big.bin");
+      expect(status.clean).toBe(true);
+    });
+
+    test("commitIfDirty ignores oversized-only changes but commits mixed ones", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "big.bin"), bigContent());
+      const first = await service.commitIfDirty(() => ({ message: "big" }));
+      expect(first.committed).toBe(false);
+
+      writeFileSync(join(testDir, "small.txt"), "small");
+      const second = await service.commitIfDirty(() => ({ message: "mixed" }));
+      expect(second.committed).toBe(true);
+
+      const tracked = trackedFiles();
+      expect(tracked).toContain("small.txt");
+      expect(tracked).not.toContain("big.bin");
+    });
+
+    test("deletion of an oversized tracked file is committed", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Simulate an oversized file that entered history before the guard
+      writeFileSync(join(testDir, "legacy.bin"), bigContent());
+      execFileSync("git", ["add", "legacy.bin"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "legacy"], {
+        cwd: testDir,
+      });
+
+      rmSync(join(testDir, "legacy.bin"));
+      await service.commitChanges("Remove legacy");
+
+      expect(trackedFiles()).not.toContain("legacy.bin");
+    });
+  });
 });
