@@ -242,7 +242,7 @@ function sanitizeHookOutput<TInput extends object>(
     if (
       value === null ||
       typeof value !== "object" ||
-      value.type !== "tool_result"
+      (value.type !== "tool_result" && value.type !== "web_search_tool_result")
     ) {
       issues.push(`${field}: replaced with a non-tool_result — reverted`);
       rec[field] = prevRec[field];
