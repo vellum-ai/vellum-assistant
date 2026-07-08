@@ -2,25 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import type { ApprovalContext, ApprovalDecision } from "./approval-policy.js";
 import { DefaultApprovalPolicy } from "./approval-policy.js";
-import type { TrustRule } from "./types.js";
 import { RiskLevel } from "./types.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const policy = new DefaultApprovalPolicy();
-
-function makeRule(
-  overrides: Partial<TrustRule> & { decision: TrustRule["decision"] },
-): TrustRule {
-  return {
-    id: "test-rule",
-    tool: "bash",
-    pattern: "test-pattern",
-    priority: 100,
-    createdAt: Date.now(),
-    ...overrides,
-  };
-}
 
 function makeContext(overrides: Partial<ApprovalContext>): ApprovalContext {
   return {
@@ -35,148 +21,6 @@ function makeContext(overrides: Partial<ApprovalContext>): ApprovalContext {
 function evaluate(overrides: Partial<ApprovalContext>): ApprovalDecision {
   return policy.evaluate(makeContext(overrides));
 }
-
-// ── Deny rule at each risk level ─────────────────────────────────────────────
-
-describe("deny rule", () => {
-  const denyRule = makeRule({ decision: "deny" });
-
-  test("deny at Low risk", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.Low,
-      matchedRule: denyRule,
-    });
-    expect(result.decision).toBe("deny");
-    expect(result.reason).toContain("deny rule");
-    expect(result.matchedRule).toBe(denyRule);
-  });
-
-  test("deny at Medium risk", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.Medium,
-      matchedRule: denyRule,
-    });
-    expect(result.decision).toBe("deny");
-  });
-
-  test("deny at High risk", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.High,
-      matchedRule: denyRule,
-    });
-    expect(result.decision).toBe("deny");
-  });
-});
-
-// ── Ask rule at each risk level ──────────────────────────────────────────────
-
-describe("ask rule", () => {
-  const askRule = makeRule({ decision: "ask" });
-
-  test("ask at Low risk", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.Low,
-      matchedRule: askRule,
-      autoApproveUpTo: "none",
-    });
-    expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("ask rule");
-    expect(result.matchedRule).toBe(askRule);
-  });
-
-  test("ask at Medium risk", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.Medium,
-      matchedRule: askRule,
-    });
-    expect(result.decision).toBe("prompt");
-  });
-
-  test("ask at High risk", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.High,
-      matchedRule: askRule,
-    });
-    expect(result.decision).toBe("prompt");
-  });
-});
-
-// ── Allow rule at each risk level ────────────────────────────────────────────
-
-describe("allow rule", () => {
-  const allowRule = makeRule({ decision: "allow" });
-
-  test("allow at Low risk", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.Low,
-      matchedRule: allowRule,
-    });
-    expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Matched trust rule");
-    expect(result.matchedRule).toBe(allowRule);
-  });
-
-  test("allow at Medium risk", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.Medium,
-      matchedRule: allowRule,
-    });
-    expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Matched trust rule");
-    expect(result.matchedRule).toBe(allowRule);
-  });
-
-  test("allow at High risk — non-containerized bash → prompt, no matchedRule in decision", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.High,
-      toolName: "bash",
-      matchedRule: allowRule,
-      isContainerized: false,
-    });
-    expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("high risk");
-    // Decision is driven by risk-based fallback, not the rule
-    expect(result.matchedRule).toBeUndefined();
-  });
-
-  test("allow at High risk — containerized bash without sandboxAutoApprove flag → prompt", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.High,
-      toolName: "bash",
-      matchedRule: allowRule,
-      isContainerized: true,
-    });
-    expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("high risk");
-    expect(result.matchedRule).toBeUndefined();
-  });
-
-  test("allow at High risk — non-bash tool, containerized → prompt, no matchedRule in decision", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.High,
-      toolName: "file_write",
-      matchedRule: allowRule,
-      isContainerized: true,
-    });
-    expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("high risk");
-    // Decision is driven by risk-based fallback, not the rule
-    expect(result.matchedRule).toBeUndefined();
-  });
-
-  test("allow at High risk — non-bash tool, non-containerized → prompt, no matchedRule in decision", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.High,
-      toolName: "file_write",
-      matchedRule: allowRule,
-      isContainerized: false,
-    });
-    expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("high risk");
-    // Decision is driven by risk-based fallback, not the rule
-    expect(result.matchedRule).toBeUndefined();
-  });
-});
 
 // ── Sandbox auto-approve ─────────────────────────────────────────────────────
 
@@ -279,20 +123,6 @@ describe("sandbox auto-approve", () => {
     });
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("sandbox auto-approve");
-  });
-
-  test("deny rule still blocks sandbox auto-approve commands", () => {
-    const denyRule = makeRule({ decision: "deny" });
-    const result = evaluate({
-      riskLevel: RiskLevel.High,
-      toolName: "bash",
-      hasSandboxAutoApprove: true,
-      isContainerized: true,
-      matchedRule: denyRule,
-    });
-    // Deny at step 1 prevents step 3 (sandbox auto-approve)
-    expect(result.decision).toBe("deny");
-    expect(result.reason).toContain("deny rule");
   });
 
   test("autoApproveUpTo 'none' blocks sandbox auto-approve", () => {
@@ -621,73 +451,6 @@ describe("risk-based fallback (no rule, no special case)", () => {
 // ── Edge cases and combined scenarios ────────────────────────────────────────
 
 describe("edge cases", () => {
-  test("deny rule takes precedence over allow-everything else", () => {
-    const denyRule = makeRule({ decision: "deny" });
-    const result = evaluate({
-      riskLevel: RiskLevel.Low,
-      toolName: "bash",
-      matchedRule: denyRule,
-      isContainerized: true,
-      isWorkspaceScoped: true,
-    });
-    expect(result.decision).toBe("deny");
-  });
-
-  test("ask rule takes precedence over allow-for-low", () => {
-    const askRule = makeRule({ decision: "ask" });
-    const result = evaluate({
-      riskLevel: RiskLevel.Low,
-      toolName: "bash",
-      matchedRule: askRule,
-      isContainerized: true,
-      autoApproveUpTo: "none",
-    });
-    expect(result.decision).toBe("prompt");
-  });
-
-  test("allow rule High risk falls through to prompt", () => {
-    const allowRule = makeRule({ decision: "allow" });
-    const result = evaluate({
-      riskLevel: RiskLevel.High,
-      toolName: "file_write",
-      matchedRule: allowRule,
-      isContainerized: false,
-      isWorkspaceScoped: true,
-    });
-    // Allow rule + High risk → falls through to risk-based: High → prompt
-    expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("high risk");
-  });
-
-  test("reason includes the matched rule pattern", () => {
-    const rule = makeRule({ decision: "allow", pattern: "git status" });
-    const result = evaluate({
-      riskLevel: RiskLevel.Low,
-      matchedRule: rule,
-    });
-    expect(result.reason).toContain("git status");
-  });
-
-  test("deny reason includes the matched rule pattern", () => {
-    const rule = makeRule({ decision: "deny", pattern: "rm -rf /" });
-    const result = evaluate({
-      riskLevel: RiskLevel.Low,
-      matchedRule: rule,
-    });
-    expect(result.reason).toContain("rm -rf /");
-  });
-
-  test("matched allow rule at Low risk → allow (rule takes precedence over threshold)", () => {
-    const allowRule = makeRule({ decision: "allow" });
-    const result = evaluate({
-      riskLevel: RiskLevel.Low,
-      toolName: "file_read",
-      matchedRule: allowRule,
-      autoApproveUpTo: "none",
-    });
-    expect(result.decision).toBe("allow");
-  });
-
   test("non-containerized bash, Low risk, workspace-scoped → workspace-scoped allow", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
@@ -856,83 +619,6 @@ describe("autoApproveUpTo threshold", () => {
       });
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("within auto-approve threshold");
-    });
-  });
-
-  describe("threshold interacts correctly with rule-based decisions", () => {
-    test("deny rule still denies regardless of threshold", () => {
-      const denyRule = makeRule({ decision: "deny" });
-      const result = evaluate({
-        riskLevel: RiskLevel.Low,
-        toolName: "bash",
-        matchedRule: denyRule,
-        autoApproveUpTo: "medium",
-      });
-      expect(result.decision).toBe("deny");
-      expect(result.matchedRule).toBe(denyRule);
-    });
-
-    test("ask rule auto-approves when risk is within threshold", () => {
-      const askRule = makeRule({ decision: "ask" });
-      const result = evaluate({
-        riskLevel: RiskLevel.Low,
-        toolName: "bash",
-        matchedRule: askRule,
-        autoApproveUpTo: "medium",
-      });
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("within auto-approve threshold");
-    });
-
-    test("ask rule still prompts when threshold does not cover the risk", () => {
-      const askRule = makeRule({ decision: "ask" });
-      const result = evaluate({
-        riskLevel: RiskLevel.High,
-        toolName: "bash",
-        matchedRule: askRule,
-        autoApproveUpTo: "medium",
-      });
-      expect(result.decision).toBe("prompt");
-      expect(result.matchedRule).toBe(askRule);
-    });
-
-    test("ask rule prompts when threshold is strict (none)", () => {
-      const askRule = makeRule({ decision: "ask" });
-      const result = evaluate({
-        riskLevel: RiskLevel.Low,
-        toolName: "bash",
-        matchedRule: askRule,
-        autoApproveUpTo: "none",
-      });
-      expect(result.decision).toBe("prompt");
-      expect(result.matchedRule).toBe(askRule);
-    });
-
-    test("skill_load_dynamic ask rule always prompts even with high threshold", () => {
-      const dynamicSkillAskRule = makeRule({
-        decision: "ask",
-        pattern: "skill_load_dynamic:my-skill",
-      });
-      const result = evaluate({
-        riskLevel: RiskLevel.Low,
-        toolName: "skill_load",
-        matchedRule: dynamicSkillAskRule,
-        autoApproveUpTo: "high",
-      });
-      expect(result.decision).toBe("prompt");
-      expect(result.matchedRule).toBe(dynamicSkillAskRule);
-    });
-
-    test("allow rule still allows non-High regardless of threshold", () => {
-      const allowRule = makeRule({ decision: "allow" });
-      const result = evaluate({
-        riskLevel: RiskLevel.Medium,
-        toolName: "file_write",
-        matchedRule: allowRule,
-        autoApproveUpTo: "none",
-      });
-      expect(result.decision).toBe("allow");
-      expect(result.matchedRule).toBe(allowRule);
     });
   });
 

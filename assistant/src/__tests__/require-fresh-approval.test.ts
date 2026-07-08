@@ -105,6 +105,7 @@ mock.module("../permissions/channel-permission-query.js", () => ({
 }));
 
 mock.module("../permissions/checker.js", () => ({
+  isDynamicSkillLoadInvocation: () => false,
   classifyRisk: async () => ({ level: riskOverride }),
   check: async () => {
     if (checkResultOverride) return checkResultOverride;

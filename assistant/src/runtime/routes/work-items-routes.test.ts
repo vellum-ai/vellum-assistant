@@ -15,6 +15,7 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 mock.module("../../permissions/checker.js", () => ({
+  isDynamicSkillLoadInvocation: () => false,
   check: async () => ({ decision: "prompt" }),
   classifyRisk: async () => ({ level: "high" }),
 }));
