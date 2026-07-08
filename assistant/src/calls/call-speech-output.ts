@@ -23,6 +23,7 @@ import {
 } from "../tts/synthesis-stream.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
+import type { CallAudioFormat } from "./audio-store.js";
 import type { CallTransport } from "./call-transport.js";
 import {
   findPlayableTelephonyTtsFallbackProvider,
@@ -111,7 +112,7 @@ async function synthesizeAndPlay(
   relay: CallTransport,
   provider: TtsProvider,
   text: string,
-  format: "mp3" | "wav" | "opus" | "pcm",
+  format: CallAudioFormat,
   signal?: AbortSignal,
   isFallbackRetry = false,
 ): Promise<void> {

@@ -28,6 +28,7 @@ import {
 } from "../tts/synthesis-stream.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
+import type { CallAudioFormat } from "./audio-store.js";
 import {
   getEndCallListenWindowMs,
   getMaxCallDurationMs,
@@ -1004,7 +1005,7 @@ export class CallController {
     provider: TtsProvider,
     text: string,
     runVersion: number,
-    format: "mp3" | "wav" | "opus" | "pcm" = "mp3",
+    format: CallAudioFormat = "mp3",
   ): Promise<SegmentSynthesisStatus> {
     let sink: AudioStoreSink | null = null;
     let playUrlSent = false;
