@@ -17,6 +17,63 @@ export interface MessageAttachmentInput {
   storedPath?: string;
 }
 
+/**
+ * A user attachment that has already been materialized into an attachment-store
+ * row, described by the fields needed to build a persisted `workspace_ref`
+ * content block: the row id, the stored (post-normalization) MIME type and byte
+ * size, and — for images — the pixel dimensions the model will receive. The raw
+ * bytes are NOT carried here; they live in the attachment store and are read
+ * back only at the provider send boundary.
+ */
+export interface AttachmentReferenceInput {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  width?: number;
+  height?: number;
+  extractedText?: string;
+}
+
+/**
+ * Build the persisted content blocks for user attachments as workspace
+ * references (`workspace_ref`) rather than inline base64, so the large blob
+ * stays in the attachment store instead of the `messages.content` row and the
+ * lexical index. The bytes are resolved back to base64 at the provider send
+ * boundary (`resolveMediaReferences`) and fetched by clients on render.
+ */
+export function attachmentsToReferenceBlocks(
+  refs: AttachmentReferenceInput[],
+): ContentBlock[] {
+  return refs.map((ref) => {
+    if (ref.mimeType.toLowerCase().startsWith("image/")) {
+      return {
+        type: "image",
+        source: {
+          type: "workspace_ref",
+          media_type: ref.mimeType,
+          attachmentId: ref.attachmentId,
+          sizeBytes: ref.sizeBytes,
+          ...(ref.width != null ? { width: ref.width } : {}),
+          ...(ref.height != null ? { height: ref.height } : {}),
+        },
+      } as ContentBlock;
+    }
+
+    return {
+      type: "file",
+      source: {
+        type: "workspace_ref",
+        media_type: ref.mimeType,
+        attachmentId: ref.attachmentId,
+        sizeBytes: ref.sizeBytes,
+        filename: ref.filename,
+      },
+      extracted_text: ref.extractedText,
+    } as ContentBlock;
+  });
+}
+
 export function attachmentsToContentBlocks(
   attachments: MessageAttachmentInput[],
 ): ContentBlock[] {

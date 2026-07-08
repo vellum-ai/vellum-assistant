@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
   type InitContext,

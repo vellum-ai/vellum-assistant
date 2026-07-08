@@ -105,6 +105,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
   isAccessRequestDenied,
+  maybeNotifyGuardianOfAdmittedContact,
   notifyGuardianOfAccessRequest,
 } from "../runtime/access-request-helper.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
@@ -1171,5 +1172,149 @@ describe("access-request-helper unit tests", () => {
     expect(
       isAccessRequestDenied({ ...key, actorExternalId: "pending-user" }),
     ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Introduction nudge on first admit (maybeNotifyGuardianOfAdmittedContact)
+// ---------------------------------------------------------------------------
+
+describe("maybeNotifyGuardianOfAdmittedContact", () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  const baseParams = {
+    canonicalAssistantId: "self",
+    sourceChannel: "telegram" as const,
+    conversationExternalId: "chat-123",
+    actorExternalId: "user-unknown-456",
+    actorDisplayName: "Alice Unknown",
+  };
+
+  test("first admit fires an admitted-mode introduction card", async () => {
+    const result = await maybeNotifyGuardianOfAdmittedContact(baseParams);
+    expect(result.notified).toBe(true);
+    if (result.notified) {
+      expect(result.created).toBe(true);
+    }
+
+    const requests = listCanonicalGuardianRequests({
+      kind: "access_request",
+      requesterExternalUserId: baseParams.actorExternalId,
+    });
+    expect(requests.length).toBe(1);
+    expect(requests[0].questionText).toContain("was admitted");
+    expect(requests[0].requesterChatId).toBe("chat-123");
+
+    expect(emitSignalCalls.length).toBe(1);
+    const signal = emitSignalCalls[0];
+    expect((signal.contextPayload as Record<string, unknown>).trigger).toBe(
+      "admitted",
+    );
+    expect((signal.attentionHints as Record<string, unknown>).urgency).toBe(
+      "medium",
+    );
+  });
+
+  test("second admit in the same conversation is suppressed once-ever", async () => {
+    await maybeNotifyGuardianOfAdmittedContact(baseParams);
+    const second = await maybeNotifyGuardianOfAdmittedContact(baseParams);
+
+    expect(second.notified).toBe(false);
+    if (!second.notified) {
+      expect(second.reason).toBe("already_introduced");
+    }
+    expect(
+      listCanonicalGuardianRequests({ kind: "access_request" }).length,
+    ).toBe(1);
+    expect(emitSignalCalls.length).toBe(1);
+  });
+
+  test("a live pending card from another conversation dedupes instead of double-carding", async () => {
+    await maybeNotifyGuardianOfAdmittedContact(baseParams);
+    const dm = await maybeNotifyGuardianOfAdmittedContact({
+      ...baseParams,
+      conversationExternalId: "dm-777",
+    });
+
+    // The per-conversation guard passes, but the actor-level pending dedupe
+    // inside notifyGuardianOfAccessRequest keeps a single live card.
+    expect(dm.notified).toBe(true);
+    if (dm.notified) {
+      expect(dm.created).toBe(false);
+    }
+    expect(
+      listCanonicalGuardianRequests({ kind: "access_request" }).length,
+    ).toBe(1);
+  });
+
+  test("after the earlier card expires undecided, a new conversation re-nudges once", async () => {
+    await maybeNotifyGuardianOfAdmittedContact(baseParams);
+    getDb().run("UPDATE canonical_guardian_requests SET status = 'expired'");
+
+    const dm = await maybeNotifyGuardianOfAdmittedContact({
+      ...baseParams,
+      conversationExternalId: "dm-777",
+    });
+    expect(dm.notified).toBe(true);
+    if (dm.notified) {
+      expect(dm.created).toBe(true);
+    }
+    expect(
+      listCanonicalGuardianRequests({ kind: "access_request" }).length,
+    ).toBe(2);
+
+    // The original conversation stays suppressed in every state.
+    const original = await maybeNotifyGuardianOfAdmittedContact(baseParams);
+    expect(original.notified).toBe(false);
+    if (!original.notified) {
+      expect(original.reason).toBe("already_introduced");
+    }
+  });
+
+  test("a guardian terminal deny suppresses nudges across conversations", async () => {
+    await maybeNotifyGuardianOfAdmittedContact(baseParams);
+    getDb().run("UPDATE canonical_guardian_requests SET status = 'denied'");
+
+    const dm = await maybeNotifyGuardianOfAdmittedContact({
+      ...baseParams,
+      conversationExternalId: "dm-777",
+    });
+    expect(dm.notified).toBe(false);
+    if (!dm.notified) {
+      expect(dm.reason).toBe("already_denied");
+    }
+  });
+
+  test("returns no_sender_id without an actor id", async () => {
+    const result = await maybeNotifyGuardianOfAdmittedContact({
+      ...baseParams,
+      actorExternalId: undefined,
+    });
+    expect(result.notified).toBe(false);
+    if (!result.notified) {
+      expect(result.reason).toBe("no_sender_id");
+    }
+    expect(
+      listCanonicalGuardianRequests({ kind: "access_request" }).length,
+    ).toBe(0);
+  });
+
+  test("deny-path requests keep high urgency and carry no trigger marker", async () => {
+    await notifyGuardianOfAccessRequest(baseParams);
+    expect(emitSignalCalls.length).toBe(1);
+    const signal = emitSignalCalls[0];
+    expect(
+      "trigger" in (signal.contextPayload as Record<string, unknown>),
+    ).toBe(false);
+    expect((signal.attentionHints as Record<string, unknown>).urgency).toBe(
+      "high",
+    );
+    const requests = listCanonicalGuardianRequests({
+      kind: "access_request",
+      requesterExternalUserId: baseParams.actorExternalId,
+    });
+    expect(requests[0].questionText).toContain("requesting access");
   });
 });

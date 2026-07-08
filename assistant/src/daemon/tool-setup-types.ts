@@ -6,7 +6,7 @@
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { SurfaceConversationContext } from "./conversation-surfaces.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 /**
  * How a subagent/wake tool allowlist is enforced.

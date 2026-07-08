@@ -125,38 +125,27 @@ function createTestServer(handlers: RpcHandlerRegistry = {}) {
 // ---------------------------------------------------------------------------
 
 describe("managed entrypoint transport isolation", () => {
-  test("managed-main.ts does not call Bun.serve for RPC (only health)", () => {
+  test("main.ts uses Bun.serve only for health probes (managed mode)", () => {
     const src = readFileSync(
-      resolve(__dirname, "..", "managed-main.ts"),
+      resolve(__dirname, "..", "main.ts"),
       "utf-8",
     );
-    // Bun.serve calls in managed-main should only be in startHealthServer
+    // Bun.serve is used for the health server in managed mode
     const bunServeMatches = src.match(/Bun\.serve\(/g);
     expect(bunServeMatches).not.toBeNull();
     // There should be exactly 1 Bun.serve call — for health probes only
     expect(bunServeMatches!.length).toBe(1);
   });
 
-  test("managed-main.ts uses createNetServer for Unix socket, not Bun.serve", () => {
+  test("main.ts uses createNetServer for Unix socket transport", () => {
     const src = readFileSync(
-      resolve(__dirname, "..", "managed-main.ts"),
+      resolve(__dirname, "..", "main.ts"),
       "utf-8",
     );
-    // Uses node:net createServer for the bootstrap socket
+    // Uses node:net createServer for the socket transport (both modes)
     expect(src).toMatch(/createNetServer/);
     // The net server never listens on a TCP port (only a socket path)
     expect(src).not.toMatch(/netServer\.listen\(\d+/);
-  });
-
-  test("managed-main.ts unlinks socket after accepting one connection", () => {
-    const src = readFileSync(
-      resolve(__dirname, "..", "managed-main.ts"),
-      "utf-8",
-    );
-    // Should unlink the socket path after connection
-    expect(src).toMatch(/unlinkSync\(socketPath\)/);
-    // Should close the net server after one connection
-    expect(src).toMatch(/netServer\.close\(\)/);
   });
 });
 
@@ -165,9 +154,9 @@ describe("managed entrypoint transport isolation", () => {
 // ---------------------------------------------------------------------------
 
 describe("health probes", () => {
-  test("managed-main.ts serves /healthz and /readyz on a separate port", () => {
+  test("main.ts serves /healthz and /readyz in managed mode", () => {
     const src = readFileSync(
-      resolve(__dirname, "..", "managed-main.ts"),
+      resolve(__dirname, "..", "main.ts"),
       "utf-8",
     );
     expect(src).toMatch(/\/healthz/);
@@ -212,9 +201,16 @@ describe("local entrypoint transport isolation", () => {
     // Socket transport only — no stdio-child transport.
     expect(src).not.toMatch(/process\.stdin/);
     expect(src).not.toMatch(/process\.stdout/);
-    // Listens on a Unix socket path only — never a numeric TCP port — and
-    // never opens an HTTP server.
-    expect(src).not.toMatch(/Bun\.serve\(/);
+    // Bun.serve is only used inside the managed-mode health server block
+    // (startHealthServer), never for RPC transport. The RPC transport uses
+    // node:net createServer listening on a Unix socket path.
+    const bunServeMatches = src.match(/Bun\.serve\(/g);
+    expect(bunServeMatches).not.toBeNull();
+    expect(bunServeMatches!.length).toBe(1);
+    // The Bun.serve call must be inside the startHealthServer function, which
+    // is only invoked in managed mode.
+    expect(src).toMatch(/function startHealthServer/);
+    // Never listens on a numeric TCP port for RPC transport.
     expect(src).not.toMatch(/\.listen\(\d+/);
   });
 

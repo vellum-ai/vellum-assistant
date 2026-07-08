@@ -375,8 +375,8 @@ export async function processMessage(
       "user",
       serializePersistedUserMessageContent(
         content,
-        attachments,
         options?.displayContent,
+        attachments,
       ),
       { metadata: userMetaWithSlack },
     );
@@ -468,8 +468,8 @@ export async function processMessage(
       "user",
       serializePersistedUserMessageContent(
         content,
-        attachments,
         options?.displayContent,
+        attachments,
       ),
       { metadata: compactUserMeta },
     );
@@ -523,8 +523,8 @@ export async function processMessage(
       "user",
       serializePersistedUserMessageContent(
         content,
-        attachments,
         options?.displayContent,
+        attachments,
       ),
       { metadata: cleanUserMeta },
     );

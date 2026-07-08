@@ -31,7 +31,6 @@ mock.module("../config/loader.js", () => ({
       },
       cleanup: {
         enabled: true,
-        enqueueIntervalMs: 60_000,
         conversationRetentionDays: 30,
         llmRequestLogRetentionMs: 60_000,
       },

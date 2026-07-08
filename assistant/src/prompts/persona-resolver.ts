@@ -10,7 +10,7 @@ import {
   peekCachedGuardianDelivery,
 } from "../contacts/guardian-delivery-reader.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";

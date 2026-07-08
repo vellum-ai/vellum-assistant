@@ -83,3 +83,20 @@ describe("synthesizeWithFishAudio request body", () => {
     expect(body.sample_rate).toBe(24000);
   });
 });
+
+describe("synthesizeWithFishAudio response consumption", () => {
+  test("rejects when the response body closes after zero bytes", async () => {
+    globalThis.fetch = mock(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      });
+      return new Response(body, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    await expect(synthesizeWithFishAudio("hello", config)).rejects.toThrow(
+      "Fish Audio API returned empty audio",
+    );
+  });
+});

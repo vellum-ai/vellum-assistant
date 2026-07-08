@@ -45,10 +45,8 @@ import { type AgentEvent, AgentLoop } from "../agent/loop.js";
 import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import {
-  isPersonalMemoryAllowed,
-  type TrustContext,
-} from "../daemon/trust-context.js";
+import { isPersonalMemoryAllowed } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import {

@@ -9,6 +9,7 @@
  */
 
 import { ROUTES as MEMORY_EVAL_ROUTES } from "../../plugins/defaults/memory/routes/memory-eval-routes.js";
+import { ROUTES as MEMORY_GRAPH_ROUTES } from "../../plugins/defaults/memory/routes/memory-graph-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/routes/memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/routes/memory-v2-routes.js";
 import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/routes/memory-v3-routes.js";
@@ -52,9 +53,11 @@ import { ROUTES as CONVERSATION_MESSAGE_ROUTES } from "./conversation-routes.js"
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
 import { ROUTES as CONVERSATIONS_IMPORT_ROUTES } from "./conversations-import-routes.js";
 import { ROUTES as CREDENTIAL_PROMPT_ROUTES } from "./credential-prompt-routes.js";
+import { ROUTES as CREDENTIAL_REQUEST_ROUTES } from "./credential-request-routes.js";
 import { ROUTES as CREDENTIAL_ROUTES } from "./credential-routes.js";
 import { ROUTES as DEBUG_BASH_ROUTES } from "./debug-bash-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
+import { ROUTES as DEFAULT_PROVIDER_ROUTES } from "./default-provider-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DISK_PRESSURE_ROUTES } from "./disk-pressure-routes.js";
@@ -188,6 +191,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_MESSAGE_ROUTES,
   ...CONSOLIDATION_ROUTES,
   ...CREDENTIAL_PROMPT_ROUTES,
+  ...CREDENTIAL_REQUEST_ROUTES,
   ...CREDENTIAL_ROUTES,
   ...DEFER_ROUTES,
   ...CONVERSATION_COMPACTION_ROUTES,
@@ -195,6 +199,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_STARTER_ROUTES,
   ...DEBUG_BASH_ROUTES,
   ...DEBUG_ROUTES,
+  ...DEFAULT_PROVIDER_ROUTES,
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,
   ...DOMAIN_ROUTES,
@@ -229,6 +234,7 @@ export const ROUTES: RouteDefinition[] = [
   ...LOG_EXPORT_ROUTES,
   ...LLM_CALL_SITES_ROUTES,
   ...MEMORY_EVAL_ROUTES,
+  ...MEMORY_GRAPH_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MEMORY_V2_ROUTES,
   ...MEMORY_V3_ROUTES,

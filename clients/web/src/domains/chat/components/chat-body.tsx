@@ -76,6 +76,14 @@ export interface ChatBodyProps {
    */
   composerSlot: ReactNode;
 
+  /**
+   * Optional CSS length reserved at the bottom of the panel (applied as
+   * `padding-bottom` on the outer container). Used on mobile while the app
+   * overlay is minimized to its strip: the strip overlays the bottom of the
+   * chat, so the composer lifts above it instead of hiding underneath.
+   */
+  bottomInset?: string;
+
   /** Drag handlers attached to the outer container for attachment drag-and-drop. */
   dragHandlers: ChatBodyDragHandlers;
   /** True when an attachment drag is active; shows a drop-target overlay. */
@@ -87,7 +95,7 @@ export interface ChatBodyProps {
   onScrollToLatest: () => void;
   /** True when an assistant response is currently streaming — drives the
    *  animated dots indicator inside the "Go to Newest" pill. */
-  isStreaming?: boolean;
+  isAssistantBusy?: boolean;
 
   /** Active refresh-feedback pill, or `null` when no pill is shown. */
   refreshFeedback: RefreshFeedback | null;
@@ -178,11 +186,12 @@ export function ChatBody({
   variant,
   scrollAreaProps,
   composerSlot,
+  bottomInset,
   dragHandlers,
   isAttachmentDragOver,
   showScrollToLatest,
   onScrollToLatest,
-  isStreaming = false,
+  isAssistantBusy = false,
   refreshFeedback,
   onDismissRefreshFeedback,
   onRetryRefresh,
@@ -280,7 +289,7 @@ export function ChatBody({
             <div className="pointer-events-auto pb-2.5">
               <ScrollToLatestButton
                 onClick={onScrollToLatest}
-                isStreaming={isStreaming}
+                isAssistantBusy={isAssistantBusy}
               />
             </div>
           )}
@@ -352,6 +361,7 @@ export function ChatBody({
     return (
       <div
         className={outerClass}
+        style={bottomInset ? { paddingBottom: bottomInset } : undefined}
         onDragEnter={dragHandlers.onDragEnter}
         onDragOver={dragHandlers.onDragOver}
         onDragLeave={dragHandlers.onDragLeave}
@@ -388,6 +398,7 @@ export function ChatBody({
   return (
     <div
       className={outerClass}
+      style={bottomInset ? { paddingBottom: bottomInset } : undefined}
       onDragEnter={dragHandlers.onDragEnter}
       onDragOver={dragHandlers.onDragOver}
       onDragLeave={dragHandlers.onDragLeave}

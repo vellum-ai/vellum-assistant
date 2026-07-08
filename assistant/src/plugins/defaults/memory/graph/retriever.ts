@@ -7,7 +7,10 @@
 // ---------------------------------------------------------------------------
 
 import type { ContentBlock, ImageContent } from "@vellumai/plugin-api";
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import {
+  getConfiguredProvider,
+  resolveMediaSourceData,
+} from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
@@ -980,9 +983,13 @@ export async function retrieveForTurn(
           i++
         ) {
           const img = imageBlocks[i];
+          // Resolve the image bytes whether stored inline or as a workspace
+          // reference; skip when the bytes can't be read.
+          const resolved = resolveMediaSourceData(img.source);
+          if (!resolved) continue;
           const imageInput = {
             type: "image" as const,
-            data: Buffer.from(img.source.data, "base64"),
+            data: Buffer.from(resolved.data, "base64"),
             mimeType: img.source.media_type,
           };
           const imgResult = await embedWithRetry(opts.config, [imageInput], {

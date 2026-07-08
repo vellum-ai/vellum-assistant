@@ -238,8 +238,7 @@ export function ChatMainPanel({
     uiContext,
     isIdle,
     showThinking,
-    isAssistantStreaming,
-    canStopGenerating,
+    isAssistantBusy,
     isSendDisabledFromTurn,
     thinkingLabel,
     liveAssistantMessageId,
@@ -290,6 +289,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
+  const isAppMinimized = useViewerStore.use.isAppMinimized();
 
   // Conversation count (for nudges — TanStack Query deduped)
   const { conversations } = useConversationListQuery(assistantId, true);
@@ -553,7 +553,7 @@ export function ChatMainPanel({
     // streaming reply materializes (notably across the onboarding draft→real
     // conversation switch, which resets the snapshot mid-turn).
     !activeConversationIsProcessing &&
-    !isAssistantStreaming &&
+    !isAssistantBusy &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
 
   const showDoctorAction =
@@ -844,8 +844,7 @@ export function ChatMainPanel({
     avatar,
     mainView,
     openedAppState,
-    isAssistantStreaming,
-    activeConversationIsProcessing,
+    isAssistantBusy,
     onSelectStarter: handleSelectStarter,
     onSelectSuggestion: newThreadSuggestionsEnabled
       ? setSelectedSuggestion
@@ -928,7 +927,7 @@ export function ChatMainPanel({
       onVoiceError={setVoiceError}
       onVoiceBeforeStart={handleVoiceBeforeStart}
       onStopGenerating={handleStopGenerating}
-      canStopGenerating={canStopGenerating}
+      isAssistantBusy={isAssistantBusy}
       assistantId={assistantId}
       // Routing-truth id (NOT `activeConversation?.conversationId`, which is
       // transiently undefined until the row loads and always undefined for
@@ -1017,9 +1016,22 @@ export function ChatMainPanel({
   const isSidePanel = mainView === "app-editing" && !!openedAppState && !!editingConversationId;
   const variant = isSidePanel ? "side-panel" : "main";
 
+  // Mobile-only: while the app overlay is minimized to its bottom strip, the
+  // strip covers the bottom of the chat. Reserve its height so the composer
+  // sits above it. The guard mirrors the strip's mount condition — the strip
+  // renders only while `mainView === "app"`, and navigation can leave
+  // `isAppMinimized`/`openedAppState` set after it unmounts. The strip peeks
+  // `--app-strip-h` above the safe area, and the chat shell already pads for
+  // the safe area itself, so only the strip height needs reserving.
+  const appStripBottomInset =
+    isMobile && mainView === "app" && isAppMinimized && openedAppState
+      ? "var(--app-strip-h, 64px)"
+      : undefined;
+
   const chatBody = (
     <ChatBody
       variant={variant}
+      bottomInset={appStripBottomInset}
       scrollAreaProps={{
         ...chatBodyScrollAreaPropsBase,
         showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
@@ -1032,7 +1044,7 @@ export function ChatMainPanel({
         scrollCoordinator.showScrollToLatest && messages.length > 0
       }
       onScrollToLatest={handleScrollToLatest}
-      isStreaming={isAssistantStreaming}
+      isAssistantBusy={isAssistantBusy}
       refreshFeedback={refreshFeedback}
       onDismissRefreshFeedback={handleDismissRefreshFeedback}
       onRetryRefresh={handleRetryRefreshFromPill}

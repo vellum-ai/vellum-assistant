@@ -13,7 +13,11 @@
  * so a rejected image cannot resurface and re-reject on every later turn.
  */
 
-import type { ContentBlock, Message } from "@vellumai/plugin-api";
+import {
+  type ContentBlock,
+  type Message,
+  resolveMediaSourceData,
+} from "@vellumai/plugin-api";
 
 import { optimizeImageForTransport } from "../../../agent/image-optimize.js";
 import { parseImageDimensions } from "../../../context/image-dimensions.js";
@@ -63,8 +67,13 @@ export const UNSENDABLE_IMAGE_NOTE =
 export function oversizedImageReplacement(
   block: Extract<ContentBlock, { type: "image" }>,
 ): ContentBlock | null {
-  const payloadBytes = block.source.data.length;
-  const dims = parseImageDimensions(block.source.data, block.source.media_type);
+  // Resolve reference sources to their bytes so a reloaded (referenced) image
+  // is gated on the same payload/dimension caps as an inline one. When the
+  // attachment can no longer be read, leave the block untouched.
+  const resolved = resolveMediaSourceData(block.source);
+  if (!resolved) return null;
+  const payloadBytes = resolved.data.length;
+  const dims = parseImageDimensions(block.source);
   const exceedsDimensionCap =
     dims != null &&
     (dims.width > PROVIDER_MAX_IMAGE_DIMENSION ||
@@ -73,10 +82,10 @@ export function oversizedImageReplacement(
   if (!exceedsDimensionCap && !exceedsPayloadCap) return null;
 
   const optimized = optimizeImageForTransport(
-    block.source.data,
-    block.source.media_type,
+    resolved.data,
+    resolved.media_type,
   );
-  if (optimized.data !== block.source.data) {
+  if (optimized.data !== resolved.data) {
     return {
       type: "image",
       source: {

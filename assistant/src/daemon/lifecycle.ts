@@ -4,7 +4,11 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
-import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
+import {
+  hasPendingDefaultWorkspaceConfig,
+  loadConfig,
+  mergeDefaultWorkspaceConfig,
+} from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
@@ -12,7 +16,6 @@ import { startCes } from "../credential-execution/ces-runtime.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
-import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startMonitoring } from "../monitoring/control.js";
@@ -44,7 +47,6 @@ import { startScheduler } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { syncFlagGatedTools } from "../tools/registry.js";
-import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
@@ -58,6 +60,7 @@ import {
 } from "../work-items/work-item-store.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
+import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
 import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
@@ -102,12 +105,6 @@ export async function runDaemon(): Promise<void> {
   loadDotEnv();
   validateEnv();
   log.info({ version: APP_VERSION }, "Daemon starting");
-
-  // Initialize crash reporting eagerly so the Sentry client is ready before
-  // early startup failures occur. Events are dropped (beforeSend) until the
-  // consent gate below confirms share_diagnostics opt-in; dev mode and the
-  // legacy local opt-out hard-disable via closeSentry().
-  initSentry();
 
   // Signal handlers install before any blocking startup work — a boot that
   // inherits a large WAL can spend minutes inside `initializeDb()`, and
@@ -154,6 +151,28 @@ export async function runDaemon(): Promise<void> {
   initAuthSigningKey(signingKey);
 
   setDbMigrating();
+
+  // Materialize partial custom profiles BEFORE any transport binds: routes
+  // are gated on DB readiness, not on the config-shaping steps further down,
+  // so a fast-reconnecting client could otherwise resolve a turn against a
+  // partial profile in the window between readiness and the post-overlay
+  // ensure call below. Sync, DB-free, and idempotent. Skipped when an
+  // unconsumed onboarding overlay is pending: the overlay can rewrite
+  // llm.default later this boot, and baking against the pre-overlay default
+  // would pin the wrong baseline — on that single boot (a fresh hatch, with
+  // no established clients to race the window) the post-overlay pass owns
+  // materialization; the overlay file is consumed on merge, so every
+  // subsequent boot takes this early pass.
+  if (!hasPendingDefaultWorkspaceConfig()) {
+    try {
+      ensureCompleteCustomProfiles(getWorkspaceDir());
+    } catch (err) {
+      log.warn(
+        { err },
+        "Pre-transport custom profile materialization failed — continuing startup",
+      );
+    }
+  }
 
   // Start the runtime HTTP server early so /healthz answers ASAP. A bind
   // failure is non-fatal — the daemon falls back to IPC-only operation.
@@ -346,11 +365,6 @@ export async function runDaemon(): Promise<void> {
       );
     }
 
-    // Now that workspace migrations have run (including 003-seed-device-id
-    // which may copy the legacy installationId into device.json), it is safe
-    // to read the device ID and set the Sentry tag.
-    setSentryDeviceId(getDeviceId());
-
     // Expire stale pending canonical guardian requests left over from before
     // this process started.  Two categories are cleaned up:
     //
@@ -473,6 +487,20 @@ export async function runDaemon(): Promise<void> {
     );
   }
 
+  // Runs on every boot, after the overlay merge and profile seeding and
+  // before the first loadConfig(), so no resolution ever sees a partial
+  // custom profile. See workspace/custom-profile-ensure.ts for why this is
+  // an ensure pass rather than a workspace migration.
+  try {
+    ensureCompleteCustomProfiles(getWorkspaceDir());
+    log.info("Custom profile materialization ensure pass complete");
+  } catch (err) {
+    log.warn(
+      { err },
+      "Custom profile materialization ensure pass failed — continuing startup",
+    );
+  }
+
   log.info("Daemon startup: loading config");
   const config = loadConfig();
 
@@ -521,25 +549,12 @@ export async function runDaemon(): Promise<void> {
     });
   }
 
-  // Privacy gating: Sentry crash/error reporting follows the platform owner's
-  // share_diagnostics consent; the usage telemetry reporter re-checks
-  // share_analytics on every flush. Both are disabled in dev mode. Sentry was
-  // initialized early, but beforeSend re-reads getCachedShareDiagnostics() on
-  // every event, so it drops events until consent confirms opt-in and honors a
-  // later revocation within one refresh cycle (the cache is refreshed by
-  // startConsentRefresh() below, mirroring the share_analytics posture).
-  const isDevMode = process.env.VELLUM_DEV === "1";
-  if (isDevMode || config.legacyDiagnosticsOptOut === true) {
-    // Dev mode and a preserved legacy local opt-out both disable Sentry
-    // unconditionally, without waiting on platform consent.
-    await closeSentry();
-  }
-
   // Refresh the consent cache regardless of dev mode so record-time telemetry
-  // writes (gated on getCachedShareAnalytics()) work in dev too. The reporter
-  // flush stays dev-gated above, so dev still never sends telemetry to the
-  // platform. Fire-and-forget: startConsentRefresh() runs an immediate
-  // non-blocking refresh, so the startup hot path is never blocked.
+  // writes (gated on getCachedShareAnalytics()) work in dev too. The usage
+  // telemetry reporter re-checks share_analytics on every flush, so dev still
+  // never sends telemetry to the platform. Fire-and-forget: startConsentRefresh()
+  // runs an immediate non-blocking refresh, so the startup hot path is never
+  // blocked.
   startConsentRefresh();
 
   // Bring up the daemon's CES connection (process + handshake + reconnect

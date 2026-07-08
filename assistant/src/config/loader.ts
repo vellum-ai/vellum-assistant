@@ -571,11 +571,22 @@ function emptyDefaultWorkspaceConfigMergeResult(): DefaultWorkspaceConfigMergeRe
  * Schema defaults are no longer materialized into the file on load — the
  * in-memory `loadConfig()` cache applies them at access time instead.
  */
-export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult {
+/**
+ * Whether an unconsumed onboarding overlay is waiting to be merged this boot.
+ * The overlay file is renamed away on merge, so this is true for at most the
+ * single boot that consumes it.
+ */
+export function hasPendingDefaultWorkspaceConfig(): boolean {
   const defaultConfigPath = process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
-  if (!defaultConfigPath || !existsSync(defaultConfigPath)) {
+  return Boolean(defaultConfigPath && existsSync(defaultConfigPath));
+}
+
+export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult {
+  if (!hasPendingDefaultWorkspaceConfig()) {
     return emptyDefaultWorkspaceConfigMergeResult();
   }
+  const defaultConfigPath = process.env
+    .VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH as string;
 
   let defaults: unknown;
   try {

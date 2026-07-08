@@ -85,6 +85,11 @@ import {
   handleRevokeDevice,
 } from "./http/routes/devices.js";
 import { handlePair } from "./http/routes/pair.js";
+import { handleCredentialEntryPage } from "./http/routes/credential-entry-page.js";
+import {
+  handleCredentialRequestPeek,
+  handleCredentialRequestSubmit,
+} from "./http/routes/credential-requests.js";
 import { handleCreateRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-challenge.js";
 import { handleRemoteWebPairingToken } from "./http/routes/remote-web-pairing-token.js";
 import { handleVerifyRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-verification.js";
@@ -136,6 +141,7 @@ import {
   createChannelPermissionOverridesListHandler,
   createChannelPermissionOverrideSetHandler,
   createChannelPermissionOverrideDeleteHandler,
+  createChannelPermissionResolveHandler,
 } from "./http/routes/channel-permission-overrides.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
@@ -192,6 +198,7 @@ import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
 import { trustVerdictRoutes } from "./ipc/trust-verdict-handlers.js";
 import { guardianDeliveryRoutes } from "./ipc/guardian-delivery-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
+import { createCredentialRequestIpcRoutes } from "./ipc/credential-request-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 import { trustRulesRoutes } from "./ipc/trust-rules-handlers.js";
@@ -551,6 +558,8 @@ async function main() {
     createChannelPermissionOverrideSetHandler();
   const handleChannelPermissionOverrideDelete =
     createChannelPermissionOverrideDeleteHandler();
+  const handleChannelPermissionResolve =
+    createChannelPermissionResolveHandler();
 
   const handleAgentCard = createAgentCardHandler(configFileCache);
 
@@ -911,6 +920,32 @@ async function main() {
       method: "POST",
       auth: "none",
       handler: (req) => handleRemoteWebPairingToken(req),
+    },
+    // ── Credential requests (one-time credential-collection links) ──
+    // Unauthenticated by design: the single-use token in the request BODY is
+    // the credential to act. Invalid tokens count as auth failures.
+    // The entry page is a static self-contained HTML shell (no token
+    // server-side — it rides the URL fragment); Velay-tunneled deployments
+    // have no SPA server behind the tunnel, so the gateway serves it.
+    {
+      path: "/assistant/credentials/enter",
+      method: "GET",
+      auth: "none",
+      handler: (req) => handleCredentialEntryPage(req),
+    },
+    {
+      path: "/v1/credential-requests/peek",
+      method: "POST",
+      auth: "track-failures",
+      trackFailureStatuses: [404],
+      handler: (req) => handleCredentialRequestPeek(req),
+    },
+    {
+      path: "/v1/credential-requests/submit",
+      method: "POST",
+      auth: "track-failures",
+      trackFailureStatuses: [404],
+      handler: (req) => handleCredentialRequestSubmit(req),
     },
     // ── Device management (localhost-only, auth: none; self-guards loopback) ──
     {
@@ -1616,6 +1651,15 @@ async function main() {
       scope: "settings.write",
       handler: (req) => handleChannelPermissionOverrideDelete(req),
     },
+    // Resolve is a read (settings.read) despite the POST verb — the body
+    // carries a composite query, same rationale as /delete above.
+    {
+      path: /^\/v1\/channel-permission-overrides\/resolve\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelPermissionResolve(req),
+    },
 
     // ── Channel permission overrides — assistant-scoped variants ──
     // Matrix cells are gateway-global, so the assistant id is matched and
@@ -1640,6 +1684,13 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => handleChannelPermissionOverrideDelete(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-permission-overrides\/resolve\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelPermissionResolve(req),
     },
 
     // ── Trust rules v3 — assistant-scoped variants ──
@@ -2624,6 +2675,7 @@ async function main() {
     ...createLogTailRoutes(config),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
+    ...createCredentialRequestIpcRoutes(configFileCache),
   ]);
   ipcServer.start();
 

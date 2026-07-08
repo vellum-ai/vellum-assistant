@@ -743,7 +743,6 @@ async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
       riskLevel,
       reason: result.reason,
       executionTarget,
-      matchedTrustRuleId: result.matchedRule?.id,
       promptPayload,
     };
   } catch (err) {

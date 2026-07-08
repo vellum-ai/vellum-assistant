@@ -165,6 +165,43 @@ describe("SegmentControl sublabels", () => {
   });
 });
 
+describe("SegmentControl unset value", () => {
+  test("null value renders no active segment", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={textItems}
+        value={null}
+        onChange={() => {}}
+        ariaLabel="Theme"
+      />,
+    );
+    expect(html).not.toContain('aria-checked="true"');
+  });
+
+  test("null value keeps a roving tab stop on the first enabled segment", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={[
+          { value: "light" as const, label: "Light", disabled: true },
+          { value: "dark" as const, label: "Dark" },
+          { value: "system" as const, label: "System" },
+        ]}
+        value={null}
+        onChange={() => {}}
+        ariaLabel="Theme"
+      />,
+    );
+    const tabIndexes = [...html.matchAll(/tabindex="(-?\d)"/g)].map(
+      (match) => match[1],
+    );
+    expect(tabIndexes).toEqual(["-1", "0", "-1"]);
+  });
+
+  test("clicking any segment from the unset state selects it", () => {
+    expect(resolveSegmentSelection(textItems, null, "dark")).toBe("dark");
+  });
+});
+
 describe("SegmentControl selection behavior", () => {
   test("clicking a non-active segment resolves to the new value", () => {
     expect(resolveSegmentSelection(iconItems, "light", "dark")).toBe("dark");

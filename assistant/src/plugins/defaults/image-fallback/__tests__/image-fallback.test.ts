@@ -35,6 +35,14 @@ const fakeProvider = {
   },
 };
 
+// The plugin resolves an image block's bytes via `resolveMediaSourceData`.
+// Media in these tests is inline base64, so mirror the real helper's base64
+// branch; a workspace reference would return null (not exercised here).
+const mockResolveMediaSourceData = (source: ImageContent["source"]) =>
+  source.type === "base64"
+    ? { data: source.data, media_type: source.media_type }
+    : null;
+
 // Mock @vellumai/plugin-api — only the runtime handles the plugin imports.
 // `extractAllText` stays real (imported from the relative path, not plugin-api).
 mock.module("@vellumai/plugin-api", () => ({
@@ -43,6 +51,7 @@ mock.module("@vellumai/plugin-api", () => ({
       ? visionModels.has(arg)
       : visionProfiles.has(arg.key),
   getModelProfiles: () => mockProfiles,
+  resolveMediaSourceData: mockResolveMediaSourceData,
   getConfiguredProvider: async () => (providerResolves ? fakeProvider : null),
 }));
 
@@ -324,6 +333,7 @@ describe("image-fallback user-prompt-submit hook", () => {
           ? visionModels.has(arg)
           : visionProfiles.has(arg.key),
       getModelProfiles: () => mockProfiles,
+      resolveMediaSourceData: mockResolveMediaSourceData,
       getConfiguredProvider: async () => trackingProvider,
     }));
 
@@ -345,6 +355,7 @@ describe("image-fallback user-prompt-submit hook", () => {
           ? visionModels.has(arg)
           : visionProfiles.has(arg.key),
       getModelProfiles: () => mockProfiles,
+      resolveMediaSourceData: mockResolveMediaSourceData,
       getConfiguredProvider: async () =>
         providerResolves ? fakeProvider : null,
     }));
@@ -566,6 +577,7 @@ describe("image-fallback post-compact hook", () => {
           ? visionModels.has(arg)
           : visionProfiles.has(arg.key),
       getModelProfiles: () => mockProfiles,
+      resolveMediaSourceData: mockResolveMediaSourceData,
       getConfiguredProvider: async () => trackingProvider,
     }));
 
@@ -588,6 +600,7 @@ describe("image-fallback post-compact hook", () => {
           ? visionModels.has(arg)
           : visionProfiles.has(arg.key),
       getModelProfiles: () => mockProfiles,
+      resolveMediaSourceData: mockResolveMediaSourceData,
       getConfiguredProvider: async () =>
         providerResolves ? fakeProvider : null,
     }));
@@ -627,6 +640,7 @@ describe("image-fallback conversation-deleted hook", () => {
           ? visionModels.has(arg)
           : visionProfiles.has(arg.key),
       getModelProfiles: () => mockProfiles,
+      resolveMediaSourceData: mockResolveMediaSourceData,
       getConfiguredProvider: async () => trackingProvider,
     }));
 
@@ -656,6 +670,7 @@ describe("image-fallback conversation-deleted hook", () => {
           ? visionModels.has(arg)
           : visionProfiles.has(arg.key),
       getModelProfiles: () => mockProfiles,
+      resolveMediaSourceData: mockResolveMediaSourceData,
       getConfiguredProvider: async () =>
         providerResolves ? fakeProvider : null,
     }));
@@ -676,6 +691,7 @@ describe("image-fallback conversation-deleted hook", () => {
           ? visionModels.has(arg)
           : visionProfiles.has(arg.key),
       getModelProfiles: () => mockProfiles,
+      resolveMediaSourceData: mockResolveMediaSourceData,
       getConfiguredProvider: async () => trackingProvider,
     }));
 
@@ -710,6 +726,7 @@ describe("image-fallback conversation-deleted hook", () => {
           ? visionModels.has(arg)
           : visionProfiles.has(arg.key),
       getModelProfiles: () => mockProfiles,
+      resolveMediaSourceData: mockResolveMediaSourceData,
       getConfiguredProvider: async () =>
         providerResolves ? fakeProvider : null,
     }));

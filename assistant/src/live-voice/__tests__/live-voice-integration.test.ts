@@ -213,6 +213,8 @@ function createMultiCycleHarness(startVoiceTurn: LiveVoiceTurnStarter) {
   const { context, frames } = createContext(VAD_START_FRAME);
   let turnCount = 0;
   const session = createLiveVoiceSession(context, {
+    // Credential-free harness: every leg is injected, so skip the preflight.
+    resolveCredentialReadiness: null,
     resolveTranscriber,
     startVoiceTurn,
     streamTtsAudio,
@@ -248,6 +250,7 @@ describe("LiveVoiceSession integration smoke harness", () => {
     });
     const { context, frames } = createContext();
     const session = createLiveVoiceSession(context, {
+      resolveCredentialReadiness: null,
       resolveTranscriber: mock(async () => transcriber),
       startVoiceTurn,
       streamTtsAudio,
@@ -354,6 +357,7 @@ describe("LiveVoiceSession integration smoke harness", () => {
     );
     const { context, frames } = createContext();
     const session = createLiveVoiceSession(context, {
+      resolveCredentialReadiness: null,
       resolveTranscriber: mock(async () => transcriber),
       startVoiceTurn,
       streamTtsAudio,

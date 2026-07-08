@@ -3,15 +3,18 @@ import { type ReactNode, useState } from "react";
 
 import { Button } from "@vellumai/design-library";
 import type { Surface } from "@/domains/chat/types/types";
+import { cn } from "@/utils/misc";
 
 interface SurfaceContainerProps {
   surface: Surface;
   onAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => void | Promise<void>;
   hideTitle?: boolean;
+  /** Extra classes merged onto the card's root element. */
+  className?: string;
   children: ReactNode;
 }
 
-export function SurfaceContainer({ surface, onAction, hideTitle, children }: SurfaceContainerProps) {
+export function SurfaceContainer({ surface, onAction, hideTitle, className, children }: SurfaceContainerProps) {
   const [submittingAction, setSubmittingAction] = useState<string | null>(null);
 
   const handleAction = async (actionId: string) => {
@@ -25,7 +28,7 @@ export function SurfaceContainer({ surface, onAction, hideTitle, children }: Sur
   };
 
   return (
-    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] p-4">
+    <div className={cn("rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] p-4", className)}>
       {!hideTitle && surface.title && (
         <div className="mb-3 flex items-center gap-2">
           <span className="text-title-small text-[var(--content-strong)]">

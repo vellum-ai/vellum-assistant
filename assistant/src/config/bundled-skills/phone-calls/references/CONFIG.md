@@ -20,14 +20,14 @@ All call-related settings can be managed via `assistant config`:
 
 ## TTS provider call-path behavior
 
-During phone calls the assistant synthesizes audio server-side via the configured provider's HTTP API, transcodes it to mu-law, and streams it to Twilio over the media stream. Each provider's catalog entry declares its playback format:
+During phone calls the assistant synthesizes audio server-side via the configured provider's API, transcodes it to mu-law, and streams it to Twilio over the media stream. Each provider's catalog entry declares its playback format:
 
 | Provider     | Playback format | Description                                                                                                                       |
 | ------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `elevenlabs` | `pcm`           | Synthesizes PCM audio via the ElevenLabs API.                                                                                     |
 | `fish-audio` | `wav`           | Synthesizes WAV audio via Fish Audio's HTTP API. Requires a configured `referenceId`.                                             |
 | `deepgram`   | `pcm`           | Synthesizes PCM audio via Deepgram's HTTP API. Uses the same API key as Deepgram speech-to-text.                                  |
-| `xai`        | `pcm`           | Synthesizes PCM audio via xAI's HTTP API.                                                                                         |
+| `xai`        | `pcm`           | Streams PCM audio via xAI's WebSocket endpoint.                                                                                   |
 
 Calls require a media-stream-playable TTS provider with a working API key. When the configured provider is not playable (unsupported format or missing credentials), the assistant falls back to a credentialed playable provider rather than letting the call go silent; if none exists, calls are blocked up front with a setup-required message.
 

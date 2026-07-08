@@ -140,9 +140,13 @@ export class FakePlayer {
   enqueued: unknown[] = [];
   stopCount = 0;
   disposeCount = 0;
+  prewarmCount = 0;
   isPlaying = false;
   private drainResolvers: Array<() => void> = [];
 
+  prewarm(): void {
+    this.prewarmCount++;
+  }
   enqueue(chunk: unknown): void {
     this.enqueued.push(chunk);
     this.isPlaying = true;

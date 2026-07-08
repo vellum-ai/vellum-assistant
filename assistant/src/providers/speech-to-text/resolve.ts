@@ -449,3 +449,15 @@ async function createStreamingTranscriber(
     }
   }
 }
+
+/**
+ * True when an API key resolves for the given credential provider name.
+ *
+ * Centralized here (an authorized secure-keys importer) so callers that only
+ * need a key-existence check don't import secure-keys directly.
+ */
+export async function sttProviderKeyResolves(
+  credentialProviderName: string,
+): Promise<boolean> {
+  return (await getProviderKeyAsync(credentialProviderName)) !== undefined;
+}

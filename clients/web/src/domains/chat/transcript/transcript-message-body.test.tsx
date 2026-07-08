@@ -7,7 +7,7 @@ import {
   test,
 } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 // The transcript transitively pulls in the viewer store → the generated daemon
 // SDK (not built in CI/worktree checkouts). Stub the two endpoints it references
@@ -178,6 +178,15 @@ mock.module(
   }),
 );
 
+// The mid-turn tool-result image strip downloads data-URL bytes through
+// `downloadAttachment`, which lazily imports the native-file bridge. Stub it so
+// clicking Download records the call without touching Capacitor / DOM anchors.
+const saveFileMock = mock(async () => {});
+mock.module("@/runtime/native-file", () => ({
+  saveFile: saveFileMock,
+}));
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
@@ -636,6 +645,117 @@ describe("TranscriptMessageBody", () => {
     expect(image?.getAttribute("src")).toBe(
       `data:image/jpeg;base64,${jpegData}`,
     );
+  });
+
+  test("mid-turn tool-result images are keyboard-operable and named from the tool", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-fileread",
+      name: "file_read",
+      input: { path: "/tmp/diagram.png" },
+      result: "Read 1 image",
+      imageDataList: ["img-a"],
+      completedAt: 1,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-fileread-image",
+          role: "assistant",
+          contentBlocks: [toolUseBlock(toolCall)],
+          toolCalls: [toolCall],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const image = container.querySelector("[data-testid='tool-result-image']");
+    const clickable = image?.closest("[role='button']");
+    expect(clickable).not.toBeNull();
+    // Filename mirrors the daemon's `toolNameToFilePrefix` (`file_read` →
+    // `file-read.png`), surfaced as the accessible label and download label.
+    expect(clickable!.getAttribute("aria-label")).toBe("file-read.png");
+    expect(clickable!.getAttribute("tabindex")).toBe("0");
+    const download = container.querySelector(
+      "[aria-label='Download file-read.png']",
+    );
+    expect(download).not.toBeNull();
+  });
+
+  test("clicking a mid-turn tool-result image opens the shared preview", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-open",
+      name: "media_generate_image",
+      input: { prompt: "diagram" },
+      result: "Generated 1 image",
+      imageDataList: ["img-a"],
+      completedAt: 1,
+    };
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <TranscriptMessageBody
+          message={{
+            id: "m-open-preview",
+            role: "assistant",
+            contentBlocks: [toolUseBlock(toolCall)],
+            toolCalls: [toolCall],
+            timestamp: 1_000,
+          }}
+          onSurfaceAction={noop}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(document.querySelector("[role='dialog']")).toBeNull();
+    const clickable = container
+      .querySelector("[data-testid='tool-result-image']")
+      ?.closest("[role='button']");
+    fireEvent.click(clickable!);
+
+    // The reused AttachmentPreviewModal portals into document.body.
+    const dialog = document.querySelector("[role='dialog']");
+    expect(dialog).not.toBeNull();
+    expect(dialog!.getAttribute("aria-label")).toBe(
+      "Preview of media-generate-image.png",
+    );
+  });
+
+  test("downloading a mid-turn tool-result image saves the data-URL bytes", async () => {
+    saveFileMock.mockClear();
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-dl",
+      name: "file_read",
+      input: { path: "/tmp/shot.png" },
+      result: "Read 1 image",
+      imageDataList: ["img-a"],
+      completedAt: 1,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-download-image",
+          role: "assistant",
+          contentBlocks: [toolUseBlock(toolCall)],
+          toolCalls: [toolCall],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const download = container.querySelector(
+      "[aria-label='Download file-read.png']",
+    );
+    fireEvent.click(download!);
+    await waitFor(() => {
+      expect(saveFileMock).toHaveBeenCalledWith(
+        "data:image/png;base64,img-a",
+        "file-read.png",
+      );
+    });
   });
 
   test("a tool + thinking run still renders the boxed activity card", () => {

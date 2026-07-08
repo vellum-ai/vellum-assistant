@@ -32,19 +32,6 @@ export const THRESHOLD_ORDINAL: Record<string, number> = {
   high: 2,
 };
 
-/** A persistent trust rule stored on disk and used for permission matching. */
-export interface TrustRule {
-  id: string;
-  tool: string;
-  pattern: string;
-  decision: "allow" | "deny" | "ask";
-  priority: number;
-  createdAt: number;
-  scope?: string;
-  executionTarget?: string;
-  userModifiedAt?: number;
-}
-
 export type UserDecision = "allow" | "deny";
 
 export function isAllowDecision(decision: UserDecision): boolean {
@@ -54,7 +41,6 @@ export function isAllowDecision(decision: UserDecision): boolean {
 export interface PermissionCheckResult {
   decision: "allow" | "deny" | "prompt";
   reason: string;
-  matchedRule?: TrustRule;
   /** True when the decision was taken via the sandbox auto-approve path. */
   hasSandboxAutoApprove?: boolean;
 }

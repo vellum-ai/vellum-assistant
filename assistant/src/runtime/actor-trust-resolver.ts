@@ -30,14 +30,12 @@ import type {
   ContactRole,
   ContactWithChannels,
 } from "../contacts/types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import type { TrustClass } from "./trust-class.js";
 
 const log = getLogger("actor-trust-resolver");
-
-export type { TrustContext } from "../daemon/trust-context.js";
 
 // ---------------------------------------------------------------------------
 // Types

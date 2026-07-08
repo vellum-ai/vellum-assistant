@@ -282,7 +282,7 @@ export function ContextWindowIndicator({
         <BottomSheet.Trigger asChild>
           <button
             type="button"
-            className="relative flex items-center"
+            className="relative flex items-center px-1.5"
             aria-label={`Context window ${percentage}% full`}
           >
             <CircularRing
@@ -316,7 +316,7 @@ export function ContextWindowIndicator({
   return (
     <div
       ref={triggerRef}
-      className="relative flex items-center"
+      className="relative flex items-center px-1.5"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onFocus={handleMouseEnter}

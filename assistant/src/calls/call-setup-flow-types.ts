@@ -7,7 +7,7 @@
  * the owning server should continue the call once setup completes.
  */
 
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 
 // ── Transport surface ────────────────────────────────────────────────
 
@@ -19,7 +19,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 export interface SetupFlowTransport {
   sendTextToken(token: string, last: boolean): void;
   endSession(reason?: string): void;
-  readonly requiresWavAudio?: boolean;
+  readonly requiresPcmAudio?: boolean;
 }
 
 // ── Flow state ───────────────────────────────────────────────────────
