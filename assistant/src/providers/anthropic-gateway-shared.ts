@@ -52,6 +52,11 @@ export function retagDelegateError(
       cause: error.cause ?? error,
       retryAfterMs: error.retryAfterMs,
       abortReason: error.abortReason,
+      reason: error.reason,
+      apiErrorType: error.apiErrorType,
+      apiErrorCode: error.apiErrorCode,
+      apiErrorParam: error.apiErrorParam,
+      rawBody: error.rawBody,
     });
   }
   throw error;
