@@ -1,13 +1,26 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
+
+// `mock.module` is safe for `use-is-mobile` because it's a pure
+// derived-value hook (no module-local state). Tests that don't touch
+// `isMobileRef` default to `false` (wide viewport).
+const isMobileRef = { value: false };
+mock.module("@/hooks/use-is-mobile", () => ({
+  useIsMobile: () => isMobileRef.value,
+  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+}));
 
 import { SkillCreatedCard } from "@/domains/chat/components/surfaces/skill-created-card";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type { Surface } from "@/domains/chat/types/types";
+import { useViewerStore } from "@/stores/viewer-store";
 
 afterEach(() => {
   cleanup();
+  isMobileRef.value = false;
+  // Clicks mutate the real viewer store; restore it for the next test.
+  useViewerStore.getState().reset();
 });
 
 function makeSurface(overrides: Partial<Surface> = {}): Surface {
@@ -86,7 +99,30 @@ describe("SkillCreatedCard", () => {
     expect(container.querySelectorAll(".rounded-lg")).toHaveLength(1);
   });
 
-  test("View navigates to the skill detail page for the clicked skill", () => {
+  test("View opens the skill detail sidepanel on desktop without leaving the conversation", () => {
+    const { getByRole, getByTestId } = renderCard(
+      makeSurface({
+        data: {
+          skills: [
+            { skillId: "skill-1", name: "Skill one" },
+            { skillId: "skill-2", name: "Skill two" },
+          ],
+        },
+      }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "View Skill two" }));
+
+    expect(useViewerStore.getState().mainView).toBe("skill-detail");
+    expect(useViewerStore.getState().activeSkillDetailId).toBe("skill-2");
+    // The panel opens in place — the conversation route is untouched.
+    expect(getByTestId("location").textContent).toBe(
+      "/assistant/conversations/conv-xyz",
+    );
+  });
+
+  test("View navigates to the skill detail page on mobile (no sidepanel on narrow viewports)", () => {
+    isMobileRef.value = true;
     const { getByRole, getByTestId } = renderCard(
       makeSurface({
         data: {
@@ -103,6 +139,9 @@ describe("SkillCreatedCard", () => {
     expect(getByTestId("location").textContent).toBe(
       "/assistant/skills/skill-2",
     );
+    // The panel path is not taken on mobile.
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useViewerStore.getState().activeSkillDetailId).toBeNull();
   });
 
   test("falls back to the Brain icon when a skill has no emoji", () => {
