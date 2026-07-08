@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "./button";
@@ -84,8 +84,7 @@ function ConfirmDialog({
           <Button
             variant={destructive ? "danger" : "primary"}
             onClick={onConfirm}
-            disabled={isPending}
-            leftIcon={isPending ? <Loader2 className="animate-spin" /> : undefined}
+            loading={isPending}
             {...{ [CONFIRM_BUTTON_ATTR]: "" }}
           >
             {confirmLabel}

@@ -13,11 +13,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Button } from "./button";
 
 describe("Button rendering", () => {
-  test("renders a <button> by default with type=button and children", () => {
+  test("renders a <button> by default with type=button and a wrapped label", () => {
     const html = renderToStaticMarkup(<Button>Hello</Button>);
     expect(html).toContain("<button");
     expect(html).toContain('type="button"');
-    expect(html).toContain(">Hello</button>");
+    // The label is wrapped in a stable element so browser page translation
+    // never re-parents a bare text node React owns (translate-dom-guard).
+    expect(html).toContain('<span data-slot="button-label">Hello</span>');
   });
 
   test("asChild renders the slotted element instead of <button>", () => {
@@ -155,6 +157,88 @@ describe("Button rendering", () => {
     expect(() =>
       renderToStaticMarkup(<Button ref={ref}>Ref</Button>),
     ).not.toThrow();
+  });
+
+  test("icon+label path wraps the label in a stable element", () => {
+    const html = renderToStaticMarkup(
+      <Button leftIcon={<svg data-testid="left-icon" aria-hidden />}>Save</Button>,
+    );
+    expect(html).toContain('data-testid="left-icon"');
+    expect(html).toContain('<span data-slot="button-label">Save</span>');
+  });
+
+  test("asChild does not wrap the label (Slot needs its single element child)", () => {
+    const html = renderToStaticMarkup(
+      <Button asChild>
+        <a href="/x">Link</a>
+      </Button>,
+    );
+    expect(html).toContain("<a");
+    expect(html).toContain(">Link</a>");
+    expect(html).not.toContain('data-slot="button-label"');
+  });
+
+  test("does not wrap structured (multi-element) children, keeping them as direct flex items", () => {
+    const html = renderToStaticMarkup(
+      <Button>
+        <span data-testid="title">Title</span>
+        <span data-testid="pill">3</span>
+      </Button>,
+    );
+    // Only plain text labels are wrapped; structured content stays as direct
+    // children so `justify-between`/flex layouts are preserved.
+    expect(html).not.toContain('data-slot="button-label"');
+    expect(html).toContain('data-testid="title"');
+    expect(html).toContain('data-testid="pill"');
+  });
+});
+
+describe("Button loading state", () => {
+  test("loading renders a spinner, disables the button, and sets aria-busy", () => {
+    const html = renderToStaticMarkup(<Button loading>Connect</Button>);
+    expect(html).toContain("animate-spin");
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toMatch(/<button[^>]*\sdisabled(?:=""|\s|>)/);
+    // The label still renders (wrapped), alongside the spinner.
+    expect(html).toContain('<span data-slot="button-label">Connect</span>');
+  });
+
+  test("loading disables interaction even without an explicit disabled prop", () => {
+    const onClick = mock(() => {});
+    const html = renderToStaticMarkup(
+      <Button loading onClick={onClick}>
+        Go
+      </Button>,
+    );
+    expect(html).toMatch(/<button[^>]*\sdisabled(?:=""|\s|>)/);
+  });
+
+  test("loading replaces the icon of an icon-only button with the spinner", () => {
+    const html = renderToStaticMarkup(
+      <Button loading iconOnly={<svg data-testid="only-icon" />} aria-label="a" />,
+    );
+    expect(html).toContain("animate-spin");
+    expect(html).not.toContain('data-testid="only-icon"');
+  });
+
+  test("loading takes precedence over a provided leftIcon", () => {
+    const html = renderToStaticMarkup(
+      <Button loading leftIcon={<svg data-testid="left-icon" />}>
+        Save
+      </Button>,
+    );
+    expect(html).toContain("animate-spin");
+    expect(html).not.toContain('data-testid="left-icon"');
+  });
+
+  test("preserves a caller-provided aria-busy when not loading", () => {
+    const html = renderToStaticMarkup(<Button aria-busy>Busy</Button>);
+    expect(html).toContain('aria-busy="true"');
+  });
+
+  test("sets no aria-busy when neither loading nor caller-provided", () => {
+    const html = renderToStaticMarkup(<Button>Idle</Button>);
+    expect(html).not.toContain("aria-busy");
   });
 });
 

@@ -40,9 +40,17 @@ function surface(data: Record<string, unknown>): Surface {
 }
 
 function isOpenAppEnabled(html: string): boolean {
-  const openAppMatch = html.match(/<button[^>]*>(?:<[^>]*>)*Open App<\/button>/);
-  if (!openAppMatch) return false;
-  return !openAppMatch[0].includes('disabled=""');
+  // Match the <button> that contains the "Open App" label, tolerating any
+  // child markup between the open tag and the text (icon spans and the
+  // translate-safe label span the design-library Button wraps text in), then
+  // check the button tag's own attributes for the disabled flag.
+  const openAppMatch = html.match(
+    /<button([^>]*)>(?:(?!<\/button>)[\s\S])*?Open App/,
+  );
+  if (!openAppMatch) {
+    return false;
+  }
+  return !openAppMatch[1].includes('disabled=""');
 }
 
 describe("DynamicPageSurface", () => {
