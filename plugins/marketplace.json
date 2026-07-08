@@ -106,7 +106,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/cofounder",
-        "ref": "9c7d8febcd3bd2c04d7e063724383046ae88ce78"
+        "ref": "547adf1c0db0cbb32855ff0e4ef46c056248bdea"
       },
       "description": "AI co-founder that remembers your company context, challenges your thinking, and tracks your decisions.",
       "category": "productivity",
