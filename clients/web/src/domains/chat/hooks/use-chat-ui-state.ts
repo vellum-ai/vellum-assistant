@@ -16,7 +16,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import {
-  canStopGeneration,
+  isAssistantBusy as isAssistantBusySelector,
   isSendDisabled,
   shouldShowThinkingIndicator,
   type UIContext,
@@ -39,8 +39,9 @@ export interface ChatUIState {
   /** Whether the turn phase is `"idle"` (no active turn in progress). */
   isIdle: boolean;
   showThinking: boolean;
-  isAssistantStreaming: boolean;
-  canStopGenerating: boolean;
+  /** Whether the assistant is actively working (not waiting for user input).
+   *  Single source of truth for the avatar spinner and stop button. */
+  isAssistantBusy: boolean;
   /** Whether the turn-level state blocks sending (pending secret or
    *  confirmation). Does NOT include typing-disabled conditions (loading
    *  history, maintenance, disk pressure, channel readonly) — the caller
@@ -154,8 +155,7 @@ export function useChatUIState(): ChatUIState {
   );
 
   const showThinking = shouldShowThinkingIndicator(phase, activeToolCallCount, uiContext);
-  const isAssistantStreaming = showThinking || hasStreamingAssistantMessage;
-  const canStopGenerating = canStopGeneration(phase, uiContext);
+  const isAssistantBusy = isAssistantBusySelector(phase, uiContext);
   const isSendDisabledFromTurn = isSendDisabled(uiContext);
   const thinkingLabel = statusText;
 
@@ -163,8 +163,7 @@ export function useChatUIState(): ChatUIState {
     uiContext,
     isIdle: phase === "idle",
     showThinking,
-    isAssistantStreaming,
-    canStopGenerating,
+    isAssistantBusy,
     isSendDisabledFromTurn,
     thinkingLabel,
     liveAssistantMessageId,

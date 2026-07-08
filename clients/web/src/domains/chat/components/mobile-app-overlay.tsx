@@ -90,7 +90,7 @@ export function MobileAppOverlay({
           sheet's visible top edge. */}
       <div
         className={cn(
-          "h-full",
+          "h-full rounded-xl",
           isAppMinimized &&
             "pointer-events-auto shadow-[0_-4px_16px_rgba(0,0,0,0.15)]",
         )}

@@ -107,6 +107,9 @@ mock.module("@vellumai/design-library", () => ({
     }) => <div {...props}>{children}</div>,
   },
   ResizablePanel: () => <div data-testid="resizable-panel" />,
+  ScrollShadow: ({ children }: { children?: ReactNode }) => (
+    <div>{children}</div>
+  ),
   Typography: ({ children }: { children?: ReactNode }) => (
     <span>{children}</span>
   ),
