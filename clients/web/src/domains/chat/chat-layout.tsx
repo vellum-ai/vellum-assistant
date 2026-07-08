@@ -299,27 +299,17 @@ export function ChatLayout() {
     consumeSidebarCollapse();
   }, [sidebarCollapseRequested, consumeSidebarCollapse]);
 
-  // The full-screen voice room takes over the viewport, so collapse the sidebar
-  // and blur the chat body while it is visible — then restore the user's prior
-  // collapsed state exactly on exit. Mirrors the research-onboarding
-  // sidebar-collapse pattern above, but fully reversible: the pre-room value is
-  // captured in a ref before forcing (the sentinel `null` means "room not
-  // currently forcing"), so any external session end restores it.
+  // The full-screen voice room takes over the viewport, so the sidebar reads as
+  // collapsed and the chat body blurs while it is visible. This override is
+  // EPHEMERAL — it is OR'd into the rendered collapsed value (`sideMenuCollapsed`
+  // below) rather than routed through `setCollapsed`, so it never touches the
+  // persistence effect above. That matters: forcing the persisted `collapsed`
+  // true (the old approach) let a reload / tab-close mid-session write the
+  // forced value to `localStorage` and leave the sidebar collapsed forever. On
+  // exit the room override simply drops and the sidebar returns to exactly the
+  // user's persisted value — no restore dance needed.
   const voiceRoomVisible = useIsVoiceRoomVisible();
-  const collapsedBeforeRoomRef = useRef<boolean | null>(null);
-  useEffect(() => {
-    if (voiceRoomVisible) {
-      if (collapsedBeforeRoomRef.current === null) {
-        collapsedBeforeRoomRef.current = collapsed;
-        setCollapsed(true);
-      }
-      return;
-    }
-    if (collapsedBeforeRoomRef.current !== null) {
-      setCollapsed(collapsedBeforeRoomRef.current);
-      collapsedBeforeRoomRef.current = null;
-    }
-  }, [voiceRoomVisible, collapsed]);
+  const sideMenuCollapsed = collapsed || voiceRoomVisible;
 
   const drawerVisible = isMobile && drawerOpen;
 
@@ -683,7 +673,7 @@ export function ChatLayout() {
         <ChatLayoutHeader
           isMobile={isMobile}
           drawerOpen={drawerOpen}
-          collapsed={collapsed}
+          collapsed={sideMenuCollapsed}
           sidebarWidth={sidebarWidth}
           toggleSidebar={toggleSidebar}
           topBarCenter={topBarCenter}
@@ -784,7 +774,7 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange })}
+            {renderSideMenu({ collapsed: sideMenuCollapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange })}
           </aside>
           <main
             className={`flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}

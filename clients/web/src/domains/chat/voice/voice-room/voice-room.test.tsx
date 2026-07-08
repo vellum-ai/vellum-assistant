@@ -36,8 +36,11 @@ const OTHER_CONVERSATION_ID = "conv-other";
 const ASSISTANT_ID = "assistant-1";
 
 let mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
+// `search` feeds the room's pop-out gate (`isPopoutWindow`): "" is the main
+// window, "?popout=1" is an Electron pop-out thread window.
+let mockSearch = "";
 mock.module("react-router", () => ({
-  useLocation: () => ({ pathname: mockPathname }),
+  useLocation: () => ({ pathname: mockPathname, search: mockSearch }),
 }));
 
 let mockMainView: MainView = "chat";
@@ -80,6 +83,7 @@ function startOwnedSession(state: LiveVoiceSessionState = "listening") {
 
 beforeEach(() => {
   mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
+  mockSearch = "";
   mockMainView = "chat";
   mockIsMobile = false;
   controls.stop.mockClear();
@@ -129,6 +133,16 @@ describe("VoiceRoom — visibility", () => {
   test("renders nothing over the desktop fullscreen app viewer (composer replaced)", () => {
     startOwnedSession("listening");
     mockMainView = "app";
+    render(<VoiceRoom />);
+    expect(roomDialog()).toBeNull();
+  });
+
+  test("renders nothing in an Electron pop-out even when the composer owns the session", () => {
+    // The `fixed inset-0` room would cover the pop-out's standalone pill, so
+    // pop-outs never show it — the standalone pill is their only session
+    // surface. The owning composer's voice bar still renders underneath.
+    startOwnedSession("listening");
+    mockSearch = "?popout=1";
     render(<VoiceRoom />);
     expect(roomDialog()).toBeNull();
   });
