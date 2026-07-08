@@ -102,6 +102,18 @@
       "license": "MIT"
     },
     {
+      "name": "cofounder",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/cofounder",
+        "ref": "9c7d8febcd3bd2c04d7e063724383046ae88ce78"
+      },
+      "description": "AI co-founder that remembers your company context, challenges your thinking, and tracks your decisions.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/cofounder",
+      "license": "MIT"
+    },
+    {
       "name": "git-workflow",
       "source": {
         "source": "github",
