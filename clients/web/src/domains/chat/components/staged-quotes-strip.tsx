@@ -136,7 +136,7 @@ export function StagedQuotesStrip() {
       orientation="vertical"
       size={20}
       hideScrollBar
-      className="mb-2 max-h-[180px]"
+      className="mb-2 max-h-[140px]"
     >
       <div className="flex flex-col gap-1.5">
         <AnimatePresence initial={false}>
