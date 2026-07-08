@@ -577,7 +577,6 @@ function applyDaemonEnvOverrides(
   // regardless of any stale CES_LOCAL_SOCKET inherited from the parent
   // environment. The assistant connects to the sibling instead of spawning
   // its own CES.
-  env.CES_STANDALONE = "1";
   env.CES_LOCAL_SOCKET = resolveCesSocketPath(resources);
   applyIpcSocketDirOverride(env);
 }
@@ -852,10 +851,9 @@ function resolveCesSocketPath(resources?: LocalInstanceResources): string {
  * the default topology for local (non-containerized) instances, matching how
  * containerized homes already run CES.
  *
- * The sibling runs with `CES_STANDALONE=1` so its lifecycle is anchored to
- * SIGTERM rather than stdin EOF, mirroring the gateway: a CLI-owned process
- * with a PID file under `.vellum/ces.pid`, started by `wake` and stopped by
- * `sleep`.
+ * The sibling runs as an independent process with its lifecycle anchored to
+ * SIGTERM, mirroring the gateway: a CLI-owned process with a PID file under
+ * `.vellum/ces.pid`, started by `wake` and stopped by `sleep`.
  */
 export async function startCes(
   watch: boolean = false,
@@ -891,7 +889,6 @@ export async function startCes(
 
   const cesEnv: Record<string, string | undefined> = {
     ...process.env,
-    CES_STANDALONE: "1",
     CES_LOCAL_SOCKET: socketPath,
     CREDENTIAL_SECURITY_DIR: securityDir,
     VELLUM_WORKSPACE_DIR: workspaceDir,
@@ -1699,9 +1696,8 @@ export async function stopLocalProcesses(
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
 
-  // Stop the CES sibling if one was launched (CES_STANDALONE). No-op when the
-  // PID file is absent, so this is safe on the default topology where the
-  // assistant owns CES as an stdio child.
+  // Stop the CES sibling if one was launched. No-op when the
+  // PID file is absent.
   const cesPidFile = join(vellumDir, "ces.pid");
   await stopProcessByPidFile(cesPidFile, "credential-executor");
 
