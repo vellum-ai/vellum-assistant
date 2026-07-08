@@ -31,6 +31,7 @@ import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
 import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
 import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
+import { recordToolCompletion } from "./tool-profiler.js";
 import { type ToolContext, type ToolExecutionResult } from "./types.js";
 
 const log = getLogger("tool-executor");
@@ -82,6 +83,12 @@ export class ToolExecutor {
     let permApprovalMode: string | undefined;
     let permApprovalReason: string | undefined;
     let permRiskThreshold: string | undefined;
+    // Whether THIS invocation was interactively prompted. Distinct from the
+    // turn-level `context.approvedViaPrompt` (seeded from
+    // `approvedViaPromptThisTurn`, which stays true for later auto-approved
+    // tools in the same turn): the `permission_decided` telemetry must reflect
+    // a prompt for this specific call, not any prompt earlier in the turn.
+    let wasPromptedThisInvocation = false;
     // The dispatcher stamps `executionTarget` from the tool as presented to the
     // model this turn (see conversation-tool-setup), so routing can't drift if
     // the registry entry for this name is swapped mid-turn. The
@@ -243,6 +250,7 @@ export class ToolExecutor {
 
         if (permResult.wasPrompted) {
           context.approvedViaPrompt = true;
+          wasPromptedThisInvocation = true;
         }
       } else {
         // Grant consumed — permission check was skipped. Set provenance explicitly
@@ -284,7 +292,7 @@ export class ToolExecutor {
           durationMs,
           attribution: context.attribution ?? null,
         });
-        context.profiler?.recordToolCompletion(name, durationMs, true);
+        recordToolCompletion(context.conversationId, name, durationMs, true);
         return { content: msg, isError: true };
       }
       if (execResult.cesApprovalRequired && cesClient) {
@@ -355,7 +363,7 @@ export class ToolExecutor {
             durationMs,
             attribution: context.attribution ?? null,
           });
-          context.profiler?.recordToolCompletion(name, durationMs, true);
+          recordToolCompletion(context.conversationId, name, durationMs, true);
           return { content: errorMsg, isError: true };
         }
       }
@@ -395,9 +403,10 @@ export class ToolExecutor {
         matchedTrustRuleId: permMatchedTrustRuleId,
         durationMs,
         attribution: context.attribution ?? null,
-        wasPrompted: context.approvedViaPrompt === true,
+        wasPrompted: wasPromptedThisInvocation,
       });
-      context.profiler?.recordToolCompletion(
+      recordToolCompletion(
+        context.conversationId,
         name,
         durationMs,
         safeResult.isError,
@@ -481,7 +490,7 @@ export class ToolExecutor {
         durationMs,
         attribution: context.attribution ?? null,
       });
-      context.profiler?.recordToolCompletion(name, durationMs, true);
+      recordToolCompletion(context.conversationId, name, durationMs, true);
 
       if (isExpected) {
         return { content: msg, isError: true };

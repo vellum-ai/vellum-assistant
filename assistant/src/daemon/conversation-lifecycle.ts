@@ -23,7 +23,7 @@ import { resolveCapabilities } from "../runtime/capabilities.js";
 import { enqueueAutoAnalysisIfEnabled } from "../runtime/services/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../runtime/services/auto-analysis-guard.js";
 import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
-import type { ToolProfiler } from "../tools/tool-profiler.js";
+import { disposeToolProfiler } from "../tools/tool-profiler.js";
 import { type AbortReason, createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { unregisterCallNotifiers } from "./conversation-notifiers.js";
@@ -117,7 +117,6 @@ export interface AbortContext {
 
 export interface DisposeContext extends AbortContext {
   readonly skillProjectionState: Map<string, string>;
-  profiler: ToolProfiler;
   messages: Message[];
   surfaceUndoStacks: Map<string, string[]>;
   currentTurnSurfaces: Array<unknown>;
@@ -278,7 +277,7 @@ export function disposeConversation(ctx: DisposeContext): void {
 
   // Release heavy in-memory data so GC can reclaim it
   ctx.messages = [];
-  ctx.profiler.clear();
+  disposeToolProfiler(ctx.conversationId);
   ctx.surfaceUndoStacks.clear();
   ctx.currentTurnSurfaces = [];
   ctx.pendingSurfaceActions.clear();

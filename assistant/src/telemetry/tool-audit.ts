@@ -25,6 +25,7 @@ import { isAllowDecision, type UserDecision } from "../permissions/types.js";
 import { recordLifecycleEvent } from "../persistence/lifecycle-events-store.js";
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import { redactJsonStringLeaves } from "../security/redact-json.js";
+import { redactSensitiveFields } from "../security/redaction.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { stringifyToolInput } from "../tools/types.js";
 import {
@@ -212,27 +213,32 @@ function safeRecord(record: ToolInvocationRecord): void {
 
 /**
  * Redact secrets from a tool input while keeping the stored audit string
- * parseable JSON. The redaction marker (`<redacted type="..." />`) contains
- * double quotes, so redacting the serialized string would corrupt it —
- * instead, walk the input's string leaves BEFORE stringification so the
- * marker lands inside a JSON string value (with its quotes escaped).
+ * parseable JSON. Two passes, both structural (before stringification, so the
+ * markers land inside JSON string values with their quotes escaped):
+ *
+ *  1. Field-key redaction (`redactSensitiveFields`): values under sensitive
+ *     KEYS (`password`, `token`, `apiKey`, …) are replaced regardless of
+ *     whether the value itself matches a secret pattern — e.g. `password:
+ *     "hunter2"` or `value: "…"`, which a pattern scan alone would miss.
+ *  2. Pattern redaction (`redactJsonStringLeaves`): secret-shaped values in the
+ *     remaining string leaves (API keys, tokens the model typed verbatim).
  *
  * `rawInput` is the canonical pre-redaction serialization (also used for the
  * `argBytes` telemetry fallback — byte sizes must reflect the full payload
- * before truncation and redaction). It is returned untouched when nothing
- * matched, keeping benign inputs byte-identical, and is redacted as plain text
- * if the input can't be walked or re-serialized (e.g. cyclic structures).
+ * before truncation and redaction). It is returned untouched when neither pass
+ * changed anything, keeping benign inputs byte-identical, and is redacted as
+ * plain text if the input can't be walked or re-serialized (e.g. cyclic
+ * structures).
  */
 function redactToolInput(
   input: Record<string, unknown>,
   rawInput: string,
 ): string {
   try {
-    const { value, changed } = redactJsonStringLeaves(input);
-    if (!changed) {
-      return rawInput;
-    }
-    return JSON.stringify(value);
+    const fieldRedacted = redactSensitiveFields(input);
+    const { value } = redactJsonStringLeaves(fieldRedacted);
+    const serialized = JSON.stringify(value);
+    return serialized === rawInput ? rawInput : serialized;
   } catch {
     return redactSecrets(rawInput);
   }

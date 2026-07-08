@@ -265,7 +265,10 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
 
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { ToolExecutor } from "../tools/executor.js";
-import { ToolProfiler } from "../tools/tool-profiler.js";
+import {
+  disposeToolProfiler,
+  startToolProfilingRequest,
+} from "../tools/tool-profiler.js";
 import { ToolError } from "../util/errors.js";
 
 function makeContext(extra: Record<string, unknown> = {}) {
@@ -306,13 +309,15 @@ describe("ToolExecutor audit terminals", () => {
   });
 
   test("records executed terminal for allowed execution", async () => {
-    const profiler = new ToolProfiler();
     const executor = new ToolExecutor(makePrompter());
+    // Open a profiling window so the executor's recordToolCompletion terminal
+    // (co-located with recordToolExecuted) is exercised, not a silent no-op.
+    startToolProfilingRequest("conversation-1");
 
     const result = await executor.execute(
       "file_read",
       { path: "README.md" },
-      makeContext({ profiler }),
+      makeContext(),
     );
 
     expect(result).toMatchObject({ content: "ok", isError: false });
@@ -327,10 +332,24 @@ describe("ToolExecutor audit terminals", () => {
     expect(executed.wasPrompted).toBe(false);
     expect(executed.durationMs).toBeGreaterThanOrEqual(0);
 
-    // The executor records the completion on the profiler at the same terminal.
-    const summary = profiler.getSummary();
-    expect(summary.tools.file_read?.count).toBe(1);
-    expect(summary.tools.file_read?.errors).toBe(0);
+    disposeToolProfiler("conversation-1");
+  });
+
+  test("reports wasPrompted per-invocation, not from the turn-level flag", async () => {
+    // A prior tool this turn was interactively approved (turn-level
+    // `approvedViaPrompt` already true), but THIS call is auto-approved. The
+    // decided telemetry must not treat it as prompted.
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext({ approvedViaPrompt: true }),
+    );
+
+    expect(result).toMatchObject({ isError: false });
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].wasPrompted).toBe(false);
   });
 
   test("records denied terminal when user denies prompt", async () => {
@@ -437,14 +456,10 @@ describe("ToolExecutor audit terminals", () => {
   test("records error terminal when tool execution throws", async () => {
     toolThrow = new Error("boom");
 
-    const profiler = new ToolProfiler();
     const executor = new ToolExecutor(makePrompter());
+    startToolProfilingRequest("conversation-1");
 
-    const result = await executor.execute(
-      "file_read",
-      {},
-      makeContext({ profiler }),
-    );
+    const result = await executor.execute("file_read", {}, makeContext());
 
     expect(result.content).toContain("boom");
     expect(result.isError).toBe(true);
@@ -456,9 +471,7 @@ describe("ToolExecutor audit terminals", () => {
     expect(error.errorName).toBe("Error");
     expect(error.errorStack).toContain("Error: boom");
 
-    const summary = profiler.getSummary();
-    expect(summary.tools.file_read?.count).toBe(1);
-    expect(summary.tools.file_read?.errors).toBe(1);
+    disposeToolProfiler("conversation-1");
   });
 
   test("marks ToolError failures as expected", async () => {

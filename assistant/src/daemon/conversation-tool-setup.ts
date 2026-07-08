@@ -325,7 +325,6 @@ export function createToolExecutor(
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
       attribution: resolveConversationAttribution(ctx),
       enabledPluginSet: effectiveEnabledPluginSet,
-      profiler: ctx.profiler,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
         // signature, but at runtime these are always ServerMessage instances.

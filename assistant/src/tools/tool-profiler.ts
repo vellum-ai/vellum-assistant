@@ -130,3 +130,53 @@ export class ToolProfiler {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Conversation-keyed registry
+//
+// The profiler is per-conversation in-memory state, but its recording surface
+// is a terminal like the audit/telemetry sinks: the executor imports
+// `recordToolCompletion` directly and passes the conversation id, rather than
+// receiving a profiler instance threaded through `ToolContext`. Turns within a
+// conversation are serialized, so a single profiler per conversation is safe.
+// ---------------------------------------------------------------------------
+
+const profilersByConversation = new Map<string, ToolProfiler>();
+
+/** Begin a fresh per-turn profiling window for a conversation. */
+export function startToolProfilingRequest(conversationId: string): void {
+  let profiler = profilersByConversation.get(conversationId);
+  if (!profiler) {
+    profiler = new ToolProfiler();
+    profilersByConversation.set(conversationId, profiler);
+  }
+  profiler.startRequest();
+}
+
+/**
+ * Record a completed tool invocation into the conversation's profiler.
+ * A no-op when no profiling window is active (e.g. standalone tool runs).
+ */
+export function recordToolCompletion(
+  conversationId: string,
+  toolName: string,
+  durationMs: number,
+  isError: boolean,
+): void {
+  profilersByConversation
+    .get(conversationId)
+    ?.recordToolCompletion(toolName, durationMs, isError);
+}
+
+/** Emit the end-of-turn profiling summary log for a conversation. */
+export function emitToolProfilingSummary(
+  conversationId: string,
+  requestId?: string,
+): void {
+  profilersByConversation.get(conversationId)?.emitSummary(requestId);
+}
+
+/** Drop a conversation's profiler. Called on conversation teardown. */
+export function disposeToolProfiler(conversationId: string): void {
+  profilersByConversation.delete(conversationId);
+}

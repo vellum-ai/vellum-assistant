@@ -212,7 +212,6 @@ export class PermissionChecker {
           input,
           reason: result.reason,
           riskLevel,
-          matchedTrustRuleId,
           durationMs: Date.now() - startTime,
           wasPrompted: false,
         });
@@ -331,7 +330,6 @@ export class PermissionChecker {
             input,
             reason: "Non-interactive session: no client to approve prompt",
             riskLevel,
-            matchedTrustRuleId,
             durationMs: Date.now() - startTime,
             wasPrompted: false,
           });
@@ -397,7 +395,6 @@ export class PermissionChecker {
             input,
             reason: denialReason,
             riskLevel,
-            matchedTrustRuleId,
             durationMs: Date.now() - startTime,
             wasPrompted: true,
           });

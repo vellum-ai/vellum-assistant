@@ -199,6 +199,39 @@ describe("tool audit terminals", () => {
     expect(records[0].input).toBe(JSON.stringify(input));
   });
 
+  test("redacts sensitive KEYS whose values are not secret-shaped", () => {
+    // Field-key redaction: a value under a sensitive key (`password`, `token`,
+    // …) must be redacted even when the value itself matches no secret pattern
+    // — a pattern scan alone would persist `hunter2` / an opaque token verbatim.
+    const input = { username: "alice", password: "hunter2", token: "abc123" };
+
+    recordToolExecuted({
+      conversationId: "conv-field-redact",
+      toolName: "login",
+      input,
+      resultContent: "ok",
+      resultBytes: 2,
+      decision: "allow",
+      riskLevel: "low",
+      durationMs: 2,
+      attribution: null,
+      wasPrompted: false,
+    });
+
+    expect(records).toHaveLength(1);
+    const stored = JSON.parse(records[0].input as string) as {
+      username: string;
+      password: string;
+      token: string;
+    };
+    // Non-sensitive keys pass through; sensitive-key values are redacted.
+    expect(stored.username).toBe("alice");
+    expect(stored.password).not.toBe("hunter2");
+    expect(stored.password).toContain("redacted");
+    expect(stored.token).not.toBe("abc123");
+    expect(stored.token).toContain("redacted");
+  });
+
   test("does not redact non-secret content like UUIDs or hashes", () => {
     const safeContent =
       "file id: 550e8400-e29b-41d4-a716-446655440000, sha: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";

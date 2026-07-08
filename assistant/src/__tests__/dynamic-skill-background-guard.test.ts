@@ -154,7 +154,6 @@ async function checkSkillLoad(skill: string) {
     skillLoadTool,
     makeBackgroundGuardianContext(),
     "sandbox",
-    () => {},
     Date.now(),
     () => undefined,
   );

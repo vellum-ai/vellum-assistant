@@ -24,6 +24,7 @@ import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
 import { suggestToolName } from "./tool-name-aliases.js";
+import { recordToolCompletion } from "./tool-profiler.js";
 import type { ExecutionTarget } from "./tool-types.js";
 import {
   isDiskPressureCleanupToolName,
@@ -357,7 +358,7 @@ export class ToolApprovalHandler {
       durationMs,
       attribution: context.attribution ?? null,
     });
-    context.profiler?.recordToolCompletion(name, durationMs, true);
+    recordToolCompletion(context.conversationId, name, durationMs, true);
   }
 
   /** Audit a gate that blocked the invocation (deterministic, no user prompt). */

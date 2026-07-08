@@ -8,7 +8,6 @@ import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/trust-class.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
-import type { ToolProfiler } from "./tool-profiler.js";
 import type {
   DiffInfo,
   ExecutionTarget,
@@ -203,12 +202,6 @@ export interface ToolContext {
    * @legacy
    */
   attribution?: UsageAttributionSnapshot | null;
-  /**
-   * Per-turn tool profiler. The executor records each tool completion directly
-   * onto it; the conversation agent loop resets and summarizes it per turn.
-   * @legacy
-   */
-  profiler?: ToolProfiler;
   /**
    * Optional resolver for proxy tools - delegates execution to an external client.
    * @legacy

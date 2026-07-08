@@ -469,8 +469,8 @@ describe("End-to-end session creation benchmark", () => {
 
       if (i === 0) {
         // Tool infrastructure is wired (the executor records audit/telemetry
-        // directly; the per-turn profiler is constructed on the conversation).
-        expect(session.profiler).toBeDefined();
+        // and profiler timings directly to their module-level terminals).
+        expect(session.coreToolNames.size).toBeGreaterThan(0);
       }
       session.dispose();
     }

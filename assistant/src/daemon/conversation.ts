@@ -89,7 +89,6 @@ import {
 } from "../telemetry/activation-funnel.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions, getTool } from "../tools/registry.js";
-import { ToolProfiler } from "../tools/tool-profiler.js";
 import type { ExecutionTarget } from "../tools/tool-types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
@@ -272,7 +271,6 @@ export class Conversation {
   /** @internal */ prompter: PermissionPrompter;
   /** @internal */ secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
-  /** @internal */ profiler: ToolProfiler;
   /** @internal */ sendToClient: (msg: ServerMessage) => void;
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
@@ -693,12 +691,11 @@ export class Conversation {
     // Register call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);
 
-    // Tool infrastructure. The executor writes audit rows and permission
-    // telemetry directly (see tools/executor.ts → telemetry/tool-audit.ts);
-    // the profiler accumulates per-turn tool timings, threaded onto the tool
-    // context in conversation-tool-setup.
+    // Tool infrastructure. The executor writes audit rows, permission
+    // telemetry, and profiler timings directly to their module-level terminals
+    // (tools/executor.ts → telemetry/tool-audit.ts + tools/tool-profiler.ts),
+    // keyed by conversation id — nothing tool-side is threaded through here.
     this.executor = new ToolExecutor(this.prompter);
-    this.profiler = new ToolProfiler();
 
     const toolDefs = getAllToolDefinitions();
     this.coreToolNames = new Set(toolDefs.map((d) => d.name));

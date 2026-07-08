@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { ToolProfiler } from "../tools/tool-profiler.js";
+import {
+  disposeToolProfiler,
+  emitToolProfilingSummary,
+  recordToolCompletion,
+  startToolProfilingRequest,
+  ToolProfiler,
+} from "../tools/tool-profiler.js";
 
 describe("ToolProfiler", () => {
   let profiler: ToolProfiler;
@@ -90,5 +96,44 @@ describe("ToolProfiler", () => {
     profiler.recordToolCompletion("file_read", 10, false);
     profiler.recordToolCompletion("bash", 200, false);
     expect(() => profiler.emitSummary("req-1")).not.toThrow();
+  });
+});
+
+describe("conversation-keyed profiler registry", () => {
+  test("recording before a request window is a silent no-op", () => {
+    expect(() =>
+      recordToolCompletion("conv-none", "file_read", 5, false),
+    ).not.toThrow();
+    // No active profiler for the conversation → summary emits nothing / no throw.
+    expect(() => emitToolProfilingSummary("conv-none", "req-x")).not.toThrow();
+  });
+
+  test("start/record/emit/dispose round-trip does not throw and isolates by conversation", () => {
+    startToolProfilingRequest("conv-a");
+    startToolProfilingRequest("conv-b");
+    recordToolCompletion("conv-a", "bash", 10, false);
+    recordToolCompletion("conv-b", "file_read", 20, true);
+
+    expect(() => emitToolProfilingSummary("conv-a", "req-a")).not.toThrow();
+    expect(() => emitToolProfilingSummary("conv-b", "req-b")).not.toThrow();
+
+    disposeToolProfiler("conv-a");
+    disposeToolProfiler("conv-b");
+    // After dispose the conversation has no profiler again — recording no-ops.
+    expect(() =>
+      recordToolCompletion("conv-a", "bash", 1, false),
+    ).not.toThrow();
+  });
+
+  test("startToolProfilingRequest resets a conversation's prior window", () => {
+    startToolProfilingRequest("conv-reset");
+    recordToolCompletion("conv-reset", "bash", 100, false);
+    // A new request window clears prior stats; emitting the fresh (empty)
+    // window must not throw.
+    startToolProfilingRequest("conv-reset");
+    expect(() =>
+      emitToolProfilingSummary("conv-reset", "req-reset"),
+    ).not.toThrow();
+    disposeToolProfiler("conv-reset");
   });
 });
