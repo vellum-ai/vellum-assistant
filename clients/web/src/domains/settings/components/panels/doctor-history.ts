@@ -65,7 +65,7 @@ function metaRecord(metadata: unknown): Record<string, unknown> {
   return {};
 }
 
-export function isDoctorOpeningFeedbackMessage(content: string): boolean {
+export function isDoctorFeedbackMessage(content: string): boolean {
   const normalized = content.toLowerCase().replace(/\s+/g, " ").trim();
   if (!normalized) {
     return false;
@@ -86,15 +86,35 @@ export function isDoctorOpeningFeedbackMessage(content: string): boolean {
   );
 }
 
-export function shouldShowDoctorOpeningFeedbackPrompt(
+function lastUserEntryIndex(entries: readonly ChatEntry[]): number {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index]?.kind === "user") {
+      return index;
+    }
+  }
+  return -1;
+}
+
+export function hasDoctorFeedbackPromptSinceLastUser(
+  entries: readonly ChatEntry[],
+): boolean {
+  return entries
+    .slice(lastUserEntryIndex(entries) + 1)
+    .some((entry) => entry.kind === "feedback_prompt");
+}
+
+export function shouldShowDoctorFeedbackPrompt(
   entries: readonly ChatEntry[],
   content: string,
 ): boolean {
   return (
-    !entries.some((entry) => entry.kind === "user") &&
-    !entries.some((entry) => entry.kind === "feedback_prompt") &&
-    isDoctorOpeningFeedbackMessage(content)
+    !hasDoctorFeedbackPromptSinceLastUser(entries) &&
+    isDoctorFeedbackMessage(content)
   );
+}
+
+export function doctorFeedbackPromptContent(content: string): string {
+  return content.trim() || "Share feedback";
 }
 
 const REPLAYABLE_DOCTOR_SOURCE_EVENT_ID = /^\d+-\d+$/;
@@ -231,10 +251,12 @@ export function mapPersistedMessagesToEntries(
             timestamp,
           });
         } else if (message.content === "feedback_prompt") {
+          const summary =
+            typeof meta.summary === "string" ? meta.summary.trim() : "";
           entries.push({
             id: message.id,
             kind: "feedback_prompt",
-            content: "Share feedback",
+            content: summary || "Share feedback",
             timestamp,
           });
         }
@@ -311,7 +333,7 @@ export function serializeSessionToText(entries: ChatEntry[]): string {
         lines.push(`Doctor: ${entry.content}`);
         break;
       case "feedback_prompt":
-        lines.push("Feedback Prompt: Share feedback");
+        lines.push(`Feedback Prompt: ${entry.content}`);
         break;
       case "tool_call": {
         const { toolName, input, result, isError } = entry.meta;

@@ -5,7 +5,7 @@ import type { DoctorMessage } from "@/generated/api/types.gen";
 import {
   hasPendingApproval,
   hasPendingBackup,
-  isDoctorOpeningFeedbackMessage,
+  isDoctorFeedbackMessage,
   isReplayableDoctorSourceEventId,
   latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
@@ -13,7 +13,7 @@ import {
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
-  shouldShowDoctorOpeningFeedbackPrompt,
+  shouldShowDoctorFeedbackPrompt,
 } from "@/domains/settings/components/panels/doctor-history";
 import type { ChatEntry } from "@/domains/settings/components/panels/doctor-history";
 
@@ -221,13 +221,17 @@ describe("mapPersistedMessagesToEntries", () => {
 
   test("maps status 'feedback_prompt' to a feedback prompt entry", () => {
     const entries = mapPersistedMessagesToEntries([
-      msg({ kind: "status", content: "feedback_prompt" }),
+      msg({
+        kind: "status",
+        content: "feedback_prompt",
+        metadata: { summary: "The app colors are ugly." },
+      }),
     ]);
     expect(entries).toEqual([
       {
         id: "msg-1",
         kind: "feedback_prompt",
-        content: "Share feedback",
+        content: "The app colors are ugly.",
         timestamp: Date.parse("2026-01-01T00:00:00Z"),
       },
     ]);
@@ -322,43 +326,43 @@ describe("mapPersistedMessagesToEntries", () => {
 });
 
 // ---------------------------------------------------------------------------
-// isDoctorOpeningFeedbackMessage
+// isDoctorFeedbackMessage
 // ---------------------------------------------------------------------------
 
-describe("isDoctorOpeningFeedbackMessage", () => {
-  test("detects direct opening feedback messages", () => {
+describe("isDoctorFeedbackMessage", () => {
+  test("detects direct feedback messages", () => {
     expect(
-      isDoctorOpeningFeedbackMessage(
+      isDoctorFeedbackMessage(
         "hi I have feedback that I hate the color theme",
       ),
     ).toBe(true);
     expect(
-      isDoctorOpeningFeedbackMessage("i have feedback for u this app is buggy"),
+      isDoctorFeedbackMessage("i have feedback for u this app is buggy"),
     ).toBe(true);
   });
 
   test("detects bug and feature request language", () => {
-    expect(isDoctorOpeningFeedbackMessage("I want to file a bug")).toBe(true);
-    expect(
-      isDoctorOpeningFeedbackMessage("feature request: compact mode"),
-    ).toBe(true);
+    expect(isDoctorFeedbackMessage("I want to file a bug")).toBe(true);
+    expect(isDoctorFeedbackMessage("feature request: compact mode")).toBe(
+      true,
+    );
   });
 
-  test("does not match ordinary diagnostic openings", () => {
-    expect(isDoctorOpeningFeedbackMessage("my assistant will not start")).toBe(
+  test("does not match ordinary diagnostic messages", () => {
+    expect(isDoctorFeedbackMessage("my assistant will not start")).toBe(
       false,
     );
   });
 });
 
 // ---------------------------------------------------------------------------
-// shouldShowDoctorOpeningFeedbackPrompt
+// shouldShowDoctorFeedbackPrompt
 // ---------------------------------------------------------------------------
 
-describe("shouldShowDoctorOpeningFeedbackPrompt", () => {
+describe("shouldShowDoctorFeedbackPrompt", () => {
   test("shows for feedback in the first user message", () => {
     expect(
-      shouldShowDoctorOpeningFeedbackPrompt(
+      shouldShowDoctorFeedbackPrompt(
         [
           {
             id: "greeting",
@@ -374,25 +378,44 @@ describe("shouldShowDoctorOpeningFeedbackPrompt", () => {
 
   test("does not show for non-feedback diagnostic openings", () => {
     expect(
-      shouldShowDoctorOpeningFeedbackPrompt([], "my assistant will not start"),
+      shouldShowDoctorFeedbackPrompt([], "my assistant will not start"),
     ).toBe(false);
   });
 
-  test("does not show after a user message already exists", () => {
+  test("shows after a previous user message", () => {
     expect(
-      shouldShowDoctorOpeningFeedbackPrompt(
+      shouldShowDoctorFeedbackPrompt(
         [{ id: "1", kind: "user", content: "hello", timestamp: 0 }],
         "I have feedback",
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  test("does not show when a feedback prompt already exists", () => {
+  test("shows after an earlier feedback prompt when a new user turn starts", () => {
     expect(
-      shouldShowDoctorOpeningFeedbackPrompt(
+      shouldShowDoctorFeedbackPrompt(
         [
+          { id: "1", kind: "user", content: "I have feedback", timestamp: 0 },
           {
-            id: "1",
+            id: "2",
+            kind: "feedback_prompt",
+            content: "Share feedback",
+            timestamp: 0,
+          },
+          { id: "3", kind: "user", content: "more feedback", timestamp: 0 },
+        ],
+        "more feedback",
+      ),
+    ).toBe(true);
+  });
+
+  test("does not show twice for the same user turn", () => {
+    expect(
+      shouldShowDoctorFeedbackPrompt(
+        [
+          { id: "1", kind: "user", content: "I have feedback", timestamp: 0 },
+          {
+            id: "2",
             kind: "feedback_prompt",
             content: "Share feedback",
             timestamp: 0,

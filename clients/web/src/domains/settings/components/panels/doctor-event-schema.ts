@@ -53,6 +53,7 @@ export const DoctorEventSchema = z.discriminatedUnion("type", [
   z.object({
     ...DoctorSourceEventFields,
     type: z.literal("feedback_prompt"),
+    summary: z.string().optional(),
   }),
   z.object({
     ...DoctorSourceEventFields,

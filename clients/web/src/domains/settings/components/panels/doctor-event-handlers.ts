@@ -9,6 +9,7 @@
  */
 
 import type { DoctorPanelContext } from "@/domains/settings/components/panels/doctor-panel-store";
+import { hasDoctorFeedbackPromptSinceLastUser } from "@/domains/settings/components/panels/doctor-history";
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -113,11 +114,27 @@ export function handleBackupPrompt(ctx: DoctorPanelContext, event: { toolName: s
   });
 }
 
-export function handleFeedbackPrompt(ctx: DoctorPanelContext): void {
-  if (ctx.getEntries().some((entry) => entry.kind === "feedback_prompt")) {
+export function handleFeedbackPrompt(
+  ctx: DoctorPanelContext,
+  event: { summary?: string },
+): void {
+  const summary = event.summary?.trim();
+  if (hasDoctorFeedbackPromptSinceLastUser(ctx.getEntries())) {
+    if (summary) {
+      ctx.updateEntries((entries) =>
+        entries.map((entry, index) => {
+          const isLastFeedbackPrompt =
+            entry.kind === "feedback_prompt" &&
+            !entries
+              .slice(index + 1)
+              .some((candidate) => candidate.kind === "feedback_prompt");
+          return isLastFeedbackPrompt ? { ...entry, content: summary } : entry;
+        }),
+      );
+    }
     return;
   }
-  ctx.appendEntry({ kind: "feedback_prompt", content: "Share feedback" });
+  ctx.appendEntry({ kind: "feedback_prompt", content: summary || "Share feedback" });
 }
 
 export function handleStatus(

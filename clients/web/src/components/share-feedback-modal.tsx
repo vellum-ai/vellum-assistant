@@ -48,12 +48,12 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Tooltip } from "@vellumai/design-library/components/tooltip";
 
-type Reason = "bug_report" | "feature_request" | "other";
+export type FeedbackReason = "bug_report" | "feature_request" | "other";
 
 type TimeRange = "past_hour" | "past_24_hours" | "all_time";
 
 interface ReasonOption {
-  value: Reason;
+  value: FeedbackReason;
   label: string;
   icon: LucideIcon;
   includesLogsByDefault: boolean;
@@ -123,7 +123,7 @@ const ALLOWED_EXTENSIONS = new Set([
 const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
-const CLASSIFICATION_MAP: Record<Reason, ClassificationEnum> = {
+const CLASSIFICATION_MAP: Record<FeedbackReason, ClassificationEnum> = {
   bug_report: "bug_report",
   feature_request: "feature_request",
   other: "other",
@@ -144,8 +144,12 @@ interface LogExportWindow {
 }
 
 function isAllowedFile(file: File): boolean {
-  if (file.size > MAX_ATTACHMENT_BYTES) return false;
-  if (file.type && ALLOWED_MIME_TYPES.has(file.type)) return true;
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    return false;
+  }
+  if (file.type && ALLOWED_MIME_TYPES.has(file.type)) {
+    return true;
+  }
   if (!file.type) {
     const ext = file.name.split(".").pop()?.toLowerCase();
     return ext ? ALLOWED_EXTENSIONS.has(ext) : false;
@@ -174,13 +178,17 @@ function buildTarEntry(filename: string, data: Uint8Array): Uint8Array {
   writeOctal(0, 116, 8);
   writeOctal(data.length, 124, 12);
   writeOctal(Math.floor(Date.now() / 1000), 136, 12);
-  for (let i = 148; i < 156; i++) buffer[i] = 0x20;
+  for (let i = 148; i < 156; i++) {
+    buffer[i] = 0x20;
+  }
   buffer[156] = 0x30;
   writeAscii("ustar\0", 257, 6);
   writeAscii("00", 263, 2);
 
   let checksum = 0;
-  for (let i = 0; i < blockSize; i++) checksum += buffer[i]!;
+  for (let i = 0; i < blockSize; i++) {
+    checksum += buffer[i]!;
+  }
   writeOctal(checksum, 148, 7);
   buffer[155] = 0x20;
 
@@ -438,7 +446,8 @@ async function buildClientLogsFile(
 export interface ShareFeedbackModalProps {
   open: boolean;
   onClose: () => void;
-  initialReason?: Reason;
+  initialReason?: FeedbackReason;
+  initialMessage?: string;
   onSubmitted?: () => void;
   assistantId?: string | null;
   assistantVersion?: string | null;
@@ -450,6 +459,7 @@ export function ShareFeedbackModal({
   open,
   onClose,
   initialReason,
+  initialMessage,
   onSubmitted,
   assistantId,
   assistantVersion,
@@ -465,7 +475,7 @@ export function ShareFeedbackModal({
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
 
-  const [selectedReason, setSelectedReason] = useState<Reason>(
+  const [selectedReason, setSelectedReason] = useState<FeedbackReason>(
     initialReason ?? "bug_report",
   );
   const [message, setMessage] = useState("");
@@ -495,10 +505,12 @@ export function ShareFeedbackModal({
   );
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     const reason = initialReason ?? "bug_report";
     setSelectedReason(reason);
-    setMessage("");
+    setMessage(initialMessage ?? "");
     setEmail(authEmail ?? "");
     setIncludeLogs(
       REASON_OPTIONS.find((r) => r.value === reason)?.includesLogsByDefault ??
@@ -523,7 +535,9 @@ export function ShareFeedbackModal({
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
@@ -531,7 +545,7 @@ export function ShareFeedbackModal({
     };
   }, [open]);
 
-  const handleSelectReason = (reason: Reason) => {
+  const handleSelectReason = (reason: FeedbackReason) => {
     setSelectedReason(reason);
     if (!hasManuallyToggledLogs) {
       setIncludeLogs(
@@ -567,14 +581,22 @@ export function ShareFeedbackModal({
   const addFiles = useCallback((files: File[]) => {
     setAttachments((current) => {
       const remaining = MAX_ATTACHMENTS - current.length;
-      if (remaining <= 0) return current;
+      if (remaining <= 0) {
+        return current;
+      }
       const existingKeys = new Set(current.map((f) => `${f.name}:${f.size}`));
       const accepted: File[] = [];
       for (const file of files) {
-        if (accepted.length >= remaining) break;
-        if (!isAllowedFile(file)) continue;
+        if (accepted.length >= remaining) {
+          break;
+        }
+        if (!isAllowedFile(file)) {
+          continue;
+        }
         const key = `${file.name}:${file.size}`;
-        if (existingKeys.has(key)) continue;
+        if (existingKeys.has(key)) {
+          continue;
+        }
         existingKeys.add(key);
         accepted.push(file);
       }
@@ -583,15 +605,18 @@ export function ShareFeedbackModal({
   }, []);
 
   const onFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) addFiles(Array.from(e.target.files));
+    if (e.target.files) {
+      addFiles(Array.from(e.target.files));
+    }
     e.target.value = "";
   };
 
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files?.length)
+    if (e.dataTransfer.files?.length) {
       addFiles(Array.from(e.dataTransfer.files));
+    }
   };
 
   const onDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -600,7 +625,9 @@ export function ShareFeedbackModal({
   };
   const onDragLeave = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (e.currentTarget === e.target) setIsDragging(false);
+    if (e.currentTarget === e.target) {
+      setIsDragging(false);
+    }
   };
 
   const removeAttachment = (index: number) => {
@@ -641,10 +668,13 @@ export function ShareFeedbackModal({
           for (const [key, value] of Object.entries(
             body as Record<string, unknown>,
           )) {
-            if (value == null) continue;
+            if (value == null) {
+              continue;
+            }
             if (key === "attachments" && Array.isArray(value)) {
-              for (const file of value)
+              for (const file of value) {
                 form.append("attachments", file as Blob);
+              }
               continue;
             }
             if (value instanceof Blob) {
@@ -715,7 +745,9 @@ export function ShareFeedbackModal({
     }
   };
 
-  if (!open) return null;
+  if (!open) {
+    return null;
+  }
 
   return createPortal(
     <div
@@ -1079,7 +1111,9 @@ function AttachmentThumbnail({
   );
 
   useEffect(() => {
-    if (!previewUrl) return;
+    if (!previewUrl) {
+      return;
+    }
     return () => URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
 

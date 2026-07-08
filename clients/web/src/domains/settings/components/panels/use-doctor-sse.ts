@@ -234,7 +234,7 @@ export function useDoctorSSE() {
             handleBackupPrompt(ctx, event);
             break;
           case "feedback_prompt":
-            handleFeedbackPrompt(ctx);
+            handleFeedbackPrompt(ctx, event);
             break;
           case "status":
             if (handleStatus(ctx, event)) {

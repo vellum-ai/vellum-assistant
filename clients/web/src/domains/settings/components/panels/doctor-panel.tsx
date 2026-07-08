@@ -19,6 +19,7 @@ import {
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
   type ChatEntry,
+  doctorFeedbackPromptContent,
   hasPendingApproval,
   hasPendingBackup,
   latestReplayableDoctorSourceEventId,
@@ -27,7 +28,7 @@ import {
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
-  shouldShowDoctorOpeningFeedbackPrompt,
+  shouldShowDoctorFeedbackPrompt,
 } from "@/domains/settings/components/panels/doctor-history";
 import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
 import {
@@ -123,6 +124,9 @@ export function DoctorPanel() {
 
   // Local UI state
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackDraft, setFeedbackDraft] = useState<{ message?: string } | null>(
+    null,
+  );
 
   const platformGate = usePlatformGate();
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -288,15 +292,15 @@ export function DoctorPanel() {
     onMutate(variables) {
       const content = variables.body.content;
       const store = useDoctorPanelStore.getState();
-      const shouldShowFeedbackPrompt = shouldShowDoctorOpeningFeedbackPrompt(
-        store.entries,
+      store.appendEntry({ kind: "user", content });
+      const shouldShowFeedbackPrompt = shouldShowDoctorFeedbackPrompt(
+        useDoctorPanelStore.getState().entries,
         content,
       );
-      store.appendEntry({ kind: "user", content });
       if (shouldShowFeedbackPrompt) {
         store.appendEntry({
           kind: "feedback_prompt",
-          content: "Share feedback",
+          content: doctorFeedbackPromptContent(content),
         });
       }
       store.setInputValue("");
@@ -337,6 +341,17 @@ export function DoctorPanel() {
       body: { content: text },
     });
   };
+
+  const handleOpenFeedback = useCallback((message?: string) => {
+    const initialMessage = message?.trim() || undefined;
+    setFeedbackDraft({ message: initialMessage });
+    setFeedbackOpen(true);
+  }, []);
+
+  const handleCloseFeedback = useCallback(() => {
+    setFeedbackOpen(false);
+    setFeedbackDraft(null);
+  }, []);
 
   const handleEndSession = () => {
     abort();
@@ -459,7 +474,7 @@ export function DoctorPanel() {
           {platformGate === "full" && (
             <button
               type="button"
-              onClick={() => setFeedbackOpen(true)}
+              onClick={() => handleOpenFeedback()}
               className="cursor-pointer text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
             >
               Share Feedback
@@ -572,7 +587,13 @@ export function DoctorPanel() {
                     return (
                       <div key={entry.id} className="max-w-[90%]">
                         <FeedbackPromptBlock
-                          onOpenFeedback={() => setFeedbackOpen(true)}
+                          onOpenFeedback={() =>
+                            handleOpenFeedback(
+                              entry.content === "Share feedback"
+                                ? undefined
+                                : entry.content,
+                            )
+                          }
                         />
                       </div>
                     );
@@ -706,7 +727,8 @@ export function DoctorPanel() {
       )}
       <ShareFeedbackModal
         open={feedbackOpen}
-        onClose={() => setFeedbackOpen(false)}
+        onClose={handleCloseFeedback}
+        initialMessage={feedbackDraft?.message}
         assistantId={assistantId}
       />
     </div>

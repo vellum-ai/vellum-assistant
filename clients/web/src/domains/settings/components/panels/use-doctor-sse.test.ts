@@ -146,10 +146,15 @@ describe("parseDoctorEvent", () => {
 
   test("parses feedback_prompt event", () => {
     const event = parseDoctorEvent(
-      JSON.stringify({ type: "feedback_prompt", source_event_id: "123-0" }),
+      JSON.stringify({
+        type: "feedback_prompt",
+        summary: "The app colors are ugly.",
+        source_event_id: "123-0",
+      }),
     );
     expect(event).toEqual({
       type: "feedback_prompt",
+      summary: "The app colors are ugly.",
       source_event_id: "123-0",
     });
   });
@@ -470,15 +475,16 @@ describe("handleFeedbackPrompt", () => {
   test("appends feedback_prompt entry", () => {
     const ctx = createMockContext();
 
-    handleFeedbackPrompt(ctx);
+    handleFeedbackPrompt(ctx, { summary: "The app colors are ugly." });
 
     expect(ctx.entries).toHaveLength(1);
     expect(ctx.entries[0]!.kind).toBe("feedback_prompt");
-    expect(ctx.entries[0]!.content).toBe("Share feedback");
+    expect(ctx.entries[0]!.content).toBe("The app colors are ugly.");
   });
 
-  test("does not append duplicate feedback prompts", () => {
+  test("updates the current turn prompt instead of appending a duplicate", () => {
     const ctx = createMockContext([
+      { id: "user-1", kind: "user", content: "I have feedback", timestamp: 0 },
       {
         id: "feedback-1",
         kind: "feedback_prompt",
@@ -487,10 +493,30 @@ describe("handleFeedbackPrompt", () => {
       },
     ]);
 
-    handleFeedbackPrompt(ctx);
+    handleFeedbackPrompt(ctx, { summary: "The color theme is ugly." });
 
-    expect(ctx.entries).toHaveLength(1);
+    expect(ctx.entries).toHaveLength(2);
+    expect(ctx.entries[1]!.content).toBe("The color theme is ugly.");
     expect(ctx.calls.appendEntry).toEqual([]);
+  });
+
+  test("appends another feedback prompt after a later user message", () => {
+    const ctx = createMockContext([
+      { id: "user-1", kind: "user", content: "I have feedback", timestamp: 0 },
+      {
+        id: "feedback-1",
+        kind: "feedback_prompt",
+        content: "Share feedback",
+        timestamp: 0,
+      },
+      { id: "user-2", kind: "user", content: "More feedback", timestamp: 0 },
+    ]);
+
+    handleFeedbackPrompt(ctx, { summary: "Second feedback item." });
+
+    expect(ctx.entries).toHaveLength(4);
+    expect(ctx.entries[3]!.kind).toBe("feedback_prompt");
+    expect(ctx.entries[3]!.content).toBe("Second feedback item.");
   });
 });
 
