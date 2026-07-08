@@ -37,46 +37,29 @@ export interface Base64MediaSource {
 }
 
 /**
- * Fields common to every workspace reference, independent of how the bytes are
- * located. `sizeBytes` (and, for images, `width`/`height`) are the persist-time
- * hints that let size-only consumers cost the block without a disk read.
+ * A reference to bytes stored in the workspace rather than inlined. The bytes
+ * live in the workspace attachment store, addressed by `attachmentId`, and are
+ * read back at the provider send boundary. User uploads are attachment rows
+ * already; tool-result media is materialized into attachment rows before it is
+ * referenced, so a single `attachmentId` resolves every case and needs no
+ * fallback locator.
+ *
+ * `sizeBytes` (and, for images, `width`/`height`) are the persist-time hints
+ * that let size-only consumers cost the block without a disk read.
  */
-interface WorkspaceRefBase {
+export interface WorkspaceRefMediaSource {
   type: "workspace_ref";
   media_type: string;
-  filename?: string;
+  /** Attachment row id; resolves to bytes via the attachment store. */
+  attachmentId: string;
   /** Byte length of the referenced file. */
   sizeBytes: number;
+  filename?: string;
   /** Decoded pixel width, when the reference is an image. */
   width?: number;
   /** Decoded pixel height, when the reference is an image. */
   height?: number;
 }
-
-/**
- * A reference to bytes stored in the workspace rather than inlined. We start
- * with attachment-store rows (user uploads) and will extend the same shape to
- * tool-result media (files on disk) in later PRs — hence the location is one of
- * three mutually exclusive routes, at least one of which is always present:
- *
- * - `attachmentId` — an attachment-store row; resolves via the store.
- * - `filePath` — an absolute workspace file path.
- * - `dir` + `filename` — a workspace directory joined with the file's name.
- *
- * The union enforces at construction that a reference is always resolvable;
- * `providers/media-resolve.ts` reads the routes in the order above.
- */
-export type WorkspaceRefMediaSource = WorkspaceRefBase &
-  (
-    | { attachmentId: string; filePath?: string; dir?: string }
-    | { attachmentId?: undefined; filePath: string; dir?: string }
-    | {
-        attachmentId?: undefined;
-        filePath?: undefined;
-        dir: string;
-        filename: string;
-      }
-  );
 
 export type MediaSource = Base64MediaSource | WorkspaceRefMediaSource;
 

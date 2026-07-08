@@ -3,23 +3,19 @@
  * boundary.
  *
  * Image/file blocks are PERSISTED into `messages.content` as
- * {@link WorkspaceRefMediaSource} references (a workspace location + size/
- * dimension hints) rather than inline base64, keeping large blobs out of the DB
- * row and the lexical index. The reference bytes live in the workspace (an
- * attachment-store row or a file on disk). Just before a provider serializes a
- * turn, {@link resolveMediaReferences}
+ * {@link WorkspaceRefMediaSource} references (an attachment id + size/dimension
+ * hints) rather than inline base64, keeping large blobs out of the DB row and
+ * the lexical index. The reference bytes live in the workspace attachment
+ * store. Just before a provider serializes a turn, {@link resolveMediaReferences}
  * walks the message content and swaps every reference source for a
- * {@link Base64MediaSource} loaded from disk, so each provider transform can
- * keep reading `block.source.data` exactly as before.
+ * {@link Base64MediaSource} loaded from the store, so each provider transform
+ * can keep reading `block.source.data` exactly as before.
  *
  * Blocks that already carry base64 (a live, in-flight turn) pass through
  * untouched — no disk read — so only reloaded history pays the resolution cost,
  * and only on its first send after reload. The walk is pure: it returns fresh
  * block/message objects and never mutates the caller's in-memory history.
  */
-
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import { getAttachmentContent } from "../persistence/attachments-store.js";
@@ -31,40 +27,18 @@ import type {
   ImageContent,
   MediaSource,
   Message,
-  WorkspaceRefMediaSource,
 } from "./types.js";
 
 const log = getLogger("media-resolve");
 
 /**
- * Read the raw bytes a workspace reference points at, trying each location
- * route in turn: an attachment-store row, then an absolute file path, then a
- * workspace directory joined with the file's name. Returns `null` when no
- * route resolves or the file can no longer be read.
- */
-function workspaceRefBytes(source: WorkspaceRefMediaSource): Buffer | null {
-  if (source.attachmentId) return getAttachmentContent(source.attachmentId);
-  const path =
-    source.filePath ??
-    (source.dir && source.filename
-      ? join(source.dir, source.filename)
-      : undefined);
-  if (!path) return null;
-  try {
-    return readFileSync(path);
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Raw bytes for any media source: an inline base64 payload decoded in place, or
- * a workspace reference read back from its stored location. Returns `null` when
- * a reference can no longer be resolved.
+ * a workspace reference read back from the attachment store. Returns `null`
+ * when a reference can no longer be resolved.
  */
 export function mediaSourceBytes(source: MediaSource): Buffer | null {
   if (source.type === "base64") return Buffer.from(source.data, "base64");
-  return workspaceRefBytes(source);
+  return getAttachmentContent(source.attachmentId);
 }
 
 /**
@@ -80,7 +54,7 @@ export function base64Source<T extends MediaSource>(
   if (source.type !== "base64") {
     throw new Error(
       `Unresolved workspace_ref media source reached the provider transform ` +
-        `(attachmentId=${source.attachmentId ?? "none"}, filePath=${source.filePath ?? "none"}). ` +
+        `(attachmentId=${source.attachmentId}). ` +
         `resolveMediaReferences must run before serializing messages.`,
     );
   }
@@ -111,20 +85,17 @@ export function resolveMediaSourceData(
   if (source.type === "base64") {
     return { data: source.data, media_type: source.media_type };
   }
-  const bytes = workspaceRefBytes(source);
+  const bytes = getAttachmentContent(source.attachmentId);
   if (!bytes) return null;
   return { data: bytes.toString("base64"), media_type: source.media_type };
 }
 
 function resolveImageBlock(block: ImageContent): ContentBlock {
   if (block.source.type === "base64") return block;
-  const bytes = workspaceRefBytes(block.source);
+  const bytes = getAttachmentContent(block.source.attachmentId);
   if (!bytes) {
     log.warn(
-      {
-        attachmentId: block.source.attachmentId,
-        filePath: block.source.filePath,
-      },
+      { attachmentId: block.source.attachmentId },
       "Image workspace reference could not be resolved; substituting a text note",
     );
     return {
@@ -147,7 +118,7 @@ function resolveImageBlock(block: ImageContent): ContentBlock {
 function resolveFileBlock(block: FileContent): ContentBlock {
   if (block.source.type === "base64") return block;
   const { attachmentId, media_type, filename } = block.source;
-  const bytes = workspaceRefBytes(block.source);
+  const bytes = getAttachmentContent(attachmentId);
   if (!bytes) {
     log.warn(
       { attachmentId, filename },
@@ -159,7 +130,7 @@ function resolveFileBlock(block: FileContent): ContentBlock {
       type: "text",
       text:
         block.extracted_text ??
-        `[Attachment unavailable: ${filename ?? attachmentId ?? "file"}]`,
+        `[Attachment unavailable: ${filename ?? attachmentId}]`,
     };
   }
   const source: Base64MediaSource = {
