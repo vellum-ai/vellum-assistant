@@ -610,6 +610,13 @@ export async function runAgentLoopImpl(
   try {
     if (diskPressureDecision.action === "block") {
       const message = formatDiskPressureBlockedMessage();
+      // The user message is already persisted, so this turn will be reported
+      // by the telemetry scan; label it failed (the early return still runs
+      // the `finally`, which stamps `abnormalOutcome`).
+      abnormalOutcome = {
+        outcome: "failed",
+        failureCode: DISK_PRESSURE_ERROR_CODE,
+      };
       rlog.warn(
         { reason: diskPressureDecision.reason },
         "Blocked turn during disk pressure cleanup mode",
