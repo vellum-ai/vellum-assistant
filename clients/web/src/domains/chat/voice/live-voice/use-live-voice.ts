@@ -75,6 +75,7 @@ import { useCallback, useEffect, useRef } from "react";
 
 import {
   LiveVoiceChannelClient,
+  RETRYABLE_LIVE_VOICE_CLOSE_CODES,
   type LiveVoiceClientError,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
 import {
@@ -111,16 +112,9 @@ const MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS = 120;
 // Reconnect (hands-free only)
 // ---------------------------------------------------------------------------
 
-/**
- * WebSocket close codes that are transient and retryable: the far side asked us
- * to try again rather than reporting a terminal failure. `1013` ("Try Again
- * Later") is what velay sends when its tunnel to the assistant drops mid-session
- * ("assistant tunnel disconnected") — the runtime session is gone, but the
- * conversation persists, so a fresh session re-attached to the same
- * conversation resumes seamlessly. `1012` ("Service Restart") is treated the
- * same. A locally-initiated close (`code: null`) is never retryable.
- */
-const RETRYABLE_CLOSE_CODES = new Set([1012, 1013]);
+// Retryable close codes (velay 1012/1013) are defined by the transport
+// (RETRYABLE_LIVE_VOICE_CLOSE_CODES) and shared here so the transport's
+// pre-`ready` handling and this controller's reconnect gate stay in lockstep.
 
 /**
  * Backoff before each hands-free reconnect attempt. The first delay clears the
@@ -348,7 +342,18 @@ export function useLiveVoice(
     clearReconnectTimer();
     reconnectAttemptRef.current = 0;
     const session = sessionRef.current;
-    if (!session) return;
+    if (!session) {
+      // During the reconnect backoff gap `sessionRef` is null while the store
+      // still shows an active (`connecting`) session with live controls. An
+      // unmount here (its cleanup calls teardown) must still reset the store,
+      // or it strands non-idle with stale controls — dictation stays disabled
+      // and a phantom session lingers after navigation. Guard on non-idle so a
+      // teardown with nothing to do doesn't churn the store.
+      if (useLiveVoiceStore.getState().state !== "idle") {
+        useLiveVoiceStore.getState().reset();
+      }
+      return;
+    }
     sessionRef.current = null;
     disposeSessionPrimitives(session);
     useLiveVoiceStore.getState().reset();
@@ -631,7 +636,7 @@ export function useLiveVoice(
           if (
             session.handsFree &&
             info.code !== null &&
-            RETRYABLE_CLOSE_CODES.has(info.code) &&
+            RETRYABLE_LIVE_VOICE_CLOSE_CODES.has(info.code) &&
             reconnectAttemptRef.current < backoff.length
           ) {
             const attempt = reconnectAttemptRef.current;

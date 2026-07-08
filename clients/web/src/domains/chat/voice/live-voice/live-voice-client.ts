@@ -45,6 +45,20 @@ import {
 /** Fail the session if no `ready` frame arrives within this window. */
 const CONNECT_TIMEOUT_MS = 10_000;
 
+/**
+ * WebSocket close codes that are transient and retryable rather than terminal.
+ * `1013` ("Try Again Later") is what velay sends when its tunnel to the
+ * assistant drops ("assistant tunnel disconnected"); `1012` ("Service Restart")
+ * is treated the same. The controller reconnects a hands-free session through
+ * these; the transport also uses them to distinguish a retryable close that
+ * lands *before* `ready` (which must reach the controller with its code) from a
+ * genuine pre-ready connection failure. A locally-initiated close (`code: null`)
+ * is never retryable.
+ */
+export const RETRYABLE_LIVE_VOICE_CLOSE_CODES: ReadonlySet<number> = new Set([
+  1012, 1013,
+]);
+
 /** Reason a live-voice session failed, surfaced via the `error` event. */
 export type LiveVoiceClientErrorReason =
   | "connection-failed"
@@ -388,15 +402,22 @@ export class LiveVoiceChannelClient {
 
   private handleClose(event: CloseEvent): void {
     if (this.state === "closed") return;
-    // An unexpected transport close before `ready` is a connection failure;
-    // otherwise it's a clean teardown.
-    if (this.state === "connecting") {
+    // An unexpected close before `ready` is normally a connection failure — but
+    // a *retryable* close (velay's 1012/1013) can land pre-`ready` when a
+    // reconnect races the tunnel's re-registration. Forward those as a normal
+    // close carrying the code so the controller can spend its remaining
+    // reconnect budget instead of failing the session on the first blip;
+    // genuine pre-ready closes still fail.
+    if (
+      this.state === "connecting" &&
+      !RETRYABLE_LIVE_VOICE_CLOSE_CODES.has(event.code)
+    ) {
       this.fail("connection-failed", "Live-voice WebSocket closed before ready");
       return;
     }
     this.teardown();
-    // Remotely initiated: forward the far-side close code so the controller
-    // can reconnect through a retryable tunnel drop (velay 1013).
+    // Forward the far-side close code so the controller can reconnect through a
+    // retryable tunnel drop (velay 1013).
     this.emit("closed", { code: event.code, reason: event.reason });
   }
 

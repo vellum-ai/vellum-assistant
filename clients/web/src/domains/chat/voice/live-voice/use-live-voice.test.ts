@@ -1477,4 +1477,68 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
     expect(h.view.result.current.state).toBe("idle");
     expect(h.client.connectArgs).toBe(connectArgsBeforeStop);
   });
+
+  test("unmounting during the reconnect gap resets the store to idle", async () => {
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startListening(h, { handsFree: true });
+    await act(async () => {
+      h.client.emit("closed", { code: 1013, reason: "tunnel disconnected" });
+    });
+    expect(useLiveVoiceStore.getState().state).toBe("connecting");
+
+    // Unmount mid-gap (sessionRef is null, store still shows an active session
+    // with live controls) — e.g. navigating away from the chat layout. The
+    // controller's unmount cleanup must reset the store, not strand it.
+    const connectArgsAtUnmount = h.client.connectArgs;
+    await act(async () => {
+      h.view.unmount();
+    });
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+    expect(useLiveVoiceStore.getState().controls).toBeNull();
+
+    // The pending reconnect was cancelled — nothing reconnects after the gap.
+    await act(async () => {
+      await sleep(80);
+    });
+    expect(h.client.connectArgs).toBe(connectArgsAtUnmount);
+  });
+
+  test("spends the next backoff attempt when a reconnect also closes retryably", async () => {
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startListening(h, { handsFree: true });
+
+    // First tunnel drop → first reconnect scheduled.
+    await act(async () => {
+      h.client.emit("closed", { code: 1013, reason: "drop 1" });
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+    await act(async () => {
+      await sleep(40); // backoff[0]=20 → the reconnect connect runs
+    });
+
+    // The reconnect's socket closes retryably again (tunnel still down). The
+    // controller must spend the next attempt rather than fail — this is the
+    // budget the transport now preserves for pre-`ready` retryable closes.
+    await act(async () => {
+      h.client.emit("closed", { code: 1013, reason: "drop 2" });
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+    expect(h.view.result.current.error).toBeNull();
+    await act(async () => {
+      await sleep(60); // backoff[1]=40 → the second reconnect connect runs
+    });
+
+    // The next connect readies → the session resumes instead of failing.
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s3",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+  });
 });
