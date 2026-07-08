@@ -68,6 +68,7 @@ import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overla
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
+import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
@@ -153,6 +154,9 @@ export function ChatLayout() {
   // pill as its control surface. The composer starts/stops sessions
   // through the seams this registers in `useLiveVoiceStore`.
   useLiveVoiceSessionController();
+  // Fold a live-voice turn into the transcript on a fresh/empty chat, where the
+  // unseeded draft snapshot would otherwise drop the turn's echo (JARVIS-1265).
+  useSeedLiveVoiceSnapshot();
 
   // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
