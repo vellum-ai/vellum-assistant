@@ -32,9 +32,12 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getSubagentManager } from "../subagent/index.js";
+import {
+  readTurnFailure,
+  type TurnFailure,
+} from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
-import type { TurnFailure } from "./conversation-agent-loop.js";
 import {
   buildSlackMetaForPersistence,
   serializePersistedUserMessageContent,
@@ -601,11 +604,11 @@ export async function processMessage(
     }
   }
 
-  // Read the just-finished turn's outcome before returning. `runAgentLoop`'s
-  // `finally` has already written `lastTurnFailure`, and the drained next turn
-  // (if any) cannot overwrite it until it reaches its own `finally`, so this
-  // reflects the turn we just awaited.
-  const turnFailure = conversation.lastTurnFailure;
+  // Read the just-finished turn's outcome from the stamp `runAgentLoop`'s
+  // `finally` wrote onto this user-message row. A failed turn (e.g. an LLM
+  // call that failed with an invalid provider) ends without throwing, so this
+  // is the only signal an awaiting caller gets.
+  const turnFailure = readTurnFailure(messageId);
   return { messageId, ...(turnFailure ? { turnFailure } : {}) };
 }
 

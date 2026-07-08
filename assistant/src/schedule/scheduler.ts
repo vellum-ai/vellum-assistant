@@ -1,6 +1,5 @@
 import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
 import { getConfig } from "../config/loader.js";
-import type { TurnFailure } from "../daemon/conversation-agent-loop.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
@@ -17,6 +16,7 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
 import { runSequencesOnce } from "../sequence/engine.js";
+import type { TurnFailure } from "../telemetry/turn-outcome.js";
 import { areCoreToolsInitialized } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { runWatchersOnce } from "../watcher/engine.js";

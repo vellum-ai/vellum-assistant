@@ -1,4 +1,7 @@
-import { updateMessageMetadata } from "../persistence/conversation-crud.js";
+import {
+  getMessageById,
+  updateMessageMetadata,
+} from "../persistence/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("turn-outcome");
@@ -57,4 +60,49 @@ export function stampTurnOutcome(
       "Failed to stamp turn outcome (non-fatal)",
     );
   }
+}
+
+/**
+ * The failure outcome of a completed turn, read back from the stamp
+ * {@link stampTurnOutcome} wrote onto its user-message row.
+ *
+ * A turn can fail *without throwing*: when an LLM call fails (e.g. an invalid
+ * provider), the agent loop catches it, emits an error event, and persists a
+ * synthetic error message before returning normally. Callers that only watch
+ * for a thrown exception (the scheduler's execute mode) would otherwise record
+ * such a turn as a success — {@link readTurnFailure} lets them detect it.
+ */
+export interface TurnFailure {
+  /** Stable classified error code (never free-form text). */
+  failureCode?: string;
+}
+
+/**
+ * Read back a turn's failure from the outcome stamped onto its user-message
+ * row. Returns null unless the turn was stamped `"failed"` — a normal reply,
+ * a cancellation, or a batched turn all read as "no failure". Sourcing this
+ * from the same metadata {@link stampTurnOutcome} writes keeps a single record
+ * of the outcome rather than a parallel copy that could drift.
+ */
+export function readTurnFailure(userMessageId: string): TurnFailure | null {
+  const message = getMessageById(userMessageId);
+  if (!message?.metadata) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(message.metadata);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+  const meta = parsed as { turnOutcome?: unknown; turnFailureCode?: unknown };
+  if (meta.turnOutcome !== "failed") {
+    return null;
+  }
+  return typeof meta.turnFailureCode === "string"
+    ? { failureCode: meta.turnFailureCode }
+    : {};
 }

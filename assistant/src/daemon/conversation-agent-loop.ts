@@ -184,23 +184,6 @@ export interface AssistantSurface {
   activationMoment?: ActivationMomentParam;
 }
 
-/**
- * Failure outcome of the most recent completed turn, surfaced through
- * {@link runAgentLoopImpl} so non-interactive callers can tell a genuinely
- * failed turn from a normal reply.
- *
- * A turn can fail *without throwing*: when an LLM call fails (e.g. an invalid
- * provider), the loop catches it, emits an error event, and persists a
- * synthetic error message before returning normally. Awaiting callers that
- * only watch for a thrown exception (the scheduler's execute mode) would
- * otherwise record such a turn as a success. This carries the classified
- * failure code back to them.
- */
-export interface TurnFailure {
-  /** Stable classified error code (never free-form text). */
-  failureCode?: string;
-}
-
 // ── abort watchdog ───────────────────────────────────────────────────
 
 /**
@@ -1589,20 +1572,6 @@ export async function runAgentLoopImpl(
         failureCode: abnormalOutcome.failureCode,
       });
     }
-    // Surface a genuinely failed turn (as opposed to a user cancellation or a
-    // normal reply) so awaiting callers can distinguish it from success. A
-    // provider/LLM failure ends the turn without throwing — it only persists a
-    // synthetic error message — so this is the sole signal such callers get.
-    // Always assigned (null on success) so a later turn on a reused
-    // conversation never inherits a stale failure.
-    ctx.lastTurnFailure =
-      abnormalOutcome?.outcome === "failed"
-        ? {
-            ...(abnormalOutcome.failureCode
-              ? { failureCode: abnormalOutcome.failureCode }
-              : {}),
-          }
-        : null;
     ctx.abortController = null;
     ctx.setProcessing(false);
     ctx.onConfirmationOutcome = undefined;
