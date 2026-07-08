@@ -221,6 +221,23 @@ describe("GET config/llm/default-provider", () => {
     expect(availability(result).message).toContain("unreachable");
   });
 
+  test("service_account connection → unsupported_auth even with a stored credential", async () => {
+    seedConnection({
+      name: "gemini-personal",
+      provider: "gemini",
+      auth: { type: "service_account", credential: "credential/gemini/sa" },
+    });
+    secureKeyResults["credential/gemini/sa"] = {
+      value: "{}",
+      unreachable: false,
+    };
+    fakeConfig = { llm: { defaultProvider: { provider: "gemini" } } };
+
+    const result = await get();
+    expect(availability(result).status).toBe("unsupported_auth");
+    expect(availability(result).message).toContain("service-account");
+  });
+
   test("platform-auth connection follows managed-proxy state", async () => {
     seedConnection({
       name: "anthropic-personal",
