@@ -47,7 +47,10 @@ let processMessageImpl: (
   conversationId: string,
   content: string,
   options: Record<string, unknown> | undefined,
-) => Promise<{ messageId: string }> = async () => ({ messageId: "msg-1" });
+) => Promise<{
+  messageId: string;
+  turnFailure?: { failureCode?: string };
+}> = async () => ({ messageId: "msg-1" });
 const processMessageCalls: Array<{
   conversationId: string;
   content: string;
@@ -213,6 +216,45 @@ describe("runBackgroundJob", () => {
     expect(emitted.dedupeKey as string).toMatch(
       /^activity-failed:test-job:\d{4}-\d{2}-\d{2}$/,
     );
+  });
+
+  test("non-throwing turn failure: returns ok=false with errorKind=model_provider and emits activity.failed", async () => {
+    // A failed LLM call (e.g. an invalid provider) does NOT throw — the turn
+    // persists a synthetic error message and processMessage resolves with a
+    // `turnFailure`. The runner must surface this as a failure, not ok=true.
+    processMessageImpl = async () => ({
+      messageId: "msg-failed-turn",
+      turnFailure: { failureCode: "provider_error" },
+    });
+
+    const result = await runBackgroundJob(baseOpts());
+
+    expect(result.ok).toBe(false);
+    expect(result.errorKind).toBe("model_provider");
+    expect(result.error?.message).toContain("provider_error");
+    expect(result.conversationId).toBe(STUB_CONVERSATION_ID);
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].sourceEventName).toBe("activity.failed");
+    expect(
+      (emitCalls[0].contextPayload as { errorKind: string }).errorKind,
+    ).toBe("model_provider");
+  });
+
+  test("non-throwing turn failure with deferNotifications drops buffered notifications", async () => {
+    processMessageImpl = async () => ({
+      messageId: "msg-failed-turn",
+      turnFailure: { failureCode: "provider_error" },
+    });
+
+    const result = await runBackgroundJob(
+      baseOpts({ deferNotifications: true }),
+    );
+
+    expect(result.ok).toBe(false);
+    // Only the runner's failure signal emits — no committed "success" signal.
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].sourceEventName).toBe("activity.failed");
   });
 
   test("timeout: returns ok=false with errorKind=timeout and emits activity.failed", async () => {

@@ -34,6 +34,7 @@ import { publishConversationMessagesChanged } from "../runtime/sync/resource-syn
 import { getSubagentManager } from "../subagent/index.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
+import type { TurnFailure } from "./conversation-agent-loop.js";
 import {
   buildSlackMetaForPersistence,
   serializePersistedUserMessageContent,
@@ -310,7 +311,17 @@ export async function processMessage(
   conversationId: string,
   content: string,
   options?: ProcessMessageOptions,
-): Promise<{ messageId: string; assistantMessageId?: string }> {
+): Promise<{
+  messageId: string;
+  assistantMessageId?: string;
+  /**
+   * Set when the agent turn failed (e.g. its LLM call failed with an invalid
+   * provider). The turn persists a synthetic error message and returns
+   * normally rather than throwing, so this is the only way an awaiting caller
+   * can tell the turn failed. Absent on a normally-replied turn.
+   */
+  turnFailure?: TurnFailure;
+}> {
   assertDbMigrationsReadyForTurn();
 
   const { conversation, attachments } = await prepareConversationForMessage(
@@ -590,7 +601,12 @@ export async function processMessage(
     }
   }
 
-  return { messageId };
+  // Read the just-finished turn's outcome before returning. `runAgentLoop`'s
+  // `finally` has already written `lastTurnFailure`, and the drained next turn
+  // (if any) cannot overwrite it until it reaches its own `finally`, so this
+  // reflects the turn we just awaited.
+  const turnFailure = conversation.lastTurnFailure;
+  return { messageId, ...(turnFailure ? { turnFailure } : {}) };
 }
 
 /**

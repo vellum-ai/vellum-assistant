@@ -95,11 +95,17 @@ let processMessageImpl: (
   options?: unknown,
 ) => Promise<unknown> = async () => {};
 mock.module("../daemon/process-message.js", () => ({
-  processMessage: (
+  // Normalize to the real `processMessage` contract: it always resolves to
+  // `{ messageId, turnFailure? }`. The scheduler destructures `turnFailure`
+  // off it, so a test impl that returns nothing still yields a valid object.
+  processMessage: async (
     conversationId: string,
     message: string,
     options?: unknown,
-  ) => processMessageImpl(conversationId, message, options),
+  ) => {
+    const res = await processMessageImpl(conversationId, message, options);
+    return res ?? { messageId: "test-message-id" };
+  },
 }));
 
 import { loadRawConfig, saveRawConfig } from "../config/loader.js";

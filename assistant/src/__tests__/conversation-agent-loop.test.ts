@@ -2474,6 +2474,36 @@ describe("session-agent-loop", () => {
     });
   });
 
+  describe("lastTurnFailure surfacing", () => {
+    // A provider/LLM failure ends the turn WITHOUT throwing (the loop persists
+    // a synthetic error message and returns), so awaiting callers only learn of
+    // the failure through `ctx.lastTurnFailure`. This is what lets the
+    // scheduler's execute mode record a failed run instead of "OK".
+
+    test("provider error sets lastTurnFailure on the conversation", async () => {
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("upstream 500");
+          },
+        } as unknown as Provider,
+      });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(ctx.lastTurnFailure).not.toBeNull();
+    });
+
+    test("a normally-replied turn leaves lastTurnFailure null", async () => {
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(ctx.lastTurnFailure).toBeNull();
+    });
+  });
+
   describe("partial persistence", () => {
     // The legacy flow reserves an empty assistant row at `llm_call_started`
     // (`content: "[]"`) and never touches it again until

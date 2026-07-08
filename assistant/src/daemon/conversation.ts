@@ -106,7 +106,10 @@ import { getLogger } from "../util/logger.js";
 import type { WorkspaceGitService } from "../workspace/git-service.js";
 import type { commitTurnChanges } from "../workspace/turn-commit.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
-import type { AssistantSurface } from "./conversation-agent-loop.js";
+import type {
+  AssistantSurface,
+  TurnFailure,
+} from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
   runAgentLoopImpl,
@@ -609,6 +612,15 @@ export class Conversation {
   /** @internal */ turnCount = 0;
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
   public lastAttachmentWarnings: string[] = [];
+  /**
+   * Failure outcome of the most recent completed turn, or `null` when the
+   * turn replied normally (or was cancelled). Written by
+   * {@link runAgentLoopImpl} in its `finally` and read by {@link processMessage}
+   * so non-interactive callers (the scheduler's execute mode) can record a
+   * turn whose LLM call failed — which ends the turn without throwing — as a
+   * failure rather than a success.
+   */
+  public lastTurnFailure: TurnFailure | null = null;
   /**
    * Pre-chat onboarding context provided by the native client.
    * In-memory only — not persisted to the DB. Only relevant for the first
