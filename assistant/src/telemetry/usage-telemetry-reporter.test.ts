@@ -1309,7 +1309,7 @@ describe("UsageTelemetryReporter", () => {
     // the full trace assembles. The same (still-unreported) turn now ships.
     mockIsTurnSettled.mockReturnValue(true);
     mockAssembleBoundedTurnTrace.mockReturnValue({
-      schema_version: 1,
+      schema_version: 2,
       messages: [
         {
           id: "evt-inflight",
@@ -1325,6 +1325,8 @@ describe("UsageTelemetryReporter", () => {
         },
       ],
       tool_calls: [{ id: "ti-1" }],
+      system_prompt: "You are a helpful assistant.",
+      tool_definitions: [],
     });
     await reporter.flush();
 
