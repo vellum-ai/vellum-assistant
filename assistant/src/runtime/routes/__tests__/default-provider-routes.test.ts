@@ -221,6 +221,66 @@ describe("GET config/llm/default-provider", () => {
     expect(availability(result).message).toContain("unreachable");
   });
 
+  test("explicit connectionName for a different provider → provider_mismatch even with credentials", async () => {
+    seedConnection({
+      name: "anthropic-personal",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+    });
+    secureKeyResults["credential/anthropic/api_key"] = {
+      value: "sk-ant",
+      unreachable: false,
+    };
+    fakeConfig = {
+      llm: {
+        defaultProvider: {
+          provider: "openai",
+          connectionName: "anthropic-personal",
+        },
+      },
+    };
+
+    const result = await get();
+    expect(availability(result).status).toBe("provider_mismatch");
+    expect(availability(result).message).toContain('"anthropic"');
+    expect(availability(result).message).toContain('"openai"');
+  });
+
+  test("vellum-managed connection pinned for a managed-routable provider follows platform auth", async () => {
+    seedConnection({
+      name: "vellum",
+      provider: "vellum",
+      auth: { type: "platform" },
+    });
+    fakeConfig = {
+      llm: {
+        defaultProvider: { provider: "anthropic", connectionName: "vellum" },
+      },
+    };
+
+    expect(availability(await get()).status).toBe("vellum_unauthenticated");
+    managedProxyEnabled = true;
+    expect(availability(await get()).status).toBe("ok");
+  });
+
+  test("vellum-managed connection pinned for a non-managed provider → provider_mismatch", async () => {
+    seedConnection({
+      name: "vellum",
+      provider: "vellum",
+      auth: { type: "platform" },
+    });
+    managedProxyEnabled = true;
+    fakeConfig = {
+      llm: {
+        defaultProvider: { provider: "openrouter", connectionName: "vellum" },
+      },
+    };
+
+    const result = await get();
+    expect(availability(result).status).toBe("provider_mismatch");
+    expect(availability(result).message).toContain("Vellum-managed");
+  });
+
   test("service_account connection → unsupported_auth even with a stored credential", async () => {
     seedConnection({
       name: "gemini-personal",

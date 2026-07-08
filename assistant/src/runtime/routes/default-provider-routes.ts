@@ -27,6 +27,10 @@ import { DefaultProviderSchema } from "../../config/schemas/llm.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { getConnection } from "../../providers/inference/connections.js";
 import { resolveManagedProxyContext } from "../../providers/platform-proxy/context.js";
+import {
+  isVellumManagedConnection,
+  MANAGED_ROUTABLE_PROVIDERS,
+} from "../../providers/vellum-model-routing.js";
 import { getSecureKeyResultAsync } from "../../security/secure-keys.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
@@ -38,6 +42,7 @@ const availabilitySchema = z.object({
     "missing_default",
     "missing_connection",
     "missing_credential",
+    "provider_mismatch",
     "unsupported_auth",
     "vellum_unauthenticated",
     "unknown",
@@ -96,6 +101,26 @@ async function computeAvailability(
     return {
       status: "missing_connection",
       message: `No connection named "${resolvedConnectionName}" exists for provider "${dp.provider}". Add one ${SETTINGS_HINT}.`,
+    };
+  }
+
+  // Mirror the dispatch-time provider check (`tryResolveProviderForConnectionName`):
+  // the provider-agnostic Vellum-managed connection routes managed-routable
+  // providers via platform auth; any other provider mismatch fails there, so
+  // usable credentials must not read as ok.
+  if (isVellumManagedConnection(connection)) {
+    if (MANAGED_ROUTABLE_PROVIDERS.has(dp.provider)) {
+      return vellumAvailability();
+    }
+    return {
+      status: "provider_mismatch",
+      message: `Connection "${resolvedConnectionName}" is the Vellum-managed connection, which cannot serve provider "${dp.provider}". Pick a connection for "${dp.provider}" ${SETTINGS_HINT}.`,
+    };
+  }
+  if (connection.provider !== dp.provider) {
+    return {
+      status: "provider_mismatch",
+      message: `Connection "${resolvedConnectionName}" is for provider "${connection.provider}", but the default provider is "${dp.provider}". Pick a connection for "${dp.provider}" or update the default ${SETTINGS_HINT}.`,
     };
   }
 
