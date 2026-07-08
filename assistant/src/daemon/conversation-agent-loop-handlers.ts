@@ -54,6 +54,7 @@ import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
 import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/memory-v2-activation-log-store.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
+import { resolveMediaSourceData } from "../providers/media-resolve.js";
 import type {
   ContentBlock,
   ImageContent,
@@ -1411,7 +1412,9 @@ export async function handleToolResult(
     (b): b is ImageContent => b.type === "image",
   );
   const imageDataList = imageBlocks?.length
-    ? imageBlocks.map((b) => b.source.data)
+    ? imageBlocks
+        .map((b) => resolveMediaSourceData(b.source)?.data)
+        .filter((d): d is string => d != null)
     : undefined;
 
   // Perform state mutations before deps.onEvent() so that if onEvent throws

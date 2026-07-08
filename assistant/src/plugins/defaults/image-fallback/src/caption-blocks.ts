@@ -36,6 +36,7 @@ import {
   type ImageContent,
   type Message,
   type PluginLogger,
+  resolveMediaSourceData,
 } from "@vellumai/plugin-api";
 
 import { persistImage } from "./image-persist.js";
@@ -86,8 +87,12 @@ export async function captionImageBlocks(
     const image = block as ImageContent;
 
     // Persist the original to a known, content-hash-deduped location so it
-    // survives the text substitution and stays findable on disk.
-    persistImage(image.source.data, image.source.media_type);
+    // survives the text substitution and stays findable on disk. Resolve a
+    // reference source to its bytes first (a no-op for inline base64).
+    const resolvedForPersist = resolveMediaSourceData(image.source);
+    if (resolvedForPersist) {
+      persistImage(resolvedForPersist.data, resolvedForPersist.media_type);
+    }
 
     if (visionProfileKey != null) {
       const caption = await captionImage(

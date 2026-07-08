@@ -687,10 +687,13 @@ export function getFilePathBySourcePath(
 }
 
 /**
- * Return the raw binary content for an attachment by reading from its
- * on-disk file path.
+ * Return the raw binary content for a stored attachment by reading from its
+ * on-disk file path (or its inline base64, for legacy rows).
  *
- * Returns null if the attachment does not exist or the file is missing.
+ * Returns null if the attachment does not exist or the file is missing. To
+ * resolve an image/file block's `source` (base64 or workspace reference) to
+ * bytes, use `mediaSourceBytes` / `resolveMediaSourceData` in
+ * `providers/media-resolve.ts`, which delegates here for the attachment route.
  */
 export function getAttachmentContent(attachmentId: string): Buffer | null {
   const row = getAttachmentRow(attachmentId);

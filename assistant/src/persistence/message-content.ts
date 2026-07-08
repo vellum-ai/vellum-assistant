@@ -1,3 +1,4 @@
+import { mediaSourceBytes } from "../providers/media-resolve.js";
 import type { ContentBlock } from "../providers/types.js";
 import { escapeXmlAttr } from "../util/xml.js";
 
@@ -32,19 +33,19 @@ export function extractTextFromStoredMessageContent(raw: string): string {
             `<image type="${escapeXmlAttr(block.source.media_type)}" />`,
           );
           break;
-        case "file":
+        case "file": {
+          const filename = block.source.filename ?? "";
           if (block.extracted_text) {
-            lines.push(
-              `File (${block.source.filename}): ${block.extracted_text}`,
-            );
+            lines.push(`File (${filename}): ${block.extracted_text}`);
           } else {
             lines.push(
               `<file name="${escapeXmlAttr(
-                block.source.filename,
+                filename,
               )}" type="${escapeXmlAttr(block.source.media_type)}" />`,
             );
           }
           break;
+        }
         case "server_tool_use": {
           const query =
             typeof block.input?.query === "string"
@@ -84,9 +85,13 @@ export function extractMediaBlocks(raw: string): Array<{
     for (let i = 0; i < parsed.length; i++) {
       const block = parsed[i] as ContentBlock;
       if (block.type === "image") {
+        // The source may be inline base64 or a workspace reference;
+        // mediaSourceBytes resolves both to raw bytes.
+        const bytes = mediaSourceBytes(block.source);
+        if (!bytes) continue;
         results.push({
           type: "image" as const,
-          data: Buffer.from(block.source.data, "base64"),
+          data: bytes,
           mimeType: block.source.media_type,
           index: i,
         });

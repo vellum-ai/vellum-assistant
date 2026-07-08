@@ -58,14 +58,14 @@ describe("estimateGeminiAudioTokens", () => {
   test("scales with payload size and stays far below the base64-as-text count", () => {
     // ~3 MB of base64 ≈ ~2.25 MB raw ≈ ~140s at 16 KB/s ≈ ~4.5k tokens.
     const data = "A".repeat(3 * 1024 * 1024);
-    const tokens = estimateGeminiAudioTokens(data);
+    const tokens = estimateGeminiAudioTokens(base64ByteLength(data));
     expect(tokens).toBeGreaterThan(1_000);
     // Must be a small fraction of the naive base64-length/4 estimate (~786k).
     expect(tokens).toBeLessThan(data.length / 40);
   });
 
   test("returns zero for empty data", () => {
-    expect(estimateGeminiAudioTokens("")).toBe(0);
+    expect(estimateGeminiAudioTokens(0)).toBe(0);
   });
 });
 
