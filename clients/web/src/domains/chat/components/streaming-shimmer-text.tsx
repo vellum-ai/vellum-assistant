@@ -60,7 +60,7 @@ export function StreamingShimmerText({
     <GradientShimmer
       gradient={gradient}
       easing="gentle"
-      duration={1}
+      duration={1.5}
       spread={6}
       angle={106}
       pauseBetween={0}
