@@ -323,6 +323,8 @@ export function TranscriptMessageBody({
                   content={seg.content}
                   hardLineBreaks
                   onVellumLinkClick={handleVellumLinkClick}
+                  attachments={message.attachments}
+                  assistantId={assistantId}
                 />
               </div>
             );
@@ -336,6 +338,8 @@ export function TranscriptMessageBody({
           content={text}
           hardLineBreaks
           onVellumLinkClick={handleVellumLinkClick}
+          attachments={message.attachments}
+          assistantId={assistantId}
         />
       </div>
     );
