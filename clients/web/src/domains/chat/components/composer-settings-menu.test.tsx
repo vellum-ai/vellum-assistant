@@ -365,11 +365,7 @@ describe("Profile selection after conversation change (LUM-2279)", () => {
       );
 
     const { rerender } = render(tree("conv-1"));
-    // "Smart" now renders both on the composer trigger and in the menu row, so
-    // wait for at least one occurrence rather than asserting a single match.
-    await waitFor(() =>
-      expect(screen.getAllByText("Smart").length).toBeGreaterThan(0),
-    );
+    await waitFor(() => expect(screen.getByText("Smart")).toBeTruthy());
 
     // Hang subsequent config fetches so the re-fetch from the conversationId
     // change never completes — holds the race window open.
@@ -423,11 +419,7 @@ describe("Profile selection with no active conversation (new draft chat)", () =>
       ),
     );
 
-    // "Smart" now renders both on the composer trigger and in the menu row, so
-    // wait for at least one occurrence rather than asserting a single match.
-    await waitFor(() =>
-      expect(screen.getAllByText("Smart").length).toBeGreaterThan(0),
-    );
+    await waitFor(() => expect(screen.getByText("Smart")).toBeTruthy());
 
     const smart = screen
       .getAllByTestId("menu-item")
