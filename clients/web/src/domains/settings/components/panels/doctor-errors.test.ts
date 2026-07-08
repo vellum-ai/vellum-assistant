@@ -3,7 +3,9 @@ import { describe, expect, test } from "bun:test";
 import {
   DOCTOR_UNAVAILABLE_STREAM_MESSAGE,
   doctorStreamTerminalMessage,
+  isExpectedDoctorApiError,
 } from "@/domains/settings/components/panels/doctor-errors";
+import { ApiError } from "@/utils/api-errors";
 
 describe("doctorStreamTerminalMessage", () => {
   test.each([502, 503, 504])(
@@ -25,5 +27,22 @@ describe("doctorStreamTerminalMessage", () => {
     expect(doctorStreamTerminalMessage(null)).toBe(
       "Event stream disconnected. Start a new session to continue.",
     );
+  });
+});
+
+describe("isExpectedDoctorApiError", () => {
+  test.each([429, 502, 503, 504])(
+    "treats ApiError %i as expected (skips Sentry)",
+    (status) => {
+      expect(isExpectedDoctorApiError(new ApiError(status, "msg"))).toBe(true);
+    },
+  );
+
+  test("still reports unexpected ApiError statuses", () => {
+    expect(isExpectedDoctorApiError(new ApiError(500, "msg"))).toBe(false);
+  });
+
+  test("still reports non-ApiError failures", () => {
+    expect(isExpectedDoctorApiError(new Error("boom"))).toBe(false);
   });
 });

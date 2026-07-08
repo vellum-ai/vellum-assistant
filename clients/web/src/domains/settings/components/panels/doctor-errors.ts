@@ -1,3 +1,5 @@
+import { ApiError } from "@/utils/api-errors";
+
 /**
  * User-facing copy for Doctor-service availability failures.
  *
@@ -18,6 +20,19 @@ const DOCTOR_UNAVAILABLE_BASE =
 export const DOCTOR_UNAVAILABLE_MESSAGE = `${DOCTOR_UNAVAILABLE_BASE} Please try again in a moment.`;
 
 export const DOCTOR_UNAVAILABLE_STREAM_MESSAGE = `${DOCTOR_UNAVAILABLE_BASE} Start a new session to continue.`;
+
+/**
+ * Expected Doctor conditions that should not be reported to Sentry:
+ * monthly session quota (429) and transient service unavailability
+ * (502/503/504, which occur on every Doctor deploy or scale-down and
+ * are already observable server-side in the Django proxy logs).
+ */
+export function isExpectedDoctorApiError(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.status === 429 || DOCTOR_UNAVAILABLE_STATUSES.has(error.status))
+  );
+}
 
 /**
  * Terminal error message for the Doctor SSE stream once the reconnect

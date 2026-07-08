@@ -38,6 +38,7 @@ import { useDoctorAutoScroll } from "@/domains/settings/components/panels/use-do
 import {
   DOCTOR_UNAVAILABLE_MESSAGE,
   DOCTOR_UNAVAILABLE_STATUSES,
+  isExpectedDoctorApiError,
 } from "@/domains/settings/components/panels/doctor-errors";
 import {
   assistantsDoctorHistoryListOptions,
@@ -281,7 +282,7 @@ export function DoctorPanel() {
       connectSSE(assistantId, data.session_id);
     },
     onError(error) {
-      if (!(error instanceof ApiError && error.status === 429)) {
+      if (!isExpectedDoctorApiError(error)) {
         captureError(error, { context: "start_doctor_session" });
       }
       const store = useDoctorPanelStore.getState();
@@ -328,7 +329,9 @@ export function DoctorPanel() {
       useDoctorPanelStore.getState().setThinking(true);
     },
     onError(error) {
-      captureError(error, { context: "send_doctor_message" });
+      if (!isExpectedDoctorApiError(error)) {
+        captureError(error, { context: "send_doctor_message" });
+      }
       useDoctorPanelStore.getState().appendEntry({
         kind: "error",
         content: error instanceof ApiError
