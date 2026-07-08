@@ -207,11 +207,12 @@ interface AlignedAttachments {
 
 /**
  * Align DB-hydrated attachment rows with the file-block refs `renderHistoryContent`
- * captured. When a file block was persisted with `_attachmentId` (user-message
- * uploads) we join on that id to position the chip inline; DB rows without a
- * matching ref go to the tail as orphan chips, and unmatched refs drop their
- * `attachment:N` entry. Assistant-authored file blocks carry no `_attachmentId`,
- * so when no ids match we fall back to positional alignment if the ref and row
+ * captured. When a file block carries an attachment id (user-message uploads —
+ * on `source.attachmentId` for reference blocks, or the legacy top-level
+ * `_attachmentId`) we join on that id to position the chip inline; DB rows
+ * without a matching ref go to the tail as orphan chips, and unmatched refs drop
+ * their `attachment:N` entry. Assistant-authored file blocks carry no id, so
+ * when no ids match we fall back to positional alignment if the ref and row
  * counts agree; otherwise we strip the markers and let chips fall to the tail.
  */
 function alignAttachments(
