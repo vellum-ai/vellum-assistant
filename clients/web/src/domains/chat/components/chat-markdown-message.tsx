@@ -21,6 +21,7 @@ import {
   type MarkdownMessageProps,
 } from "@vellumai/design-library";
 import type { DisplayAttachment } from "@/types/attachment-types";
+import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import { defaultUrlTransform } from "react-markdown";
 
 import {
@@ -102,21 +103,36 @@ function InlineImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
+/**
+ * Decode a URL basename for matching against attachment filenames, which are
+ * stored decoded. Falls back to the raw value when the basename contains
+ * malformed percent-encoding (a literal `%` not followed by two hex digits).
+ */
+function decodeBasename(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function WorkspaceInlineImage({
   src,
   alt,
   attachments,
   assistantId,
+  onOpenPreview,
 }: {
   src: string;
   alt: string;
   attachments: DisplayAttachment[] | undefined;
   assistantId: string | null | undefined;
+  onOpenPreview?: (attachment: DisplayAttachment) => void;
 }) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
-  const pathBasename = src.split("/").pop() ?? "";
+  const pathBasename = decodeBasename(src.split("/").pop() ?? "");
   const attachment = attachments?.find((a) => a.filename === pathBasename);
 
   useEffect(() => {
@@ -172,12 +188,21 @@ function WorkspaceInlineImage({
     );
   }
 
+  const image = <img src={objectUrl} alt={alt} className={IMAGE_CLASSES} />;
+
+  if (!attachment || !onOpenPreview) {
+    return image;
+  }
+
   return (
-    <img
-      src={objectUrl}
-      alt={alt}
-      className={IMAGE_CLASSES}
-    />
+    <button
+      type="button"
+      onClick={() => onOpenPreview(attachment)}
+      className="cursor-zoom-in appearance-none border-0 bg-transparent p-0"
+      aria-label={alt ? `Expand image: ${alt}` : "Expand image"}
+    >
+      {image}
+    </button>
   );
 }
 
@@ -206,6 +231,11 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   attachments,
   assistantId,
 }: ChatMarkdownMessageProps) {
+  const { openPreview, previewModal } = useAttachmentPreview(
+    assistantId,
+    attachments,
+  );
+
   const linkComponent = useCallback(
     ({
       href,
@@ -244,22 +274,26 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
               alt={alt}
               attachments={attachments}
               assistantId={assistantId}
+              onOpenPreview={openPreview}
             />
           );
         }
         return <InlineImage src={src} alt={alt} />;
       },
-    [attachments, assistantId],
+    [attachments, assistantId, openPreview],
   );
 
   return (
-    <MarkdownMessage
-      content={content}
-      className={className}
-      hardLineBreaks={hardLineBreaks}
-      linkComponent={linkComponent}
-      imageComponent={imageComponent}
-      urlTransform={vellumUrlTransform}
-    />
+    <>
+      <MarkdownMessage
+        content={content}
+        className={className}
+        hardLineBreaks={hardLineBreaks}
+        linkComponent={linkComponent}
+        imageComponent={imageComponent}
+        urlTransform={vellumUrlTransform}
+      />
+      {previewModal}
+    </>
   );
 });
