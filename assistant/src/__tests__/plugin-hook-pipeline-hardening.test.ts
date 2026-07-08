@@ -168,7 +168,7 @@ describe("hook output sanitization", () => {
     const final = await runHook("post-model-call", {
       conversationId: "conv-1",
       callSite: null,
-      content: [{ type: "text", text: "reply" }],
+      content: [{ type: "text", text: "reply" }] as unknown[],
       messages: [validUserMessage],
       stopReason: "tool_use",
       decision: "stop",
