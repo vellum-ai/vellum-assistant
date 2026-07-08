@@ -21,7 +21,6 @@ import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startMonitoring } from "../monitoring/control.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
-import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
@@ -80,6 +79,11 @@ import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
+import {
+  MAX_RESUME_ATTEMPTS,
+  reconcileInterruptedConversations,
+  resumeInterruptedConversations,
+} from "./interrupted-turn-reconciler.js";
 import { startOrphanReaper } from "./orphan-reaper.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
@@ -506,26 +510,41 @@ export async function runDaemon(): Promise<void> {
 
   // Reconcile conversations left mid-turn by the previous shutdown. Their
   // `processing_started_at` is still set even though the in-memory agent loop
-  // that owned the turn is gone.
+  // that owned the turn is gone. Stale flags are always cleared so no
+  // conversation stays visibly stuck "processing"; when
+  // `conversations.resumeProcessingOnStartup` is enabled the reconciler also
+  // selects conversations to resume once startup completes (the wakes need
+  // providers/CES, so they are kicked off next to `setStartupComplete()`).
+  let conversationsToResume: string[] = [];
   if (dbReady) {
-    if (config.conversations.resumeProcessingOnStartup) {
-      // TODO: automatically resume the interrupted turn for each conversation
-      // whose processing flag is still set instead of clearing it.
-    } else {
-      try {
-        const cleared = clearStaleProcessingFlags();
-        if (cleared > 0) {
-          log.info(
-            { count: cleared },
-            "Cleared stale conversation processing flags from previous process",
-          );
-        }
-      } catch (err) {
-        log.warn(
-          { err },
-          "Failed to clear stale conversation processing flags — continuing startup",
+    try {
+      const reconciled = reconcileInterruptedConversations(
+        config.conversations.resumeProcessingOnStartup,
+      );
+      conversationsToResume = reconciled.resume;
+      if (reconciled.cleared > 0) {
+        log.info(
+          {
+            count: reconciled.cleared,
+            resuming: reconciled.resume.length,
+          },
+          "Cleared stale conversation processing flags from previous process",
         );
       }
+      if (reconciled.capped.length > 0) {
+        log.warn(
+          {
+            conversationIds: reconciled.capped,
+            maxAttempts: MAX_RESUME_ATTEMPTS,
+          },
+          "Left interrupted conversations un-resumed after repeated interruptions",
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to reconcile interrupted conversations — continuing startup",
+      );
     }
   }
 
@@ -710,6 +729,19 @@ export async function runDaemon(): Promise<void> {
   // signal handlers installed at the top of startup from their minimal
   // early-exit mode to the full graceful shutdown.
   setStartupComplete();
+
+  // Resume conversations whose turn the previous process interrupted. Kicked
+  // off only now — the wakes run full agent-loop turns and need providers and
+  // CES, which the startup sequence above just brought up. Fire-and-forget:
+  // the resumes run sequentially in the background while the daemon serves
+  // requests; per-conversation failures are logged inside.
+  if (conversationsToResume.length > 0) {
+    log.info(
+      { count: conversationsToResume.length },
+      "Resuming conversations interrupted by the previous process",
+    );
+    void resumeInterruptedConversations(conversationsToResume);
+  }
 
   log.info(
     {

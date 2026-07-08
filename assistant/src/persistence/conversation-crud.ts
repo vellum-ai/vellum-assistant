@@ -86,6 +86,7 @@ import {
   enqueuePurgeConversationLexical,
 } from "./job-handlers/message-lexical.js";
 import {
+  rawAll,
   rawExec,
   rawGet,
   rawLogsRun,
@@ -2377,12 +2378,21 @@ export function unarchiveConversation(id: string): boolean {
  * Persist the processing-start timestamp for a conversation. Called by
  * `Conversation.setProcessing(true)` so out-of-process callers can detect
  * mid-turn state by reading the `conversations` row directly. Pass `null`
- * to clear (turn ended).
+ * to clear (turn ended); a clean turn end also closes any interruption
+ * streak, so the startup auto-resume budget refills.
  */
 export function setConversationProcessingStartedAt(
   id: string,
   startedAt: number | null,
 ): void {
+  if (startedAt == null) {
+    rawRun(
+      "conversation:setProcessingStartedAt",
+      "UPDATE conversations SET processing_started_at = NULL, processing_resume_attempts = 0 WHERE id = ?",
+      id,
+    );
+    return;
+  }
   rawRun(
     "conversation:setProcessingStartedAt",
     "UPDATE conversations SET processing_started_at = ? WHERE id = ?",
@@ -2402,6 +2412,43 @@ export function clearStaleProcessingFlags(): number {
   return rawRun(
     "conversation:clearStaleProcessingFlags",
     "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
+  );
+}
+
+export interface InterruptedConversationRow {
+  id: string;
+  /** Consecutive startup auto-resume attempts since the last clean turn end. */
+  resumeAttempts: number;
+}
+
+/**
+ * Conversations whose persisted processing flag is still set. Read at daemon
+ * startup before {@link clearStaleProcessingFlags} so the interrupted-turn
+ * reconciler knows which conversations were mid-turn when the previous
+ * process exited.
+ */
+export function listInterruptedConversations(): InterruptedConversationRow[] {
+  return rawAll<{ id: string; processing_resume_attempts: number }>(
+    "conversation:listInterrupted",
+    "SELECT id, processing_resume_attempts FROM conversations WHERE processing_started_at IS NOT NULL",
+  ).map((row) => ({
+    id: row.id,
+    resumeAttempts: row.processing_resume_attempts,
+  }));
+}
+
+/**
+ * Bump the persisted auto-resume counter for a conversation the startup
+ * reconciler is about to resume. Intentionally left set by
+ * {@link clearStaleProcessingFlags} — the counter must survive the flag clear
+ * so the resume cap holds across boots. Reset to 0 by the clean turn-end
+ * write in {@link setConversationProcessingStartedAt}.
+ */
+export function incrementProcessingResumeAttempts(id: string): void {
+  rawRun(
+    "conversation:incrementResumeAttempts",
+    "UPDATE conversations SET processing_resume_attempts = processing_resume_attempts + 1 WHERE id = ?",
+    id,
   );
 }
 
