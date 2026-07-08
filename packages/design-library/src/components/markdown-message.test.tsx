@@ -285,6 +285,34 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("$500K+");
   });
 
+  test("bare amounts with a trailing + are not mangled into math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content:
+          'the $50+ "always-present" tier funds the *launch* year — the tier at $10-15 is the *destination*.',
+      }),
+    );
+
+    // "$50+" must not open a math span that closes on the escaped "$10-15",
+    // which would leak the escape backslash and swallow the emphasis.
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$50+");
+    expect(html).toContain("$10-15");
+    expect(html).toMatch(/<em[^>]*>launch<\/em>/);
+    expect(html).toMatch(/<em[^>]*>destination<\/em>/);
+    expect(html).not.toContain("\\$");
+  });
+
+  test("bare arithmetic with a + still renders as math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "The sum $1+1$ is math.",
+      }),
+    );
+
+    expect(html).toContain("katex");
+  });
+
   test("legitimate inline math still renders via KaTeX", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
