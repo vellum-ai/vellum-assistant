@@ -129,8 +129,8 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
       >
         {displayName}
       </Typography>
-      {/* iOS-only simplification (Figma review, node 6638-6731): the file
-          size adds noise on the narrow native layout. Web/electron keep it. */}
+      {/* The file size adds noise on the narrow native layout, so the native
+          shell hides it; web/electron keep it. */}
       {!isNative && (
         <Typography
           variant="label-small-default"

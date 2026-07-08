@@ -1,4 +1,4 @@
-import { lazy } from "react";
+import { lazy, type ReactNode } from "react";
 import {
   Circle,
   CircleAlert,
@@ -95,44 +95,67 @@ function normalizedTitle(value: unknown): string {
 }
 
 /**
- * Status glyph shown left of the task title. Replaces the former text badge
- * ("Completed" / "In Progress" pill) per Figma review (node 6638-6732): a
- * green check-in-circle for completed, a red exclamation-in-circle for
- * failed, and the existing spinner while in progress. Pending/waiting render
- * no glyph — a bare title reads cleaner than a placeholder circle.
+ * Status glyph shown left of the task title: a green check-in-circle for
+ * completed, a red exclamation-in-circle for failed, and a spinner while in
+ * progress. Pending/waiting render no glyph — a bare title reads cleaner
+ * than a placeholder circle. A visually hidden label keeps the status
+ * available to assistive tech.
  */
 function TitleStatusIcon({ status }: { status: string | undefined }) {
-  const { colorClass } = getStatusConfig(status);
+  const { label, colorClass } = getStatusConfig(status);
   const iconClass = cn("h-4 w-4 shrink-0", colorClass);
 
+  let icon: ReactNode;
   switch (status) {
     case "completed":
-      return <CircleCheck className={iconClass} />;
+      icon = <CircleCheck aria-hidden className={iconClass} />;
+      break;
     case "failed":
-      return <CircleAlert className={iconClass} />;
+      icon = <CircleAlert aria-hidden className={iconClass} />;
+      break;
     case "in_progress":
-      return <Loader2 className={cn(iconClass, "animate-spin")} />;
+      icon = <Loader2 aria-hidden className={cn(iconClass, "animate-spin")} />;
+      break;
     default:
       return null;
   }
+
+  return (
+    <>
+      {icon}
+      <span className="sr-only">{label}</span>
+    </>
+  );
 }
 
 function StepIcon({ status }: { status: string | undefined }) {
-  const { colorClass } = getStatusConfig(status);
+  const { label, colorClass } = getStatusConfig(status);
   const iconClass = cn("h-4 w-4 shrink-0", colorClass);
 
+  let icon: ReactNode;
   switch (status) {
     case "completed":
-      return <CircleCheck className={iconClass} />;
+      icon = <CircleCheck aria-hidden className={iconClass} />;
+      break;
     case "in_progress":
-      return <Loader2 className={cn(iconClass, "animate-spin")} />;
+      icon = <Loader2 aria-hidden className={cn(iconClass, "animate-spin")} />;
+      break;
     case "waiting":
-      return <Clock className={iconClass} />;
+      icon = <Clock aria-hidden className={iconClass} />;
+      break;
     case "failed":
-      return <CircleX className={iconClass} />;
+      icon = <CircleX aria-hidden className={iconClass} />;
+      break;
     default:
-      return <Circle className={iconClass} />;
+      icon = <Circle aria-hidden className={iconClass} />;
   }
+
+  return (
+    <>
+      {icon}
+      <span className="sr-only">{label}</span>
+    </>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -196,10 +219,9 @@ function TaskStepList({
         const status = effectiveStepStatus(step.status, taskCompleted);
         const showDetailOnRight = status === "in_progress" && !!step.detail;
         return (
-          // Figma review (node 6638-6732): the number badge and status icon
-          // must center against the *title line*, not the label+detail block —
-          // so the detail lives outside the `items-center` row, indented past
-          // the 24px badge + 10px gap.
+          // The number badge and status icon center against the *title
+          // line*, not the label+detail block — the detail lives outside the
+          // `items-center` row, indented past the 24px badge + 10px gap.
           <div key={step.id || index} className="py-2 first:pt-0 last:pb-0">
             <div className="flex items-center gap-2.5">
               <span className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-[var(--tag-bg-neutral)] px-1.5 text-label-medium-default tabular-nums text-[var(--content-tertiary)]">
@@ -207,8 +229,7 @@ function TaskStepList({
               </span>
               <div className="min-w-0 flex-1">
                 {/* `block` so the label's own 18px token line-height governs
-                  wrapped lines instead of the parent block's taller strut —
-                  Figma review: "Title line height is too large". */}
+                  wrapped lines instead of the parent block's taller strut. */}
                 <span className="block text-body-medium-default text-[var(--content-strong)]">
                   {step.label}
                 </span>
@@ -271,9 +292,9 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
     const steps = templateData.steps as TaskStepItem[];
 
     return (
-      // `max-md:mb-2` — Figma review (node 6638-6732): "4-8px more margin"
-      // below the task card before the next transcript block on mobile;
-      // stacks on the transcript column's `gap-2`.
+      // `max-md:mb-2` adds breathing room below the task card before the
+      // next transcript block on mobile; stacks on the transcript column's
+      // `gap-2`.
       <SurfaceContainer
         surface={surface}
         onAction={onAction}
