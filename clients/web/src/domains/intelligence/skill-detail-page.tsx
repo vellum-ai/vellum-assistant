@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, SearchX } from "lucide-react";
-import { useCallback, useMemo } from "react";
-import { Navigate, useNavigate, useParams } from "react-router";
+import { useCallback, useMemo, useRef } from "react";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
@@ -13,6 +13,7 @@ import { SkillsStateCard } from "@/domains/intelligence/components/skills/skills
 import { type SkillInfo } from "@/domains/intelligence/skills/types";
 import { useSkillActions } from "@/domains/intelligence/skills/use-skill-actions";
 import { skillsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library";
@@ -29,7 +30,9 @@ export function SkillDetailPage() {
   const assistantId = useActiveAssistantId();
   const { skillId } = useParams<{ skillId: string }>();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const isMobile = useIsMobile();
+  const swipeContainerRef = useRef<HTMLDivElement>(null);
 
   const skillsQuery = useQuery({
     ...skillsGetOptions({
@@ -45,6 +48,21 @@ export function SkillDetailPage() {
     // skill was removed via `onRemoved`.
     navigate(routes.skills.root, { replace: true });
   }, [navigate]);
+
+  // Register as the mobile back-swipe owner so a left-edge swipe navigates
+  // back to the skills list instead of opening the nav drawer (`ChatLayout`
+  // only yields the edge while an owner is registered). The container ref is
+  // threaded into `SkillDetailMobile`'s portaled overlay root — a page-level
+  // wrapper wouldn't contain the overlay's DOM, so the drag transform would
+  // move nothing. On the loading/error/not-found branches the ref is
+  // unattached and a committed swipe still resolves to `handleBack` (see
+  // `useEdgeSwipeBack`'s null-container commit path).
+  useEdgeSwipeBack({
+    containerRef: swipeContainerRef,
+    onBack: handleBack,
+    enabled: isMobile,
+    navKey: pathname,
+  });
 
   const {
     handleInstall,
@@ -107,7 +125,10 @@ export function SkillDetailPage() {
   return (
     <>
       {isMobile ? (
-        <SkillDetailMobile {...detailProps} />
+        <SkillDetailMobile
+          {...detailProps}
+          swipeContainerRef={swipeContainerRef}
+        />
       ) : (
         <SkillDetail {...detailProps} />
       )}

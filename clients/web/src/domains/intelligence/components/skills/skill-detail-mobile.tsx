@@ -9,7 +9,7 @@ import {
     Loader2,
     Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
 import { isMarkdown } from "@/components/file-markdown";
@@ -33,6 +33,12 @@ interface SkillDetailMobileProps {
   onRemove?: () => void;
   isInstalling?: boolean;
   isRemoving?: boolean;
+  /**
+   * Attached to the overlay root so the route-level `useEdgeSwipeBack` drag
+   * transform tracks this surface. The overlay portals out of the page's DOM
+   * subtree, so the owning page can't wrap it in its own ref'd container.
+   */
+  swipeContainerRef?: RefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -62,6 +68,7 @@ export function SkillDetailMobile({
   onRemove,
   isInstalling = false,
   isRemoving = false,
+  swipeContainerRef,
 }: SkillDetailMobileProps) {
   const available = isAvailableSkill(skill);
   const removable = isRemovableSkill(skill);
@@ -99,6 +106,7 @@ export function SkillDetailMobile({
 
   const overlay = (
     <div
+      ref={swipeContainerRef}
       className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-[var(--surface-overlay)]"
       style={{
         paddingTop:
