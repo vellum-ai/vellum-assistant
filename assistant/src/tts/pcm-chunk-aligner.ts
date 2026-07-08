@@ -4,7 +4,7 @@
  * largest prefix of carry+chunk that is a whole number of blocks and retains
  * the remainder for the next call.
  */
-export interface PcmChunkAligner {
+interface PcmChunkAligner {
   /** Aligned prefix of carry+chunk; empty when too few bytes have arrived. */
   align(chunk: Buffer): Buffer;
   /** Bytes held as carry (non-zero at end-of-stream means a torn tail). */
