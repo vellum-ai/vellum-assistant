@@ -381,10 +381,8 @@ export interface HookEntry<TCtx = unknown> {
   readonly fn: HookFunction<TCtx>;
   readonly owner: HookEventOwner;
   /**
-   * True for user-land hooks (workspace plugins / standalone workspace hooks),
-   * false/absent for in-process default plugin hooks. The pipeline applies its
-   * per-hook execution timeout only to external hooks — first-party hooks
-   * (e.g. memory retrieval) legitimately run long-lived LLM calls.
+   * True for user-land hooks. Only these get the pipeline's execution
+   * timeout — first-party hooks legitimately run long-lived LLM calls.
    */
   readonly external?: boolean;
 }

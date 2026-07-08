@@ -113,12 +113,9 @@ function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
 // ─── Hook output sanitization ────────────────────────────────────────────────
 
 /**
- * Message-bearing context fields the loop folds back into the turn after each
- * hook chain, keyed by hook name. Anything listed here is validated after
- * every hook commit: an invalid mutation is repaired or discarded (fail-open)
- * instead of flowing into the provider serializers, which reject non-array
- * `content` with an opaque `content.map is not a function` that kills every
- * subsequent turn of the conversation.
+ * Hook-output fields the loop folds back into the turn verbatim — a malformed
+ * message here fails every subsequent provider call, so each is validated
+ * after every hook commit.
  */
 const HOOK_MESSAGE_FIELDS: Partial<
   Record<
@@ -137,12 +134,7 @@ const HOOK_MESSAGE_FIELDS: Partial<
 
 const VALID_MESSAGE_ROLES = new Set(["user", "assistant"]);
 
-/**
- * Structural check for a media block's `source`, matching what the resolution
- * and serialization layers dereference: `contentHasReference` reads
- * `source.type`, `base64Source` reads `data`/`media_type`, and the
- * workspace-ref resolver reads `attachmentId`.
- */
+/** Requires the `source` fields media resolution dereferences unguarded. */
 function isMediaSource(value: unknown): boolean {
   if (value === null || typeof value !== "object") {
     return false;
@@ -160,13 +152,9 @@ function isMediaSource(value: unknown): boolean {
 }
 
 /**
- * Structural check for a hook-supplied content block. Beyond the `type`
- * discriminant, every known block type must carry the fields the loop and
- * provider serializers read without guards: the loop reads `block.id.length`
- * off every `tool_use` (an empty id gets a fresh one assigned, a missing one
- * throws), media resolution reads `source.type` off image/file blocks, and
- * serializers read `text` / `thinking` / `tool_use_id` / `content` directly.
- * Unknown block types pass — the serializers already drop them safely.
+ * Requires the fields the loop and serializers read off each known block type
+ * without guards (e.g. `block.id.length` on every tool_use). Unknown block
+ * types pass — serializers already drop them safely.
  */
 function isBlockish(block: unknown): block is ContentBlock {
   if (
@@ -193,11 +181,9 @@ function isBlockish(block: unknown): block is ContentBlock {
         b.input !== null
       );
     case "tool_result":
-      // `content` must be a string per the internal ToolResultContent
-      // contract — token estimation and serializers concatenate it directly;
-      // rich content belongs in `contentBlocks`, which is validated
-      // recursively because media resolution recurses into it and
-      // dereferences nested image/file sources unguarded.
+      // String content only (serializers concatenate it); rich content lives
+      // in contentBlocks, validated recursively because media resolution
+      // recurses into it.
       return (
         typeof b.tool_use_id === "string" &&
         typeof b.content === "string" &&
@@ -205,8 +191,7 @@ function isBlockish(block: unknown): block is ContentBlock {
           (Array.isArray(b.contentBlocks) && b.contentBlocks.every(isBlockish)))
       );
     case "web_search_tool_result":
-      // `content` is deliberately unchecked — it is an opaque,
-      // provider-specific payload.
+      // `content` is an opaque provider-specific payload — unchecked.
       return typeof b.tool_use_id === "string";
     case "image":
     case "file":
@@ -217,10 +202,9 @@ function isBlockish(block: unknown): block is ContentBlock {
 }
 
 /**
- * Coerce a message's `content` into a `ContentBlock[]`: a bare string (the
- * OpenAI-style shape plugin authors reach for) is wrapped into a single text
- * block; an array keeps only block-shaped entries. Returns `null` when the
- * value is unusable, with `issues` describing every repair made.
+ * Coerce hook-supplied `content` into `ContentBlock[]`: a bare string (the
+ * OpenAI-style shape) is wrapped into a text block, arrays keep only valid
+ * blocks, anything else returns `null`.
  */
 function coerceContentBlocks(
   content: unknown,
@@ -234,8 +218,7 @@ function coerceContentBlocks(
   if (!Array.isArray(content)) {
     return null;
   }
-  // Return the original array untouched when every block is valid — this runs
-  // per hook per turn over the full history, so the clean path must not
+  // Runs per hook per turn over the full history — the clean path must not
   // allocate.
   if (content.every(isBlockish)) {
     return content;
@@ -248,9 +231,9 @@ function coerceContentBlocks(
 }
 
 /**
- * Validate the hook-mutated message fields on `next` in place, reverting a
- * field to its pre-hook value from `prev` when the mutation is unusable.
- * Returns a human-readable list of repairs (empty when the output was clean).
+ * Validate hook-mutated message fields on `next` in place, reverting to the
+ * pre-hook value from `prev` when a mutation is unusable. Returns the repairs
+ * made.
  */
 function sanitizeHookOutput<TInput extends object>(
   name: HookName,
@@ -310,9 +293,7 @@ function sanitizeHookOutput<TInput extends object>(
 
   for (const field of spec.toolResults ?? []) {
     const value = rec[field] as { type?: unknown } | null;
-    // Strictly a client-tool `tool_result` (not `web_search_tool_result`):
-    // the loop pairs this block back to the assistant's tool_use, and a
-    // server-tool result would leave that call unpaired.
+    // Only a client tool_result can pair back to the assistant's tool_use.
     if (!isBlockish(value) || value.type !== "tool_result") {
       issues.push(`${field}: replaced with a non-tool_result — reverted`);
       rec[field] = prevRec[field];
@@ -325,12 +306,9 @@ function sanitizeHookOutput<TInput extends object>(
 // ─── Hook execution timeout ──────────────────────────────────────────────────
 
 /**
- * Wall-clock budget for a single user-land hook invocation. Without it a hook
- * that never resolves blocks the agent turn indefinitely — the pipeline's
- * try/catch contains throws but not hangs. First-party default hooks are
- * exempt: they legitimately run long operations (memory retrieval is an LLM
- * call with retries) under their own deadlines. Overridable via
- * `VELLUM_PLUGIN_HOOK_TIMEOUT_MS`.
+ * Time-box for a user-land hook: the try/catch contains throws but not hangs.
+ * First-party default hooks are exempt — memory retrieval legitimately runs
+ * long LLM calls. Override via `VELLUM_PLUGIN_HOOK_TIMEOUT_MS`.
  */
 export const EXTERNAL_HOOK_TIMEOUT_MS = 30_000;
 
@@ -347,9 +325,7 @@ async function callWithTimeout<T>(
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const work = Promise.resolve().then(run);
-    // If the timeout wins the race, the abandoned hook keeps running and may
-    // still reject later; absorb it so it can't surface as an unhandled
-    // rejection.
+    // Absorb the abandoned hook's late rejection if the timeout wins.
     work.catch(() => {});
     return await Promise.race([
       work,
@@ -372,11 +348,9 @@ async function callWithTimeout<T>(
  * successfully committed context. The final context after the chain settles is
  * returned.
  *
- * Two fail-open guards protect the agent turn from a misbehaving hook:
- * message-bearing output fields are validated after each hook commit
- * ({@link sanitizeHookOutput} — invalid mutations are repaired or reverted and
- * logged with the owning plugin), and user-land hooks are time-boxed to
- * {@link EXTERNAL_HOOK_TIMEOUT_MS} so a hung hook cannot block the turn.
+ * Fail-open guards: {@link sanitizeHookOutput} validates message-bearing
+ * output after each hook commit, and user-land hooks are time-boxed so a hung
+ * hook cannot block the turn.
  *
  * When `initialCtx` carries a `conversationId`, it is passed to
  * {@link getHookEntriesFor}, which resolves the conversation's per-chat plugin

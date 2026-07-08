@@ -185,13 +185,10 @@ function contentHasReference(content: ContentBlock[]): boolean {
  * (same object reference) so the common all-base64 live turn does no allocation
  * or disk I/O.
  *
- * Also the providers' shared belt against non-array `content`: this runs as
- * the first content touch inside both the Anthropic and chat-completions
- * serializers, so a message that reached the send path with a bare-string
- * `content` (e.g. injected by a misbehaving plugin hook) is normalized into a
- * text block here instead of failing the request with an opaque
- * `content.map is not a function`. Mirrors `loadFromDb`'s normalization of
- * legacy string rows.
+ * Also the providers' shared belt against non-array `content`: this is the
+ * first content touch inside both the Anthropic and chat-completions
+ * serializers, so a bare-string `content` is normalized into a text block here
+ * instead of failing the request. Mirrors `loadFromDb`.
  */
 export function resolveMediaReferences(messages: Message[]): Message[] {
   return messages.map((message) => {

@@ -1,36 +1,21 @@
 /**
- * Tests for the hook pipeline's fail-open hardening against misbehaving
- * user-land hooks:
- *
- *  - message-bearing output fields are validated after each hook commit:
- *    unsupported roles (e.g. an OpenAI-style `{ role: "system",
- *    content: "<string>" }`) are dropped, bare-string content is wrapped into
- *    a text block, and unusable replacements are reverted to the pre-hook
- *    value — a malformed message that reached the provider serializers would
- *    otherwise fail every subsequent turn with
- *    `content.map is not a function`;
- *  - external (user-land) hooks are time-boxed so a hung hook cannot block
- *    the agent turn, while first-party default hooks are exempt;
- *  - `resolveMediaReferences` (the providers' shared serialization entry)
- *    normalizes non-array message content instead of letting it reach the
- *    block transforms.
+ * Fail-open hardening of the hook pipeline against misbehaving user-land
+ * hooks: message-bearing output is validated after each hook commit, external
+ * hooks are time-boxed, and `resolveMediaReferences` normalizes non-array
+ * message content before the provider serializers touch it.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-// Module mocks are process-global; the test runner (`scripts/test.ts`) runs
-// each test file in its own process, so they cannot leak into other files.
-
-// The pipeline's `broadcast` capability emits through the shared hub; stub it
-// so importing the pipeline never touches a live event hub.
+// Module mocks are process-global; the test runner isolates each test file in
+// its own process, so they cannot leak into other files.
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-// Supply hook entries directly instead of going through plugin
-// registration/discovery — this lets tests mark entries `external` (user-land)
-// to exercise the timeout path, which real registry registration reserves for
-// workspace plugins.
+// Entries are supplied directly (not via plugin registration) so tests can
+// mark them `external`, which real registration reserves for workspace
+// plugins.
 let entries: unknown[] = [];
 mock.module("../hooks/registry.js", () => ({
   getHookEntriesFor: async () => entries,
@@ -155,15 +140,10 @@ describe("hook output sanitization", () => {
           ctx.latestMessages.push({
             role: "user",
             content: [
-              // Media resolution reads `source.type` off these unguarded.
               { type: "image" },
               { type: "file", source: { type: "base64" } },
-              // Serializers read `content` off tool results and concatenate
-              // it as a string — missing or array content is rejected.
               { type: "tool_result", tool_use_id: "tu-1" },
               { type: "tool_result", tool_use_id: "tu-4", content: [] },
-              // Nested contentBlocks are validated recursively — media
-              // resolution dereferences nested image/file sources unguarded.
               {
                 type: "tool_result",
                 tool_use_id: "tu-3",
@@ -204,8 +184,6 @@ describe("hook output sanitization", () => {
       {
         owner: { kind: "plugin", id: "p" },
         fn: (ctx: { content: unknown[] }) => {
-          // Missing id/name/input — the loop reads `block.id.length` off every
-          // tool_use, so keeping this block would throw before execution.
           ctx.content.push({ type: "tool_use" });
           ctx.content.push({
             type: "tool_use",
@@ -258,9 +236,8 @@ describe("hook output sanitization", () => {
       tool_use_id: "tu-1",
       content: "ok",
     };
-    // A server-tool web_search_tool_result is also reverted — the loop pairs
-    // toolResponse back to the assistant's tool_use, which a server-tool
-    // result cannot satisfy.
+    // Includes web_search_tool_result: a server-tool result cannot pair back
+    // to the assistant's tool_use.
     for (const replacement of [
       "not a block",
       { type: "web_search_tool_result", tool_use_id: "tu-1", content: [] },
