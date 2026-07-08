@@ -152,9 +152,7 @@ const ToolResultSchema = z.looseObject({
   type: z.literal("tool_result"),
   tool_use_id: z.string(),
   content: z.string(),
-  get contentBlocks() {
-    return z.array(ContentBlockSchema).optional();
-  },
+  contentBlocks: z.lazy(() => z.array(ContentBlockSchema).optional()),
 });
 
 const ContentBlockSchema: z.ZodType<unknown> = z.lazy(() =>
@@ -199,7 +197,9 @@ const MessageSchema = z.looseObject({
  * Loose + optional: unknown context keys pass, and absent fields are skipped
  * (call sites and tests may dispatch a hook name with a partial context).
  */
-const HOOK_OUTPUT_SCHEMAS: Partial<Record<HookName, z.ZodType>> = {
+const HOOK_OUTPUT_SCHEMAS: Partial<
+  Record<HookName, z.ZodObject<z.ZodRawShape>>
+> = {
   [HOOKS.USER_PROMPT_SUBMIT]: z.looseObject({
     latestMessages: z.array(MessageSchema).optional(),
   }),
@@ -230,13 +230,25 @@ function findHookOutputIssues<TInput extends object>(
   if (!schema) {
     return [];
   }
-  const parsed = schema.safeParse(ctx);
-  if (parsed.success) {
-    return [];
+  const issues: string[] = [];
+  // `.optional()` lets an absent field skip validation, but it also lets a
+  // hook REPLACE a required field with an explicit `undefined` — which the
+  // loop would then fold back and dereference. Reject present-but-undefined.
+  const rec = ctx as Record<string, unknown>;
+  for (const key of Object.keys(schema.shape)) {
+    if (key in rec && rec[key] === undefined) {
+      issues.push(`${key}: replaced with undefined`);
+    }
   }
-  return parsed.error.issues.map(
-    (issue) => `${issue.path.join(".")}: ${issue.message}`,
-  );
+  const parsed = schema.safeParse(ctx);
+  if (!parsed.success) {
+    issues.push(
+      ...parsed.error.issues.map(
+        (issue) => `${issue.path.join(".")}: ${issue.message}`,
+      ),
+    );
+  }
+  return issues;
 }
 
 // ─── Hook execution timeout ──────────────────────────────────────────────────
