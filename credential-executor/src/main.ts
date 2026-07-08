@@ -610,6 +610,7 @@ function serveStandaloneSocket(opts: {
   });
 
   netServer.on("connection", (socket: Socket) => {
+    connectionCount++;
     const readable = new Readable({ read() {} });
     const writable = new Writable({
       write(chunk, _encoding, callback) {
@@ -634,7 +635,6 @@ function serveStandaloneSocket(opts: {
         logger,
         signal,
         onHandshakeComplete: (sessionId, apiKey, assistantId) => {
-          rpcConnected = true;
           onHandshakeComplete?.(sessionId, apiKey, assistantId);
         },
         onApiKeyUpdate: onApiKeyUpdate ?? (() => {}),
@@ -646,7 +646,7 @@ function serveStandaloneSocket(opts: {
           "CES connection ended with a transport error",
         );
       }).then(() => {
-        rpcConnected = false;
+        connectionCount = Math.max(0, connectionCount - 1);
       });
   });
 
@@ -672,7 +672,7 @@ function serveStandaloneSocket(opts: {
 // Health server (managed mode only)
 // ---------------------------------------------------------------------------
 
-let rpcConnected = false;
+let connectionCount = 0;
 
 function startHealthServer(
   port: number,
@@ -695,7 +695,7 @@ function startHealthServer(
         // scheduling during dark-launch.  The sidecar can't do useful work
         // without a connection anyway, so readiness is purely about the
         // process being up and able to accept a future connection.
-        return new Response(JSON.stringify({ status: "ok", rpcConnected }), {
+        return new Response(JSON.stringify({ status: "ok", connections: connectionCount, rpcConnected: connectionCount > 0 }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
@@ -834,11 +834,13 @@ async function main(): Promise<void> {
     log,
     onHandshakeComplete: refs
       ? (_hsSessionId, hsApiKey, hsAssistantId) => {
-          // Overwrite the credential refs on every handshake. The handler
-          // registry persists across reconnects, so a new session that omits
-          // the API key / assistant ID must fail closed (falling back to the
-          // env key, or no key) rather than reusing the previous session's
-          // credentials.
+          // Update the process-scoped credential refs on every handshake.
+          // With multi-client CES, multiple connections from the same
+          // assistant instance share these refs. All connections belong to
+          // the same guardian, so they carry the same API key - last
+          // handshake wins is correct. A connection that omits the key
+          // fails closed (falling back to the env key, or no key) rather
+          // than reusing a previous session's credentials.
           applyManagedCredentialRefs(
             refs.apiKeyRef,
             refs.assistantIdRef,
