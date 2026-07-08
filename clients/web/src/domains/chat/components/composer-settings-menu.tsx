@@ -493,20 +493,23 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     <button
       type="button"
       aria-label="Conversation settings"
-      className="flex h-7 items-center gap-0.5 rounded-md text-body-small-default text-[var(--content-secondary)] data-[state=open]:text-[var(--content-default)]"
+      className="flex h-7 min-w-0 items-center gap-0.5 rounded-md text-body-small-default text-[var(--content-secondary)] data-[state=open]:text-[var(--content-default)]"
     >
       {hasTriggerContent ? (
         <>
           {activeProfileLabel ? (
-            <span className={segmentClass}>
+            // min-w-0 lets the label truncate instead of pushing the composer's
+            // action buttons off-screen on narrow viewports; the cap is tighter
+            // on mobile where the bottom bar has the least room.
+            <span className={`${segmentClass} min-w-0`}>
               <Sparkles className="h-3.5 w-3.5 shrink-0" />
-              <span className="max-w-[10rem] truncate">
+              <span className="max-w-[7rem] truncate sm:max-w-[10rem]">
                 {activeProfileLabel}
               </span>
             </span>
           ) : null}
           {showAccess ? (
-            <span className={segmentClass}>
+            <span className={`${segmentClass} shrink-0`}>
               <AccessIcon className="h-3.5 w-3.5 shrink-0" />
               {activePreset.label}
             </span>

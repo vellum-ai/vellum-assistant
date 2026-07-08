@@ -665,12 +665,12 @@ export function ChatComposer({
                 onSend={releaseLiveVoiceTurn}
               />
             ) : (
-              <div className="flex items-center justify-between px-2 pb-2">
-                <div className="flex items-center gap-1">
+              <div className="flex items-center justify-between gap-1 px-2 pb-2">
+                <div className="flex min-w-0 items-center gap-1">
                   {contextWindowIndicatorSlot}
                   {thresholdPickerSlot}
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex shrink-0 items-center gap-1">
                   {canStopGenerating ? (
                     <>
                       {/* Desktop: always show stop. Mobile: show stop only when there is no sendable content. */}
