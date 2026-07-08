@@ -42,6 +42,7 @@ import {
   isInteractiveInterface,
   parseInterfaceId,
 } from "../../../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { isProcToSkillsActive } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
@@ -81,6 +82,11 @@ import {
   MEMORY_RETROSPECTIVE_SOURCE,
 } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
+import {
+  extractRetrospectiveRunSkillScaffolds,
+  insertSkillCardMessage,
+  SKILL_CREATION_CARD_FLAG,
+} from "./memory-retrospective-skill-card.js";
 import {
   appendToRememberedLog,
   bumpRetrospectiveLastRunAt,
@@ -626,6 +632,28 @@ async function finalizeSuccessfulRetrospective(args: {
     lastRunAt: Date.now(),
     rememberedLog: appendToRememberedLog(priorRemembers, runRemembers),
   });
+
+  // Surface newly created skills as a `skill_card` ui_surface message on the
+  // source conversation. Gated on proc-to-skills being active (the run can
+  // only author skills when it is) AND the `skill-creation-card` flag.
+  // `insertSkillCardMessage` is best-effort — a card failure never fails the
+  // job.
+  if (
+    isProcToSkillsActive(config) &&
+    isAssistantFeatureFlagEnabled(SKILL_CREATION_CARD_FLAG, config)
+  ) {
+    const authoredSkills = extractRetrospectiveRunSkillScaffolds(
+      retrospectiveConversationId,
+      getConversation(retrospectiveConversationId)?.source ?? null,
+    );
+    if (authoredSkills.length > 0) {
+      await insertSkillCardMessage(
+        sourceConversationId,
+        retrospectiveConversationId,
+        authoredSkills,
+      );
+    }
+  }
 
   await deleteSupersededPriorRetrospective(config, prior, sourceConversationId);
 
