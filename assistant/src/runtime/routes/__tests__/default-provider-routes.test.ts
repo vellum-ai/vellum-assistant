@@ -101,6 +101,14 @@ function seedConnection(opts: {
     .run();
 }
 
+function seedCanonicalVellumConnection(): void {
+  seedConnection({
+    name: "vellum",
+    provider: "vellum",
+    auth: { type: "platform" },
+  });
+}
+
 // ── Setup ─────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -124,6 +132,7 @@ describe("GET config/llm/default-provider", () => {
   });
 
   test("vellum + authenticated → ok", async () => {
+    seedCanonicalVellumConnection();
     fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
     managedProxyEnabled = true;
     const result = await get();
@@ -132,6 +141,7 @@ describe("GET config/llm/default-provider", () => {
   });
 
   test("vellum + unauthenticated → vellum_unauthenticated naming the fix", async () => {
+    seedCanonicalVellumConnection();
     fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
     const result = await get();
     expect(availability(result).status).toBe("vellum_unauthenticated");
@@ -139,11 +149,53 @@ describe("GET config/llm/default-provider", () => {
   });
 
   test("vellum + no platform URL → vellum_unauthenticated naming the URL", async () => {
+    seedCanonicalVellumConnection();
     fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
     managedProxyBaseUrl = "";
     const result = await get();
     expect(availability(result).status).toBe("vellum_unauthenticated");
     expect(availability(result).message).toContain("platform URL");
+  });
+
+  test("vellum default with no canonical row → missing_connection", async () => {
+    managedProxyEnabled = true;
+    fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
+    const result = await get();
+    expect(availability(result).status).toBe("missing_connection");
+  });
+
+  test("user-owned connection claiming the vellum name → provider_mismatch, not ok", async () => {
+    // seedCanonicalConnections skips reseeding when a user row claims the
+    // name; dispatch then uses the user row, so signed-in Vellum must not
+    // read as ok.
+    seedConnection({
+      name: "vellum",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+    });
+    secureKeyResults["credential/anthropic/api_key"] = {
+      value: "sk-ant",
+      unreachable: false,
+    };
+    managedProxyEnabled = true;
+    fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
+
+    const result = await get();
+    expect(availability(result).status).toBe("provider_mismatch");
+  });
+
+  test("platform-auth connection for a non-managed provider → unsupported_auth even when signed in", async () => {
+    seedConnection({
+      name: "openrouter-personal",
+      provider: "openrouter",
+      auth: { type: "platform" },
+    });
+    managedProxyEnabled = true;
+    fakeConfig = { llm: { defaultProvider: { provider: "openrouter" } } };
+
+    const result = await get();
+    expect(availability(result).status).toBe("unsupported_auth");
+    expect(availability(result).message).toContain("platform auth");
   });
 
   test("BYOK with stored key → ok, convention-resolved connection", async () => {
@@ -226,6 +278,7 @@ describe("GET config/llm/default-provider", () => {
   });
 
   test("vellum + credential store unreachable → unknown, not logged-out", async () => {
+    seedCanonicalVellumConnection();
     fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
     secureKeyResults["credential/vellum/assistant_api_key"] = {
       value: undefined,

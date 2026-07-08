@@ -30,7 +30,6 @@ import { resolveManagedProxyContext } from "../../providers/platform-proxy/conte
 import {
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
-  VELLUM_MANAGED_CONNECTION_NAME,
 } from "../../providers/vellum-model-routing.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyResultAsync } from "../../security/secure-keys.js";
@@ -116,20 +115,10 @@ async function computeAvailability(
   dp: DefaultProviderConfig,
   resolvedConnectionName: string,
 ): Promise<Availability> {
-  // Canonical managed connection (vellum convention, or an explicit pin on
-  // it): boot-seeded platform-auth row, so only platform auth needs checking.
-  // An explicit non-canonical pin — even with provider "vellum" — goes
-  // through the full row checks below instead.
-  if (resolvedConnectionName === VELLUM_MANAGED_CONNECTION_NAME) {
-    if (
-      dp.provider === "vellum" ||
-      MANAGED_ROUTABLE_PROVIDERS.has(dp.provider)
-    ) {
-      return vellumAvailability();
-    }
-    return vellumManagedMismatch(resolvedConnectionName, dp.provider);
-  }
-
+  // Every path loads the row — even the canonical `vellum` name. Boot seeding
+  // (`seedCanonicalConnections`) deliberately leaves a user-owned connection
+  // that claims that name in place, and dispatch reads whatever row is
+  // stored, so availability must judge the actual row, not the name.
   let connection;
   try {
     connection = getConnection(getDb(), resolvedConnectionName);
@@ -198,7 +187,16 @@ async function computeAvailability(
       };
     }
     case "platform":
-      return vellumAvailability();
+      // The managed proxy only serves managed-routable upstreams
+      // (`resolveAuth` → `buildManagedBaseUrl` has no proxy path for the
+      // rest), so platform auth on e.g. openrouter can never dispatch.
+      if (MANAGED_ROUTABLE_PROVIDERS.has(dp.provider)) {
+        return vellumAvailability();
+      }
+      return {
+        status: "unsupported_auth",
+        message: `Connection "${resolvedConnectionName}" uses Vellum platform auth, which cannot serve provider "${dp.provider}". Add an API-key connection for "${dp.provider}" ${SETTINGS_HINT}.`,
+      };
     case "none":
       // Every default-provider candidate except vellum is an API-key
       // provider; dispatch (`createAdapterFromConnection`) yields no adapter
