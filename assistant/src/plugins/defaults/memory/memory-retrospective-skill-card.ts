@@ -139,10 +139,26 @@ function extractSuccessfulScaffolds(messages: MessageLike[]): AuthoredSkill[] {
 }
 
 /**
+ * Mirror of the scaffold executor's frontmatter normalization (collapse
+ * embedded newlines to a space, trim). Kept local because the executor's
+ * `sanitizeFrontmatterValue` is not exported; the two must stay in step so
+ * the card shows the values as persisted.
+ */
+function normalizeCardText(value: string): string {
+  return value.replace(/[\r\n]+/g, " ").trim();
+}
+
+/**
  * Read a card entry from a `scaffold_managed_skill` tool_use input. Returns
  * `null` for refinements (`overwrite: true`) and for inputs missing a usable
  * `skill_id`/`name` (the web card drops entries without both, so there is
  * nothing to render).
+ *
+ * Values are NORMALIZED, not stored raw: `executeScaffoldManagedSkill` trims
+ * `skill_id` (and newline-collapses + trims name/description/emoji) before
+ * persisting, so a successful call with a padded `" my-skill "` creates skill
+ * `my-skill` — a card built from the raw input would link `%20my-skill%20`
+ * and the detail route would 404 on the skill it just announced.
  */
 function readScaffoldInput(input: unknown): AuthoredSkill | null {
   if (!input || typeof input !== "object") {
@@ -152,21 +168,22 @@ function readScaffoldInput(input: unknown): AuthoredSkill | null {
   if (rec.overwrite === true) {
     return null;
   }
-  const skillId = rec.skill_id;
-  const name = rec.name;
-  if (typeof skillId !== "string" || skillId.trim().length === 0) {
+  const skillId = typeof rec.skill_id === "string" ? rec.skill_id.trim() : "";
+  const name = typeof rec.name === "string" ? normalizeCardText(rec.name) : "";
+  if (skillId.length === 0 || name.length === 0) {
     return null;
   }
-  if (typeof name !== "string" || name.trim().length === 0) {
-    return null;
-  }
+  const description =
+    typeof rec.description === "string"
+      ? normalizeCardText(rec.description)
+      : "";
+  const emoji =
+    typeof rec.emoji === "string" ? normalizeCardText(rec.emoji) : "";
   return {
     skillId,
     name,
-    description: typeof rec.description === "string" ? rec.description : "",
-    ...(typeof rec.emoji === "string" && rec.emoji.length > 0
-      ? { emoji: rec.emoji }
-      : {}),
+    description,
+    ...(emoji.length > 0 ? { emoji } : {}),
   };
 }
 

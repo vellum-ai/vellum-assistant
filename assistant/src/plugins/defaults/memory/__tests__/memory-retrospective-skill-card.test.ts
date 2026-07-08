@@ -397,6 +397,71 @@ describe("memory-retrospective skill card", () => {
     expect(skills).toEqual([]);
   });
 
+  test("extractor normalizes padded/newline-carrying inputs to the persisted values", () => {
+    // `executeScaffoldManagedSkill` trims skill_id (and newline-collapses +
+    // trims name/description/emoji) before persisting: a padded " my-skill "
+    // input creates skill `my-skill`, so a card built from the raw input
+    // would link an id that does not exist.
+    conversationOverrides["retro-2"] = {
+      source: "memory-retrospective",
+      forkParentMessageId: null,
+    };
+    messagesByConversationId["retro-2"] = [
+      scaffoldMsg(
+        "tu-1",
+        {
+          skill_id: " my-skill ",
+          name: "  My\nSkill  ",
+          description: " Does\r\nthings ",
+          emoji: " 🧭 ",
+        },
+        { createdAt: 2000 },
+      ),
+      toolResultMsg("tu-1", { createdAt: 2001 }),
+    ];
+
+    const skills = extractRetrospectiveRunSkillScaffolds("retro-2");
+
+    expect(skills).toEqual([
+      {
+        skillId: "my-skill",
+        name: "My Skill",
+        description: "Does things",
+        emoji: "🧭",
+      },
+    ]);
+  });
+
+  test("extractor drops an emoji that is whitespace-only after normalization", () => {
+    conversationOverrides["retro-3"] = {
+      source: "memory-retrospective",
+      forkParentMessageId: null,
+    };
+    messagesByConversationId["retro-3"] = [
+      scaffoldMsg(
+        "tu-1",
+        {
+          skill_id: "skill-a",
+          name: "Skill A",
+          description: "Does A",
+          emoji: " \n ",
+        },
+        { createdAt: 2000 },
+      ),
+      toolResultMsg("tu-1", { createdAt: 2001 }),
+    ];
+
+    const skills = extractRetrospectiveRunSkillScaffolds("retro-3");
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0]).toEqual({
+      skillId: "skill-a",
+      name: "Skill A",
+      description: "Does A",
+    });
+    expect("emoji" in skills[0]!).toBe(false);
+  });
+
   // -------------------------------------------------------------------------
   // insertSkillCardMessage
   // -------------------------------------------------------------------------

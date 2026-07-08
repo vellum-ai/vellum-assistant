@@ -60,7 +60,6 @@ import {
   deleteConversationGently,
   forkConversationForRetrospective,
   getConversation,
-  getMessagesAfter,
   isConversationProcessing,
   resolveOverrideProfile,
 } from "../../../persistence/conversation-crud.js";
@@ -74,6 +73,7 @@ import type { SystemPromptPersonaOverride } from "../../../prompts/system-prompt
 import { wakeAgentForOpportunity } from "../../../runtime/agent-wake.js";
 import { getLogger } from "../../../util/logger.js";
 import { findMostRecentRetrospectiveFor } from "./find-most-recent-retrospective-for.js";
+import { getRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,
@@ -177,7 +177,13 @@ export async function runForkBasedRetrospective(
 
   const state = getRetrospectiveState(sourceConversationId);
   const lastProcessedMessageId = state?.lastProcessedMessageId ?? null;
-  const newMessages = getMessagesAfter(
+  // Kind-aware slice: a prior run's own `skill-authored-card` message lands
+  // AFTER the cursor that run persisted, so the raw slice would treat the
+  // card as new work — a card-only tail must be `no_new_messages`, and a
+  // mixed tail's cutoff must land on the last REAL message (never blindly
+  // past the card, so an interleaved real message is never skipped). See
+  // `memory-retrospective-accounting.ts`.
+  const newMessages = getRetrospectiveMessagesAfter(
     sourceConversationId,
     lastProcessedMessageId,
   );
