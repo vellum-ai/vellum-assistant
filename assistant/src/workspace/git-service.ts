@@ -858,12 +858,14 @@ export class WorkspaceGitService {
     }
 
     const base = await this.resolveStagedDiffBaseLocked();
+    // Everything but deletions — T covers a tracked symlink/submodule
+    // replaced by a staged regular file, which ACMR alone would miss.
     const staged = await this.execGitStreaming([
       "diff",
       "--cached",
       "--name-only",
       "-z",
-      "--diff-filter=ACMR",
+      "--diff-filter=ACMRT",
       base,
     ]);
     const stagedOversized = staged.stdout

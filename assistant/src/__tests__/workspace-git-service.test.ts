@@ -6,6 +6,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1597,6 +1598,30 @@ describe("WorkspaceGitService", () => {
       const tracked = trackedFiles();
       expect(tracked).toContain("mixed/note.txt");
       expect(tracked).not.toContain("mixed/blob.bin");
+    });
+
+    test("externally staged oversized typechange is unstaged", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "target.txt"), "target");
+      symlinkSync("target.txt", join(testDir, "link"));
+      await service.commitChanges("Add symlink");
+
+      // Replace the symlink with an oversized regular file and stage it
+      // externally — the staged change is a typechange (T), not ACMR.
+      rmSync(join(testDir, "link"));
+      writeFileSync(join(testDir, "link"), bigContent());
+      execFileSync("git", ["add", "link"], { cwd: testDir });
+
+      await service.commitChanges("Replace link");
+
+      // History must still hold the symlink (mode 120000), not the blob
+      const entry = execFileSync("git", ["ls-tree", "HEAD", "link"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(entry).toContain("120000");
     });
 
     test("deletion of an oversized tracked file is committed", async () => {
