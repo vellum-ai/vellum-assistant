@@ -378,29 +378,20 @@ function resolveAgainstBody(
 }
 
 /**
- * Resolve a default-profile intent through the workspace's default provider:
- * like `getEffectiveProfile`, but the code-owned body for a default profile
- * key comes from that provider's column of the intent × provider matrix
- * instead of always the `vellum` column.
+ * Like `getEffectiveProfile`, but a default profile key's code-owned body
+ * comes from the default provider's column of the intent × provider matrix
+ * instead of always the `vellum` column. A `null` defaultProvider and every
+ * non-matrix name fall back to `getEffectiveProfile`'s behavior.
  *
- * - The body's connection is `resolveDefaultConnectionName(defaultProvider)`
- *   (an explicit `connectionName` wins; `vellum` maps to the managed
- *   connection; BYOK maps to `${provider}-personal`). For the `vellum`
- *   column the stamped provider stays the column's underlying provider
- *   (e.g. `fireworks` for `balanced`) — `vellum` is a routing identity, not
- *   a dispatch provider.
+ * Non-obvious rules:
+ *
+ * - For the `vellum` column the stamped provider stays the column's
+ *   underlying provider (e.g. `fireworks` for `balanced`) — `vellum` is a
+ *   routing identity, not a dispatch provider.
  * - The resolved body carries `source: "managed"` regardless of column:
  *   default profile content is code-owned whichever provider implements it.
- *   (The BYOK templates' `source: "user"` is hatch-time state for
- *   materialized `custom-*` copies, not an ownership claim on the catalog
- *   body.)
- * - Workspace precedence is identical to `getEffectiveProfile`: a
- *   user-source workspace entry shadows the default outright; a
- *   managed-source stub contributes only `label`/`status`/`topP`.
- * - A `null` defaultProvider (defensive: the field is always written at
- *   hatch/backfill) and every non-matrix name (custom profiles, `os-beta`)
- *   fall back to `CODE_DEFAULT_PROFILE_ENTRIES` — exactly
- *   `getEffectiveProfile`'s behavior.
+ *   The BYOK templates' `source: "user"` is hatch-time state for
+ *   materialized `custom-*` copies, not an ownership claim on the body.
  */
 export function resolveDefaultProfileForProvider(
   workspaceProfiles: Record<string, ProfileEntry> | undefined,
