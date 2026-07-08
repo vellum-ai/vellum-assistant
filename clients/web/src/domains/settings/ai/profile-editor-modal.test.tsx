@@ -139,6 +139,22 @@ function getSaveBtn(): HTMLButtonElement {
   return btn;
 }
 
+/**
+ * The inline ProviderCreateForm keeps its Display Name + Key fields under a
+ * collapsed "Advanced" disclosure. Open it so those inputs mount.
+ */
+function openInlineProviderAdvanced(): void {
+  const button = Array.from(
+    document.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((b) => b.textContent?.includes("Display name"));
+  if (!button) {
+    throw new Error("expected the inline provider Advanced disclosure");
+  }
+  if (button.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(button);
+  }
+}
+
 /** All Dropdown triggers (custom comboboxes) in document order. */
 function dropdownTriggers(): HTMLButtonElement[] {
   return Array.from(
@@ -468,7 +484,8 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("+ Create new provider");
 
-    // Inline ProviderCreateForm is mounted (its Key field placeholder).
+    // Inline ProviderCreateForm is mounted; its Key field lives under Advanced.
+    openInlineProviderAdvanced();
     const inlineKey = getInputByPlaceholder("e.g. anthropic-personal");
     expect(inlineKey).toBeDefined();
 
@@ -512,6 +529,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     renderCreate([], onSave);
 
     selectProvider("+ Create new provider");
+    openInlineProviderAdvanced();
     fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
       target: { value: "anthropic-personal" },
     });
