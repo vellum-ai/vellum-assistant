@@ -135,6 +135,17 @@ body {
 
 .skeleton-shimmer {
   background-color: var(--surface-active);
+  /* Fallback band for engines without color-mix() (WKWebView before
+   * iOS 16.2, per the iOS 15.0 deployment target): a neutral translucent
+   * highlight over the surface color — no token expresses this without
+   * color-mix, hence the raw rgba. Engines that parse color-mix() take the
+   * declaration below instead. */
+  background-image: linear-gradient(
+    90deg,
+    transparent 35%,
+    rgba(128, 128, 128, 0.12) 50%,
+    transparent 65%
+  );
   background-image: linear-gradient(
     90deg,
     var(--surface-active) 35%,
