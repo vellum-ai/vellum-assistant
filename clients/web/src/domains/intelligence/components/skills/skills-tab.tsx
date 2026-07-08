@@ -12,7 +12,7 @@ import {
     X,
     Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { SkillRemovalDialog } from "@/components/skill-removal-dialog";
@@ -74,11 +74,28 @@ export function SkillsTab({ assistantId }: SkillsTabProps) {
   // (debounced) value is reflected into `?q=` below and drives the query.
   const [searchValue, setSearchValue] = useState(q);
   const debouncedSearch = useDebouncedValue(searchValue.trim(), SEARCH_DEBOUNCE_MS);
+  // Last `q` this component reconciled with the URL — distinguishes our own
+  // writes (echoed back through `useSearchParams`) from external changes
+  // (re-clicking the Skills nav link, back/forward, in-app filtered links).
+  const lastSyncedQ = useRef(q);
   useEffect(() => {
-    if (debouncedSearch !== q) {
+    if (q !== lastSyncedQ.current) {
+      // `?q=` changed externally without a remount — adopt it instead of
+      // debounce-writing the stale local value back over it.
+      lastSyncedQ.current = q;
+      if (q !== searchValue.trim()) {
+        setSearchValue(q);
+        return;
+      }
+    }
+    // Only write once the debounce has settled to the current input; while it
+    // lags (mid-typing or right after adopting an external change) a write
+    // would resurrect an outdated value.
+    if (debouncedSearch !== q && debouncedSearch === searchValue.trim()) {
+      lastSyncedQ.current = debouncedSearch;
       updateUrlState({ q: debouncedSearch });
     }
-  }, [debouncedSearch, q, updateUrlState]);
+  }, [debouncedSearch, q, searchValue, updateUrlState]);
 
   const handleFilterChange = useCallback(
     (next: SkillFilter) => updateUrlState({ filter: next }),
