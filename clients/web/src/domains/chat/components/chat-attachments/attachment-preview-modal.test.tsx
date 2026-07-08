@@ -131,4 +131,25 @@ describe("AttachmentPreviewModal content loading", () => {
     expect(video.getAttribute("src")).toBe("blob:preview-mock");
     expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
   });
+
+  test("small video with inline data still lazy-fetches to blob URL (CSP fix)", async () => {
+    // Simulates what deriveDisplayUrls produces for a small video that DID
+    // arrive with inline data: previewUrl is null (not a data: URI) because
+    // Electron CSP media-src allows blob: but not data:.
+    const smallVideo: DisplayAttachment = {
+      id: "att-small-video",
+      filename: "small.mp4",
+      mimeType: "video/mp4",
+      sizeBytes: 100_000,
+      previewUrl: null,
+      thumbnailUrl: "data:image/jpeg;base64,BBBB",
+    };
+    renderModal(smallVideo);
+
+    const video = await screen.findByTestId("video-preview");
+    // src must be a blob URL, not a data: URI — CSP-safe for Electron.
+    expect(video.getAttribute("src")).toBe("blob:preview-mock");
+    expect(video.getAttribute("poster")).toBe("data:image/jpeg;base64,BBBB");
+    expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+  });
 });

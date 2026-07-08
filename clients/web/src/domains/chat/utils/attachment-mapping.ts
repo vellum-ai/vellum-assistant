@@ -1,4 +1,7 @@
-import type { DisplayAttachment } from "@/types/attachment-types";
+import {
+  type DisplayAttachment,
+  deriveDisplayUrls,
+} from "@/types/attachment-types";
 import type { ConversationMessageAttachment } from "@vellumai/assistant-api";
 
 /**
@@ -8,25 +11,18 @@ import type { ConversationMessageAttachment } from "@vellumai/assistant-api";
  * produced by text-parsing.
  *
  * Shared by `history.ts` (initial page load) and `reconcile.ts` (periodic
- * server sync) so attachment mapping logic stays in one place.
+ * server sync) so attachment mapping logic stays in one place. URL derivation
+ * is shared with the streaming path via {@link deriveDisplayUrls}.
  */
 export function runtimeAttachmentsToDisplay(
   runtimeAttachments: ConversationMessageAttachment[],
 ): DisplayAttachment[] {
   return runtimeAttachments.map((a) => {
-    // previewUrl carries the actual attachment content (inline data URI or
-    // null to trigger lazy fetch). thumbnailUrl carries a JPEG poster frame
-    // (from thumbnailData) — must NOT be used as previewUrl, or the preview
-    // modal will try to play a JPEG in a <video> element and skip the lazy
-    // fetch that retrieves the real video bytes.
-    let previewUrl: string | null = null;
-    let thumbnailUrl: string | null = null;
-    if (a.data) {
-      previewUrl = `data:${a.mimeType};base64,${a.data}`;
-    }
-    if (a.thumbnailData) {
-      thumbnailUrl = `data:image/jpeg;base64,${a.thumbnailData}`;
-    }
+    const { previewUrl, thumbnailUrl } = deriveDisplayUrls(
+      a.mimeType,
+      a.data,
+      a.thumbnailData,
+    );
     return {
       id: a.id,
       filename: a.filename,

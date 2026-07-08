@@ -48,7 +48,7 @@ describe("toDisplayAttachments", () => {
     ]);
   });
 
-  test("uses thumbnailData when data is empty", () => {
+  test("video with empty data uses thumbnail as thumbnailUrl, not previewUrl", () => {
     const result = toDisplayAttachments([
       {
         id: "att-3",
@@ -66,7 +66,34 @@ describe("toDisplayAttachments", () => {
         filename: "clip.mp4",
         mimeType: "video/mp4",
         sizeBytes: 1024,
-        previewUrl: "data:image/jpeg;base64,thumb123",
+        previewUrl: null,
+        thumbnailUrl: "data:image/jpeg;base64,thumb123",
+      },
+    ]);
+  });
+
+  test("video with inline data still gets null previewUrl (Electron CSP fix)", () => {
+    const result = toDisplayAttachments([
+      {
+        id: "att-small",
+        filename: "small.mp4",
+        mimeType: "video/mp4",
+        data: "AAAAIGZ0cg==",
+        thumbnailData: "thumb456",
+        sizeBytes: 100,
+      },
+    ]);
+    // previewUrl must be null even with inline data — the Electron CSP
+    // media-src directive allows blob: but not data:, so a data:video URI
+    // would be CSP-blocked. The modal's lazy-fetch path creates a blob URL.
+    expect(result).toEqual([
+      {
+        id: "att-small",
+        filename: "small.mp4",
+        mimeType: "video/mp4",
+        sizeBytes: 100,
+        previewUrl: null,
+        thumbnailUrl: "data:image/jpeg;base64,thumb456",
       },
     ]);
   });

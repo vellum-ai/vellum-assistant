@@ -6,33 +6,28 @@
  */
 
 import type { AssistantOutboundAttachment } from "@vellumai/assistant-api";
-import type { DisplayAttachment } from "@/types/attachment-types";
+import {
+  type DisplayAttachment,
+  deriveDisplayUrls,
+} from "@/types/attachment-types";
 
 /**
  * Convert `AssistantOutboundAttachment` objects into `DisplayAttachment`
- * objects suitable for rendering in chat message bubbles. When inline base64
- * data is available, a data-URI `previewUrl` is created so the preview modal
- * can render or download the content without a separate fetch. When only a
- * thumbnail is available (e.g. video with omitted data), the thumbnail goes
- * into `thumbnailUrl` (used as a video poster) and `previewUrl` stays null so
- * the modal lazily fetches the real bytes from the daemon's
- * `/v1/attachments/:id/content` endpoint.
+ * objects suitable for rendering in chat message bubbles. URL derivation
+ * (previewUrl vs thumbnailUrl) is shared with the history-reload path via
+ * {@link deriveDisplayUrls} — see that function for the rationale on why
+ * videos always get a null previewUrl (Electron CSP).
  */
 export function toDisplayAttachments(
   attachments: AssistantOutboundAttachment[] | undefined,
 ): DisplayAttachment[] | undefined {
   if (!attachments || attachments.length === 0) return undefined;
   return attachments.map((att) => {
-    // previewUrl carries the actual content; thumbnailUrl carries a JPEG
-    // poster frame. See attachment-mapping.ts for the same rationale.
-    let previewUrl: string | null = null;
-    let thumbnailUrl: string | null = null;
-    if (att.data) {
-      previewUrl = `data:${att.mimeType};base64,${att.data}`;
-    }
-    if (att.thumbnailData) {
-      thumbnailUrl = `data:image/jpeg;base64,${att.thumbnailData}`;
-    }
+    const { previewUrl, thumbnailUrl } = deriveDisplayUrls(
+      att.mimeType,
+      att.data,
+      att.thumbnailData,
+    );
     return {
       id: att.id ?? att.filename,
       filename: att.filename,
