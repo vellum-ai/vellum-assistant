@@ -21,16 +21,7 @@
  * - End-to-end through `runHook` + the registry.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// Mock the subagent manager before importing the hook — the hook lazily
-// imports it on the nudge path to exempt subagent conversations.
-let mockParentInfo: (conversationId: string) => unknown = () => undefined;
-mock.module("../subagent/index.js", () => ({
-  getSubagentManager: () => ({
-    getParentInfo: (conversationId: string) => mockParentInfo(conversationId),
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PluginLogger, PostToolUseContext } from "../plugin-api/types.js";
@@ -115,6 +106,7 @@ function makeCtx(
   toolResponse: ToolResultContent,
   messages: Message[],
   model: string = GENERIC_MODEL,
+  callSite: PostToolUseContext["callSite"] = "mainAgent",
 ): PostToolUseContext {
   return {
     conversationId,
@@ -123,7 +115,10 @@ function makeCtx(
     additionalContext: null,
     model,
     maxInputTokens: 10_000,
+    callSite,
+    supportsDynamicUi: true,
     logger: noopLogger,
+    broadcast: () => {},
   };
 }
 
@@ -189,7 +184,6 @@ function repeatedCallHistory(opts: {
 
 beforeEach(() => {
   resetExplorationDriftStateForTests();
-  mockParentInfo = () => undefined;
 });
 
 describe("exploration-drift post-tool-use hook — long-dig trigger", () => {
@@ -363,12 +357,6 @@ describe("exploration-drift post-tool-use hook — long-dig trigger", () => {
   });
 
   test("subagent conversations are exempt", async () => {
-    mockParentInfo = () => ({
-      parentConversationId: "parent-1",
-      subagentId: "sub-1",
-      label: "investigate-empty-turns",
-      parentSendToClient: () => {},
-    });
     const { messages, currentToolUseId } = explorationHistory(
       EXPLORATION_NUDGE_THRESHOLD - 1,
     );
@@ -376,6 +364,8 @@ describe("exploration-drift post-tool-use hook — long-dig trigger", () => {
       freshConversationId(),
       currentResponse(currentToolUseId),
       messages,
+      GENERIC_MODEL,
+      "subagentSpawn",
     );
 
     await postToolUse(ctx);
@@ -603,12 +593,6 @@ describe("exploration-drift post-tool-use hook — loop trigger", () => {
   });
 
   test("subagent conversations are exempt from the loop trigger", async () => {
-    mockParentInfo = () => ({
-      parentConversationId: "parent-1",
-      subagentId: "sub-1",
-      label: "investigate-empty-turns",
-      parentSendToClient: () => {},
-    });
     const { messages, currentToolUseId } = repeatedCallHistory({
       priorIdenticalCalls: EXPLORATION_LOOP_REPEAT_THRESHOLD - 1,
     });
@@ -617,6 +601,7 @@ describe("exploration-drift post-tool-use hook — loop trigger", () => {
       currentResponse(currentToolUseId),
       messages,
       KIMI_FIREWORKS_MODEL,
+      "subagentSpawn",
     );
 
     await postToolUse(ctx);

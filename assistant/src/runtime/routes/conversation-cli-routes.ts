@@ -12,18 +12,20 @@ import { z } from "zod";
 import { clearAllConversations as clearAllActive } from "../../daemon/handlers/conversations.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { ipcCall as ipcCallGateway } from "../../ipc/gateway-client.js";
-import { isConversationProcessing } from "../../memory/conversation-crud.js";
+import { sendSlackReply } from "../../messaging/providers/slack/send.js";
+import { isConversationProcessing } from "../../persistence/conversation-crud.js";
 import {
   addMessage,
   createConversation,
   getConversation,
   getMessages,
-} from "../../memory/conversation-crud.js";
-import { setConversationKey } from "../../memory/conversation-key-store.js";
-import { listConversations } from "../../memory/conversation-queries.js";
-import { getBindingByConversation } from "../../memory/external-conversation-store.js";
-import { sendSlackReply } from "../../messaging/providers/slack/send.js";
+} from "../../persistence/conversation-crud.js";
+import { setConversationKey } from "../../persistence/conversation-key-store.js";
+import { listConversations } from "../../persistence/conversation-queries.js";
+import type { ConversationCreateType } from "../../persistence/conversation-types.js";
+import { getBindingByConversation } from "../../persistence/external-conversation-store.js";
 import { getLogger } from "../../util/logger.js";
+import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadGatewayError, BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -73,6 +75,12 @@ type SeededConversationMessage = z.infer<
   typeof seededConversationMessageSchema
 >;
 
+const conversationCreateTypeSchema = z.enum([
+  "standard",
+  "background",
+  "scheduled",
+]);
+
 function textContentJson(text: string): string {
   return JSON.stringify([{ type: "text", text }]);
 }
@@ -82,7 +90,23 @@ async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
   const messages =
     (body.messages as SeededConversationMessage[] | undefined) ?? [];
 
-  const conversation = createConversation(title);
+  let conversationType: ConversationCreateType | undefined;
+  if (body.conversationType !== undefined) {
+    const parsed = conversationCreateTypeSchema.safeParse(
+      body.conversationType,
+    );
+    if (!parsed.success) {
+      throw new BadRequestError(
+        `Invalid conversationType: must be one of ${conversationCreateTypeSchema.options.join(", ")}`,
+      );
+    }
+    conversationType = parsed.data;
+  }
+
+  const conversation = await withSqliteRetry(
+    () => createConversation({ title, conversationType }),
+    { op: "createConversationCli" },
+  );
   const conversationKey = uuid();
   setConversationKey(conversationKey, conversation.id);
 
@@ -356,6 +380,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       title: z.string().optional(),
       messages: z.array(seededConversationMessageSchema).optional(),
+      conversationType: conversationCreateTypeSchema.optional(),
     }),
     responseBody: z.object({
       id: z.string(),

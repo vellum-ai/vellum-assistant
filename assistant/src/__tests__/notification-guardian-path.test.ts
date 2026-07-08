@@ -92,9 +92,9 @@ import {
   createPendingQuestion,
 } from "../calls/call-store.js";
 import { dispatchGuardianQuestion } from "../calls/guardian-dispatch.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 await initializeDb();

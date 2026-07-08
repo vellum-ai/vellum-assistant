@@ -1,20 +1,22 @@
 /**
  * Daemon-side process status endpoint (GET /v1/ps).
  *
- * Reports the daemon's own process tree: the assistant runtime itself,
- * the qdrant vector store, and the embed worker.  Each sub-process
- * status is probed dynamically — qdrant via its /readyz HTTP endpoint,
- * embed-worker via PID-file liveness.
+ * Walks the OS process tree rooted at the daemon (`process.pid`) and reports
+ * every descendant process that is actually parented to it — qdrant, the
+ * embed worker, the memory worker (when the daemon owns it), MCP servers, and
+ * any other live children. The tree is built from the native process table
+ * (`/proc` on Linux, `ps` on macOS), so it reflects reality rather than a
+ * hard-coded subsystem list.
  */
-
-import { existsSync, readFileSync } from "node:fs";
 
 import { z } from "zod";
 
-import { getConfig } from "../../config/loader.js";
-import { resolveQdrantUrl } from "../../memory/qdrant-client.js";
 import { getLogger } from "../../util/logger.js";
-import { getEmbedWorkerPidPath } from "../../util/platform.js";
+import {
+  buildProcessTree,
+  listProcesses,
+  type ProcTreeNode,
+} from "../../util/process-tree.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -44,68 +46,37 @@ const psResponseSchema = z.object({
   processes: z.array(processEntrySchema),
 });
 
-async function probeQdrant(): Promise<ProcessStatus> {
-  try {
-    const config = getConfig();
-    const url = resolveQdrantUrl(config);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-    const response = await fetch(`${url}/readyz`, {
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-    return response.ok ? "running" : "not_running";
-  } catch (err) {
-    log.debug({ err }, "Qdrant probe failed");
-    return "unreachable";
+/** Map a native process-tree node onto the wire `ProcessEntry` shape. */
+function toEntry(node: ProcTreeNode): ProcessEntry {
+  const entry: ProcessEntry = {
+    name: node.name,
+    // Every node in the walk is a live process by definition.
+    status: "running",
+    info: `pid ${node.pid}`,
+  };
+  if (node.children.length > 0) {
+    entry.children = node.children.map(toEntry);
   }
-}
-
-function probeEmbedWorker(): ProcessStatus {
-  try {
-    const pidPath = getEmbedWorkerPidPath();
-    if (!existsSync(pidPath)) return "not_running";
-
-    const raw = readFileSync(pidPath, "utf-8").trim();
-    const pid = parseInt(raw, 10);
-    if (!Number.isFinite(pid) || pid <= 0) return "not_running";
-
-    process.kill(pid, 0);
-    return "running";
-  } catch (err: unknown) {
-    if (
-      err &&
-      typeof err === "object" &&
-      "code" in err &&
-      err.code === "ESRCH"
-    ) {
-      return "not_running";
-    }
-    log.debug({ err }, "Embed worker probe failed");
-    return "unreachable";
-  }
+  return entry;
 }
 
 async function getProcessStatus() {
-  const [qdrantStatus, embedWorkerStatus] = await Promise.all([
-    probeQdrant(),
-    Promise.resolve(probeEmbedWorker()),
-  ]);
+  let entry: ProcessEntry;
+  try {
+    const procs = await listProcesses();
+    entry = toEntry(buildProcessTree(procs, process.pid));
+  } catch (err) {
+    // Enumeration failed (no /proc and `ps` unavailable). Still report the
+    // daemon itself so the endpoint stays useful for liveness.
+    log.warn({ err }, "Failed to enumerate process tree");
+    entry = {
+      name: "assistant",
+      status: "running",
+      info: `pid ${process.pid}`,
+    };
+  }
 
-  return {
-    processes: [
-      {
-        name: "assistant",
-        status: "running" as const,
-        children: [
-          { name: "qdrant", status: qdrantStatus },
-          { name: "embed-worker", status: embedWorkerStatus },
-        ],
-      },
-    ],
-  };
+  return { processes: [entry] };
 }
 
 export const ROUTES: RouteDefinition[] = [
@@ -120,7 +91,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: getProcessStatus,
     summary: "Process status",
     description:
-      "Returns a JSON summary of the assistant's process tree including qdrant and embed-worker status.",
+      "Returns the daemon's process tree: every descendant process parented to the assistant runtime, built from the native OS process table.",
     tags: ["system"],
     responseBody: psResponseSchema,
   },

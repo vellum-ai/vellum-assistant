@@ -7,18 +7,23 @@
  * threaded through the agent loop. The hook is a pure trigger — it schedules
  * the work and returns; persistence and the resulting
  * `conversation_title_updated` / `sync_changed` broadcast are owned by the
- * title service (see `memory/conversation-title-service.ts`).
+ * title service (see `persistence/conversation-title-service.ts`).
  */
 
 import type {
-  PluginHookFn,
+  HookFunction,
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
-import { getConversation } from "../../../../memory/conversation-crud.js";
-import { queueGenerateConversationTitle } from "../../../../memory/conversation-title-service.js";
+import { getConversation } from "../../../../persistence/conversation-crud.js";
+import { queueGenerateConversationTitle } from "../../../../persistence/conversation-title-service.js";
 
-const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
+const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
+  // Hidden machine signals (e.g. the channel-setup wizard-close marker) are
+  // not user speech — a title minted from one would surface invisible
+  // scaffolding text in the sidebar, and the LLM call is wasted.
+  if (ctx.isHiddenPrompt) return;
+
   // System conversations (background/scheduled) carry a deterministic title
   // from bootstrap. Their own job prompts arrive as non-interactive turns and
   // must not spend an LLM call on a title nobody reads — only a genuine user

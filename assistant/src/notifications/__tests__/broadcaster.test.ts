@@ -37,14 +37,6 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async () => null,
 }));
 
-// Use the real destination-resolver (DB-free via the local-read stub below)
-// so this mock does not leak into destination-resolver.test.ts under a shared
-// bun-test invocation. With no guardian, the resolver still yields a vellum
-// destination, which is all these tests exercise.
-mock.module("../../contacts/contact-store.js", () => ({
-  findGuardianForChannel: () => null,
-}));
-
 mock.module("../conversation-pairing.js", () => ({
   pairDeliveryWithConversation: async () => ({
     conversationId: undefined,
@@ -63,6 +55,29 @@ mock.module("../deliveries-store.js", () => ({
 
 mock.module("../adapters/macos.js", () => ({
   isGuardianSensitiveEvent: () => false,
+}));
+
+// Mock conversation-crud so deep-link fallback tests can control which
+// conversation ids resolve to real rows.
+let knownConversations: Set<string> = new Set();
+mock.module("../../persistence/conversation-crud.js", () => ({
+  getConversation: (id: string) =>
+    knownConversations.has(id) ? { id } : undefined,
+}));
+
+// Mock destination-resolver so platform channel tests get a destination
+// without needing guardian-delivery data.
+mock.module("../destination-resolver.js", () => ({
+  resolveDestinations: (
+    channels: readonly string[],
+    _guardians: unknown,
+  ) => {
+    const map = new Map();
+    for (const ch of channels) {
+      map.set(ch, { channel: ch, endpoint: ch, metadata: {} });
+    }
+    return map;
+  },
 }));
 
 mock.module("../../util/logger.js", () => ({
@@ -117,7 +132,9 @@ interface CapturedSend {
   destination: ChannelDestination;
 }
 
-function makeCapturingAdapter(channel: "vellum"): {
+function makeCapturingAdapter(
+  channel: "vellum" | "platform",
+): {
   adapter: ChannelAdapter;
   sends: CapturedSend[];
 } {
@@ -137,6 +154,7 @@ function makeCapturingAdapter(channel: "vellum"): {
 
 beforeEach(() => {
   composeFallbackReturn = {};
+  knownConversations = new Set();
 });
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -207,5 +225,83 @@ describe("NotificationBroadcaster last-resort copy resolution", () => {
     expect(sends[0]?.payload.copy.body).toBe("Time to drink water");
     expect(results.length).toBe(1);
     expect(results[0]?.status).toBe("sent");
+  });
+});
+
+describe("NotificationBroadcaster platform deep-link from contextPayload", () => {
+  test("uses deepLinkConversationId from contextPayload when no pairing exists", async () => {
+    composeFallbackReturn = {
+      platform: { title: "Reminder", body: "Check the oven" },
+    };
+
+    knownConversations = new Set(["conv-origin-1"]);
+
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    const signal = makeSignal({
+      sourceContextId: "schedule-job-1",
+      contextPayload: { deepLinkConversationId: "conv-origin-1" },
+    });
+    const decision = makeDecision({
+      selectedChannels: ["platform"],
+      renderedCopy: {},
+    });
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.deepLinkTarget).toEqual({
+      conversationId: "conv-origin-1",
+    });
+  });
+
+  test("does not use deepLinkConversationId when it does not resolve to a real conversation", async () => {
+    composeFallbackReturn = {
+      platform: { title: "Reminder", body: "Check the oven" },
+    };
+
+    // conv-stale is NOT in knownConversations
+    knownConversations = new Set();
+
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    const signal = makeSignal({
+      sourceContextId: "schedule-job-1",
+      contextPayload: { deepLinkConversationId: "conv-stale" },
+    });
+    const decision = makeDecision({
+      selectedChannels: ["platform"],
+      renderedCopy: {},
+    });
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.deepLinkTarget).toBeUndefined();
+  });
+
+  test("omits deepLinkConversationId when not present in contextPayload", async () => {
+    composeFallbackReturn = {
+      platform: { title: "Reminder", body: "Check the oven" },
+    };
+
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    const signal = makeSignal({
+      sourceContextId: "schedule-job-1",
+      contextPayload: {},
+    });
+    const decision = makeDecision({
+      selectedChannels: ["platform"],
+      renderedCopy: {},
+    });
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.deepLinkTarget).toBeUndefined();
   });
 });

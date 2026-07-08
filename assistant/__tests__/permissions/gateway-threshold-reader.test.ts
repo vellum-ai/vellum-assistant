@@ -35,7 +35,7 @@ mock.module("../../src/ipc/gateway-client.js", () => ({
 // tests don't read the array, so capturing is invisible to them.
 //
 // Bun's `mock.module("../../src/util/logger.js", ...)` does not intercept
-// transitive imports (see comment in stt-hints.test.ts and avatar-e2e.test.ts).
+// transitive imports (see comment in avatar-e2e.test.ts).
 // Mocking `pino` at the package level works because getLogger uses pino
 // child loggers under the hood — intercepting pino captures everything.
 interface LogCall {

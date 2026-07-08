@@ -56,7 +56,14 @@ describe("getModelProfiles", () => {
     mockProfileOrder = ["balanced", "quality-optimized"];
 
     const result = getModelProfiles();
-    expect(result.map((p) => p.key)).toEqual(["balanced", "quality-optimized"]);
+    // The code-catalog defaults are always present; the two workspace
+    // entries shadow their catalog counterparts, and the remaining catalog
+    // default sorts after the explicit order.
+    expect(result.map((p) => p.key)).toEqual([
+      "balanced",
+      "quality-optimized",
+      "cost-optimized",
+    ]);
   });
 
   test("includes disabled profiles (flagged via isDisabled)", () => {
@@ -70,7 +77,12 @@ describe("getModelProfiles", () => {
     };
 
     const result = getModelProfiles();
-    expect(result).toHaveLength(2);
+    expect(result.map((p) => p.key).sort()).toEqual([
+      "balanced",
+      "cost-optimized",
+      "disabled",
+      "quality-optimized",
+    ]);
     const disabled = result.find((p) => p.key === "disabled");
     expect(disabled?.isDisabled).toBe(true);
   });
@@ -84,7 +96,7 @@ describe("getModelProfiles", () => {
     };
 
     const result = getModelProfiles();
-    expect(result[0].isMix).toBe(true);
+    expect(result.find((p) => p.key === "mix-profile")?.isMix).toBe(true);
   });
 
   test("skips metadata-only profiles that cannot route plugin calls", () => {
@@ -104,7 +116,23 @@ describe("getModelProfiles", () => {
       "model-only",
       "provider-only",
       "mix",
+      "balanced",
+      "cost-optimized",
+      "quality-optimized",
     ]);
+  });
+
+  test("lists the code-catalog defaults when the workspace has no profiles", () => {
+    const result = getModelProfiles();
+    expect(result.map((p) => p.key).sort()).toEqual([
+      "balanced",
+      "cost-optimized",
+      "quality-optimized",
+    ]);
+    for (const profile of result) {
+      expect(profile.isDisabled).toBe(false);
+      expect(profile.isMix).toBe(false);
+    }
   });
 
   test("marks the active profile with isActive", () => {

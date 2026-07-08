@@ -15,6 +15,7 @@
 // Re-export domain modules (all individual types remain importable)
 export * from "./message-types/acp.js";
 export * from "./message-types/apps.js";
+export * from "./message-types/background-tools.js";
 export * from "./message-types/bookmarks.js";
 export * from "./message-types/computer-use.js";
 export * from "./message-types/contacts.js";
@@ -32,7 +33,6 @@ export * from "./message-types/host-file.js";
 export * from "./message-types/host-transfer.js";
 export * from "./message-types/inbox.js";
 export * from "./message-types/integrations.js";
-export * from "./message-types/meet.js";
 export * from "./message-types/memory.js";
 export * from "./message-types/messages.js";
 export * from "./message-types/notifications.js";
@@ -51,11 +51,13 @@ export * from "./message-types/workspace.js";
 
 // Import domain-level union aliases for composition
 import type { DiskPressureStatusChangedEvent } from "../api/events/disk-pressure-status-changed.js";
+import type { HookEvent } from "../api/events/hook-event.js";
 import type { _AcpServerMessages } from "./message-types/acp.js";
 import type {
   _AppsClientMessages,
   _AppsServerMessages,
 } from "./message-types/apps.js";
+import type { _BackgroundToolsServerMessages } from "./message-types/background-tools.js";
 import type { _BookmarksServerMessages } from "./message-types/bookmarks.js";
 import type {
   _ComputerUseClientMessages,
@@ -100,7 +102,6 @@ import type {
   _IntegrationsClientMessages,
   _IntegrationsServerMessages,
 } from "./message-types/integrations.js";
-import type { _MeetServerMessages } from "./message-types/meet.js";
 import type { _MemoryServerMessages } from "./message-types/memory.js";
 import type {
   _MessagesClientMessages,
@@ -199,7 +200,6 @@ export type ServerMessage =
   | _HostCuServerMessages
   | _HostFileServerMessages
   | _HostTransferServerMessages
-  | _MeetServerMessages
   | _MemoryServerMessages
   | _WorkspaceServerMessages
   | _SchedulesServerMessages
@@ -209,9 +209,11 @@ export type ServerMessage =
   | _NotificationsServerMessages
   | _UpgradesServerMessages
   | _AcpServerMessages
+  | _BackgroundToolsServerMessages
   | _BookmarksServerMessages
   | _WorkflowsServerMessages
   | DiskPressureStatusChangedEvent
+  | HookEvent
   | SubagentEvent;
 
 // === Contract schema ===

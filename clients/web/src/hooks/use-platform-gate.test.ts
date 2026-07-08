@@ -65,6 +65,65 @@ describe("usePlatformGate — default (standard pattern)", () => {
   });
 });
 
+describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () => {
+  // Locks the default-branch outcome usePlatformGate returns for each of the
+  // five user states the platform gating contract documents (CONVENTIONS.md).
+
+  test('1. platform-hosted + logged in → "full"', () => {
+    isLocalModeMock.mockImplementation(() => false);
+    isPlatformDisabledMock.mockImplementation(() => false);
+    useAuthStore.setState({ platformSession: "present" });
+    const { result } = renderHook(() => usePlatformGate());
+    expect(result.current).toBe("full");
+  });
+
+  test('2. platform-hosted + NOT logged in → "disabled"', () => {
+    isLocalModeMock.mockImplementation(() => false);
+    isPlatformDisabledMock.mockImplementation(() => false);
+    useAuthStore.setState({ platformSession: "absent" });
+    const { result } = renderHook(() => usePlatformGate());
+    expect(result.current).toBe("disabled");
+  });
+
+  test('3. self-hosted + platform ON + logged in → "full"', () => {
+    isLocalModeMock.mockImplementation(() => true);
+    isPlatformDisabledMock.mockImplementation(() => false);
+    useAuthStore.setState({ platformSession: "present" });
+    const { result } = renderHook(() => usePlatformGate());
+    expect(result.current).toBe("full");
+  });
+
+  test('4. self-hosted + platform ON + NOT logged in → "disabled"', () => {
+    isLocalModeMock.mockImplementation(() => true);
+    isPlatformDisabledMock.mockImplementation(() => false);
+    useAuthStore.setState({ platformSession: "absent" });
+    const { result } = renderHook(() => usePlatformGate());
+    expect(result.current).toBe("disabled");
+  });
+
+  test('5. self-hosted + platform OFF (VELLUM_DISABLE_PLATFORM) → "gated"', () => {
+    isLocalModeMock.mockImplementation(() => true);
+    isPlatformDisabledMock.mockImplementation(() => true);
+    // Session value is irrelevant once platform features are off; assert both.
+    for (const platformSession of ["present", "absent"] as const) {
+      useAuthStore.setState({ platformSession });
+      const { result, unmount } = renderHook(() => usePlatformGate());
+      expect(result.current).toBe("gated");
+      unmount();
+    }
+  });
+
+  test('pre-settle "unknown" session gates the surface as "disabled"', () => {
+    // The optimistic tri-state: "unknown" is not a live session, so the
+    // default branch treats it like "absent" until the probe settles.
+    isLocalModeMock.mockImplementation(() => false);
+    isPlatformDisabledMock.mockImplementation(() => false);
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result } = renderHook(() => usePlatformGate());
+    expect(result.current).toBe("disabled");
+  });
+});
+
 describe("usePlatformGate — { platformHostedOnly: true }", () => {
   test('returns "full" when lifecycle resolves to active+platform-hosted and logged in', () => {
     setLifecycle({ kind: "active", isLocal: false });

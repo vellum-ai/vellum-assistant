@@ -5,11 +5,17 @@ import type { GuardianDelivery } from "@vellumai/gateway-client";
 import type { ContactChannel } from "../../../contacts/types.js";
 
 let mockGuardians: GuardianDelivery[] | null = null;
-let mockBinding: { guardianExternalUserId: string; guardianDeliveryChatId: string } | null = null;
+let mockBinding: {
+  guardianExternalUserId: string;
+  guardianDeliveryChatId: string;
+} | null = null;
 let mockContactChannel: { channel: ContactChannel } | null = null;
 let mockChannel: ContactChannel | null = null;
-let mockGwContactChannels: Array<{ id: string; status: string; verifiedAt: number | null }> | null =
-  null;
+let mockGwContactChannels: Array<{
+  id: string;
+  status: string;
+  verifiedAt: number | null;
+}> | null = null;
 let ipcCalls: Array<{ method: string; payload: unknown }> = [];
 
 mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
@@ -20,23 +26,42 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
       input.channelTypes!.includes(g.channelType),
     );
   },
+  guardianForChannel: (list: GuardianDelivery[], channelType: string) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 mock.module("../../../contacts/contact-store.js", () => ({
   findContactChannel: () => mockContactChannel,
-  findGuardianForChannel: () => null,
   getChannelById: () => mockChannel,
   getContact: () => ({ id: "contact-1", displayName: "Pat" }),
 }));
 
-mock.module("../../../contacts/contact-events.js", () => ({
-  emitContactChange: () => {},
-  onContactChange: () => {},
+mock.module("../../../contacts/notify-contacts-changed.js", () => ({
+  notifyContactsChanged: () => {},
 }));
 
 mock.module("../../../ipc/gateway-client.js", () => ({
   ipcCallPersistent: async (method: string, payload: unknown) => {
     ipcCalls.push({ method, payload });
+    // Gateway session client methods (stubbed gateway responses).
+    if (method === "verification_sessions_count_recent_sends") {
+      return { count: 0 };
+    }
+    if (method === "verification_sessions_create_outbound") {
+      return {
+        sessionId: "sess",
+        secret: "code",
+        challengeHash: "hash",
+        expiresAt: Date.now() + 1000,
+        ttlSeconds: 600,
+      };
+    }
+    if (
+      method === "verification_sessions_update_delivery" ||
+      method === "verification_sessions_revoke_pending"
+    ) {
+      return { ok: true };
+    }
     if (method === "contacts_get_rich") {
       if (mockGwContactChannels == null) return { ok: true, contact: null };
       return {
@@ -86,16 +111,7 @@ mock.module("../../../ipc/gateway-client.js", () => ({
 
 mock.module("../../../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: () => mockBinding,
-  revokeBinding: () => true,
-  revokePendingSessions: () => {},
-  createOutboundSession: () => ({
-    sessionId: "sess",
-    secret: "code",
-    expiresAt: Date.now() + 1000,
-  }),
-  countRecentSendsToDestination: () => 0,
   isGuardianBoundForChannel: async () => false,
-  updateSessionDelivery: () => {},
 }));
 
 mock.module("../../../runtime/verification-outbound-actions.js", () => ({
@@ -123,18 +139,6 @@ function channel(overrides: Partial<ContactChannel> = {}): ContactChannel {
     address: "user-123",
     isPrimary: true,
     externalChatId: "chat-123",
-    // DB columns are intentionally a terminal state to prove the gates ignore
-    // them and read from the gateway delivery instead.
-    status: "revoked",
-    policy: {} as ContactChannel["policy"],
-    verifiedAt: null,
-    verifiedVia: null,
-    inviteId: null,
-    revokedReason: null,
-    blockedReason: null,
-    lastSeenAt: null,
-    interactionCount: 0,
-    lastInteraction: null,
     updatedAt: null,
     createdAt: 0,
     ...overrides,
@@ -156,7 +160,10 @@ function delivery(overrides: Partial<GuardianDelivery> = {}): GuardianDelivery {
 describe("revokeVerificationForChannel", () => {
   beforeEach(() => {
     mockGuardians = null;
-    mockBinding = { guardianExternalUserId: "user-123", guardianDeliveryChatId: "chat-123" };
+    mockBinding = {
+      guardianExternalUserId: "user-123",
+      guardianDeliveryChatId: "chat-123",
+    };
     mockContactChannel = { channel: channel() };
     ipcCalls = [];
   });
@@ -168,9 +175,9 @@ describe("revokeVerificationForChannel", () => {
   });
 
   test("skips a redundant revoke when the gateway delivery is already revoked", async () => {
-    // Local DB status is the live "active" here, but the gateway (SoT) says
-    // revoked — the gate must follow the gateway and not relay.
-    mockContactChannel = { channel: channel({ status: "active" }) };
+    // The gateway (SoT) says revoked — the gate must follow the gateway and
+    // not relay regardless of local state.
+    mockContactChannel = { channel: channel() };
     mockGuardians = [delivery({ status: "revoked" })];
     await revokeVerificationForChannel("telegram");
     expect(ipcCalls.map((c) => c.method)).not.toContain("mark_channel_revoked");
@@ -208,8 +215,8 @@ describe("verifyTrustedContact already-verified gate", () => {
   });
 
   test("does not short-circuit when the gateway channel has no verifiedAt", async () => {
-    // DB column says verified, but the gateway channel is unverified — proceed.
-    mockChannel = channel({ status: "active", verifiedAt: 1700000000 });
+    // The gateway channel is unverified — proceed regardless of local state.
+    mockChannel = channel();
     mockGwContactChannels = [
       { id: "ch-1", status: "pending", verifiedAt: null },
     ];

@@ -14,14 +14,15 @@
 
 import { randomUUID } from "node:crypto";
 
+import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
 import { loadConfig } from "../../config/loader.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   getConversation,
   listActiveInferenceProfileSessions,
   setConversationInferenceProfileSession,
-} from "../../memory/conversation-crud.js";
-import { resolveConversationId } from "../../memory/conversation-key-store.js";
+} from "../../persistence/conversation-crud.js";
+import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import { publishConversationInferenceProfileChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 
@@ -144,7 +145,7 @@ export async function setInferenceProfileSession({
   }
 
   // --- Validate profile ---
-  const profiles = loadConfig().llm?.profiles ?? {};
+  const profiles = getEffectiveProfiles(loadConfig().llm?.profiles);
   if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
     throw new BadRequestError(
       `Profile "${profile}" is not defined in llm.profiles`,

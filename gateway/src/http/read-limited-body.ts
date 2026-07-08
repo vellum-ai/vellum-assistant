@@ -3,10 +3,22 @@ export type ReadLimitedBodyResult =
   | { status: "too_large" }
   | { status: "unreadable" };
 
-export async function readLimitedBody(
+export type ReadLimitedBodyBytesResult =
+  | { status: "ok"; bytes: Uint8Array<ArrayBuffer> }
+  | { status: "too_large" }
+  | { status: "unreadable" };
+
+/**
+ * Read a request body into memory while enforcing a hard byte cap as the
+ * stream arrives. Unlike a Content-Length header check, this bounds the bytes
+ * actually buffered even when the header is absent, spoofed, or the request
+ * uses chunked transfer-encoding — so it is safe to call on unauthenticated
+ * ingress before any signature check.
+ */
+export async function readLimitedBodyBytes(
   req: Request,
   maxBytes: number,
-): Promise<ReadLimitedBodyResult> {
+): Promise<ReadLimitedBodyBytesResult> {
   const contentLength = req.headers.get("content-length");
   if (
     contentLength &&
@@ -16,7 +28,7 @@ export async function readLimitedBody(
     return { status: "too_large" };
   }
 
-  if (!req.body) return { status: "ok", text: "" };
+  if (!req.body) return { status: "ok", bytes: new Uint8Array(0) };
 
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -46,5 +58,14 @@ export async function readLimitedBody(
     offset += chunk.byteLength;
   }
 
-  return { status: "ok", text: new TextDecoder().decode(bytes) };
+  return { status: "ok", bytes };
+}
+
+export async function readLimitedBody(
+  req: Request,
+  maxBytes: number,
+): Promise<ReadLimitedBodyResult> {
+  const result = await readLimitedBodyBytes(req, maxBytes);
+  if (result.status !== "ok") return result;
+  return { status: "ok", text: new TextDecoder().decode(result.bytes) };
 }

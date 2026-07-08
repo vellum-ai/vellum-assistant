@@ -157,20 +157,23 @@ Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 - Guardian approval records in `canonicalGuardianRequests` (and their `canonicalGuardianDeliveries`) link via `requestId`.
 - The conversational approval engine classifies user intent and resolves via `conversation.handleConfirmationResponse(requestId, decision)`.
 
-### Channel verification source-of-truth split
+### Channel verification: gateway-owned
 
-Verification SESSION state (pending sessions, codes, resend, rate-limit) is assistant-owned (`channel-verification-routes.ts`, `channel-verification-service.ts`). The channel-verified OUTCOME (status / verifiedAt / verifiedVia) is gateway-owned.
+Verification SESSION state (sessions, secrets, rate limits, validate+consume) AND the channel-verified OUTCOME (status / verifiedAt / verifiedVia) are both gateway-owned. The gateway holds the `channel_verification_sessions` + `channel_guardian_rate_limits` tables (`gateway/src/db/session-store.ts`) and mints all secrets in `gateway/src/verification/session-service.ts`; the daemon holds no session or rate-limit state (its legacy tables were dropped by gateway data migration m0014).
 
-The verified outcome is written in-process by the gateway: the HTTP guardian-attest handler calls `ContactStore.markChannelVerified` directly (verifiedVia "manual"), and the inbound code-match path (`gateway/src/verification/text-verification.ts`) writes via `upsertVerifiedContactChannel` / `createGuardianBinding` (verifiedVia "challenge"). The revoke/downgrade outcome is relayed from the daemon via `ipcCallPersistent("mark_channel_revoked", …)` to `ContactStore.markChannelRevoked`.
+The daemon relays session lifecycle operations over the `verification_sessions_*` IPC routes via `assistant/src/channels/gateway-verification-sessions.ts` and keeps what is presentation: message composition and channel delivery (`channel-verification-routes.ts`, `verification-outbound-actions.ts`). `channel-verification-service.ts` retains only guardian-delivery reads (`getGuardianBinding`, `isGuardian`, `isGuardianBoundForChannel`).
 
-The `mark_channel_verified` IPC method exists as the daemon/CLI relay surface (symmetric with `mark_channel_revoked`) but has no caller: the trusted-contact CLI path sends codes only, and the outcome arrives via the inbound code-match path.
+The verified outcome is written in-process by the gateway: the HTTP guardian-attest handler calls `ContactStore.markChannelVerified` directly (verifiedVia "manual"); the code-match paths (text and the `verification_sessions_validate_consume` engine route) apply role side effects in-engine — guardian phone binding commits in the same gateway transaction as the consume. The revoke/downgrade outcome is relayed from the daemon via `ipcCallPersistent("mark_channel_revoked", …)` to `ContactStore.markChannelRevoked`.
 
 ## Rate Limiting & Diagnostics
 
-All `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middleware/rate-limiter.ts`):
+Most `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middleware/rate-limiter.ts`):
 
-- **Authenticated**: 300 requests/minute
+- **Authenticated (loopback)**: 1200 requests/minute — desktop app, CLI, anything on the daemon's own host (`127.0.0.0/8`, `::1`). A cold sidebar load at thousands of conversations legitimately bursts far beyond the remote budget.
+- **Authenticated (remote)**: 300 requests/minute — proxied non-loopback clients, keyed by the forwarded client IP.
 - **Unauthenticated**: 20 requests/minute
+
+**Exempt endpoints** (`isRateLimitExemptEndpoint`): the SSE stream (`events`) and liveness/readiness probes (`health`, `healthz`, `readyz`) bypass the per-minute limiter entirely. The stream is one long-lived connection, not a burst of requests, and 429-ing it drops the stream — which drives a client reconnect + full re-bootstrap loop that generates far more load than the limiter saves. Liveness probes must always answer or the client treats the assistant as down and reconnects harder. The events route still enforces auth downstream, and stream memory is bounded by SSE backpressure shedding + subscriber caps.
 
 When the limit is exceeded, the limiter returns 429 and logs a structured warning (module: `rate-limiter`) with the denied endpoint and a breakdown of which endpoints consumed the budget in the current window. This makes it easy to identify whether the cause is rapid conversation switching, polling, or unexpected request volume.
 

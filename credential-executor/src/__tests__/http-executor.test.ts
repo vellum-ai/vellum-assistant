@@ -280,7 +280,7 @@ function buildDeps(
       metadataStore: fixture.metadataStore,
       oauthConnections: createOAuthLookup(oauthConnections),
     },
-    sessionId: { current: "test-session" },
+    sessionId: "test-session",
     logger: silentLogger,
     ...overrides,
     auditStore: overrides.auditStore ?? new AuditStore(fixture.tmpDir),

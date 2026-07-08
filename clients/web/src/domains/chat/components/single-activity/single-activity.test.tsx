@@ -101,17 +101,33 @@ describe("SingleActivity — thinking variant", () => {
     expect(useViewerStore.getState().mainView).toBe("chat");
   });
 
-  test("while streaming, shows the three-dot loader + 'Thinking' (no brain)", () => {
+  test("while streaming, shows the three-dot loader + reasoning preview (no brain)", () => {
     const { getByTestId, getByText, queryByText, container } = render(
       <SingleActivity variant="thinking" content={CONTENT} isStreaming />,
     );
 
-    expect(getByText("Thinking")).toBeTruthy();
+    expect(getByText(CONTENT)).toBeTruthy();
     expect(queryByText("Thought process")).toBeNull();
     // The brain glyph is swapped for the three-dot indicator, so only the
     // trailing chevron remains as an svg.
     expect(getByTestId("thought-process-loading")).toBeTruthy();
     expect(container.querySelectorAll("svg").length).toBe(1);
+  });
+
+  test("while streaming, labels with the first sentence from the latest paragraph", () => {
+    const { getByText, queryByText } = render(
+      <SingleActivity
+        variant="thinking"
+        content={
+          "Earlier paragraph should not show. It has details.\n\nI should inspect the route first. Then write the fix."
+        }
+        isStreaming
+      />,
+    );
+
+    expect(getByText("I should inspect the route first.")).toBeTruthy();
+    expect(queryByText("Thinking")).toBeNull();
+    expect(queryByText("Earlier paragraph should not show.")).toBeNull();
   });
 
   test("stays clickable while streaming — opens the live reasoning in the drawer", () => {
@@ -128,11 +144,12 @@ describe("SingleActivity — thinking variant", () => {
   });
 
   test("renders while streaming even before any reasoning text arrives", () => {
-    const { getByTestId } = render(
+    const { getByTestId, getByText } = render(
       <SingleActivity variant="thinking" content="" isStreaming />,
     );
     expect(getByTestId("thought-process-link")).toBeTruthy();
     expect(getByTestId("thought-process-loading")).toBeTruthy();
+    expect(getByText("Thinking")).toBeTruthy();
   });
 
   test("renders nothing when content is empty and not streaming", () => {

@@ -16,18 +16,19 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import {
-  getMessageById,
-  updateMessageContent,
-  updateMessageContentAndMetadata,
-} from "../../../memory/conversation-crud.js";
-import {
-  findMessageBySourceId,
-  recordInbound,
-} from "../../../memory/delivery-crud.js";
-import {
   mergeSlackMetadata,
   readSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
+import {
+  getMessageById,
+  updateMessageContent,
+  updateMessageContentAndMetadata,
+} from "../../../persistence/conversation-crud.js";
+import {
+  findMessageBySourceId,
+  recordInbound,
+} from "../../../persistence/delivery-crud.js";
+import { enqueueLexicalIndexForMessage } from "../../../persistence/job-handlers/message-lexical.js";
 import { safeParseRecord } from "../../../util/json.js";
 import { getLogger } from "../../../util/logger.js";
 
@@ -80,11 +81,11 @@ export async function handleEditIntercept(
   );
 
   if (editResult.duplicate) {
-    return ({
+    return {
       accepted: true,
       duplicate: true,
       eventId: editResult.eventId,
-    });
+    };
   }
 
   // Retry lookup a few times -- the original message may still be processing
@@ -100,7 +101,9 @@ export async function handleEditIntercept(
       conversationExternalId,
       sourceMessageId,
     );
-    if (original) break;
+    if (original) {
+      break;
+    }
     if (attempt < EDIT_LOOKUP_RETRIES) {
       log.info(
         {
@@ -134,12 +137,12 @@ export async function handleEditIntercept(
         },
         "Edit text unchanged; skipping update",
       );
-      return ({
+      return {
         accepted: true,
         duplicate: false,
         noop: true,
         eventId: editResult.eventId,
-      });
+      };
     }
     if (sourceChannel === "slack") {
       // Slack edits stamp `slackMeta.editedAt` so the chronological
@@ -156,6 +159,11 @@ export async function handleEditIntercept(
     } else {
       updateMessageContent(original.messageId, newContent);
     }
+    // The edit changed searchable text (the no-op guard above already returned
+    // for identical content) and this path bypasses the `addMessage` persist
+    // path, so reindex the message into the lexical index — the idempotent
+    // upsert replaces the stale Qdrant point with the edited content.
+    enqueueLexicalIndexForMessage(original.messageId);
     log.info(
       { assistantId, sourceMessageId, messageId: original.messageId },
       "Updated message content from edited_message",
@@ -183,11 +191,11 @@ export async function handleEditIntercept(
     }
   }
 
-  return ({
+  return {
     accepted: true,
     duplicate: false,
     eventId: editResult.eventId,
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------

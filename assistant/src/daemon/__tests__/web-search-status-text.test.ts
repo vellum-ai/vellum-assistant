@@ -35,7 +35,7 @@ mock.module("../../config/loader.js", () => ({
   loadConfig: () => ({}),
 }));
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: () => ({ id: "mock-msg-id" }),
   getMessageById: () => null,
   updateMessageContent: () => {},
@@ -43,7 +43,7 @@ mock.module("../../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../../memory/llm-request-log-store.js", () => ({
+mock.module("../../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
@@ -80,7 +80,6 @@ function createCollectorDeps(): {
     ctx: {
       conversationId: "conv-status-text",
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       streamThinking: false,
       emitActivityState: (
         phase: string,
@@ -121,9 +120,7 @@ function createCollectorDeps(): {
 
 describe("formatSearchStatusText", () => {
   test("surfaces the query in quotes", () => {
-    expect(formatSearchStatusText("web_search", "foo")).toBe(
-      'Searching "foo"',
-    );
+    expect(formatSearchStatusText("web_search", "foo")).toBe('Searching "foo"');
   });
 
   test("truncates queries longer than 60 chars with an ellipsis", () => {

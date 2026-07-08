@@ -23,26 +23,22 @@ import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
-} from "../memory/attachments-store.js";
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,
   forkConversation,
   forkConversationForRetrospective,
   getMessages,
-} from "../memory/conversation-crud.js";
-import { getConversationDirPath } from "../memory/conversation-disk-view.js";
+} from "../persistence/conversation-crud.js";
+import { getConversationDirPath } from "../persistence/conversation-disk-view.js";
 import {
   getDb,
   getLogsDb,
   getMemoryDb,
   getSqlite,
-} from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import {
-  loadGraphMemoryState,
-  saveGraphMemoryState,
-} from "../memory/graph/graph-memory-state-store.js";
+} from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   activationState,
   channelInboundEvents,
@@ -53,7 +49,11 @@ import {
   memoryJobs,
   memoryRetrospectiveState,
   toolInvocations,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
+import {
+  loadGraphMemoryState,
+  saveGraphMemoryState,
+} from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
 
 await initializeDb();
 

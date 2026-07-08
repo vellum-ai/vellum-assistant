@@ -279,6 +279,16 @@ export function useEventStream({
 
   useBusSubscription("sse.event", (envelope) => {
     consumer?.handleSseEvent(envelope);
+    // Fold the active conversation's events into the materialized snapshot.
+    // Idempotent by seq; a no-op until the snapshot is seeded — the seed
+    // replays the ring tail, so events that arrive first aren't lost. Gated on
+    // the same commit-phase active-conversation ref the consumer's filter uses.
+    if (
+      envelope.conversationId &&
+      envelope.conversationId === activeConversationIdLatestRef.current
+    ) {
+      useChatSessionStore.getState().applyEnvelopeToSnapshot(envelope);
+    }
   });
 
   useBusSubscription("sse.opened", (payload) => {

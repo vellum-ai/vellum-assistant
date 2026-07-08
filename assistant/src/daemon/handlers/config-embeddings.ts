@@ -11,7 +11,7 @@ import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-st
 import {
   clearEmbeddingBackendCache,
   getMemoryBackendStatus,
-} from "../../memory/embedding-backend.js";
+} from "../../persistence/embeddings/embedding-backend.js";
 import type { ModelSetContext } from "./config-model.js";
 import { CONFIG_RELOAD_DEBOUNCE_MS, log } from "./shared.js";
 

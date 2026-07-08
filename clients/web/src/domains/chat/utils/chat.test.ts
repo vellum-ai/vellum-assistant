@@ -4,8 +4,10 @@ import {
   extractWirePendingConfirmation,
   extractWirePendingQuestion,
   hasAssistantMessage,
+  isConversationScopedStreamEvent,
   shouldClearFirstMessageGateOnConversationChange,
 } from "@/domains/chat/utils/chat";
+import type { AssistantEvent } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
@@ -24,6 +26,35 @@ function assistantWithToolCalls(
 }
 
 describe("chat utilities", () => {
+  describe("isConversationScopedStreamEvent", () => {
+    const scoped = (type: string) =>
+      isConversationScopedStreamEvent({ type } as AssistantEvent);
+
+    test("background-tool lifecycle events are global (not conversation-scoped)", () => {
+      // A completion firing while the user views another conversation must still
+      // reach the global background-task store, like the subagent/acp families.
+      expect(scoped("background_tool_started")).toBe(false);
+      expect(scoped("background_tool_completed")).toBe(false);
+    });
+
+    test("matches the subagent/acp global treatment", () => {
+      expect(scoped("subagent_spawned")).toBe(false);
+      expect(scoped("acp_session_completed")).toBe(false);
+    });
+
+    test("ordinary conversation events stay scoped", () => {
+      expect(scoped("tool_output_chunk")).toBe(true);
+    });
+
+    test("open_url stays conversation-scoped (conversationless CLI emits are owned by useOpenUrlDirectives)", () => {
+      // Making open_url global would let a background turn's browser
+      // hand-off fire over an unrelated conversation. The conversationless
+      // CLI variant is handled by the always-mounted root subscriber, not
+      // by exempting the type here.
+      expect(scoped("open_url")).toBe(true);
+    });
+  });
+
   describe("hasAssistantMessage", () => {
     test("does not treat the user opener as an assistant response", () => {
       expect(hasAssistantMessage([message("user", "user-1")])).toBe(false);

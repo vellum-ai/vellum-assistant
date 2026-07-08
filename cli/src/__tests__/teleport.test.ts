@@ -259,12 +259,27 @@ const localRuntimePollJobStatusMock = mock<
   },
 }));
 
+const localRuntimePreflightFromGcsMock = mock<
+  typeof localRuntimeClient.localRuntimePreflightFromGcs
+>(async () => ({
+  can_import: true,
+  summary: {
+    files_to_create: 2,
+    files_to_overwrite: 1,
+    files_unchanged: 0,
+    total_files: 3,
+  },
+  files: [],
+  conflicts: [],
+}));
+
 mock.module("../lib/local-runtime-client.js", () => ({
   ...realLocalRuntimeClient,
   localRuntimeExportToGcs: localRuntimeExportToGcsMock,
   localRuntimeImportFromGcs: localRuntimeImportFromGcsMock,
   localRuntimeIdentity: localRuntimeIdentityMock,
   localRuntimePollJobStatus: localRuntimePollJobStatusMock,
+  localRuntimePreflightFromGcs: localRuntimePreflightFromGcsMock,
 }));
 
 const hatchLocalMock = mock(async () => {});
@@ -482,6 +497,18 @@ beforeEach(() => {
   localRuntimeImportFromGcsMock.mockReset();
   localRuntimeImportFromGcsMock.mockResolvedValue({
     jobId: "local-import-job-1",
+  });
+  localRuntimePreflightFromGcsMock.mockReset();
+  localRuntimePreflightFromGcsMock.mockResolvedValue({
+    can_import: true,
+    summary: {
+      files_to_create: 2,
+      files_to_overwrite: 1,
+      files_unchanged: 0,
+      total_files: 3,
+    },
+    files: [],
+    conflicts: [],
   });
   localRuntimeIdentityMock.mockReset();
   localRuntimeIdentityMock.mockResolvedValue({ version: "0.6.5" });
@@ -1932,7 +1959,7 @@ describe("dry-run", () => {
     }
   });
 
-  test("dry-run against local target fails fast (no preflight-from-gcs runtime endpoint yet)", async () => {
+  test("dry-run with existing local target calls preflight-from-gcs on runtime", async () => {
     setArgv("--from", "my-platform", "--local", "my-local", "--dry-run");
 
     const platformEntry = makeEntry("my-platform", {
@@ -1947,26 +1974,24 @@ describe("dry-run", () => {
       return null;
     });
 
-    platformPollJobStatusMock.mockResolvedValue({
-      jobId: "platform-export-job-1",
-      type: "export",
-      status: "complete",
-      bundleKey: "bundle-key-from-platform",
-    });
-
     const restoreFetch = installTrackingFetch();
     try {
-      await expect(teleport()).rejects.toThrow("process.exit:1");
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "--dry-run is not yet supported for local or docker targets",
-        ),
+      await teleport();
+
+      // Preflight was run against the local runtime
+      expect(localRuntimePreflightFromGcsMock).toHaveBeenCalledTimes(1);
+      expect(localRuntimePreflightFromGcsMock).toHaveBeenCalledWith(
+        expect.objectContaining({ assistantId: "my-local" }),
+        expect.any(String),
+        { bundleUrl: "https://storage.googleapis.com/bucket/signed-download" },
       );
 
-      // Must fail BEFORE any export work — no signed URL request, no runtime
-      // export kickoff, nothing that costs time or bandwidth.
-      expect(platformRequestSignedUrlMock).not.toHaveBeenCalled();
-      expect(localRuntimeExportToGcsMock).not.toHaveBeenCalled();
+      // No actual import happened — dry-run only
+      expect(localRuntimeImportFromGcsMock).not.toHaveBeenCalled();
+
+      // Source was not retired
+      expect(retireLocalMock).not.toHaveBeenCalled();
+      expect(retireDockerMock).not.toHaveBeenCalled();
     } finally {
       restoreFetch();
     }
@@ -2241,6 +2266,14 @@ describe("platform credential injection", () => {
         userId: "user-1",
         webhookSecret: "webhook-secret-123",
       });
+      expect(saveAssistantEntryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assistantId: "my-local",
+          platformAssistantId: "platform-assistant-1",
+          platformBaseUrl: "https://platform.vellum.ai",
+          platformOrganizationId: "org-1",
+        }),
+      );
     } finally {
       restoreFetch();
     }

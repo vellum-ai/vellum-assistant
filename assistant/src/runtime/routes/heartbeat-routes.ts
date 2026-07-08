@@ -18,8 +18,8 @@ import {
 } from "../../config/loader.js";
 import { listHeartbeatRuns } from "../../heartbeat/heartbeat-run-store.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import { getConversation } from "../../memory/conversation-crud.js";
-import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
+import { getUsageCostForConversationWindow } from "../../persistence/llm-usage-store.js";
 import { readTextFileSync } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";

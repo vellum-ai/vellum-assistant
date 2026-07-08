@@ -76,7 +76,6 @@ function getRendererTupleOrigin(): string {
  */
 const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   "conversations",
-  "channel-admission-policy",
   // Live SSE event stream — `subscribeEvents` opens it through the
   // platform client, so it must be forwarded to the gateway in local /
   // self-hosted mode like any other runtime route.
@@ -87,29 +86,22 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   // must be forwarded to the gateway in local / self-hosted mode rather
   // than falling through to the platform proxy.
   "x",
-  // Daemon- and gateway-owned per-assistant resources that are reached
-  // through the platform client via raw `client.*` calls (their gateway
-  // SDK functions aren't generated yet) instead of the daemon client.
-  // Like `events`/`x` above they must be forwarded to the gateway in
-  // local / self-hosted mode rather than falling through to the dead
-  // platform proxy — otherwise e.g. the background `TimezoneSync` PATCH to
-  // `config` retries against a nonexistent platform and floods the console
-  // with 502s. Each is listed only because the gateway (or the daemon it
-  // proxies to) actually serves the assistant-scoped routes the call sites
-  // hit: `config` (daemon GET/PATCH), and `permissions/thresholds` +
-  // `trust-rules` (gateway, all methods).
+  // Daemon-owned config reached through the platform client via raw
+  // `client.*` calls (the background `TimezoneSync` PATCH and the general
+  // settings page). Must be forwarded to the gateway in local /
+  // self-hosted mode rather than falling through to the dead platform
+  // proxy — otherwise the PATCH retries against a nonexistent platform
+  // and floods the console with 502s. Removable once those call sites
+  // move to the generated daemon SDK (LUM-2716).
   //
-  // Deliberately NOT listed: `contacts`, `contact-channels`, `artifacts`,
-  // and `a2a`. Their assistant-scoped routes aren't served by the gateway
-  // or daemon — the contacts control plane is registered at flat
-  // `/v1/contacts...` paths (only an assistant-scoped contacts DELETE
-  // exists), there is no `artifacts` route, and `/a2a/invites/redeem` is a
-  // platform broker route. Forwarding them would only turn the existing
-  // failure into a 404, so they stay on the platform until the
-  // assistant-scoped routes are mirrored.
+  // Every removed entry (contacts, trust-rules, permissions,
+  // channel-admission-policy, …) was retired by migrating its call sites
+  // to the generated gateway SDK, whose client forwards all
+  // assistant-scoped requests without this list — that is the paved road
+  // for new endpoints. Deliberately NOT listed: `artifacts` (no
+  // gateway/daemon route exists) and `a2a` (platform broker route); those
+  // stay on the platform.
   "config",
-  "permissions",
-  "trust-rules",
 ]);
 
 const ASSISTANT_PATH_RE =

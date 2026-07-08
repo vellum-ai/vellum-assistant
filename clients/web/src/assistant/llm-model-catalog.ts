@@ -3,8 +3,8 @@
 // Source of truth: assistant/src/providers/model-catalog.ts, which
 // generates meta/llm-provider-catalog.json via
 //   cd assistant && bun run sync:llm-catalog
-// This file mirrors the subset the web UI needs (no ollama, no
-// pricing/vision/caching fields).
+// This file mirrors the subset the web UI needs (no pricing/vision/caching
+// fields).
 //
 // Parity is enforced by llm-model-catalog.test.ts: update the daemon
 // catalog first, run the sync, then mirror the change here.
@@ -53,6 +53,15 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "claude-opus-4-6",
       displayName: "Claude Opus 4.6",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "claude-sonnet-5",
+      displayName: "Claude Sonnet 5",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -222,6 +231,22 @@ export const MODELS_BY_PROVIDER = {
       longContextPricingThresholdTokens: 200_000,
     },
   ],
+  ollama: [
+    {
+      id: "llama3.2",
+      displayName: "Llama 3.2",
+      contextWindowTokens: 128_000,
+      defaultContextWindowTokens: 128_000,
+      maxOutputTokens: 4_096,
+    },
+    {
+      id: "mistral",
+      displayName: "Mistral",
+      contextWindowTokens: 32_768,
+      defaultContextWindowTokens: 32_768,
+      maxOutputTokens: 4_096,
+    },
+  ],
   fireworks: [
     {
       id: "accounts/fireworks/models/kimi-k2p6",
@@ -327,6 +352,15 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-opus-4.6",
       displayName: "Claude Opus 4.6",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-sonnet-5",
+      displayName: "Claude Sonnet 5",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -594,6 +628,104 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 262_144,
     },
   ],
+  "vercel-ai-gateway": [
+    {
+      id: "anthropic/claude-fable-5",
+      displayName: "Claude Fable 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-opus-4.8",
+      displayName: "Claude Opus 4.8",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-opus-4.6",
+      displayName: "Claude Opus 4.6",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-sonnet-5",
+      displayName: "Claude Sonnet 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-sonnet-4.6",
+      displayName: "Claude Sonnet 4.6",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 64_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-haiku-4.5",
+      displayName: "Claude Haiku 4.5",
+      contextWindowTokens: 200_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 64_000,
+      supportsThinking: true,
+    },
+    {
+      id: "openai/gpt-5.5",
+      displayName: "GPT-5.5",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "openai/gpt-5.5-pro",
+      displayName: "GPT-5.5 Pro",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "xai/grok-4.3",
+      displayName: "Grok 4.3",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 16_000,
+      supportsThinking: true,
+    },
+    {
+      id: "moonshotai/kimi-k2.6",
+      displayName: "Kimi K2.6",
+      contextWindowTokens: 262_144,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 32_768,
+      supportsThinking: true,
+    },
+    {
+      id: "deepseek/deepseek-v4-flash",
+      displayName: "DeepSeek V4 Flash",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 384_000,
+      supportsThinking: true,
+    },
+  ],
   minimax: [
     {
       id: "MiniMax-M3",
@@ -632,9 +764,11 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   anthropic: "claude-opus-4-8",
   openai: "gpt-5.5",
   gemini: "gemini-2.5-flash",
+  ollama: "llama3.2",
   fireworks: "accounts/fireworks/models/kimi-k2p5",
   together: "MiniMaxAI/MiniMax-M3",
   openrouter: "x-ai/grok-4.20-beta",
+  "vercel-ai-gateway": "anthropic/claude-sonnet-4.6",
   minimax: "MiniMax-M2.7",
   atlascloud: "deepseek-ai/deepseek-v4-pro",
   "openai-compatible": "",
@@ -642,8 +776,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
 
 /**
  * Provider id → human-readable label. Covers every provider in the
- * daemon catalog (including ones not in MODELS_BY_PROVIDER such as
- * ollama). Consumers should fall back to the raw id on miss:
+ * daemon catalog. Consumers should fall back to the raw id on miss:
  *   PROVIDER_DISPLAY_NAMES[id] ?? id
  */
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
@@ -654,6 +787,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   fireworks: "Fireworks",
   together: "Together AI",
   openrouter: "OpenRouter",
+  "vercel-ai-gateway": "Vercel AI Gateway",
   "openai-compatible": "OpenAI-compatible",
   minimax: "MiniMax",
   atlascloud: "Atlas Cloud",
@@ -674,6 +808,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   fireworks: true,
   together: true,
   openrouter: false,
+  "vercel-ai-gateway": false,
   "openai-compatible": false,
   minimax: false,
   atlascloud: false,

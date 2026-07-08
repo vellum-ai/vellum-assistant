@@ -63,6 +63,36 @@ function metaRecord(metadata: unknown): Record<string, unknown> {
   return {};
 }
 
+const REPLAYABLE_DOCTOR_SOURCE_EVENT_ID = /^\d+-\d+$/;
+
+export function isReplayableDoctorSourceEventId(
+  value: string | null | undefined,
+): value is string {
+  return (
+    typeof value === "string" && REPLAYABLE_DOCTOR_SOURCE_EVENT_ID.test(value)
+  );
+}
+
+export function replayableDoctorSourceEventIds(
+  messages: readonly Pick<DoctorMessage, "source_event_id">[],
+): string[] {
+  return messages
+    .map((message) => message.source_event_id)
+    .filter(isReplayableDoctorSourceEventId);
+}
+
+export function latestReplayableDoctorSourceEventId(
+  messages: readonly Pick<DoctorMessage, "source_event_id">[],
+): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const sourceEventId = messages[index]?.source_event_id;
+    if (isReplayableDoctorSourceEventId(sourceEventId)) {
+      return sourceEventId;
+    }
+  }
+  return null;
+}
+
 export function mapPersistedMessagesToEntries(
   messages: DoctorMessage[],
 ): ChatEntry[] {
@@ -116,9 +146,13 @@ export function mapPersistedMessagesToEntries(
             e.kind === "tool_call" &&
             e.meta.toolCallId === toolCallId,
         );
-        if (idx === -1) break;
+        if (idx === -1) {
+          break;
+        }
         const existing = entries[idx]!;
-        if (existing.kind !== "tool_call") break;
+        if (existing.kind !== "tool_call") {
+          break;
+        }
         entries[idx] = {
           ...existing,
           meta: {
@@ -199,8 +233,12 @@ export function mapPersistedStatusToPanelStatus(
 export function hasPendingApproval(entries: ChatEntry[]): boolean {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
-    if (!entry) continue;
-    if (entry.kind === "status") continue;
+    if (!entry) {
+      continue;
+    }
+    if (entry.kind === "status") {
+      continue;
+    }
     return entry.kind === "approval";
   }
   return false;
@@ -209,11 +247,62 @@ export function hasPendingApproval(entries: ChatEntry[]): boolean {
 export function hasPendingBackup(entries: ChatEntry[]): boolean {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
-    if (!entry) continue;
-    if (entry.kind === "status") continue;
+    if (!entry) {
+      continue;
+    }
+    if (entry.kind === "status") {
+      continue;
+    }
     return entry.kind === "backup_prompt";
   }
   return false;
+}
+
+export function serializeSessionToText(entries: ChatEntry[]): string {
+  const lines: string[] = [];
+
+  for (const entry of entries) {
+    switch (entry.kind) {
+      case "user":
+        lines.push(`User: ${entry.content}`);
+        break;
+      case "assistant":
+        lines.push(`Doctor: ${entry.content}`);
+        break;
+      case "tool_call": {
+        const { toolName, input, result, isError } = entry.meta;
+        lines.push(`Tool Call: ${toolName}`);
+        if (Object.keys(input).length > 0) {
+          lines.push(`  Input: ${JSON.stringify(input, null, 2)}`);
+        }
+        if (result !== undefined) {
+          lines.push(`  ${isError ? "Error" : "Output"}: ${result}`);
+        }
+        break;
+      }
+      case "approval": {
+        const { toolName, description, input } = entry.meta;
+        lines.push(
+          `Approval Required: ${toolName}${description ? ` — ${description}` : ""}`,
+        );
+        if (Object.keys(input).length > 0) {
+          lines.push(`  Input: ${JSON.stringify(input, null, 2)}`);
+        }
+        break;
+      }
+      case "backup_prompt":
+        lines.push(`Backup Prompt: ${entry.meta.toolName}`);
+        break;
+      case "error":
+        lines.push(`Error: ${entry.content}`);
+        break;
+      case "status":
+        lines.push(`--- ${entry.content} ---`);
+        break;
+    }
+  }
+
+  return lines.join("\n\n");
 }
 
 export function selectLatestHistorySession<

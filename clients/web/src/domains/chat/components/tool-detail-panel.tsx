@@ -23,15 +23,16 @@ import {
   Pen,
   Plug,
   Sparkles,
+  SquareTerminal,
   UserPlus,
-  X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { DetailShell } from "@/domains/chat/components/detail-shell";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
@@ -50,6 +51,7 @@ import type { ToolDetailPayload } from "@/stores/viewer-store";
  */
 const ICON_MAP: Record<IconName, LucideIcon> = {
   code: Code,
+  terminal: SquareTerminal,
   file: FileText,
   globe: Globe,
   pen: Pen,
@@ -110,7 +112,7 @@ export function CodeBlock({ text }: { text: string }) {
 }
 
 /** Uppercase section label in `--content-tertiary`. */
-function SectionLabel({ children }: { children: string }) {
+export function SectionLabel({ children }: { children: string }) {
   return (
     <Typography
       variant="label-small-default"
@@ -122,59 +124,7 @@ function SectionLabel({ children }: { children: string }) {
   );
 }
 
-/**
- * Shared outer container + header shell for both the tool and thinking detail
- * variants: rounded lift surface, header row with a leading glyph, truncating
- * title, an optional trailing slot (risk badge for tools), and the close
- * button. The scrollable body is supplied by the caller as `children`.
- */
-function DetailShell({
-  Glyph,
-  title,
-  headerTrailing,
-  onClose,
-  children,
-}: {
-  Glyph: LucideIcon;
-  title: string;
-  headerTrailing?: ReactNode;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] px-5 py-4">
-        <Glyph
-          className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
-          aria-hidden
-        />
-        <Typography
-          variant="title-medium"
-          // `title-medium` ships a tight line-height; combined with `truncate`
-          // (overflow:hidden) it clips descenders (e.g. the "p" in "process").
-          // Bump leading + small vertical padding so glyphs get breathing room.
-          className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
-        >
-          {title}
-        </Typography>
-        {headerTrailing}
-        <span className="flex-1" />
-        <Button
-          variant="ghost"
-          iconOnly={<X />}
-          onClick={onClose}
-          aria-label="Close tool details"
-          tooltip="Close"
-          className="shrink-0"
-        />
-      </div>
 
-      {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
-    </div>
-  );
-}
 
 /**
  * Thinking variant body. Reuses the shared shell but renders the reasoning
@@ -196,7 +146,7 @@ function ThinkingDetailBody({
     detail.thinkingItemIndex,
   );
   return (
-    <DetailShell Glyph={Brain} title={detail.title} onClose={onClose}>
+    <DetailShell Glyph={Brain} title={detail.title} closeLabel="Close tool details" onClose={onClose}>
       <ChatMarkdownMessage
         content={live ?? detail.thinkingText ?? ""}
         hardLineBreaks
@@ -327,6 +277,7 @@ export function ToolDetailPanel({
     <DetailShell
       Glyph={Glyph}
       title={title}
+      closeLabel="Close tool details"
       onClose={onClose}
       headerTrailing={
         <RiskBadge level={detail.riskLevel} onClick={onRiskBadgeClick} />

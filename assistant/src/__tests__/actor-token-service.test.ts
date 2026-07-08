@@ -37,17 +37,13 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
     fakeGuardianDelivery ? [fakeGuardianDelivery] : null,
   guardianForChannel: (list: { principalId?: string | null }[]) => list[0],
   invalidateGuardianDeliveryCache: () => {},
-  onContactChange: () => {},
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { resetExternalAssistantIdCache } from "../runtime/auth/external-assistant-id.js";
 import { initAuthSigningKey } from "../runtime/auth/token-service.js";
-import {
-  resolveLocalAuthContext,
-  resolveLocalTrustContext,
-} from "../runtime/local-actor-identity.js";
+import { resolveLocalAuthContext } from "../runtime/local-actor-identity.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -65,17 +61,6 @@ beforeEach(async () => {
   fakeGuardianDelivery = null;
   resetDbForTesting();
   await initializeDb();
-});
-
-// ---------------------------------------------------------------------------
-// Local identity resolution
-// ---------------------------------------------------------------------------
-
-describe("resolveLocalTrustContext", () => {
-  test("falls back to minimal trust context when no vellum binding exists", async () => {
-    const ctx = await resolveLocalTrustContext();
-    expect(ctx.sourceChannel).toBe("vellum");
-  });
 });
 
 // ---------------------------------------------------------------------------

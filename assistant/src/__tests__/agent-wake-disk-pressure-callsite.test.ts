@@ -20,9 +20,9 @@ import type {
 } from "../daemon/disk-pressure-policy.js";
 import type { Message } from "../providers/types.js";
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversationOverrideProfile: () => undefined,
 }));
 

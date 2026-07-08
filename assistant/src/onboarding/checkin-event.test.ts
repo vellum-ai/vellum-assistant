@@ -54,8 +54,11 @@ describe("buildCheckinDescription", () => {
     expect(html).toContain(
       "https://www.vellum.ai/assistant/conversations/uuid-123?prompt=What%20would%20you%20recommend",
     );
-    // Carries onboarding attribution for the calendar-event CTA.
-    expect(html).toContain("&utm_source=onboarding&utm_medium=calendar_event");
+    // Carries the app-owned attribution param (not a marketing `utm_*`, which
+    // the marketing-site capture never sees on `/assistant/*` routes) so the web
+    // app can emit the research-onboarding check-in funnel step on landing.
+    expect(html).toContain("&vref=research_checkin");
+    expect(html).not.toContain("utm_");
     // Only sanitization-safe tags; the CTA is a bold link, not a styled button.
     expect(html).toContain("<a href=");
     expect(html).toContain("<strong>");

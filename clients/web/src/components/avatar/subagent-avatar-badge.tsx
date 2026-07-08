@@ -2,6 +2,7 @@
 // indicator (running dots / green check / red !). Figma node 6063:148535.
 
 import { Check } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { SubagentAvatarChip } from "@/components/avatar/subagent-avatar-chip";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
@@ -21,6 +22,7 @@ function deriveBadgeState(status: SubagentStatus): BadgeState {
       return "completed";
     case "failed":
     case "aborted":
+    case "interrupted":
       return "errored";
     default:
       return "in-flight";
@@ -35,6 +37,7 @@ const STATUS_ARIA_LABEL: Record<SubagentStatus, string> = {
   completed: "completed",
   failed: "failed",
   aborted: "canceled",
+  interrupted: "interrupted",
 };
 
 export function SubagentAvatarBadge({
@@ -43,6 +46,7 @@ export function SubagentAvatarBadge({
 }: SubagentAvatarBadgeProps) {
   // Atomic selector — re-render only when this subagent's status changes.
   const status = useSubagentStore((s) => s.byId[subagentId]?.status);
+  const reduce = useReducedMotion();
 
   // Spawn race: no entry yet → circle with no indicator.
   const badgeState = status ? deriveBadgeState(status) : undefined;
@@ -71,17 +75,32 @@ export function SubagentAvatarBadge({
             badgeState === "in-flight" ? "bottom-[6px]" : "bottom-[3px]"
           }`}
         >
-          {badgeState === "in-flight" && (
-            <ThreeDotIndicator dotSize={3} gap={2} />
-          )}
-          {badgeState === "completed" && (
-            <Check className="h-2.5 w-2.5 text-[var(--system-positive-strong)]" />
-          )}
-          {badgeState === "errored" && (
-            <span className="text-[11px] font-bold leading-none text-[var(--system-negative-strong)]">
-              !
-            </span>
-          )}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={badgeState}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={
+                reduce
+                  ? { duration: 0 }
+                  : { duration: 0.15, ease: [0.16, 1, 0.3, 1] }
+              }
+              className="flex items-center justify-center"
+            >
+              {badgeState === "in-flight" && (
+                <ThreeDotIndicator dotSize={3} gap={2} />
+              )}
+              {badgeState === "completed" && (
+                <Check className="h-2.5 w-2.5 text-[var(--system-positive-strong)]" />
+              )}
+              {badgeState === "errored" && (
+                <span className="text-[11px] font-bold leading-none text-[var(--system-negative-strong)]">
+                  !
+                </span>
+              )}
+            </motion.span>
+          </AnimatePresence>
         </span>
       )}
     </div>

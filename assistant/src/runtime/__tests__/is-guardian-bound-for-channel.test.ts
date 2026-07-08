@@ -18,11 +18,11 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
   ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+  invalidateGuardianDeliveryCache: () => {},
 }));
 
-const { isGuardianBoundForChannel } = await import(
-  "../channel-verification-service.js"
-);
+const { isGuardianBoundForChannel } =
+  await import("../channel-verification-service.js");
 
 describe("isGuardianBoundForChannel", () => {
   beforeEach(() => {

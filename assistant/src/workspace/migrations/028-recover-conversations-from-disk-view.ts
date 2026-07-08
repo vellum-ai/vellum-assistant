@@ -16,8 +16,11 @@ import { join } from "node:path";
 
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../../memory/db-connection.js";
-import { conversations, messages } from "../../memory/schema/conversations.js";
+import { getDb } from "../../persistence/db-connection.js";
+import {
+  conversations,
+  messages,
+} from "../../persistence/schema/conversations.js";
 import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";
 

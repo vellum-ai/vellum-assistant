@@ -1,5 +1,4 @@
 import type { OwnerKind } from "../tools/types.js";
-import type { TrustRule } from "./types.js";
 import { RiskLevel } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -7,11 +6,17 @@ import { RiskLevel } from "./types.js";
 /** Execution context for per-context threshold resolution. */
 export type ExecutionContext = "conversation" | "background" | "headless";
 
+/**
+ * Auto-approve threshold: the highest risk level that is approved without
+ * prompting. Single source of truth for the threshold vocabulary — the
+ * gateway threshold reader and the sensitive-tool gate reuse this type.
+ */
+export type AutoApproveThreshold = "none" | "low" | "medium" | "high";
+
 /** Contextual information that an approval policy uses to reach a decision. */
 export interface ApprovalContext {
   riskLevel: RiskLevel;
   toolName: string;
-  matchedRule?: TrustRule;
   isContainerized: boolean;
   isWorkspaceScoped: boolean;
   /**
@@ -34,7 +39,7 @@ export interface ApprovalContext {
    * - "medium": auto-approve Low and Medium risk
    * - "high": auto-approve everything unconditionally
    */
-  autoApproveUpTo?: "none" | "low" | "medium" | "high";
+  autoApproveUpTo?: AutoApproveThreshold;
 }
 
 // ── Ordinal maps for threshold comparison ─────────────────────────────────────
@@ -66,8 +71,6 @@ function isRiskWithinThreshold(
 export interface ApprovalDecision {
   decision: "allow" | "prompt" | "deny";
   reason: string;
-  /** Present only when the decision was driven by a matched rule. */
-  matchedRule?: TrustRule;
 }
 
 /** An object that evaluates an approval context and returns a decision. */
@@ -82,29 +85,27 @@ export interface ApprovalPolicy {
  *
  * The decision flow:
  *
- * 1. Deny rule → deny
- * 2. Ask rule + risk > autoApproveUpTo → prompt
- *    Ask rule + risk ≤ autoApproveUpTo → allow (threshold overrides ask rule)
- *    Exception: skill_load_dynamic ask rules always prompt (inline-command safety gate)
- * 3. Sandbox auto-approve: bash + sandboxAutoApprove + autoApproveUpTo !== "none" → allow
+ * 1. Sandbox auto-approve: bash + sandboxAutoApprove + autoApproveUpTo !== "none" → allow
  *    (Path resolution is baked into `hasSandboxAutoApprove` upstream: containerized
  *    environments skip path checks; non-containerized environments validate all
  *    path arguments against the workspace root.)
- * 4. Allow rule + non-High → allow
- * 5. Allow rule + High → fall through to risk-based
- * 6. No rule + third-party skill tool + risk > autoApproveUpTo → prompt
- *    No rule + third-party skill tool + risk ≤ autoApproveUpTo → allow (threshold overrides)
- * 7. No rule + Low + workspace-scoped + within threshold → allow
- * 8. No rule + Low + bundled skill + within threshold → allow
- * 9. Risk ≤ autoApproveUpTo threshold → allow
- * 10. Risk > autoApproveUpTo threshold → prompt
+ * 2. Third-party skill tool + risk > autoApproveUpTo → prompt
+ *    Third-party skill tool + risk ≤ autoApproveUpTo → allow (threshold overrides)
+ * 3. Low + workspace-scoped + within threshold → allow
+ * 4. Low + bundled skill + within threshold → allow
+ * 5. Risk ≤ autoApproveUpTo threshold → allow
+ * 6. Risk > autoApproveUpTo threshold → prompt
+ *
+ * Trust Rules do not appear in this flow: they are per-action risk
+ * re-classifications applied inside the gateway classifiers, so their
+ * effect arrives here already folded into `riskLevel` — there is no
+ * separate allow/ask/deny rule axis.
  */
 export class DefaultApprovalPolicy implements ApprovalPolicy {
   evaluate(context: ApprovalContext): ApprovalDecision {
     const {
       riskLevel,
       toolName,
-      matchedRule,
       isWorkspaceScoped,
       toolOrigin,
       isSkillBundled,
@@ -112,43 +113,7 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       hasSandboxAutoApprove,
     } = context;
 
-    // ── 1. Deny rules apply at ALL risk levels ────────────────────────
-    if (matchedRule && matchedRule.decision === "deny") {
-      return {
-        decision: "deny",
-        reason: `Blocked by deny rule: ${matchedRule.pattern}`,
-        matchedRule,
-      };
-    }
-
-    // ── 2. Ask rules prompt — unless the threshold covers the risk.
-    // The user's threshold setting takes precedence over ask rules: if the
-    // risk falls within autoApproveUpTo, the ask rule is overridden and
-    // the tool auto-approves.
-    // Exception: skill_load_dynamic ask rules always prompt — they gate
-    // inline-command skill loads that execute embedded commands and must
-    // never be silently auto-approved.
-    if (matchedRule && matchedRule.decision === "ask") {
-      const isDynamicSkillAsk = matchedRule.pattern.startsWith(
-        "skill_load_dynamic:",
-      );
-      if (
-        !isDynamicSkillAsk &&
-        isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
-      ) {
-        return {
-          decision: "allow",
-          reason: `${riskLevel} risk: within auto-approve threshold (ask rule overridden)`,
-        };
-      }
-      return {
-        decision: "prompt",
-        reason: `Matched ask rule: ${matchedRule.pattern}`,
-        matchedRule,
-      };
-    }
-
-    // ── 3. Sandbox auto-approve: bash + allowlisted → allow ──
+    // ── 1. Sandbox auto-approve: bash + allowlisted → allow ──
     // Respects the autoApproveUpTo threshold: when set to "none", sandbox
     // auto-approve is suppressed — the user wants to approve everything.
     // Path resolution is baked into `hasSandboxAutoApprove` upstream:
@@ -165,45 +130,29 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       };
     }
 
-    // ── 4–5. Allow rule handling ──────────────────────────────────────
-    if (matchedRule) {
-      if (riskLevel !== RiskLevel.High) {
+    // ── 2. Third-party skill tool → prompt (unless threshold covers it)
+    // Plugin- and skill-owned tools are both treated as extension-class
+    // for approval purposes: external by default, prompt unless bundled.
+    // MCP-owned tools fall through to the core risk-based path.
+    const isExtensionOwned = toolOrigin === "skill" || toolOrigin === "plugin";
+    const isThirdPartySkill =
+      (isExtensionOwned && !isSkillBundled) ||
+      (hasManifestOverride && !toolOrigin);
+    if (isThirdPartySkill) {
+      if (isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)) {
         return {
           decision: "allow",
-          reason: `Matched trust rule: ${matchedRule.pattern}`,
-          matchedRule,
+          reason: `${riskLevel} risk: within auto-approve threshold (skill tool)`,
         };
       }
-      // High risk: fall through to risk-based regardless of rule
+      return {
+        decision: "prompt",
+        reason: "Skill tool: requires approval by default",
+      };
     }
 
-    // ── 6. No rule + third-party skill tool → prompt (unless threshold covers it)
-    if (!matchedRule) {
-      // Plugin- and skill-owned tools are both treated as extension-class
-      // for approval purposes: external by default, prompt unless bundled.
-      // MCP-owned tools fall through to the core risk-based path.
-      const isExtensionOwned =
-        toolOrigin === "skill" || toolOrigin === "plugin";
-      const isThirdPartySkill =
-        (isExtensionOwned && !isSkillBundled) ||
-        (hasManifestOverride && !toolOrigin);
-      if (isThirdPartySkill) {
-        if (isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)) {
-          return {
-            decision: "allow",
-            reason: `${riskLevel} risk: within auto-approve threshold (skill tool)`,
-          };
-        }
-        return {
-          decision: "prompt",
-          reason: "Skill tool: requires approval by default",
-        };
-      }
-    }
-
-    // ── 7. No rule + Low + workspace-scoped + within threshold → allow ──
+    // ── 3. Low + workspace-scoped + within threshold → allow ──
     if (
-      !matchedRule &&
       riskLevel === RiskLevel.Low &&
       isWorkspaceScoped &&
       isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
@@ -214,9 +163,8 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       };
     }
 
-    // ── 8. No rule + Low + bundled skill + within threshold → allow ──
+    // ── 4. Low + bundled skill + within threshold → allow ──
     if (
-      !matchedRule &&
       riskLevel === RiskLevel.Low &&
       toolOrigin === "skill" &&
       isSkillBundled &&
@@ -228,7 +176,7 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       };
     }
 
-    // ── 9–10. Risk-based fallback: compare risk against configured threshold ─
+    // ── 5–6. Risk-based fallback: compare risk against configured threshold ─
     if (isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)) {
       return {
         decision: "allow",

@@ -128,11 +128,21 @@ interface CustomSlimSkill extends SlimSkillBase {
   origin: "custom";
 }
 
+/**
+ * Managed skill authored by the assistant's retrospective. Identical shape to a
+ * custom skill — it stays managed/deletable — but carries a distinct origin so
+ * the UI badges it as "Assistant's Memory" instead of "Custom".
+ */
+interface AssistantMemorySlimSkill extends SlimSkillBase {
+  origin: "assistant-memory";
+}
+
 export type SlimSkillResponse =
   | VellumSlimSkill
   | ClawhubSlimSkill
   | SkillsshSlimSkill
-  | CustomSlimSkill;
+  | CustomSlimSkill
+  | AssistantMemorySlimSkill;
 
 export interface SkillsListResponse {
   type: "skills_list_response";
@@ -220,11 +230,19 @@ interface CustomSkillDetail extends SkillDetailBase {
   owner?: OwnerInfo;
 }
 
+/** Detail counterpart of {@link AssistantMemorySlimSkill}. */
+interface AssistantMemorySkillDetail extends SkillDetailBase {
+  origin: "assistant-memory";
+  /** See {@link VellumSkillDetail.owner}. */
+  owner?: OwnerInfo;
+}
+
 export type SkillDetailResponse =
   | VellumSkillDetail
   | ClawhubSkillDetail
   | SkillsshSkillDetail
-  | CustomSkillDetail;
+  | CustomSkillDetail
+  | AssistantMemorySkillDetail;
 
 // ─── Single-file content response (HTTP API) ─────────────────────────────
 export interface SkillFileContentResponse {

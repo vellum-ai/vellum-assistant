@@ -13,7 +13,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefreshOutcome } from "@/domains/chat/transcript/transcript";
 
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { haptic } from "@/utils/haptics";
 import { isPointerCoarse } from "@/utils/pointer";
 
@@ -55,14 +54,10 @@ export function usePullRefresh({
   const [refreshFeedback, setRefreshFeedback] = useState<RefreshOutcome | null>(null);
   const abortRef = useRef(false);
 
-  // The transcript count comes from the query cache (history) plus the live
-  // turn. Mirror it into a ref so the async refresh handler can sample it before
-  // and after the refetch without re-creating the callback on every change.
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const transcript = useTranscriptMessages(
-    assistantId,
-    activeConversationId ?? null,
-  );
+  // Mirror the rendered transcript count into a ref so the async refresh handler
+  // can sample it before and after the refetch without re-creating the callback
+  // on every change.
+  const transcript = useTranscriptMessages();
   const transcriptCountRef = useRef(transcript.length);
   useEffect(() => {
     transcriptCountRef.current = transcript.length;

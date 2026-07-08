@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   getChannelIcon,
   getChannelLabel,
-  getChannelReadonlyCopy,
 } from "@/utils/channel-presentation";
 
 describe("getChannelLabel", () => {
@@ -23,27 +22,6 @@ describe("getChannelLabel", () => {
   test("falls back to a generic label when the id is missing", () => {
     expect(getChannelLabel(null)).toBe("channel");
     expect(getChannelLabel(undefined)).toBe("channel");
-  });
-});
-
-describe("getChannelReadonlyCopy", () => {
-  test("appends a reply hint for channels you can answer from their app", () => {
-    expect(getChannelReadonlyCopy("slack").message).toBe(
-      "This Slack conversation is read-only. You can reply in Slack.",
-    );
-    expect(getChannelReadonlyCopy("telegram").message).toBe(
-      "This Telegram conversation is read-only. You can reply in Telegram.",
-    );
-  });
-
-  test("omits the reply hint for one-way channels", () => {
-    expect(getChannelReadonlyCopy("phone").message).toBe(
-      "This Phone conversation is read-only.",
-    );
-  });
-
-  test("exposes the label for the open-in link", () => {
-    expect(getChannelReadonlyCopy("whatsapp").label).toBe("WhatsApp");
   });
 });
 

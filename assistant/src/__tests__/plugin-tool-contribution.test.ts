@@ -27,13 +27,12 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
-import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import type { Plugin, PluginInitContext } from "../plugins/types.js";
+import type { InitContext, Plugin } from "../plugins/types.js";
 import {
   __clearRegistryForTesting,
   __resetRegistryForTesting,
@@ -82,7 +81,7 @@ function buildPlugin(
   name: string,
   extras: Partial<Omit<Plugin, "manifest" | "hooks">> & {
     hooks?: Plugin["hooks"];
-    init?: (ctx: PluginInitContext) => Promise<void>;
+    init?: (ctx: InitContext) => Promise<void>;
     onShutdown?: () => Promise<void>;
   } = {},
 ): Plugin {
@@ -119,7 +118,7 @@ describe("plugin tool contributions", () => {
     resetPluginRegistryForTests();
     // Clear the tool registry completely so we can make vacuous-free
     // assertions about which tools are present. We don't need any of the
-    // eager/host tools for these tests.
+    // core/host tools for these tests.
     __clearRegistryForTesting();
     await rm(TEST_WORKSPACE_DIR, { recursive: true, force: true });
   });
@@ -154,22 +153,6 @@ describe("plugin tool contributions", () => {
     expect(names).toContain("plugin-contrib-tool");
   });
 
-  test("plugin tools are unregistered when shutdown hooks run", async () => {
-    const plugin = buildPlugin("bravo-contributor", {
-      async init() {},
-      tools: [makeFakeTool("bravo-tool")],
-    });
-    registerPlugin(plugin);
-
-    await bootstrapPlugins();
-    expect(getTool("bravo-tool")).toBeDefined();
-
-    await runShutdownHooks("test-shutdown");
-
-    expect(getTool("bravo-tool")).toBeUndefined();
-    expect(getPluginRefCount("bravo-contributor")).toBe(0);
-  });
-
   test("bootstrap is a no-op for plugins that declare no tools", async () => {
     const plugin = buildPlugin("no-tools", { async init() {} });
     registerPlugin(plugin);
@@ -179,11 +162,6 @@ describe("plugin tool contributions", () => {
     // default contributes the `advisor` tool), so the global tool set is not
     // empty. What matters here is that the no-tools plugin contributed nothing
     // of its own — its tool refcount stays at zero.
-    expect(getPluginRefCount("no-tools")).toBe(0);
-
-    // Shutdown must also be safe — `unregisterPluginTools` is idempotent for
-    // plugins that never contributed any tools.
-    await runShutdownHooks("test-shutdown");
     expect(getPluginRefCount("no-tools")).toBe(0);
   });
 

@@ -8,15 +8,12 @@
  *
  * The {@link getOrCreateConversation} function owns the full
  * creation/reuse lifecycle — provider wiring, rate limiting, system
- * prompt assembly, and DB hydration. DaemonServer calls
- * {@link initConversationLifecycle} once at construction time to
- * supply the few remaining lifecycle references (evictor, shared
- * rate-limit timestamps, broadcast).
+ * prompt assembly, and DB hydration. Idle eviction lives in
+ * `conversation-evictor`.
  */
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
@@ -25,11 +22,16 @@ import { getSubagentManager } from "../subagent/index.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
-import type { ConversationEvictor } from "./conversation-evictor.js";
+import {
+  removeFromEvictor,
+  touchConversation,
+} from "./conversation-evictor.js";
+import { resolveInitialSystemPrompt } from "./conversation-initial-prompt.js";
 import {
   allConversations,
   clearConversations,
   conversationCount,
+  conversationEntries,
   conversationIds,
   deleteConversation,
   findConversation,
@@ -65,22 +67,6 @@ function clearConversationOptions(): void {
 /** Dedup guard: in-flight creation promises keyed by conversation ID. */
 const conversationCreating = new Map<string, Promise<Conversation>>();
 
-/** Lifecycle refs injected once by DaemonServer at construction. */
-let _evictor: ConversationEvictor | null = null;
-let _sharedRequestTimestamps: number[] = [];
-
-/**
- * One-time initialization called by DaemonServer to supply lifecycle
- * references that the conversation creation logic needs.
- */
-export function initConversationLifecycle(refs: {
-  evictor: ConversationEvictor;
-  sharedRequestTimestamps: number[];
-}): void {
-  _evictor = refs.evictor;
-  _sharedRequestTimestamps = refs.sharedRequestTimestamps;
-}
-
 function applyTransportMetadata(
   conversation: Conversation,
   options: ConversationCreateOptions | undefined,
@@ -90,15 +76,14 @@ function applyTransportMetadata(
   conversation.setTransportHints(buildTransportHints(transport));
   conversation.applyHostEnvFromTransport(transport);
   conversation.applyClientTimezoneFromTransport(transport);
+  conversation.applyClientOsFromTransport(transport);
 }
 
 /**
  * Get or create an active conversation by ID.
  *
  * Handles provider setup, rate limiting, system prompt, memory policy,
- * and conversation hydration. Caller must have called
- * {@link initConversationLifecycle} first (DaemonServer does this at
- * construction).
+ * and conversation hydration.
  */
 export async function getOrCreateConversation(
   conversationId: string,
@@ -155,13 +140,12 @@ export async function getOrCreateConversation(
         provider = new RateLimitProvider(
           provider,
           rateLimit,
-          _sharedRequestTimestamps,
+          getSubagentManager().sharedRequestTimestamps,
         );
       }
       const workingDir = getSandboxWorkingDir();
 
-      const systemPrompt =
-        storedOptions?.systemPromptOverride ?? buildSystemPrompt();
+      const systemPrompt = await resolveInitialSystemPrompt(storedOptions);
       const maxTokens = storedOptions?.maxResponseTokens;
 
       const newConversation = new Conversation(
@@ -201,7 +185,7 @@ export async function getOrCreateConversation(
     } finally {
       conversationCreating.delete(conversationId);
     }
-    _evictor?.touch(conversationId);
+    touchConversation(conversationId);
   } else {
     if (!conversation.isProcessing()) {
       applyTransportMetadata(conversation, options);
@@ -209,21 +193,9 @@ export async function getOrCreateConversation(
         conversation.setTrustContext(options.trustContext);
       }
     }
-    _evictor?.touch(conversationId);
+    touchConversation(conversationId);
   }
   return conversation;
-}
-
-// ---------------------------------------------------------------------------
-// Thin evictor wrappers — so callers don't need the DaemonServer instance
-// ---------------------------------------------------------------------------
-
-export function touchConversation(conversationId: string): void {
-  _evictor?.touch(conversationId);
-}
-
-function removeFromEvictor(conversationId: string): void {
-  _evictor?.remove(conversationId);
 }
 
 /**
@@ -239,6 +211,19 @@ export function destroyActiveConversation(conversationId: string): void {
   conversation.dispose();
   deleteConversation(conversationId);
   deleteConversationOptions(conversationId);
+}
+
+/**
+ * Dispose all in-memory conversations and clear the store during daemon
+ * shutdown. Subagent teardown and evictor stop are driven separately by the
+ * shutdown sequence, so this only releases the conversation instances and
+ * resets the registry.
+ */
+export function stopConversations(): void {
+  for (const conversation of allConversations()) {
+    conversation.dispose();
+  }
+  clearConversations();
 }
 
 /**
@@ -258,4 +243,24 @@ export function clearAllActiveConversations(): number {
   clearConversations();
   clearConversationOptions();
   return count;
+}
+
+/**
+ * Evict in-memory conversations after a config/prompt/skills reload so the next
+ * turn rebuilds them against the new config. Idle conversations are disposed and
+ * dropped; busy ones are marked stale so they're rebuilt once their current turn
+ * finishes. Also used when provider credentials change.
+ */
+export function evictConversationsForReload(): void {
+  const subagentManager = getSubagentManager();
+  for (const [id, conversation] of conversationEntries()) {
+    if (!conversation.isProcessing()) {
+      subagentManager.abortAllForParent(id);
+      conversation.dispose();
+      deleteConversation(id);
+      removeFromEvictor(id);
+    } else {
+      conversation.markStale();
+    }
+  }
 }

@@ -12,7 +12,7 @@ import {
   getDocumentsForConversation,
   saveDocument,
 } from "../../documents/document-store.js";
-import { rawAll } from "../../memory/raw-query.js";
+import { rawAll } from "../../persistence/raw-query.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { renderMarkdownToPDF } from "./document-pdf-renderer.js";
@@ -40,11 +40,14 @@ function listAllDocuments(): Array<{
   updatedAt: number;
 }> {
   try {
-    const results = rawAll<DocumentListRow>(/*sql*/ `
+    const results = rawAll<DocumentListRow>(
+      "documents:listAllDocuments",
+      /*sql*/ `
       SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
       FROM documents
       ORDER BY updated_at DESC
-      `);
+      `,
+    );
 
     log.info({ count: results.length }, "Listed documents");
     return results.map((row) => ({

@@ -56,6 +56,7 @@ import {
 } from "@/domains/chat/components/web-search/web-search-step-row";
 import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel";
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
+import { useStreamingThinkingPreview } from "@/domains/chat/hooks/use-streaming-thinking-preview";
 import { sameThinkingTarget, useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
@@ -112,6 +113,10 @@ export function SingleActivity(props: SingleActivityProps) {
   // early return (empty, settled thinking) happens after them below.
   const toggleToolDetail = useViewerStore.use.toggleToolDetail();
   const activeDetail = useViewerStore.use.activeToolDetail();
+  const streamingThinkingPreview = useStreamingThinkingPreview(
+    props.variant === "thinking" ? props.content : "",
+    props.variant === "thinking" && props.isStreaming === true,
+  );
 
   // The web variant feeds a rotating carousel into the header info slot. Memoize
   // the element so it stays referentially stable (a fresh element each render
@@ -234,7 +239,9 @@ export function SingleActivity(props: SingleActivityProps) {
       ) : (
         <Brain className="size-4 shrink-0" aria-hidden />
       ),
-      label: isStreaming ? "Thinking" : "Thought process",
+      label: isStreaming
+        ? (streamingThinkingPreview ?? "Thinking")
+        : "Thought process",
       tone: "default",
       // Thinking payloads carry an empty `toolCallId`; the bare panel addresses
       // the whole group (no segment index), so match on its (message, group)
@@ -319,7 +326,9 @@ export function SingleActivity(props: SingleActivityProps) {
       >
         {view.icon}
       </span>
-      <span>{view.label}</span>
+      <span className="min-w-0 max-w-[min(520px,calc(100vw-8rem))] truncate">
+        {view.label}
+      </span>
       {view.riskLevel ? <RiskBadge level={view.riskLevel} /> : null}
       <ChevronRight
         className="size-3.5 shrink-0 text-[var(--content-tertiary)]"

@@ -24,8 +24,8 @@ import {
   getAssistantContactMetadata,
   getContact,
 } from "../../../contacts/contact-store.js";
-import { getSqlite } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
+import { getSqlite } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import { getA2AConfig, redeemA2AInvite } from "../config-a2a.js";
 
 await initializeDb();
@@ -71,8 +71,6 @@ describe("redeemA2AInvite", () => {
     expect(contact!.displayName).toBe("Sender Bot");
     expect(contact!.channels).toHaveLength(1);
     expect(contact!.channels[0]!.type).toBe("a2a");
-    expect(contact!.channels[0]!.status).toBe("active");
-    expect(contact!.channels[0]!.policy).toBe("allow");
   });
 
   test("idempotency: already-connected sender returns alreadyConnected", () => {
@@ -130,26 +128,22 @@ describe("redeemA2AInvite", () => {
     expect(result.success).toBe(true);
   });
 
-  test("activeConnections counts a2a channel existence, not status", () => {
+  test("activeConnections counts a2a channel existence", () => {
     const result = redeemA2AInvite({ sender: SENDER });
     expect(result.success).toBe(true);
 
+    // Readiness is existence-based: the presence of the a2a channel is what
+    // counts. (Channel ACL status is gateway-owned and not stored locally.)
     expect(getA2AConfig().activeConnections).toBe(1);
-
-    // Readiness is existence-based: a non-active stored status still counts.
-    const sqlite = getSqlite();
-    sqlite.run("UPDATE contact_channels SET status = 'unverified'");
     invalidateConfigCache();
     expect(getA2AConfig().activeConnections).toBe(1);
   });
 
-  test("already-connected guard fires regardless of stored channel status", () => {
+  test("already-connected guard fires based on channel existence", () => {
     const first = redeemA2AInvite({ sender: SENDER });
     expect(first.success).toBe(true);
 
-    const sqlite = getSqlite();
-    sqlite.run("UPDATE contact_channels SET status = 'revoked'");
-
+    // The guard keys off the existing a2a channel, not any stored status.
     const second = redeemA2AInvite({ sender: SENDER });
     expect(second.alreadyConnected).toBe(true);
     expect(second.contactId).toBe(first.contactId);

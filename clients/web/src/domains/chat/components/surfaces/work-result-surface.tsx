@@ -14,6 +14,7 @@ import type { Surface } from "@/domains/chat/types/types";
 
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { filterRecords, rec, strOrNum } from "@/domains/chat/components/surfaces/surface-parse-helpers";
+import { cn } from "@/utils/misc";
 
 type WorkResultStatus = "completed" | "partial" | "failed" | "in_progress";
 type WorkResultTone = "neutral" | "positive" | "warning" | "negative";
@@ -257,7 +258,7 @@ function ResultStatusBadge({ status }: { status?: WorkResultStatus }) {
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-label-small-default ${tone.bg} ${tone.text}`}
+      className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-label-small-default", tone.bg, tone.text)}
     >
       <Icon className="h-3.5 w-3.5" />
       {config.label}
@@ -276,7 +277,7 @@ function MetricGrid({ metrics }: { metrics: WorkResultMetric[] }) {
             key={`${metric.label}-${metric.value}`}
             className="min-w-0 bg-[var(--surface-base)] px-3 py-2.5"
           >
-            <div className={`text-title-small tabular-nums ${tone.text}`}>
+            <div className={cn("text-title-small tabular-nums", tone.text)}>
               {metric.value}
             </div>
             <div className="mt-0.5 truncate text-body-small-default text-[var(--content-secondary)]">
@@ -324,7 +325,7 @@ function ItemList({ items }: { items: WorkResultItem[] }) {
         >
           <span
             aria-hidden
-            className={`w-[3px] shrink-0 self-stretch rounded-full ${tone.rail}`}
+            className={cn("w-[3px] shrink-0 self-stretch rounded-full", tone.rail)}
           />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-start gap-2">
@@ -410,7 +411,7 @@ function SectionIcon({ type }: { type: WorkResultSectionType }) {
     type === "warnings"
       ? "text-[var(--system-mid-strong)]"
       : "text-[var(--content-tertiary)]";
-  return <Icon className={`h-4 w-4 shrink-0 ${color}`} aria-hidden />;
+  return <Icon className={cn("h-4 w-4 shrink-0", color)} aria-hidden />;
 }
 
 function ResultSection({ section }: { section: WorkResultSection }) {

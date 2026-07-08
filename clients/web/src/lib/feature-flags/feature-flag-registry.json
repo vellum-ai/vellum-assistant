@@ -63,7 +63,7 @@
       "scope": "assistant",
       "key": "trace-collection",
       "label": "Trace Collection",
-      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) — the live value is delivered from LaunchDarkly.",
+      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) \u2014 the live value is delivered from LaunchDarkly.",
       "defaultEnabled": false
     },
     {
@@ -147,14 +147,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "message-tts",
-      "scope": "assistant",
-      "key": "message-tts",
-      "label": "Message Text-to-Speech",
-      "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
-      "defaultEnabled": false
-    },
-    {
       "id": "backward-releases",
       "scope": "assistant",
       "key": "backward-releases",
@@ -219,14 +211,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "meet",
-      "scope": "assistant",
-      "key": "meet",
-      "label": "Google Meet",
-      "description": "Enables the Google Meet joining bot and the meet-join skill.",
-      "defaultEnabled": false
-    },
-    {
       "id": "scroll-debug-overlay",
       "scope": "client",
       "key": "scroll-debug-overlay",
@@ -264,14 +248,6 @@
       "key": "analyze-conversation",
       "label": "Analyze Conversation",
       "description": "Show the 'Analyze' / 'Analyze conversation' option in conversation context menus and the conversation title actions dropdown.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "external-plugins",
-      "scope": "assistant",
-      "key": "external-plugins",
-      "label": "External Plugins",
-      "description": "Enable the external-plugin install path: the `assistant plugins` CLI subcommand and the declarative external-plugin loader convention (`<workspaceDir>/plugins/<name>/` directories containing `package.json` plus interface dirs). Gates an unstable surface that may change shape before stabilizing.",
       "defaultEnabled": false
     },
     {
@@ -371,11 +347,19 @@
       "defaultEnabled": false
     },
     {
-      "id": "memory-v3-shadow",
+      "id": "memory-v3-injection-gate",
       "scope": "assistant",
-      "key": "memory-v3-shadow",
-      "label": "Memory v3 Shadow",
-      "description": "When on, runs the new memory-v3 topic-tree retrieval alongside v2 in shadow mode: logs selections to memory_v3_selections, does not modify injected context. Off by default.",
+      "key": "memory-v3-injection-gate",
+      "label": "Memory v3 injection gate",
+      "description": "Per-turn injection gate for memory v3: after the BM25F needle + dense cosine finder lanes run, skip the selectPool LLM call (inject nothing) when finder-lane scores fall below the configured thresholds (memory.v3.gate). Default on (flipped remotely July 2026); this registry value is the fallback when no platform snapshot is available.",
+      "defaultEnabled": true
+    },
+    {
+      "id": "memory-concept-graph",
+      "scope": "assistant",
+      "key": "memory-concept-graph",
+      "label": "Memory concept graph",
+      "description": "Gates the Obsidian-style memory concept graph on the assistant identity page and the backend-agnostic /memory-graph + /memory-graph-node routes that feed it. When off, the identity page shows the skills constellation instead. Only produces a graph on memory-v3 backends. Default off.",
       "defaultEnabled": false
     },
     {
@@ -392,6 +376,14 @@
       "key": "research-onboarding",
       "label": "Research onboarding (spike)",
       "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "personality-onboarding",
+      "scope": "client",
+      "key": "personality-onboarding",
+      "label": "Personality onboarding step (spike)",
+      "description": "Spike: show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. Off by default; enable locally via the feature-flags panel.",
       "defaultEnabled": false
     },
     {
@@ -415,7 +407,39 @@
       "scope": "assistant",
       "key": "os-beta",
       "label": "OS Beta",
-      "description": "Enable the OS Beta model profile (GLM 5.2 / Fireworks) in the assistant's model profile selection.",
+      "description": "Enable the OS Beta model profile (MiniMax M3 / Together) in the assistant's model profile selection.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "new-thread-suggestions",
+      "scope": "client",
+      "key": "new-thread-suggestions",
+      "label": "New-thread suggestions library",
+      "description": "Replace the empty-state conversation-starter chips with the scrollable, categorized suggestions library and detail drawer (currently mocked data).",
+      "defaultEnabled": false
+    },
+    {
+      "id": "account-mfa",
+      "scope": "client",
+      "key": "account-mfa",
+      "label": "Account MFA",
+      "description": "Surface the Security settings page where users enroll and manage TOTP two-factor authentication for their Vellum (WorkOS) account. Applies to email/password sign-in only.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "credentials-settings",
+      "scope": "assistant",
+      "key": "credentials-settings",
+      "label": "Credentials settings page",
+      "description": "Show the Credentials page in web settings for listing, adding, and deleting stored credentials.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "credential-requests",
+      "scope": "assistant",
+      "key": "credential-requests",
+      "label": "One-time credential request links",
+      "description": "Enable one-time credential-request links: the generate-link action in settings, the public credential entry page, and assistant-initiated links on channels without secure input.",
       "defaultEnabled": false
     }
   ]

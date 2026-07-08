@@ -6,21 +6,23 @@ import type { ChannelId } from "../../channels/types.js";
 // unreachable), [] = authoritatively no guardian, one active entry = bound.
 let mockGuardianList: Array<Record<string, unknown>> | null = [];
 
+// Both the async path (resolveLocalPrincipalTrustContext) and the sync
+// resolveActorTrust read the same gateway delivery list — async via
+// getGuardianDelivery, sync via the peek snapshot.
 mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: (_input?: { channelTypes?: string[] }) =>
     Promise.resolve(mockGuardianList),
-}));
-
-// Local-resolver guardian binding, used to construct the expected guardian
-// TrustContext via the existing resolver and prove equivalence.
-let mockGuardianRecord: {
-  contact: Record<string, unknown>;
-  channel: Record<string, unknown>;
-} | null = null;
-
-mock.module("../../contacts/contact-store.js", () => ({
-  findGuardianForChannel: (_channelType: string) => mockGuardianRecord,
-  findContactByAddress: (_channelType: string, _address: string) => null,
+  peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) => {
+    if (mockGuardianList == null) return undefined;
+    if (!input?.channelTypes) return mockGuardianList;
+    return mockGuardianList.filter((g) =>
+      input.channelTypes!.includes(g.channelType as string),
+    );
+  },
+  guardianForChannel: (
+    list: Array<Record<string, unknown>>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 const { resolveLocalPrincipalTrustContext } = await import(
@@ -39,7 +41,6 @@ const GUARDIAN_CHAT_ID = "guardian-chat";
 describe("resolveLocalPrincipalTrustContext", () => {
   beforeEach(() => {
     mockGuardianList = [];
-    mockGuardianRecord = null;
   });
 
   test("principal matching the gateway guardian → guardian ctx", async () => {
@@ -83,15 +84,6 @@ describe("resolveLocalPrincipalTrustContext", () => {
         status: "active",
       },
     ];
-    mockGuardianRecord = {
-      contact: { id: "contact-1", principalId: GUARDIAN_ADDRESS },
-      channel: {
-        type: "vellum",
-        address: GUARDIAN_ADDRESS,
-        externalChatId: GUARDIAN_CHAT_ID,
-        status: "active",
-      },
-    };
 
     const expected = toTrustContext(
       resolveActorTrust({

@@ -57,6 +57,8 @@ export interface ChatScrollAreaProps {
   transcriptRef: ForwardedRef<TranscriptHandle>;
   /** {@link TranscriptProps} forwarded to {@link Transcript}. */
   transcriptProps: TranscriptProps;
+  /** Space reserved below the scrollable transcript for bottom floating UI. */
+  bottomOverlayReservePx?: number;
 }
 
 export function ChatScrollArea({
@@ -67,6 +69,7 @@ export function ChatScrollArea({
   emptyStateProps,
   transcriptRef,
   transcriptProps,
+  bottomOverlayReservePx,
 }: ChatScrollAreaProps) {
   // When the empty state is shown, this wrapper must NOT take `flex-1` so
   // the parent `ChatBody` can center it together with the composer +
@@ -75,9 +78,12 @@ export function ChatScrollArea({
   const wrapperClass = showEmptyState
     ? "relative flex min-h-0 flex-col"
     : "relative flex min-h-0 flex-1 flex-col";
+  const wrapperStyle = bottomOverlayReservePx
+    ? { paddingBottom: bottomOverlayReservePx }
+    : undefined;
 
   return (
-    <div className={wrapperClass}>
+    <div className={wrapperClass} style={wrapperStyle}>
       {isLoadingHistory && messageCount === 0 && <ChatSkeleton />}
       {showMaintenanceRecoveryCard && <MaintenanceRecoveryCard />}
       {showEmptyState && <ChatEmptyState {...emptyStateProps} />}

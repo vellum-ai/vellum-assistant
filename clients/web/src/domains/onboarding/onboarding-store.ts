@@ -10,7 +10,10 @@
  * are populated on session sync (e.g. `restoreConsentForUser`, called from
  * the auth store once the user id is known). Persistence to durable per-user
  * device keys is handled by `persistConsentForUser` in
- * `onboarding-cleanup.ts`.
+ * `onboarding-cleanup.ts`. `consentHydrated` (also in-memory-only) records
+ * that a session sync — or an explicit user acceptance — has populated those
+ * flags, so route guards can distinguish "not yet loaded" from a genuine
+ * `false`.
  *
  * Reference: {@link https://zustand.docs.pmnd.rs/}
  */
@@ -43,6 +46,11 @@ export interface OnboardingState {
   privacyConsent: boolean;
   analyticsConsentCurrent: boolean;
   diagnosticsConsentCurrent: boolean;
+  /**
+   * Whether the consent flags above reflect a completed session sync (or an
+   * explicit user acceptance) rather than their unhydrated boot defaults.
+   */
+  consentHydrated: boolean;
 }
 
 export interface OnboardingActions {
@@ -52,6 +60,7 @@ export interface OnboardingActions {
   setPrivacyConsent: (value: boolean) => void;
   setAnalyticsConsentCurrent: (value: boolean) => void;
   setDiagnosticsConsentCurrent: (value: boolean) => void;
+  setConsentHydrated: (value: boolean) => void;
 }
 
 export type OnboardingStore = OnboardingState & OnboardingActions;
@@ -67,6 +76,7 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   privacyConsent: false,
   analyticsConsentCurrent: false,
   diagnosticsConsentCurrent: false,
+  consentHydrated: false,
 
   setShareAnalytics: (value) => {
     set({ shareAnalytics: value });
@@ -91,6 +101,9 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   },
   setDiagnosticsConsentCurrent: (value) => {
     set({ diagnosticsConsentCurrent: value });
+  },
+  setConsentHydrated: (value) => {
+    set({ consentHydrated: value });
   },
 }));
 

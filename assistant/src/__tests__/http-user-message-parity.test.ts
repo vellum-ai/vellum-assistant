@@ -49,12 +49,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-parity-test" }),
   getConversationByKey: () => null,
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
 }));
 
@@ -77,7 +77,7 @@ mock.module("../runtime/guardian-vellum-migration.js", () => ({
   },
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   createCanonicalGuardianRequest: () => ({
     id: "canonical-id",
     requestCode: "ABC123",
@@ -108,9 +108,9 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   bridgeConfirmationRequestToGuardian: async () => undefined,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -118,6 +118,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     options?: { metadata?: Record<string, unknown> },
   ) => addMessageMock(conversationId, role, content, options),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
@@ -125,6 +126,44 @@ mock.module("../runtime/local-actor-identity.js", () => ({
     mockGuardians?.find(
       (g) => g.channelType === "vellum" && g.status === "active",
     )?.principalId as string | undefined,
+}));
+
+// Capture the sourceActorPrincipalId that handleSendMessage threads into
+// shouldAttachHostProxyForCapability / preactivateHostProxySkills, so tests
+// can assert the dev-bypass translation landed before the CU proxy gate.
+// The macOS "native_support" path short-circuits before reading the
+// principal, so only web/ios turns exercise the same-actor branch.
+const hostProxyAttachCalls: Array<{
+  capability: string;
+  sourceInterface: unknown;
+  sourceActorPrincipalId: string | undefined;
+}> = [];
+const preactivateCalls: Array<{
+  sourceInterface: unknown;
+  sourceActorPrincipalId: string | undefined;
+}> = [];
+mock.module("../daemon/host-proxy-preactivation.js", () => ({
+  shouldAttachHostProxyForCapability: (
+    capability: string,
+    sourceInterface: unknown,
+    sourceActorPrincipalId: string | undefined,
+  ) => {
+    hostProxyAttachCalls.push({
+      capability,
+      sourceInterface,
+      sourceActorPrincipalId,
+    });
+    // Return false so the route skips proxy instantiation; we only care
+    // that the translated principal reached the gate.
+    return false;
+  },
+  preactivateHostProxySkills: (
+    _conversation: unknown,
+    sourceInterface: unknown,
+    sourceActorPrincipalId: string | undefined,
+  ) => {
+    preactivateCalls.push({ sourceInterface, sourceActorPrincipalId });
+  },
 }));
 
 let mockGuardians: Array<Record<string, unknown>> | null = [
@@ -265,13 +304,18 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
 }
 
 // ── Helper: create an HTTP request to POST /v1/messages ────────────────────
-function makeRequest(content: string, extra: Record<string, unknown> = {}) {
+function makeRequest(
+  content: string,
+  extra: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
+) {
   return new Request("http://localhost/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-vellum-actor-principal-id": "test-user",
       "x-vellum-principal-type": "actor",
+      ...headers,
     },
     body: JSON.stringify({
       conversationKey: "parity-test-key",
@@ -293,6 +337,7 @@ async function sendMessage(
       conversationId: string,
       opts?: Record<string, unknown>,
     ) => void;
+    headers?: Record<string, string>;
   } = {},
 ) {
   return callHandler(
@@ -310,7 +355,7 @@ async function sendMessage(
           resolveAttachments: () => [],
         },
       }),
-    makeRequest(content, extra),
+    makeRequest(content, extra, options.headers ?? {}),
     undefined,
     202,
   );
@@ -488,6 +533,152 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
 });
 
 // ============================================================================
+// CLIENT METADATA — sanitized x-vellum-* headers persisted under
+// metadata.client for turn analytics
+// ============================================================================
+describe("HTTP POST /v1/messages client metadata headers", () => {
+  beforeEach(() => {
+    routeGuardianReplyMock.mockClear();
+    listPendingByDestinationMock.mockClear();
+    listCanonicalMock.mockClear();
+    addMessageMock.mockClear();
+  });
+
+  const clientMetadataHeaders = {
+    "x-vellum-browser-family": "safari",
+    "x-vellum-browser-version": "17",
+    "x-vellum-client-os": "ios",
+    "x-vellum-interface-version": "1.2.3",
+  };
+
+  test("persists client metadata on immediate user messages", async () => {
+    const persistUserMessage = mock(
+      async (_options: { metadata?: Record<string, unknown> }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      }),
+    );
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      {},
+      {
+        headers: clientMetadataHeaders,
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    const persistCall = persistUserMessage.mock.calls[0];
+    expect(persistCall).toBeDefined();
+    const [persistOptions] = persistCall as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(persistOptions.metadata).toEqual({
+      client: {
+        browser_family: "safari",
+        browser_version: "17",
+        os: "ios",
+        interface_version: "1.2.3",
+      },
+    });
+  });
+
+  test("persists client metadata on queued user messages", async () => {
+    const enqueueMessage = mock(
+      (_options: { metadata?: Record<string, unknown> }) => ({
+        queued: true,
+        requestId: "queued-id",
+      }),
+    );
+    const conversation = makeConversation({
+      isProcessing: () => true,
+      enqueueMessage,
+    });
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      {},
+      {
+        headers: clientMetadataHeaders,
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(enqueueMessage).toHaveBeenCalledTimes(1);
+    const enqueueCall = enqueueMessage.mock.calls[0];
+    expect(enqueueCall).toBeDefined();
+    const [enqueueOptions] = enqueueCall as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(enqueueOptions.metadata).toMatchObject({
+      client: {
+        browser_family: "safari",
+        browser_version: "17",
+        os: "ios",
+        interface_version: "1.2.3",
+      },
+    });
+  });
+
+  test("malformed header values are dropped, valid ones kept", async () => {
+    const persistUserMessage = mock(
+      async (_options: { metadata?: Record<string, unknown> }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      }),
+    );
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      {},
+      {
+        headers: {
+          // Uppercase + space + disallowed chars → normalized or dropped.
+          "x-vellum-browser-family": "  SAFARI  ",
+          "x-vellum-browser-version": "not allowed!",
+          "x-vellum-client-os": "a".repeat(65),
+        },
+      },
+    );
+
+    expect(res.status).toBe(202);
+    const [persistOptions] = persistUserMessage.mock.calls[0] as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(persistOptions.metadata).toEqual({
+      client: { browser_family: "safari" },
+    });
+  });
+
+  test("no client metadata headers → metadata unchanged", async () => {
+    const persistUserMessage = mock(
+      async (_options: { metadata?: Record<string, unknown> }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      }),
+    );
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage("hello", conversation);
+
+    expect(res.status).toBe(202);
+    const [persistOptions] = persistUserMessage.mock.calls[0] as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(persistOptions.metadata).toBeUndefined();
+  });
+});
+
+// ============================================================================
 // TRUST CONTEXT — derived from the gateway guardian binding
 // ============================================================================
 describe("HTTP POST /v1/messages trust context from the gateway binding", () => {
@@ -611,5 +802,86 @@ describe("HTTP POST /v1/messages trust context from the gateway binding", () => 
     const ctx = await trustContextFor("test-user", "telegram");
     expect(ctx.trustClass).toBe("guardian");
     expect(ctx.sourceChannel).toBe("telegram");
+  });
+
+  // A web turn's "dev-bypass" principal must translate to the real guardian
+  // principal before the CU/app-control same-actor proxy-attachment gate,
+  // so it matches the macOS client's SSE-registered principal.
+  test("dev-bypass is translated to the guardian principal before the CU proxy attach gate (web turn)", async () => {
+    hostProxyAttachCalls.length = 0;
+    preactivateCalls.length = 0;
+    const conversation = makeConversation();
+    const res = await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => conversation,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-actor-principal-id": "dev-bypass",
+          "x-vellum-principal-type": "actor",
+        },
+        body: JSON.stringify({
+          conversationKey: "cu-attach-key",
+          content: "hi",
+          sourceChannel: "vellum",
+          interface: "web",
+        }),
+      }),
+      undefined,
+      202,
+    );
+    expect(res.status).toBe(202);
+
+    // The CU attach gate receives the translated guardian principal, not
+    // the raw "dev-bypass" string.
+    const cuCall = hostProxyAttachCalls.find((c) => c.capability === "host_cu");
+    expect(cuCall).toBeDefined();
+    expect(cuCall?.sourceActorPrincipalId).toBe("test-user");
+    expect(cuCall?.sourceActorPrincipalId).not.toBe("dev-bypass");
+
+    // Preactivation receives the same translated principal.
+    const preactivateCall = preactivateCalls[0];
+    expect(preactivateCall?.sourceActorPrincipalId).toBe("test-user");
+  });
+
+  test("real (non-dev-bypass) principal passes through the CU proxy attach gate unchanged", async () => {
+    hostProxyAttachCalls.length = 0;
+    const conversation = makeConversation();
+    await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => conversation,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-actor-principal-id": "real-jwt-principal",
+          "x-vellum-principal-type": "actor",
+        },
+        body: JSON.stringify({
+          conversationKey: "cu-attach-real-key",
+          content: "hi",
+          sourceChannel: "vellum",
+          interface: "web",
+        }),
+      }),
+      undefined,
+      202,
+    );
+
+    const cuCall = hostProxyAttachCalls.find((c) => c.capability === "host_cu");
+    expect(cuCall?.sourceActorPrincipalId).toBe("real-jwt-principal");
   });
 });

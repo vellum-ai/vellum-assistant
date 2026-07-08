@@ -108,6 +108,7 @@ export function upsertToolCall(
   prev: DisplayMessage[],
   toolCall: ChatMessageToolCall,
   messageId?: string,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
@@ -128,7 +129,7 @@ export function upsertToolCall(
       toolCalls: [toolCall],
       contentOrder: [{ type: "toolCall", id: toolCall.id }],
       contentBlocks: [{ type: "tool_use", toolCall }],
-      timestamp: Date.now(),
+      timestamp: at,
     },
   ];
 }
@@ -153,6 +154,8 @@ export function applyToolResult(
     riskAllowlistOptions?: AllowlistOption[];
     riskScopeOptions?: RiskScopeOption[];
     riskDirectoryScopeOptions?: DirectoryScopeOption[];
+    imageData?: string;
+    imageDataList?: string[];
     /**
      * Structured activity metadata from the tool_result event. Persisted on
      * the tool call so web-search steps can keep rendering after the active
@@ -199,6 +202,14 @@ export function applyToolResult(
   const existingTc = msg.toolCalls![tcIdx];
   if (!existingTc) return prev;
 
+  const imageDataList =
+    opts.imageDataList !== undefined
+      ? opts.imageDataList
+      : opts.imageData !== undefined
+        ? [opts.imageData]
+        : undefined;
+  const imageData =
+    opts.imageData !== undefined ? opts.imageData : imageDataList?.[0];
   const updatedToolCalls = [...msg.toolCalls!];
   const updatedTc = {
     ...existingTc,
@@ -213,6 +224,8 @@ export function applyToolResult(
     riskAllowlistOptions: opts.riskAllowlistOptions,
     riskScopeOptions: opts.riskScopeOptions,
     riskDirectoryScopeOptions: opts.riskDirectoryScopeOptions,
+    ...(imageData !== undefined ? { imageData } : {}),
+    ...(imageDataList !== undefined ? { imageDataList } : {}),
     ...(opts.activityMetadata !== undefined
       ? { activityMetadata: opts.activityMetadata }
       : {}),

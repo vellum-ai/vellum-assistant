@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { getMediaAssetById } from "../../../../memory/media-store.js";
+import { getMediaAssetById } from "../../../../persistence/media-store.js";
 import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
 import type {
   ToolContext,

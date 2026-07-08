@@ -62,8 +62,6 @@ export function ConversationRowList({
       {pagination?.showMore ? (
         <SideMenu.Item
           label="Show more"
-          size="compact"
-          indent
           emphasized
           onSelect={pagination.onShowMore}
         />
@@ -71,8 +69,6 @@ export function ConversationRowList({
       {pagination?.showLess ? (
         <SideMenu.Item
           label="Show less"
-          size="compact"
-          indent
           emphasized
           onSelect={pagination.onShowLess}
         />

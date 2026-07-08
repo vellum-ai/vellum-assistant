@@ -1,3 +1,5 @@
+import { getConfig } from "../config/loader.js";
+import { isProcToSkillsActive } from "../config/memory-v3-gate.js";
 import type { ExecutionContext } from "../permissions/approval-policy.js";
 import type { PolicyContext } from "../permissions/types.js";
 import { getToolOwner } from "./registry.js";
@@ -32,17 +34,38 @@ export function buildPolicyContext(
 
   const conversationId = context?.conversationId;
 
+  // Origin/trust/channel signals the checker uses to scope narrow
+  // non-interactive auto-grants (e.g. the memory-retrospective skill-authoring
+  // grant) to a specific internal origin. Background-job turns populate
+  // `requestOrigin`; `trustClass`/`executionChannel` come from the turn's
+  // resolved trust context. Undefined for normal interactive turns, so no
+  // origin-scoped grant can fire for them.
+  const originSignals = {
+    requestOrigin: context?.requestOrigin,
+    trustClass: context?.trustClass,
+    sourceChannel: context?.executionChannel,
+    channelExternalId: context?.channelPermissionChannelId,
+    channelConversationType: context?.channelConversationType,
+    // Precompute the proc-to-skills gate (flag on AND v3 live) here so the
+    // permission checker — a leaf module that must not read config — can deny
+    // the memory-retrospective skill-authoring grant whenever the feature is
+    // inactive, just by reading this boolean.
+    procToSkillsActive: isProcToSkillsActive(getConfig()),
+  };
+
   const ownerKind = getToolOwner(tool.name)?.kind;
   if (ownerKind === "skill" || ownerKind === "plugin") {
     return {
       executionTarget: tool.executionTarget,
       executionContext,
       conversationId,
+      ...originSignals,
     };
   }
 
   return {
     executionContext,
     conversationId,
+    ...originSignals,
   };
 }

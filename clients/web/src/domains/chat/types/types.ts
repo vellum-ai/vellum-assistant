@@ -10,15 +10,12 @@ import type {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { isToolCallCompleted } from "@/domains/chat/utils/tool-call-status";
 import type { DisplayAttachment } from "@/types/attachment-types";
-import type { SlackMessageLink } from "@/utils/slack-message-link";
+import type { ExternalSourceLink } from "@/utils/external-source-link";
 
 export type { DisplayAttachment } from "@/types/attachment-types";
 
-export type { SlackMessageLink } from "@/utils/slack-message-link";
-export {
-  parseSlackMessageLink,
-  getSlackLinkUrl,
-} from "@/utils/slack-message-link";
+export type { ExternalSourceLink } from "@/utils/external-source-link";
+export { getExternalLinkUrl } from "@/utils/external-source-link";
 
 export interface SlackMessageSender {
   id?: string;
@@ -30,14 +27,23 @@ export interface SlackMessageSender {
   isBot?: boolean;
 }
 
+export interface SlackReaction {
+  emoji: string;
+  op: "added" | "removed";
+  actorDisplayName?: string;
+  targetChannelTs: string;
+}
+
 export interface SlackRuntimeMessage {
   channelId: string;
   channelName?: string;
   channelTs: string;
   threadTs?: string;
   sender?: SlackMessageSender;
-  messageLink?: SlackMessageLink;
-  threadLink?: SlackMessageLink;
+  messageLink?: ExternalSourceLink;
+  threadLink?: ExternalSourceLink;
+  eventKind?: "message" | "reaction";
+  reaction?: SlackReaction;
 }
 
 /**
@@ -136,6 +142,13 @@ export interface DisplayMessage {
   /** True for daemon-injected subagent lifecycle notifications that should
    *  not render as user bubbles. Matches macOS `isSubagentNotification`. */
   isSubagentNotification?: boolean;
+  /** True for daemon-injected ACP-run lifecycle notifications; suppressed from
+   *  the transcript like {@link isSubagentNotification}. */
+  isAcpNotification?: boolean;
+  /** True for any wake trigger row (`<background_event source="...">`, e.g.
+   *  defer/schedule/webhook/background-tool); suppressed from the transcript
+   *  like {@link isSubagentNotification} — the wake card shows it instead. */
+  isBackgroundEventNotification?: boolean;
 }
 
 /**

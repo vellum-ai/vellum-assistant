@@ -23,15 +23,23 @@ import { ContextOverflowError } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
   ) as Record<string, unknown>),
 };
 const conversationDiskViewRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
   ) as Record<string, unknown>),
 };
 let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
+// Disable the catalog default so resolution lands on llm.default.
+const disabledCatalogDefaultProfiles: Record<string, unknown> = {
+  balanced: { source: "managed", status: "disabled" },
+};
+let mockLlmProfiles: Record<string, unknown> = {
+  ...disabledCatalogDefaultProfiles,
+};
+let mockLlmActiveProfile: string | undefined;
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
@@ -80,8 +88,9 @@ mock.module("../config/loader.js", () => ({
           },
         },
       },
-      profiles: {},
+      profiles: mockLlmProfiles,
       callSites: {},
+      activeProfile: mockLlmActiveProfile,
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
@@ -131,7 +140,9 @@ const runMockReducer = async (
   cfg: unknown,
   state: unknown,
 ) => {
-  if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
+  if (mockReducerStepFn) {
+    return mockReducerStepFn(msgs, cfg, state);
+  }
   return {
     messages: msgs,
     tier: "forced_compaction",
@@ -178,7 +189,9 @@ function makeOverflowLadderStub(): {
 } {
   let state: unknown;
   const reduceOverflowOneRung = async (msgs: Message[], opts: unknown) => {
-    if (!state) state = makeInitialReducerState();
+    if (!state) {
+      state = makeInitialReducerState();
+    }
     const step = (await runMockReducer(msgs, opts, state)) as {
       state: unknown;
     };
@@ -278,7 +291,8 @@ const deleteMessageByIdMock = mock(() => ({
 }));
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
 const updateMessageContentMock = mock(() => {});
-mock.module("../memory/conversation-crud.js", () => ({
+const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
@@ -292,7 +306,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
-  addMessage: () => ({ id: "mock-msg-id" }),
+  addMessage: addMessageMock,
   deleteMessageById: deleteMessageByIdMock,
   updateConversationContextWindow: () => {},
   updateConversationSlackContextWatermark:
@@ -303,6 +317,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   reserveMessage: reserveMessageMock,
   updateMessageContent: updateMessageContentMock,
+  recordConversationPersistedSeq: () => {},
+  getConversationPersistedSeq: () => null,
   // The real schema is a Zod object; tests don't exercise validation,
   // so a passthrough is sufficient — the production code at
   // `handleMessageComplete` only branches on `success` and reads two
@@ -315,7 +331,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 // The B3 indexing-restoration path imports `indexMessageNow` from
 // `../memory/indexer.js` and `projectAssistantMessage` from
-// `../memory/conversation-attention-store.js`; without these stubs the
+// `../persistence/conversation-attention-store.js`; without these stubs the
 // real modules would try to open a SQLite DB and read a real config.
 const indexMessageNowMock = mock(async () => ({
   indexedSegments: 0,
@@ -323,10 +339,10 @@ const indexMessageNowMock = mock(async () => ({
 }));
 const projectAssistantMessageMock = mock(() => false);
 const publishSyncInvalidationMock = mock(async () => {});
-mock.module("../memory/indexer.js", () => ({
+mock.module("../plugins/defaults/memory/indexer.js", () => ({
   indexMessageNow: indexMessageNowMock,
 }));
-mock.module("../memory/conversation-attention-store.js", () => ({
+mock.module("../persistence/conversation-attention-store.js", () => ({
   projectAssistantMessage: projectAssistantMessageMock,
 }));
 mock.module("../runtime/sync/sync-publisher.js", () => ({
@@ -335,18 +351,18 @@ mock.module("../runtime/sync/sync-publisher.js", () => ({
 
 afterAll(() => {
   mock.module(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
     () => conversationCrudRealSnapshot,
   );
   mock.module(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
     () => conversationDiskViewRealSnapshot,
   );
 });
 
 const syncMessageToDiskMock = mock(() => {});
 const rebuildConversationDiskViewFromDbStateMock = mock(() => {});
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: syncMessageToDiskMock,
   rebuildConversationDiskViewFromDbState:
     rebuildConversationDiskViewFromDbStateMock,
@@ -365,14 +381,10 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
-}));
-
-mock.module("../memory/app-git-service.js", () => ({
-  commitAppTurnChanges: () => Promise.resolve(),
 }));
 
 mock.module("../daemon/conversation-memory.js", () => ({
@@ -431,7 +443,9 @@ const getSlackCompactionWatermarkForPrefixMock = mock(
     context: typeof mockSlackChronologicalContext,
     compactedRenderedMessages: number,
   ) => {
-    if (!context || compactedRenderedMessages <= 0) return null;
+    if (!context || compactedRenderedMessages <= 0) {
+      return null;
+    }
     const start = context.compactableStartIndex;
     const end = Math.min(
       context.renderedMessages.length,
@@ -558,17 +572,26 @@ mock.module("../workspace/git-service.js", () => ({
   }),
 }));
 
+let mockConversationErrorClassification = {
+  code: "CONVERSATION_PROCESSING_FAILED",
+  userMessage: "Something went wrong processing your message.",
+  retryable: false,
+  errorCategory: "processing_failed",
+};
+
 mock.module("../daemon/conversation-error.js", () => ({
-  classifyConversationError: (_err: unknown, _ctx: unknown) => ({
-    code: "CONVERSATION_PROCESSING_FAILED",
-    userMessage: "Something went wrong processing your message.",
-    retryable: false,
-    errorCategory: "processing_failed",
-  }),
+  classifyConversationError: (_err: unknown, _ctx: unknown) =>
+    mockConversationErrorClassification,
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
-    if (!ctx.aborted) return false;
-    if (err instanceof DOMException && err.name === "AbortError") return true;
-    if (err instanceof Error && err.name === "AbortError") return true;
+    if (!ctx.aborted) {
+      return false;
+    }
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return true;
+    }
+    if (err instanceof Error && err.name === "AbortError") {
+      return true;
+    }
     return false;
   },
   buildConversationErrorMessage: (
@@ -600,7 +623,7 @@ mock.module("../memory/archive-store.js", () => ({
   }),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: recordRequestLogMock,
   backfillMessageIdOnLogs: backfillMessageIdOnLogsMock,
   setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,
@@ -731,13 +754,6 @@ function makeCtx(
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    traceEmitter: {
-      emit: () => {},
-    } as unknown as Conversation["traceEmitter"],
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -769,6 +785,7 @@ function makeCtx(
     }),
 
     buildCurrentSystemPrompt: () => "system prompt",
+    syncLoopSystemPrompt: () => {},
     modelOverride: undefined,
 
     graphMemory: {
@@ -829,6 +846,8 @@ function makeCompactionResult(
 
 beforeEach(() => {
   mockUiConfig = {};
+  mockLlmProfiles = { ...disabledCatalogDefaultProfiles };
+  mockLlmActiveProfile = undefined;
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -870,6 +889,13 @@ beforeEach(() => {
   deleteMessageByIdMock.mockClear();
   reserveMessageMock.mockClear();
   updateMessageContentMock.mockClear();
+  addMessageMock.mockClear();
+  mockConversationErrorClassification = {
+    code: "CONVERSATION_PROCESSING_FAILED",
+    userMessage: "Something went wrong processing your message.",
+    retryable: false,
+    errorCategory: "processing_failed",
+  };
   indexMessageNowMock.mockClear();
   projectAssistantMessageMock.mockClear();
   publishSyncInvalidationMock.mockClear();
@@ -890,6 +916,39 @@ beforeEach(() => {
 
 describe("session-agent-loop", () => {
   describe("user-prompt-submit hook failures", () => {
+    test("passes the effective profile to hooks even when it was already announced", async () => {
+      mockLlmProfiles = {
+        balanced: {
+          label: "Balanced",
+          model: "accounts/fireworks/models/glm-5p2",
+        },
+        quality: { label: "Quality", model: "claude-opus-4-8" },
+      };
+      mockLlmActiveProfile = "quality";
+      const observedProfileKeys: string[] = [];
+      registerPlugin({
+        manifest: {
+          name: "test-observe-model-profile",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async (ctx: UserPromptSubmitContext) => {
+            observedProfileKeys.push(ctx.modelProfileKey);
+          },
+        },
+      });
+
+      const ctx = makeCtx({
+        inferenceProfile: "balanced",
+        lastNotifiedInferenceProfile: "balanced",
+        providerResponses: [textResponse("ok")],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(observedProfileKeys).toEqual(["balanced"]);
+    });
+
     test("logs and continues with prior hook mutations", async () => {
       registerPlugin({
         manifest: {
@@ -1193,16 +1252,10 @@ describe("session-agent-loop", () => {
       };
       const events: ServerMessage[] = [];
       const activityStates: unknown[][] = [];
-      const traceEvents: unknown[][] = [];
       const ctx = makeCtx({
         emitActivityState: (...args: unknown[]) => {
           activityStates.push(args);
         },
-        traceEmitter: {
-          emit: (...args: unknown[]) => {
-            traceEvents.push(args);
-          },
-        } as unknown as Conversation["traceEmitter"],
       });
       const runSpy = spyOn(ctx.agentLoop, "run");
 
@@ -1214,19 +1267,6 @@ describe("session-agent-loop", () => {
         "idle",
         "error_terminal",
         { anchor: "global", requestId: "test-req" },
-      ]);
-      expect(traceEvents[0]).toEqual([
-        "request_error",
-        expect.stringContaining("Storage is critically low"),
-        expect.objectContaining({
-          requestId: "test-req",
-          status: "error",
-          attributes: expect.objectContaining({
-            errorCategory: "disk_pressure",
-            errorCode: "DISK_SPACE_CRITICAL",
-            diskPressureReason: "trusted-contact",
-          }),
-        }),
       ]);
       expect(events.find((event) => event.type === "error")).toMatchObject({
         type: "error",
@@ -1487,132 +1527,6 @@ describe("session-agent-loop", () => {
       const call = recordRequestLogMock.mock.calls[0] as unknown as unknown[];
       expect(call[1]).toBe(JSON.stringify(rawRequest));
       expect(call[2]).toBe(JSON.stringify(rawResponse));
-    });
-  });
-
-  describe("llm_call_started / llm_call_finished trace coherence", () => {
-    // Regression: the started event was emitted by emitLlmCallStartedIfNeeded
-    // using deps.ctx.provider.name (the default), while the finished event used
-    // event.actualProvider. For routed calls (e.g. gpt-5.5 via openai from an
-    // anthropic-default conversation) this caused started="anthropic" /
-    // finished="openai". The fix passes providerName explicitly from handleUsage
-    // so both events always agree, even when text_delta never fires (tool-only).
-
-    test("started and finished use the same provider name for a streaming response", async () => {
-      // In the real routing scenario, text_delta fires while
-      // CallSiteRoutingProvider's AsyncLocalStorage context holds the active
-      // transport name (covered by call-site-routing-provider.test.ts). Here we
-      // verify the loop wiring: when text_delta fires before usage, the started
-      // event reflects the provider that will also appear on finished.
-      const traceEvents: Array<{
-        label: string;
-        attrs: Record<string, unknown>;
-      }> = [];
-
-      const ctx = makeCtx({
-        // The loop replays the text block as a `text_delta` before `usage`.
-        providerResponses: [
-          {
-            content: [{ type: "text", text: "Hi." }],
-            model: "gpt-5.5-2026-04-23",
-            usage: { inputTokens: 10, outputTokens: 2 },
-            stopReason: "end_turn",
-            actualProvider: "openai",
-          },
-        ],
-        // Provider name matches actualProvider so both paths agree.
-        provider: {
-          name: "openai",
-          sendMessage: async () => ({
-            content: [{ type: "text", text: "title" }],
-            model: "mock",
-            usage: { inputTokens: 0, outputTokens: 0 },
-            stopReason: "end_turn",
-          }),
-        } as unknown as Conversation["provider"],
-        traceEmitter: {
-          emit: (
-            event: string,
-            label: string,
-            payload: { attributes?: Record<string, unknown> },
-          ) => {
-            if (event === "llm_call_started" || event === "llm_call_finished") {
-              traceEvents.push({ label, attrs: payload.attributes ?? {} });
-            }
-          },
-        } as unknown as Conversation["traceEmitter"],
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
-
-      const started = traceEvents.find(
-        (e) =>
-          e.label.startsWith("LLM call to") && !e.label.endsWith("finished"),
-      );
-      const finished = traceEvents.find((e) => e.label.endsWith("finished"));
-
-      expect(started).toBeDefined();
-      expect(finished).toBeDefined();
-      expect(started!.attrs["provider"]).toBe("openai");
-      expect(finished!.attrs["provider"]).toBe("openai");
-    });
-
-    test("started and finished use the same provider name for a tool-call-only response (no text_delta)", async () => {
-      // This is the harder case: no text_delta fires, so emitLlmCallStartedIfNeeded
-      // fires as a fallback inside handleUsage *after* the AsyncLocalStorage
-      // context in CallSiteRoutingProvider has already exited. Without passing
-      // providerName explicitly it would say "anthropic".
-      const traceEvents: Array<{
-        label: string;
-        attrs: Record<string, unknown>;
-      }> = [];
-
-      const ctx = makeCtx({
-        // An empty-content response: no text block fires `text_delta`, so the
-        // started event falls back to the resolved usage provider name.
-        providerResponses: [
-          {
-            content: [],
-            model: "gpt-5.5-2026-04-23",
-            usage: { inputTokens: 10, outputTokens: 2 },
-            stopReason: "end_turn",
-            actualProvider: "openai",
-          },
-        ],
-        provider: {
-          name: "anthropic",
-          sendMessage: async () => ({
-            content: [{ type: "text", text: "title" }],
-            model: "mock",
-            usage: { inputTokens: 0, outputTokens: 0 },
-            stopReason: "end_turn",
-          }),
-        } as unknown as Conversation["provider"],
-        traceEmitter: {
-          emit: (
-            event: string,
-            label: string,
-            payload: { attributes?: Record<string, unknown> },
-          ) => {
-            if (event === "llm_call_started" || event === "llm_call_finished") {
-              traceEvents.push({ label, attrs: payload.attributes ?? {} });
-            }
-          },
-        } as unknown as Conversation["traceEmitter"],
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
-
-      const started = traceEvents.find(
-        (e) =>
-          e.label.startsWith("LLM call to") && !e.label.endsWith("finished"),
-      );
-      const finished = traceEvents.find((e) => e.label.endsWith("finished"));
-
-      expect(started).toBeDefined();
-      expect(finished).toBeDefined();
-      expect(started!.attrs["provider"]).toBe("openai");
-      expect(finished!.attrs["provider"]).toBe("openai");
     });
   });
 
@@ -2239,6 +2153,49 @@ describe("session-agent-loop", () => {
       expect(backfillCall[0]).toBe("test-conv");
       expect(backfillCall[1]).toBe("mock-msg-id");
     });
+
+    test("does not persist managed credential refresh failures as assistant text", async () => {
+      mockConversationErrorClassification = {
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        retryable: false,
+        errorCategory: "managed_key_invalid",
+      };
+      const events: ServerMessage[] = [];
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("API key has expired.");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(
+        events.filter((event) => event.type === "assistant_text_delta"),
+      ).toHaveLength(0);
+
+      const conversationError = events.find(
+        (event) => event.type === "conversation_error",
+      );
+      expect(conversationError).toBeDefined();
+      expect(conversationError).toMatchObject({
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        errorCategory: "managed_key_invalid",
+      });
+
+      expect(addMessageMock).not.toHaveBeenCalled();
+      expect(recordRequestLogMock).not.toHaveBeenCalled();
+      expect(backfillMessageIdOnLogsMock).not.toHaveBeenCalled();
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-reserve");
+    });
   });
 
   describe("B3 pre-allocation: indexing + cleanup", () => {
@@ -2312,6 +2269,44 @@ describe("session-agent-loop", () => {
         publishSyncInvalidationMock.mock.calls as unknown as Array<[string[]]>
       ).filter((args) => args[0]?.includes("conversation:test-conv:metadata"));
       expect(metadataPublishes).toHaveLength(1);
+    });
+
+    test("terminal message_complete is emitted before the deferred indexer runs (LUM-2654)", async () => {
+      // Regression guard for LUM-2654 ("long delay between last streaming token
+      // and send-button becoming available"). The terminal `message_complete`
+      // SSE — which the client uses to flip stop→send — is emitted before the
+      // non-critical finalize side-effects (memory segment indexing, lexical
+      // indexing, attention projection), which the orchestrator drains from its
+      // end-of-turn tail. The tail runs within the turn, so the indexer still
+      // fires exactly once; this test pins the ordering by asserting
+      // `message_complete` is already in the client stream when it does.
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const events: ServerMessage[] = [];
+      let messageCompleteSeenWhenIndexed: boolean | undefined;
+      indexMessageNowMock.mockImplementationOnce(async () => {
+        messageCompleteSeenWhenIndexed = events.some(
+          (event) => event.type === "message_complete",
+        );
+        return { indexedSegments: 0, enqueuedJobs: 0 };
+      });
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("indexed reply")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+
+      // The deferred indexer runs exactly once, within the turn…
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
+      // …and only after the terminal SSE that re-enables the composer.
+      expect(messageCompleteSeenWhenIndexed).toBe(true);
     });
 
     test("handleMessageComplete skips sync invalidation when attention state unchanged", async () => {
@@ -2449,6 +2444,41 @@ describe("session-agent-loop", () => {
       const lastSync = syncCalls[syncCalls.length - 1];
       expect(lastSync?.[1]).toBe("mock-msg-id");
       expect(lastSync?.[1]).not.toBe("msg-orphaned-reservation");
+    });
+
+    test("managed-key provider-error cleanup publishes message invalidation after deleting the reservation", async () => {
+      reserveMessageMock.mockImplementationOnce(async () => ({
+        id: "msg-managed-key-reservation",
+      }));
+      mockConversationErrorClassification = {
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        retryable: false,
+        errorCategory: "managed_key_invalid",
+      };
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("API key has expired.");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-managed-key-reservation");
+      expect(addMessageMock).not.toHaveBeenCalled();
+      expect(syncMessageToDiskMock).not.toHaveBeenCalled();
+
+      const messagePublishes = (
+        publishSyncInvalidationMock.mock.calls as unknown as Array<[string[]]>
+      ).filter((args) => args[0]?.includes("conversation:test-conv:messages"));
+      expect(messagePublishes).toHaveLength(1);
     });
   });
 

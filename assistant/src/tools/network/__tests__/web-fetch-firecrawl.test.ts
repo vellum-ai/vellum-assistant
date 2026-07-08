@@ -4,15 +4,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 let mockWebFetchProvider: string | undefined = "default";
 let mockFirecrawlSecureKey: string | undefined;
 
-// Capture the registered tool so we can exercise provider dispatch.
-let capturedTool: any = null;
-
-mock.module("../../registry.js", () => ({
-  registerTool: (tool: any) => {
-    capturedTool = tool;
-  },
-}));
-
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({
     services: {
@@ -50,7 +41,8 @@ mock.module("../url-safety.js", () => ({
   resolveHostAddresses: async () => mockResolveAddresses,
 }));
 
-const { executeFirecrawlScrape } = await import("../web-fetch.js");
+const { executeFirecrawlScrape, webFetchTool } =
+  await import("../web-fetch.js");
 
 const SCRAPE_URL = "api.firecrawl.dev/v2/scrape";
 
@@ -204,18 +196,21 @@ describe("executeFirecrawlScrape", () => {
     expect(result.content).toContain("invalid JSON");
   });
 
-  test.each([401, 403])("surfaces %d as an invalid-key error", async (status) => {
-    globalThis.fetch = (async () =>
-      new Response("Unauthorized", { status })) as any;
+  test.each([401, 403])(
+    "surfaces %d as an invalid-key error",
+    async (status) => {
+      globalThis.fetch = (async () =>
+        new Response("Unauthorized", { status })) as any;
 
-    const result = await executeFirecrawlScrape(
-      { url: "https://example.com" },
-      { apiKey: "bad-key" },
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Invalid or expired Firecrawl API key");
-    expect(result.activityMetadata?.webFetch?.provider).toBe("firecrawl");
-  });
+      const result = await executeFirecrawlScrape(
+        { url: "https://example.com" },
+        { apiKey: "bad-key" },
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Invalid or expired Firecrawl API key");
+      expect(result.activityMetadata?.webFetch?.provider).toBe("firecrawl");
+    },
+  );
 
   test("retries 429 then surfaces a rate-limit error", async () => {
     let callCount = 0;
@@ -241,7 +236,7 @@ describe("web_fetch provider dispatch", () => {
   let originalFetch: typeof globalThis.fetch;
 
   const execute = (input: Record<string, unknown>, ctx: any = {}) =>
-    capturedTool.execute(input, ctx);
+    webFetchTool.execute(input, ctx);
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
@@ -334,7 +329,9 @@ describe("web_fetch provider dispatch", () => {
       return new Response("", { status: 200 });
     }) as any;
 
-    const result = await execute({ url: "https://internal.example/secret?token=abc" });
+    const result = await execute({
+      url: "https://internal.example/secret?token=abc",
+    });
     expect(firecrawlHit).toBe(false); // internal URL never leaked to Firecrawl
     expect(result.isError).toBe(true);
     expect(result.activityMetadata?.webFetch?.provider).toBe("default");

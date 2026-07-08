@@ -23,6 +23,8 @@ const MOCK_HOOKS_DIR = join(MOCK_WORKSPACE_DIR, "hooks");
 const MOCK_PLUGINS_DIR = join(MOCK_WORKSPACE_DIR, "plugins");
 const MOCK_TOOLS_DIR = join(MOCK_WORKSPACE_DIR, "tools");
 const MOCK_ROUTES_DIR = join(MOCK_WORKSPACE_DIR, "routes");
+const MOCK_WORKFLOWS_DIR = join(MOCK_WORKSPACE_DIR, "workflows");
+const MOCK_MONITORING_DIR = join(MOCK_WORKSPACE_DIR, "data", "monitoring");
 
 /** Skill source paths managed per-test via the context's skillSourceDirs. */
 let testSkillSourceDirs: string[] = [];
@@ -35,6 +37,8 @@ function makeContext(): FileClassificationContext {
     pluginsDir: MOCK_PLUGINS_DIR,
     toolsDir: MOCK_TOOLS_DIR,
     routesDir: MOCK_ROUTES_DIR,
+    workflowsDir: MOCK_WORKFLOWS_DIR,
+    monitoringDir: MOCK_MONITORING_DIR,
     skillSourceDirs: testSkillSourceDirs,
   };
 }
@@ -340,6 +344,60 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to routes directory");
     });
 
+    // Workflows directory escalation: a file here is a saved workflow whose
+    // source is executed later, so a routine file_write is code injection.
+    test("workflows directory itself is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: MOCK_WORKFLOWS_DIR,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workflows directory");
+    });
+
+    test("directory-style entrypoint inside workflows dir is high", async () => {
+      testSkillSourceDirs = [];
+      const entrypoint = join(MOCK_WORKFLOWS_DIR, "victim", "workflow.ts");
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: entrypoint,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workflows directory");
+    });
+
+    test("flat workflow file inside workflows dir is high", async () => {
+      testSkillSourceDirs = [];
+      const flat = join(MOCK_WORKFLOWS_DIR, "victim.workflow.ts");
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: flat,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workflows directory");
+    });
+
+    test("path containing 'workflows' substring outside workflows dir is low", async () => {
+      // Guard against substring matching: /workspace/workflows-data/ must NOT escalate.
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: join(
+          homedir(),
+          ".vellum",
+          "workspace",
+          "workflows-data",
+          "x",
+        ),
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("low");
+    });
+
     // Container-style /workspace paths must be remapped to the working dir
     // before the containment check — otherwise "/workspace/tools/evil.ts"
     // resolves to the literal path (never matching the real tools dir) and
@@ -366,6 +424,17 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to routes directory");
     });
 
+    test("/workspace-prefixed workflows path is remapped and high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "/workspace/workflows/victim/workflow.ts",
+        workingDir: MOCK_WORKSPACE_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to workflows directory");
+    });
+
     test("relative tools path resolves against working dir and is high", async () => {
       testSkillSourceDirs = [];
       const result = await classifyInput({
@@ -376,9 +445,47 @@ describe("FileRiskClassifier", () => {
       expect(result.riskLevel).toBe("high");
       expect(result.reason).toBe("Writes to tools directory");
     });
-  });
 
-  // -- file_edit --------------------------------------------------------------
+    // -- monitoring directory (sentinel trust surface) ---------------------
+
+    test("monitoring directory itself is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: MOCK_MONITORING_DIR,
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to monitoring directory");
+    });
+
+    test("sentinel file inside monitoring dir is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: join(MOCK_MONITORING_DIR, "plugin-source-versions.json"),
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to monitoring directory");
+    });
+
+    test("path containing 'monitoring' substring outside monitoring dir is low", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: join(
+          homedir(),
+          ".vellum",
+          "workspace",
+          "monitoring-data",
+          "x",
+        ),
+        workingDir: "/",
+      });
+      expect(result.riskLevel).toBe("low");
+    });
+  });
 
   describe("file_edit", () => {
     test("default risk is low", async () => {

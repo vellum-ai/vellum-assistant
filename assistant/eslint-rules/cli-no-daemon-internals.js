@@ -21,6 +21,15 @@ const ALLOWED_PREFIXES = {
     // Status command's daemon-down fallback needs socket path + platform.
     "../../ipc/socket-path",
     "../../util/platform",
+    // App version constant (leaf module; reads package.json/env, no daemon
+    // deps) — status prints it to surface CLI-vs-runtime version drift.
+    "../../version",
+    "../../../version",
+    // Robust stdin reader (leaf module; only node:fs, no daemon deps) —
+    // commands that accept piped payloads read fd 0 through it at depth-1
+    // and depth-2.
+    "../../util/read-stdin",
+    "../../../util/read-stdin",
     // Logger / output at depth-1 and depth-2.
     "../logger",
     "../output",
@@ -54,14 +63,15 @@ const ALLOWED_PREFIXES = {
     "../../../util/platform",
     // Memory retrospective — the retrospective CLI runs the fork-based
     // retrospective in-process (no daemon, no IPC), so it imports the
-    // job handler directly. Depth-2 for commands/memory/ nesting.
-    "../../memory/memory-retrospective-job",
-    "../../../memory/memory-retrospective-job",
-    // Memory worker control — the `memory worker` CLI spawns/probes/stops
-    // the worker OS process directly (no daemon, no IPC), so it imports the
-    // shared PID-file control helpers. Depth-2 for commands/memory/ nesting.
-    "../../memory/worker-control",
-    "../../../memory/worker-control",
+    // job handler directly from the default-memory plugin. Depth-2 for
+    // commands/memory/ nesting.
+    "../../plugins/defaults/memory/memory-retrospective-job",
+    "../../../plugins/defaults/memory/memory-retrospective-job",
+    // Standalone tool execution — `tools run` executes a single tool
+    // in-process from the filesystem (no daemon, no IPC), so it imports the
+    // standalone runner directly. Depth-2 for commands/ nesting.
+    "../../tools/run-standalone",
+    "../../../tools/run-standalone",
     "../logger",
     "../output",
     "../../logger",
@@ -73,6 +83,9 @@ const ALLOWED_PREFIXES = {
     // Secure key storage (keys.ts) needs direct security module access —
     // by design, the secure-key helpers run in-process (not over IPC).
     "../../security/",
+    // Canonical API-key provider list (keys.ts help text + validation) —
+    // a static metadata catalog with no daemon state.
+    "../../providers/provider-secret-catalog",
     // CES bridge (credential-execution.ts) speaks to the CES sidecar via
     // service-contracts RPC; daemon is not involved.
     "../../credential-execution/",

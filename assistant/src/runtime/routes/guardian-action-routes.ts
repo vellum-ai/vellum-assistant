@@ -17,7 +17,7 @@ import { isHttpAuthDisabled } from "../../config/env.js";
 import {
   type CanonicalGuardianRequest,
   listPendingRequestsByConversationScope,
-} from "../../memory/canonical-guardian-store.js";
+} from "../../contacts/canonical-guardian-store.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";

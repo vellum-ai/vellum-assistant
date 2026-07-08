@@ -6,7 +6,9 @@ import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
+import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import {
+  couldBePlaceholderSentinelPrefix,
   isPlaceholderSentinelText,
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
@@ -869,15 +871,18 @@ export class AnthropicProvider implements Provider {
         (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
       const isHaiku = effectiveModel.includes("haiku");
       const supportsEffort = !isHaiku;
-      // opus-4-7 / opus-4-8 reject `temperature` and `top_p` with a 400
-      // "`temperature`/`top_p` is deprecated for this model" — model-wide, not
-      // effort-conditional (verified 2026-06-23). opus-4-6 / sonnet-4-6 /
-      // haiku-4-5 still accept them. fable-5 is included conservatively (a
-      // frontier model that could not be verified directly but follows the same
-      // deprecation direction). Stripping the params here keeps callers that set
-      // them (e.g. the memory-v3 L2 selector's `temperature: 0`) from 400ing.
+      // opus-4-7 / opus-4-8 and sonnet-5 reject `temperature`, `top_p`, and
+      // `top_k` with a 400 "`temperature`/`top_p` is deprecated for this model"
+      // — model-wide, not effort-conditional (verified 2026-06-23). opus-4-6 /
+      // sonnet-4-6 / haiku-4-5 still accept them. fable-5 is included
+      // conservatively (a frontier model that could not be verified directly
+      // but follows the same deprecation direction). Stripping the params here
+      // keeps callers that set them (e.g. the memory-v3 L2 selector's
+      // `temperature: 0`) from 400ing. OpenRouter `anthropic/...` models
+      // delegate to this provider, so the bare-id suffix is what matches.
       const deprecatesSamplingParams =
         /claude-opus-4-[78]\b/.test(effectiveModel) ||
+        /claude-sonnet-5\b/.test(effectiveModel) ||
         effectiveModel.startsWith("claude-fable-");
       const mergedOutputConfig = {
         ...(output_config ?? {}),
@@ -1214,25 +1219,17 @@ export class AnthropicProvider implements Provider {
         // Buffer streaming text until it's clear the accumulated text isn't
         // going to form a placeholder sentinel. Sentinels are injected into
         // outbound requests for role alternation and are sometimes echoed by
-        // the model; holding back partial prefixes prevents them from
-        // flashing on the live UI before cleanAssistantContent strips them
-        // at persist time. Buffer is bounded by the longest sentinel (~45
-        // chars) and resets on every content_block_start.
-        const SENTINEL_TEXTS: readonly string[] = [
-          PLACEHOLDER_EMPTY_TURN,
-          PLACEHOLDER_EMPTY_TURN.slice(1),
-          PLACEHOLDER_BLOCKS_OMITTED,
-          PLACEHOLDER_BLOCKS_OMITTED.slice(1),
-        ];
-        const couldBeSentinelPrefix = (s: string): boolean =>
-          SENTINEL_TEXTS.some((sentinel) => sentinel.startsWith(s));
-        const isCompleteSentinel = (s: string): boolean =>
-          SENTINEL_TEXTS.includes(s);
+        // the model — including an echo whose `\x00` guard arrived as a leading
+        // space — so the prefix and completion checks normalize edge whitespace
+        // and control bytes (the same normalization cleanAssistantContent and
+        // the display serializer use). Holding back partial prefixes keeps them
+        // off the live UI before they are stripped at completion. The buffer
+        // resets on every content_block_start.
         let textBuffer = "";
 
         stream.on("text", (text) => {
           textBuffer += text;
-          if (couldBeSentinelPrefix(textBuffer)) return;
+          if (couldBePlaceholderSentinelPrefix(textBuffer)) return;
           onEvent?.({ type: "text_delta", text: textBuffer });
           textBuffer = "";
         });
@@ -1365,8 +1362,11 @@ export class AnthropicProvider implements Provider {
             }
             currentServerToolUseId = undefined;
             accumulatedServerToolInputJson = "";
-            // Flush residual text buffer unless it's exactly a sentinel.
-            if (textBuffer.length > 0 && !isCompleteSentinel(textBuffer)) {
+            // Flush residual text buffer unless it is a sentinel.
+            if (
+              textBuffer.length > 0 &&
+              !isPlaceholderSentinelText(textBuffer)
+            ) {
               onEvent?.({ type: "text_delta", text: textBuffer });
             }
             textBuffer = "";
@@ -1613,6 +1613,9 @@ export class AnthropicProvider implements Provider {
    * only thing layered on top in `sendMessage`.
    */
   private buildSentMessages(messages: Message[]): Anthropic.MessageParam[] {
+    // Swap any persisted attachment references back to inline base64 before
+    // serializing, so the block transforms below can read `source.data`.
+    messages = resolveMediaReferences(messages);
     const formatted = messages
       .map((m) => {
         // Track whether an unknown block was dropped during filtering
@@ -1837,11 +1840,11 @@ export class AnthropicProvider implements Provider {
             type: "base64",
             media_type: block.source
               .media_type as Anthropic.Base64ImageSource["media_type"],
-            data: block.source.data,
+            data: base64Source(block.source).data,
           },
         };
       case "file": {
-        const { media_type, data, filename } = block.source;
+        const { media_type, data, filename } = base64Source(block.source);
         if (media_type === "application/pdf") {
           // Only valid base64 document source for Anthropic
           return {
@@ -1899,7 +1902,7 @@ export class AnthropicProvider implements Provider {
                   type: "base64" as const,
                   media_type: cb.source
                     .media_type as Anthropic.Base64ImageSource["media_type"],
-                  data: cb.source.data,
+                  data: base64Source(cb.source).data,
                 },
               });
             } else if (cb.type === "text") {

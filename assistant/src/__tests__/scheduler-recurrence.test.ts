@@ -1,12 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -27,7 +19,7 @@ let runBackgroundJobShouldFail = false;
 mock.module("../runtime/background-job-runner.js", () => ({
   runBackgroundJob: async (opts: { prompt: string; groupId?: string }) => {
     const { createConversation } =
-      await import("../memory/conversation-crud.js");
+      await import("../persistence/conversation-crud.js");
     const conv = createConversation({
       title: "(test stub)",
       conversationType: "background",
@@ -50,17 +42,44 @@ mock.module("../runtime/background-job-runner.js", () => ({
   },
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+// The scheduler dispatches reuse/task-path messages through `processMessage`;
+// route them to a per-test delegate so tests can capture those calls.
+let processMessageImpl: (
+  conversationId: string,
+  message: string,
+) => Promise<void> = async () => {};
+mock.module("../daemon/process-message.js", () => ({
+  processMessage: (conversationId: string, message: string) =>
+    processMessageImpl(conversationId, message),
+}));
+
+// Notify-mode firings go through `emitNotificationSignal`; capture them.
+const notifySignalCalls: Array<Record<string, unknown>> = [];
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: async (payload: Record<string, unknown>) => {
+    notifySignalCalls.push(payload);
+  },
+}));
+
+import { loadRawConfig, saveRawConfig } from "../config/loader.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   createSchedule,
   getSchedule,
   getScheduleRuns,
 } from "../schedule/schedule-store.js";
-import { startScheduler } from "../schedule/scheduler.js";
+import { runScheduleDueWorkOnce } from "../schedule/scheduler.js";
 import { createTask } from "../tasks/task-store.js";
 
 await initializeDb();
+
+// The schedule worker is on by default, which stands the daemon's in-process
+// scheduler down. These tests exercise that in-process execution path directly,
+// so pin the worker flag off for this test process.
+const rawConfig = loadRawConfig();
+rawConfig.schedules = { worker: { enabled: false } };
+saveRawConfig(rawConfig);
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {
@@ -104,30 +123,7 @@ function buildEndedRrule(): string {
 
 // ── RRULE schedule fires through the scheduler ──────────────────────
 
-// Replace setTimeout with a zero-delay version so the 500ms scheduler
-// wait calls fire instantly instead of waiting real time.
-let origSetTimeout: typeof globalThis.setTimeout;
-
 describe("scheduler RRULE execution", () => {
-  beforeAll(() => {
-    origSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = ((
-      fn: TimerHandler,
-      _ms?: number,
-      ...args: unknown[]
-    ) => {
-      // Use a small real delay so fire-and-forget async ticks have time to
-      // settle, while still cutting the 500ms waits down dramatically.
-      // 200ms gives headroom for the run_task path which does a dynamic
-      // import of task-runner.js on first invocation.
-      return origSetTimeout(fn, 200, ...args);
-    }) as typeof setTimeout;
-  });
-
-  afterAll(() => {
-    globalThis.setTimeout = origSetTimeout;
-  });
-
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM cron_runs");
@@ -138,11 +134,13 @@ describe("scheduler RRULE execution", () => {
     db.run("DELETE FROM conversations");
     onRunBackgroundJobPrompt = null;
     runBackgroundJobShouldFail = false;
+    processMessageImpl = async () => {};
+    notifySignalCalls.length = 0;
   });
 
   test("RRULE schedule fires and creates cron_runs entry", async () => {
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "RRULE Test",
       cronExpression: rruleExpr,
       message: "Hello from RRULE",
@@ -163,12 +161,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push({ conversationId, message: prompt });
     };
 
-    const scheduler = startScheduler(
-      async () => {},
-      () => {},
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // The runner should have been invoked with the RRULE message
     expect(
@@ -188,7 +181,7 @@ describe("scheduler RRULE execution", () => {
     });
 
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "RRULE Task Schedule",
       cronExpression: rruleExpr,
       message: `run_task:${task.id}`,
@@ -199,26 +192,14 @@ describe("scheduler RRULE execution", () => {
     forceScheduleDue(schedule.id);
 
     const directCalls: { conversationId: string; message: string }[] = [];
-    let onMessage: (() => void) | undefined;
-    const messageReceived = new Promise<void>((r) => (onMessage = r));
-    const processMessage = async (conversationId: string, message: string) => {
+    processMessageImpl = async (conversationId, message) => {
       directCalls.push({ conversationId, message });
-      onMessage?.();
     };
 
-    const scheduler = startScheduler(processMessage, () => {});
-    // The run_task path involves a dynamic import which can take >50ms in CI,
-    // exceeding the patched setTimeout delay. Await the actual callback instead
-    // of relying on a fixed timeout.
-    await Promise.race([
-      messageReceived,
-      new Promise((r) => origSetTimeout(r, 2000)),
-    ]);
-    // Yield to the macrotask queue so all pending microtasks settle —
-    // the scheduler tick still needs to create the schedule run after
-    // processMessage returns.
-    await new Promise((r) => origSetTimeout(r, 0));
-    scheduler.stop();
+    // runScheduleDueWorkOnce() awaits the full tick — including the run_task
+    // dynamic import and processMessage — so the schedule run is recorded by the
+    // time it resolves. No fixed timeout / callback race needed.
+    await runScheduleDueWorkOnce();
 
     // runTask renders the template, so processMessage gets the template text
     const runTaskCalls = directCalls.filter(
@@ -271,12 +252,7 @@ describe("scheduler RRULE execution", () => {
     };
 
     // First tick: the expired schedule should fire its final due run
-    const scheduler1 = startScheduler(
-      async () => {},
-      () => {},
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler1.stop();
+    await runScheduleDueWorkOnce();
 
     // The message IS delivered once
     expect(processedMessages).toContain("Final expired run");
@@ -294,12 +270,7 @@ describe("scheduler RRULE execution", () => {
 
     // Second tick: the disabled schedule must NOT fire again
     processedMessages.length = 0;
-    const scheduler2 = startScheduler(
-      async () => {},
-      () => {},
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler2.stop();
+    await runScheduleDueWorkOnce();
 
     expect(processedMessages).not.toContain("Final expired run");
     // No additional runs
@@ -308,7 +279,7 @@ describe("scheduler RRULE execution", () => {
   });
 
   test("existing cron schedule behavior is unchanged", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Cron Schedule",
       cronExpression: "* * * * *",
       message: "Cron message",
@@ -327,12 +298,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push({ conversationId, message: prompt });
     };
 
-    const scheduler = startScheduler(
-      async () => {},
-      () => {},
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // The runner should have been invoked with the cron message
     expect(processedMessages.some((m) => m.message === "Cron message")).toBe(
@@ -374,7 +340,7 @@ describe("scheduler RRULE execution", () => {
 
     const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXDATE:${exDate}`;
 
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "RRULE set EXDATE test",
       cronExpression: expression,
       message: "Set exclusion test",
@@ -385,12 +351,7 @@ describe("scheduler RRULE execution", () => {
     // Force the schedule to be due
     forceScheduleDue(schedule.id);
 
-    const scheduler = startScheduler(
-      async () => {},
-      () => {},
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // The schedule should have been claimed and nextRunAt advanced
     const after = getSchedule(schedule.id);
@@ -422,7 +383,7 @@ describe("scheduler RRULE execution", () => {
       `EXDATE:${exDs}`,
     ].join("\n");
 
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Set schedule fire test",
       cronExpression: expression,
       message: "Set fire test",
@@ -437,12 +398,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push(prompt);
     };
 
-    const scheduler = startScheduler(
-      async () => {},
-      () => {},
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     expect(processedMessages).toContain("Set fire test");
 
@@ -501,7 +457,7 @@ describe("scheduler RRULE execution", () => {
       // Sanity: the without-EXRULE occurrence must be even (would be excluded)
       expect(offsetWithout % 2).toBe(0);
 
-      const schedule = createSchedule({
+      const schedule = await createSchedule({
         name: "EXRULE scheduler test",
         cronExpression: expression,
         message: "EXRULE scheduler fire",
@@ -516,12 +472,7 @@ describe("scheduler RRULE execution", () => {
         processedMessages.push(prompt);
       };
 
-      const scheduler = startScheduler(
-        async () => {},
-        () => {},
-      );
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      scheduler.stop();
+      await runScheduleDueWorkOnce();
 
       // The schedule should have fired
       expect(processedMessages).toContain("EXRULE scheduler fire");
@@ -545,7 +496,7 @@ describe("scheduler RRULE execution", () => {
 
   test("RRULE schedule advances nextRunAt after firing", async () => {
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Advancing RRULE",
       cronExpression: rruleExpr,
       message: "Advance test",
@@ -557,10 +508,7 @@ describe("scheduler RRULE execution", () => {
     forceScheduleDue(schedule.id);
     const forcedDueAt = getSchedule(schedule.id)!.nextRunAt;
 
-    const processMessage = async () => {};
-    const scheduler = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     const after = getSchedule(schedule.id);
     expect(after).not.toBeNull();
@@ -574,7 +522,7 @@ describe("scheduler RRULE execution", () => {
   // ── One-shot schedule tests ───────────────────────────────────────
 
   test("one-shot execute mode fires and marks schedule as fired", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "One-shot execute",
       message: "Execute this once",
       mode: "execute",
@@ -589,12 +537,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push({ conversationId, message: prompt });
     };
 
-    const scheduler = startScheduler(
-      async () => {},
-      () => {},
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     expect(
       processedMessages.some((m) => m.message === "Execute this once"),
@@ -612,7 +555,7 @@ describe("scheduler RRULE execution", () => {
   });
 
   test("one-shot notify mode emits notification and marks schedule as fired", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "One-shot notify",
       message: "Notify about this",
       mode: "notify",
@@ -623,32 +566,17 @@ describe("scheduler RRULE execution", () => {
 
     expect(getSchedule(schedule.id)!.status).toBe("active");
 
-    const notifyCalls: Array<{
-      id: string;
-      label: string;
-      message: string;
-      routingIntent: string;
-      routingHints: Record<string, unknown>;
-    }> = [];
-    const notifyScheduleOneShot = (payload: {
-      id: string;
-      label: string;
-      message: string;
-      routingIntent: string;
-      routingHints: Record<string, unknown>;
-    }) => {
-      notifyCalls.push(payload);
-    };
+    await runScheduleDueWorkOnce();
 
-    const scheduler = startScheduler(async () => {}, notifyScheduleOneShot);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
-
-    expect(notifyCalls).toHaveLength(1);
-    expect(notifyCalls[0]).toEqual({
-      id: schedule.id,
-      label: "One-shot notify",
-      message: "Notify about this",
+    expect(notifySignalCalls).toHaveLength(1);
+    expect(notifySignalCalls[0]).toMatchObject({
+      sourceEventName: "schedule.notify",
+      sourceContextId: schedule.id,
+      contextPayload: {
+        scheduleId: schedule.id,
+        label: "One-shot notify",
+        message: "Notify about this",
+      },
       routingIntent: "multi_channel",
       routingHints: { channel: "slack" },
     });
@@ -660,7 +588,7 @@ describe("scheduler RRULE execution", () => {
   });
 
   test("one-shot failure reverts to active for retry", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "One-shot fail",
       message: "This will fail",
       mode: "execute",
@@ -671,12 +599,7 @@ describe("scheduler RRULE execution", () => {
 
     runBackgroundJobShouldFail = true;
 
-    const scheduler = startScheduler(
-      async () => {},
-      () => {},
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     const after = getSchedule(schedule.id);
     expect(after).not.toBeNull();
@@ -686,7 +609,7 @@ describe("scheduler RRULE execution", () => {
 
   test("recurring + notify mode emits notification and continues recurring", async () => {
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Recurring notify",
       cronExpression: rruleExpr,
       message: "Recurring notification",
@@ -699,32 +622,17 @@ describe("scheduler RRULE execution", () => {
 
     forceScheduleDue(schedule.id);
 
-    const notifyCalls: Array<{
-      id: string;
-      label: string;
-      message: string;
-      routingIntent: string;
-      routingHints: Record<string, unknown>;
-    }> = [];
-    const notifyScheduleOneShot = (payload: {
-      id: string;
-      label: string;
-      message: string;
-      routingIntent: string;
-      routingHints: Record<string, unknown>;
-    }) => {
-      notifyCalls.push(payload);
-    };
+    await runScheduleDueWorkOnce();
 
-    const scheduler = startScheduler(async () => {}, notifyScheduleOneShot);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
-
-    expect(notifyCalls).toHaveLength(1);
-    expect(notifyCalls[0]).toEqual({
-      id: schedule.id,
-      label: "Recurring notify",
-      message: "Recurring notification",
+    expect(notifySignalCalls).toHaveLength(1);
+    expect(notifySignalCalls[0]).toMatchObject({
+      sourceEventName: "schedule.notify",
+      sourceContextId: schedule.id,
+      contextPayload: {
+        scheduleId: schedule.id,
+        label: "Recurring notify",
+        message: "Recurring notification",
+      },
       routingIntent: "single_channel",
       routingHints: { preferred: "email" },
     });
@@ -739,7 +647,7 @@ describe("scheduler RRULE execution", () => {
   });
 
   test("one-shot notify mode passes routing intent and hints to notifier", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Routing test",
       message: "Check routing",
       mode: "notify",
@@ -752,30 +660,11 @@ describe("scheduler RRULE execution", () => {
       },
     });
 
-    const notifyCalls: Array<{
-      id: string;
-      label: string;
-      message: string;
-      routingIntent: string;
-      routingHints: Record<string, unknown>;
-    }> = [];
-    const notifyScheduleOneShot = (payload: {
-      id: string;
-      label: string;
-      message: string;
-      routingIntent: string;
-      routingHints: Record<string, unknown>;
-    }) => {
-      notifyCalls.push(payload);
-    };
+    await runScheduleDueWorkOnce();
 
-    const scheduler = startScheduler(async () => {}, notifyScheduleOneShot);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
-
-    expect(notifyCalls).toHaveLength(1);
-    expect(notifyCalls[0].routingIntent).toBe("all_channels");
-    expect(notifyCalls[0].routingHints).toEqual({
+    expect(notifySignalCalls).toHaveLength(1);
+    expect(notifySignalCalls[0].routingIntent).toBe("all_channels");
+    expect(notifySignalCalls[0].routingHints).toEqual({
       requestedByUser: true,
       channelMentions: ["telegram", "slack"],
       priority: "high",

@@ -1,14 +1,14 @@
 import { and, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../../../../memory/db-connection.js";
+import { extractStylePatterns } from "../../../../messaging/style-analyzer.js";
+import { getDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
-} from "../../../../memory/jobs-store.js";
-import { memoryGraphNodes } from "../../../../memory/schema.js";
-import { clampUnitInterval } from "../../../../memory/validation.js";
-import { extractStylePatterns } from "../../../../messaging/style-analyzer.js";
+} from "../../../../persistence/jobs-store.js";
+import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
+import { clampUnitInterval } from "../../../../plugins/defaults/memory/validation.js";
 import type {
   ToolContext,
   ToolExecutionResult,

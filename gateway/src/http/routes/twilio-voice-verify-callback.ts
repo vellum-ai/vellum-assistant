@@ -6,13 +6,11 @@
  * it returns <Gather> TwiML pointing to this endpoint. Twilio POSTs the
  * collected DTMF digits here. The gateway validates the code, creates
  * the guardian binding on success, and then forwards to the assistant
- * for ConversationRelay setup.
+ * for media-stream setup.
  *
  * The assistant is never involved in verification — it only receives
  * calls from callers whose identity the gateway has already confirmed.
  */
-
-import { eq } from "drizzle-orm";
 
 import type { GatewayConfig } from "../../config.js";
 import { credentialKey } from "../../credential-key.js";
@@ -33,12 +31,11 @@ import {
   failureTwiml,
 } from "../../voice/verification.js";
 import { createGuardianBinding } from "../../auth/guardian-bootstrap.js";
-import { getGatewayDb } from "../../db/connection.js";
-import { contactChannels as gwContactChannels } from "../../db/schema.js";
 import {
-  assistantDbQuery,
-  assistantDbRun,
-} from "../../db/assistant-db-proxy.js";
+  getExistingGuardianBinding,
+  resolveCanonicalPrincipal,
+  revokeExistingChannelGuardian,
+} from "../../verification/binding-helpers.js";
 import { upsertVerifiedContactChannel } from "../../verification/contact-helpers.js";
 
 const log = getLogger("twilio-voice-verify-callback");
@@ -127,33 +124,14 @@ export function createTwilioVoiceVerifyCallbackHandler(
     // Verification succeeded — create guardian binding if this is a guardian verification
     if (result.verificationType === "guardian") {
       try {
-        // Resolve the canonical principal from the vellum channel guardian binding
-        const vellumGuardians = await assistantDbQuery<{
-          principalId: string | null;
-        }>(
-          `SELECT c.principal_id AS principalId
-           FROM contacts c
-           JOIN contact_channels cc ON cc.contact_id = c.id
-           WHERE c.role = 'guardian' AND cc.type = 'vellum' AND cc.status = 'active'
-           LIMIT 1`,
-          [],
-        );
-        const canonicalPrincipal =
-          vellumGuardians[0]?.principalId ?? fromNumber;
+        // Resolve the canonical principal from the gateway DB (ACL source of
+        // truth) via the vellum channel guardian binding.
+        const canonicalPrincipal = resolveCanonicalPrincipal(fromNumber);
 
-        // Check for existing phone guardian binding conflict
-        const existingPhoneGuardians = await assistantDbQuery<{
-          address: string;
-        }>(
-          `SELECT cc.address
-           FROM contacts c
-           JOIN contact_channels cc ON cc.contact_id = c.id
-           WHERE c.role = 'guardian' AND cc.type = 'phone' AND cc.status = 'active'
-           LIMIT 1`,
-          [],
-        );
-
-        const existingGuardian = existingPhoneGuardians[0];
+        // Check for an existing phone guardian binding conflict against the
+        // gateway DB so the revoke below never displaces a real gateway
+        // binding based on a stale assistant mirror.
+        const existingGuardian = getExistingGuardianBinding("phone");
         if (existingGuardian && existingGuardian.address !== fromNumber) {
           log.warn(
             {
@@ -166,7 +144,7 @@ export function createTwilioVoiceVerifyCallbackHandler(
         } else {
           // Revoke existing phone guardian binding before creating new one
           if (existingGuardian) {
-            await revokeExistingPhoneGuardian();
+            revokeExistingChannelGuardian("phone");
           }
 
           await createGuardianBinding({
@@ -218,7 +196,7 @@ export function createTwilioVoiceVerifyCallbackHandler(
       }
     }
 
-    // Forward to the assistant for ConversationRelay setup.
+    // Forward to the assistant for media-stream setup.
     // The assistant will see the caller as already verified.
     log.info(
       { callSid, fromNumber },
@@ -237,51 +215,6 @@ export function createTwilioVoiceVerifyCallbackHandler(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Revoke the existing phone guardian binding by setting status to 'revoked'.
- * Dual-writes to both assistant DB and gateway DB.
- */
-async function revokeExistingPhoneGuardian(): Promise<void> {
-  const now = Date.now();
-
-  const revokedRows = await assistantDbQuery<{ id: string }>(
-    `SELECT cc.id
-     FROM contacts c
-     JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.role = 'guardian' AND cc.type = 'phone' AND cc.status = 'active'`,
-    [],
-  );
-
-  if (revokedRows.length === 0) return;
-
-  const ids = revokedRows.map((r) => r.id);
-  const placeholders = ids.map(() => "?").join(", ");
-
-  await assistantDbRun(
-    `UPDATE contact_channels
-     SET status = 'revoked', policy = 'deny', updated_at = ?
-     WHERE id IN (${placeholders})`,
-    [now, ...ids],
-  );
-
-  // Gateway DB dual-write (best-effort)
-  try {
-    const gwDb = getGatewayDb();
-    for (const id of ids) {
-      gwDb
-        .update(gwContactChannels)
-        .set({ status: "revoked", policy: "deny", updatedAt: now })
-        .where(eq(gwContactChannels.id, id))
-        .run();
-    }
-  } catch (gwErr) {
-    log.warn(
-      { err: gwErr },
-      "Gateway DB revoke dual-write failed (best-effort)",
-    );
-  }
-}
 
 /**
  * Build the action URL for the next Gather attempt, preserving the base

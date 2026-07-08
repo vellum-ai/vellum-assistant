@@ -17,7 +17,7 @@ mock.module("../util/logger.js", () => ({
 const enqueuedJobs: Array<{ type: string; payload: Record<string, unknown> }> =
   [];
 
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (type: string, payload: Record<string, unknown>) => {
     enqueuedJobs.push({ type, payload });
   },
@@ -30,7 +30,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../memory/embedding-backend.js", () => ({
+mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   selectedBackendSupportsMultimodal: async () => false,
 }));
 
@@ -40,7 +40,7 @@ import Database from "bun:sqlite";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import * as schema from "../memory/schema.js";
+import * as schema from "../persistence/schema/index.js";
 
 let db: ReturnType<typeof drizzle>;
 
@@ -126,13 +126,13 @@ function createTestDb() {
   return { sqlite, db };
 }
 
-mock.module("../memory/db-connection.js", () => ({
+mock.module("../persistence/db-connection.js", () => ({
   getDb: () => db,
 }));
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-import { rebuildIndexJob } from "../memory/job-handlers/index-maintenance.js";
+import { rebuildIndexJob } from "../plugins/defaults/memory/job-handlers/index-maintenance.js";
 
 describe("rebuildIndexJob", () => {
   beforeEach(() => {

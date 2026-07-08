@@ -21,9 +21,9 @@ import {
   resolveCanonicalGuardianRequest,
   updateCanonicalGuardianDelivery,
   updateCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../contacts/canonical-guardian-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 await initializeDb();
 
 // All decisionable kinds (tool_approval, pending_question, access_request)

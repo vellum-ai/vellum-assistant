@@ -15,10 +15,10 @@ import {
   backfillAppConversationIds,
   createApp,
   getApp,
-} from "../memory/app-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { rawRun } from "../memory/raw-query.js";
+} from "../apps/app-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { rawRun } from "../persistence/raw-query.js";
 
 // Initialize db once for all tests
 await initializeDb();
@@ -53,6 +53,7 @@ function insertMessage(
   const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const contentStr = JSON.stringify(content);
   rawRun(
+    "test:insertMessage",
     `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
     id,
     conversationId,
@@ -66,6 +67,7 @@ function insertMessage(
 function insertConversation(id: string): void {
   const now = Date.now();
   rawRun(
+    "test:insertConversation",
     `INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)`,
     id,
     "test",
@@ -205,6 +207,7 @@ describe("backfillAppConversationIds", () => {
     // Insert a message with invalid JSON that happens to match the LIKE filter
     const msgId = `msg-malformed-${Date.now()}`;
     rawRun(
+      "test:insertMalformedMessage",
       `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
       msgId,
       convId,

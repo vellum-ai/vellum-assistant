@@ -1,4 +1,4 @@
-import { Box, Globe, Puzzle, Terminal, User } from "lucide-react";
+import { Box, Brain, Globe, Puzzle, Terminal, User } from "lucide-react";
 import { createElement } from "react";
 
 import type { SkillOrigin } from "@/domains/intelligence/skills/types";
@@ -9,6 +9,7 @@ const ORIGIN_META: Record<SkillOrigin, { label: string; icon: typeof Globe }> = 
   clawhub: { label: "Clawhub", icon: Globe },
   skillssh: { label: "skills.sh", icon: Terminal },
   custom: { label: "Custom", icon: User },
+  "assistant-memory": { label: "Assistant's Memory", icon: Brain },
 };
 
 export function SkillOriginBadge({ origin }: { origin: SkillOrigin | string }) {

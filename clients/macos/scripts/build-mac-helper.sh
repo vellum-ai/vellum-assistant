@@ -4,9 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PACKAGE_DIR="$ROOT_DIR/native/mac-helper"
 OUTPUT_DIR="$ROOT_DIR/resources"
-OUTPUT_BUNDLE="$OUTPUT_DIR/vellum-mac-helper.app"
-OUTPUT="$OUTPUT_BUNDLE/Contents/MacOS/vellum-mac-helper"
-OUTPUT_INFO_PLIST="$OUTPUT_BUNDLE/Contents/Info.plist"
+# $OUTPUT_BUNDLE (the .app folder) is set after the env block below. macOS
+# System Settings → Privacy & Security renders the .app folder name — not
+# CFBundleName/CFBundleDisplayName, and not the executable filename — when
+# listing this helper's grants, so the folder is named per-environment.
+# CFBundleExecutable must still match the on-disk filename or codesign
+# rejects the bundle.
 TEMPLATE_PLIST="$PACKAGE_DIR/Sources/MacHelperExecutable/Info.plist"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -42,6 +45,23 @@ else
   HELPER_DISPLAY_NAME="Vellum Helper ${ENV_CAP}"
 fi
 
+# Name the .app folder AND the executable per environment. The helper is
+# spawned directly (execve, not via LaunchServices); the Privacy & Security
+# list shows the .app folder name, not CFBundleName/CFBundleDisplayName or
+# the executable filename. Naming both the folder and the binary after the
+# env display name ("Vellum Helper", "Vellum Helper Dev", …) is what makes
+# the Settings entry read correctly.
+HELPER_BUNDLE_NAME="$HELPER_DISPLAY_NAME"
+HELPER_EXEC_NAME="$HELPER_DISPLAY_NAME"
+OUTPUT_BUNDLE="$OUTPUT_DIR/$HELPER_BUNDLE_NAME.app"
+OUTPUT="$OUTPUT_BUNDLE/Contents/MacOS/$HELPER_EXEC_NAME"
+OUTPUT_INFO_PLIST="$OUTPUT_BUNDLE/Contents/Info.plist"
+# Sidecar so the runtime can resolve the .app folder without hardcoding the
+# env→name mapping in TS. electron-builder copies this alongside the bundle
+# into Vellum.app/Contents/Resources/bin/. macOS Finder hides it, but the
+# runtime doesn't care.
+HELPER_BUNDLE_NAME_SIDECAR="$OUTPUT_DIR/.vellum-mac-helper.bundle-name"
+
 mkdir -p "$OUTPUT_DIR"
 # Render the templated Info.plist, then embed it into the bare executable's
 # __info_plist section so TCC can attribute permission prompts for the
@@ -53,6 +73,7 @@ rm -f "$OUTPUT_DIR"/.vellum-mac-helper.*.Info.plist
 RENDERED_TMP="$(mktemp)"
 sed -e "s|__HELPER_BUNDLE_ID__|${HELPER_BUNDLE_ID}|g" \
     -e "s|__HELPER_DISPLAY_NAME__|${HELPER_DISPLAY_NAME}|g" \
+    -e "s|__HELPER_EXEC_NAME__|${HELPER_EXEC_NAME}|g" \
     "$TEMPLATE_PLIST" > "$RENDERED_TMP"
 RENDERED_PLIST="$OUTPUT_DIR/.vellum-mac-helper.$(shasum -a 256 "$RENDERED_TMP" | cut -c1-16).Info.plist"
 mv -f "$RENDERED_TMP" "$RENDERED_PLIST"
@@ -63,8 +84,12 @@ BUILD_ARGS+=(
   -Xlinker "$RENDERED_PLIST"
 )
 
-# Legacy layouts (bare binary / old name) — always clear.
+# Clear any bare binary / `vellum-mac-helper.app` outputs so a rebuild never
+# leaves an orphan bundle on disk next to the per-env one; the corresponding
+# TCC row in Settings persists until manually toggled off (or
+# `tccutil reset Accessibility ai.vellum.assistant.mac-helper`).
 rm -f "$OUTPUT_DIR/hotkey-helper" "$OUTPUT_DIR/vellum-mac-helper" "$OUTPUT_DIR/Info.plist"
+rm -rf "$OUTPUT_DIR/vellum-mac-helper.app"
 xcrun swift build "${BUILD_ARGS[@]}"
 BUILD_DIR="$(xcrun swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 
@@ -101,3 +126,9 @@ else
   codesign --force --sign - --entitlements "$ROOT_DIR/scripts/entitlements/helper.plist" "$OUTPUT_BUNDLE"
   printf '%s' "$SOURCE_HASH" > "$HASH_MARKER"
 fi
+
+# Always rewrite the sidecar so it tracks the current build's bundle name —
+# the runtime reads it instead of hardcoding the env→name mapping. Write
+# unconditionally (cheap) rather than only on rebuild, so a no-op rebuild
+# that keeps the existing bundle still has a sidecar pointing at it.
+printf '%s' "$HELPER_BUNDLE_NAME" > "$HELPER_BUNDLE_NAME_SIDECAR"

@@ -203,7 +203,7 @@ const capturedRunAgentLoopOptions: CapturedRunAgentLoopOptions[] = [];
 class FakeConversation {
   constructor() {}
   updateClient() {}
-  setIsSubagent() {}
+
   setTrustContext() {}
   setAuthContext() {}
   getAuthContext() {
@@ -253,7 +253,7 @@ mock.module("../daemon/conversation.js", () => ({
   Conversation: FakeConversation,
 }));
 
-mock.module("../memory/conversation-bootstrap.js", () => ({
+mock.module("../persistence/conversation-bootstrap.js", () => ({
   bootstrapConversation: () => ({ id: "conv-id" }),
 }));
 
@@ -294,6 +294,10 @@ mock.module("../config/loader.js", () => ({
         provider: "anthropic",
         model: "claude-opus-4-7",
         provider_connection: "anthropic-conn",
+      },
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
       },
     },
     rateLimit: { maxRequestsPerMinute: 0 },
@@ -383,7 +387,7 @@ describe("SubagentManager.spawn — overrideProfile inheritance", () => {
 // conversations regardless. Without preferring the in-memory context, the
 // inheritance chain breaks at the second nesting level.
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   // Always return undefined for the row read so the test fails fast unless
   // executeSubagentSpawn reads from context.overrideProfile first.

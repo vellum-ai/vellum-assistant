@@ -22,11 +22,11 @@ import type { Auth, ConnectionProvider, InferenceProviderconnectionsPostData, Pr
 import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-editor-api-key-section";
 import {
     AUTH_TYPE_DISPLAY_NAMES,
-    CONNECTION_PROVIDERS,
     connectionSaveErrorMessage,
     parseCredentialRef,
     type AuthType,
 } from "@/domains/settings/ai/provider-editor-constants";
+import { useSelectableConnectionProviders } from "@/domains/settings/ai/provider-availability";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
@@ -72,7 +72,12 @@ export function ProviderCreateForm({
   onCancel,
   variant = "modal",
 }: ProviderCreateFormProps) {
-  const initialProvider: ConnectionProvider = defaultProviderType ?? "anthropic";
+  const selectableConnectionProviders = useSelectableConnectionProviders();
+  const initialProvider: ConnectionProvider =
+    defaultProviderType &&
+    selectableConnectionProviders.includes(defaultProviderType)
+      ? defaultProviderType
+      : (selectableConnectionProviders[0] ?? "anthropic");
 
   // Seed Display Name (label) + Key (name) from the initial provider type so
   // the form opens pre-filled (e.g. Anthropic → "Anthropic" / "anthropic"),
@@ -103,11 +108,11 @@ export function ProviderCreateForm({
 
   const isOpenAICompatible = provider === "openai-compatible";
   const connectionProviderOptions = useMemo(() => {
-    if (provider && !CONNECTION_PROVIDERS.includes(provider)) {
-      return [...CONNECTION_PROVIDERS, provider];
+    if (provider && !selectableConnectionProviders.includes(provider)) {
+      return [...selectableConnectionProviders, provider];
     }
-    return CONNECTION_PROVIDERS;
-  }, [provider]);
+    return selectableConnectionProviders;
+  }, [provider, selectableConnectionProviders]);
 
   const { handleLabelChange, handleKeyChange: handleNameChange, getDirty } =
     useLabelKeySync("create", setLabel, setName);
@@ -238,7 +243,16 @@ export function ProviderCreateForm({
         body: input,
       });
       if (!createRes?.ok) {
-        setError(connectionSaveErrorMessage(createRes?.status, name.trim()));
+        let serverMessage: string | undefined;
+        try {
+          const body = await createRes?.json();
+          if (typeof body?.error?.message === "string") {
+            serverMessage = body.error.message;
+          }
+        } catch {
+          // Response body not JSON-parseable; fall through to generic message.
+        }
+        setError(serverMessage || connectionSaveErrorMessage(createRes?.status, name.trim()));
         return;
       }
       if (!created) {

@@ -6,10 +6,10 @@
  *
  * 1. Emit skill_load_dynamic:<id>@<hash> / skill_load_dynamic:<id> candidates
  *    instead of skill_load:<id>@<hash> / skill_load:<id>.
- * 2. Match the default ask rule for skill_load_dynamic:* (prompting by default).
- * 3. Allow exact-hash rules to auto-allow pinned versions.
- * 4. Re-prompt when the transitive hash changes (skill edited).
- * 5. Continue matching the existing skill_load:* flow for non-dynamic skills.
+ * 2. Prompt by default: a threshold-based allow is downgraded to a prompt
+ *    unless a user trust rule covers the load (gateway classification
+ *    matchType "user_rule" — the rule re-classifies the risk).
+ * 3. Continue matching the existing skill_load:* flow for non-dynamic skills.
  */
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -141,7 +141,7 @@ describe("inline-command skill_load permissions", () => {
   // ── Default behavior ─────────────────────────────────────────────────
 
   describe("default behavior", () => {
-    test("dynamic skill auto-allows in workspace mode (low risk threshold)", async () => {
+    test("an uncovered dynamic skill prompts even when the threshold covers its risk", async () => {
       ensureSkillsDir();
       writeDynamicSkill("dynamic-prompt", "Dynamic Prompt Skill");
 
@@ -150,7 +150,31 @@ describe("inline-command skill_load permissions", () => {
         { skill: "dynamic-prompt" },
         "/tmp",
       );
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("Inline-command skill load");
+    });
+
+    test("a dynamic skill covered by a user trust rule is allowed", async () => {
+      ensureSkillsDir();
+      writeDynamicSkill("dynamic-covered", "Dynamic Covered Skill");
+      mockIpcResponse("classify_risk", {
+        risk: "low",
+        reason: "user rule: skill_load_dynamic:dynamic-covered",
+        matchType: "user_rule",
+      });
+
+      const result = await check(
+        "skill_load",
+        { skill: "dynamic-covered" },
+        "/tmp",
+      );
       expect(result.decision).toBe("allow");
+
+      mockIpcResponse("classify_risk", {
+        risk: "low",
+        reason: "skill_load",
+        matchType: "unknown",
+      });
     });
 
     test("dynamic skill prompts in strict mode (no matching rule)", async () => {
@@ -190,25 +214,6 @@ describe("inline-command skill_load permissions", () => {
   });
 
   // ── Feature flag disabled ────────────────────────────────────────────
-
-  describe("feature flag disabled", () => {
-    test("dynamic skill auto-allows when flag is off (low risk threshold)", async () => {
-      ensureSkillsDir();
-      writeDynamicSkill("dynamic-flag-off", "Dynamic Flag Off Skill");
-
-      // Disable the feature flag
-      setOverridesForTesting({
-        "inline-skill-commands": false,
-      });
-
-      const result = await check(
-        "skill_load",
-        { skill: "dynamic-flag-off" },
-        "/tmp",
-      );
-      expect(result.decision).toBe("allow");
-    });
-  });
 
   // ── Allowlist options ────────────────────────────────────────────────
 

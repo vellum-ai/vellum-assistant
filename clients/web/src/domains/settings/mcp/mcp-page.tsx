@@ -1,9 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cable, Loader2, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { McpAddServerModal } from "./mcp-add-server-modal";
 import {
   addMcpServer,
@@ -27,10 +29,19 @@ import { toast } from "@vellumai/design-library/components/toast";
 const MCP_SERVERS_KEY = "mcp-servers";
 const MCP_TOOLS_KEY = "mcp-tools-summary";
 
+/**
+ * First message auto-sent when a user without the add-server flag clicks the
+ * empty-state call to action — kicks off an assistant-guided MCP setup.
+ */
+const MCP_SETUP_PROMPT =
+  "Help me set up an MCP server to extend you with external tools.";
+
 function McpPageInner() {
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const mcpAddServerEnabled = useAssistantFeatureFlagStore.use.mcpAddServer();
+  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [configureServerId, setConfigureServerId] = useState<string | null>(null);
@@ -281,6 +292,14 @@ function McpPageInner() {
     }
   }, [assistantId, invalidateAll]);
 
+  const handleEmptyStateAction = useCallback(() => {
+    if (mcpAddServerEnabled) {
+      setAddModalOpen(true);
+    } else {
+      navigateToNewConversation(navigate, { prompt: MCP_SETUP_PROMPT });
+    }
+  }, [mcpAddServerEnabled, navigate]);
+
   const servers = serversData?.servers ?? [];
 
   return (
@@ -332,13 +351,20 @@ function McpPageInner() {
           Failed to load MCP servers. Check that an assistant is running.
         </p>
       ) : servers.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border-element)] px-4 py-12 text-center">
+        <button
+          type="button"
+          onClick={handleEmptyStateAction}
+          disabled={!flagsHydrated}
+          className="flex w-full flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border-element)] px-4 py-12 text-center transition-colors hover:border-[var(--border-active)] hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] disabled:pointer-events-none"
+        >
           <Cable className="h-6 w-6 text-[var(--content-disabled)]" />
           <p className="text-body-medium-default text-[var(--content-default)]">No MCP Servers</p>
           <p className="text-body-small-default text-[var(--content-tertiary)]">
-            Add an MCP server to extend your assistant with external tools.
+            {mcpAddServerEnabled
+              ? "Add an MCP server to extend your assistant with external tools."
+              : "Chat with your assistant to set up an MCP server."}
           </p>
-        </div>
+        </button>
       ) : (
         <div className="space-y-2">
           {servers.map((server) => (

@@ -1,13 +1,13 @@
 import { and, desc, eq, notInArray, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db-connection.js";
-import { rawChanges, rawRun } from "../memory/raw-query.js";
+import { getDb } from "../persistence/db-connection.js";
+import { rawChanges, rawRun } from "../persistence/raw-query.js";
 import {
   callEvents,
   callPendingQuestions,
   callSessions,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
 import { cast, createRowMapper } from "../util/row-mapper.js";
 import { syncActiveCallLeaseFromSession } from "./active-call-lease.js";
@@ -401,6 +401,7 @@ export function claimCallback(
 ): string | null {
   // Clear any expired orphaned claims so they can be reprocessed
   rawRun(
+    "calls:claimCallback:clearExpired",
     `DELETE FROM processed_callbacks WHERE dedupe_key = ? AND created_at < ?`,
     dedupeKey,
     Date.now() - CLAIM_EXPIRY_MS,
@@ -408,6 +409,7 @@ export function claimCallback(
 
   const claimId = uuid();
   const changes = rawRun(
+    "calls:claimCallback:insert",
     `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, claim_id, created_at) VALUES (?, ?, ?, ?, ?)`,
     uuid(),
     dedupeKey,
@@ -427,6 +429,7 @@ export function claimCallback(
  */
 export function releaseCallbackClaim(dedupeKey: string, claimId: string): void {
   rawRun(
+    "calls:releaseCallbackClaim",
     `DELETE FROM processed_callbacks WHERE dedupe_key = ? AND claim_id = ?`,
     dedupeKey,
     claimId,
@@ -454,6 +457,7 @@ export function finalizeCallbackClaim(
   // Set created_at far in the future so expiry check never matches
   const NEVER_EXPIRE = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000; // ~100 years
   const changes = rawRun(
+    "calls:finalizeCallbackClaim",
     `UPDATE processed_callbacks SET created_at = ? WHERE dedupe_key = ? AND claim_id = ?`,
     NEVER_EXPIRE,
     dedupeKey,

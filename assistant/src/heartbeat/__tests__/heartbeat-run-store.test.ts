@@ -11,8 +11,8 @@ mock.module("../../util/logger.js", () => ({
 
 import { sql } from "drizzle-orm";
 
-import { getDb } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import {
   completeHeartbeatRun,
   countCompletedHeartbeatRuns,

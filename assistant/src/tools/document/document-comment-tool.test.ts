@@ -11,8 +11,8 @@ import {
   getComment,
   listComments,
 } from "../../documents/document-comments-store.js";
-import { initializeDb } from "../../memory/db-init.js";
-import { rawRun, resetTestTables } from "../../memory/raw-query.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { rawRun, resetTestTables } from "../../persistence/raw-query.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import {
   executeCommentList,
@@ -49,12 +49,14 @@ function seedDocument(
 ): void {
   const now = Date.now();
   rawRun(
+    "test:seedConversation",
     /*sql*/ `INSERT OR IGNORE INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)`,
     conversationId,
     now,
     now,
   );
   rawRun(
+    "test:seedDocument",
     /*sql*/ `INSERT OR IGNORE INTO documents (surface_id, conversation_id, title, content, word_count, created_at, updated_at)
      VALUES (?, ?, 'Test Doc', 'body', 2, ?, ?)`,
     surfaceId,
@@ -63,6 +65,7 @@ function seedDocument(
     now,
   );
   rawRun(
+    "test:seedDocConversation",
     /*sql*/ `INSERT OR IGNORE INTO document_conversations (surface_id, conversation_id, created_at) VALUES (?, ?, ?)`,
     surfaceId,
     conversationId,
@@ -100,6 +103,7 @@ describe("executeCommentList", () => {
     });
     // Resolve one directly via the store
     rawRun(
+      "test:resolveComment",
       /*sql*/ `UPDATE document_comments SET status = 'resolved', resolved_by = 'user1', resolved_at = ? WHERE id = ?`,
       Date.now(),
       c2.id,

@@ -38,13 +38,13 @@ import type {
   PluginsSearchGetResponses,
 } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { detectClientOs } from "@/runtime/platform-detection";
 import {
   buildResearchPrompt,
   type AvailableCapability,
   type ResearchSubject,
 } from "@/domains/onboarding/research-prompt";
 import { resolveDeterministicPlugins } from "@/domains/onboarding/onboarding-plugin-affinity";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   parseResearchResultStreaming,
   type ResearchFact,
@@ -70,6 +70,22 @@ export function shouldSettleResearchPoll({
   stableReads: number;
 }): boolean {
   return complete && stableReads >= STABLE_READS_TO_SETTLE;
+}
+
+export function resolveResearchCompletionStatus({
+  sawCompletePayload,
+}: {
+  sawCompletePayload: boolean;
+}): ResearchStatus {
+  return sawCompletePayload ? "done" : "error";
+}
+
+export function shouldArchiveCompletedResearchConversation({
+  sawCompletePayload,
+}: {
+  sawCompletePayload: boolean;
+}): boolean {
+  return sawCompletePayload;
 }
 /**
  * Org that owns first-party, reviewed Vellum plugins. Onboarding only ever
@@ -134,16 +150,11 @@ export function selectRecommendableCapabilities(
   return { capabilities, validNames };
 }
 
-const EMPTY_CAPABILITIES: RecommendableCapabilities = {
-  capabilities: [],
-  validNames: new Set<string>(),
-};
-
 /**
- * Pull the live marketplace catalog and compact it into the capability list the
- * research prompt advertises. Best-effort: any failure yields an empty list, in
- * which case the prompt simply omits the capabilities block (unchanged from the
- * pre-plugin behavior).
+ * Pull the live marketplace catalog and compact it into the first-party
+ * capability list the research prompt advertises. Best-effort: any failure
+ * yields an empty list, in which case the prompt simply omits the capabilities
+ * block.
  */
 async function fetchAvailableCapabilities(
   assistantId: string,
@@ -194,9 +205,17 @@ export interface ResearchRunnerState {
    * floor (always-install baseline + role affinity) unioned with the model's
    * top-level `plugins` picks, each narrowed to names present in the fetched
    * catalog. Persona-level (not tied to a suggestion); surfaced so the UI can
-   * confirm what was set up. Empty when plugins are disabled or nothing fit.
+   * confirm what was set up. Empty when the first-party catalog is unavailable
+   * or nothing fit.
    */
   installedPlugins: string[];
+  /**
+   * Map of plugin install name → one-line description, from the fetched
+   * first-party catalog. Lets the UI render each installed plugin with its real
+   * name + description (not just the name). Empty when the catalog was
+   * unavailable (or, after a refresh-resume, not re-fetched).
+   */
+  pluginCatalog: Record<string, string>;
 }
 
 export interface StartResearchOptions {
@@ -205,6 +224,28 @@ export interface StartResearchOptions {
   subject: ResearchSubject;
   /** Friendly title for the behind-the-scenes research conversation. */
   conversationTitle?: string;
+  /**
+   * Resume a research conversation a prior session minted (a refresh mid-search)
+   * instead of creating a fresh one. The prior turn keeps generating server-side
+   * across the reload, so we re-attach and poll it — re-posting the prompt only
+   * if it never landed before the refresh — so the search is never run twice. If
+   * the conversation is gone (e.g. it completed and was archived), falls back to
+   * a fresh run so the user still gets results.
+   */
+  resumeConversationId?: string;
+  /**
+   * Invoked with the conversation id the moment a FRESH research conversation is
+   * minted (not on resume), so the caller can persist it and resume this exact
+   * thread if the page is refreshed mid-search.
+   */
+  onConversationCreated?: (conversationId: string) => void;
+  /**
+   * Whether to ask the model for clickable `suggestions`. Off for the "Let's
+   * chat" final step (personality-onboarding flag), which installs the picked
+   * plugins and primes a chat instead of surfacing suggestion cards. Defaults to
+   * true so the legacy suggestions flow is unchanged.
+   */
+  includeSuggestions?: boolean;
 }
 
 export interface UseResearchRunner extends ResearchRunnerState {
@@ -219,10 +260,26 @@ export interface UseResearchRunner extends ResearchRunnerState {
    * Block a suggestion click only as long as the persona plugins need: waits for
    * the `plugins` decision to be final (so a click that beat the parse doesn't
    * skip selection), then for those installs to finish — never for the rest of
-   * the research turn. Resolves instantly when nothing is installable (plugins
-   * disabled, none picked, or already installed), so ordinary clicks don't hang.
+   * the research turn. Resolves instantly when nothing is installable (empty
+   * catalog, none picked, or already installed), so ordinary clicks don't hang.
    */
   awaitPluginInstalls: () => Promise<void>;
+  /**
+   * Adopt research output persisted by a prior session (a page refresh) as the
+   * settled state, WITHOUT re-running the turn — so a refresh that resumes past
+   * a completed search never fires a second "research me" background turn.
+   *
+   * The plugin installs are best-effort and fire-and-forget, so a refresh can
+   * cancel ones that hadn't settled, leaving capabilities the UI claims were set
+   * up not actually installed. So when `awaitAssistantId` is supplied, re-enqueue
+   * an install for each named plugin (idempotent — an already-installed plugin
+   * 409s and is ignored) and track its promise, so `awaitPluginInstalls` blocks a
+   * suggestion click until the capabilities are genuinely present again.
+   */
+  hydrate: (
+    results: ResearchRunnerState,
+    awaitAssistantId?: () => Promise<string>,
+  ) => void;
 }
 
 type GetMessage = MessagesGetResponses[200]["messages"][number];
@@ -230,30 +287,21 @@ type GetMessage = MessagesGetResponses[200]["messages"][number];
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Bounded wait (ms) for the assistant flag store to hydrate before gating on it. */
-const FLAG_HYDRATE_TIMEOUT_MS = 8000;
-
-/**
- * Whether the experimental external-plugin surface is enabled for this
- * assistant. Plugin install/load lives behind the `external-plugins` rollout
- * gate (assistant flag store key `externalPlugins`), so onboarding must not
- * surface or materialize plugins when it's off — otherwise we'd bypass the gate
- * and expose/install marketplace plugins to an unentitled workspace. Waits
- * (bounded) for the flag store to hydrate so a cold load doesn't read the
- * default-off value as a hard "no"; an un-hydrated timeout is treated as off.
- */
-async function awaitExternalPluginsEnabled(
-  isStale: () => boolean,
-): Promise<boolean> {
-  const deadline = Date.now() + FLAG_HYDRATE_TIMEOUT_MS;
-  while (
-    !useAssistantFeatureFlagStore.getState().hasHydrated &&
-    Date.now() < deadline
-  ) {
-    await sleep(250);
-    if (isStale()) return false;
-  }
-  return useAssistantFeatureFlagStore.getState().externalPlugins === true;
+export function resolveOnboardingPluginInstalls({
+  role,
+  validNames,
+  modelPlugins,
+}: {
+  role: string;
+  validNames: Set<string>;
+  modelPlugins: readonly string[];
+}): string[] {
+  return [
+    ...new Set([
+      ...resolveDeterministicPlugins(role, validNames),
+      ...modelPlugins.filter((name) => validNames.has(name)),
+    ]),
+  ];
 }
 
 /** Latest assistant reply text from a messages list (text blocks, then legacy flat content). */
@@ -281,6 +329,7 @@ export function useResearchRunner(): UseResearchRunner {
     claims: [],
     suggestions: [],
     installedPlugins: [],
+    pluginCatalog: {},
   });
   // Monotonic run id: every fresh run claims the next id; in-flight loops bail
   // the moment a newer run supersedes them. Paired with the last subject key so
@@ -302,7 +351,14 @@ export function useResearchRunner(): UseResearchRunner {
   const queryClient = useQueryClient();
 
   const start = useCallback(
-    ({ awaitAssistantId, subject, conversationTitle }: StartResearchOptions) => {
+    ({
+      awaitAssistantId,
+      subject,
+      conversationTitle,
+      resumeConversationId,
+      onConversationCreated,
+      includeSuggestions = true,
+    }: StartResearchOptions) => {
       const subjectKey = JSON.stringify(subject);
       if (subjectKeyRef.current === subjectKey) return;
       subjectKeyRef.current = subjectKey;
@@ -322,30 +378,35 @@ export function useResearchRunner(): UseResearchRunner {
         claims: [],
         suggestions: [],
         installedPlugins: [],
+        pluginCatalog: {},
       });
 
       void (async () => {
         let resolvedAssistantId: string | undefined;
         let createdConversationId: string | undefined;
+        let sawCompletePayload = false;
         try {
           const assistantId = await awaitAssistantId();
           resolvedAssistantId = assistantId;
           if (isStale()) return;
 
-          // Advertise the live marketplace catalog to the research turn so it can
-          // pick the capabilities that best fit the person (returned as a
-          // top-level `plugins` list) for us to install. Only when the external-
-          // plugin surface is enabled for this assistant; otherwise run plain
-          // research with no plugin injection or install. Best-effort: an empty
-          // list just omits the capabilities block.
-          const pluginsEnabled = await awaitExternalPluginsEnabled(isStale);
+          // Advertise the Vellum-owned marketplace capabilities to the research
+          // turn so it can pick the ones that best fit the person (returned as a
+          // top-level `plugins` list) for us to install. The catalog filter keeps
+          // onboarding scoped to first-party plugins; third-party plugin
+          // browsing/install surfaces remain independently feature-gated.
+          const { capabilities, validNames } =
+            await fetchAvailableCapabilities(assistantId);
           if (isStale()) return;
-          const { capabilities, validNames } = pluginsEnabled
-            ? await fetchAvailableCapabilities(assistantId)
-            : EMPTY_CAPABILITIES;
-          if (isStale()) return;
-          // Nothing installable (plugins disabled or empty catalog) — release the
-          // click gate now so suggestion clicks never wait on the research turn.
+          // Name → description for the fetched catalog, so the UI can show each
+          // installed plugin with its real name + description. Carried on every
+          // state update below (the poll loop replaces state wholesale).
+          const pluginCatalog: Record<string, string> = Object.fromEntries(
+            capabilities.map((c) => [c.name, c.description]),
+          );
+          setState((s) => ({ ...s, pluginCatalog }));
+          // Nothing installable (empty/unavailable catalog) — release the click
+          // gate so suggestion clicks never wait on the research turn.
           if (validNames.size === 0) resolvePluginsReady();
 
           // Tracks every install fired this run (deterministic floor + the model's
@@ -371,51 +432,106 @@ export function useResearchRunner(): UseResearchRunner {
             setState((s) => ({ ...s, installedPlugins: deterministicPlugins }));
           }
 
-          const conversation = await conversationsPost({
-            path: { assistant_id: assistantId },
-            body: {
-              conversationType: "standard",
-              ...(conversationTitle ? { title: conversationTitle } : {}),
-            },
-            throwOnError: false,
-          });
-          // Capture the created conversation id BEFORE the stale check so a
-          // superseded run still archives its throwaway side conversation in the
-          // finally block. The finally already guards on truthiness, so an
-          // undefined id here is harmless.
-          createdConversationId = conversation.data?.id;
-          if (isStale()) return;
-          const conversationId = conversation.data?.id;
-          if (!conversation.response?.ok || !conversationId) {
-            setState((s) => ({ ...s, status: "error" }));
-            return;
-          }
-
-          const body: MessagesPostData["body"] = {
-            conversationId,
-            content: buildResearchPrompt(subject, capabilities),
-            sourceChannel: "vellum",
-            interface: "vellum",
-            clientMessageId: crypto.randomUUID(),
+          // Post the research prompt onto a conversation. Returns false on a
+          // failed POST so the caller can settle "error".
+          const postResearchPrompt = async (cid: string): Promise<boolean> => {
+            const body: MessagesPostData["body"] = {
+              conversationId: cid,
+              content: buildResearchPrompt(subject, capabilities, {
+                includeSuggestions,
+              }),
+              sourceChannel: "vellum",
+              // `interface` is the transport ("web"); the real OS travels in
+              // `clientOs` so the assistant's `client_os` context is correct
+              // for this onboarding side conversation too, without affecting
+              // transport/host-proxy gating (mirrors `chat/api/messages.ts`).
+              interface: "web",
+              clientOs: detectClientOs(),
+              clientMessageId: crypto.randomUUID(),
+            };
+            // Carry the browser timezone so any time-relative reasoning resolves
+            // to the user's local clock. Mirrors `checkin-scheduler.ts`.
+            try {
+              const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              if (tz) body.clientTimezone = tz;
+            } catch {
+              // Intl unavailable — daemon falls back to its own cascade.
+            }
+            const posted = await messagesPost({
+              path: { assistant_id: assistantId },
+              body,
+              throwOnError: false,
+            });
+            return Boolean(posted.response?.ok);
           };
-          // Carry the browser timezone so any time-relative reasoning resolves
-          // to the user's local clock. Mirrors `checkin-scheduler.ts`.
-          try {
-            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            if (tz) body.clientTimezone = tz;
-          } catch {
-            // Intl unavailable — daemon falls back to its own cascade.
+
+          // Mint a fresh research conversation + fire the prompt. Used for the
+          // initial run and as the resume fallback when the prior conversation
+          // is gone.
+          const startFreshConversation = async (): Promise<
+            string | undefined
+          > => {
+            const conversation = await conversationsPost({
+              path: { assistant_id: assistantId },
+              body: {
+                conversationType: "standard",
+                ...(conversationTitle ? { title: conversationTitle } : {}),
+              },
+              throwOnError: false,
+            });
+            // Capture before the stale check so the finally block can archive it
+            // once a complete payload settles.
+            createdConversationId = conversation.data?.id;
+            const id = conversation.data?.id;
+            if (!conversation.response?.ok || !id) return undefined;
+            // Surface the new id immediately so the caller can persist it and
+            // resume this exact thread across a refresh.
+            onConversationCreated?.(id);
+            return id;
+          };
+
+          let conversationId: string | undefined;
+          if (resumeConversationId) {
+            // Resume the prior session's research conversation rather than
+            // running a second search. The turn keeps generating server-side
+            // across the reload, so re-attach and poll it; only re-post the
+            // prompt if it never landed before the refresh (no user message).
+            const existing = await messagesGet({
+              path: { assistant_id: assistantId },
+              query: { conversationId: resumeConversationId },
+              throwOnError: false,
+            });
+            if (isStale()) return;
+            if (existing.response?.ok) {
+              conversationId = resumeConversationId;
+              createdConversationId = resumeConversationId;
+              const turnAlreadyStarted = (existing.data?.messages ?? []).some(
+                (m) => m.role === "user",
+              );
+              if (!turnAlreadyStarted) {
+                if (!(await postResearchPrompt(conversationId))) {
+                  setState((s) => ({ ...s, status: "error" }));
+                  return;
+                }
+                if (isStale()) return;
+              }
+            }
+            // Not ok → conversation gone (e.g. completed + archived); fall
+            // through to a fresh run below.
           }
 
-          const posted = await messagesPost({
-            path: { assistant_id: assistantId },
-            body,
-            throwOnError: false,
-          });
-          if (isStale()) return;
-          if (!posted.response?.ok) {
-            setState((s) => ({ ...s, status: "error" }));
-            return;
+          if (!conversationId) {
+            conversationId = await startFreshConversation();
+            if (isStale()) return;
+            if (!conversationId) {
+              setState((s) => ({ ...s, status: "error" }));
+              return;
+            }
+            if (!(await postResearchPrompt(conversationId))) {
+              setState((s) => ({ ...s, status: "error" }));
+              return;
+            }
+            if (isStale()) return;
           }
 
           // Poll the conversation, parsing the (possibly partial) reply each
@@ -463,21 +579,30 @@ export function useResearchRunner(): UseResearchRunner {
                 suggestions,
                 // Surface the full set actually installing: the deterministic
                 // floor plus the model's picks, deduped, baseline first.
-                installedPlugins: [
-                  ...new Set([...deterministicPlugins, ...validPlugins]),
-                ],
+                installedPlugins: resolveOnboardingPluginInstalls({
+                  role: subject.occupation,
+                  validNames,
+                  modelPlugins: validPlugins,
+                }),
+                pluginCatalog,
               });
+              if (complete) sawCompletePayload = true;
               stableReads = text === lastText ? stableReads + 1 : 0;
               lastText = text;
               // Only a complete payload can settle early. A partial JSON object
               // can pause between claim/suggestion objects for long enough to
               // look stable, but it may still be mid-response.
-              if (shouldSettleResearchPoll({ complete, stableReads })) break;
+              if (shouldSettleResearchPoll({ complete, stableReads })) {
+                break;
+              }
             }
           }
 
           if (isStale()) return;
-          setState((s) => ({ ...s, status: "done" }));
+          setState((s) => ({
+            ...s,
+            status: resolveResearchCompletionStatus({ sawCompletePayload }),
+          }));
         } catch (err) {
           if (isStale()) return;
           captureError(err, { context: "research_onboarding_runner" });
@@ -487,11 +612,16 @@ export function useResearchRunner(): UseResearchRunner {
           // a stale bail-out, or a reply that never emitted a `plugins` array) so
           // `awaitPluginInstalls` can never hang.
           resolvePluginsReady();
-          // Archive the throwaway research conversation on every exit path (settled,
-          // errored, or superseded by a newer run) once it has been created, so the
-          // side channel never lingers in the sidebar on handoff. Best-effort +
-          // idempotent; awaiting lets the cache invalidation reflect the archived state.
-          if (resolvedAssistantId && createdConversationId) {
+          // Archive only after the full research payload is available. If the poll
+          // ceiling fired before that, the assistant turn may still be running and
+          // the conversation remains available for reconciliation/debugging.
+          if (
+            shouldArchiveCompletedResearchConversation({
+              sawCompletePayload,
+            }) &&
+            resolvedAssistantId &&
+            createdConversationId
+          ) {
             await archiveResearchConversation(
               resolvedAssistantId,
               createdConversationId,
@@ -512,5 +642,41 @@ export function useResearchRunner(): UseResearchRunner {
     await Promise.all([...installPromisesRef.current.values()]);
   }, []);
 
-  return { ...state, start, awaitPluginInstalls };
+  const hydrate = useCallback(
+    (
+      results: ResearchRunnerState,
+      awaitAssistantId?: () => Promise<string>,
+    ) => {
+      // Claim a fresh run id so any (improbable) in-flight loop bails, then adopt
+      // the restored results as the settled state. We don't set a subject key:
+      // the route only re-fires `start` while results are absent, so a re-run
+      // can't race this — and an edited subject should still supersede normally.
+      runIdRef.current += 1;
+      setState(results);
+
+      // Re-enqueue the named installs against the (re-)hatched assistant so a
+      // suggestion click awaits real promises rather than an empty map. Idempotent
+      // and best-effort: a failed hatch / install never blocks the click.
+      if (awaitAssistantId && results.installedPlugins.length > 0) {
+        const installs = installPromisesRef.current;
+        installs.clear();
+        for (const name of results.installedPlugins) {
+          installs.set(
+            name,
+            (async () => {
+              try {
+                const assistantId = await awaitAssistantId();
+                await installCapabilityBestEffort(assistantId, name);
+              } catch {
+                // Hatch never readied / install failed — don't block the click.
+              }
+            })(),
+          );
+        }
+      }
+    },
+    [],
+  );
+
+  return { ...state, start, awaitPluginInstalls, hydrate };
 }

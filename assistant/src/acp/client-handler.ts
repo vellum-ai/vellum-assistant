@@ -24,6 +24,7 @@ import type {
   SessionNotification,
   TerminalOutputRequest,
   TerminalOutputResponse,
+  ToolCallLocation,
   WaitForTerminalExitRequest,
   WaitForTerminalExitResponse,
   WriteTextFileRequest,
@@ -31,9 +32,30 @@ import type {
 } from "@agentclientprotocol/sdk";
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
+import { redactJsonStringLeaves } from "../security/redact-json.js";
+import { redactSensitiveFields } from "../security/redaction.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("acp:client-handler");
+
+// Field-name redaction across object/array shapes (covers top-level arrays;
+// redactSensitiveFields handles the nested recursion within objects).
+function redactSensitivePayload(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSensitivePayload);
+  if (value !== null && typeof value === "object") {
+    return redactSensitiveFields(value as Record<string, unknown>);
+  }
+  return value;
+}
+
+// The execute kind's title is the command line, which can carry a literal
+// credential — scrub shaped secrets before forwarding/persisting it.
+function redactTitle(title: string | null | undefined): string | undefined {
+  if (title == null) return undefined;
+  return redactSecrets(title);
+}
 
 interface TerminalState {
   proc: ChildProcess;
@@ -52,6 +74,8 @@ export class VellumAcpClientHandler implements Client {
   private terminals = new Map<string, TerminalState>();
   private accumulatedText = "";
   private suppressForwarding = false;
+  /** Monotonic ordering counter; advanced only on forwarded updates. */
+  private lastSeq = 0;
   /** Tracks pending ACP permission requestIds for cleanup on session close. */
   readonly pendingRequestIds = new Set<string>();
 
@@ -60,11 +84,69 @@ export class VellumAcpClientHandler implements Client {
     return this.accumulatedText;
   }
 
+  /**
+   * Advances the seq counter to at least `maxSeq` so updates forwarded by a
+   * handler created for a resumed session continue strictly increasing past
+   * any seq already persisted. Ignores non-finite or smaller values.
+   */
+  seedSeq(maxSeq: number): void {
+    if (Number.isFinite(maxSeq) && maxSeq > this.lastSeq) {
+      this.lastSeq = maxSeq;
+    }
+  }
+
   constructor(
     private readonly acpSessionId: string,
     private readonly sendToVellum: (msg: ServerMessage) => void,
     private readonly parentConversationId: string,
   ) {}
+
+  /** Forwards an update to Vellum, stamping a contiguous per-session `seq`. */
+  private forwardUpdate(
+    update: Omit<AcpSessionUpdate, "type" | "acpSessionId" | "seq">,
+  ): void {
+    this.sendToVellum({
+      type: "acp_session_update",
+      acpSessionId: this.acpSessionId,
+      seq: ++this.lastSeq,
+      ...update,
+    });
+  }
+
+  /**
+   * Cap a raw tool payload so a single large one can't evict real transcript
+   * events from the bounded session buffer (and the persisted event log). Small
+   * payloads pass through unchanged; oversize ones become a short marker string.
+   */
+  private capRawPayload(value: unknown): unknown {
+    const CAP_BYTES = 16 * 1024;
+    if (value === undefined) return undefined;
+    let serialized: string;
+    try {
+      serialized = JSON.stringify(value) ?? "";
+    } catch {
+      return "[raw payload omitted: not serializable]";
+    }
+    if (serialized.length <= CAP_BYTES) return value;
+    return `[raw payload omitted: ${serialized.length} bytes exceeds ${CAP_BYTES}-byte cap]`;
+  }
+
+  /**
+   * Redact secrets, then cap size, before forwarding — so a leaked credential
+   * never reaches the SSE stream, the session buffer, or persisted
+   * `event_log_json`. Two passes: `redactSensitivePayload` blanks values under
+   * credential-named keys (value-only scanning misses these once JSON-leaf
+   * isolation drops the key↔value context), then `redactJsonStringLeaves`
+   * catches shape-based secrets anywhere in the payload. `undefined` passes
+   * straight through.
+   */
+  private prepareRawPayload(value: unknown): unknown {
+    if (value === undefined) return undefined;
+    const redacted = redactJsonStringLeaves(
+      redactSensitivePayload(value),
+    ).value;
+    return this.capRawPayload(redacted);
+  }
 
   /**
    * Begins suppressing session updates from being forwarded to Vellum.
@@ -107,76 +189,97 @@ export class VellumAcpClientHandler implements Client {
       case "agent_message_chunk": {
         const text = extractText(update.content);
         this.accumulatedText += text;
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "agent_message_chunk",
           content: text,
+          messageId: update.messageId ?? undefined,
         });
         break;
       }
 
       case "agent_thought_chunk": {
         const text = extractText(update.content);
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "agent_thought_chunk",
           content: text,
+          messageId: update.messageId ?? undefined,
         });
         break;
       }
 
       case "user_message_chunk": {
         const text = extractText(update.content);
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "user_message_chunk",
           content: text,
+          messageId: update.messageId ?? undefined,
         });
         break;
       }
 
       case "tool_call": {
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "tool_call",
           toolCallId: update.toolCallId,
-          toolTitle: update.title,
+          toolTitle: redactTitle(update.title),
           toolKind: update.kind,
           toolStatus: update.status,
+          // An agent may put output/diff on the initial tool_call and never
+          // follow up with an update; forward it like the update branch so the
+          // chat/file-diff UI has content to render.
+          content: update.content ? JSON.stringify(update.content) : undefined,
+          // rawInput/rawOutput are unknown-shaped; forward them structurally
+          // (the SSE layer serializes the message) after redacting secrets and
+          // capping size — so leaked credentials never persist and a single
+          // large payload can't evict real transcript events from the buffer.
+          rawInput: this.prepareRawPayload(update.rawInput),
+          rawOutput: this.prepareRawPayload(update.rawOutput),
+          locations: mapLocations(update.locations),
         });
         break;
       }
 
       case "tool_call_update": {
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "tool_call_update",
           toolCallId: update.toolCallId,
+          toolTitle: redactTitle(update.title),
+          toolKind: update.kind ?? undefined,
           toolStatus: update.status ?? undefined,
           content: update.content ? JSON.stringify(update.content) : undefined,
+          rawInput: this.prepareRawPayload(update.rawInput),
+          rawOutput: this.prepareRawPayload(update.rawOutput),
+          locations: mapLocations(update.locations),
         });
         break;
       }
 
       case "plan": {
-        this.sendToVellum({
-          type: "acp_session_update",
-          acpSessionId: this.acpSessionId,
+        this.forwardUpdate({
           updateType: "plan",
           content: JSON.stringify(update.entries),
         });
         break;
       }
 
+      case "usage_update": {
+        // Side gauge of context-window usage; no seq (not part of the
+        // ordered timeline). UNSTABLE: cost may be absent.
+        this.sendToVellum({
+          type: "acp_session_usage",
+          acpSessionId: this.acpSessionId,
+          usedTokens: update.used,
+          contextSize: update.size,
+          costAmount: update.cost?.amount,
+          costCurrency: update.cost?.currency,
+        });
+        break;
+      }
+
       default: {
         // Other update types (available_commands_update, current_mode_update,
-        // config_option_update, session_info_update, usage_update) are not
-        // forwarded to Vellum.
+        // config_option_update, session_info_update) are not forwarded to
+        // Vellum.
         log.debug(
           {
             acpSessionId: this.acpSessionId,
@@ -360,6 +463,22 @@ export class VellumAcpClientHandler implements Client {
     }
     return {};
   }
+}
+
+/**
+ * Normalize ACP tool-call locations into the SSE update's `locations` shape.
+ *
+ * The ACP `tool_call_update.locations` field is tri-state:
+ * - `undefined`/absent → no change; omit the field so web preserves prior locations.
+ * - `null` → explicit clear; forward `[]` (web clears its locations on an empty array).
+ * - an array → replace with the mapped locations.
+ */
+function mapLocations(
+  locations: ToolCallLocation[] | null | undefined,
+): Array<{ path: string; line?: number }> | undefined {
+  if (locations === undefined) return undefined;
+  if (locations === null) return [];
+  return locations.map((l) => ({ path: l.path, line: l.line ?? undefined }));
 }
 
 function findAllowOptionId(

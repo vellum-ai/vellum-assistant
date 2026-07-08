@@ -57,6 +57,7 @@ afterAll(() => {
 });
 
 import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+import { getEffectiveProfile } from "../default-profile-catalog.js";
 import { invalidateConfigCache } from "../loader.js";
 import { LLMSchema } from "../schemas/llm.js";
 import { seedInferenceProfiles } from "../seed-inference-profiles.js";
@@ -108,11 +109,19 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(reconcileFlagGatedProfiles()).toBe(true);
 
     const raw = readConfig();
+    // On disk: a thin managed stub — profile content is code-owned.
     const osBeta = raw.llm.profiles["os-beta"]!;
-    expect(osBeta.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(osBeta.provider_connection).toBe("fireworks-managed");
-    expect(osBeta.source).toBe("managed");
-    expect(osBeta.label).toBe("OS Beta");
+    expect(osBeta).toEqual({ source: "managed" });
+
+    // Through the effective view the stub resolves to the catalog body.
+    const effective = getEffectiveProfile(raw.llm.profiles, "os-beta")!;
+    expect(effective.model).toBe("MiniMaxAI/MiniMax-M3");
+    expect(effective.provider_connection).toBe("vellum");
+    expect(effective.provider).toBe("together");
+    expect(effective.source).toBe("managed");
+    expect(effective.label).toBe("OS Beta");
+    expect(effective.effort).toBe("low");
+    expect(effective.topP).toBe(0.95);
 
     const order = raw.llm.profileOrder;
     expect(order.indexOf("os-beta")).toBe(order.indexOf("balanced") + 1);
@@ -124,10 +133,14 @@ describe("reconcileFlagGatedProfiles", () => {
 
     expect(reconcileFlagGatedProfiles()).toBe(true);
 
-    const osBeta = readConfig().llm.profiles["os-beta"]!;
+    const profiles = readConfig().llm.profiles;
+    const osBeta = profiles["os-beta"]!;
     expect(osBeta.status).toBe("disabled");
     expect(osBeta.label).toBe("OS Beta (Managed)");
     expect(osBeta.source).toBe("managed");
+    // Content stays code-owned; the effective view supplies it.
+    expect(osBeta.effort).toBeUndefined();
+    expect(getEffectiveProfile(profiles, "os-beta")?.effort).toBe("low");
   });
 
   test("flag on is idempotent across repeated runs", () => {
@@ -149,17 +162,24 @@ describe("reconcileFlagGatedProfiles", () => {
     const raw = readConfig();
     raw.llm.profiles["os-beta"]!.label = "My OS Beta";
     raw.llm.profiles["os-beta"]!.status = "disabled";
-    raw.llm.profiles["os-beta"]!.advisorEnabled = true;
+    raw.llm.profiles["os-beta"]!.topP = 0.8;
     writeConfig(raw);
     invalidateConfigCache();
 
     reconcileFlagGatedProfiles();
 
-    const after = readConfig().llm.profiles["os-beta"]!;
+    const profiles = readConfig().llm.profiles;
+    const after = profiles["os-beta"]!;
     expect(after.label).toBe("My OS Beta");
     expect(after.status).toBe("disabled");
-    expect(after.advisorEnabled).toBe(true);
-    expect(after.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(after.topP).toBe(0.8);
+
+    const effective = getEffectiveProfile(profiles, "os-beta")!;
+    expect(effective.label).toBe("My OS Beta");
+    expect(effective.topP).toBe(0.8);
+    expect(effective.model).toBe("MiniMaxAI/MiniMax-M3");
+    expect(effective.provider_connection).toBe("vellum");
+    expect(effective.effort).toBe("low");
   });
 
   test("flag off removes a managed os-beta and applies fallbacks", () => {
@@ -181,7 +201,7 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(after.llm.profiles["os-beta"]).toBeUndefined();
     expect(after.llm.profileOrder.includes("os-beta")).toBe(false);
     expect(after.llm.activeProfile).toBe("balanced");
-    expect(after.llm.advisorProfile).toBe("frontier");
+    expect(after.llm.advisorProfile).toBe("quality-optimized");
   });
 
   test("flag off with no os-beta present is a no-op", () => {
@@ -262,7 +282,7 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(after.llm.profileOrder.includes("os-beta")).toBe(false);
     expect(after.llm.profileOrder.includes("experiment")).toBe(false);
     expect(after.llm.activeProfile).toBe("balanced");
-    expect(after.llm.advisorProfile).toBe("frontier");
+    expect(after.llm.advisorProfile).toBe("quality-optimized");
     expect(
       (
         after.llm as unknown as Record<
@@ -316,7 +336,7 @@ describe("reconcileFlagGatedProfiles", () => {
 
     const raw = readConfig();
     (raw.llm as Record<string, unknown>).callSites = {
-      advisor: { profile: "os-beta", temperature: 0.3 },
+      inference: { profile: "os-beta", temperature: 0.3 },
     };
     writeConfig(raw);
     invalidateConfigCache();
@@ -325,14 +345,14 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(reconcileFlagGatedProfiles()).toBe(true);
 
     const after = readConfig();
-    const advisor = (
+    const inference = (
       after.llm as unknown as Record<
         string,
         Record<string, Record<string, unknown>>
       >
-    ).callSites.advisor;
-    expect(advisor.profile).toBeUndefined();
-    expect(advisor.temperature).toBe(0.3);
+    ).callSites.inference;
+    expect(inference.profile).toBeUndefined();
+    expect(inference.temperature).toBe(0.3);
 
     expect(LLMSchema.safeParse(after.llm).success).toBe(true);
   });

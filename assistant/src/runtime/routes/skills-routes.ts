@@ -83,6 +83,12 @@ const slimSkillSchema = z.discriminatedUnion("origin", [
     audit: z.record(z.string(), partnerAuditSchema).optional(),
   }),
   z.object({ ...slimSkillBaseWithOwner, origin: z.literal("custom") }),
+  // Managed skill authored by the assistant's retrospective. Same shape as
+  // custom; the distinct origin only changes how the UI badges it.
+  z.object({
+    ...slimSkillBaseWithOwner,
+    origin: z.literal("assistant-memory"),
+  }),
 ]);
 
 const skillDetailSchema = z.discriminatedUnion("origin", [
@@ -133,6 +139,10 @@ const skillDetailSchema = z.discriminatedUnion("origin", [
     audit: z.record(z.string(), partnerAuditSchema).optional(),
   }),
   z.object({ ...slimSkillBaseWithOwner, origin: z.literal("custom") }),
+  z.object({
+    ...slimSkillBaseWithOwner,
+    origin: z.literal("assistant-memory"),
+  }),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -163,7 +173,7 @@ export const ROUTES: RouteDefinition[] = [
         name: "origin",
         schema: { type: "string" },
         description:
-          "Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom').",
+          "Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom', 'assistant-memory').",
       },
       {
         name: "kind",

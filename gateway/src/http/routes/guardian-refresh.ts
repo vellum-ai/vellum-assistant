@@ -21,7 +21,8 @@ const BROWSER_REFRESH_FORBIDDEN_RESPONSE = {
 
 function refreshFailureResponse(error: RefreshErrorCode): Response {
   // 403 for tokens that are valid-but-forbidden (revoked, reused, or presented
-  // from the wrong device); 401 for invalid/expired tokens.
+  // from the wrong device); 401 for invalid/expired tokens and for
+  // guardian_repair_required (the status clients treat as repairable).
   const forbidden: RefreshErrorCode[] = [
     "refresh_reuse_detected",
     "device_binding_mismatch",

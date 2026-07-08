@@ -55,13 +55,13 @@ mock.module("../approvals/guardian-card-withdrawal.js", () => ({
 }));
 
 import { notifyExpiredGuardianRequest } from "../approvals/guardian-expiry-notifier.js";
-import type { CanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
+import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../contacts/canonical-guardian-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { sweepExpiredCanonicalGuardianRequests } from "../runtime/routes/canonical-guardian-expiry-sweep.js";
 
@@ -78,6 +78,7 @@ function makeRequest(
     conversationId: "conv-1",
     requesterExternalUserId: "req-user",
     requesterChatId: "req-chat",
+    trigger: null,
     guardianExternalUserId: "guardian-user",
     guardianPrincipalId: "guardian-principal",
     callSessionId: null,
@@ -90,6 +91,7 @@ function makeRequest(
     riskLevel: null,
     activityText: null,
     executionTarget: null,
+    requesterSignals: null,
     status: "expired",
     answerText: null,
     decidedByExternalUserId: null,

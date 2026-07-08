@@ -1,27 +1,19 @@
 #!/usr/bin/env bun
 /**
- * Local CES entrypoint.
+ * Local CES entrypoint. Serves RPC over a Unix socket (`getLocalSocketPath()`),
+ * launched independently by the CLI as a sibling process. Runs until SIGTERM.
  *
- * In local mode the assistant spawns CES as a child process and communicates
- * over stdin/stdout using newline-delimited JSON. This entrypoint:
- *
- * 1. Ensures the CES-private data directories exist.
- * 2. Starts the RPC server on process.stdin / process.stdout.
- * 3. Shuts down cleanly when stdin closes (parent exit) or SIGTERM arrives.
- *
- * Local mode never opens a TCP listener or Unix socket. All communication
- * flows through the inherited stdio file descriptors, which are automatically
- * closed when the parent process exits.
- *
- * The stdio transport ensures that shell subprocesses spawned by CES
- * (e.g. for `run_authenticated_command`) do not accidentally inherit the
- * command channel — Bun's `Bun.spawn` defaults to "pipe" for stdio on
- * child processes, so CES's own stdin/stdout are not leaked to subprocesses.
+ * Local mode never opens a TCP listener. The Unix socket's listening fd is not
+ * inherited by shell subprocesses spawned by CES (e.g. for
+ * `run_authenticated_command`): Bun's `Bun.spawn` defaults to "pipe" for
+ * stdio, and the listening socket is not passed to those subprocesses.
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, unlinkSync } from "node:fs";
+import { createServer as createNetServer, type Socket } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { Readable, Writable } from "node:stream";
 
 import {
   CES_PROTOCOL_VERSION,
@@ -52,6 +44,7 @@ import {
   getCesGrantsDir,
   getCesLogDir,
   getCesToolStoreDir,
+  getLocalSocketPath,
 } from "./paths.js";
 import {
   buildHandlersWithHttp,
@@ -59,7 +52,6 @@ import {
   registerCommandExecutionHandler,
   registerManageSecureCommandToolHandler,
   type RpcHandlerRegistry,
-  type SessionIdRef,
 } from "./server.js";
 import {
   deleteBundleFromToolstore,
@@ -123,10 +115,7 @@ function getSecurityDir(): string {
 // Build RPC handler registry
 // ---------------------------------------------------------------------------
 
-function buildHandlers(
-  sessionIdRef: SessionIdRef,
-  secureKeyBackend: SecureKeyBackend,
-): RpcHandlerRegistry {
+function buildHandlers(secureKeyBackend: SecureKeyBackend): RpcHandlerRegistry {
   // -- Grant stores ----------------------------------------------------------
   const persistentGrantStore = new PersistentGrantStore(
     getCesGrantsDir("local"),
@@ -174,7 +163,6 @@ function buildHandlers(
       oauthConnections,
     },
     auditStore,
-    sessionId: sessionIdRef,
   });
 
   // Register run_authenticated_command handler
@@ -216,7 +204,6 @@ function buildHandlers(
         };
       },
       auditStore,
-      sessionId: sessionIdRef,
       cesMode: "local",
       egressHooks: buildCesEgressHooks(),
     },
@@ -354,6 +341,88 @@ function buildHandlers(
 // Main
 // ---------------------------------------------------------------------------
 
+/**
+ * Serve RPC over a Unix socket.
+ *
+ * Binds the socket, accepts connections concurrently (each served by its own
+ * CesRpcServer over the shared handler registry), and unlinks the socket when
+ * the signal aborts.
+ */
+function serveStandaloneSocket(opts: {
+  socketPath: string;
+  handlers: RpcHandlerRegistry;
+  signal: AbortSignal;
+  logger: Pick<Console, "log" | "warn" | "error">;
+  log: ReturnType<typeof getLogger>;
+}): void {
+  const { socketPath, handlers, signal, logger, log } = opts;
+
+  mkdirSync(dirname(socketPath), { recursive: true });
+  try {
+    unlinkSync(socketPath);
+  } catch {
+    // stale or absent — fine
+  }
+
+  const netServer = createNetServer();
+
+  netServer.on("error", (err) => {
+    log.warn({ err }, "CES standalone socket server error");
+  });
+
+  netServer.on("connection", (socket: Socket) => {
+    const readable = new Readable({ read() {} });
+    const writable = new Writable({
+      write(chunk, _encoding, callback) {
+        if (socket.writable) {
+          socket.write(chunk, callback);
+        } else {
+          callback(new Error("Socket no longer writable"));
+        }
+      },
+    });
+    socket.on("data", (chunk) => readable.push(chunk));
+    socket.on("end", () => readable.push(null));
+    socket.on("error", (err) => {
+      readable.destroy(err);
+      writable.destroy(err);
+    });
+
+    const server = new CesRpcServer({
+      input: readable,
+      output: writable,
+      handlers,
+      logger,
+      signal,
+      onApiKeyUpdate: () => {},
+    });
+    void server.serve().catch((err) => {
+      server.close();
+      log.warn(
+        { err },
+        "CES standalone connection ended with a transport error",
+      );
+    });
+  });
+
+  netServer.listen(socketPath, () => {
+    log.info(`CES standalone socket listening at ${socketPath}`);
+  });
+
+  signal.addEventListener(
+    "abort",
+    () => {
+      netServer.close();
+      try {
+        unlinkSync(socketPath);
+      } catch {
+        // already removed
+      }
+    },
+    { once: true },
+  );
+}
+
 async function main(): Promise<void> {
   ensureDataDirs();
 
@@ -361,7 +430,7 @@ async function main(): Promise<void> {
   const log = getLogger("main");
 
   log.info(
-    `Starting CES v${CES_PROTOCOL_VERSION} (local mode, stdio transport)`,
+    `Starting CES v${CES_PROTOCOL_VERSION} (local mode, socket transport)`,
   );
 
   const controller = new AbortController();
@@ -389,30 +458,34 @@ async function main(): Promise<void> {
   log.info("CES local startup: migrations complete");
 
   // Build the handler registry with all available RPC implementations.
-  // Use a mutable ref so audit records capture the handshake session ID
-  // once it's negotiated (the handshake completes before any RPC call).
-  const sessionIdRef: SessionIdRef = { current: `ces-local-${Date.now()}` };
-  const handlers = buildHandlers(sessionIdRef, secureKeyBackend);
+  // The handshake session ID is captured per connection in the server's
+  // SessionContext; handlers read it at call time for audit records.
+  const handlers = buildHandlers(secureKeyBackend);
 
   const rpcLog = getLogger("rpc");
-  const server = new CesRpcServer({
-    input: process.stdin,
-    output: process.stdout,
-    handlers,
-    logger: {
-      log: (msg: string, ...args: unknown[]) => rpcLog.info({ args }, msg),
-      warn: (msg: string, ...args: unknown[]) => rpcLog.warn({ args }, msg),
-      error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
-    },
-    signal: controller.signal,
-    onHandshakeComplete: (hsSessionId) => {
-      sessionIdRef.current = hsSessionId;
-    },
-    // Local mode reads API keys from env/store directly — no-op handler.
-    onApiKeyUpdate: () => {},
-  });
+  const rpcLogger = {
+    log: (msg: string, ...args: unknown[]) => rpcLog.info({ args }, msg),
+    warn: (msg: string, ...args: unknown[]) => rpcLog.warn({ args }, msg),
+    error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
+  };
 
-  await server.serve();
+  // Serve over a Unix socket and run until a shutdown signal.
+  serveStandaloneSocket({
+    socketPath: getLocalSocketPath(),
+    handlers,
+    signal: controller.signal,
+    logger: rpcLogger,
+    log,
+  });
+  await new Promise<void>((resolve) => {
+    if (controller.signal.aborted) {
+      resolve();
+      return;
+    }
+    controller.signal.addEventListener("abort", () => resolve(), {
+      once: true,
+    });
+  });
   log.info("Server stopped.");
 }
 

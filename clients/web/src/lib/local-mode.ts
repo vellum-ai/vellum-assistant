@@ -205,11 +205,27 @@ export async function saveLockfileAssistant(assistant: {
   runtimeUrl: string;
   hatchedAt: string;
   organizationId?: string;
+  platformAssistantId?: string;
+  platformBaseUrl?: string;
+  platformOrganizationId?: string;
 }): Promise<void> {
   const result = await saveLockfileAssistantHost(
     assistant,
     assistant.assistantId,
   );
+  if (result.ok) {
+    commitLockfile(result.lockfile);
+  }
+}
+
+/**
+ * Update an existing assistant entry without changing the lockfile's active
+ * assistant pointer.
+ */
+export async function updateLockfileAssistant(
+  assistant: LockfileAssistant,
+): Promise<void> {
+  const result = await saveLockfileAssistantHost({ ...assistant }, undefined);
   if (result.ok) {
     commitLockfile(result.lockfile);
   }
@@ -391,6 +407,13 @@ export function getSelectedAssistant(): LockfileAssistant | undefined {
   return getActiveAssistant();
 }
 
+/** The lockfile entry for a specific assistant id, if one exists. */
+export function getLockfileAssistant(
+  assistantId: string,
+): LockfileAssistant | undefined {
+  return getLockfile().assistants.find((a) => a.assistantId === assistantId);
+}
+
 /**
  * Reconcile the selection key against the lockfile registry: if the selected id
  * no longer names a lockfile entry, clear it so `getSelectedAssistant` falls
@@ -444,6 +467,34 @@ export function getLocalGatewayUrl(
   const gatewayPort = assistant.resources?.gatewayPort;
   if (gatewayPort == null) return undefined;
   return gatewayProxyUrl(gatewayPort);
+}
+
+/**
+ * One-shot probe of the local gateway's `/readyz` (which reports gateway AND
+ * upstream daemon readiness). True only when the gateway answers
+ * `{ status: "ok" }`; false when the gateway URL is unresolvable, the request
+ * fails, or the gateway is up but not yet ready.
+ */
+export async function probeLocalGatewayReady(): Promise<boolean> {
+  const gatewayUrl = getLocalGatewayUrl();
+  if (!gatewayUrl) {
+    return false;
+  }
+  try {
+    const res = await fetch(`${gatewayUrl}/readyz`);
+    if (!res.ok) {
+      return false;
+    }
+    const body: unknown = await res.json();
+    return (
+      body !== null &&
+      typeof body === "object" &&
+      "status" in body &&
+      body.status === "ok"
+    );
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

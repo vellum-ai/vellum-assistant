@@ -9,17 +9,21 @@
  * place (returning `void`) or returns a partial context whose fields are merged
  * onto the draft. Failed hook drafts are discarded.
  *
- * `getHooksFor` is now async — it pulls user-land hooks from the mtime
- * cache (filesystem-as-truth) and default plugin hooks from the registry
+ * `getHooksFor` is now async — it pulls user-land hooks from the plugin
+ * cache (filesystem-as-truth via the source-versions reconcile) and default
+ * plugin hooks from the registry
  * in a single unified call.
  *
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
+import { makeHookBroadcast } from "../hooks/hook-broadcast.js";
+import { makeHookLogger } from "../hooks/hook-logger.js";
+import { getHookEntriesFor } from "../hooks/registry.js";
+import type { BaseHookContext } from "../hooks/types.js";
 import type { HookName } from "../plugin-api/constants.js";
 import { getLogger } from "../util/logger.js";
-import { getHooksFor } from "./registry.js";
-import type { PluginHookFn } from "./types.js";
+import type { HookEntry } from "./types.js";
 
 // ─── Hook runner ────────────────────────────────────────────────────────────
 
@@ -47,11 +51,17 @@ function isPlainObject(value: object): boolean {
 }
 
 function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
-  if (value === null || typeof value !== "object") return value;
-  if (value instanceof Error || isPluginLogger(value)) return value;
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (value instanceof Error || isPluginLogger(value)) {
+    return value;
+  }
 
   const existing = seen.get(value);
-  if (existing !== undefined) return existing as T;
+  if (existing !== undefined) {
+    return existing as T;
+  }
 
   if (Array.isArray(value)) {
     const copy: unknown[] = [];
@@ -84,7 +94,9 @@ function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
     return copy as T;
   }
 
-  if (!isPlainObject(value)) return value;
+  if (!isPlainObject(value)) {
+    return value;
+  }
 
   const copy: Record<PropertyKey, unknown> = {};
   seen.set(value, copy);
@@ -107,18 +119,37 @@ function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
  * successfully committed context. The final context after the chain settles is
  * returned.
  *
+ * When `initialCtx` carries a `conversationId`, it is passed to
+ * {@link getHookEntriesFor}, which resolves the conversation's per-chat plugin
+ * scope (memory, then DB) and skips a hook whose contributing plugin is outside
+ * the effective set. Contexts without a `conversationId` impose no restriction —
+ * every globally-enabled plugin's hook runs.
+ *
+ * Before each hook runs, the pipeline stamps the {@link BaseHookContext}
+ * capabilities onto its (freshly-cloned) draft, both bound to that hook's
+ * identity: `broadcast` emits a `hook_event` attributed to the hook's owner
+ * (and the context's `conversationId`, when present), and `logger` is a child
+ * pre-tagged with the hook name, owner, and conversation / request identity.
+ * Because the pipeline supplies them, call sites construct the per-hook
+ * `XInputContext` shapes and never provide these fields themselves.
+ *
  * @param name        The hook identifier — pick one from {@link HOOKS}.
- * @param initialCtx  Context the first hook receives.
+ * @param initialCtx  Input context the first hook receives (the hook sees it
+ *                    with the {@link BaseHookContext} capabilities added).
  * @returns The final context after the chain settles. Same reference as
  *          `initialCtx` when no plugin registers `name`.
  */
-export async function runHook<TCtx>(
+export async function runHook<TInput extends object>(
   name: HookName,
-  initialCtx: TCtx,
-): Promise<TCtx> {
-  let hooks: PluginHookFn<TCtx>[];
+  initialCtx: TInput,
+): Promise<TInput> {
+  const conversationId = extractStringField(initialCtx, "conversationId");
+  const requestId = extractStringField(initialCtx, "requestId");
+  let entries: HookEntry<TInput & BaseHookContext>[];
   try {
-    hooks = await getHooksFor<TCtx>(name);
+    entries = await getHookEntriesFor<TInput & BaseHookContext>(name, {
+      conversationId,
+    });
   } catch (err) {
     log.error(
       { err, hookName: name },
@@ -127,11 +158,20 @@ export async function runHook<TCtx>(
     return initialCtx;
   }
 
-  let active = initialCtx;
-  for (const hook of hooks) {
-    const draft = cloneHookValue(active);
+  let active: TInput = initialCtx;
+  for (const { fn, owner } of entries) {
+    const draft = {
+      ...cloneHookValue(active),
+      logger: makeHookLogger({
+        hookName: name,
+        owner,
+        conversationId,
+        requestId,
+      }),
+      broadcast: makeHookBroadcast({ conversationId, hookName: name, owner }),
+    };
     try {
-      const result = await hook(draft);
+      const result = await fn(draft);
       if (result !== undefined) {
         active = { ...draft, ...result };
       } else {
@@ -139,10 +179,16 @@ export async function runHook<TCtx>(
       }
     } catch (err) {
       log.error(
-        { err, hookName: name },
+        { err, hookName: name, owner },
         "plugin hook failed — proceeding with current context",
       );
     }
   }
   return active;
+}
+
+/** A string-valued field off a hook context, when it carries one. */
+function extractStringField(ctx: unknown, field: string): string | undefined {
+  const value = (ctx as Record<string, unknown> | null)?.[field];
+  return typeof value === "string" ? value : undefined;
 }

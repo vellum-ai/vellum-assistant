@@ -33,7 +33,6 @@ mock.module("../daemon/handlers/conversations.js", () => ({
   },
   switchConversation: async () => null,
   undoLastMessage: async () => null,
-  regenerateResponse: async () => null,
 }));
 
 import {
@@ -41,9 +40,9 @@ import {
   clearAll,
   createConversation,
   getConversation,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { enforcePolicy } from "../runtime/auth/route-policy.js";
 import type { AuthContext, Scope } from "../runtime/auth/types.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";

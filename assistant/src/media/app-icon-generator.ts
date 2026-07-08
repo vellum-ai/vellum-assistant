@@ -9,8 +9,8 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getAppDirPath } from "../apps/app-store.js";
 import { getConfig } from "../config/loader.js";
-import { getAppDirPath } from "../memory/app-store.js";
 import { getLogger } from "../util/logger.js";
 import { resolveImageGenCredentials } from "./image-credentials.js";
 import { generateImage, mapImageGenError } from "./image-service.js";

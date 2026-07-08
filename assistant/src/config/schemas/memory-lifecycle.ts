@@ -82,9 +82,9 @@ export const MemoryWorkerConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "memory.worker.enabled must be a boolean" })
-      .default(false)
+      .default(true)
       .describe(
-        "Whether the memory jobs worker runs as a separate OS process spawned at assistant startup (the `assistant memory worker` implementation) instead of on the assistant's main event loop. Only affects startup; shutdown stops whichever worker is actually running.",
+        "Whether the memory jobs worker runs as a separate OS process instead of the assistant's synchronous in-process runner. The assistant's worker supervisor re-reads this flag on every poll: while it is set (the default), the in-process runner stands down (the out-of-process worker, spawned at startup when set, owns the queue); while it is unset, the in-process runner drains the queue. `assistant memory worker start`/`stop` flip the flag (and spawn/stop the worker process) to switch modes at runtime without a restart.",
       ),
   })
   .describe("Memory jobs worker process configuration");
@@ -106,12 +106,6 @@ export const MemoryCleanupConfigSchema = z
       .boolean({ error: "memory.cleanup.enabled must be a boolean" })
       .default(true)
       .describe("Whether periodic memory cleanup is enabled"),
-    enqueueIntervalMs: z
-      .number({ error: "memory.cleanup.enqueueIntervalMs must be a number" })
-      .int("memory.cleanup.enqueueIntervalMs must be an integer")
-      .positive("memory.cleanup.enqueueIntervalMs must be a positive integer")
-      .default(6 * 60 * 60 * 1000)
-      .describe("How often cleanup jobs are enqueued in milliseconds"),
     supersededItemRetentionMs: z
       .number({
         error: "memory.cleanup.supersededItemRetentionMs must be a number",
@@ -156,19 +150,6 @@ export const MemoryCleanupConfigSchema = z
       .describe(
         "Retention period for LLM request/response logs in milliseconds (null keeps forever, 0 prunes immediately)",
       ),
-    traceEventRetentionDays: z
-      .number({
-        error: "memory.cleanup.traceEventRetentionDays must be a number",
-      })
-      .int("memory.cleanup.traceEventRetentionDays must be an integer")
-      .nonnegative(
-        "memory.cleanup.traceEventRetentionDays must be non-negative",
-      )
-      .max(365, "memory.cleanup.traceEventRetentionDays must be <= 365 days")
-      .default(3)
-      .describe(
-        "Number of days to retain trace events before cleanup (0 disables pruning)",
-      ),
   })
   .describe("Automatic memory cleanup and garbage collection settings");
 
@@ -189,6 +170,15 @@ export const MemoryMaintenanceConfigSchema = z
       .default(3 * 60 * 60 * 1000)
       .describe(
         "Database maintenance is deferred unless at least this many milliseconds have elapsed since the last user message, so maintenance's write locks never collide with an active user (0 disables the quiet-period gate)",
+      ),
+    skillPruneDays: z
+      .number({ error: "memory.maintenance.skillPruneDays must be a number" })
+      .int("memory.maintenance.skillPruneDays must be an integer")
+      .min(1, "memory.maintenance.skillPruneDays must be at least 1")
+      .nullable()
+      .default(null)
+      .describe(
+        'Usage-based prune threshold for assistant-authored skills, in days. `null` (the default) = never prune — the maintain stage runs observe-only and deletes nothing (it still reports stale skills for observability). Set a positive integer to enable deletion of assistant-authored skills unused (lastUsedAt, else installedAt) for at least that many days. Shipped default-off so skill accumulation can be observed before deletion is enabled. Only `author:"assistant"` skills are ever eligible; user-authored and untagged skills are always protected.',
       ),
   })
   .describe(

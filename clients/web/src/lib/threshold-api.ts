@@ -1,36 +1,43 @@
 /**
  * Permission threshold CRUD for global and per-conversation overrides.
  *
- * These endpoints live on the gateway (`/v1/assistants/{id}/permissions/…`),
- * not the daemon, and are not yet part of any generated OpenAPI spec. The
- * functions here use the raw HeyAPI client until gateway codegen is wired up.
+ * These endpoints are gateway-native (`/v1/assistants/{id}/permissions/…`)
+ * and are called through the generated gateway SDK: the schemas live on the
+ * gateway's route metadata (`gateway/src/http/routes/
+ * auto-approve-thresholds-routes.ts`), so the request/response types here
+ * are codegen-derived rather than hand-written. The gateway client's
+ * interceptor routes to the self-hosted gateway in local mode and through
+ * the platform proxy for platform-hosted assistants.
  */
 
-import { client } from "@/generated/api/client.gen";
+import {
+  assistantConversationThresholdDelete,
+  assistantConversationThresholdGet,
+  assistantConversationThresholdPut,
+  assistantPermissionsThresholdsGet,
+  assistantPermissionsThresholdsPut,
+} from "@/generated/gateway/sdk.gen";
+import type {
+  AssistantPermissionsThresholdsGetResponse,
+  AssistantPermissionsThresholdsPutData,
+} from "@/generated/gateway/types.gen";
 import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
 
-export interface GlobalThresholds {
-  interactive: string;
-  autonomous: string;
-  headless: string;
-}
+export type GlobalThresholds = AssistantPermissionsThresholdsGetResponse;
 
 export async function getGlobalThresholds(
   assistantId: string,
 ): Promise<GlobalThresholds> {
-  const { data, error, response } = await client.get<GlobalThresholds, unknown>(
-    {
-      url: "/v1/assistants/{assistant_id}/permissions/thresholds",
-      path: { assistant_id: assistantId },
-      throwOnError: false,
-    },
-  );
+  const { data, error, response } = await assistantPermissionsThresholdsGet({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+  });
   assertHasResponse(response, error, "Failed to fetch global thresholds.");
-  if (!response.ok) {
+  if (!response.ok || !data) {
     const msg = extractErrorMessage(
       error,
       response,
@@ -38,29 +45,20 @@ export async function getGlobalThresholds(
     );
     throw new ApiError(response.status, msg);
   }
-  const result = data as GlobalThresholds;
-  return {
-    interactive: result.interactive ?? "medium",
-    autonomous: result.autonomous ?? "low",
-    headless: result.headless ?? "none",
-  };
+  return data;
 }
 
 export async function setGlobalThresholds(
   assistantId: string,
-  thresholds: { interactive?: string; autonomous?: string; headless?: string },
+  thresholds: AssistantPermissionsThresholdsPutData["body"],
 ): Promise<GlobalThresholds> {
-  const { data, error, response } = await client.put<GlobalThresholds, unknown>(
-    {
-      url: "/v1/assistants/{assistant_id}/permissions/thresholds",
-      path: { assistant_id: assistantId },
-      body: thresholds,
-      headers: { "Content-Type": "application/json" },
-      throwOnError: false,
-    },
-  );
+  const { data, error, response } = await assistantPermissionsThresholdsPut({
+    path: { assistant_id: assistantId },
+    body: thresholds,
+    throwOnError: false,
+  });
   assertHasResponse(response, error, "Failed to update global thresholds.");
-  if (!response.ok) {
+  if (!response.ok || !data) {
     const msg = extractErrorMessage(
       error,
       response,
@@ -68,23 +66,14 @@ export async function setGlobalThresholds(
     );
     throw new ApiError(response.status, msg);
   }
-  const result = data as GlobalThresholds;
-  return {
-    interactive: result.interactive ?? "medium",
-    autonomous: result.autonomous ?? "low",
-    headless: result.headless ?? "none",
-  };
+  return data;
 }
 
 export async function getConversationOverride(
   assistantId: string,
   conversationId: string,
 ): Promise<string | null> {
-  const { data, error, response } = await client.get<
-    { threshold: string | null },
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/permissions/thresholds/conversations/{conversation_id}",
+  const { data, error, response } = await assistantConversationThresholdGet({
     path: { assistant_id: assistantId, conversation_id: conversationId },
     throwOnError: false,
   });
@@ -109,20 +98,17 @@ export async function getConversationOverride(
     );
     throw new ApiError(response.status, msg);
   }
-  const result = data as unknown as { threshold: string | null };
-  return result.threshold ?? null;
+  return data?.threshold ?? null;
 }
 
 export async function setConversationOverride(
   assistantId: string,
   conversationId: string,
-  threshold: string,
+  threshold: GlobalThresholds["interactive"],
 ): Promise<void> {
-  const { error, response } = await client.put<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/permissions/thresholds/conversations/{conversation_id}",
+  const { error, response } = await assistantConversationThresholdPut({
     path: { assistant_id: assistantId, conversation_id: conversationId },
     body: { threshold },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(
@@ -144,8 +130,7 @@ export async function deleteConversationOverride(
   assistantId: string,
   conversationId: string,
 ): Promise<void> {
-  const { error, response } = await client.delete<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/permissions/thresholds/conversations/{conversation_id}",
+  const { error, response } = await assistantConversationThresholdDelete({
     path: { assistant_id: assistantId, conversation_id: conversationId },
     throwOnError: false,
   });

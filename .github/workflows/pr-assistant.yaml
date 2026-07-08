@@ -4,11 +4,13 @@ on:
   pull_request:
     types: [labeled, synchronize, opened, reopened]
     paths:
+      - 'package.json'
+      - 'bun.lock'
+      - 'patches/**'
       - 'assistant/**'
       - 'credential-executor/**'
       - 'gateway/**'
       - 'packages/**'
-      - 'skills/meet-join/contracts/**'
       - 'scripts/skills/**'
       - 'meta/feature-flags/**'
       # The daemon LLM catalog parity test reads these files, so hand edits to
@@ -16,7 +18,6 @@ on:
       # introduces drift.
       - 'meta/llm-provider-catalog.json'
       - '.github/workflows/pr-assistant.yaml'
-      - '.github/actions/install-shared-packages/**'
 
 concurrency:
   group: pr-assistant-${{ github.event.pull_request.number }}
@@ -43,17 +44,12 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+        run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -84,17 +80,12 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+        run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -122,17 +113,12 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+        run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -142,14 +128,6 @@ jobs:
         env:
           EXCLUDE_EXPERIMENTAL: 'true'
           TEST_WORKERS: '8'
-
-      # Smoke-run the meet-join manifest emitter so an assistant-side
-      # change that breaks the `SkillHost` contract or `register(host)`
-      # fails here instead of only at Docker-build or macOS-packaging
-      # time. Skill-only changes are covered by pr-skills.yaml via
-      # __tests__/emit-manifest.test.ts.
-      - name: Smoke test meet-join manifest emit
-        run: cd .. && bun run skills/meet-join/scripts/emit-manifest.ts --output /tmp/meet-join-manifest.json
 
   artifact:
     name: Upload Artifact
@@ -220,17 +198,12 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
+        run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts

@@ -40,11 +40,11 @@ Plugins can also be discovered and managed from the Plugins tab in the app, or s
 
 A single plugin can contribute several different kinds of behavior. Each surface is discovered by convention from a named subdirectory. Missing directories are simply skipped, so a plugin contributes only what it ships.
 
-| Surface                                    | Lives in          | What it does                                                                                                                  |
-| ------------------------------------------ | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| [Lifecycle hooks](references/hooks.md)     | `hooks/<name>.ts` | Run code at fixed points in the Assistant's lifecycle to read or transform what flows through.                                |
-| [Skills](references/skills.md)             | `skills/<name>/`  | Directories of instructions and associated assets, scripts, and resources that the Assistant loads dynamically when relevant. |
-| [Model-visible tools](references/tools.md) | `tools/<name>.ts` | Add new tools the model can call. Plugin tools land in the same catalog as built-in tools.                                    |
+| Surface                                    | Lives in          | What it does                                                                                                                     |
+| ------------------------------------------ | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| [Lifecycle hooks](references/hooks.md)     | `hooks/<name>.ts` | Run code at fixed points in the Assistant's lifecycle to read or transform what flows through, and broadcast progress to the UI. |
+| [Skills](references/skills.md)             | `skills/<name>/`  | Directories of instructions and associated assets, scripts, and resources that the Assistant loads dynamically when relevant.    |
+| [Model-visible tools](references/tools.md) | `tools/<name>.ts` | Add new tools the model can call. Plugin tools land in the same catalog as built-in tools.                                       |
 
 The two extensibility patterns serve different goals. **Plugins are for distribution**: you intend to share the capability, publish to the marketplace, or install it across multiple assistants. The plugin manifest (`package.json`), the `@vellumai/plugin-api` peer dependency, and the install flow exist to make a capability portable, versioned, and discoverable by others.
 
@@ -72,11 +72,23 @@ You have an alignment problem if the user cannot answer questions 1 and 2. Push 
 
 Choose a kebab-case directory name. It becomes the install name. `@scope/<name>` is allowed; the loader strips the scope for the runtime plugin name. Duplicate names fail registration. See `references/plugins.md` for the full directory layout, manifest fields, and loader rules.
 
-To exercise the plugin locally before pushing to the catalog, copy the directory into the workspace's `plugins/` folder:
+To exercise the plugin locally before pushing to the catalog, you have two options:
+
+**Option A: direct copy.** Copy the directory into the workspace's `plugins/` folder:
 
 ```
 cp -R my-plugin $VELLUM_WORKSPACE_DIR/plugins/my-plugin
 ```
+
+**Option B: install from a GitHub URL (untrusted).** If the plugin is already pushed to a public GitHub repo, install it directly without waiting for marketplace review:
+
+```
+assistant plugins install https://github.com/owner/my-plugin
+assistant plugins install https://github.com/owner/repo/tree/my-branch/packages/my-plugin
+assistant plugins install owner/repo --name my-plugin
+```
+
+A URL install bypasses the marketplace entirely: the tree is cloned verbatim (no adapter stub is overlaid) and the source is **untrusted**. The CLI prints a yellow warning naming the source. See `references/distribution.md` for the full details.
 
 ## Verify before shipping
 
@@ -89,11 +101,7 @@ If a surface fails to load or fire, see `references/plugins.md` for loader rules
 
 ## Shipping to the catalog
 
-See `references/distribution.md` for the full marketplace manifest schema, CLI commands, and commit-pinning rules. The short version:
-
-1. Open a PR against `vellum-ai/vellum-assistant` adding your entry to `plugins/marketplace.json`.
-2. Pin `source.ref` to a full commit SHA. Tags and branches are rejected.
-3. Wait for the Vellum team's review. The catalog is curated.
+See `references/distribution.md` for the full publishing walkthrough (push to GitHub, add a `marketplace.json` entry with a copy-pasteable template, and what the review checks), plus the manifest schema, CLI commands, and commit-pinning rules.
 
 Once merged, users install by name: `assistant plugins install my-plugin`. The new plugin is picked up automatically.
 

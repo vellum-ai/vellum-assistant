@@ -17,7 +17,8 @@ mock.module("../util/logger.js", () => ({
 
 // Enable the channel-trust-floors flag so the admission-policy stage runs.
 mock.module("../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string) => key === "channel-trust-floors",
+  isAssistantFeatureFlagEnabled: (key: string) =>
+    key === "channel-trust-floors",
 }));
 
 mock.module("../runtime/gateway-client.js", () => ({
@@ -26,10 +27,10 @@ mock.module("../runtime/gateway-client.js", () => ({
 
 import type { TrustVerdict } from "@vellumai/gateway-client";
 
-import type { TrustContext } from "../daemon/trust-context.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { messages } from "../memory/schema.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { messages } from "../persistence/schema/index.js";
 import {
   handleChannelInbound,
   setAdapterProcessMessage,

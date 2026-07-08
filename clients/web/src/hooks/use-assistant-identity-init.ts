@@ -1,17 +1,17 @@
 /**
- * Initial assistant-identity hydration for the chat-layout sidebar.
+ * Hydrates the active assistant's identity (name + version) into the
+ * Zustand `useAssistantIdentityStore` for the whole authenticated app.
  *
- * The sidebar header (rendered by `ChatLayout`) shows the assistant's
- * name on every route under `/assistant/*` — chat, home, library,
- * contacts, identity. Its data lives in the Zustand
- * `useAssistantIdentityStore`.
+ * Mounted in `RootLayout` so identity is populated on every route under
+ * `/assistant/*` — chat, settings, logs — not only while a chat route is
+ * on screen. Consumers include the chat sidebar header, the
+ * intelligence/identity tab, and `useElectronIdentitySync` (which titles
+ * the Electron window, tray, and About panel from the store name).
  *
- * Without this hook, the store is hydrated only by `ChatPage`'s
- * identity fetch, so direct navigation to any non-chat route (or
- * navigating away from a conversation) leaves the sidebar header
- * showing the "Your Assistant" fallback. This hook fixes that by
- * fetching identity at the layout level so every sibling route
- * inherits a populated sidebar.
+ * Hydration sources, in order: the optimistic onboarding seed
+ * (`consumePendingAssistantName`), then the daemon `/identity` fetch via
+ * TanStack Query. SSE `identity_changed` refreshes are written to the
+ * store directly by `ChatPage` — idempotent with this hook.
  *
  * Lives in top-level `hooks/` (not under `domains/`) because the
  * assistant identity is consumed by multiple domains — chat sidebar,

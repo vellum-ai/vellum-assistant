@@ -19,13 +19,13 @@ import {
 import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db-connection.js";
-import { rawChanges } from "../memory/raw-query.js";
+import { getDb } from "../persistence/db-connection.js";
+import { rawChanges } from "../persistence/raw-query.js";
 import {
   oauthApps,
   oauthConnections,
   oauthProviders,
-} from "../memory/schema/oauth.js";
+} from "../persistence/schema/oauth.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
@@ -264,6 +264,35 @@ export function seedProviders(
       })
       .run();
   }
+}
+
+/**
+ * Rewrite a provider's stored base URL, but only when it still holds a known
+ * stale default value. Existing installs are seeded with `COALESCE(baseUrl,
+ * seedValue)`, so a corrected seed base URL never propagates on its own — a row
+ * created with the old default keeps it forever. This targeted update advances
+ * that specific stale value to the current default while leaving user-customized
+ * base URLs (anything other than `staleBaseUrl`) untouched.
+ *
+ * Idempotent: once the row holds `nextBaseUrl` the WHERE clause matches nothing.
+ * Returns the number of rows updated.
+ */
+export function migrateProviderBaseUrl(params: {
+  provider: string;
+  staleBaseUrl: string;
+  nextBaseUrl: string;
+}): number {
+  const db = getDb();
+  db.update(oauthProviders)
+    .set({ baseUrl: params.nextBaseUrl, updatedAt: Date.now() })
+    .where(
+      and(
+        eq(oauthProviders.provider, params.provider),
+        eq(oauthProviders.baseUrl, params.staleBaseUrl),
+      ),
+    )
+    .run();
+  return rawChanges();
 }
 
 /** Look up a provider by its primary key. */

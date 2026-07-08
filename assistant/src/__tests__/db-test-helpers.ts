@@ -20,6 +20,8 @@
  * from `src/memory/db-connection.ts` instead.
  */
 
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
+
 // Mirrors `src/memory/db-singleton.ts`. Duplicated by design — see the
 // "No source-module imports" section above.
 type DbSlotKey = "main" | "logs" | "memory" | "telemetry";
@@ -58,8 +60,13 @@ function dbSlots(): DbSlots {
  * reset, subsequent `getDb()`/`getLogsDb()`/`getMemoryDb()` calls return a
  * handle to the now-gone file. Idempotent: safe to call when no connection
  * has been opened.
+ *
+ * Also clears the in-process gateway-ACL test stand-in (a module-level Map),
+ * so tests that seed guardian/contact ACL rows get per-test isolation from the
+ * same reset that drops the DB singletons.
  */
 export function resetDbForTesting(): void {
+  resetGatewayAclStore();
   const slots = dbSlots();
   for (const key of ["main", "logs", "memory", "telemetry"] as const) {
     const s = slots[key];

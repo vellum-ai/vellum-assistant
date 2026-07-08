@@ -1,6 +1,6 @@
 /**
  * Guard test: prevent reintroduction of hard-coded pointer copy in
- * relay-server.ts, call-controller.ts, and call-domain.ts.
+ * call-controller.ts and call-domain.ts.
  *
  * Deterministic fallback literals should only exist in the pointer
  * composer file (call-pointer-message-composer.ts). The call-site
@@ -13,11 +13,7 @@ import { describe, expect, test } from "bun:test";
 const srcDir = join(import.meta.dir, "..");
 
 // These files must NOT contain inline pointer copy strings.
-const guardedFiles = [
-  "calls/relay-server.ts",
-  "calls/call-controller.ts",
-  "calls/call-domain.ts",
-];
+const guardedFiles = ["calls/call-controller.ts", "calls/call-domain.ts"];
 
 // Patterns that indicate inline pointer copy rather than routing through
 // addPointerMessage. We check for the distinctive emoji + "Call to" prefix

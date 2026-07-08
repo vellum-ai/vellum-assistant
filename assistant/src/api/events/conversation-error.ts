@@ -43,7 +43,6 @@ export const ConversationErrorCodeSchema = z.enum([
   "CONVERSATION_ABORTED",
   "CONVERSATION_PROCESSING_FAILED",
   "DISK_SPACE_CRITICAL",
-  "REGENERATE_FAILED",
   "UNKNOWN",
 ]);
 

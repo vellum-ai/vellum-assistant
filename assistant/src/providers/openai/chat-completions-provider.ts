@@ -5,8 +5,10 @@ import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
+import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { createStreamTimeout } from "../stream-timeout.js";
+import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
   ContentBlock,
   Message,
@@ -462,6 +464,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         number,
         { id: string; name: string; args: string }
       >();
+      const toolProgress = createToolProgressEmitter(onEvent);
       let finishReason = "unknown";
       let responseModel = modelOverride ?? this.model;
       let promptTokens = 0;
@@ -551,7 +554,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 const entry = toolCallMap.get(tc.index)!;
                 if (tc.id) entry.id = tc.id;
                 if (tc.function?.name) entry.name += tc.function.name;
-                if (tc.function?.arguments) entry.args += tc.function.arguments;
+                toolProgress.emitPreviewStart(entry.id, entry.name);
+                if (tc.function?.arguments) {
+                  entry.args += tc.function.arguments;
+                  toolProgress.emitInputJsonDelta(
+                    entry.id,
+                    entry.name,
+                    entry.args,
+                  );
+                }
               }
             }
 
@@ -606,6 +617,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
         content.push({ type: "text", text: finalContent });
       }
       for (const [, tc] of toolCallMap) {
+        toolProgress.emitInputJsonDelta(tc.id, tc.name, tc.args, {
+          force: true,
+        });
         let input: Record<string, unknown>;
         try {
           input = JSON.parse(tc.args);
@@ -793,6 +807,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
     messages: Message[],
     systemPrompt?: string,
   ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+    // Swap any persisted attachment references back to inline base64 before
+    // serializing, so the block transforms below can read `source.data`.
+    messages = resolveMediaReferences(messages);
     const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
     if (systemPrompt) {
@@ -953,10 +970,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
               text: `[Image: ${block.source.media_type} — format not supported by this provider]`,
             });
           } else {
+            const imageSrc = base64Source(block.source);
             parts.push({
               type: "image_url",
               image_url: {
-                url: `data:${block.source.media_type};base64,${block.source.data}`,
+                url: `data:${imageSrc.media_type};base64,${imageSrc.data}`,
               },
             });
           }
@@ -986,7 +1004,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     block: Extract<ContentBlock, { type: "file" }>,
   ): string {
     const header = `<attached_file name="${escapeXmlAttr(
-      block.source.filename,
+      block.source.filename ?? "",
     )}" type="${escapeXmlAttr(block.source.media_type)}" />`;
     if (block.extracted_text && block.extracted_text.trim().length > 0) {
       return `${header}\n${block.extracted_text}`;

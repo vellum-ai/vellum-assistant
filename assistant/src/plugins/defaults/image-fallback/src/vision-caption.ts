@@ -14,9 +14,9 @@ import {
   getModelProfiles,
   type ImageContent,
   type PluginLogger,
+  resolveMediaSourceData,
 } from "@vellumai/plugin-api";
 
-import { extractAllText } from "../../../../providers/provider-send-message.js";
 import {
   getCachedCaption,
   imageHash,
@@ -30,7 +30,8 @@ const CAPTION_SYSTEM_PROMPT =
   "Focus on the key visual content, text, charts, or UI elements that would be " +
   "relevant for a text-based assistant to understand and reason about.";
 
-const CAPTION_USER_PROMPT = "Describe this image concisely for a text-only assistant.";
+const CAPTION_USER_PROMPT =
+  "Describe this image concisely for a text-only assistant.";
 
 /**
  * Find a vision-capable, enabled profile key for captioning.
@@ -54,6 +55,8 @@ export function findVisionProfile(): string | null {
  * Caption a single image block via a vision-capable profile.
  *
  * @param image     The image content block to caption.
+ * @param conversationId  Conversation the image belongs to, recorded on the
+ *          cache row so `conversation-deleted` cleanup stays accurate.
  * @param profileKey  Key of a vision-capable profile (from {@link findVisionProfile}).
  * @param logger    Turn-scoped logger for attribution.
  * @returns The caption text, or `null` when captioning failed (caller should
@@ -61,11 +64,16 @@ export function findVisionProfile(): string | null {
  */
 export async function captionImage(
   image: ImageContent,
+  conversationId: string,
   profileKey: string,
   logger: PluginLogger,
 ): Promise<string | null> {
-  const hash = imageHash(image.source.data);
-  const cached = getCachedCaption(hash);
+  // Hash the image's content (resolving a reference source to its bytes, a
+  // no-op for inline base64) so the caption cache keys on the image itself.
+  const resolved = resolveMediaSourceData(image.source);
+  if (!resolved) return null;
+  const hash = imageHash(resolved.data);
+  const cached = getCachedCaption(hash, conversationId);
   if (cached !== undefined) {
     return cached;
   }
@@ -102,13 +110,21 @@ export async function captionImage(
       },
     );
 
-    const caption = extractAllText(response).trim();
+    // Vision captioning returns text content; concatenate any text blocks
+    // (effectively always one here, since tool use is disabled).
+    const caption = response.content
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join(" ")
+      .trim();
     if (caption.length > 0) {
-      setCachedCaption(hash, caption);
+      setCachedCaption(hash, conversationId, caption);
       return caption;
     }
 
-    logger.warn({ plugin: "image-fallback" }, "Vision captioning returned empty text");
+    logger.warn(
+      { plugin: "image-fallback" },
+      "Vision captioning returned empty text",
+    );
     return null;
   } catch (err) {
     logger.warn(

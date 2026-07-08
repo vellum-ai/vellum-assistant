@@ -9,14 +9,17 @@
  *   - service_account      → reject (v2 not yet shipped)
  */
 
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
+import { getLogger } from "../../util/logger.js";
 import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
-} from "../../providers/platform-proxy/context.js";
-import { getSecureKeyAsync } from "../../security/secure-keys.js";
-import { getLogger } from "../../util/logger.js";
-import type { Auth, ResolvedAuth } from "./auth.js";
-import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "./connections.js";
+} from "../platform-proxy/context.js";
+import {
+  type Auth,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  type ResolvedAuth,
+} from "./auth.js";
 
 const log = getLogger("resolve-auth");
 

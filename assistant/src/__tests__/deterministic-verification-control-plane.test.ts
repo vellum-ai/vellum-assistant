@@ -5,8 +5,7 @@
  * 1. Verification control messages (code replies, /start gv_<token>) never invoke
  *    the normal message pipeline — they produce only template-driven copy.
  * 2. Call session mode metadata is persisted correctly for guardian verification calls.
- * 3. TwiML generation includes guardian verification parameters when relevant.
- * 4. Channel verification reply templates are non-empty and deterministic.
+ * 3. Channel verification reply templates are non-empty and deterministic.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -54,14 +53,45 @@ mock.module("../daemon/process-message.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import type { TwilioRelaySpeechConfig } from "../calls/twilio-routes.js";
-import { generateTwiML } from "../calls/twilio-routes.js";
-import { initializeDb } from "../memory/db-init.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { handleChannelInbound } from "../runtime/routes/inbound-message-handler.js";
 import {
   composeChannelVerifyReply,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/verification-templates.js";
+import {
+  bindSessionIdentity,
+  createOutboundSession,
+  createOutboundSessionGuarded,
+  resolveBootstrapToken,
+  updateSessionDelivery,
+  updateSessionStatus,
+} from "./helpers/verification-sessions-ipc-sim.js";
+
+// The inbound stages read/write sessions via the gateway-backed IPC client;
+// delegate it to the in-memory sim so the bootstrap flow keeps running
+// without a live gateway.
+mock.module("../channels/gateway-verification-sessions.js", () => ({
+  resolveBootstrapToken: async (channel: string, token: string) =>
+    resolveBootstrapToken(channel, token),
+  bindSessionIdentity: async (
+    id: string,
+    externalUserId: string,
+    chatId: string,
+  ) => bindSessionIdentity(id, externalUserId, chatId),
+  updateSessionStatus: async (
+    ...args: Parameters<typeof updateSessionStatus>
+  ) => updateSessionStatus(...args),
+  createOutboundSession: async (
+    params: Parameters<typeof createOutboundSession>[0],
+  ) => createOutboundSession(params),
+  createOutboundSessionConditional: async (
+    params: Parameters<typeof createOutboundSessionGuarded>[0],
+  ) => createOutboundSessionGuarded(params),
+  updateSessionDelivery: async (
+    ...args: Parameters<typeof updateSessionDelivery>
+  ) => updateSessionDelivery(...args),
+}));
 
 // ---------------------------------------------------------------------------
 // Template tests: channel verification reply templates are deterministic
@@ -111,64 +141,6 @@ describe("Channel verification reply templates", () => {
 });
 
 // ---------------------------------------------------------------------------
-// TwiML generation: parameter propagation
-// ---------------------------------------------------------------------------
-
-describe("TwiML parameter propagation", () => {
-  const defaultProfile = {
-    language: "en-US",
-    ttsProvider: "google",
-    voice: "en-US-Standard-A",
-  };
-
-  const defaultSpeechConfig: TwilioRelaySpeechConfig = {
-    transcriptionProvider: "deepgram",
-    speechModel: undefined,
-    hints: undefined,
-    interruptSensitivity: "low",
-  };
-
-  test("includes verificationSessionId as Parameter when provided", () => {
-    const twiml = generateTwiML(
-      "session-123",
-      "wss://example.com/v1/calls/relay",
-      null,
-      defaultProfile,
-      defaultSpeechConfig,
-      undefined,
-      { verificationSessionId: "gv-session-456" },
-    );
-    expect(twiml).toContain('name="verificationSessionId"');
-    expect(twiml).toContain('value="gv-session-456"');
-    expect(twiml).toContain("<Parameter");
-  });
-
-  test("omits Parameter elements when no custom parameters", () => {
-    const twiml = generateTwiML(
-      "session-123",
-      "wss://example.com/v1/calls/relay",
-      null,
-      defaultProfile,
-      defaultSpeechConfig,
-    );
-    expect(twiml).not.toContain("<Parameter");
-  });
-
-  test("omits Parameter elements when custom parameters is undefined", () => {
-    const twiml = generateTwiML(
-      "session-123",
-      "wss://example.com/v1/calls/relay",
-      null,
-      defaultProfile,
-      defaultSpeechConfig,
-      "token123",
-      undefined,
-    );
-    expect(twiml).not.toContain("<Parameter");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Call session mode metadata: createCallSession persists callMode
 // ---------------------------------------------------------------------------
 
@@ -184,7 +156,7 @@ describe("Call session mode metadata", () => {
     const { createCallSession, getCallSession } =
       await import("../calls/call-store.js");
     const { getOrCreateConversation } =
-      await import("../memory/conversation-key-store.js");
+      await import("../persistence/conversation-key-store.js");
 
     const { conversationId } = getOrCreateConversation("test-conv-mode");
     const session = createCallSession({
@@ -210,7 +182,7 @@ describe("Call session mode metadata", () => {
     const { createCallSession, getCallSession } =
       await import("../calls/call-store.js");
     const { getOrCreateConversation } =
-      await import("../memory/conversation-key-store.js");
+      await import("../persistence/conversation-key-store.js");
 
     const { conversationId } = getOrCreateConversation(
       "test-conv-mode-default",
@@ -245,7 +217,7 @@ describe("Verification control messages are deterministic (guard)", () => {
     const { createHash, randomBytes } = await import("node:crypto");
 
     const { createOutboundSession } =
-      await import("../runtime/channel-verification-service.js");
+      await import("./helpers/verification-sessions-ipc-sim.js");
 
     // Generate a bootstrap token and create a pending_bootstrap session
     const bootstrapToken = randomBytes(16).toString("hex");
@@ -334,7 +306,7 @@ describe("Verification control messages are deterministic (guard)", () => {
     const { createHash, randomBytes } = await import("node:crypto");
 
     const { createOutboundSession } =
-      await import("../runtime/channel-verification-service.js");
+      await import("./helpers/verification-sessions-ipc-sim.js");
     const { upsertContactChannel } =
       await import("../contacts/contacts-write.js");
 

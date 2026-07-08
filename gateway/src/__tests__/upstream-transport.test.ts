@@ -160,20 +160,6 @@ describe("HTTP proxy timeout/error via assistant-client", () => {
 describe("WS upstream URL construction via assistant-client", () => {
   const baseUrl = "http://localhost:7821";
 
-  test("twilio-relay builds correct upstream WS URL with callSessionId", () => {
-    const result = buildWsUpstreamUrl({
-      baseUrl,
-      path: "/v1/calls/relay",
-      serviceToken: "svc-jwt-token",
-      extraParams: { callSessionId: "call-session-123" },
-    });
-
-    const url = new URL(result.url);
-    expect(url.pathname).toBe("/v1/calls/relay");
-    expect(url.searchParams.get("token")).toBe("svc-jwt-token");
-    expect(url.searchParams.get("callSessionId")).toBe("call-session-123");
-  });
-
   test("twilio-media builds correct upstream WS URL with callSessionId", () => {
     const result = buildWsUpstreamUrl({
       baseUrl,
@@ -235,7 +221,6 @@ describe("WS upstream log-safe URL", () => {
       path: string;
       params: Record<string, string>;
     }> = [
-      { path: "/v1/calls/relay", params: { callSessionId: "c1" } },
       { path: "/v1/calls/media-stream", params: { callSessionId: "m1" } },
       { path: "/v1/stt/stream", params: { mimeType: "audio/webm" } },
     ];

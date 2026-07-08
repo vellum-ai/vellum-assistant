@@ -1,7 +1,8 @@
 /**
  * Admission policy enforcement stage.
  *
- * Sits between `resolveTrustContext()` and the agent-loop dispatch in
+ * Sits between the verdict-derived trust context (`trustContextFromVerdict()`
+ * over the gateway-stamped verdict) and the agent-loop dispatch in
  * `inbound-message-handler.ts`. The gateway attaches a per-channel-type
  * floor (`sourceMetadata.admissionPolicy`); this stage compares the floor
  * to the resolved trust class's rank and either admits or denies.

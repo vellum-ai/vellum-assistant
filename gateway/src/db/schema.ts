@@ -110,8 +110,8 @@ export const oneTimeMigrations = sqliteTable("one_time_migrations", {
 //
 // The gateway DB owns ONLY the data the ACL needs to answer "can this contact
 // do X?". Informational / UX / product data that does NOT affect access
-// decisions lives in the assistant DB and is joined at read time via
-// `assistantDbQuery` (see contacts-info-joiner.ts).
+// decisions lives in the assistant DB and is joined at read time via the
+// typed `contacts_info_batch` IPC (see contacts-info-joiner.ts).
 //
 // Gateway-owned (this table + contact_channels): id, role, principalId,
 // displayName (cache only — NOT used for ACL, kept for log readability),
@@ -175,7 +175,25 @@ export const ingressInvites = sqliteTable(
   {
     id: text("id").primaryKey(),
     sourceChannel: text("source_channel").notNull(),
+    // Logically nullable (voice invites carry voiceCodeHash instead), but the
+    // NOT NULL constraint must stay: relaxing it (or adding a default) makes
+    // drizzle push rebuild the table, and pushSQLiteSchema's generated rebuild
+    // corrupts existing DBs (INSERT..SELECT references not-yet-existent
+    // columns, duplicated CREATE INDEX statements crash startup). The store
+    // writes the "" sentinel for invites without a code (see
+    // NO_INVITE_CODE_HASH in contact-store.ts); m0009 owns normalization.
     inviteCodeHash: text("invite_code_hash").notNull(),
+    // SHA-256 hash of the one-time invite link token (null for voice invites).
+    tokenHash: text("token_hash"),
+    // Voice invite fields (null for non-voice invites).
+    voiceCodeHash: text("voice_code_hash"),
+    voiceCodeDigits: integer("voice_code_digits"),
+    expectedExternalUserId: text("expected_external_user_id"),
+    // Display metadata for personalized invite prompts.
+    friendName: text("friend_name"),
+    guardianName: text("guardian_name"),
+    // Opaque passthrough — the gateway never interprets it.
+    sourceConversationId: text("source_conversation_id"),
     note: text("note"),
     maxUses: integer("max_uses").notNull().default(1),
     useCount: integer("use_count").notNull().default(0),
@@ -196,6 +214,11 @@ export const ingressInvites = sqliteTable(
       table.sourceChannel,
     ),
     index("idx_ingress_invites_contact").on(table.contactId),
+    index("idx_ingress_invites_token_hash").on(table.tokenHash),
+    index("idx_ingress_invites_expected_user").on(
+      table.expectedExternalUserId,
+      table.status,
+    ),
   ],
 );
 
@@ -308,21 +331,123 @@ export const trustRules = sqliteTable(
 // Channel admission policy (per channel type)
 // ---------------------------------------------------------------------------
 
-export const channelAdmissionPolicy = sqliteTable(
-  "channel_admission_policy",
+export const channelAdmissionPolicy = sqliteTable("channel_admission_policy", {
+  // Channel TYPE — matches `ChannelId` in gateway/src/channels/types.ts.
+  // Stored as text rather than an enum because SQLite has no enum type;
+  // the app layer validates against CHANNEL_IDS at write time.
+  channelType: text("channel_type").primaryKey(),
+  // One of: 'no_one' | 'guardian_only' | 'trusted_contacts' |
+  //         'any_contact' | 'strangers'. Read-side default lives in the
+  //         store (ADMISSION_POLICY_DEFAULT) — absent rows resolve to it.
+  policy: text("policy").notNull().default("trusted_contacts"),
+  // Optional human note (e.g. "switched to no_one because <reason>").
+  note: text("note"),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// Channel permission overrides (matrix cells: cascade key × contact-type)
+// ---------------------------------------------------------------------------
+
+export const channelPermissionOverrides = sqliteTable(
+  "channel_permission_overrides",
   {
-    // Channel TYPE — matches `ChannelId` in gateway/src/channels/types.ts.
-    // Stored as text rather than an enum because SQLite has no enum type;
-    // the app layer validates against CHANNEL_IDS at write time.
-    channelType: text("channel_type").primaryKey(),
-    // One of: 'no_one' | 'guardian_only' | 'trusted_contacts' |
-    //         'any_contact' | 'strangers'. Read-side default lives in the
-    //         store (ADMISSION_POLICY_DEFAULT) — absent rows resolve to it.
-    policy: text("policy").notNull().default("trusted_contacts"),
-    // Optional human note (e.g. "switched to no_one because <reason>").
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    // Cascade level: 'workspace' | 'adapter' | 'channel_type' | 'channel'.
+    // Stored as text; the app layer validates against the contract enum at
+    // write time (same pattern as channel_admission_policy.policy).
+    scope: text("scope").notNull(),
+    // Cascade keys. Empty string (not NULL) for keys above the row's scope
+    // so the unique index can enforce one row per cell — SQLite treats
+    // NULLs as distinct in unique indexes.
+    adapter: text("adapter").notNull().default(""),
+    channelType: text("channel_type").notNull().default(""),
+    channelExternalId: text("channel_external_id").notNull().default(""),
+    // Contact-type axis — canonical trust class ('guardian' |
+    // 'trusted_contact' | 'unverified_contact' | 'unknown').
+    contactType: text("contact_type").notNull(),
+    // RiskThreshold: 'none' | 'low' | 'medium' | 'high'.
+    threshold: text("threshold").notNull(),
+    // Optional human note (e.g. migration provenance).
     note: text("note"),
     updatedAt: integer("updated_at").notNull(),
   },
+  (table) => [
+    uniqueIndex("idx_channel_permission_cell").on(
+      table.scope,
+      table.adapter,
+      table.channelType,
+      table.channelExternalId,
+      table.contactType,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Channel verification sessions (gateway-owned)
+// ---------------------------------------------------------------------------
+//
+// Recreated deliberately after m0011 dropped the old write-only mirror.
+// Column names mirror the assistant table 1:1 so the m0013 backfill can
+// copy rows unchanged. Accessed via db/session-store.ts.
+
+export const channelVerificationSessions = sqliteTable(
+  "channel_verification_sessions",
+  {
+    id: text("id").primaryKey(),
+    channel: text("channel").notNull(),
+    challengeHash: text("challenge_hash").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    status: text("status").notNull().default("pending"),
+    sourceConversationId: text("source_conversation_id"),
+    consumedByExternalUserId: text("consumed_by_external_user_id"),
+    consumedByChatId: text("consumed_by_chat_id"),
+    // Outbound session: expected-identity binding
+    expectedExternalUserId: text("expected_external_user_id"),
+    expectedChatId: text("expected_chat_id"),
+    expectedPhoneE164: text("expected_phone_e164"),
+    identityBindingStatus: text("identity_binding_status").default("bound"),
+    // Outbound session: delivery tracking
+    destinationAddress: text("destination_address"),
+    lastSentAt: integer("last_sent_at"),
+    sendCount: integer("send_count").default(0),
+    nextResendAt: integer("next_resend_at"),
+    // Session configuration
+    codeDigits: integer("code_digits").default(6),
+    maxAttempts: integer("max_attempts").default(3),
+    // Distinguishes guardian verification from trusted contact verification
+    verificationPurpose: text("verification_purpose").default("guardian"),
+    // Telegram bootstrap deep-link token hash
+    bootstrapTokenHash: text("bootstrap_token_hash"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_gw_verification_sessions_lookup").on(
+      table.channel,
+      table.challengeHash,
+      table.status,
+    ),
+    index("idx_gw_verification_sessions_active").on(
+      table.channel,
+      table.status,
+    ),
+    index("idx_gw_verification_sessions_identity").on(
+      table.channel,
+      table.expectedExternalUserId,
+      table.expectedChatId,
+      table.status,
+    ),
+    index("idx_gw_verification_sessions_destination").on(
+      table.channel,
+      table.destinationAddress,
+    ),
+    index("idx_gw_verification_sessions_bootstrap").on(
+      table.channel,
+      table.bootstrapTokenHash,
+      table.status,
+    ),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -353,41 +478,6 @@ export const channelGuardianRateLimits = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
-// Channel verification sessions (dual-write mirror of assistant table)
-// ---------------------------------------------------------------------------
-
-export const channelVerificationSessions = sqliteTable(
-  "channel_verification_sessions",
-  {
-    id: text("id").primaryKey(),
-    channel: text("channel").notNull(),
-    challengeHash: text("challenge_hash").notNull(),
-    expiresAt: integer("expires_at").notNull(),
-    status: text("status").notNull().default("pending"),
-    sourceConversationId: text("source_conversation_id"),
-    consumedByExternalUserId: text("consumed_by_external_user_id"),
-    consumedByChatId: text("consumed_by_chat_id"),
-    expectedExternalUserId: text("expected_external_user_id"),
-    expectedChatId: text("expected_chat_id"),
-    expectedPhoneE164: text("expected_phone_e164"),
-    identityBindingStatus: text("identity_binding_status").default("bound"),
-    destinationAddress: text("destination_address"),
-    lastSentAt: integer("last_sent_at"),
-    sendCount: integer("send_count").default(0),
-    nextResendAt: integer("next_resend_at"),
-    codeDigits: integer("code_digits").default(6),
-    maxAttempts: integer("max_attempts").default(3),
-    verificationPurpose: text("verification_purpose").default("guardian"),
-    bootstrapTokenHash: text("bootstrap_token_hash"),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-  (table) => [
-    index("idx_gw_cvs_channel_status").on(table.channel, table.status),
-  ],
-);
-
-// ---------------------------------------------------------------------------
 // Channel denial reply log (rate-limiting outbound denial replies)
 // ---------------------------------------------------------------------------
 
@@ -406,5 +496,48 @@ export const channelDenialReplyLog = sqliteTable(
       table.sentAt,
     ),
     index("idx_channel_denial_sent").on(table.sentAt),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Credential requests (one-time credential-collection links)
+// ---------------------------------------------------------------------------
+
+export const credentialRequests = sqliteTable(
+  "credential_requests",
+  {
+    id: text("id").primaryKey(),
+    // SHA-256 hash of the one-time link token; the plaintext token is never stored.
+    tokenHash: text("token_hash").notNull(),
+    // "standalone" = minted from settings/CLI; "prompt" = bound to a pending
+    // daemon secret prompt that the submit resolves.
+    purpose: text("purpose").notNull().default("standalone"),
+    service: text("service").notNull(),
+    field: text("field").notNull(),
+    label: text("label"),
+    // Daemon-side correlation ID for the pending secret prompt (the requestId
+    // in the secret_request SSE / POST /v1/secret contract); not a FK.
+    secretPromptId: text("secret_prompt_id"),
+    // JSON-encoded credential policy forwarded to the daemon on submit.
+    policyJson: text("policy_json"),
+    maxUses: integer("max_uses").notNull().default(1),
+    useCount: integer("use_count").notNull().default(0),
+    expiresAt: integer("expires_at").notNull(),
+    // active | redeeming | redeemed | failed | revoked. "redeeming" is a
+    // short-lived claim held while the value is forwarded to the daemon; a
+    // forward error is terminal ("failed") because the daemon may have
+    // partially written before erroring — reopening the link would create a
+    // second-write window on a single-use token.
+    status: text("status").notNull().default("active"),
+    redeemedAt: integer("redeemed_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_credential_requests_token_hash").on(table.tokenHash),
+    index("idx_credential_requests_status_expiry").on(
+      table.status,
+      table.expiresAt,
+    ),
   ],
 );

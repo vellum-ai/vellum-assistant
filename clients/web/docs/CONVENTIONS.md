@@ -441,6 +441,16 @@ conversations (Slack, email, Telegram) have keys like
    for external channel adapters; web-originated traffic uses
    `conversationId`.
 
+### Don't duplicate logic — one source of truth
+
+When the same logic (a derivation, formatter, guard, fetch sequence, or
+handler) appears in more than one place, extract it into a single named
+function/hook/util that every caller imports. Copy-pasted logic drifts —
+a bug fixed in one copy survives in the others — so extract on the
+**second** occurrence, share behavior rather than just types, and delete
+the originals in the same PR. Where the extracted code lives follows the
+decision rule below.
+
 ### Top-level shared directories
 
 Code used across multiple domains lives in top-level shared
@@ -620,6 +630,12 @@ Inline JSX that has its own concerns (visibility gating, animation,
 multi-prop wiring, conditional rendering beyond a one-liner) should be
 extracted into a named component. Trivial inline JSX (a single element,
 a static label) stays inline.
+
+An extracted component is a named component, and a named component lives
+in its own file — see [STYLE_GUIDE — One component per file](./STYLE_GUIDE.md#one-component-per-file).
+Don't append a second component as an extra export on its parent;
+co-locating is a deliberate, rare exception for a trivial helper private
+to its sibling.
 
 Reference: [React — Thinking in React: break the UI into a component hierarchy](https://react.dev/learn/thinking-in-react#step-1-break-the-ui-into-a-component-hierarchy)
 

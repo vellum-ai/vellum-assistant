@@ -1,20 +1,10 @@
 import { z } from "zod";
 
-import { listCatalogProviderIds } from "../../tts/provider-catalog.js";
-import type { TtsProviderId } from "../../tts/types.js";
+import { TTS_PROVIDER_IDS } from "../../tts/types.js";
 import {
   DEFAULT_ELEVENLABS_VOICE_ID,
   VALID_CONVERSATION_TIMEOUTS,
 } from "./elevenlabs.js";
-
-/**
- * Valid TTS provider identifiers derived from the canonical provider catalog.
- *
- * Adding a new TTS provider starts in `provider-catalog.ts` — the IDs flow
- * here automatically.
- */
-export const VALID_TTS_PROVIDERS: readonly [string, ...string[]] =
-  listCatalogProviderIds() as [TtsProviderId, ...TtsProviderId[]];
 
 /**
  * Per-provider config schemas nested under `services.tts.providers.<id>`.
@@ -243,7 +233,7 @@ export type TtsProviders = z.infer<typeof TtsProvidersSchema>;
 // immediately rather than at runtime when a user selects the provider.
 // ---------------------------------------------------------------------------
 const schemaKeys = new Set(Object.keys(TtsProvidersSchema.shape));
-for (const id of VALID_TTS_PROVIDERS) {
+for (const id of TTS_PROVIDER_IDS) {
   if (!schemaKeys.has(id)) {
     throw new Error(
       `TTS provider "${id}" exists in the catalog but has no schema entry ` +
@@ -251,7 +241,7 @@ for (const id of VALID_TTS_PROVIDERS) {
     );
   }
 }
-const catalogKeys = new Set<string>(VALID_TTS_PROVIDERS);
+const catalogKeys = new Set<string>(TTS_PROVIDER_IDS);
 for (const id of schemaKeys) {
   if (!catalogKeys.has(id)) {
     throw new Error(
@@ -280,8 +270,8 @@ export const TtsServiceSchema = z
         'TTS service mode — only "your-own" is supported (managed TTS is not available)',
       ),
     provider: z
-      .enum(VALID_TTS_PROVIDERS, {
-        error: `services.tts.provider must be one of: ${VALID_TTS_PROVIDERS.join(", ")}`,
+      .enum(TTS_PROVIDER_IDS, {
+        error: `services.tts.provider must be one of: ${TTS_PROVIDER_IDS.join(", ")}`,
       })
       .default("elevenlabs")
       .describe("Active TTS provider used for speech synthesis"),

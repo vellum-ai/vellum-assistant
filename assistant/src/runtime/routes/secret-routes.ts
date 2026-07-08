@@ -16,21 +16,19 @@ import {
   setPlatformOrganizationId,
   setPlatformUserId,
 } from "../../config/env.js";
-import {
-  API_KEY_PROVIDERS,
-  getConfig,
-  invalidateConfigCache,
-} from "../../config/loader.js";
+import { getConfig, invalidateConfigCache } from "../../config/loader.js";
+import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
-import { maybeReseedCapabilitiesAfterManagedCredential } from "../../daemon/memory-v2-startup.js";
-import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
-import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
+import { evictConversationsForReload } from "../../daemon/conversation-store.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
+import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
+import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v2/memory-v2-startup.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
+import { API_KEY_PROVIDERS } from "../../providers/provider-secret-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -49,7 +47,6 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
-import { getSecretsDeps } from "./secrets-deps.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
@@ -124,15 +121,16 @@ async function refreshProvidersAfterSecretChange(): Promise<void> {
   invalidateConfigCache();
   await initializeProviders(getConfig());
 
-  const deps = getSecretsDeps();
-  if (!deps?.onProviderCredentialsChanged) return;
-
+  // Provider instances are captured when conversations are created, so a key
+  // change must evict or mark them stale before the next turn. Best-effort:
+  // the credential write has already succeeded, so a disposal failure must not
+  // surface as a 500 that makes clients think the secret change failed.
   try {
-    await deps.onProviderCredentialsChanged();
+    evictConversationsForReload();
   } catch (err) {
     log.warn(
       { error: err instanceof Error ? err.message : String(err) },
-      "Error notifying provider credentials change (non-fatal)",
+      "Error evicting conversations after credential change (non-fatal)",
     );
   }
 }
@@ -265,10 +263,8 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           setPlatformAssistantId(undefined);
         } else if (field === "platform_organization_id") {
           setPlatformOrganizationId(undefined);
-          setSentryOrganizationId(undefined);
         } else if (field === "platform_user_id") {
           setPlatformUserId(undefined);
-          setSentryUserId(undefined);
         }
         deleteCredentialMetadata(service, field);
       } else {
@@ -288,11 +284,9 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         }
         if (service === "vellum" && field === "platform_organization_id") {
           setPlatformOrganizationId(effectiveValue || undefined);
-          setSentryOrganizationId(effectiveValue || undefined);
         }
         if (service === "vellum" && field === "platform_user_id") {
           setPlatformUserId(effectiveValue || undefined);
-          setSentryUserId(effectiveValue || undefined);
         }
       }
       if (isManagedProxyCredential(service, field)) {
@@ -303,8 +297,7 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
           const generation = ++apiKeyGeneration;
-          const deps = getSecretsDeps();
-          const cesClient = deps?.getCesClient?.();
+          const cesClient = getCesClient();
           if (cesClient) {
             if (cesClient.isReady()) {
               try {
@@ -524,11 +517,9 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
       }
       if (service === "vellum" && field === "platform_organization_id") {
         setPlatformOrganizationId(undefined);
-        setSentryOrganizationId(undefined);
       }
       if (service === "vellum" && field === "platform_user_id") {
         setPlatformUserId(undefined);
-        setSentryUserId(undefined);
       }
       if (isManagedProxyCredential(service, field)) {
         await refreshProvidersAfterSecretChange();
@@ -569,10 +560,14 @@ async function handleListSecrets() {
     // delete(provider) steps.
     const credentialNamespaceProviders = new Set<string>(
       accounts.flatMap((account) => {
-        if (!account.startsWith(CREDENTIAL_KEY_PREFIX)) return [];
+        if (!account.startsWith(CREDENTIAL_KEY_PREFIX)) {
+          return [];
+        }
         const rest = account.slice(CREDENTIAL_KEY_PREFIX.length);
         const slashIdx = rest.indexOf("/");
-        if (slashIdx < 1 || slashIdx >= rest.length - 1) return [];
+        if (slashIdx < 1 || slashIdx >= rest.length - 1) {
+          return [];
+        }
         const service = rest.slice(0, slashIdx);
         const field = rest.slice(slashIdx + 1);
         if (
@@ -591,8 +586,12 @@ async function handleListSecrets() {
       .filter((account) => {
         // Drop bare-key entries for providers already represented via the
         // credential/ namespace to prevent duplicates after a partial migration.
-        if (account.startsWith(CREDENTIAL_KEY_PREFIX)) return true;
-        if (credentialNamespaceProviders.has(account)) return false;
+        if (account.startsWith(CREDENTIAL_KEY_PREFIX)) {
+          return true;
+        }
+        if (credentialNamespaceProviders.has(account)) {
+          return false;
+        }
         return true;
       })
       .map((account) => {

@@ -1,4 +1,5 @@
 import type { InterfaceId } from "../channels/types.js";
+import { getEffectiveProfiles } from "../config/default-profile-catalog.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import {
@@ -8,7 +9,7 @@ import {
   saveRawConfig,
 } from "../config/loader.js";
 import { orderProfileKeys } from "../config/profile-order.js";
-import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
+import { getConversationOverrideProfile } from "../persistence/conversation-crud.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
 import { getVisibleProviderCatalog } from "../providers/provider-catalog-visibility.js";
 
@@ -135,10 +136,7 @@ async function resolveModelCommand(
   parse: ModelCommandParse,
 ): Promise<SlashResolution> {
   const config = getConfig();
-  const profiles = (config.llm.profiles ?? {}) as Record<
-    string,
-    { label?: string; description?: string; status?: "active" | "disabled" }
-  >;
+  const profiles = getEffectiveProfiles(config.llm.profiles);
   const profileNames = orderProfileKeys(profiles, config.llm.profileOrder);
   const activeProfile = config.llm.activeProfile;
 

@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, mock, test } from "bun:test";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -56,10 +57,16 @@ mock.module("@vellumai/design-library", () => ({
   Button: ({
     children,
     iconOnly,
+    leftIcon: _leftIcon,
+    variant: _variant,
+    size: _size,
     ...props
   }: {
     children?: ReactNode;
     iconOnly?: ReactNode;
+    leftIcon?: ReactNode;
+    variant?: string;
+    size?: string;
   } & ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{iconOnly ?? children}</button>
   ),
@@ -140,7 +147,6 @@ function baseProps(
       transcriptProps: { messages: [], onScrollToMessage: noop } as never,
     },
     composerSlot: <div data-testid="composer">COMPOSER</div>,
-    onStopGenerating: noop,
     dragHandlers: {
       onDragEnter: noopDrag,
       onDragOver: noopDrag,
@@ -154,7 +160,6 @@ function baseProps(
     onDismissRefreshFeedback: noop,
     onRetryRefresh: noop,
     genericChatError: null,
-    isChannelReadonly: false,
     ...overrides,
   };
 }
@@ -229,6 +234,63 @@ describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
     );
     expect(html).toContain("BANNER_CONTENT");
   });
+
+  test("reserves the measured bottom banner height", async () => {
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let measuredHeight = 137;
+    let resizeCallback: ResizeObserverCallback | null = null;
+
+    HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+      if (this.querySelector('[data-testid="banner"]')) {
+        return {
+          bottom: measuredHeight,
+          height: measuredHeight,
+          left: 0,
+          right: 0,
+          top: 0,
+          width: 0,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        };
+      }
+      return originalGetBoundingClientRect.call(this);
+    };
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as typeof ResizeObserver;
+
+    try {
+      const { container } = render(
+        <ChatBody
+          {...baseProps({
+            bannerSlot: <div data-testid="banner">BANNER_CONTENT</div>,
+          })}
+        />,
+      );
+      await waitFor(() => {
+        expect(container.innerHTML).toContain("padding-bottom: 137px");
+      });
+
+      measuredHeight = 164;
+      act(() => {
+        resizeCallback?.([], {} as ResizeObserver);
+      });
+      await waitFor(() => {
+        expect(container.innerHTML).toContain("padding-bottom: 164px");
+      });
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+      globalThis.ResizeObserver = originalResizeObserver;
+      cleanup();
+    }
+  });
 });
 
 describe("ChatBody — startersSlot rendering", () => {
@@ -254,9 +316,41 @@ describe("ChatBody — startersSlot rendering", () => {
 
 });
 
-describe("ChatBody — active subagents overlay slot", () => {
-  const activeSubagentsSlot = (
-    <div data-testid="active-subagents-slot">ACTIVE_SUBAGENTS</div>
+describe("ChatBody — pluginPillsSlot rendering", () => {
+  test("renders pluginPillsSlot between the composer and the starters", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...withEmptyState({
+          pluginPillsSlot: <div data-testid="plugins">PLUGIN_PILLS</div>,
+          startersSlot: <div data-testid="starters">STARTER_CHIPS</div>,
+        })}
+      />,
+    );
+    expect(html).toContain("PLUGIN_PILLS");
+    // Order: composer, then plugin pills, then starters.
+    expect(html.indexOf("COMPOSER")).toBeLessThan(
+      html.indexOf("PLUGIN_PILLS"),
+    );
+    expect(html.indexOf("PLUGIN_PILLS")).toBeLessThan(
+      html.indexOf("STARTER_CHIPS"),
+    );
+  });
+
+  test("omits plugin pills when pluginPillsSlot is undefined", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...withEmptyState()} />,
+    );
+    expect(html).not.toContain("PLUGIN_PILLS");
+  });
+});
+
+describe("ChatBody — active-process overlays slot", () => {
+  // The orchestrator builds the registry-driven row (subagents → acp runs →
+  // workflows → background tasks) and passes it as a single node; ChatBody
+  // only positions it in the top-center overlay (and gates it on the empty
+  // state). Ordering across kinds is owned by the registry, not ChatBody.
+  const activeProcessOverlaysSlot = (
+    <div data-testid="active-process-overlays">ACTIVE_PROCESSES</div>
   );
 
   test("renders the slot top-center when scrolled up and slot is provided", () => {
@@ -264,23 +358,23 @@ describe("ChatBody — active subagents overlay slot", () => {
       <ChatBody
         {...baseProps({
           showScrollToLatest: true,
-          activeSubagentsSlot,
+          activeProcessOverlaysSlot,
         })}
       />,
     );
-    expect(html).toContain("ACTIVE_SUBAGENTS");
+    expect(html).toContain("ACTIVE_PROCESSES");
   });
 
-  test("does NOT render the slot when pinned (showScrollToLatest false)", () => {
+  test("renders the slot even when pinned (showScrollToLatest false) — always-on while running", () => {
     const html = renderToStaticMarkup(
       <ChatBody
         {...baseProps({
           showScrollToLatest: false,
-          activeSubagentsSlot,
+          activeProcessOverlaysSlot,
         })}
       />,
     );
-    expect(html).not.toContain("ACTIVE_SUBAGENTS");
+    expect(html).toContain("ACTIVE_PROCESSES");
   });
 
   test("does NOT render the slot on the empty state", () => {
@@ -288,11 +382,18 @@ describe("ChatBody — active subagents overlay slot", () => {
       <ChatBody
         {...withEmptyState({
           showScrollToLatest: true,
-          activeSubagentsSlot,
+          activeProcessOverlaysSlot,
         })}
       />,
     );
-    expect(html).not.toContain("ACTIVE_SUBAGENTS");
+    expect(html).not.toContain("ACTIVE_PROCESSES");
+  });
+
+  test("does NOT render the overlay row when the slot is undefined", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...baseProps({ showScrollToLatest: true })} />,
+    );
+    expect(html).not.toContain("ACTIVE_PROCESSES");
   });
 
   test("Go-to-Newest bottom overlay still renders alongside the slot (no regression)", () => {
@@ -300,44 +401,23 @@ describe("ChatBody — active subagents overlay slot", () => {
       <ChatBody
         {...baseProps({
           showScrollToLatest: true,
-          activeSubagentsSlot,
+          activeProcessOverlaysSlot,
         })}
       />,
     );
     expect(html).toContain("SCROLL_TO_LATEST");
-    expect(html).toContain("ACTIVE_SUBAGENTS");
+    expect(html).toContain("ACTIVE_PROCESSES");
   });
 });
 
-describe("ChatBody — read-only cancellation", () => {
-  test("renders the read-only banner without a stop control while idle", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody
-        {...baseProps({
-          isChannelReadonly: true,
-        })}
-      />,
-    );
+describe("ChatBody — composer always renders", () => {
+  // Channel-origin (Slack/Email/etc.) conversations render the standard
+  // composer, with no read-only banner replacing it.
+  test("renders the composer and no read-only banner", () => {
+    const html = renderToStaticMarkup(<ChatBody {...baseProps()} />);
 
-    expect(html).toContain("Read-only conversation");
-    expect(html).not.toContain('aria-label="Stop generating"');
-    expect(html).not.toContain("COMPOSER");
-  });
-
-  test("renders the stop control for an active read-only turn", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody
-        {...baseProps({
-          isChannelReadonly: true,
-          canStopGenerating: true,
-        })}
-      />,
-    );
-
-    expect(html).toContain("Read-only conversation");
-    expect(html).toContain('aria-label="Stop generating"');
-    expect(html).toContain('title="Stop generation"');
-    expect(html).not.toContain("COMPOSER");
+    expect(html).toContain("COMPOSER");
+    expect(html).not.toContain("Read-only conversation");
   });
 });
 

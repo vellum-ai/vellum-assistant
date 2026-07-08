@@ -1,4 +1,3 @@
-
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -197,14 +196,21 @@ export function HeaderStepCarousel({
         animate={animate}
         exit={exit}
         transition={transition}
-        // Header layout — flex row, title is shrink-0 + nowrap, info
-        // truncates inside the remaining space.
+        // Header layout — flex row. With info present the title is a
+        // non-shrinking anchor (shrink-0 + nowrap) and the info truncates in
+        // the remaining space; when the title is the sole label it truncates
+        // itself so a long one (e.g. an ACP command) can't overflow the row
+        // and overlap the trailing controls.
         className="flex min-w-0 flex-1 items-center gap-1"
       >
         {hasTitle ? (
           <Typography
             variant="body-medium-default"
-            className="ml-1 shrink-0 whitespace-nowrap text-[var(--content-emphasised)]"
+            className={
+              hasInfo
+                ? "ml-1 shrink-0 whitespace-nowrap text-[var(--content-emphasised)]"
+                : "ml-1 block min-w-0 flex-1 truncate text-left text-[var(--content-emphasised)]"
+            }
           >
             {displayed.title}
           </Typography>
@@ -212,9 +218,12 @@ export function HeaderStepCarousel({
         {hasInfo ? (
           <>
             {hasTitle ? (
+              // `max-md:text-[17px]`: the pipe divider reads too small
+              // next to the labels on mobile. Bumping the glyph's font size
+              // grows it there; desktop and electron keep the inherited size.
               <span
                 aria-hidden="true"
-                className="shrink-0 text-[var(--border-element)]"
+                className="shrink-0 text-[var(--border-element)] max-md:text-[17px] max-md:leading-none"
               >
                 |
               </span>
@@ -224,7 +233,9 @@ export function HeaderStepCarousel({
                 // With a title present, the info is subtext (small, tertiary).
                 // With no title it IS the header label, so it takes the
                 // title's emphasis (medium, emphasised) instead.
-                variant={hasTitle ? "body-small-default" : "body-medium-default"}
+                variant={
+                  hasTitle ? "body-small-default" : "body-medium-default"
+                }
                 // `body-small-default` ships line-height: 1, which clips
                 // descenders (e.g. the "g" in "subagent") once `truncate`
                 // adds overflow:hidden. Bump to 16px — the same ~1.3 ratio
@@ -242,7 +253,9 @@ export function HeaderStepCarousel({
                 {displayed.info}
               </Typography>
             ) : (
-              <span className="ml-1 block min-w-0 flex-1">{displayed.info}</span>
+              <span className="ml-1 block min-w-0 flex-1">
+                {displayed.info}
+              </span>
             )}
           </>
         ) : null}

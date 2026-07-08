@@ -12,6 +12,7 @@ type StubWindow = {
   focus: ReturnType<typeof mock>;
   restore: ReturnType<typeof mock>;
   loadURL: ReturnType<typeof mock>;
+  setTitle: ReturnType<typeof mock>;
   isDestroyed: () => boolean;
   isMinimized: () => boolean;
   isVisible: () => boolean;
@@ -105,6 +106,7 @@ const makeWindow = (opts: Record<string, unknown> = {}): StubWindow => {
       state.minimized = false;
     }),
     loadURL: mock(() => Promise.resolve()),
+    setTitle: mock(() => undefined),
     isDestroyed: () => state.destroyed,
     isMinimized: () => state.minimized,
     isVisible: () => state.visible,
@@ -473,20 +475,18 @@ describe("installMainWindow", () => {
 });
 
 describe("onboarding window sizing", () => {
-  test("creates a 440×660 default-size but still resizable window when onboarding is active", () => {
+  test("creates the window at the main-app size even when onboarding is active", () => {
     onboardingActive = true;
     ensureVisible();
     const win = constructed[0];
     if (!win) throw new Error("expected a window");
-    expect(win.opts.width).toBe(440);
-    expect(win.opts.height).toBe(660);
-    expect(win.opts.useContentSize).toBe(true);
-    // The 440×660 default is also the floor, so the chrome-less flow can't
-    // be dragged below its content.
-    expect(win.opts.minWidth).toBe(440);
-    expect(win.opts.minHeight).toBe(660);
-    // Onboarding is the default size only — the window stays resizable
-    // (no `resizable: false` opt), so it inherits the Electron default.
+    // Onboarding shares the main-app sizing: restored bounds and the
+    // 800×600 floor — no compact 440×660 layout anymore.
+    expect(win.opts.width).toBe(1280);
+    expect(win.opts.height).toBe(800);
+    expect(win.opts.useContentSize).toBeUndefined();
+    expect(win.opts.minWidth).toBe(800);
+    expect(win.opts.minHeight).toBe(600);
     expect(win.opts.resizable).toBeUndefined();
     expect(win.stub.isResizable()).toBe(true);
   });
@@ -508,7 +508,7 @@ describe("onboarding window sizing", () => {
     expect(win.opts.fullscreen).toBeUndefined();
   });
 
-  test("setOnboarding(true) shrinks an existing main window to the default", () => {
+  test("setOnboarding(true) persists the mode without resizing the window", () => {
     onboardingActive = false;
     ensureVisible();
     const win = constructed[0];
@@ -517,15 +517,14 @@ describe("onboarding window sizing", () => {
     setOnboarding(true);
 
     expect(writeOnboardingActiveMock).toHaveBeenCalledWith(true);
-    expect(win.stub.setContentSize).toHaveBeenCalledWith(440, 660);
-    // Entering onboarding clamps the minimum to the compact content size.
-    expect(win.stub.setMinimumSize).toHaveBeenCalledWith(440, 660);
-    expect(win.stub.center).toHaveBeenCalled();
-    // The window stays resizable across the transition — never locked.
+    // Onboarding shares the main-app sizing — no shrink, no floor swap.
+    expect(win.stub.setContentSize).not.toHaveBeenCalled();
+    expect(win.stub.setMinimumSize).not.toHaveBeenCalled();
+    expect(win.stub.setBounds).not.toHaveBeenCalled();
     expect(win.stub.setResizable).not.toHaveBeenCalled();
   });
 
-  test("setOnboarding(false) grows an existing onboarding window to the main bounds", () => {
+  test("setOnboarding(false) persists the mode without resizing the window", () => {
     onboardingActive = true;
     ensureVisible();
     const win = constructed[0];
@@ -534,9 +533,9 @@ describe("onboarding window sizing", () => {
     setOnboarding(false);
 
     expect(writeOnboardingActiveMock).toHaveBeenCalledWith(false);
-    expect(win.stub.setBounds).toHaveBeenCalledWith({ width: 1280, height: 800 });
-    // Leaving onboarding swaps the compact floor for the 800×600 main floor.
-    expect(win.stub.setMinimumSize).toHaveBeenCalledWith(800, 600);
+    expect(win.stub.setContentSize).not.toHaveBeenCalled();
+    expect(win.stub.setMinimumSize).not.toHaveBeenCalled();
+    expect(win.stub.setBounds).not.toHaveBeenCalled();
     expect(win.stub.setResizable).not.toHaveBeenCalled();
   });
 
@@ -574,7 +573,9 @@ describe("onboarding window sizing", () => {
     );
 
     expect(writeOnboardingActiveMock).toHaveBeenCalledWith(true);
-    expect(win.stub.setContentSize).toHaveBeenCalledWith(440, 660);
+    // Mode change repositions the traffic lights; sizing is untouched.
+    expect(win.stub.setWindowButtonPosition).toHaveBeenCalledWith(null);
+    expect(win.stub.setContentSize).not.toHaveBeenCalled();
   });
 
   test("centres the macOS traffic lights for a main-app window on creation", () => {
@@ -649,18 +650,16 @@ describe("maximized default", () => {
     expect(win.opts.fullscreen).toBeUndefined();
   });
 
-  test("setOnboarding(false) applies the work-area bounds without entering fullscreen", () => {
+  test("constructs at the work-area bounds when onboarding is active too", () => {
     onboardingActive = true;
+    restoredBounds = { x: 0, y: 25, width: 1512, height: 944 };
     ensureVisible();
     const win = constructed[0];
     if (!win) throw new Error("expected a window");
-    restoredBounds = { x: 0, y: 25, width: 1512, height: 944 };
 
-    setOnboarding(false);
-
-    expect(win.stub.setBounds).toHaveBeenCalledWith({ width: 1512, height: 944 });
-    expect(win.stub.setPosition).toHaveBeenCalledWith(0, 25);
-    expect(win.stub.setFullScreen).not.toHaveBeenCalled();
+    expect(win.opts.width).toBe(1512);
+    expect(win.opts.height).toBe(944);
+    expect(win.opts.fullscreen).toBeUndefined();
   });
 });
 
@@ -673,16 +672,17 @@ describe("fullscreen session restore", () => {
     expect(win.opts.fullscreen).toBe(true);
   });
 
-  test("never constructs the compact onboarding window fullscreen", () => {
+  test("restores a saved fullscreen session even when onboarding is active", () => {
     restoredBounds = { width: 1280, height: 800, fullscreen: true };
     onboardingActive = true;
     ensureVisible();
     const win = constructed[0];
     if (!win) throw new Error("expected a window");
-    expect(win.opts.fullscreen).toBeUndefined();
+    // Onboarding shares the main-app sizing, fullscreen included.
+    expect(win.opts.fullscreen).toBe(true);
   });
 
-  test("setOnboarding(true) on a fullscreen window leaves fullscreen and defers the shrink", () => {
+  test("setOnboarding never touches fullscreen state", () => {
     restoredBounds = { width: 1280, height: 800, fullscreen: true };
     ensureVisible();
     const win = constructed[0];
@@ -690,57 +690,11 @@ describe("fullscreen session restore", () => {
     expect(win.stub.isFullScreen()).toBe(true);
 
     setOnboarding(true);
-
-    expect(win.stub.setFullScreen).toHaveBeenCalledWith(false);
-    // Geometry changes are ignored mid-transition, so nothing is applied
-    // until `leave-full-screen` lands.
-    expect(win.stub.setContentSize).not.toHaveBeenCalled();
-    expect(win.stub.setMinimumSize).not.toHaveBeenCalled();
-
-    win.stub.emit("leave-full-screen");
-    expect(win.stub.setMinimumSize).toHaveBeenCalledWith(440, 660);
-    expect(win.stub.setContentSize).toHaveBeenCalledWith(440, 660);
-    expect(win.stub.center).toHaveBeenCalled();
-  });
-
-  test("drops the deferred shrink when the mode flips back to main before leave-full-screen lands", () => {
-    restoredBounds = { width: 1280, height: 800, fullscreen: true };
-    ensureVisible();
-    const win = constructed[0];
-    if (!win) throw new Error("expected a window");
-
-    setOnboarding(true);
-    setOnboarding(false);
-    win.stub.setContentSize.mockClear();
-
-    win.stub.emit("leave-full-screen");
-    expect(win.stub.setContentSize).not.toHaveBeenCalled();
-  });
-
-  test("setOnboarding(false) re-enters fullscreen when the restored state calls for it", () => {
-    onboardingActive = true;
-    ensureVisible();
-    const win = constructed[0];
-    if (!win) throw new Error("expected a window");
-    restoredBounds = { width: 1280, height: 800, fullscreen: true };
-
-    setOnboarding(false);
-
-    // Windowed geometry is applied first — it's the rectangle the user
-    // lands on when exiting fullscreen.
-    expect(win.stub.setBounds).toHaveBeenCalledWith({ width: 1280, height: 800 });
-    expect(win.stub.setFullScreen).toHaveBeenCalledWith(true);
-  });
-
-  test("setOnboarding(false) stays windowed when the restored state is windowed", () => {
-    onboardingActive = true;
-    ensureVisible();
-    const win = constructed[0];
-    if (!win) throw new Error("expected a window");
-
     setOnboarding(false);
 
     expect(win.stub.setFullScreen).not.toHaveBeenCalled();
+    expect(win.stub.setContentSize).not.toHaveBeenCalled();
+    expect(win.stub.setBounds).not.toHaveBeenCalled();
   });
 });
 

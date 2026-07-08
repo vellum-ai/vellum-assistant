@@ -10,8 +10,7 @@ import {
 } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
-import { createConnection, type Socket } from "node:net";
+import { type Socket } from "node:net";
 import { eq } from "drizzle-orm";
 
 // ── Assistant DB proxy + IPC mocks ──────────────────────────────────────────
@@ -39,16 +38,31 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbRun: (...args: Parameters<DbRunFn>) => assistantDbRunMock(...args),
 }));
 
+// Spread the actual module so the real IpcHandlerError/IpcTransportError
+// classes (and untouched exports like ipcSuggestTrustRule) stay importable by
+// later-loaded files when suites share a bun process. `ipcCallAssistant` routes
+// through a mutable mock so a test can resolve an assistant-side channel via
+// `contact_channel_identity_lookup` (backward-compat path).
+type IpcCallFn = (
+  method: string,
+  params?: Record<string, unknown>,
+) => Promise<unknown>;
+let ipcCallAssistantMock: ReturnType<typeof mock<IpcCallFn>> = mock(
+  async () => ({}),
+);
+
+const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
-  ipcCallAssistant: mock(async () => ({})),
-  IpcHandlerError: class IpcHandlerError extends Error {},
-  IpcTransportError: class IpcTransportError extends Error {},
+  ...actualAssistantClient,
+  ipcCallAssistant: (...args: Parameters<IpcCallFn>) =>
+    ipcCallAssistantMock(...args),
 }));
 
 import { GatewayIpcServer } from "../ipc/server.js";
 import { contactRoutes } from "../ipc/contact-handlers.js";
 import { ContactStore } from "../db/contact-store.js";
 import { contacts, contactChannels } from "../db/schema.js";
+import { connectClient, sendRequest } from "./helpers/ipc-newline-client.js";
 import {
   initGatewayDb,
   getGatewayDb,
@@ -70,6 +84,7 @@ beforeEach(() => {
   // channel resolution, dual-write succeeds.
   assistantDbQueryMock = mock(async () => []);
   assistantDbRunMock = mock(async () => ({ changes: 1, lastInsertRowid: 0 }));
+  ipcCallAssistantMock = mock(async () => ({}));
 });
 
 afterAll(() => {
@@ -79,49 +94,6 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function connectClient(path: string): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const client = createConnection(path, () => resolve(client));
-    client.on("error", reject);
-  });
-}
-
-function sendRequest(
-  client: Socket,
-  method: string,
-  params?: Record<string, unknown>,
-): Promise<{
-  id: string;
-  result?: unknown;
-  error?: string;
-  statusCode?: number;
-  errorCode?: string;
-}> {
-  return new Promise((resolve, reject) => {
-    const id = randomBytes(4).toString("hex");
-    let buffer = "";
-
-    const onData = (chunk: Buffer) => {
-      buffer += chunk.toString();
-      const newlineIdx = buffer.indexOf("\n");
-      if (newlineIdx !== -1) {
-        const line = buffer.slice(0, newlineIdx).trim();
-        buffer = buffer.slice(newlineIdx + 1);
-        client.off("data", onData);
-        try {
-          resolve(JSON.parse(line));
-        } catch (err) {
-          reject(err);
-        }
-      }
-    };
-
-    client.on("data", onData);
-    const msg = JSON.stringify({ id, method, params });
-    client.write(msg + "\n");
-  });
-}
 
 function seedTestData(): void {
   const db = getGatewayDb();
@@ -371,9 +343,9 @@ describe("IPC contact routes", () => {
   // create_contact (gateway DB source of truth via ContactStore.upsertContact)
   // -------------------------------------------------------------------------
   //
-  // No assistant daemon runs in these tests, so the best-effort assistant-DB
-  // dual-write inside upsertContact soft-fails. The gateway write still
-  // succeeds and { contactId, channelId } is returned regardless.
+  // No assistant daemon runs in these tests: the best-effort typed mirror op
+  // inside upsertContact resolves against the mocked IPC client. The gateway
+  // write succeeds and { contactId, channelId } is returned regardless.
 
   test("create_contact writes the gateway DB contacts + contact_channels rows", async () => {
     await startServerAndConnect();
@@ -402,13 +374,17 @@ describe("IPC contact routes", () => {
     const channels = store.getChannelsForContact(contactId);
     expect(channels).toHaveLength(1);
     expect(channels[0].id).toBe(channelId);
-    // No assistant adoption match → a freshly minted UUID, not an adopted id.
+    // The gateway mints a fresh channel UUID on create.
     expect(channels[0].id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
     expect(channels[0].type).toBe("email");
     expect(channels[0].address).toBe("new@example.com");
     expect(channels[0].isPrimary).toBe(true);
+    // A freshly created channel lands at the unverified admission tier: this is
+    // what makes a guardian-denied sender resolve as `unverified_contact` (not
+    // trusted, not an unknown stranger) on subsequent inbound.
+    expect(channels[0].status).toBe("unverified");
   });
 
   test("create_contact returns { contactId, channelId } both present and non-empty", async () => {
@@ -616,10 +592,11 @@ describe("IPC contact routes", () => {
     expect(store.getContact("rename-c1")!.displayName).toBe("New Name");
   });
 
-  test("create_contact retry does not overwrite the assistant-DB display_name when omitted", async () => {
-    // Gap A: the gateway row exists with a stale name; the assistant DB holds
-    // the user's current (different) name. A retry WITHOUT displayName must
-    // leave the assistant-DB name untouched — the UPDATE must omit display_name.
+  test("create_contact retry omits displayName from the mirror op when not supplied", async () => {
+    // Gap A: the gateway row exists with a stale name; the assistant mirror
+    // may hold the user's current (different) name. A retry WITHOUT
+    // displayName must keep the mirror op sparse — no displayName key — so
+    // the daemon-side omit-to-preserve update can't revert the mirror's name.
     const db = getGatewayDb();
     const now = Date.now();
     db.insert(contacts)
@@ -646,17 +623,13 @@ describe("IPC contact routes", () => {
       })
       .run();
 
-    // Assistant DB has the contact (so the mirror takes the UPDATE branch).
-    assistantDbQueryMock = mock(async (sql: string) => {
-      if (sql.includes("FROM contacts WHERE id = ?")) {
-        return [{ userFile: "current-name.md" }];
-      }
-      return [];
-    });
-    const runCalls: { sql: string; bind?: unknown[] }[] = [];
-    assistantDbRunMock = mock(async (sql: string, bind?: unknown[]) => {
-      runCalls.push({ sql, bind });
-      return { changes: 1, lastInsertRowid: 0 };
+    const ipcCalls: { method: string; body?: Record<string, unknown> }[] = [];
+    ipcCallAssistantMock = mock(async (method, params) => {
+      ipcCalls.push({
+        method,
+        body: params?.body as Record<string, unknown> | undefined,
+      });
+      return {};
     });
 
     await startServerAndConnect();
@@ -667,12 +640,16 @@ describe("IPC contact routes", () => {
 
     expect(res.error).toBeUndefined();
 
-    // The assistant-DB contact UPDATE must NOT touch display_name.
-    const contactUpdate = runCalls.find(
-      (c) => c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
+    const mirror = ipcCalls.filter(
+      (c) => c.method === "contacts_mirror_upsert_full",
     );
-    expect(contactUpdate).toBeDefined();
-    expect(contactUpdate!.sql).not.toContain("display_name");
+    expect(mirror).toHaveLength(1);
+    // undefined = omitted: JSON serialization drops it on the wire, and the
+    // daemon's sparse update only applies fields that are !== undefined.
+    expect(mirror[0].body!.displayName).toBeUndefined();
+    // The existing gateway channel id ships for daemon-side id alignment.
+    const channels = mirror[0].body!.channels as { id?: string }[];
+    expect(channels[0].id).toBe("stale-ch1");
 
     // The gateway row's stale name is likewise preserved (omit-to-preserve).
     expect(new ContactStore(db).getContact("stale-c1")!.displayName).toBe(
@@ -680,385 +657,12 @@ describe("IPC contact routes", () => {
     );
   });
 
-  test("create_contact heals an assistant-only contact onto ONE shared canonical id", async () => {
-    // Gap B: a contact+channel exists in the assistant DB but NOT the gateway.
-    // upsertContact adopts the existing assistant contact id as the gateway
-    // contact id (canonical-id heal), so BOTH DBs are keyed by the same id —
-    // the gateway row is created under it, no duplicate assistant INSERT, the
-    // name is preserved, and the gateway read join-by-id resolves info.
-    const assistantContactId = "assistant-only-c1";
-    const assistantChannelId = "assistant-only-ch1";
-
-    assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
-      // Channel lookup by (type,address) → the existing assistant contact id
-      // + its display_name (the adoption JOIN).
-      if (
-        sql.includes("FROM contact_channels cc") &&
-        sql.includes("WHERE cc.type = ?")
-      ) {
-        return [
-          { contactId: assistantContactId, displayName: "Existing Person" },
-        ];
-      }
-      // Adoption ACL fetch: ALL of the adopted contact's channels by contact id.
-      if (
-        sql.includes("FROM contact_channels cc") &&
-        sql.includes("WHERE cc.contact_id = ?")
-      ) {
-        if (bind?.[0] === assistantContactId) {
-          return [
-            {
-              id: assistantChannelId,
-              type: "email",
-              address: "existing-person@example.com",
-              isPrimary: 0,
-              externalChatId: null,
-              status: "active",
-              policy: "escalate",
-              verifiedAt: 1700000000000,
-              verifiedVia: "manual",
-              inviteId: null,
-              revokedReason: null,
-              blockedReason: null,
-            },
-          ];
-        }
-        return [];
-      }
-      // existingCh lookup keyed on the adopted (assistant) contact id.
-      if (
-        sql.includes("FROM contact_channels") &&
-        sql.includes("WHERE contact_id = ?")
-      ) {
-        if (bind?.[0] === assistantContactId) {
-          return [{ id: assistantChannelId, status: "active" }];
-        }
-        return [];
-      }
-      // user_file lookup in the mirror (contact already exists in assistant DB).
-      if (sql.includes("FROM contacts WHERE id = ?")) {
-        if (bind?.[0] === assistantContactId) {
-          return [{ userFile: "existing-person.md" }];
-        }
-        return [];
-      }
-      // Read-path info join keyed by the canonical id.
-      if (sql.includes("FROM contacts c") && sql.includes("IN (")) {
-        if (bind?.includes(assistantContactId)) {
-          return [
-            {
-              id: assistantContactId,
-              notes: "knows the family",
-              userFile: "existing-person.md",
-              contactType: "human",
-              species: null,
-              metadata: null,
-            },
-          ];
-        }
-        return [];
-      }
-      return [];
-    });
-    const runCalls: { sql: string; bind?: unknown[] }[] = [];
-    assistantDbRunMock = mock(async (sql: string, bind?: unknown[]) => {
-      runCalls.push({ sql, bind });
-      return { changes: 1, lastInsertRowid: 0 };
-    });
-
-    await startServerAndConnect();
-    const res = await sendRequest(client, "create_contact", {
-      channelType: "email",
-      address: "existing-person@example.com",
-    });
-
-    expect(res.error).toBeUndefined();
-    const { contactId, channelId } = res.result as {
-      contactId: string;
-      channelId: string;
-    };
-
-    // The returned (gateway) id IS the existing assistant id — one canonical id.
-    expect(contactId).toBe(assistantContactId);
-    // The gateway channel row adopts the assistant channel id (one canonical
-    // channel id), so the returned channelId equals it — a follow-up verify by
-    // this id can't 404 on a split-brain row.
-    expect(channelId).toBe(assistantChannelId);
-
-    // No duplicate assistant contact INSERT; the existing channel is updated,
-    // not re-inserted.
-    expect(
-      runCalls.find((c) => c.sql.includes("INSERT INTO contacts")),
-    ).toBeUndefined();
-    expect(
-      runCalls.find((c) => c.sql.includes("INSERT INTO contact_channels")),
-    ).toBeUndefined();
-
-    // The assistant contact UPDATE targets the shared id, name preserved.
-    const contactUpdate = runCalls.find(
-      (c) => c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
-    );
-    expect(contactUpdate).toBeDefined();
-    expect(contactUpdate!.bind?.at(-1)).toBe(assistantContactId);
-    expect(contactUpdate!.sql).not.toContain("display_name");
-
-    // The gateway DB has the contact + channel under the canonical id, and the
-    // adopted assistant contact's custom display_name is preserved on the
-    // gateway row (not renamed to the bare channel address).
-    const store = new ContactStore(getGatewayDb());
-    expect(store.getContact(contactId)).toBeDefined();
-    expect(store.getContact(contactId)!.displayName).toBe("Existing Person");
-    const gwChannels = store.getChannelsForContact(contactId);
-    expect(gwChannels).toHaveLength(1);
-    expect(gwChannels[0].address).toBe("existing-person@example.com");
-    // Canonical channel id: the gateway row shares the assistant channel's id
-    // (not a freshly minted UUID), so verify-by-id resolves the gateway row.
-    expect(gwChannels[0].id).toBe(assistantChannelId);
-
-    // The heal must carry the assistant channel's ACL state into the new
-    // gateway row — NOT default it to unverified/allow. An active/verified
-    // assistant channel stays active/verified (status === "active" is what
-    // actor-trust-resolver classifies as trusted_contact), so default
-    // trusted_contacts admission keeps trusting the user post-heal.
-    expect(gwChannels[0].status).toBe("active");
-    expect(gwChannels[0].policy).toBe("escalate");
-    expect(gwChannels[0].verifiedAt).toBe(1700000000000);
-    expect(gwChannels[0].verifiedVia).toBe("manual");
-
-    // The gateway read join-by-id resolves the assistant info (NOT null) —
-    // proof the two DBs converged on one id.
-    const withInfo = await store.getContactWithInfo(contactId);
-    expect(withInfo).not.toBeNull();
-    expect(withInfo!.notes).toBe("knows the family");
-    expect(withInfo!.userFile).toBe("existing-person.md");
-    expect(withInfo!.contactType).toBe("human");
-  });
-
-  test("multi-channel heal adopts id+ACL for EVERY matched channel, not just the first", async () => {
-    // HTTP POST /v1/contacts heals an assistant-only contact that owns TWO
-    // existing channels, both active/verified with a non-default policy. The
-    // gateway INSERT must carry each channel's assistant id + ACL — a prior
-    // bug adopted only the first match and inserted the rest as fresh
-    // unverified/allow rows, downgrading trust and splitting channel ids.
-    const assistantContactId = "multi-c1";
-
-    assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
-      if (
-        sql.includes("FROM contact_channels cc") &&
-        sql.includes("WHERE cc.type = ?")
-      ) {
-        return [{ contactId: assistantContactId, displayName: "Two Channels" }];
-      }
-      if (
-        sql.includes("FROM contact_channels cc") &&
-        sql.includes("WHERE cc.contact_id = ?")
-      ) {
-        if (bind?.[0] !== assistantContactId) return [];
-        return [
-          {
-            id: "ach-email",
-            type: "email",
-            address: "person@example.com",
-            isPrimary: 1,
-            externalChatId: null,
-            status: "active",
-            policy: "escalate",
-            verifiedAt: 1700000000000,
-            verifiedVia: "manual",
-            inviteId: null,
-            revokedReason: null,
-            blockedReason: null,
-          },
-          {
-            id: "ach-tg",
-            type: "telegram",
-            address: "555123",
-            isPrimary: 0,
-            externalChatId: "chat-99",
-            status: "active",
-            policy: "escalate",
-            verifiedAt: 1700000001000,
-            verifiedVia: "challenge",
-            inviteId: null,
-            revokedReason: null,
-            blockedReason: null,
-          },
-        ];
-      }
-      return [];
-    });
-    assistantDbRunMock = mock(async () => ({
-      changes: 1,
-      lastInsertRowid: 0,
-    }));
-
-    const store = new ContactStore(getGatewayDb());
-    const { contact } = await store.upsertContact({
-      channels: [
-        { type: "email", address: "person@example.com" },
-        { type: "telegram", address: "555123" },
-      ],
-    });
-
-    expect(contact.id).toBe(assistantContactId);
-    const gwChannels = store
-      .getChannelsForContact(assistantContactId)
-      .sort((a, b) => a.type.localeCompare(b.type));
-    expect(gwChannels).toHaveLength(2);
-
-    const email = gwChannels.find((c) => c.type === "email")!;
-    expect(email.id).toBe("ach-email");
-    expect(email.status).toBe("active");
-    expect(email.policy).toBe("escalate");
-    expect(email.verifiedVia).toBe("manual");
-
-    const tg = gwChannels.find((c) => c.type === "telegram")!;
-    expect(tg.id).toBe("ach-tg");
-    expect(tg.status).toBe("active");
-    expect(tg.policy).toBe("escalate");
-    expect(tg.verifiedVia).toBe("challenge");
-  });
-
-  test("mixed heal: matched channel adopts id+ACL, genuinely-new channel stays unverified/allow", async () => {
-    const assistantContactId = "mixed-c1";
-
-    assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
-      if (
-        sql.includes("FROM contact_channels cc") &&
-        sql.includes("WHERE cc.type = ?")
-      ) {
-        return [{ contactId: assistantContactId, displayName: "Mixed" }];
-      }
-      if (
-        sql.includes("FROM contact_channels cc") &&
-        sql.includes("WHERE cc.contact_id = ?")
-      ) {
-        if (bind?.[0] !== assistantContactId) return [];
-        return [
-          {
-            id: "ach-known",
-            type: "email",
-            address: "known@example.com",
-            isPrimary: 1,
-            externalChatId: null,
-            status: "active",
-            policy: "escalate",
-            verifiedAt: 1700000000000,
-            verifiedVia: "manual",
-            inviteId: null,
-            revokedReason: null,
-            blockedReason: null,
-          },
-        ];
-      }
-      return [];
-    });
-    assistantDbRunMock = mock(async () => ({
-      changes: 1,
-      lastInsertRowid: 0,
-    }));
-
-    const store = new ContactStore(getGatewayDb());
-    await store.upsertContact({
-      channels: [
-        { type: "email", address: "known@example.com" },
-        { type: "email", address: "brand-new@example.com" },
-      ],
-    });
-
-    const gwChannels = store.getChannelsForContact(assistantContactId);
-    expect(gwChannels).toHaveLength(2);
-
-    const known = gwChannels.find((c) => c.address === "known@example.com")!;
-    expect(known.id).toBe("ach-known");
-    expect(known.status).toBe("active");
-    expect(known.policy).toBe("escalate");
-
-    const fresh = gwChannels.find((c) => c.address === "brand-new@example.com")!;
-    expect(fresh.id).not.toBe("ach-known");
-    expect(fresh.status).toBe("unverified");
-    expect(fresh.policy).toBe("allow");
-  });
-
-  test("multi-channel heal SKIPS a channel owned by a DIFFERENT assistant contact (gateway/assistant ownership stays in sync)", async () => {
-    // Channel A matches the adopted assistant-only contact; channel B is owned
-    // by ANOTHER assistant contact. B must NOT be inserted under the adopted
-    // gateway contact — the assistant mirror skips it as a cross-contact
-    // conflict, so claiming it gateway-side would diverge ACL ownership.
-    const adoptedId = "skip-c1";
-    const otherId = "skip-other";
-
-    assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
-      // Adoption resolves the contact id from channel A.
-      if (
-        sql.includes("FROM contact_channels cc") &&
-        sql.includes("WHERE cc.type = ?")
-      ) {
-        return [{ contactId: adoptedId, displayName: "Adopted" }];
-      }
-      // Adopted contact owns only channel A.
-      if (
-        sql.includes("FROM contact_channels cc") &&
-        sql.includes("WHERE cc.contact_id = ?")
-      ) {
-        if (bind?.[0] !== adoptedId) return [];
-        return [
-          {
-            id: "ach-a",
-            type: "email",
-            address: "a@example.com",
-            isPrimary: 1,
-            externalChatId: null,
-            status: "active",
-            policy: "escalate",
-            verifiedAt: 1700000000000,
-            verifiedVia: "manual",
-            inviteId: null,
-            revokedReason: null,
-            blockedReason: null,
-          },
-        ];
-      }
-      // Cross-owner lookup (no `cc.` alias): channel B belongs to otherId.
-      if (
-        sql.includes("FROM contact_channels") &&
-        !sql.includes("cc") &&
-        sql.includes("WHERE type = ?")
-      ) {
-        if (bind?.[1] === "b@example.com") return [{ contactId: otherId }];
-        return [];
-      }
-      return [];
-    });
-    assistantDbRunMock = mock(async () => ({
-      changes: 1,
-      lastInsertRowid: 0,
-    }));
-
-    const store = new ContactStore(getGatewayDb());
-    const { contact } = await store.upsertContact({
-      channels: [
-        { type: "email", address: "a@example.com" },
-        { type: "email", address: "b@example.com" },
-      ],
-    });
-
-    expect(contact.id).toBe(adoptedId);
-    const gwChannels = store.getChannelsForContact(adoptedId);
-    // Only channel A is written under the adopted contact; B is skipped.
-    expect(gwChannels).toHaveLength(1);
-    expect(gwChannels[0].address).toBe("a@example.com");
-    expect(gwChannels[0].id).toBe("ach-a");
-    expect(
-      gwChannels.some((c) => c.address === "b@example.com"),
-    ).toBe(false);
-  });
-
-  test("upsertContact with an explicit id does NOT retarget another contact's metadata", async () => {
-    // Update path (Problem 2): an edit carries a channel whose (type,address)
-    // is owned by a DIFFERENT assistant contact. The assistant mirror must
-    // target the provided id — never the other contact — matching the gateway
-    // syncChannels skip-on-cross-contact behavior.
+  test("upsertContact with an explicit id keys the mirror op to that id (no retargeting)", async () => {
+    // Update path (Problem 2): the mirror op must always target the provided
+    // gateway id — never another contact — matching the gateway syncChannels
+    // skip-on-cross-contact behavior. The daemon-side conflict-skip for a
+    // channel owned by a different mirror contact is pinned in the daemon's
+    // contacts-mirror-upsert-full suite.
     const db = getGatewayDb();
     const now = Date.now();
     db.insert(contacts)
@@ -1072,25 +676,13 @@ describe("IPC contact routes", () => {
       })
       .run();
 
-    // The assistant DB reports the channel is owned by "other-contact" and the
-    // edited contact already exists by id.
-    assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
-      if (
-        sql.includes("FROM contact_channels cc") &&
-        sql.includes("WHERE cc.type = ?")
-      ) {
-        return [{ contactId: "other-contact", displayName: "Other" }];
-      }
-      if (sql.includes("FROM contacts WHERE id = ?")) {
-        if (bind?.[0] === "edit-me") return [{ userFile: "edit-me.md" }];
-        return [];
-      }
-      return [];
-    });
-    const runCalls: { sql: string; bind?: unknown[] }[] = [];
-    assistantDbRunMock = mock(async (sql: string, bind?: unknown[]) => {
-      runCalls.push({ sql, bind });
-      return { changes: 1, lastInsertRowid: 0 };
+    const ipcCalls: { method: string; body?: Record<string, unknown> }[] = [];
+    ipcCallAssistantMock = mock(async (method, params) => {
+      ipcCalls.push({
+        method,
+        body: params?.body as Record<string, unknown> | undefined,
+      });
+      return {};
     });
 
     const store = new ContactStore(db);
@@ -1100,15 +692,45 @@ describe("IPC contact routes", () => {
       channels: [{ type: "email", address: "shared@example.com" }],
     });
 
-    // The assistant contact UPDATE targets the provided id, never "other-contact".
-    const contactUpdate = runCalls.find(
-      (c) => c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
+    const mirror = ipcCalls.filter(
+      (c) => c.method === "contacts_mirror_upsert_full",
     );
-    expect(contactUpdate).toBeDefined();
-    expect(contactUpdate!.bind?.at(-1)).toBe("edit-me");
-    expect(
-      runCalls.some((c) => c.bind?.includes("other-contact")),
-    ).toBe(false);
+    expect(mirror).toHaveLength(1);
+    expect(mirror[0].body!.contactId).toBe("edit-me");
+    expect(mirror[0].body!.displayName).toBe("New Name");
+    expect(JSON.stringify(mirror[0].body)).not.toContain("other-contact");
+  });
+
+  test("upsertContact read-back sources ACL from the gateway DB, not assistant defaults", async () => {
+    // The assistant mirror defaults a fresh channel to unverified/allow and a
+    // contact to role=contact. The read-back must reflect the gateway DB (the
+    // just-written source of truth): an active channel and a guardian role.
+    const db = getGatewayDb();
+    const now = Date.now();
+    db.insert(contacts)
+      .values({
+        id: "guard-1",
+        displayName: "Guardian",
+        role: "guardian",
+        principalId: "prin-guard",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    // Assistant DB info-join degrades to null (default mock returns []); ACL
+    // fields still come from the real gateway DB.
+    const store = new ContactStore(db);
+    const { contact } = await store.upsertContact({
+      id: "guard-1",
+      channels: [{ type: "email", address: "g@example.com", status: "active" }],
+    });
+
+    expect(contact.role).toBe("guardian");
+    expect(contact.principalId).toBe("prin-guard");
+    expect(contact.channels).toHaveLength(1);
+    expect(contact.channels[0].status).toBe("active");
+    expect(contact.channels[0].policy).toBe("allow");
   });
 
   test("create_contact defaults a brand-new contact's displayName to the canonical address", async () => {
@@ -1303,11 +925,23 @@ describe("IPC contact routes", () => {
     test("assistant-side channel ID resolves via backward-compat path", async () => {
       seedTestData();
       // The given ID is unknown to the gateway DB; the assistant DB resolves it
-      // to the logical key (contactId, type, address) of the existing gateway
-      // channel ch3, which updateChannelStatus then matches.
-      assistantDbQueryMock = mock(async () => [
-        { contactId: "c2", type: "email", address: "test@example.com" },
-      ]);
+      // via `contact_channel_identity_lookup` to the logical key (type, address)
+      // of the existing gateway channel ch3, which updateChannelStatus matches.
+      ipcCallAssistantMock = mock(async (method: string) => {
+        if (method === "contact_channel_identity_lookup") {
+          return {
+            channel: {
+              id: "assistant-side-id",
+              contactId: "c2",
+              type: "email",
+              address: "test@example.com",
+              externalChatId: null,
+              displayName: null,
+            },
+          };
+        }
+        return {};
+      });
       await startServerAndConnect();
 
       const res = await sendRequest(client, "update_contact_channel", {

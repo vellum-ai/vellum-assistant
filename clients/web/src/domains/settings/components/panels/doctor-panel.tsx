@@ -1,5 +1,5 @@
-import { ArrowUp, Loader2, Play, Square } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, Check, ChevronDown, ClipboardCopy, Loader2, Play, Square } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
@@ -17,11 +17,15 @@ import {
 } from "@/domains/settings/components/panels/doctor-chat-blocks";
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
+  type ChatEntry,
   hasPendingApproval,
   hasPendingBackup,
+  latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
+  replayableDoctorSourceEventIds,
   selectLatestHistorySession,
+  serializeSessionToText,
 } from "@/domains/settings/components/panels/doctor-history";
 import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
 import {
@@ -30,6 +34,7 @@ import {
   cleanupServerSession,
 } from "@/domains/settings/components/panels/doctor-session-actions";
 import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-sse";
+import { useDoctorAutoScroll } from "@/domains/settings/components/panels/use-doctor-auto-scroll";
 import {
   assistantsDoctorHistoryListOptions,
   assistantsDoctorHistoryRetrieveOptions,
@@ -42,6 +47,59 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
 import { isPointerCoarse } from "@/utils/pointer";
+
+// ---------------------------------------------------------------------------
+// CopySessionButton
+// ---------------------------------------------------------------------------
+
+function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = useCallback(() => {
+    const text = serializeSessionToText(entries);
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopied(true);
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+        }
+        timerRef.current = setTimeout(() => {
+          setCopied(false);
+          timerRef.current = null;
+        }, 1500);
+      })
+      .catch(() => {});
+  }, [entries]);
+
+  return (
+    <Button
+      variant="ghost"
+      size="compact"
+      leftIcon={
+        copied ? (
+          <Check className="text-[var(--system-positive-strong)]" />
+        ) : (
+          <ClipboardCopy />
+        )
+      }
+      onClick={handleCopy}
+      tooltip={copied ? "Copied!" : "Copy session to clipboard"}
+      aria-label={copied ? "Copied" : "Copy session to clipboard"}
+    >
+      {copied ? "Copied!" : "Copy Session"}
+    </Button>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -65,10 +123,7 @@ export function DoctorPanel() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const platformGate = usePlatformGate();
-  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const prevEntryCountRef = useRef(0);
-  const prevLastContentLenRef = useRef(0);
 
   // ---------------------------------------------------------------------------
   // SSE hook (owns only the AbortController lifecycle)
@@ -125,21 +180,45 @@ export function DoctorPanel() {
   // This is NOT "copying server state to client state" — it's seeding the store
   // with the initial entries before SSE takes over appending new ones.
   useEffect(() => {
-    if (historyDismissed) return;
-    if (sessionId !== null) return;
-    if (storeEntries.length > 0) return;
-    if (!historyDetail || !latestHistorySessionId) return;
-    if (historyStatus !== "active") return;
+    if (historyDismissed) {
+      return;
+    }
+    if (sessionId !== null) {
+      return;
+    }
+    if (storeEntries.length > 0) {
+      return;
+    }
+    if (!historyDetail || !latestHistorySessionId) {
+      return;
+    }
+    if (historyStatus !== "active") {
+      return;
+    }
 
     const store = useDoctorPanelStore.getState();
-    const resumedEntries = mapPersistedMessagesToEntries(historyDetail.messages ?? []);
+    const messages = historyDetail.messages ?? [];
+    const resumedEntries = mapPersistedMessagesToEntries(messages);
     store.setEntries(resumedEntries);
     store.setPendingApproval(hasPendingApproval(resumedEntries));
     store.setPendingBackup(hasPendingBackup(resumedEntries));
+    store.seedReplayState(
+      replayableDoctorSourceEventIds(messages),
+      latestReplayableDoctorSourceEventId(messages),
+    );
     store.setSessionId(latestHistorySessionId);
     store.setSessionStatus("active");
     connectSSE(assistantId, latestHistorySessionId);
-  }, [historyDismissed, sessionId, storeEntries.length, historyDetail, historyStatus, latestHistorySessionId, assistantId, connectSSE]);
+  }, [
+    historyDismissed,
+    sessionId,
+    storeEntries.length,
+    historyDetail,
+    historyStatus,
+    latestHistorySessionId,
+    assistantId,
+    connectSSE,
+  ]);
 
   // Capture query errors for observability
   useEffect(() => {
@@ -180,6 +259,7 @@ export function DoctorPanel() {
     },
     onSuccess(data) {
       const store = useDoctorPanelStore.getState();
+      store.resetReplayState();
       store.setSessionId(data.session_id);
       store.setSessionStatus("active");
       store.setEntries([
@@ -233,7 +313,13 @@ export function DoctorPanel() {
 
   const handleSend = (content: string) => {
     const text = content.trim();
-    if (!text || !sessionId) return;
+    if (!text || !sessionId) {
+      return;
+    }
+    // Re-pin to the latest so the outgoing message and the streamed
+    // response are in view, even if the user had scrolled up to read
+    // earlier content before sending.
+    scrollToLatest();
     sendMutation.mutate({
       path: { assistant_id: assistantId, session_id: sessionId },
       body: { content: text },
@@ -262,34 +348,26 @@ export function DoctorPanel() {
   // Lifecycle effects
   // ---------------------------------------------------------------------------
 
-  // Scroll when entries grow (new message) OR when the last entry's content
-  // grows (streaming message_delta).
+  // Derived transcript entries — live store entries during an active
+  // session, otherwise the most recent persisted history (unless the
+  // user dismissed it). The array identity changes on every store
+  // append/update, which is what re-fires the scroll coordinator.
   const entries = useMemo(
     () => (sessionId || storeEntries.length > 0 ? storeEntries : (!historyDismissed ? historyEntries : [])),
     [sessionId, storeEntries, historyDismissed, historyEntries],
   );
 
-  useEffect(() => {
-    const lastContentLen = entries.at(-1)?.content.length ?? 0;
-    const shouldScroll =
-      entries.length > prevEntryCountRef.current ||
-      lastContentLen > prevLastContentLenRef.current;
-    if (shouldScroll) {
-      scrollRef.current?.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior: "smooth",
-      });
-    }
-    prevEntryCountRef.current = entries.length;
-    prevLastContentLenRef.current = lastContentLen;
-  }, [entries]);
+  // Scroll coordinator — auto-follows streaming growth only while the
+  // user is pinned to the latest message. Scrolling away (drag on
+  // mobile, wheel on desktop) un-pins and surfaces a "Go to Newest"
+  // affordance so the user can catch up on their own instead of being
+  // fought by the stream. See `use-doctor-auto-scroll.ts`.
+  const { scrollContainerRef, showScrollToLatest, scrollToLatest } =
+    useDoctorAutoScroll(entries);
 
-  // Recover from stale state on same-assistant remount.
-  // The module-level store survives unmount, but useDoctorSSE's AbortController
-  // does not — it's a React ref that dies with the hook instance. If the store
-  // still shows an active session, the SSE stream is gone with no way to resume
-  // it from the old controller. Full-reset so the history queries can re-discover
-  // and reconnect to the still-active server session.
+  // Recover the stream on same-assistant remount. The module-level store
+  // preserves the active session and replay cursor, while useDoctorSSE's
+  // AbortController is owned by the mounted hook instance.
   useEffect(() => {
     const store = useDoctorPanelStore.getState();
     if (
@@ -297,7 +375,7 @@ export function DoctorPanel() {
       store.sessionStatus === "active" &&
       store.sessionId
     ) {
-      store.reset();
+      connectSSE(assistantId, store.sessionId);
     }
     // Clear historyDismissed on remount so history queries re-discover new
     // sessions that may have completed while the panel was unmounted.
@@ -310,7 +388,9 @@ export function DoctorPanel() {
   // Reset all doctor state when active assistant changes.
   useEffect(() => {
     const store = useDoctorPanelStore.getState();
-    if (store.lastAssistantId === assistantId) return;
+    if (store.lastAssistantId === assistantId) {
+      return;
+    }
     const oldAssistantId = store.lastAssistantId;
     const oldSessionId = store.sessionId;
 
@@ -375,16 +455,19 @@ export function DoctorPanel() {
           )}
         </div>
 
-        {isSessionActive && (
-          <button
-            type="button"
-            onClick={handleEndSession}
-            className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Square className="h-3 w-3" />
-            End Session
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {entries.length > 0 && <CopySessionButton entries={entries} />}
+          {isSessionActive && (
+            <button
+              type="button"
+              onClick={handleEndSession}
+              className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Square className="h-3 w-3" />
+              End Session
+            </button>
+          )}
+        </div>
       </div>
 
       {isLoadingHistory ? (
@@ -433,7 +516,8 @@ export function DoctorPanel() {
       ) : (
         <>
           {/* Messages area */}
-          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div className="relative min-h-0 flex-1">
+          <div ref={scrollContainerRef} className="h-full overflow-y-auto">
             <div className="mx-auto max-w-2xl space-y-3">
               {entries.map((entry) => {
                 switch (entry.kind) {
@@ -509,6 +593,18 @@ export function DoctorPanel() {
               )}
             </div>
           </div>
+          {showScrollToLatest && (
+            <button
+              type="button"
+              onClick={scrollToLatest}
+              aria-label="Go to newest message"
+              className="pointer-events-auto absolute bottom-3 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-emphasised)] shadow-md transition-colors hover:text-[var(--content-default)]"
+            >
+              Go to Newest
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          )}
+          </div>
 
           {/* Input area */}
           {isSessionActive && (
@@ -533,9 +629,15 @@ export function DoctorPanel() {
                   e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
                 }}
                 onKeyDown={(e) => {
-                  if (e.key !== "Enter" || e.shiftKey) return;
-                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                  if (isPointerCoarse()) return;
+                  if (e.key !== "Enter" || e.shiftKey) {
+                    return;
+                  }
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) {
+                    return;
+                  }
+                  if (isPointerCoarse()) {
+                    return;
+                  }
                   e.preventDefault();
                   if (inputValue.trim() && !sending) {
                     handleSend(inputValue);

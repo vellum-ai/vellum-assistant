@@ -4,11 +4,10 @@
  * path was moved to the gateway.
  */
 
-import type { ChannelId } from "../../channels/types.js";
-import { upsertContact } from "../../contacts/contact-store.js";
-import type { GuardianBinding } from "../../memory/channel-verification-sessions.js";
+import { getContact } from "../../contacts/contact-store.js";
 import { ensureGuardianPersonaFile } from "../../prompts/persona-resolver.js";
-import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
+import type { GuardianBinding } from "../../runtime/channel-verification-service.js";
+import { seedContactChannel } from "./seed-contact-channel.js";
 
 function parseDisplayNameFromMetadata(
   metadataJson: string | null | undefined,
@@ -36,37 +35,30 @@ export function createGuardianBinding(params: {
   verifiedVia?: string;
   metadataJson?: string | null;
 }): GuardianBinding {
-  const canonicalId =
-    canonicalizeInboundIdentity(
-      params.channel as ChannelId,
-      params.guardianExternalUserId,
-    ) ?? params.guardianExternalUserId;
-
   const displayName =
     parseDisplayNameFromMetadata(params.metadataJson) ??
     params.guardianExternalUserId;
 
-  const contact = upsertContact({
+  // The production identity upsert no longer writes ACL columns (gateway-owned);
+  // seedContactChannel stamps the guardian ACL state directly so the local
+  // guardian-resolution reads still under test resolve this binding.
+  const { contactId } = seedContactChannel({
+    sourceChannel: params.channel,
+    externalUserId: params.guardianExternalUserId,
+    externalChatId: params.guardianDeliveryChatId,
     displayName,
     role: "guardian",
-    notes: "guardian",
     principalId: params.guardianPrincipalId,
-    channels: [
-      {
-        type: params.channel,
-        address: canonicalId,
-        externalChatId: params.guardianDeliveryChatId,
-        status: "active",
-        verifiedAt: Date.now(),
-        verifiedVia: params.verifiedVia ?? "challenge",
-      },
-    ],
+    status: "active",
+    verifiedAt: Date.now(),
+    verifiedVia: params.verifiedVia ?? "challenge",
   });
 
   // Seed persona file (mirrors gateway's production behavior)
-  if (contact.userFile) {
+  const userFile = getContact(contactId)?.userFile;
+  if (userFile) {
     try {
-      ensureGuardianPersonaFile(contact.userFile);
+      ensureGuardianPersonaFile(userFile);
     } catch {
       // Tolerate filesystem failures in tests
     }

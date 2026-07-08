@@ -58,13 +58,14 @@ let nextKeyStoreResult: { conversationId: string } = {
   conversationId: "conv-new",
 };
 const updateTitleCalls: Array<{ conversationId: string; title: string }> = [];
-const realKeyStore = await import("../../memory/conversation-key-store.js");
-const realCrud = await import("../../memory/conversation-crud.js");
-mock.module("../../memory/conversation-key-store.js", () => ({
+const realKeyStore =
+  await import("../../persistence/conversation-key-store.js");
+const realCrud = await import("../../persistence/conversation-crud.js");
+mock.module("../../persistence/conversation-key-store.js", () => ({
   ...realKeyStore,
   getOrCreateConversation: (_key: string) => nextKeyStoreResult,
 }));
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   ...realCrud,
   updateConversationTitle: (
     conversationId: string,
@@ -124,7 +125,7 @@ const { createSurfaceMutex, handleSurfaceAction } =
   await import("../conversation-surfaces.js");
 type SurfaceConversationContext =
   import("../conversation-surfaces.js").SurfaceConversationContext;
-type TrustContext = import("../trust-context.js").TrustContext;
+type TrustContext = import("../trust-context-types.js").TrustContext;
 type ServerMessage = import("../message-protocol.js").ServerMessage;
 type SurfaceData = import("../message-protocol.js").SurfaceData;
 type SurfaceType = import("../message-protocol.js").SurfaceType;
@@ -159,7 +160,6 @@ function makeContext(
 
   const base: SurfaceConversationContext = {
     conversationId: "origin-conv-id",
-    traceEmitter: { emit: () => {} },
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<

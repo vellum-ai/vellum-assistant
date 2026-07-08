@@ -4,8 +4,9 @@ import type { Conversation } from "@/types/conversation-types";
  * Predicate matching macOS `ConversationModel.isChannelConversation`.
  *
  * Returns true when a conversation originated from an external channel
- * (Slack, Telegram, voice/phone, etc.) — these conversations are
- * read-only from the desktop/web/iOS surface because the daemon does not
+ * (Slack, Telegram, voice/phone, etc.). On web this gates the
+ * native-only edit/undo/recall path (the composer stays writable);
+ * macOS/iOS keep these conversations read-only since the daemon does not
  * mirror outbound writes back to the source channel.
  *
  * Excluded prefixes (treated as native):

@@ -107,6 +107,7 @@ describe("schedules command", () => {
       "cancel",
       "delete",
       "execute",
+      "worker",
     ]);
   });
 });
@@ -670,33 +671,31 @@ describe("schedules create", () => {
     mockIpcResult = {
       ok: true,
       result: {
-        schedules: [
-          {
-            id: "new-schedule-id",
-            name: "Heartbeat",
-            enabled: true,
-            syntax: "cron",
-            expression: "*/30 * * * *",
-            cronExpression: "*/30 * * * *",
-            timezone: null,
-            message: "run heartbeat",
-            script: null,
-            nextRunAt: 1_778_800_000_000,
-            lastRunAt: null,
-            lastStatus: null,
-            retryCount: 0,
-            maxRetries: 3,
-            retryBackoffMs: 60_000,
-            description: "Checks service heartbeat",
-            cadenceDescription: "Every 30 minutes",
-            mode: "execute",
-            status: "active",
-            routingIntent: "all_channels",
-            reuseConversation: false,
-            wakeConversationId: null,
-            isOneShot: false,
-          },
-        ],
+        schedule: {
+          id: "new-schedule-id",
+          name: "Heartbeat",
+          enabled: true,
+          syntax: "cron",
+          expression: "*/30 * * * *",
+          cronExpression: "*/30 * * * *",
+          timezone: null,
+          message: "run heartbeat",
+          script: null,
+          nextRunAt: 1_778_800_000_000,
+          lastRunAt: null,
+          lastStatus: null,
+          retryCount: 0,
+          maxRetries: 3,
+          retryBackoffMs: 60_000,
+          description: "Checks service heartbeat",
+          cadenceDescription: "Every 30 minutes",
+          mode: "execute",
+          status: "active",
+          routingIntent: "all_channels",
+          reuseConversation: false,
+          wakeConversationId: null,
+          isOneShot: false,
+        },
       },
     };
 
@@ -715,13 +714,11 @@ describe("schedules create", () => {
 
     expect(exitCode).toBe(0);
     expect(JSON.parse(stdout)).toEqual({
-      schedules: [
-        expect.objectContaining({
-          id: "new-schedule-id",
-          description: "Checks service heartbeat",
-          cadenceDescription: "Every 30 minutes",
-        }),
-      ],
+      schedule: expect.objectContaining({
+        id: "new-schedule-id",
+        description: "Checks service heartbeat",
+        cadenceDescription: "Every 30 minutes",
+      }),
     });
     expect(logLines).toEqual([]);
   });
@@ -747,6 +744,58 @@ describe("schedules create", () => {
     expect(exitCode).toBe(10);
     expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
     expect(errorLines).toEqual([]);
+  });
+
+  test("creates a script-mode schedule with --mode script --script", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "GitHub watcher",
+      "--mode",
+      "script",
+      "--script",
+      'cd "$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID" && bun poll.ts',
+      "--expression",
+      "*/15 * * * *",
+      "--description",
+      "Polls GitHub notifications",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "createSchedule",
+        params: {
+          body: {
+            name: "GitHub watcher",
+            expression: "*/15 * * * *",
+            description: "Polls GitHub notifications",
+            enabled: true,
+            mode: "script",
+            script:
+              'cd "$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID" && bun poll.ts',
+          },
+        },
+      },
+    ]);
+  });
+
+  test("exits 1 when --mode script is missing --script", async () => {
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Broken",
+      "--mode",
+      "script",
+      "--expression",
+      "*/15 * * * *",
+      "--description",
+      "no script",
+    ]);
+
+    expect(exitCode).toBe(1);
   });
 });
 

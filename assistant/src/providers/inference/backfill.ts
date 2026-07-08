@@ -18,20 +18,19 @@
  */
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import type { DrizzleDb } from "../../memory/db-connection.js";
+import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
+import { MANAGED_ROUTABLE_PROVIDERS } from "../vellum-model-routing.js";
+import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "./auth.js";
 import {
   createConnection,
   getConnection,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   seedCanonicalConnections,
+  VELLUM_MANAGED_CONNECTION_NAME,
 } from "./connections.js";
 
 const log = getLogger("provider-connections-backfill");
-
-// Providers that support the managed (platform) auth type.
-const MANAGED_PROVIDERS = new Set(["anthropic", "openai", "gemini"]);
 
 /**
  * Seed canonical provider_connections and backfill any legacy config locations
@@ -54,7 +53,10 @@ export function runProviderConnectionsBackfill(db: DrizzleDb): void {
     seedCanonicalConnections(db);
     backfillConfigProfiles(db);
   } catch (err) {
-    log.error({ err }, "provider_connections backfill failed — will retry on next boot");
+    log.error(
+      { err },
+      "provider_connections backfill failed — will retry on next boot",
+    );
   }
 }
 
@@ -72,7 +74,9 @@ function backfillConfigProfiles(db: DrizzleDb): void {
   // 1. The default profile — every dispatch path's terminal fallback.
   const defaultProfile = llm.default as Record<string, unknown> | undefined;
   if (defaultProfile && typeof defaultProfile === "object") {
-    if (ensureProviderConnection(defaultProfile, "<llm.default>", db, globalMode)) {
+    if (
+      ensureProviderConnection(defaultProfile, "<llm.default>", db, globalMode)
+    ) {
       llm.default = defaultProfile;
       changed = true;
     }
@@ -147,8 +151,7 @@ function ensureProviderConnection(
   // `provider_connection: ""` would otherwise skip backfill and then hard-throw
   // at runtime. Self-heal those alongside null/undefined.
   const existing = entry.provider_connection;
-  const hasValid =
-    typeof existing === "string" && existing.trim() !== "";
+  const hasValid = typeof existing === "string" && existing.trim() !== "";
   if (hasValid) return false;
 
   const provider = entry.provider as string | undefined;
@@ -164,8 +167,11 @@ function ensureProviderConnection(
 
   let connectionName: string;
 
-  if (globalMode === "managed" && MANAGED_PROVIDERS.has(provider)) {
-    connectionName = `${provider}-managed`;
+  if (globalMode === "managed" && MANAGED_ROUTABLE_PROVIDERS.has(provider)) {
+    // All managed-routable providers share the single provider-agnostic
+    // `vellum` connection; the upstream is recovered per-request from the
+    // profile's `provider` field.
+    connectionName = VELLUM_MANAGED_CONNECTION_NAME;
   } else {
     // "your-own" path (or provider not managed-supported): ensure a
     // personal connection exists. Ollama is keyless, so it gets

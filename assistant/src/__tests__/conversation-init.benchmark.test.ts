@@ -217,7 +217,7 @@ mock.module("../services/published-app-updater.js", () => ({
   updatePublishedAppDeployment: () => Promise.resolve(),
 }));
 
-const { initializeDb } = await import("../memory/db-init.js");
+const { initializeDb } = await import("../persistence/db-init.js");
 await initializeDb();
 
 const { initializeTools, getAllToolDefinitions, __resetRegistryForTesting } =
@@ -262,7 +262,9 @@ describe("Conversation initialization benchmark", () => {
       const start = performance.now();
       const definitions = getAllToolDefinitions();
       timings.push(performance.now() - start);
-      if (i === 0) expect(definitions.length).toBeGreaterThan(0);
+      if (i === 0) {
+        expect(definitions.length).toBeGreaterThan(0);
+      }
     }
 
     timings.sort((a, b) => a - b);
@@ -466,7 +468,9 @@ describe("End-to-end session creation benchmark", () => {
       timings.push(performance.now() - start);
 
       if (i === 0) {
-        expect(session.eventBus.anyListenerCount()).toBeGreaterThan(0);
+        // Tool infrastructure is wired (the executor records audit/telemetry
+        // and profiler timings directly to their module-level terminals).
+        expect(session.coreToolNames.size).toBeGreaterThan(0);
       }
       session.dispose();
     }

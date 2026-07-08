@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SlackChannelConfigResult } from "../daemon/handlers/config-slack-channel.js";
-import type { SecretPromptResult } from "../permissions/secret-prompter.js";
+import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 
 // ---------------------------------------------------------------------------
 // Mutable mock state (closed over by the mock factories below)
@@ -117,6 +117,7 @@ function slackResult(
 
 type PromptResponse = {
   ok: boolean;
+  cancelled?: boolean;
   error?: string;
   service?: string;
   field?: string;
@@ -386,6 +387,152 @@ describe("credentials/prompt route", () => {
     expect(capturedMetadata).toBeDefined();
     expect(capturedMetadata!.allowedTools).toBeUndefined();
     expect(capturedMetadata!.allowedDomains).toBeUndefined();
+  });
+
+  test("flags an explicit user cancel distinctly from a failure", async () => {
+    /**
+     * A user dismissing the secure prompt is a valid flow, not an error. The
+     * route must mark it `cancelled: true` (so the CLI can exit with the
+     * user-interrupt convention) and must not persist anything.
+     */
+    // GIVEN the prompt resolves with no value because the user cancelled
+    secretResult = { value: null, delivery: "store", reason: "cancelled" };
+
+    // WHEN the route handles the prompt
+    const result = (await promptRoute!.handler({
+      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+    })) as PromptResponse;
+
+    // THEN the outcome is flagged as a cancel, not a generic error
+    expect(result.ok).toBe(false);
+    expect(result.cancelled).toBe(true);
+    expect(result.error).toBe("Cancelled by the user");
+
+    // AND nothing was written to secure storage
+    expect(secureKeyWrites).toEqual([]);
+  });
+
+  test("reports a timeout as a failure, not a cancel", async () => {
+    /**
+     * A prompt that times out (no response in the permission window) is a real
+     * failure — it must NOT be flagged as a user cancel, so the CLI keeps the
+     * error exit code for it.
+     */
+    // GIVEN the prompt resolves with no value because it timed out
+    secretResult = { value: null, delivery: "store", reason: "timed_out" };
+
+    // WHEN the route handles the prompt
+    const result = (await promptRoute!.handler({
+      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+    })) as PromptResponse;
+
+    // THEN it is a plain failure with no cancel flag
+    expect(result.ok).toBe(false);
+    expect(result.cancelled).toBeUndefined();
+    expect(result.error).toBe("The credential prompt timed out");
+  });
+
+  test("reports an undeliverable prompt as a failure, not a cancel", async () => {
+    /**
+     * When no connected client can render a secure prompt the value is null due
+     * to a delivery failure — this stays a hard error and is never a cancel.
+     */
+    // GIVEN the prompt could not be delivered to any client
+    secretResult = {
+      value: null,
+      delivery: "store",
+      error: "unsupported_channel",
+    };
+
+    // WHEN the route handles the prompt
+    const result = (await promptRoute!.handler({
+      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+    })) as PromptResponse;
+
+    // THEN it is a plain failure with no cancel flag
+    expect(result.ok).toBe(false);
+    expect(result.cancelled).toBeUndefined();
+    expect(result.error).toBe(
+      "This conversation's channel does not support secure credential entry",
+    );
+  });
+
+  test("returns a pending collection link for unsupported channels when minted", async () => {
+    /**
+     * When the channel cannot render the secure prompt but the gateway minted
+     * a one-time collection link, the route reports a PENDING non-success
+     * (nothing is stored yet — `ok` must stay false so the CLI's exit-0 =
+     * stored contract holds) carrying the link for the model to relay. The
+     * policy is NOT applied at mint time: it travels through the prompt
+     * params onto the gateway row and is applied at redemption, so an
+     * unredeemed link never mutates an existing credential's metadata.
+     */
+    // GIVEN the prompt short-circuited with a minted collection link
+    secretResult = {
+      value: null,
+      delivery: "store",
+      error: "unsupported_channel",
+      collectionUrl: "https://x.test/assistant/credentials/enter#token=tok",
+      collectionExpiresAt: Date.now() + 30 * 60_000,
+    };
+
+    // WHEN the route handles a prompt carrying policy flags
+    const result = (await promptRoute!.handler({
+      body: {
+        service: "stripe",
+        field: "api_key",
+        label: "Stripe API Key",
+        usageDescription: "Needed for billing lookups",
+        allowedTools: ["make_authenticated_request"],
+        injectionTemplates: [
+          { hostPattern: "api.stripe.com", injectionType: "header" },
+        ],
+      },
+    })) as PromptResponse & { pending?: boolean; collectionUrl?: string };
+
+    // THEN it is a pending non-success carrying the link
+    expect(result.ok).toBe(false);
+    expect(result.pending).toBe(true);
+    expect(result.cancelled).toBeUndefined();
+    expect(result.collectionUrl).toBe(
+      "https://x.test/assistant/credentials/enter#token=tok",
+    );
+    expect(result.message).toContain("NOT been stored");
+    expect(result.message).toContain(
+      "https://x.test/assistant/credentials/enter#token=tok",
+    );
+
+    // AND the policy travels to the prompt (for the gateway row), but no
+    // metadata is upserted at mint time
+    expect(capturedSecretParams?.injectionTemplates).toEqual([
+      { hostPattern: "api.stripe.com", injectionType: "header" },
+    ]);
+    expect(capturedMetadata).toBeUndefined();
+
+    // AND nothing was written to secure storage yet
+    expect(secureKeyWrites).toEqual([]);
+  });
+
+  test("reports a superseded prompt as a failure, not a cancel", async () => {
+    /**
+     * A newer message in the conversation auto-denies pending prompts. The
+     * user never answered the prompt, so this must not read as a deliberate
+     * cancel — the CLI keeps the error exit code and an honest message.
+     */
+    // GIVEN the prompt resolves with no value because it was superseded
+    secretResult = { value: null, delivery: "store", reason: "superseded" };
+
+    // WHEN the route handles the prompt
+    const result = (await promptRoute!.handler({
+      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+    })) as PromptResponse;
+
+    // THEN it is a plain failure with no cancel flag
+    expect(result.ok).toBe(false);
+    expect(result.cancelled).toBeUndefined();
+    expect(result.error).toBe(
+      "The credential prompt was superseded by a new message",
+    );
   });
 
   test("forwards provided allowed-tools/-domains to credential metadata", async () => {

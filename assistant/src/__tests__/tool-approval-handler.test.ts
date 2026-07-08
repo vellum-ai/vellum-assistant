@@ -35,17 +35,44 @@ mock.module("../tools/registry.js", () => ({
   getAllTools: () => [fakeTool],
 }));
 
+// Capture tool-audit terminal calls so tests can assert on denied/error outcomes
+// the way they previously asserted on emitted lifecycle events.
+const auditCalls = {
+  denied: [] as any[],
+  error: [] as any[],
+  executed: [] as any[],
+  prompted: [] as string[],
+};
+mock.module("../telemetry/tool-audit.js", () => ({
+  recordToolDenied: (e: any) => auditCalls.denied.push(e),
+  recordToolError: (e: any) => auditCalls.error.push(e),
+  recordToolExecuted: (e: any) => auditCalls.executed.push(e),
+  recordToolPermissionPrompted: (n: string) => auditCalls.prompted.push(n),
+}));
+
+function resetAuditCalls(): void {
+  auditCalls.denied.length = 0;
+  auditCalls.error.length = 0;
+  auditCalls.executed.length = 0;
+  auditCalls.prompted.length = 0;
+}
+
 import {
   mintGrantFromDecision,
   type MintGrantParams,
 } from "../approvals/approval-primitive.js";
-import { getDb } from "../memory/db-connection.js";
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { scopedApprovalGrants } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { scopedApprovalGrants } from "../persistence/schema/index.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-import { ToolApprovalHandler } from "../tools/tool-approval-handler.js";
-import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
+import {
+  type ApprovalCellThreshold,
+  isSensitiveTool,
+  resolveSensitiveToolDecision,
+  ToolApprovalHandler,
+} from "../tools/tool-approval-handler.js";
+import type { ToolContext } from "../tools/types.js";
 
 await initializeDb();
 
@@ -93,14 +120,10 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 
 describe("ToolApprovalHandler / pre-exec gate grant check", () => {
   const handler = new ToolApprovalHandler();
-  const events: ToolLifecycleEvent[] = [];
-  const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
-    events.push(event);
-  };
 
   beforeEach(() => {
     clearTables();
-    events.length = 0;
+    resetAuditCalls();
   });
 
   test("untrusted actor + matching tool_signature grant -> allow", async () => {
@@ -123,16 +146,13 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(true);
-    // No permission_denied events should have been emitted
-    const deniedEvents = events.filter((e) => e.type === "permission_denied");
-    expect(deniedEvents.length).toBe(0);
+    // No permission_denied should have been recorded
+    expect(auditCalls.denied.length).toBe(0);
   });
 
   test("untrusted actor + no matching grant -> deny with guardian_approval_required", async () => {
@@ -144,20 +164,19 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
     expect(result.result.isError).toBe(true);
     expect(result.result.content).toContain("guardian approval");
 
-    // A permission_denied event should have been emitted
-    const deniedEvents = events.filter((e) => e.type === "permission_denied");
-    expect(deniedEvents.length).toBe(1);
+    // A permission_denied should have been recorded
+    expect(auditCalls.denied.length).toBe(1);
   });
 
   test("unverified_channel actor + matching grant -> allow", async () => {
@@ -178,10 +197,8 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(true);
@@ -196,14 +213,14 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
     expect(result.result.content).toContain("verified channel identity");
   });
 
@@ -227,10 +244,8 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
     expect(first.allowed).toBe(true);
 
@@ -239,10 +254,8 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
     expect(second.allowed).toBe(false);
   });
@@ -266,10 +279,8 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       invokeInput,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
@@ -295,10 +306,8 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
@@ -314,10 +323,8 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     // Guardian should pass through — the untrusted gate is not triggered
@@ -333,10 +340,8 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(true);
@@ -361,10 +366,8 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(true);
@@ -393,10 +396,8 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
@@ -417,15 +418,15 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
     const elapsed = Date.now() - start;
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
     expect(result.result.content).toContain("guardian approval");
     // Non-voice denials should be nearly instant — no 10s retry polling
     expect(elapsed).toBeLessThan(500);
@@ -457,10 +458,8 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
     const elapsed = Date.now() - start;
 
@@ -489,29 +488,27 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
     const elapsed = Date.now() - start;
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
     // Should return 'Cancelled', not a guardian_approval_required message
     expect(result.result.content).toBe("Cancelled");
     expect(result.result.isError).toBe(true);
     // Should exit promptly after the abort signal, not wait full 10s
     expect(elapsed).toBeLessThan(2_000);
 
-    // The lifecycle event should be an error with 'Cancelled', not permission_denied
-    const errorEvents = events.filter((e) => e.type === "error");
-    expect(errorEvents.length).toBeGreaterThanOrEqual(1);
-    const lastError = errorEvents[errorEvents.length - 1];
-    if (lastError.type === "error") {
-      expect(lastError.errorMessage).toBe("Cancelled");
-      expect(lastError.isExpected).toBe(true);
-    }
+    // The recorded terminal should be an error with 'Cancelled', not a denial
+    expect(auditCalls.error.length).toBeGreaterThanOrEqual(1);
+    expect(auditCalls.denied.length).toBe(0);
+    const lastError = auditCalls.error[auditCalls.error.length - 1];
+    expect(lastError.errorMessage).toBe("Cancelled");
+    expect(lastError.isExpected).toBe(true);
   });
 
   test("trusted contact requires grant for sandboxed side-effect tools", async () => {
@@ -519,29 +516,102 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       "bash",
       { command: "echo hello" },
       makeContext({ trustClass: "trusted_contact" }),
-      "sandbox",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
-    expect(events.filter((e) => e.type === "permission_denied")).toHaveLength(
-      1,
-    );
+    expect(auditCalls.denied).toHaveLength(1);
+  });
+});
+
+describe("isSensitiveTool", () => {
+  test("sensitivity is a property of the tool and execution target only", () => {
+    // Side-effect tools are sensitive wherever they run.
+    expect(isSensitiveTool("bash", "sandbox")).toBe(true);
+    expect(isSensitiveTool("file_write", "sandbox")).toBe(true);
+    // Read-only tools are sensitive only when they execute on the host.
+    expect(isSensitiveTool("web_search", "host")).toBe(true);
+    expect(isSensitiveTool("web_search", "sandbox")).toBe(false);
+    // UI surface tools are exempt even on the host target.
+    expect(isSensitiveTool("ui_show", "host")).toBe(false);
+    expect(isSensitiveTool("ui_update", "host")).toBe(false);
+    expect(isSensitiveTool("ui_dismiss", "host")).toBe(false);
+  });
+});
+
+describe("resolveSensitiveToolDecision / CapabilitySet floor invariant", () => {
+  const cellThresholds: Array<ApprovalCellThreshold | undefined> = [
+    undefined,
+    "none",
+    "low",
+    "medium",
+    "high",
+  ];
+  const riskLevels = ["low", "medium", "high"];
+
+  test("no cell threshold or risk level lifts the floor for non-self actors", () => {
+    for (const cellThreshold of cellThresholds) {
+      for (const riskLevel of riskLevels) {
+        expect(
+          resolveSensitiveToolDecision({
+            sensitive: true,
+            cellThreshold,
+            riskLevel,
+            sensitiveToolApproval: "escalate-and-wait",
+          }),
+        ).toBe("escalate-and-wait");
+        expect(
+          resolveSensitiveToolDecision({
+            sensitive: true,
+            cellThreshold,
+            riskLevel,
+            sensitiveToolApproval: "deny",
+          }),
+        ).toBe("deny");
+      }
+    }
+  });
+
+  test("self capability proceeds for sensitive tools (lane-B policy governs downstream)", () => {
+    for (const cellThreshold of cellThresholds) {
+      for (const riskLevel of riskLevels) {
+        expect(
+          resolveSensitiveToolDecision({
+            sensitive: true,
+            cellThreshold,
+            riskLevel,
+            sensitiveToolApproval: "self",
+          }),
+        ).toBe("proceed");
+      }
+    }
+  });
+
+  test("non-sensitive tools proceed regardless of the capability floor", () => {
+    for (const sensitiveToolApproval of [
+      "self",
+      "escalate-and-wait",
+      "deny",
+    ] as const) {
+      expect(
+        resolveSensitiveToolDecision({
+          sensitive: false,
+          cellThreshold: undefined,
+          riskLevel: "high",
+          sensitiveToolApproval,
+        }),
+      ).toBe("proceed");
+    }
   });
 });
 
 describe("ToolApprovalHandler / unparseable tool args gate", () => {
   const handler = new ToolApprovalHandler();
-  const events: ToolLifecycleEvent[] = [];
-  const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
-    events.push(event);
-  };
 
   beforeEach(() => {
     clearTables();
-    events.length = 0;
+    resetAuditCalls();
   });
 
   test("input wrapped as { _raw } is rejected without executing", async () => {
@@ -549,25 +619,21 @@ describe("ToolApprovalHandler / unparseable tool args gate", () => {
       "bash",
       { _raw: '{"command": "ls -' },
       makeContext({ trustClass: "guardian" }),
-      "sandbox",
       "low",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
     expect(result.result.isError).toBe(true);
     expect(result.result.content).toContain("were not valid JSON");
     expect(result.result.content).toContain('{"command": "ls -');
     expect(result.result.content).toContain("Retry");
 
-    const errorEvents = events.filter((e) => e.type === "error");
-    expect(errorEvents).toHaveLength(1);
-    if (errorEvents[0].type === "error") {
-      expect(errorEvents[0].isExpected).toBe(true);
-      expect(errorEvents[0].errorCategory).toBe("tool_failure");
-    }
+    expect(auditCalls.error).toHaveLength(1);
+    expect(auditCalls.error[0].isExpected).toBe(true);
   });
 
   test("long raw args are truncated in the error message", async () => {
@@ -576,14 +642,14 @@ describe("ToolApprovalHandler / unparseable tool args gate", () => {
       "bash",
       { _raw: raw },
       makeContext({ trustClass: "guardian" }),
-      "sandbox",
       "low",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
     expect(result.result.content).not.toContain(raw);
     expect(result.result.content).toContain("…");
   });
@@ -593,10 +659,8 @@ describe("ToolApprovalHandler / unparseable tool args gate", () => {
       "bash",
       { _raw: "something", command: "ls" },
       makeContext({ trustClass: "guardian" }),
-      "sandbox",
       "low",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(true);
@@ -607,10 +671,8 @@ describe("ToolApprovalHandler / unparseable tool args gate", () => {
       "bash",
       { _raw: 42 },
       makeContext({ trustClass: "guardian" }),
-      "sandbox",
       "low",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(true);

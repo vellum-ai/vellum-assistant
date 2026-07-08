@@ -168,6 +168,9 @@ declare global {
       status?: {
         setConnection(status: AssistantStatus): void;
       };
+      identity?: {
+        setName(name: string): void;
+      };
       icon?: {
         setAvatar(png: Uint8Array | null): void;
       };
@@ -216,7 +219,6 @@ declare global {
       };
       auth?: {
         startOAuth(options: {
-          providerHint?: string;
           loginHint?: string;
           intent?: string;
         }): Promise<{ sessionToken: string }>;
@@ -240,6 +242,9 @@ declare global {
       fileOpen?: {
         drain(): Promise<string[]>;
         onFile(callback: (filePath: string) => void): () => void;
+      };
+      paths?: {
+        getPathForFile(file: File): string | null;
       };
       feedback?: {
         diagnostics(): Promise<Record<string, unknown>>;

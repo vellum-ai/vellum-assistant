@@ -36,6 +36,15 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => false,
 }));
 
+// `buildPolicyContext` (used by the integration tests below) precomputes the
+// proc-to-skills gate via `isProcToSkillsActive`. Drive it through this slot so
+// a test can put the production threading path in the active / inactive state.
+let mockProcToSkillsActive = true;
+mock.module("../config/memory-v3-gate.js", () => ({
+  isProcToSkillsActive: () => mockProcToSkillsActive,
+  isMemoryV3Live: () => mockProcToSkillsActive,
+}));
+
 // Mock skill resolution — return null by default (no skill found).
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => [],
@@ -80,9 +89,29 @@ mock.module("../util/platform.js", () => ({
 // before a prompt is surfaced; `null` means "refresh failed, keep decision".
 let mockCachedThreshold = "low";
 let mockRefreshedThreshold: string | null = null;
+// Records the cell query check() derives from the PolicyContext, so tests can
+// assert the matrix coordinates that reach the threshold cascade.
+const thresholdCallLog: Array<{
+  fn: "get" | "refresh";
+  cellQuery: Record<string, unknown> | undefined;
+}> = [];
 mock.module("./gateway-threshold-reader.js", () => ({
-  getAutoApproveThreshold: async () => mockCachedThreshold,
-  refreshAutoApproveThreshold: async () => mockRefreshedThreshold,
+  getAutoApproveThreshold: async (
+    _conversationId?: string,
+    _executionContext?: string,
+    cellQuery?: Record<string, unknown>,
+  ) => {
+    thresholdCallLog.push({ fn: "get", cellQuery });
+    return mockCachedThreshold;
+  },
+  refreshAutoApproveThreshold: async (
+    _conversationId?: string,
+    _executionContext?: string,
+    cellQuery?: Record<string, unknown>,
+  ) => {
+    thresholdCallLog.push({ fn: "refresh", cellQuery });
+    return mockRefreshedThreshold;
+  },
   _clearGlobalCacheForTesting: () => {},
 }));
 
@@ -93,14 +122,18 @@ mock.module("./trust-store.js", () => ({
 }));
 
 // Mock workspace policy.
+let mockIsPathWithinWorkspaceRoot = true;
 mock.module("./workspace-policy.js", () => ({
   isWorkspaceScopedInvocation: () => false,
-  isPathWithinWorkspaceRoot: () => false,
+  isPathWithinWorkspaceRoot: () => mockIsPathWithinWorkspaceRoot,
 }));
 
-// Mock tool registry — no tools by default.
+// Mock tool registry — no tools by default. `getToolOwner` backs
+// `buildPolicyContext` (used by the integration test below); core tools have no
+// owner, so it returns undefined.
 mock.module("../tools/registry.js", () => ({
   getTool: () => undefined,
+  getToolOwner: () => undefined,
 }));
 
 // Mock URL safety helpers.
@@ -135,6 +168,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { buildPolicyContext } from "../tools/policy-context.js";
+import type { Tool, ToolContext } from "../tools/types.js";
 import {
   check,
   classifyRisk,
@@ -153,6 +188,8 @@ describe("Permission Checker (gateway IPC)", () => {
     mockIpcClassifyRiskResult = undefined;
     mockCachedThreshold = "low";
     mockRefreshedThreshold = null;
+    mockProcToSkillsActive = true;
+    thresholdCallLog.length = 0;
   });
 
   // ── classifyRisk ──────────────────────────────────────────────────────────
@@ -309,6 +346,102 @@ describe("Permission Checker (gateway IPC)", () => {
       // Use unique command to avoid cache hits
       const result = await classifyRisk("bash", { command: "pwd" });
       expect((result as any).sandboxAutoApprove).toBe(true);
+    });
+
+    test("overrides sandboxAutoApprove when symlink escape detected", async () => {
+      mockIsPathWithinWorkspaceRoot = false;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: ["/workspace/escape/passwd"],
+      };
+      const result = await classifyRisk("bash", {
+        command: "cat /workspace/escape/passwd",
+      });
+      expect((result as any).sandboxAutoApprove).toBe(false);
+      mockIsPathWithinWorkspaceRoot = true;
+    });
+
+    test("preserves sandboxAutoApprove when path args resolve within workspace", async () => {
+      mockIsPathWithinWorkspaceRoot = true;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: ["/workspace/file.txt"],
+      };
+      const result = await classifyRisk("bash", {
+        command: "cat /workspace/file.txt",
+      });
+      expect((result as any).sandboxAutoApprove).toBe(true);
+    });
+
+    test("overrides sandboxAutoApprove when any path arg escapes", async () => {
+      mockIsPathWithinWorkspaceRoot = false;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: [
+          "/workspace/safe.txt",
+          "/workspace/escape/passwd",
+        ],
+      };
+      const result = await classifyRisk("bash", {
+        command:
+          "cat /workspace/safe.txt && cat /workspace/escape/passwd",
+      });
+      expect((result as any).sandboxAutoApprove).toBe(false);
+      mockIsPathWithinWorkspaceRoot = true;
+    });
+
+    test("no sandboxPathArgs means no symlink check (backward compat)", async () => {
+      mockIsPathWithinWorkspaceRoot = false;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "ls (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        // No sandboxPathArgs — e.g. older gateway that doesn't send them
+      };
+      const result = await classifyRisk("bash", { command: "ls" });
+      expect((result as any).sandboxAutoApprove).toBe(true);
+      mockIsPathWithinWorkspaceRoot = true;
+    });
+
+    test("cache hit re-runs symlink escape check after symlink retargeted", async () => {
+      // First call: path args within workspace → sandboxAutoApprove true.
+      mockIsPathWithinWorkspaceRoot = true;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: ["/workspace/escape/secret42.bin"],
+      };
+      const first = await classifyRisk("bash", {
+        command: "cat /workspace/escape/secret42.bin",
+      });
+      expect((first as any).sandboxAutoApprove).toBe(true);
+
+      // Second call with the same command: cache hit, but symlink now
+      // resolves outside workspace. The cache hit must re-run the check
+      // and override sandboxAutoApprove to false.
+      mockIsPathWithinWorkspaceRoot = false;
+      const second = await classifyRisk("bash", {
+        command: "cat /workspace/escape/secret42.bin",
+      });
+      expect((second as any).sandboxAutoApprove).toBe(false);
+      mockIsPathWithinWorkspaceRoot = true;
     });
 
     test("preserves allowlistOptions from gateway response", async () => {
@@ -603,6 +736,384 @@ describe("Permission Checker (gateway IPC)", () => {
         "network_request",
         { url: "https://api.example.com/refresh-stricter-test" },
         "/home/user/project",
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    // ── Channel-permission matrix cell query ────────────────────────────────
+    // check() derives the matrix coordinates (adapter × conversation type ×
+    // channel ID × contact-type) from the PolicyContext and threads them into
+    // both threshold reads, so the cell tier of the cascade governs every
+    // policy rule without any rule changes.
+
+    const HIGH_RISK_RESULT = {
+      risk: "high",
+      reason: "Recursive force delete",
+      matchType: "registry",
+      scopeOptions: [],
+    } as const;
+
+    test("threads the full cell query into the threshold read and the pre-prompt refresh", async () => {
+      mockIpcClassifyRiskResult = { ...HIGH_RISK_RESULT, scopeOptions: [] };
+      await check("bash", { command: "rm -rf /tmp/x" }, "/home/user/project", {
+        conversationId: "conv-1",
+        trustClass: "trusted_contact",
+        sourceChannel: "slack",
+        channelExternalId: "C123",
+        channelConversationType: "dm",
+      });
+
+      const expectedQuery = {
+        adapter: "slack",
+        channelType: "dm",
+        channelExternalId: "C123",
+        contactType: "trusted_contact",
+      };
+      expect(thresholdCallLog).toEqual([
+        { fn: "get", cellQuery: expectedQuery },
+        // The high-risk prompt triggers the refresh with the same coordinates.
+        { fn: "refresh", cellQuery: expectedQuery },
+      ]);
+    });
+
+    test("omits unknown conversation type and missing channel ID from the cell query", async () => {
+      mockIpcClassifyRiskResult = { ...HIGH_RISK_RESULT, scopeOptions: [] };
+      await check("bash", { command: "rm -rf /tmp/x" }, "/home/user/project", {
+        trustClass: "unknown",
+        sourceChannel: "slack",
+        // Slack non-DMs arrive without a public/private distinction, so the
+        // conversation type is unset — the channel-type tier must not match.
+        channelConversationType: undefined,
+      });
+
+      expect(thresholdCallLog[0]).toEqual({
+        fn: "get",
+        cellQuery: {
+          adapter: "slack",
+          channelType: undefined,
+          channelExternalId: undefined,
+          contactType: "unknown",
+        },
+      });
+    });
+
+    test("builds no cell query without a source channel", async () => {
+      mockIpcClassifyRiskResult = { ...HIGH_RISK_RESULT, scopeOptions: [] };
+      await check("bash", { command: "rm -rf /tmp/x" }, "/home/user/project", {
+        trustClass: "guardian",
+      });
+      expect(thresholdCallLog[0]).toEqual({ fn: "get", cellQuery: undefined });
+    });
+
+    test("builds no cell query for an unrecognized trust class", async () => {
+      mockIpcClassifyRiskResult = { ...HIGH_RISK_RESULT, scopeOptions: [] };
+      await check("bash", { command: "rm -rf /tmp/x" }, "/home/user/project", {
+        trustClass: "non_guardian",
+        sourceChannel: "slack",
+        channelExternalId: "C123",
+      });
+      expect(thresholdCallLog[0]).toEqual({ fn: "get", cellQuery: undefined });
+    });
+
+    // ── Memory-retrospective skill-authoring auto-grant ─────────────────────
+    // The background retrospective guardian session (sourceChannel "vellum",
+    // trustClass "guardian", origin "memory_retrospective") cannot answer
+    // interactive prompts, so `scaffold_managed_skill`, `find_similar_skills`,
+    // and `skill_load skill-management` resolve to allow without prompting. The
+    // grant is scoped to that origin + those tools, and ONLY fires when the
+    // feature is active (`procToSkillsActive: true`).
+
+    const retrospectiveContext = {
+      requestOrigin: "memory_retrospective",
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+      executionContext: "background" as const,
+      procToSkillsActive: true,
+    };
+
+    test("allows scaffold_managed_skill for the retrospective origin without prompting", async () => {
+      // High risk would normally force a prompt — the grant short-circuits
+      // before classification, so no IPC result is needed.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        retrospectiveContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
+    test("allows find_similar_skills for the retrospective origin without prompting", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill discovery",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const result = await check(
+        "find_similar_skills",
+        { goal: "deploy a preview" },
+        "/home/user/project",
+        retrospectiveContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
+    test("allows skill_load skill-management for the retrospective origin without prompting", async () => {
+      const result = await check(
+        "skill_load",
+        { skill: "skill-management" },
+        "/home/user/project",
+        retrospectiveContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
+    test("does not grant skill_load for a non skill-management skill", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Dynamic skill load",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const result = await check(
+        "skill_load",
+        { skill: "some-other-skill" },
+        "/home/user/project",
+        retrospectiveContext,
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant for tools outside the scaffold/find/skill_load set", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Managed skill delete",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const result = await check(
+        "delete_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        retrospectiveContext,
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant scaffold for an interactive (non-background) session", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // A normal interactive turn carries no retrospective origin signals.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        { executionContext: "conversation" },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("only the memory_retrospective origin grants skill authoring", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // Same guardian/vellum background trust and active feature: the
+      // consolidation origin does not authorize skill authoring; only the
+      // retrospective origin holds this grant.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        {
+          requestOrigin: "memory_consolidation",
+          trustClass: "guardian",
+          sourceChannel: "vellum",
+          executionContext: "background",
+          procToSkillsActive: true,
+        },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant scaffold for a different background origin", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // Same guardian/vellum background trust, but a different origin (e.g.
+      // the memory sweep job) must not inherit the retrospective grant.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        {
+          requestOrigin: "schedule",
+          trustClass: "guardian",
+          sourceChannel: "vellum",
+          executionContext: "background",
+          procToSkillsActive: true,
+        },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant scaffold when trust is not guardian", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        {
+          requestOrigin: "memory_retrospective",
+          trustClass: "unknown",
+          sourceChannel: "vellum",
+          executionContext: "background",
+          procToSkillsActive: true,
+        },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant scaffold when proc-to-skills is inactive (flag off / v3 not live)", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // The exact retrospective origin/trust/channel, but the feature is
+      // inactive — `procToSkillsActive` is not true — so the grant must NOT
+      // fire and the high-risk tool prompts.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        { ...retrospectiveContext, procToSkillsActive: false },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    // ── Integration: production `buildPolicyContext` → `check` path ──────────
+    // The hand-built-PolicyContext tests above prove the grant LOGIC. These
+    // exercise the WIRING: a `ToolContext` (the shape the agent loop actually
+    // builds — see conversation-tool-setup.ts) is run through the real
+    // `buildPolicyContext`, and only then handed to `check`. Without the
+    // origin/trust/channel threading, `buildPolicyContext` would drop those
+    // fields and the grant would be dead code.
+
+    /** A bare core tool — `buildPolicyContext` reads only `tool.name`/owner. */
+    const scaffoldTool = {
+      name: "scaffold_managed_skill",
+    } as unknown as Tool;
+
+    /** The ToolContext a memory-retrospective pass produces. */
+    const retrospectiveToolContext: ToolContext = {
+      conversationId: "conv-retro",
+      workingDir: "/home/user/project",
+      trustClass: "guardian",
+      executionChannel: "vellum",
+      requestOrigin: "memory_retrospective",
+      isInteractive: false,
+    };
+
+    test("grant fires through the real buildPolicyContext path for the retrospective turn", async () => {
+      // High risk would normally force a prompt; the grant short-circuits it.
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const policyContext = buildPolicyContext(
+        scaffoldTool,
+        retrospectiveToolContext,
+      );
+      // Prove the threading: buildPolicyContext copied the ToolContext signals
+      // and stamped the active proc-to-skills gate.
+      expect(policyContext.requestOrigin).toBe("memory_retrospective");
+      expect(policyContext.trustClass).toBe("guardian");
+      expect(policyContext.sourceChannel).toBe("vellum");
+      expect(policyContext.procToSkillsActive).toBe(true);
+
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        policyContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
+    test("grant does NOT fire for a normal interactive tool call via buildPolicyContext", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // A normal interactive turn: a guardian on the desktop, no retrospective
+      // origin. buildPolicyContext leaves `requestOrigin` unset, so the grant
+      // must not fire and the high-risk tool prompts.
+      const interactiveContext: ToolContext = {
+        conversationId: "conv-chat",
+        workingDir: "/home/user/project",
+        trustClass: "guardian",
+        executionChannel: "vellum",
+        isInteractive: true,
+      };
+      const policyContext = buildPolicyContext(
+        scaffoldTool,
+        interactiveContext,
+      );
+      expect(policyContext.requestOrigin).toBeUndefined();
+
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        policyContext,
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("grant does NOT fire when proc-to-skills is inactive, even for the retrospective turn", async () => {
+      // Same retrospective ToolContext, but the feature is inactive (flag off
+      // or v3 not live). buildPolicyContext stamps `procToSkillsActive: false`,
+      // so the grant is dead and the high-risk scaffold prompts.
+      mockProcToSkillsActive = false;
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const policyContext = buildPolicyContext(
+        scaffoldTool,
+        retrospectiveToolContext,
+      );
+      expect(policyContext.procToSkillsActive).toBe(false);
+      expect(policyContext.requestOrigin).toBe("memory_retrospective");
+
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        policyContext,
       );
       expect(result.decision).toBe("prompt");
     });

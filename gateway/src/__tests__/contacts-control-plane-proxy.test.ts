@@ -1,4 +1,13 @@
-import { describe, test, expect, mock, afterEach } from "bun:test";
+import {
+  describe,
+  test,
+  expect,
+  mock,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from "bun:test";
+import { hashInviteCode, hashInviteToken } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
 
@@ -18,47 +27,49 @@ mock.module("../fetch.js", () => ({
 }));
 
 // ── Assistant DB proxy mocks ──────────────────────────────────────────────────
-type DbQueryFn = (sql: string, bind?: unknown[]) => Promise<Record<string, unknown>[]>;
-let assistantDbQueryMock: ReturnType<typeof mock<DbQueryFn>> = mock(async () => []);
+type DbQueryFn = (
+  sql: string,
+  bind?: unknown[],
+) => Promise<Record<string, unknown>[]>;
+let assistantDbQueryMock: ReturnType<typeof mock<DbQueryFn>> = mock(
+  async () => [],
+);
 
-type DbRunFn = (sql: string, bind?: unknown[]) => Promise<{ changes: number; lastInsertRowid: number }>;
-let assistantDbRunMock: ReturnType<typeof mock<DbRunFn>> = mock(async () => ({ changes: 1, lastInsertRowid: 0 }));
+type DbRunFn = (
+  sql: string,
+  bind?: unknown[],
+) => Promise<{ changes: number; lastInsertRowid: number }>;
+let assistantDbRunMock: ReturnType<typeof mock<DbRunFn>> = mock(async () => ({
+  changes: 1,
+  lastInsertRowid: 0,
+}));
 
 mock.module("../db/assistant-db-proxy.js", () => ({
-  assistantDbQuery: (...args: Parameters<DbQueryFn>) => assistantDbQueryMock(...args),
+  assistantDbQuery: (...args: Parameters<DbQueryFn>) =>
+    assistantDbQueryMock(...args),
   assistantDbRun: (...args: Parameters<DbRunFn>) => assistantDbRunMock(...args),
 }));
 
 // ── IPC assistant client mock ─────────────────────────────────────────────────
 type IpcCallFn = (method: string, params: unknown) => Promise<unknown>;
-let ipcCallAssistantMock: ReturnType<typeof mock<IpcCallFn>> = mock(async () => ({}));
+let ipcCallAssistantMock: ReturnType<typeof mock<IpcCallFn>> = mock(
+  async () => ({}),
+);
 
-class IpcHandlerError extends Error {
-  readonly statusCode: number;
-  readonly code: string;
-  constructor(message: string, statusCode: number, code: string) {
-    super(message);
-    this.name = "IpcHandlerError";
-    this.statusCode = statusCode;
-    this.code = code;
-  }
-}
-class IpcTransportError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "IpcTransportError";
-  }
-}
-
+// Spread the actual module so the real IpcHandlerError/IpcTransportError
+// classes (and untouched exports like ipcSuggestTrustRule) stay importable by
+// later-loaded files when suites share a bun process.
+const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
-  ipcCallAssistant: (...args: Parameters<IpcCallFn>) => ipcCallAssistantMock(...args),
-  IpcHandlerError,
-  IpcTransportError,
+  ...actualAssistantClient,
+  ipcCallAssistant: (...args: Parameters<IpcCallFn>) =>
+    ipcCallAssistantMock(...args),
 }));
 
 // ── ContactStore mock ─────────────────────────────────────────────────────────
-// upsertContact is now async and returns a full ContactWithChannels shape; the
-// service layer owns the assistant-DB dual-write internally.
+// upsertContact is async and returns a ContactWithInfo shape whose ACL fields
+// (role/principalId, channel status/policy) come from the gateway-DB read-back;
+// the service layer owns the assistant-DB dual-write internally.
 const DEFAULT_MOCK_CONTACT = {
   id: "ct_mock",
   displayName: "Mock Contact",
@@ -72,42 +83,85 @@ const DEFAULT_MOCK_CONTACT = {
   interactionCount: 0,
   lastInteraction: null as number | null,
   channels: [] as unknown[],
+  assistantMetadata: null as Record<string, unknown> | null,
 };
 
 type UpsertResult = { contact: typeof DEFAULT_MOCK_CONTACT; created: boolean };
 type UpsertFn = (params: unknown) => Promise<UpsertResult>;
-let contactStoreUpsertMock: ReturnType<typeof mock<UpsertFn>> = mock(async () => ({
-  contact: DEFAULT_MOCK_CONTACT,
-  created: false,
-}));
+let contactStoreUpsertMock: ReturnType<typeof mock<UpsertFn>> = mock(
+  async () => ({
+    contact: DEFAULT_MOCK_CONTACT,
+    created: false,
+  }),
+);
 
 type ListFn = (opts?: {
   limit?: number;
   role?: string;
-}) => Promise<typeof DEFAULT_MOCK_CONTACT[]>;
-let contactStoreListMock: ReturnType<typeof mock<ListFn>> = mock(async () => []);
+}) => Promise<(typeof DEFAULT_MOCK_CONTACT)[]>;
+let contactStoreListMock: ReturnType<typeof mock<ListFn>> = mock(
+  async () => [],
+);
 
 type GetFn = (contactId: string) => Promise<typeof DEFAULT_MOCK_CONTACT | null>;
-let contactStoreGetMock: ReturnType<typeof mock<GetFn>> = mock(async () => null);
+let contactStoreGetMock: ReturnType<typeof mock<GetFn>> = mock(
+  async () => null,
+);
 
-type UpdateChannelFn = (channelId: string, params: {
-  status?: string;
-  policy?: string;
-  reason?: string | null;
-}) => { id: string; contactId: string; status: string; policy: string } | null;
-let contactStoreUpdateChannelMock: ReturnType<typeof mock<UpdateChannelFn>> = mock(() => null);
+// getAclByContactIds returns the gateway ACL source of truth keyed by contact
+// id; the overlay path on filtered/search list reads uses it. Default: empty
+// map (no ACL to overlay) so the existing forward/passthrough tests are
+// unaffected.
+type ChannelAcl = {
+  id: string;
+  type: string;
+  address: string;
+  status: string | null;
+  policy: string | null;
+  verifiedAt: number | null;
+  verifiedVia: string | null;
+  revokedReason: string | null;
+  blockedReason: string | null;
+};
+type ContactAcl = { role: string; channels: Map<string, ChannelAcl> };
+type GetAclFn = (ids: string[]) => Promise<Map<string, ContactAcl>>;
+let contactStoreGetAclMock: ReturnType<typeof mock<GetAclFn>> = mock(
+  async () => new Map<string, ContactAcl>(),
+);
 
-type DualWriteChannelFn = (channelId: string, params: Record<string, unknown>) => Promise<void>;
-let contactStoreDualWriteChannelMock: ReturnType<typeof mock<DualWriteChannelFn>> = mock(async () => {});
+type UpdateChannelFn = (
+  channelId: string,
+  params: {
+    status?: string;
+    policy?: string;
+    reason?: string | null;
+  },
+) => { id: string; contactId: string; status: string; policy: string } | null;
+let contactStoreUpdateChannelMock: ReturnType<typeof mock<UpdateChannelFn>> =
+  mock(() => null);
 
-type MergeFn = (keepId: string, mergeId: string) => Promise<typeof DEFAULT_MOCK_CONTACT | null>;
-let contactStoreMergeMock: ReturnType<typeof mock<MergeFn>> = mock(async () => null);
+type MergeFn = (
+  keepId: string,
+  mergeId: string,
+) => Promise<typeof DEFAULT_MOCK_CONTACT | null>;
+let contactStoreMergeMock: ReturnType<typeof mock<MergeFn>> = mock(
+  async () => null,
+);
 
 // ── Invite method mocks ───────────────────────────────────────────────────────
 type InviteRow = {
   id: string;
   sourceChannel: string;
   inviteCodeHash: string;
+  // Secret/display columns are optional here so the legacy list/revoke
+  // fixtures stay minimal; the mint echo mock fills them all in.
+  tokenHash?: string | null;
+  voiceCodeHash?: string | null;
+  voiceCodeDigits?: number | null;
+  expectedExternalUserId?: string | null;
+  friendName?: string | null;
+  guardianName?: string | null;
+  sourceConversationId?: string | null;
   contactId: string;
   note: string | null;
   maxUses: number;
@@ -132,7 +186,9 @@ const DEFAULT_INVITE: InviteRow = {
   updatedAt: 1000000,
 };
 
-type GetContactFn = (contactId: string) => { id: string } | undefined;
+type GetContactFn = (
+  contactId: string,
+) => { id: string; displayName?: string } | undefined;
 let contactStoreGetContactMock: ReturnType<typeof mock<GetContactFn>> = mock(
   () => ({ id: "ct_1" }),
 );
@@ -143,28 +199,61 @@ let contactStoreListInvitesMock: ReturnType<typeof mock<ListInvitesFn>> = mock(
 );
 
 type CreateInviteFn = (params: unknown) => InviteRow;
-let contactStoreCreateInviteMock: ReturnType<typeof mock<CreateInviteFn>> = mock(
-  () => DEFAULT_INVITE,
-);
+let contactStoreCreateInviteMock: ReturnType<typeof mock<CreateInviteFn>> =
+  mock(() => DEFAULT_INVITE);
+
+/**
+ * Echo store mock for the native mint: returns a row built from the exact
+ * params `createInviteNative` writes, so response/persistence assertions see
+ * what the store was actually asked to persist.
+ */
+function makeEchoCreateInviteMock() {
+  return mock((params: unknown): InviteRow => {
+    const p = params as Record<string, unknown>;
+    return {
+      id: p.id as string,
+      sourceChannel: p.sourceChannel as string,
+      inviteCodeHash: (p.inviteCodeHash as string) ?? "",
+      tokenHash: (p.tokenHash as string | null) ?? null,
+      voiceCodeHash: (p.voiceCodeHash as string | null) ?? null,
+      voiceCodeDigits: (p.voiceCodeDigits as number | null) ?? null,
+      expectedExternalUserId:
+        (p.expectedExternalUserId as string | null) ?? null,
+      friendName: (p.friendName as string | null) ?? null,
+      guardianName: (p.guardianName as string | null) ?? null,
+      sourceConversationId: (p.sourceConversationId as string | null) ?? null,
+      contactId: p.contactId as string,
+      note: (p.note as string | null) ?? null,
+      maxUses: (p.maxUses as number) ?? 1,
+      useCount: 0,
+      expiresAt: p.expiresAt as number,
+      status: "active",
+      createdAt: 1000000,
+      updatedAt: 1000000,
+    };
+  });
+}
 
 type RevokeInviteFn = (inviteId: string) => InviteRow | null;
-let contactStoreRevokeInviteMock: ReturnType<typeof mock<RevokeInviteFn>> = mock(
-  () => DEFAULT_INVITE,
-);
+let contactStoreRevokeInviteMock: ReturnType<typeof mock<RevokeInviteFn>> =
+  mock(() => DEFAULT_INVITE);
 
-type RecordRedemptionFn = (params: unknown) => {
-  updated: boolean;
-  row: InviteRow | null;
-};
+type RecordRedemptionFn = (params: unknown) => { updated: boolean };
 let contactStoreRecordRedemptionMock: ReturnType<
   typeof mock<RecordRedemptionFn>
-> = mock(() => ({ updated: true, row: DEFAULT_INVITE }));
+> = mock(() => ({ updated: true }));
 
 type GetInviteByIdFn = (inviteId: string) => InviteRow | null;
 let contactStoreGetInviteByIdMock: ReturnType<typeof mock<GetInviteByIdFn>> =
   mock(() => DEFAULT_INVITE);
 
+type MarkInviteExpiredFn = (inviteId: string) => boolean;
+let contactStoreMarkInviteExpiredMock: ReturnType<
+  typeof mock<MarkInviteExpiredFn>
+> = mock(() => true);
+
 mock.module("../db/contact-store.js", () => ({
+  NO_INVITE_CODE_HASH: "",
   ContactStore: class MockContactStore {
     upsertContact(...args: Parameters<UpsertFn>) {
       return contactStoreUpsertMock(...args);
@@ -187,6 +276,9 @@ mock.module("../db/contact-store.js", () => ({
     getInviteById(inviteId: string) {
       return contactStoreGetInviteByIdMock(inviteId);
     }
+    markInviteExpired(inviteId: string) {
+      return contactStoreMarkInviteExpiredMock(inviteId);
+    }
     async listContactsWithInfo(opts?: {
       limit?: number;
       role?: string;
@@ -197,18 +289,18 @@ mock.module("../db/contact-store.js", () => ({
     async getContactWithInfo(contactId: string) {
       return contactStoreGetMock(contactId);
     }
-    async updateChannelStatus(channelId: string, params: {
-      status?: string;
-      policy?: string;
-      reason?: string | null;
-    }) {
-      return contactStoreUpdateChannelMock(channelId, params);
+    async getAclByContactIds(ids: string[]) {
+      return contactStoreGetAclMock(ids);
     }
-    async dualWriteChannelStatusToAssistantDb(
+    async updateChannelStatus(
       channelId: string,
-      params: Record<string, unknown>,
+      params: {
+        status?: string;
+        policy?: string;
+        reason?: string | null;
+      },
     ) {
-      return contactStoreDualWriteChannelMock(channelId, params);
+      return contactStoreUpdateChannelMock(channelId, params);
     }
     async mergeContacts(keepId: string, mergeId: string) {
       return contactStoreMergeMock(keepId, mergeId);
@@ -217,7 +309,9 @@ mock.module("../db/contact-store.js", () => ({
   CannotRevokeBlockedError: class CannotRevokeBlockedError extends Error {
     readonly channelId: string;
     constructor(channelId: string) {
-      super("Cannot revoke a blocked channel. Unblock it first or leave it blocked.");
+      super(
+        "Cannot revoke a blocked channel. Unblock it first or leave it blocked.",
+      );
       this.name = "CannotRevokeBlockedError";
       this.channelId = channelId;
     }
@@ -230,8 +324,74 @@ mock.module("../db/contact-store.js", () => ({
   },
 }));
 
+// ── Redemption engine mock ────────────────────────────────────────────────────
+// handleRedeemInvite drives the gateway-native engine directly; mock it so
+// these tests pin the handler's dispatch, response shapes, and error mappings
+// (engine behavior itself is covered by invite-redemption-engine*.test.ts).
+type EngineOutcome = {
+  inviteId: string;
+  contactId: string;
+  sourceChannel: string;
+  memberExternalUserId: string;
+  result: "redeemed" | "already_member";
+};
+type EngineResult =
+  | {
+      status: "redeemed" | "already_member";
+      outcome: EngineOutcome;
+      replyText: string;
+    }
+  | { status: "failed"; reason: string; replyText: string }
+  | { status: "no_match" };
+type RedeemVoiceEngineFn = (params: unknown) => Promise<
+  | { status: "redeemed" | "already_member"; outcome: EngineOutcome }
+  | { status: "failed"; reason: "invalid_or_expired" }
+>;
+let redeemVoiceInviteMock: ReturnType<typeof mock<RedeemVoiceEngineFn>> = mock(
+  async () => ({ status: "failed", reason: "invalid_or_expired" }),
+);
+type RedeemTokenEngineFn = (params: unknown) => Promise<EngineResult>;
+let redeemInviteByTokenMock: ReturnType<typeof mock<RedeemTokenEngineFn>> =
+  mock(async () => ({
+    status: "failed",
+    reason: "invalid_token",
+    replyText: "This invite is no longer valid.",
+  }));
+mock.module("../verification/invite-redemption.js", () => ({
+  redeemVoiceInvite: (...args: Parameters<RedeemVoiceEngineFn>) =>
+    redeemVoiceInviteMock(...args),
+  redeemInviteByToken: (...args: Parameters<RedeemTokenEngineFn>) =>
+    redeemInviteByTokenMock(...args),
+  // Faithful stand-in for the real helper (curated contact displayName wins,
+  // invite friendName falls back) — the trigger-call tests rely on it.
+  resolveInviteeName: (
+    store: { getContact: (id: string) => { displayName?: string } | undefined },
+    invite: { contactId: string; friendName?: string | null },
+    fallback?: string,
+  ) =>
+    store.getContact(invite.contactId)?.displayName?.trim() ||
+    invite.friendName?.trim() ||
+    fallback?.trim() ||
+    null,
+}));
+
 const { createContactsControlPlaneProxyHandler } =
   await import("../http/routes/contacts-control-plane-proxy.js");
+
+// The delete-contact guard reads the guardian role from the gateway DB (source
+// of truth), so the delete tests below run against a real in-memory gateway DB.
+// ContactStore is fully mocked, so other tests never touch it.
+const { initGatewayDb, getGatewayDb, resetGatewayDb } =
+  await import("../db/connection.js");
+const { contacts: gwContacts } = await import("../db/schema.js");
+
+beforeAll(async () => {
+  await initGatewayDb();
+});
+
+afterAll(() => {
+  resetGatewayDb();
+});
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -272,18 +432,25 @@ afterEach(() => {
   }));
   contactStoreListMock = mock(async () => []);
   contactStoreGetMock = mock(async () => null);
+  contactStoreGetAclMock = mock(async () => new Map<string, ContactAcl>());
   contactStoreUpdateChannelMock = mock(() => null);
-  contactStoreDualWriteChannelMock = mock(async () => {});
   contactStoreMergeMock = mock(async () => null);
   contactStoreGetContactMock = mock(() => ({ id: "ct_1" }));
   contactStoreListInvitesMock = mock(() => []);
   contactStoreCreateInviteMock = mock(() => DEFAULT_INVITE);
   contactStoreRevokeInviteMock = mock(() => DEFAULT_INVITE);
-  contactStoreRecordRedemptionMock = mock(() => ({
-    updated: true,
-    row: DEFAULT_INVITE,
-  }));
+  contactStoreRecordRedemptionMock = mock(() => ({ updated: true }));
   contactStoreGetInviteByIdMock = mock(() => DEFAULT_INVITE);
+  contactStoreMarkInviteExpiredMock = mock(() => true);
+  redeemVoiceInviteMock = mock(async () => ({
+    status: "failed",
+    reason: "invalid_or_expired",
+  }));
+  redeemInviteByTokenMock = mock(async () => ({
+    status: "failed",
+    reason: "invalid_token",
+    replyText: "This invite is no longer valid.",
+  }));
 });
 
 describe("contacts control-plane proxy", () => {
@@ -683,7 +850,12 @@ describe("handleUpsertContact (gateway-native)", () => {
     expect(res.status).toBe(200);
     expect(contactStoreUpsertMock).toHaveBeenCalledTimes(1);
     const [params] = contactStoreUpsertMock.mock.calls[0] as [
-      { assistantMetadata?: { species: string; metadata?: Record<string, unknown> } },
+      {
+        assistantMetadata?: {
+          species: string;
+          metadata?: Record<string, unknown>;
+        };
+      },
     ];
     expect(params.assistantMetadata?.species).toBe("vellum");
     expect(params.assistantMetadata?.metadata?.assistantId).toBe("asst_123");
@@ -840,6 +1012,447 @@ describe("handleListContacts (gateway-native)", () => {
   });
 });
 
+describe("handleListContacts ACL overlay (filtered/search path)", () => {
+  // A daemon contact as it comes back from the search path: neutral role,
+  // channels with unverified ACL. The overlay must replace role + channel ACL
+  // from the gateway DB while leaving info/identity fields untouched.
+  function daemonContact(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "c1",
+      displayName: "Alice",
+      role: "contact",
+      notes: "friend from college",
+      contactType: "human",
+      interactionCount: 7,
+      lastInteraction: 555,
+      createdAt: 100,
+      updatedAt: 200,
+      channels: [
+        {
+          id: "ch1",
+          contactId: "c1",
+          type: "telegram",
+          address: "@alice",
+          isPrimary: true,
+          externalUserId: "@alice",
+          externalChatId: "12345",
+          inviteId: null,
+          status: "unverified",
+          policy: "allow",
+          verifiedAt: null,
+          verifiedVia: null,
+          revokedReason: null,
+          blockedReason: null,
+          lastSeenAt: null,
+          interactionCount: 3,
+          lastInteraction: 555,
+          createdAt: 100,
+          updatedAt: 200,
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  function daemonResponse(contacts: unknown[]) {
+    return new Response(JSON.stringify({ ok: true, contacts }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  test("overlays gateway role + channel ACL onto a filtered query", async () => {
+    fetchMock = mock(async () => daemonResponse([daemonContact()]));
+    contactStoreGetAclMock = mock(
+      async () =>
+        new Map<string, ContactAcl>([
+          [
+            "c1",
+            {
+              role: "guardian",
+              channels: new Map<string, ChannelAcl>([
+                [
+                  "ch1",
+                  {
+                    id: "ch1",
+                    type: "telegram",
+                    address: "@alice",
+                    status: "active",
+                    policy: "escalate",
+                    verifiedAt: 9999,
+                    verifiedVia: "manual",
+                    revokedReason: null,
+                    blockedReason: null,
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.contacts[0].role).toBe("guardian");
+    const ch = body.contacts[0].channels[0];
+    expect(ch.status).toBe("active");
+    expect(ch.policy).toBe("escalate");
+    expect(ch.verifiedAt).toBe(9999);
+    expect(ch.verifiedVia).toBe("manual");
+    expect(contactStoreGetAclMock).toHaveBeenCalledTimes(1);
+    expect(contactStoreGetAclMock.mock.calls[0][0]).toEqual(["c1"]);
+  });
+
+  test("channel matched by id: ACL replaced, info/identity preserved exactly", async () => {
+    fetchMock = mock(async () => daemonResponse([daemonContact()]));
+    contactStoreGetAclMock = mock(
+      async () =>
+        new Map<string, ContactAcl>([
+          [
+            "c1",
+            {
+              role: "guardian",
+              channels: new Map<string, ChannelAcl>([
+                [
+                  "ch1",
+                  {
+                    id: "ch1",
+                    type: "telegram",
+                    address: "@alice",
+                    status: "active",
+                    policy: "deny",
+                    verifiedAt: 1234,
+                    verifiedVia: "challenge",
+                    revokedReason: null,
+                    blockedReason: null,
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+    const body = await res.json();
+    const contact = body.contacts[0];
+    const ch = contact.channels[0];
+
+    // ACL replaced.
+    expect(ch.status).toBe("active");
+    expect(ch.policy).toBe("deny");
+    expect(ch.verifiedVia).toBe("challenge");
+    // Info/identity preserved.
+    expect(contact.displayName).toBe("Alice");
+    expect(contact.notes).toBe("friend from college");
+    expect(contact.contactType).toBe("human");
+    expect(contact.interactionCount).toBe(7);
+    expect(ch.address).toBe("@alice");
+    expect(ch.externalUserId).toBe("@alice");
+    expect(ch.externalChatId).toBe("12345");
+    expect(ch.isPrimary).toBe(true);
+    expect(ch.interactionCount).toBe(3);
+  });
+
+  test("channel matched by (type,address) when ids differ", async () => {
+    // Daemon channel id differs from the gateway's; fall back to (type,address).
+    fetchMock = mock(async () =>
+      daemonResponse([
+        daemonContact({
+          channels: [
+            {
+              ...daemonContact().channels[0],
+              id: "daemon-side-id",
+            },
+          ],
+        }),
+      ]),
+    );
+    contactStoreGetAclMock = mock(
+      async () =>
+        new Map<string, ContactAcl>([
+          [
+            "c1",
+            {
+              role: "contact",
+              channels: new Map<string, ChannelAcl>([
+                [
+                  "gateway-side-id",
+                  {
+                    id: "gateway-side-id",
+                    type: "telegram",
+                    address: "@alice",
+                    status: "active",
+                    policy: "allow",
+                    verifiedAt: 42,
+                    verifiedVia: "manual",
+                    revokedReason: null,
+                    blockedReason: null,
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+    const body = await res.json();
+    const ch = body.contacts[0].channels[0];
+    expect(ch.status).toBe("active");
+    expect(ch.verifiedAt).toBe(42);
+    // The daemon channel id is preserved (we only overlay ACL fields).
+    expect(ch.id).toBe("daemon-side-id");
+  });
+
+  test("(type,address) fallback is case-insensitive on address", async () => {
+    // Daemon and gateway disagree on channel id AND address casing. The
+    // logical key is (type, lower(address)), so the overlay must still match.
+    fetchMock = mock(async () =>
+      daemonResponse([
+        daemonContact({
+          channels: [
+            {
+              ...daemonContact().channels[0],
+              id: "daemon-side-id",
+              type: "email",
+              address: "ALICE@example.com",
+            },
+          ],
+        }),
+      ]),
+    );
+    contactStoreGetAclMock = mock(
+      async () =>
+        new Map<string, ContactAcl>([
+          [
+            "c1",
+            {
+              role: "contact",
+              channels: new Map<string, ChannelAcl>([
+                [
+                  "gateway-side-id",
+                  {
+                    id: "gateway-side-id",
+                    type: "email",
+                    address: "alice@example.com",
+                    status: "blocked",
+                    policy: "deny",
+                    verifiedAt: null,
+                    verifiedVia: null,
+                    revokedReason: null,
+                    blockedReason: "spam",
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+    const ch = (await res.json()).contacts[0].channels[0];
+    // Matched despite case + id mismatch: blocked ACL overlaid, not neutral.
+    expect(ch.status).toBe("blocked");
+    expect(ch.blockedReason).toBe("spam");
+  });
+
+  test("soft-fail: ACL read throws → original daemon response unchanged", async () => {
+    const original = { ok: true, contacts: [daemonContact()] };
+    fetchMock = mock(
+      async () =>
+        new Response(JSON.stringify(original), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    contactStoreGetAclMock = mock(async () => {
+      throw new Error("gateway DB unavailable");
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Unchanged: neutral role + unverified channel, exactly as the daemon sent.
+    expect(body).toEqual(original);
+    expect(body.contacts[0].role).toBe("contact");
+    expect(body.contacts[0].channels[0].status).toBe("unverified");
+  });
+
+  test("dual-write gap: present contact overlaid, missing one keeps daemon ACL; neither dropped", async () => {
+    const c2 = daemonContact({
+      id: "c2",
+      displayName: "Bob",
+      channels: [
+        {
+          ...daemonContact().channels[0],
+          id: "ch2",
+          contactId: "c2",
+          address: "@bob",
+        },
+      ],
+    });
+    fetchMock = mock(async () => daemonResponse([daemonContact(), c2]));
+    // Only c1 is in the gateway ACL map; c2 is the dual-write-gap survivor.
+    contactStoreGetAclMock = mock(
+      async () =>
+        new Map<string, ContactAcl>([
+          [
+            "c1",
+            {
+              role: "guardian",
+              channels: new Map<string, ChannelAcl>([
+                [
+                  "ch1",
+                  {
+                    id: "ch1",
+                    type: "telegram",
+                    address: "@alice",
+                    status: "active",
+                    policy: "allow",
+                    verifiedAt: 1,
+                    verifiedVia: "manual",
+                    revokedReason: null,
+                    blockedReason: null,
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=team"),
+    );
+    const body = await res.json();
+
+    // Neither contact dropped.
+    expect(body.contacts).toHaveLength(2);
+    // c1 overlaid.
+    const c1 = body.contacts.find((c: { id: string }) => c.id === "c1");
+    expect(c1.role).toBe("guardian");
+    expect(c1.channels[0].status).toBe("active");
+    // c2 keeps the daemon ACL (neutral).
+    const bob = body.contacts.find((c: { id: string }) => c.id === "c2");
+    expect(bob.role).toBe("contact");
+    expect(bob.channels[0].status).toBe("unverified");
+  });
+
+  test("regression guard: no-filter request stays gateway-native (no daemon forward)", async () => {
+    contactStoreListMock = mock(async () => [
+      { ...DEFAULT_MOCK_CONTACT, id: "c1", displayName: "Alice" },
+    ]);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+
+    expect(res.status).toBe(200);
+    // Native path: daemon forward and ACL overlay are NOT used.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(contactStoreGetAclMock).not.toHaveBeenCalled();
+    expect(contactStoreListMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("soft-fail: non-2xx daemon status returned unchanged", async () => {
+    fetchMock = mock(
+      async () =>
+        new Response(JSON.stringify({ error: "boom" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+
+    expect(res.status).toBe(500);
+    expect(contactStoreGetAclMock).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual({ error: "boom" });
+  });
+
+  test("drops stale content-length so the resized overlaid body isn't truncated", async () => {
+    // Daemon sends a content-length matching its NEUTRAL body. The overlay
+    // grows the body (role + ACL fields), so reusing that length would
+    // truncate the response. We must drop it and let the runtime recompute.
+    const neutralBody = JSON.stringify({
+      ok: true,
+      contacts: [daemonContact()],
+    });
+    fetchMock = mock(
+      async () =>
+        new Response(neutralBody, {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+            "content-length": String(Buffer.byteLength(neutralBody)),
+          },
+        }),
+    );
+    contactStoreGetAclMock = mock(
+      async () =>
+        new Map<string, ContactAcl>([
+          [
+            "c1",
+            {
+              role: "guardian",
+              channels: new Map<string, ChannelAcl>([
+                [
+                  "ch1",
+                  {
+                    id: "ch1",
+                    type: "telegram",
+                    address: "@alice",
+                    status: "active",
+                    policy: "escalate",
+                    verifiedAt: 9999,
+                    verifiedVia: "manual",
+                    revokedReason: null,
+                    blockedReason: null,
+                  },
+                ],
+              ]),
+            },
+          ],
+        ]),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts?query=alice"),
+    );
+
+    // Stale content-length dropped; body fully intact (not truncated).
+    expect(res.headers.get("content-length")).toBeNull();
+    const body = await res.json();
+    expect(body.contacts[0].role).toBe("guardian");
+    expect(body.contacts[0].channels[0].verifiedVia).toBe("manual");
+  });
+});
+
 describe("handleGetContact (gateway-native)", () => {
   test("returns contact from gateway-native read", async () => {
     const mockContact = {
@@ -883,7 +1496,10 @@ describe("handleGetContact (gateway-native)", () => {
       ...DEFAULT_MOCK_CONTACT,
       id: "c1",
       contactType: "assistant",
-      assistantMetadata: { species: "vellum", metadata: { assistantId: "asst_1" } },
+      assistantMetadata: {
+        species: "vellum",
+        metadata: { assistantId: "asst_1" },
+      },
     };
     contactStoreGetMock = mock(async () => mockContact);
 
@@ -983,7 +1599,6 @@ describe("handleUpdateContactChannel (gateway-native)", () => {
     expect(channelId).toBe("ch_1");
     expect(params.status).toBe("revoked");
     expect(params.reason).toBe("user request");
-    expect(contactStoreDualWriteChannelMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1134,31 +1749,6 @@ describe("handleUpdateContactChannel (gateway-native)", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test("continues even if assistant DB dual-write fails", async () => {
-    contactStoreUpdateChannelMock = mock(() => ({
-      ...MOCK_CHANNEL,
-      status: "blocked",
-    }));
-    contactStoreDualWriteChannelMock = mock(async () => {
-      throw new Error("assistant DB down");
-    });
-    contactStoreGetMock = mock(async () => DEFAULT_MOCK_CONTACT);
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleUpdateContactChannel(
-      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status: "blocked", reason: "spam" }),
-      }),
-      "ch_1",
-    );
-
-    // Should still succeed — dual-write is best-effort.
-    expect(res.status).toBe(200);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1348,63 +1938,237 @@ describe("handleMergeContacts (gateway-native)", () => {
   });
 });
 
-  test("returns 400 when merging away a guardian contact", async () => {
-    const { MergeContactsError } = await import("../db/contact-store.js");
-    contactStoreMergeMock = mock(async () => {
-      throw new MergeContactsError(
-        "Cannot merge away a guardian contact. Keep the guardian as the survivor instead.",
-      );
+test("returns 400 when merging away a guardian contact", async () => {
+  const { MergeContactsError } = await import("../db/contact-store.js");
+  contactStoreMergeMock = mock(async () => {
+    throw new MergeContactsError(
+      "Cannot merge away a guardian contact. Keep the guardian as the survivor instead.",
+    );
+  });
+
+  const handler = createContactsControlPlaneProxyHandler(makeConfig());
+  const res = await handler.handleMergeContacts(
+    new Request("http://localhost:7830/v1/contacts/merge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ keepId: "ct_regular", mergeId: "ct_guardian" }),
+    }),
+  );
+
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error.code).toBe("BAD_REQUEST");
+  expect(body.error.message).toMatch(/guardian/);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+describe("handleDeleteContact (gateway-native)", () => {
+  function seedGatewayContact(id: string, role: "guardian" | "contact") {
+    const now = Date.now();
+    getGatewayDb()
+      .insert(gwContacts)
+      .values({
+        id,
+        displayName: `name-${id}`,
+        role,
+        principalId: role === "guardian" ? `prin-${id}` : null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  afterEach(() => {
+    getGatewayDb().delete(gwContacts).run();
+  });
+
+  test("rejects deleting a guardian whose role lives only in the gateway DB", async () => {
+    seedGatewayContact("ct_guardian", "guardian");
+    // The assistant row is missing/defaulted (dual-write gap): the guard must
+    // not fall back to the assistant role, which would default to contact.
+    assistantDbQueryMock = mock(async () => []);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleDeleteContact("ct_guardian");
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error.code).toBe("FORBIDDEN");
+    // Neither DB was deleted from.
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(1);
+  });
+
+  test("deletes a non-guardian contact from both DBs", async () => {
+    seedGatewayContact("ct_regular", "contact");
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleDeleteContact("ct_regular");
+
+    expect(res.status).toBe(204);
+    const deleteCalls = ipcCallAssistantMock.mock.calls.filter(
+      (c) => c[0] === "contacts_mirror_delete_contact",
+    );
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]![1]).toEqual({ body: { contactId: "ct_regular" } });
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
+  });
+
+  test("deletes an assistant-mirror-only orphan the gateway DB never recorded", async () => {
+    // No gateway row (a dual-write gap on inbound seeding), but the assistant
+    // mirror holds the contact — the list can surface it, so delete must clean
+    // it up instead of 404ing and leaving it stuck in the UI.
+    ipcCallAssistantMock = mock(async (method: string) =>
+      method === "contact_mirror_probe" ? { exists: true } : {},
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleDeleteContact("ct_orphan");
+
+    expect(res.status).toBe(204);
+    // The mirror delete ran; the gateway delete is a harmless no-op.
+    expect(
+      ipcCallAssistantMock.mock.calls.some(
+        (c) => c[0] === "contacts_mirror_delete_contact",
+      ),
+    ).toBe(true);
+  });
+
+  test("returns 404 only when the contact is absent from both DBs", async () => {
+    // Absent from the gateway DB (not seeded) and from the assistant mirror.
+    assistantDbQueryMock = mock(async () => []);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleDeleteContact("ct_missing");
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error.code).toBe("NOT_FOUND");
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
+  });
+
+  test("still deletes a gateway contact when the assistant mirror is unavailable", async () => {
+    seedGatewayContact("ct_mirror_down", "contact");
+    // The mirror probe AND delete both throw (assistant DB unavailable). The
+    // delete must degrade to gateway-only rather than 500ing on the mirror.
+    ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "contact_mirror_probe") {
+        throw new Error("assistant DB unavailable");
+      }
+      return {};
+    });
+    ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "contacts_mirror_delete_contact") {
+        throw new Error("assistant mirror unavailable");
+      }
+      return {};
     });
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleMergeContacts(
-      new Request("http://localhost:7830/v1/contacts/merge", {
+    const res = await handler.handleDeleteContact("ct_mirror_down");
+
+    expect(res.status).toBe(204);
+    // The source-of-truth gateway row was still deleted despite the mirror
+    // outage.
+    expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
+  });
+});
+
+describe("handleCreateInvite (gateway-native mint)", () => {
+  test("rejects sourceChannel 'a2a' (A2A invites are daemon-managed)", async () => {
+    contactStoreCreateInviteMock = makeEchoCreateInviteMock();
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/contacts/invites", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ keepId: "ct_regular", mergeId: "ct_guardian" }),
+        body: JSON.stringify({ contactId: "ct_1", sourceChannel: "a2a" }),
       }),
     );
 
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toMatch(/guardian/);
+    expect(contactStoreCreateInviteMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("mints token + 6-digit code natively for non-voice invites; only hashes reach the store", async () => {
+    contactStoreCreateInviteMock = makeEchoCreateInviteMock();
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/contacts/invites", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contactId: "ct_1",
+          sourceChannel: "telegram",
+          note: "For Alice",
+          maxUses: 3,
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // One-time plaintext secrets are returned exactly once.
+    expect(typeof body.rawToken).toBe("string");
+    expect(body.invite.token).toBe(body.rawToken);
+    expect(/^\d{6}$/.test(body.invite.inviteCode)).toBe(true);
+    expect(body.invite.voiceCode).toBeUndefined();
+    expect(body.invite.note).toBe("For Alice");
+    expect(body.invite.maxUses).toBe(3);
+    expect(body.invite.status).toBe("active");
+
+    // Exactly one gateway row write; only hashes persist — never plaintext.
+    expect(contactStoreCreateInviteMock).toHaveBeenCalledTimes(1);
+    const [createParams] = contactStoreCreateInviteMock.mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(createParams.tokenHash).toBe(hashInviteToken(body.rawToken));
+    expect(createParams.inviteCodeHash).toBe(
+      hashInviteCode(body.invite.inviteCode),
+    );
+    expect(createParams.voiceCodeHash).toBeNull();
+    expect(Object.values(createParams)).not.toContain(body.rawToken);
+    expect(Object.values(createParams)).not.toContain(body.invite.inviteCode);
+
+    // Brute-forceable hashes never reach the response.
+    expect(body.invite.inviteCodeHash).toBeUndefined();
+    expect(body.invite.voiceCodeHash).toBeUndefined();
+    // tokenHash is response-shape compatible (256-bit preimage, not guessable).
+    expect(body.invite.tokenHash).toBe(createParams.tokenHash);
+
+    // No assistant mint relay — only the contacts_changed notification.
+    const ipcMethods = ipcCallAssistantMock.mock.calls.map((c) => c[0]);
+    expect(ipcMethods).not.toContain("invites_mint");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-describe("handleCreateInvite (gateway-native)", () => {
-  test("returns the assistant's minted invite payload (one-time codes), not the gateway row", async () => {
-    // The minted payload carries creation-only fields (inviteCode/token/share)
-    // that the gateway row does NOT — these must reach the client.
-    const mintInvite = {
-      id: "inv_1",
-      sourceChannel: "telegram",
-      inviteCode: "123456",
-      guardianInstruction: "Share this code with them first.",
-      token: "raw-token-abc",
-      share: { url: "https://t.me/bot?start=abc", displayText: "Open invite" },
-      status: "active",
-    };
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_mint") {
+  test("layers daemon-composed presentation fields onto the HTTP create response", async () => {
+    contactStoreCreateInviteMock = makeEchoCreateInviteMock();
+    ipcCallAssistantMock = mock(
+      async (method: string, params: unknown): Promise<unknown> => {
+        if (method !== "invites_compose_presentation") return {};
+        const { invite } = (
+          params as { body: { invite: Record<string, unknown> } }
+        ).body;
         return {
-          ok: true,
-          invite: mintInvite,
-          rawToken: "raw-token-abc",
-          gateway: {
-            id: "inv_1",
-            inviteCodeHash: "hash_1",
-            sourceChannel: "telegram",
-            contactId: "ct_1",
-            note: null,
-            maxUses: 1,
-            expiresAt: 2000000,
+          invite: {
+            ...invite,
+            share: {
+              url: "https://t.me/example_bot?start=tok",
+              displayText: "Join on Telegram",
+            },
+            guardianInstruction: "Send the link to your friend.",
+            channelHandle: "@example_bot",
           },
         };
-      }
-      return {};
-    });
-    contactStoreCreateInviteMock = mock(() => DEFAULT_INVITE);
+      },
+    );
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleCreateInvite(
@@ -1418,62 +2182,67 @@ describe("handleCreateInvite (gateway-native)", () => {
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.rawToken).toBe("raw-token-abc");
-    expect(body.invite.id).toBe("inv_1");
-    // One-time creation fields must come from the mint payload — the gateway
-    // row (DEFAULT_INVITE) carries none of these.
-    expect(body.invite.inviteCode).toBe("123456");
-    expect(body.invite.token).toBe("raw-token-abc");
+
+    // Presentation fields reach direct gateway HTTP callers.
+    expect(body.invite.share.url).toBe("https://t.me/example_bot?start=tok");
     expect(body.invite.guardianInstruction).toBe(
-      "Share this code with them first.",
+      "Send the link to your friend.",
     );
-    expect(body.invite.share).toEqual({
-      url: "https://t.me/bot?start=abc",
-      displayText: "Open invite",
-    });
-    // Gateway row is still written as the lifecycle source of truth.
-    expect(contactStoreCreateInviteMock).toHaveBeenCalledTimes(1);
-    const [createParams] = contactStoreCreateInviteMock.mock.calls[0] as [
-      Record<string, unknown>,
-    ];
-    expect(createParams.id).toBe("inv_1");
-    expect(createParams.inviteCodeHash).toBe("hash_1");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(body.invite.channelHandle).toBe("@example_bot");
+    // Composition merges onto (not replaces) the one-time minted payload.
+    expect(body.invite.token).toBe(body.rawToken);
+    expect(/^\d{6}$/.test(body.invite.inviteCode)).toBe(true);
+
+    // Exactly one composition, carrying the mint result the daemon needs.
+    const composeCalls = ipcCallAssistantMock.mock.calls.filter(
+      (c) => c[0] === "invites_compose_presentation",
+    );
+    expect(composeCalls).toHaveLength(1);
+    const composeBody = (
+      composeCalls[0][1] as {
+        body: { contactId?: string; rawToken?: string };
+      }
+    ).body;
+    expect(composeBody.contactId).toBe("ct_1");
+    expect(composeBody.rawToken).toBe(body.rawToken);
   });
 
-  test("returns the minted voiceCode for phone invites", async () => {
-    const mintInvite = {
-      id: "inv_phone",
-      sourceChannel: "phone",
-      voiceCode: "987654",
-      voiceCodeDigits: 6,
-      status: "active",
-    };
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_mint") {
-        return {
-          ok: true,
-          invite: mintInvite,
-          // Voice invites never expose a token.
-          rawToken: undefined,
-          gateway: {
-            id: "inv_phone",
-            inviteCodeHash: "voicehash_1",
-            sourceChannel: "phone",
-            contactId: "ct_1",
-            note: null,
-            maxUses: 1,
-            expiresAt: 2000000,
-          },
-        };
+  test("returns the raw minted payload when the daemon presentation IPC fails", async () => {
+    contactStoreCreateInviteMock = makeEchoCreateInviteMock();
+    ipcCallAssistantMock = mock(async (method: string): Promise<unknown> => {
+      if (method === "invites_compose_presentation") {
+        throw new Error("daemon unreachable");
       }
       return {};
     });
-    contactStoreCreateInviteMock = mock(() => ({
-      ...DEFAULT_INVITE,
-      id: "inv_phone",
-      sourceChannel: "phone",
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/contacts/invites", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contactId: "ct_1", sourceChannel: "telegram" }),
+      }),
+    );
+
+    // Presentation is best-effort UX; the create itself must still succeed
+    // with the one-time secrets.
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(typeof body.rawToken).toBe("string");
+    expect(body.invite.token).toBe(body.rawToken);
+    expect(body.invite.share).toBeUndefined();
+    expect(body.invite.guardianInstruction).toBeUndefined();
+    expect(body.invite.channelHandle).toBeUndefined();
+  });
+
+  test("mints an identity-bound voiceCode for phone invites — no token, passthrough fields stored", async () => {
+    contactStoreGetContactMock = mock(() => ({
+      id: "ct_1",
+      displayName: "Sam Example",
     }));
+    contactStoreCreateInviteMock = makeEchoCreateInviteMock();
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleCreateInvite(
@@ -1484,15 +2253,73 @@ describe("handleCreateInvite (gateway-native)", () => {
           contactId: "ct_1",
           sourceChannel: "phone",
           expectedExternalUserId: "+15551234567",
-          friendName: "Sam",
+          guardianName: "Guardian Example",
+          sourceConversationId: "conv-9",
         }),
       }),
     );
 
     expect(res.status).toBe(201);
     const body = await res.json();
-    expect(body.invite.voiceCode).toBe("987654");
-    expect(body.invite.id).toBe("inv_phone");
+
+    // Voice invites never expose a token; the spoken code is the credential.
+    expect(body.rawToken).toBeUndefined();
+    expect(body.invite.token).toBeUndefined();
+    expect(body.invite.tokenHash).toBeUndefined();
+    expect(/^\d{6}$/.test(body.invite.voiceCode)).toBe(true);
+    expect(body.invite.voiceCodeDigits).toBe(6);
+    expect(body.invite.expectedExternalUserId).toBe("+15551234567");
+    // friendName resolves from the gateway contact's displayName.
+    expect(body.invite.friendName).toBe("Sam Example");
+    // guardianName is a stored passthrough (daemon-supplied, never interpreted).
+    expect(body.invite.guardianName).toBe("Guardian Example");
+
+    const [createParams] = contactStoreCreateInviteMock.mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(createParams.voiceCodeHash).toBe(
+      hashInviteCode(body.invite.voiceCode),
+    );
+    expect(createParams.tokenHash).toBeNull();
+    // No 6-digit channel code for voice — the sentinel keeps NOT NULL happy.
+    expect(createParams.inviteCodeHash).toBe("");
+    expect(createParams.guardianName).toBe("Guardian Example");
+    expect(createParams.sourceConversationId).toBe("conv-9");
+    expect(Object.values(createParams)).not.toContain(body.invite.voiceCode);
+  });
+
+  test("returns 400 when expectedExternalUserId is missing for phone invites", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/contacts/invites", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contactId: "ct_1", sourceChannel: "phone" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toMatch(/expectedExternalUserId/);
+    expect(contactStoreCreateInviteMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 for a non-E.164 expectedExternalUserId", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/contacts/invites", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contactId: "ct_1",
+          sourceChannel: "phone",
+          expectedExternalUserId: "not-a-phone-number",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toMatch(/E\.164/);
+    expect(contactStoreCreateInviteMock).not.toHaveBeenCalled();
   });
 
   test("returns 400 for invalid JSON body", async () => {
@@ -1533,35 +2360,20 @@ describe("handleCreateInvite (gateway-native)", () => {
       new Request("http://localhost:7830/v1/contacts/invites", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ contactId: "ct_missing", sourceChannel: "telegram" }),
+        body: JSON.stringify({
+          contactId: "ct_missing",
+          sourceChannel: "telegram",
+        }),
       }),
     );
 
     expect(res.status).toBe(404);
     expect((await res.json()).error.code).toBe("NOT_FOUND");
     expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+    expect(contactStoreCreateInviteMock).not.toHaveBeenCalled();
   });
 
   test("returns 500 when gateway DB write fails (no proxy fallback)", async () => {
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_mint") {
-        return {
-          ok: true,
-          invite: { id: "inv_1" },
-          rawToken: "raw",
-          gateway: {
-            id: "inv_1",
-            inviteCodeHash: "hash_1",
-            sourceChannel: "telegram",
-            contactId: "ct_1",
-            note: null,
-            maxUses: 1,
-            expiresAt: 2000000,
-          },
-        };
-      }
-      return {};
-    });
     contactStoreCreateInviteMock = mock(() => {
       throw new Error("gateway DB unavailable");
     });
@@ -1579,42 +2391,15 @@ describe("handleCreateInvite (gateway-native)", () => {
     expect((await res.json()).error.code).toBe("INTERNAL_ERROR");
     expect(fetchMock).not.toHaveBeenCalled();
   });
-
-  test("maps assistant mint 400 (IpcHandlerError) to a 400 response", async () => {
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_mint") {
-        throw new IpcHandlerError(
-          "expectedExternalUserId is required for voice invites",
-          400,
-          "BAD_REQUEST",
-        );
-      }
-      return {};
-    });
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleCreateInvite(
-      new Request("http://localhost:7830/v1/contacts/invites", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ contactId: "ct_1", sourceChannel: "phone" }),
-      }),
-    );
-
-    expect(res.status).toBe(400);
-    expect((await res.json()).error.message).toMatch(/expectedExternalUserId/);
-    expect(contactStoreCreateInviteMock).not.toHaveBeenCalled();
-  });
 });
 
 describe("handleListInvites (gateway-native)", () => {
-  test("returns gateway rows joined with assistant voice fields", async () => {
+  test("returns voice/display fields from the gateway row; assistant DB never queried", async () => {
     contactStoreListInvitesMock = mock(() => [
-      { ...DEFAULT_INVITE, id: "inv_1", sourceChannel: "phone" },
-    ]);
-    assistantDbQueryMock = mock(async () => [
       {
+        ...DEFAULT_INVITE,
         id: "inv_1",
+        sourceChannel: "phone",
         voiceCodeDigits: 6,
         friendName: "Alice",
         guardianName: "Bob",
@@ -1634,20 +2419,54 @@ describe("handleListInvites (gateway-native)", () => {
     expect(body.invites[0].id).toBe("inv_1");
     expect(body.invites[0].voiceCodeDigits).toBe(6);
     expect(body.invites[0].friendName).toBe("Alice");
+    expect(body.invites[0].guardianName).toBe("Bob");
+    expect(body.invites[0].expectedExternalUserId).toBe("+15551234567");
     // The brute-forceable code hash must never be exposed in list responses.
     expect(body.invites[0]).not.toHaveProperty("inviteCodeHash");
     // status filter passed through to the store query.
     expect(contactStoreListInvitesMock.mock.calls[0][0]).toEqual({
       status: "active",
     });
+    // The gateway DB is the single source: no assistant DB access, no proxy.
+    expect(assistantDbQueryMock).not.toHaveBeenCalled();
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("degrades gracefully when the assistant voice-field join throws", async () => {
+  test("strips tokenHash and voiceCodeHash (not just inviteCodeHash) from list responses", async () => {
+    contactStoreListInvitesMock = mock(() => [
+      {
+        ...DEFAULT_INVITE,
+        id: "inv_1",
+        sourceChannel: "phone",
+        tokenHash: "secret-token-hash",
+        voiceCodeHash: "secret-voice-hash",
+      },
+    ]);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListInvites(
+      new Request("http://localhost:7830/v1/contacts/invites"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.invites).toHaveLength(1);
+    expect(body.invites[0].id).toBe("inv_1");
+    // No secret hash field may ever reach the wire.
+    expect(body.invites[0]).not.toHaveProperty("inviteCodeHash");
+    expect(body.invites[0]).not.toHaveProperty("tokenHash");
+    expect(body.invites[0]).not.toHaveProperty("voiceCodeHash");
+  });
+
+  test("succeeds even when the assistant DB is unavailable (list never touches it)", async () => {
     contactStoreListInvitesMock = mock(() => [
       { ...DEFAULT_INVITE, id: "inv_1" },
     ]);
     assistantDbQueryMock = mock(async () => {
+      throw new Error("assistant DB down");
+    });
+    assistantDbRunMock = mock(async () => {
       throw new Error("assistant DB down");
     });
 
@@ -1660,133 +2479,9 @@ describe("handleListInvites (gateway-native)", () => {
     const body = await res.json();
     expect(body.invites).toHaveLength(1);
     expect(body.invites[0].id).toBe("inv_1");
-    expect(body.invites[0].friendName).toBeUndefined();
     expect(body.invites[0]).not.toHaveProperty("inviteCodeHash");
-  });
-
-  test("merges assistant-only invites (no gateway row) into the list, sanitized", async () => {
-    contactStoreListInvitesMock = mock(() => [
-      { ...DEFAULT_INVITE, id: "inv_gateway", sourceChannel: "telegram" },
-    ]);
-    // The voice-join SELECT and the assistant-only merge SELECT both go through
-    // assistantDbQuery; branch on the query text to return the right shape.
-    assistantDbQueryMock = mock(async (sql: string) => {
-      if (/FROM assistant_ingress_invites/.test(sql) && /max_uses/.test(sql)) {
-        // The assistant-only merge query (selects full row + voice fields).
-        return [
-          {
-            id: "inv_assistant_only",
-            sourceChannel: "telegram",
-            note: null,
-            maxUses: 1,
-            useCount: 0,
-            expiresAt: 4_000_000_000_000,
-            status: "active",
-            redeemedByExternalUserId: null,
-            redeemedByExternalChatId: null,
-            redeemedAt: null,
-            contactId: "ct_1",
-            createdAt: 1000000,
-            updatedAt: 1000000,
-            voiceCodeDigits: 6,
-            friendName: "Carol",
-            guardianName: null,
-            expectedExternalUserId: null,
-            // Hash columns are NOT selected by the merge query; assert below.
-          },
-        ];
-      }
-      // The voice-join query for gateway rows.
-      return [];
-    });
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleListInvites(
-      new Request("http://localhost:7830/v1/contacts/invites?status=active"),
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    const ids = body.invites.map((i: { id: string }) => i.id);
-    expect(ids).toContain("inv_gateway");
-    expect(ids).toContain("inv_assistant_only");
-    const assistantOnly = body.invites.find(
-      (i: { id: string }) => i.id === "inv_assistant_only",
-    );
-    expect(assistantOnly.voiceCodeDigits).toBe(6);
-    expect(assistantOnly.friendName).toBe("Carol");
-    // Assistant-only rows must be sanitized too — never leak a code hash.
-    expect(assistantOnly).not.toHaveProperty("inviteCodeHash");
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test("does not duplicate an invite present in both stores (gateway wins)", async () => {
-    contactStoreListInvitesMock = mock(() => [
-      { ...DEFAULT_INVITE, id: "inv_dupe", status: "redeemed" },
-    ]);
-    // Assistant DB also has inv_dupe (e.g. as 'active'); the merge must drop it
-    // because the gateway row already covers that id.
-    assistantDbQueryMock = mock(async (sql: string) => {
-      if (/FROM assistant_ingress_invites/.test(sql) && /max_uses/.test(sql)) {
-        return [
-          {
-            id: "inv_dupe",
-            sourceChannel: "telegram",
-            note: null,
-            maxUses: 1,
-            useCount: 0,
-            expiresAt: 4_000_000_000_000,
-            status: "active",
-            redeemedByExternalUserId: null,
-            redeemedByExternalChatId: null,
-            redeemedAt: null,
-            contactId: "ct_1",
-            createdAt: 1000000,
-            updatedAt: 1000000,
-            voiceCodeDigits: null,
-            friendName: null,
-            guardianName: null,
-            expectedExternalUserId: null,
-          },
-        ];
-      }
-      return [];
-    });
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleListInvites(
-      new Request("http://localhost:7830/v1/contacts/invites"),
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    const dupes = body.invites.filter(
-      (i: { id: string }) => i.id === "inv_dupe",
-    );
-    expect(dupes).toHaveLength(1);
-    // The gateway row (lifecycle truth) wins: status is 'redeemed', not 'active'.
-    expect(dupes[0].status).toBe("redeemed");
-  });
-
-  test("degrades to gateway-only rows when the assistant-only merge query throws", async () => {
-    contactStoreListInvitesMock = mock(() => [
-      { ...DEFAULT_INVITE, id: "inv_gateway" },
-    ]);
-    assistantDbQueryMock = mock(async () => {
-      throw new Error("assistant DB down");
-    });
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleListInvites(
-      new Request("http://localhost:7830/v1/contacts/invites"),
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.invites).toHaveLength(1);
-    expect(body.invites[0].id).toBe("inv_gateway");
-    expect(body.invites[0]).not.toHaveProperty("inviteCodeHash");
+    expect(assistantDbQueryMock).not.toHaveBeenCalled();
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
   });
 
   test("returns 500 when the gateway read throws", async () => {
@@ -1805,7 +2500,7 @@ describe("handleListInvites (gateway-native)", () => {
 });
 
 describe("handleRevokeInvite (gateway-native)", () => {
-  test("revokes the invite and mirrors into the assistant DB", async () => {
+  test("revokes the invite via a single gateway UPDATE; assistant DB never touched", async () => {
     contactStoreRevokeInviteMock = mock(() => ({
       ...DEFAULT_INVITE,
       status: "revoked",
@@ -1826,19 +2521,53 @@ describe("handleRevokeInvite (gateway-native)", () => {
     // Revoke responses must not leak the brute-forceable code hash.
     expect(body.invite).not.toHaveProperty("inviteCodeHash");
     expect(contactStoreRevokeInviteMock).toHaveBeenCalledWith("inv_1");
-    // Best-effort assistant DB mirror reflects the gateway row's actual status.
-    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
-    expect(assistantDbRunMock.mock.calls[0][0]).toMatch(
-      /assistant_ingress_invites/,
-    );
-    expect(assistantDbRunMock.mock.calls[0][1]?.[0]).toBe("revoked");
+    // The gateway DB is the single source: no assistant DB access, no proxy.
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
+    expect(assistantDbQueryMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("mirrors the gateway row's actual status for an already-redeemed invite", async () => {
+  test("revokes a backfilled (pre-migration) invite carrying voice/display fields", async () => {
+    contactStoreRevokeInviteMock = mock(() => ({
+      ...DEFAULT_INVITE,
+      id: "inv_backfilled",
+      sourceChannel: "phone",
+      status: "revoked",
+      tokenHash: "secret-token-hash",
+      voiceCodeHash: "secret-voice-hash",
+      voiceCodeDigits: 6,
+      friendName: "Alice",
+      guardianName: "Bob",
+      expectedExternalUserId: "+15551234567",
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleRevokeInvite(
+      new Request("http://localhost:7830/v1/contacts/invites/inv_backfilled", {
+        method: "DELETE",
+      }),
+      "inv_backfilled",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.invite.id).toBe("inv_backfilled");
+    expect(body.invite.status).toBe("revoked");
+    expect(body.invite.friendName).toBe("Alice");
+    expect(body.invite.voiceCodeDigits).toBe(6);
+    // No secret hash field may ever reach the wire.
+    expect(body.invite).not.toHaveProperty("inviteCodeHash");
+    expect(body.invite).not.toHaveProperty("tokenHash");
+    expect(body.invite).not.toHaveProperty("voiceCodeHash");
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
+    expect(assistantDbQueryMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("is idempotent on an already-terminal invite (returns its current state)", async () => {
     // revokeInvite() only flips an ACTIVE row to revoked; an already-redeemed
-    // invite is returned unchanged. The mirror must NOT force 'revoked' — it
-    // must reflect the gateway row's real status so the stores stay in sync.
+    // invite is returned unchanged with its terminal status.
     contactStoreRevokeInviteMock = mock(() => ({
       ...DEFAULT_INVITE,
       status: "redeemed",
@@ -1855,16 +2584,12 @@ describe("handleRevokeInvite (gateway-native)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.invite.status).toBe("redeemed");
-    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
-    expect(assistantDbRunMock.mock.calls[0][1]?.[0]).toBe("redeemed");
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("returns 404 when the invite is absent from both the gateway and assistant DBs", async () => {
-    // No gateway row AND no assistant row: the SELECT re-read returns empty,
-    // so the invite is genuinely absent everywhere.
+  test("returns 404 when the invite id is unknown (no assistant DB fallback)", async () => {
     contactStoreRevokeInviteMock = mock(() => null);
-    assistantDbQueryMock = mock(async () => []);
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleRevokeInvite(
@@ -1876,194 +2601,8 @@ describe("handleRevokeInvite (gateway-native)", () => {
 
     expect(res.status).toBe(404);
     expect((await res.json()).error.code).toBe("NOT_FOUND");
-  });
-
-  test("falls back to revoking the assistant row when no gateway row exists", async () => {
-    // Assistant-only invite: gateway revoke returns null, but the row exists in
-    // the assistant DB and gets flipped active -> revoked via the fallback.
-    contactStoreRevokeInviteMock = mock(() => null);
-    assistantDbQueryMock = mock(async () => [
-      {
-        id: "inv_assistant_only",
-        sourceChannel: "telegram",
-        note: null,
-        maxUses: 1,
-        useCount: 0,
-        expiresAt: 4_000_000_000_000,
-        status: "revoked",
-        redeemedByExternalUserId: null,
-        redeemedByExternalChatId: null,
-        redeemedAt: null,
-        contactId: "ct_1",
-        createdAt: 1000000,
-        updatedAt: 2000000,
-        voiceCodeDigits: null,
-        friendName: null,
-        guardianName: null,
-        expectedExternalUserId: null,
-      },
-    ]);
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRevokeInvite(
-      new Request(
-        "http://localhost:7830/v1/contacts/invites/inv_assistant_only",
-        { method: "DELETE" },
-      ),
-      "inv_assistant_only",
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.invite.id).toBe("inv_assistant_only");
-    expect(body.invite.status).toBe("revoked");
-    expect(body.invite).not.toHaveProperty("inviteCodeHash");
-    // The assistant fallback UPDATE ran against assistant_ingress_invites.
-    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
-    expect(assistantDbRunMock.mock.calls[0][0]).toMatch(
-      /UPDATE assistant_ingress_invites SET status='revoked'/,
-    );
-    expect(assistantDbRunMock.mock.calls[0][1]?.[1]).toBe("inv_assistant_only");
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test("assistant-only revoke is idempotent on an already-terminal row (UPDATE no-ops, 200 terminal)", async () => {
-    // No gateway row. The UPDATE succeeds but affects 0 rows because the invite
-    // is already redeemed; the SELECT then returns the terminal row. This is the
-    // legitimate idempotent revoke — must stay 200 with the terminal state.
-    contactStoreRevokeInviteMock = mock(() => null);
-    assistantDbRunMock = mock(async () => ({ changes: 0, lastInsertRowid: 0 }));
-    assistantDbQueryMock = mock(async () => [
-      {
-        id: "inv_terminal",
-        sourceChannel: "telegram",
-        note: null,
-        maxUses: 1,
-        useCount: 1,
-        expiresAt: 4_000_000_000_000,
-        status: "redeemed",
-        redeemedByExternalUserId: "ext_1",
-        redeemedByExternalChatId: "chat_1",
-        redeemedAt: 3000000,
-        contactId: "ct_1",
-        createdAt: 1000000,
-        updatedAt: 2000000,
-        voiceCodeDigits: null,
-        friendName: null,
-        guardianName: null,
-        expectedExternalUserId: null,
-      },
-    ]);
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRevokeInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_terminal", {
-        method: "DELETE",
-      }),
-      "inv_terminal",
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.invite.id).toBe("inv_terminal");
-    expect(body.invite.status).toBe("redeemed");
-  });
-
-  test("assistant-only revoke surfaces 500 when the fallback UPDATE throws (no false success)", async () => {
-    // No gateway row, so assistant_ingress_invites is the only store that can
-    // revoke. If the UPDATE write throws, the handler must NOT swallow it and
-    // return 200 with the still-active row — a guardian would believe the
-    // invite was revoked while it stays redeemable via the legacy path.
-    contactStoreRevokeInviteMock = mock(() => null);
-    assistantDbRunMock = mock(async () => {
-      throw new Error("assistant DB write failed");
-    });
-    // The SELECT would still find the row active — proving the write didn't land.
-    const assistantQuerySpy = mock(async () => [
-      {
-        id: "inv_assistant_only",
-        sourceChannel: "telegram",
-        note: null,
-        maxUses: 1,
-        useCount: 0,
-        expiresAt: 4_000_000_000_000,
-        status: "active",
-        redeemedByExternalUserId: null,
-        redeemedByExternalChatId: null,
-        redeemedAt: null,
-        contactId: "ct_1",
-        createdAt: 1000000,
-        updatedAt: 2000000,
-        voiceCodeDigits: null,
-        friendName: null,
-        guardianName: null,
-        expectedExternalUserId: null,
-      },
-    ]);
-    assistantDbQueryMock = assistantQuerySpy;
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRevokeInvite(
-      new Request(
-        "http://localhost:7830/v1/contacts/invites/inv_assistant_only",
-        { method: "DELETE" },
-      ),
-      "inv_assistant_only",
-    );
-
-    expect(res.status).toBe(500);
-    expect((await res.json()).error.code).toBe("INTERNAL_ERROR");
-    // The handler must not have read back and returned the still-active row.
-    expect(assistantQuerySpy).not.toHaveBeenCalled();
-  });
-
-  test("revoking a gateway-known invite uses the gateway path (no assistant fallback)", async () => {
-    contactStoreRevokeInviteMock = mock(() => ({
-      ...DEFAULT_INVITE,
-      status: "revoked",
-    }));
-    // assistantDbQuery would only be hit by the fallback; it must NOT run here.
-    const assistantQuerySpy = mock(async () => []);
-    assistantDbQueryMock = assistantQuerySpy;
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRevokeInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_1", {
-        method: "DELETE",
-      }),
-      "inv_1",
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.invite.status).toBe("revoked");
-    expect(contactStoreRevokeInviteMock).toHaveBeenCalledWith("inv_1");
-    // Gateway path mirrors via assistantDbRun but never SELECTs via the fallback.
-    expect(assistantQuerySpy).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test("still succeeds when the assistant DB mirror soft-fails", async () => {
-    contactStoreRevokeInviteMock = mock(() => ({
-      ...DEFAULT_INVITE,
-      status: "revoked",
-    }));
-    assistantDbRunMock = mock(async () => {
-      throw new Error("assistant DB down");
-    });
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRevokeInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_1", {
-        method: "DELETE",
-      }),
-      "inv_1",
-    );
-
-    expect(res.status).toBe(200);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(assistantDbQueryMock).not.toHaveBeenCalled();
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
   });
 
   test("returns 500 on unexpected gateway error (no proxy fallback)", async () => {
@@ -2084,150 +2623,222 @@ describe("handleRevokeInvite (gateway-native)", () => {
   });
 });
 
-describe("handleRedeemInvite (gateway-native, thin relay)", () => {
-  // The assistant redemption service now owns the authoritative gateway claim
-  // (record_invite_redemption, by id, caller-scoped) for ALL paths — including
-  // this HTTP one, which relays into the same assistant redeem handlers. So the
-  // gateway HTTP handler is a thin relay: it must NOT claim, resolve, or record
-  // itself.
+describe("handleRedeemInvite (gateway-native)", () => {
+  // The handler drives the gateway redemption engine directly — no assistant
+  // relay, no gateway-side re-claim (the engine claims internally).
 
-  test("voice path relays to invites_redeem_voice and returns the result", async () => {
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_redeem_voice") {
-        return { type: "redeemed", memberId: "mem_1", inviteId: "inv_1" };
-      }
-      return {};
-    });
-
+  function redeem(body: unknown) {
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRedeemInvite(
+    return handler.handleRedeemInvite(
       new Request("http://localhost:7830/v1/contacts/invites/redeem", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          code: "123456",
-          callerExternalUserId: "+15551234567",
-        }),
+        body: JSON.stringify(body),
       }),
     );
+  }
+
+  const VOICE_OUTCOME: EngineOutcome = {
+    inviteId: "inv_1",
+    contactId: "ct_1",
+    sourceChannel: "phone",
+    memberExternalUserId: "+15551234567",
+    result: "redeemed",
+  };
+
+  test("voice path dispatches to the voice engine and returns { ok, type, memberId, inviteId }", async () => {
+    redeemVoiceInviteMock = mock(async () => ({
+      status: "redeemed" as const,
+      outcome: VOICE_OUTCOME,
+    }));
+
+    const res = await redeem({
+      code: "123456",
+      callerExternalUserId: "+15551234567",
+    });
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.type).toBe("redeemed");
-    expect(body.memberId).toBe("mem_1");
-    expect(body.inviteId).toBe("inv_1");
-    // Voice path relayed; the handler does NOT re-gate or re-mirror.
-    expect(ipcCallAssistantMock.mock.calls[0][0]).toBe("invites_redeem_voice");
-    expect(contactStoreRecordRedemptionMock).not.toHaveBeenCalled();
+    expect(body).toEqual({
+      ok: true,
+      type: "redeemed",
+      memberId: "ct_1",
+      inviteId: "inv_1",
+    });
+    expect(redeemVoiceInviteMock.mock.calls[0][0]).toMatchObject({
+      code: "123456",
+      callerExternalUserId: "+15551234567",
+    });
+    // No assistant redeem relay ran (the daemon info-mirror event is fired
+    // inside the engine, covered by the engine tests).
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("token path relays to invites_redeem_token and returns the invite", async () => {
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_redeem_token") {
-        return { invite: { id: "inv_1" }, type: "redeemed" };
-      }
-      return {};
+  test("voice already_member returns no inviteId (nothing consumed)", async () => {
+    redeemVoiceInviteMock = mock(async () => ({
+      status: "already_member" as const,
+      outcome: { ...VOICE_OUTCOME, result: "already_member" as const },
+    }));
+
+    const res = await redeem({
+      code: "123456",
+      callerExternalUserId: "+15551234567",
     });
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRedeemInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          token: "tok",
-          sourceChannel: "telegram",
-          externalUserId: "u_1",
-        }),
-      }),
-    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      ok: true,
+      type: "already_member",
+      memberId: "ct_1",
+    });
+  });
+
+  test("voice failure maps to 400 BAD_REQUEST with the generic reason", async () => {
+    // Default engine mock fails with invalid_or_expired.
+    const res = await redeem({
+      code: "000000",
+      callerExternalUserId: "+15551234567",
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toBe("invalid_or_expired");
+  });
+
+  test("token path dispatches to the token engine and returns the sanitized invite + type", async () => {
+    redeemInviteByTokenMock = mock(async () => ({
+      status: "redeemed" as const,
+      outcome: { ...VOICE_OUTCOME, sourceChannel: "telegram" },
+      replyText: "Welcome! You've been granted access.",
+    }));
+    // The response invite is the post-claim gateway row, hashes stripped.
+    contactStoreGetInviteByIdMock = mock(() => ({
+      ...DEFAULT_INVITE,
+      status: "redeemed",
+      useCount: 1,
+      tokenHash: "tok_hash",
+      voiceCodeHash: "voice_hash",
+    }));
+
+    const res = await redeem({
+      token: "raw-token",
+      sourceChannel: "telegram",
+      externalUserId: "u_1",
+    });
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.invite.id).toBe("inv_1");
-    // Redemption type must be relayed so callers can tell a real redeem apart
-    // from a no-op already_member (mirrors the voice path's shape).
     expect(body.type).toBe("redeemed");
-    // Only the redeem IPC runs — no resolve pre-step, no gateway-side record.
-    const methods = ipcCallAssistantMock.mock.calls.map((c) => c[0]);
-    expect(methods).toEqual(["invites_redeem_token"]);
-    expect(methods).not.toContain("invites_resolve_token");
-    expect(contactStoreRecordRedemptionMock).not.toHaveBeenCalled();
-    expect(contactStoreGetInviteByIdMock).not.toHaveBeenCalled();
+    expect(body.invite.id).toBe("inv_1");
+    expect(body.invite.status).toBe("redeemed");
+    expect(body.invite.useCount).toBe(1);
+    // Redemption secrets never leave the DB.
+    expect(body.invite.inviteCodeHash).toBeUndefined();
+    expect(body.invite.tokenHash).toBeUndefined();
+    expect(body.invite.voiceCodeHash).toBeUndefined();
+    expect(redeemInviteByTokenMock.mock.calls[0][0]).toMatchObject({
+      token: "raw-token",
+      sourceChannel: "telegram",
+      externalUserId: "u_1",
+    });
+    expect(contactStoreGetInviteByIdMock.mock.calls[0][0]).toBe("inv_1");
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
   });
 
-  test("token path relays the already_member type unchanged", async () => {
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_redeem_token") {
-        return { invite: { id: "inv_1" }, type: "already_member" };
-      }
-      return {};
-    });
+  test("token already_member relays the type unchanged", async () => {
+    redeemInviteByTokenMock = mock(async () => ({
+      status: "already_member" as const,
+      outcome: {
+        ...VOICE_OUTCOME,
+        sourceChannel: "telegram",
+        result: "already_member" as const,
+      },
+      replyText: "You already have access.",
+    }));
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRedeemInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          token: "tok",
-          sourceChannel: "telegram",
-          externalUserId: "u_1",
-        }),
-      }),
-    );
+    const res = await redeem({
+      token: "raw-token",
+      sourceChannel: "telegram",
+      externalUserId: "u_1",
+    });
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.invite.id).toBe("inv_1");
     expect(body.type).toBe("already_member");
+    expect(body.invite.id).toBe("inv_1");
   });
 
-  test("returns 400 when token redeem is missing sourceChannel", async () => {
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRedeemInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token: "tok" }),
-      }),
-    );
+  test("token engine failure maps the reason to 400 BAD_REQUEST", async () => {
+    redeemInviteByTokenMock = mock(async () => ({
+      status: "failed" as const,
+      reason: "expired",
+      replyText: "This invite is no longer valid.",
+    }));
 
-    expect(res.status).toBe(400);
-  });
-
-  test("maps assistant redeem 400 (IpcHandlerError) to 400", async () => {
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_redeem_token") {
-        throw new IpcHandlerError("Invite not found", 400, "BAD_REQUEST");
-      }
-      return {};
+    const res = await redeem({
+      token: "raw-token",
+      sourceChannel: "telegram",
+      externalUserId: "u_1",
     });
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRedeemInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token: "tok", sourceChannel: "telegram" }),
-      }),
-    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toBe("expired");
+  });
+
+  test("returns 400 when token redeem is missing sourceChannel (engine never runs)", async () => {
+    const res = await redeem({ token: "tok" });
 
     expect(res.status).toBe(400);
-    expect((await res.json()).error.message).toMatch(/not found/);
+    expect(redeemInviteByTokenMock).not.toHaveBeenCalled();
+    expect(redeemVoiceInviteMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 500 when the engine throws unexpectedly", async () => {
+    redeemInviteByTokenMock = mock(async () => {
+      throw new Error("gateway DB unavailable");
+    });
+
+    const res = await redeem({
+      token: "tok",
+      sourceChannel: "telegram",
+      externalUserId: "u_1",
+    });
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.message).toBe("Failed to redeem invite");
   });
 });
 
 describe("handleCallInvite (gateway-native)", () => {
-  test("relays the call for an active invite", async () => {
-    contactStoreGetInviteByIdMock = mock(() => ({
-      ...DEFAULT_INVITE,
-      status: "active",
-    }));
+  // An active, unexpired phone invite bound to a caller number — the callable
+  // fixture the gateway relays to the daemon.
+  const PHONE_INVITE: InviteRow = {
+    ...DEFAULT_INVITE,
+    sourceChannel: "phone",
+    expectedExternalUserId: "+15550100001",
+    friendName: "Friend Label",
+    guardianName: "Guardian Label",
+  };
+
+  function callInvite() {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    return handler.handleCallInvite(
+      new Request("http://localhost:7830/v1/contacts/invites/inv_1/call", {
+        method: "POST",
+      }),
+      "inv_1",
+    );
+  }
+
+  test("relays the call for an active phone invite with the resolved call fields", async () => {
+    contactStoreGetInviteByIdMock = mock(() => PHONE_INVITE);
     ipcCallAssistantMock = mock(async (method: string) => {
       if (method === "invites_trigger_call") {
         return { callSid: "CA123" };
@@ -2235,93 +2846,114 @@ describe("handleCallInvite (gateway-native)", () => {
       return {};
     });
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleCallInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_1/call", {
-        method: "POST",
-      }),
-      "inv_1",
-    );
+    const res = await callInvite();
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.callSid).toBe("CA123");
-    // The id must land at pathParams.id on the assistant route handler
-    // (handleTriggerInviteCall reads pathParams.id, not body).
+    // The id lands at pathParams.id; the resolved call fields land in body.
+    // The mock contact has no displayName, so friendName falls back to the
+    // invite's friendName.
     expect(ipcCallAssistantMock.mock.calls[0]).toEqual([
       "invites_trigger_call",
-      { pathParams: { id: "inv_1" } },
+      {
+        pathParams: { id: "inv_1" },
+        body: {
+          phoneNumber: "+15550100001",
+          friendName: "Friend Label",
+          guardianName: "Guardian Label",
+        },
+      },
     ]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("relays to the assistant when no gateway row exists (assistant-only invite)", async () => {
-    // Legacy/assistant-only invite: no gateway row, but a live row in
-    // assistant_ingress_invites. Mirror the list/revoke assistant-only fallback
-    // — don't 404; relay and let the daemon-local trigger validate its own row.
-    contactStoreGetInviteByIdMock = mock(() => null);
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_trigger_call") {
-        return { callSid: "CA456" };
-      }
-      return {};
-    });
+  test("prefers the bound contact's displayName over the invite friendName", async () => {
+    contactStoreGetInviteByIdMock = mock(() => PHONE_INVITE);
+    contactStoreGetContactMock = mock(() => ({
+      id: "ct_1",
+      displayName: "Curated Name",
+    }));
+    ipcCallAssistantMock = mock(async () => ({ callSid: "CA124" }));
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleCallInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_1/call", {
-        method: "POST",
-      }),
-      "inv_1",
-    );
+    const res = await callInvite();
 
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.callSid).toBe("CA456");
-    expect(ipcCallAssistantMock.mock.calls[0]).toEqual([
-      "invites_trigger_call",
-      { pathParams: { id: "inv_1" } },
-    ]);
+    const relayed = ipcCallAssistantMock.mock.calls[0][1] as {
+      body: Record<string, unknown>;
+    };
+    expect(relayed.body.friendName).toBe("Curated Name");
+  });
+
+  test("returns 404 when no gateway row exists (row is the lifecycle authority — no daemon fall-through)", async () => {
+    contactStoreGetInviteByIdMock = mock(() => null);
+
+    const res = await callInvite();
+
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.message).toMatch(/not found/);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("returns 400 when the invite is not active", async () => {
     contactStoreGetInviteByIdMock = mock(() => ({
-      ...DEFAULT_INVITE,
+      ...PHONE_INVITE,
       status: "revoked",
     }));
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleCallInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_1/call", {
-        method: "POST",
-      }),
-      "inv_1",
-    );
+    const res = await callInvite();
 
     expect(res.status).toBe(400);
     expect((await res.json()).error.message).toMatch(/not active/);
     expect(ipcCallAssistantMock).not.toHaveBeenCalled();
   });
 
-  test("returns 500 when the call relay throws unexpectedly", async () => {
+  test("returns 400 and sweeps the row when the invite has expired", async () => {
     contactStoreGetInviteByIdMock = mock(() => ({
-      ...DEFAULT_INVITE,
-      status: "active",
+      ...PHONE_INVITE,
+      expiresAt: Date.now() - 1,
     }));
+
+    const res = await callInvite();
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toMatch(/expired/);
+    expect(contactStoreMarkInviteExpiredMock).toHaveBeenCalledWith("inv_1");
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 for a non-phone invite", async () => {
+    contactStoreGetInviteByIdMock = mock(() => DEFAULT_INVITE); // telegram
+
+    const res = await callInvite();
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toMatch(/phone invites/);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 for a phone invite missing the bound caller number", async () => {
+    contactStoreGetInviteByIdMock = mock(() => ({
+      ...PHONE_INVITE,
+      expectedExternalUserId: null,
+    }));
+
+    const res = await callInvite();
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toMatch(/voice metadata/);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 500 when the call relay throws unexpectedly", async () => {
+    contactStoreGetInviteByIdMock = mock(() => PHONE_INVITE);
     ipcCallAssistantMock = mock(async () => {
       throw new Error("ipc transport failure");
     });
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleCallInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_1/call", {
-        method: "POST",
-      }),
-      "inv_1",
-    );
+    const res = await callInvite();
 
     expect(res.status).toBe(500);
     expect(fetchMock).not.toHaveBeenCalled();

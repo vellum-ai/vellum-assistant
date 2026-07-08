@@ -18,7 +18,10 @@ import type {
   ApprovalUIMetadata,
   ChannelApprovalPrompt,
 } from "./channel-approval-types.js";
-import { toApprovalActionOptions } from "./channel-approval-types.js";
+import {
+  DENYING_ACTION_SET,
+  toApprovalActionOptions,
+} from "./channel-approval-types.js";
 import {
   buildOneTimeDecisionActions,
   buildPlainTextFallback,
@@ -47,7 +50,9 @@ export function getChannelApprovalPrompt(
   conversationId: string,
 ): ChannelApprovalPrompt | null {
   const pending = getApprovalInfoByConversation(conversationId);
-  if (pending.length === 0) return null;
+  if (pending.length === 0) {
+    return null;
+  }
 
   // Use the first pending interaction — channel UIs show one prompt at a time.
   const info = pending[0];
@@ -126,10 +131,12 @@ export function buildApprovalUIMetadata(
 
 /**
  * Map a channel-level `ApprovalAction` to the permission system's
- * `UserDecision` type.
+ * `UserDecision` type. Every deny-intent action (reject, leave_unverified,
+ * block) maps to `deny` — a deny-flavored callback must never resolve a
+ * pending tool confirmation as an approval.
  */
 function mapApprovalActionToUserDecision(action: ApprovalAction): UserDecision {
-  return action === "reject" ? "deny" : "allow";
+  return DENYING_ACTION_SET.has(action) ? "deny" : "allow";
 }
 
 // ---------------------------------------------------------------------------
@@ -151,24 +158,32 @@ export function handleChannelDecision(
   decisionContext?: string,
 ): HandleDecisionResult {
   const pending = getApprovalInfoByConversation(conversationId);
-  if (pending.length === 0) return { applied: false };
+  if (pending.length === 0) {
+    return { applied: false };
+  }
 
   // Callback-based decisions include a request ID and must resolve to that exact
   // pending confirmation. Plain-text decisions still apply to the first prompt.
   const info = decision.requestId
     ? pending.find((candidate) => candidate.requestId === decision.requestId)
     : pending[0];
-  if (!info) return { applied: false };
+  if (!info) {
+    return { applied: false };
+  }
 
   // Peek (not consume) — resolveConfirmation() owns deregistration and
   // must fire the promptResolve callback stored in the interaction.
   const resolved = pendingInteractions.get(info.requestId);
-  if (!resolved) return { applied: false };
+  if (!resolved) {
+    return { applied: false };
+  }
 
   // Map channel-level action to the permission system's UserDecision type.
   const userDecision = mapApprovalActionToUserDecision(decision.action);
   const conversation = findConversation(resolved.conversationId);
-  if (!conversation) return { applied: false };
+  if (!conversation) {
+    return { applied: false };
+  }
 
   conversation.handleConfirmationResponse(info.requestId, userDecision, {
     decisionContext,

@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import { useSyncExternalStore } from "react";
 
 import { isElectron } from "@/runtime/is-electron";
@@ -49,7 +50,9 @@ export function isIOSBrowser(): boolean {
 export function isSafariBrowser(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent;
-  return /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium/.test(ua);
+  return (
+    /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium/.test(ua)
+  );
 }
 
 /**
@@ -75,6 +78,156 @@ export function isMacOSBrowser(): boolean {
     return uaData.platform.toLowerCase().includes("mac");
   }
   return navigator.platform.toLowerCase().includes("mac");
+}
+
+/**
+ * Returns true when the current browser is running on Android.
+ *
+ * Android user agents always carry the literal "Android" token (Chrome,
+ * Samsung Internet, Firefox, WebView, etc.), so a substring check is the
+ * reliable signal. Used so Android phone-web gets the same mobile-first
+ * treatment as iOS phone-web.
+ *
+ * Always returns `false` during SSR (no `navigator`).
+ */
+export function isAndroidBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android/i.test(navigator.userAgent);
+}
+
+/**
+ * The OS surfaces this web bundle can report as `clientOs`.
+ *
+ * The same `clients/web` bundle runs in a plain browser, the Capacitor iOS
+ * shell, and the Electron macOS app, so the OS is decided at runtime, not by
+ * which build is shipped. This is NOT the backend interface vocabulary —
+ * `clientOs` describes the device OS (`android` has no transport), so it is a
+ * deliberately separate set from `InterfaceId` (mirrors the daemon's
+ * `ClientOs` in `assistant/src/channels/types.ts`).
+ */
+export type ClientOs = "macos" | "ios" | "android" | "web";
+
+/**
+ * Detect the client's OS surface ("web" | "ios" | "macos" | "android") at
+ * runtime.
+ *
+ * This feeds the message body's `clientOs` field ONLY
+ * (`domains/chat/api/messages.ts`), which the assistant renders as the
+ * per-turn `client_os` context line
+ * (`assistant/src/daemon/conversation-runtime-assembly.ts`).
+ *
+ * It must NOT drive the message body's `interface` field or the
+ * `X-Vellum-Interface-Id` registration header — those are the *transport*
+ * surface and are intentionally hardcoded to `"web"` (the web/iOS/macOS apps
+ * all run this one renderer = one transport). The daemon keys host-proxy and
+ * transport capabilities off that transport interface, so reporting the OS
+ * there would mis-tag a renderer turn as a host-proxy transport. Keep OS
+ * detection on `clientOs` only; do not re-couple it to interface/header
+ * identity.
+ *
+ * Order matters: the Electron macOS shell also satisfies the desktop-browser
+ * heuristics, so `isElectron()` is checked first or macOS would be misreported
+ * as `web`. A native Capacitor shell (`isNativePlatform()`, true for iOS AND
+ * Android) is resolved via `Capacitor.getPlatform()` so the wrapper reports
+ * its real OS. The remaining browser surfaces fall to the UA-based
+ * `isIOSBrowser()` / `isAndroidBrowser()` (so mobile-Safari → `ios`, Android
+ * Chrome → `android`); everything else is `web`.
+ *
+ * Safe to call before hydration: each underlying helper falls through to
+ * `false` when `window`/`navigator` are undefined, so SSR resolves to `web`.
+ */
+export function detectClientOs(): ClientOs {
+  if (isElectron()) return "macos";
+  if (isNativePlatform()) {
+    // `isNativePlatform()` is true for the iOS AND Android Capacitor shells,
+    // so distinguish them explicitly rather than assuming iOS.
+    return Capacitor.getPlatform() === "android" ? "android" : "ios";
+  }
+  if (isIOSBrowser()) return "ios";
+  if (isAndroidBrowser()) return "android";
+  return "web";
+}
+
+/**
+ * Browser attribution for turn telemetry (`metadata.client.browser_family` /
+ * `.browser_version`). Family is engine-level: Chromium derivatives without
+ * their own brand entry (Opera, Brave, Arc) report as `"chrome"`.
+ */
+export type BrowserInfo = {
+  family?: "chrome" | "edge" | "firefox" | "safari";
+  version?: string;
+};
+
+type UADataBrand = { brand: string; version: string };
+
+/**
+ * Detect the browser from `navigator.userAgentData.brands` (Chromium-only
+ * API). Brand names are full strings like "Microsoft Edge" / "Google Chrome"
+ * / "Chromium"; GREASE entries ("Not_A Brand" and friends) match neither
+ * pattern. The brand version is the (possibly reduced) major version.
+ */
+function browserFromBrands(
+  brands: UADataBrand[] | undefined,
+): BrowserInfo | null {
+  if (!brands || brands.length === 0) {
+    return null;
+  }
+  const families = [
+    { family: "edge", pattern: /microsoft edge/i },
+    { family: "chrome", pattern: /google chrome|chromium/i },
+  ] as const;
+  for (const { family, pattern } of families) {
+    const match = brands.find((brand) => pattern.test(brand.brand));
+    if (match) {
+      const version = match.version.match(/^\d+/)?.[0];
+      return { family, ...(version ? { version } : {}) };
+    }
+  }
+  return null;
+}
+
+/**
+ * Detect the browser from the UA string (Safari and Firefox never expose
+ * `userAgentData`). Order matters: Edge UAs contain "Chrome/", Chrome and
+ * Firefox UAs contain "Safari/", so Safari's `Version/` pattern goes last.
+ * iOS third-party browsers use injected engine tokens (EdgiOS / CriOS /
+ * FxiOS — same token set as `isSafariBrowser`).
+ */
+function browserFromUserAgent(ua: string): BrowserInfo | null {
+  const patterns = [
+    { family: "edge", pattern: /(?:Edg|EdgiOS|EdgA)\/(\d+)/ },
+    { family: "chrome", pattern: /(?:Chrome|CriOS|Chromium)\/(\d+)/ },
+    { family: "firefox", pattern: /(?:Firefox|FxiOS)\/(\d+)/ },
+    { family: "safari", pattern: /Version\/(\d+).*Safari\// },
+  ] as const;
+  for (const { family, pattern } of patterns) {
+    const match = ua.match(pattern);
+    if (match) {
+      return { family, version: match[1] };
+    }
+  }
+  return null;
+}
+
+/**
+ * Detect the current browser's family and major version for telemetry.
+ * Prefers `userAgentData.brands` where available, falls back to UA-string
+ * parsing. Returns `{}` when neither yields a match (or during SSR).
+ */
+export function detectBrowserInfo(): BrowserInfo {
+  if (typeof navigator === "undefined") {
+    return {};
+  }
+  const uaData = (
+    navigator as Navigator & {
+      userAgentData?: { brands?: UADataBrand[] };
+    }
+  ).userAgentData;
+  return (
+    browserFromBrands(uaData?.brands) ??
+    browserFromUserAgent(navigator.userAgent) ??
+    {}
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -1,9 +1,9 @@
 /**
  * Verifies the agent loop's exclusive-tool dispatch: when a tool the loop is
- * told is exclusive (e.g. the advisor) appears in a multi-call turn, only that
- * tool runs and the siblings are deferred un-run with a benign result — so the
- * model incorporates the exclusive tool's output before acting on anything
- * else. Drives the REAL loop, mocking only the provider boundary.
+ * told is exclusive appears in a multi-call turn, only that tool runs and the
+ * siblings are deferred un-run with a benign result — so the model incorporates
+ * the exclusive tool's output before acting on anything else. Drives the REAL
+ * loop, mocking only the provider boundary.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -55,7 +55,7 @@ describe("AgentLoop — exclusive tool deferral", () => {
   test("runs the exclusive tool alone and defers sibling calls un-run", async () => {
     const { provider } = createMockProvider([
       toolUseTurn([
-        { id: "call-advisor", name: "advisor" },
+        { id: "call-exclusive", name: "exclusive_tool" },
         { id: "call-edit", name: "write_file" },
       ]),
       endTurn("done"),
@@ -67,7 +67,11 @@ describe("AgentLoop — exclusive tool deferral", () => {
       systemPrompt: "sys",
       conversationId: "excl-1",
       tools: [
-        { name: "advisor", description: "", input_schema: { type: "object" } },
+        {
+          name: "exclusive_tool",
+          description: "",
+          input_schema: { type: "object" },
+        },
         {
           name: "write_file",
           description: "",
@@ -78,7 +82,7 @@ describe("AgentLoop — exclusive tool deferral", () => {
         executed.push(name);
         return { content: `ran ${name}`, isError: false };
       },
-      isExclusiveTool: (name) => name === "advisor",
+      isExclusiveTool: (name) => name === "exclusive_tool",
     });
 
     const { history } = await loop.run({
@@ -87,19 +91,19 @@ describe("AgentLoop — exclusive tool deferral", () => {
     });
 
     // Only the exclusive tool actually executed.
-    expect(executed).toEqual(["advisor"]);
+    expect(executed).toEqual(["exclusive_tool"]);
 
     const results = toolResults(history);
-    const advisorResult = results.find(
-      (b) => b.tool_use_id === "call-advisor",
+    const exclusiveResult = results.find(
+      (b) => b.tool_use_id === "call-exclusive",
     )!;
     const editResult = results.find((b) => b.tool_use_id === "call-edit")!;
 
-    // The advisor ran; the sibling came back un-run (not an error) so the model
-    // can re-issue it after reading the guidance.
-    expect(advisorResult.content).toBe("ran advisor");
+    // The exclusive tool ran; the sibling came back un-run (not an error) so the
+    // model can re-issue it after reading the guidance.
+    expect(exclusiveResult.content).toBe("ran exclusive_tool");
     expect(editResult.content).toContain("not run");
-    expect(editResult.content).toContain("advisor");
+    expect(editResult.content).toContain("exclusive_tool");
     expect(editResult.is_error).toBe(false);
   });
 
@@ -133,7 +137,7 @@ describe("AgentLoop — exclusive tool deferral", () => {
         executed.push(name);
         return { content: `ran ${name}`, isError: false };
       },
-      isExclusiveTool: (name) => name === "advisor",
+      isExclusiveTool: (name) => name === "exclusive_tool",
     });
 
     const { history } = await loop.run({

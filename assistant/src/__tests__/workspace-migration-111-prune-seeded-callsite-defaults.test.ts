@@ -110,8 +110,8 @@ afterEach(() => {
 });
 
 describe("111-prune-seeded-callsite-defaults migration", () => {
-  test("is registered last", () => {
-    expect(WORKSPACE_MIGRATIONS.at(-1)).toBe(
+  test("is registered", () => {
+    expect(WORKSPACE_MIGRATIONS).toContain(
       pruneSeededCallsiteDefaultsMigration,
     );
   });

@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
 
-import type { DrizzleDb } from "../memory/db-connection.js";
-import { getDb } from "../memory/db-connection.js";
-import { rawChanges } from "../memory/raw-query.js";
-import { a2aTasks } from "../memory/schema.js";
+import type { DrizzleDb } from "../persistence/db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
+import { rawChanges } from "../persistence/raw-query.js";
+import { a2aTasks } from "../persistence/schema/index.js";
 import { TERMINAL_TASK_STATES } from "./protocol-constants.js";
 import type {
   A2AMessage,

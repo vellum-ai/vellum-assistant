@@ -125,6 +125,9 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
   // -- OpenRouter --
   { label: "OpenRouter API Key", regex: /sk-or-v1-[A-Za-z0-9\-_]{40,}/ },
 
+  // -- Vercel AI Gateway --
+  { label: "Vercel AI Gateway API Key", regex: /vck_[A-Za-z0-9\-_]{24,}/ },
+
   // -- Fireworks --
   { label: "Fireworks API Key", regex: /fw_[A-Za-z0-9]{32,}/ },
 

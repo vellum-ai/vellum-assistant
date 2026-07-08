@@ -24,7 +24,7 @@ const mockGetConversationByKey = mock(
   }),
 );
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getConversationByKey: mockGetConversationByKey,
 }));
 
@@ -49,9 +49,9 @@ const mockGetMessages = mock((_conversationId: string) => [
   },
 ]);
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getMessages: mockGetMessages,
   getConversation: (_id: string) => null,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),

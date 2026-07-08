@@ -4,10 +4,6 @@
  * Provides a `startVoiceTurn()` function that manages a voice turn
  * directly through the conversation, translating agent-loop events into
  * simple callbacks suitable for real-time TTS streaming.
- *
- * Dependency injection follows the same module-level setter pattern used by
- * setRelayBroadcast in relay-server.ts: the daemon lifecycle injects
- * dependencies at startup via `setVoiceBridgeDeps()`.
  */
 
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
@@ -18,13 +14,17 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import type { Conversation } from "../daemon/conversation.js";
+import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
+import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
+import { recordConversationPersistedSeq } from "../persistence/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -35,36 +35,19 @@ import {
 
 const log = getLogger("voice-session-bridge");
 
-// ---------------------------------------------------------------------------
-// Module-level dependency injection
-// ---------------------------------------------------------------------------
-
-export interface VoiceBridgeDeps {
-  getOrCreateConversation: (
-    conversationId: string,
-    transport?: {
-      channelId: ChannelId;
-      hints?: string[];
-      uxBrief?: string;
-    },
-  ) => Promise<Conversation>;
-  resolveAttachments: (attachmentIds: string[]) => Array<{
-    id: string;
-    filename: string;
-    mimeType: string;
-    data: string;
-    filePath?: string;
-  }>;
-}
-
-let deps: VoiceBridgeDeps | undefined;
-
+const PROCESSING_WAIT_MARGIN_MS = 1000;
 /**
- * Inject dependencies from daemon lifecycle.
- * Must be called during daemon startup before any voice turns are executed.
+ * How long startVoiceTurn waits for a prior turn to release the processing
+ * lock before giving up. The prior turn can hold the lock for the abort
+ * unwind budget PLUS the awaited turn-boundary commit window, so the wait
+ * must cover both (+ margin) or a barge-in can still surface
+ * "Conversation is already processing a message".
  */
-export function setVoiceBridgeDeps(d: VoiceBridgeDeps): void {
-  deps = d;
+export function resolveProcessingWaitMs(
+  turnCommitMaxWaitMs: number,
+  abortUnwindMs: number,
+): number {
+  return turnCommitMaxWaitMs + abortUnwindMs + PROCESSING_WAIT_MARGIN_MS;
 }
 
 // ---------------------------------------------------------------------------
@@ -273,18 +256,12 @@ function buildVoiceCallControlPrompt(opts: {
  *   - event sink wired to the provided callbacks
  *   - abort propagated from the returned handle
  *
- * The caller (CallController via relay-server) can use the returned handle
- * to cancel the turn on barge-in.
+ * The caller (CallController) can use the returned handle to cancel the
+ * turn on barge-in.
  */
 export async function startVoiceTurn(
   opts: VoiceTurnOptions,
 ): Promise<VoiceTurnHandle> {
-  if (!deps) {
-    throw new Error(
-      "Voice bridge not initialized — setVoiceBridgeDeps() was not called",
-    );
-  }
-
   const eventSink: VoiceRunEventSink = {
     onTextDelta: (msg) => {
       opts.onTextDelta?.(msg.text);
@@ -348,6 +325,14 @@ export async function startVoiceTurn(
         ? "(verification completed — transitioning into conversation)"
         : opts.content;
 
+  // Opener / verification prompts are internal scaffolding: they persist a row
+  // so the model wakes, but they are not user speech and must not render as a
+  // live user bubble. Their echo is suppressed below (parity with
+  // `isEchoSuppressedUserMessage` on the text path).
+  const isSyntheticVoicePrompt =
+    opts.content === CALL_OPENING_MARKER ||
+    opts.content === CALL_VERIFICATION_COMPLETE_MARKER;
+
   // Build the call-control protocol prompt so the model knows how to emit
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
   const isCallerGuardian = opts.trustContext?.trustClass === "guardian";
@@ -363,18 +348,16 @@ export async function startVoiceTurn(
       : opts.voiceControlPrompt;
 
   // Get or create the conversation
-  const transport = {
-    channelId: turnChannelContext.userMessageChannel,
-  };
-  const conversation = await deps.getOrCreateConversation(
-    opts.conversationId,
-    transport,
-  );
+  const conversation = await getOrCreateConversation(opts.conversationId);
 
   if (conversation.isProcessing()) {
     // Voice barge-in can race with turn teardown. Wait briefly for the
     // previous turn to finish aborting before giving up.
-    const maxWaitMs = 3000;
+    const config = getConfig();
+    const maxWaitMs = resolveProcessingWaitMs(
+      config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
+      ABORT_WATCHDOG_MS,
+    );
     const pollIntervalMs = 50;
     let waited = 0;
     while (conversation.isProcessing() && waited < maxWaitMs) {
@@ -388,6 +371,10 @@ export async function startVoiceTurn(
       throw new Error("Turn aborted while waiting for conversation");
     }
     if (conversation.isProcessing()) {
+      // Waited the full budget (see resolveProcessingWaitMs) without the lock
+      // releasing, so the prior turn is genuinely wedged. The controller
+      // catches this terminal error and speaks a brief non-technical
+      // re-prompt rather than staying silent.
       throw new Error("Conversation is already processing a message");
     }
   }
@@ -450,6 +437,36 @@ export async function startVoiceTurn(
       { err, turnId, messageId },
       "Voice turn persisted-message callback threw",
     );
+  }
+
+  // Broadcast the user turn to hub subscribers (web / passive devices) BEFORE
+  // the assistant reply streams, mirroring the text path
+  // (`conversation-process.ts`). Without this the web client receives the
+  // assistant deltas with no preceding user-turn boundary and folds them into
+  // the previous assistant bubble until a `/messages` reconcile splits them
+  // (JARVIS-1258). Synthetic opener/verification prompts persist a row but are
+  // not user speech, so their echo is suppressed.
+  if (!isSyntheticVoicePrompt) {
+    broadcastMessage({
+      type: "user_message_echo",
+      text: persistedContent,
+      conversationId: opts.conversationId,
+      messageId,
+      requestId,
+    });
+    // The echoed row is already durably persisted and the agent loop hasn't
+    // started, so advance the snapshot↔stream anchor to the echo's seq — else
+    // `/messages` returns the row while advertising the previous flush's anchor
+    // (under-claiming). Safe to claim here for the same reason as the text path.
+    recordConversationPersistedSeq(opts.conversationId, getCurrentSeq());
+    // Nudge subscribers to refetch `/messages`. Gated to real user turns:
+    // synthetic opener/verification rows are persisted un-hidden (unlike the
+    // text path's echo-suppressed rows, which are `hidden` and safe to
+    // announce), so an early invalidation here would surface the internal
+    // "(call connected …)" prompt as a user bubble before the assistant reply
+    // streams. Synthetic prompts still reach the transcript via the normal
+    // turn-end resync.
+    publishConversationMessagesChanged(opts.conversationId);
   }
 
   // Hook into conversation to intercept confirmation_request and secret_request events.
@@ -639,8 +656,8 @@ export async function startVoiceTurn(
     }
   };
 
-  // If the caller provided an external AbortSignal (e.g. from a
-  // RelayConnection's AbortController), wire it to the turn's abort.
+  // If the caller provided an external AbortSignal (e.g. from the call
+  // controller's AbortController), wire it to the turn's abort.
   if (opts.signal) {
     if (opts.signal.aborted) {
       abortFn();

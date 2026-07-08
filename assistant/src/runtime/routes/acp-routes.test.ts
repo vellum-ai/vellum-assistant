@@ -182,7 +182,7 @@ type ApprovalBehavior = "allow" | "deny";
 let approvalBehavior: ApprovalBehavior = "allow";
 const confirmationRequests: Array<Record<string, unknown>> = [];
 
-mock.module("../../runtime/assistant-event-hub.js", () => ({
+mock.module("../assistant-event-hub.js", () => ({
   broadcastMessage: (msg: { type?: string; requestId?: string }) => {
     if (msg?.type !== "confirmation_request") return;
     confirmationRequests.push(msg as Record<string, unknown>);
@@ -197,9 +197,9 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb, getSqlite } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
-import { acpSessionHistory } from "../../memory/schema.js";
+import { getDb, getSqlite } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { acpSessionHistory } from "../../persistence/schema/index.js";
 
 const { ROUTES } = await import("./acp-routes.js");
 

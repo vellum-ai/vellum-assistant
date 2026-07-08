@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AddCreditsModal } from "@/components/add-credits-modal";
 import { AutoTopUpCard } from "@/domains/settings/components/auto-top-up-card";
+import { LowBalanceAlertCard } from "@/domains/settings/components/low-balance-alert-card";
 import {
     organizationsBillingSummaryRetrieveOptions,
     organizationsBillingSummaryRetrieveQueryKey,
@@ -244,6 +245,9 @@ export function BillingPanel() {
         {renderBalanceBody()}
         <div className="mt-6 border-t border-[var(--border-base)] pt-6">
           <AutoTopUpCard />
+        </div>
+        <div className="mt-6 border-t border-[var(--border-base)] pt-6">
+          <LowBalanceAlertCard />
         </div>
       </Card>
 

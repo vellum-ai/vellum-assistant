@@ -9,7 +9,11 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
+  getConfig: () => ({
+    migrations: { worker: { enabled: false } },
+    llm: { pricingOverrides: {} },
+    timeouts: { scheduleTurnTimeoutSec: 600 },
+  }),
   invalidateConfigCache: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
@@ -37,8 +41,8 @@ mock.module("../tools/registry.js", () => ({
   areCoreToolsInitialized: () => coreToolsReady,
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   BadRequestError,
   ServiceUnavailableError,
@@ -86,48 +90,48 @@ function runNowRoute(): RouteDefinition {
 describe("PATCH /schedules/:id — workflow-mode name validation", () => {
   beforeEach(clearTables);
 
-  test("rejects switching mode to workflow without a workflowName (flag on)", () => {
-    const schedule = createSchedule({
+  test("rejects switching mode to workflow without a workflowName (flag on)", async () => {
+    const schedule = await createSchedule({
       name: "Plain execute",
       cronExpression: "0 9 * * *",
       message: "hi",
       syntax: "cron",
     });
 
-    expect(() =>
+    await expect(
       patchRoute().handler({
         pathParams: { id: schedule.id },
         body: { mode: "workflow" },
       }),
-    ).toThrow("workflowName is required");
+    ).rejects.toThrow("workflowName is required");
 
     // The schedule must stay in its prior mode — the wedge-prone nameless
     // workflow row was never persisted.
     expect(listSchedules()[0].mode).toBe("execute");
   });
 
-  test("rejects switching to workflow with a blank/whitespace workflowName", () => {
-    const schedule = createSchedule({
+  test("rejects switching to workflow with a blank/whitespace workflowName", async () => {
+    const schedule = await createSchedule({
       name: "Plain execute",
       cronExpression: "0 9 * * *",
       message: "hi",
       syntax: "cron",
     });
 
-    expect(() =>
+    await expect(
       patchRoute().handler({
         pathParams: { id: schedule.id },
         body: { mode: "workflow", workflowName: "   " },
       }),
-    ).toThrow("workflowName is required");
+    ).rejects.toThrow("workflowName is required");
     expect(listSchedules()[0].mode).toBe("execute");
   });
 
-  test("rejects clearing the workflowName on an already-workflow schedule", () => {
+  test("rejects clearing the workflowName on an already-workflow schedule", async () => {
     // An existing workflow-mode schedule (created via the store, which is not
     // flag-gated). PATCH does not touch `mode`, so the resulting mode is still
     // `workflow` and a cleared name must be rejected.
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Workflow schedule",
       cronExpression: "0 9 * * *",
       message: "trigger",
@@ -136,61 +140,61 @@ describe("PATCH /schedules/:id — workflow-mode name validation", () => {
       workflowName: "triage-inbox",
     });
 
-    expect(() =>
+    await expect(
       patchRoute().handler({
         pathParams: { id: schedule.id },
         body: { workflowName: "" },
       }),
-    ).toThrow("workflowName is required");
+    ).rejects.toThrow("workflowName is required");
 
     // Null clears the name too — same rejection.
-    expect(() =>
+    await expect(
       patchRoute().handler({
         pathParams: { id: schedule.id },
         body: { workflowName: null },
       }),
-    ).toThrow("workflowName is required");
+    ).rejects.toThrow("workflowName is required");
 
     // The original name is intact (neither PATCH was applied).
     expect(listSchedules()[0].workflowName).toBe("triage-inbox");
   });
 
-  test("rejects with a BadRequestError instance (400 shape, matching create)", () => {
-    const schedule = createSchedule({
+  test("rejects with a BadRequestError instance (400 shape, matching create)", async () => {
+    const schedule = await createSchedule({
       name: "Plain execute",
       cronExpression: "0 9 * * *",
       message: "hi",
       syntax: "cron",
     });
 
-    expect(() =>
+    await expect(
       patchRoute().handler({
         pathParams: { id: schedule.id },
         body: { mode: "workflow" },
       }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
   });
 
-  test("allows switching to workflow mode WITH a valid workflowName", () => {
-    const schedule = createSchedule({
+  test("allows switching to workflow mode WITH a valid workflowName", async () => {
+    const schedule = await createSchedule({
       name: "Plain execute",
       cronExpression: "0 9 * * *",
       message: "hi",
       syntax: "cron",
     });
 
-    const result = patchRoute().handler({
+    const result = (await patchRoute().handler({
       pathParams: { id: schedule.id },
       body: { mode: "workflow", workflowName: "triage-inbox" },
-    }) as { schedules: Array<{ id: string; mode: string }> };
+    })) as { schedules: Array<{ id: string; mode: string }> };
 
     const updated = result.schedules.find((s) => s.id === schedule.id);
     expect(updated?.mode).toBe("workflow");
     expect(listSchedules()[0].workflowName).toBe("triage-inbox");
   });
 
-  test("allows an unrelated PATCH on a workflow schedule (name untouched)", () => {
-    const schedule = createSchedule({
+  test("allows an unrelated PATCH on a workflow schedule (name untouched)", async () => {
+    const schedule = await createSchedule({
       name: "Workflow schedule",
       cronExpression: "0 9 * * *",
       message: "trigger",
@@ -201,10 +205,10 @@ describe("PATCH /schedules/:id — workflow-mode name validation", () => {
 
     // Patching only the message leaves mode=workflow and the name in place, so
     // the validation passes (it reads the persisted name).
-    const result = patchRoute().handler({
+    const result = (await patchRoute().handler({
       pathParams: { id: schedule.id },
       body: { message: "trigger now" },
-    }) as { schedules: Array<{ id: string; workflowName: string | null }> };
+    })) as { schedules: Array<{ id: string; workflowName: string | null }> };
 
     expect(result.schedules[0].workflowName).toBe("triage-inbox");
   });
@@ -213,10 +217,10 @@ describe("PATCH /schedules/:id — workflow-mode name validation", () => {
 describe("POST /schedules — workflow mode does not require a message", () => {
   beforeEach(clearTables);
 
-  test("creates a workflow schedule with no message field", () => {
+  test("creates a workflow schedule with no message field", async () => {
     // Workflow runs trigger workflowName/workflowArgs and ignore job.message,
     // so the endpoint must not force a dummy message for workflow mode.
-    const result = createRoute().handler({
+    const result = (await createRoute().handler({
       body: {
         name: "Nightly triage",
         description: "Run the triage workflow",
@@ -225,14 +229,14 @@ describe("POST /schedules — workflow mode does not require a message", () => {
         workflowName: "triage-inbox",
         // no `message`
       },
-    }) as { schedules: Array<{ mode: string; workflowName: string | null }> };
+    })) as { schedule: { mode: string; workflowName: string | null } };
 
-    const created = result.schedules.find((s) => s.mode === "workflow");
-    expect(created?.workflowName).toBe("triage-inbox");
+    expect(result.schedule.mode).toBe("workflow");
+    expect(result.schedule.workflowName).toBe("triage-inbox");
   });
 
-  test("still rejects a workflow schedule with no workflowName", () => {
-    expect(() =>
+  test("still rejects a workflow schedule with no workflowName", async () => {
+    await expect(
       createRoute().handler({
         body: {
           name: "Nightly triage",
@@ -241,11 +245,11 @@ describe("POST /schedules — workflow mode does not require a message", () => {
           mode: "workflow",
         },
       }),
-    ).toThrow("workflowName is required");
+    ).rejects.toThrow("workflowName is required");
   });
 
-  test("execute mode still requires a message", () => {
-    expect(() =>
+  test("execute mode still requires a message", async () => {
+    await expect(
       createRoute().handler({
         body: {
           name: "Plain execute",
@@ -255,7 +259,7 @@ describe("POST /schedules — workflow mode does not require a message", () => {
           // no `message`
         },
       }),
-    ).toThrow("message is required");
+    ).rejects.toThrow("message is required");
   });
 });
 
@@ -267,7 +271,7 @@ describe("POST /schedules/:id/run — workflow mode triggers the workflow", () =
   });
 
   test("starts the saved workflow instead of running a message turn", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Nightly triage",
       cronExpression: "0 9 * * *",
       message: "", // workflow mode carries no message
@@ -311,7 +315,7 @@ describe("POST /schedules/:id/run — workflow mode triggers the workflow", () =
   });
 
   test("fires with the schedule's stored side-effecting manifest", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Side-effecting workflow",
       cronExpression: "0 9 * * *",
       message: "",
@@ -336,7 +340,7 @@ describe("POST /schedules/:id/run — workflow mode triggers the workflow", () =
   });
 
   test("a legacy schedule (null capabilities) fires with the read-only baseline", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Legacy workflow",
       cronExpression: "0 9 * * *",
       message: "",
@@ -360,7 +364,7 @@ describe("POST /schedules/:id/run — workflow mode triggers the workflow", () =
     // Defensive guard mirroring the scheduler's automatic firing path; a
     // nameless workflow schedule cannot be created via the routes, but the store
     // does not enforce it, so run-now must fail fast rather than fall through.
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Nameless workflow",
       cronExpression: "0 9 * * *",
       message: "",
@@ -380,7 +384,7 @@ describe("POST /schedules/:id/run — workflow mode triggers the workflow", () =
     // can't defer to a later tick, so it fails fast with a retryable 503 and
     // never calls start().
     coreToolsReady = false;
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Nightly triage",
       cronExpression: "0 9 * * *",
       message: "",

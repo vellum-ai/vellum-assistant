@@ -255,9 +255,7 @@ function main(): void {
           );
         }
         updates["interrupt-threshold"] = threshold as
-          | "default"
-          | "high"
-          | "low";
+          "default" | "high" | "low";
       }
       if (args["last-run"] != null) {
         updates["last-run"] = args["last-run"] as string;

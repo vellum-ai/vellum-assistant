@@ -23,7 +23,7 @@ import { ContextOverflowError } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
   ) as Record<string, unknown>),
 };
 const tokenEstimatorRealSnapshot = {
@@ -163,7 +163,9 @@ const runMockReducer = async (
   cfg: unknown,
   state: unknown,
 ) => {
-  if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
+  if (mockReducerStepFn) {
+    return mockReducerStepFn(msgs, cfg, state);
+  }
   return {
     messages: msgs,
     tier: "forced_compaction",
@@ -210,7 +212,9 @@ function makeOverflowLadderStub(): {
 } {
   let state: unknown;
   const reduceOverflowOneRung = async (msgs: Message[], opts: unknown) => {
-    if (!state) state = makeInitialReducerState();
+    if (!state) {
+      state = makeInitialReducerState();
+    }
     const step = (await runMockReducer(msgs, opts, state)) as {
       state: unknown;
     };
@@ -256,9 +260,9 @@ mock.module("../plugins/defaults/compaction/overflow-policy.js", () => ({
   resolveOverflowAction: () => mockOverflowAction,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationHistoryStrippedAt: () => {},
   updateConversationUsage: () => {},
@@ -289,11 +293,13 @@ mock.module("../memory/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   resolveOverrideProfile: () => undefined,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
+  getConversationPersistedSeq: () => null,
 }));
 
 afterAll(() => {
   mock.module(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
     () => conversationCrudRealSnapshot,
   );
   mock.module(
@@ -319,14 +325,10 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
-}));
-
-mock.module("../memory/app-git-service.js", () => ({
-  commitAppTurnChanges: () => Promise.resolve(),
 }));
 
 mock.module("../daemon/conversation-memory.js", () => ({
@@ -457,9 +459,15 @@ mock.module("../daemon/conversation-error.js", () => ({
     };
   },
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
-    if (!ctx.aborted) return false;
-    if (err instanceof DOMException && err.name === "AbortError") return true;
-    if (err instanceof Error && err.name === "AbortError") return true;
+    if (!ctx.aborted) {
+      return false;
+    }
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return true;
+    }
+    if (err instanceof Error && err.name === "AbortError") {
+      return true;
+    }
     return false;
   },
   buildConversationErrorMessage: (
@@ -494,7 +502,7 @@ mock.module("../agent/message-types.js", () => ({
   }),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
   setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,
@@ -616,13 +624,6 @@ function makeCtx(
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    traceEmitter: {
-      emit: () => {},
-    } as unknown as Conversation["traceEmitter"],
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -654,6 +655,7 @@ function makeCtx(
     }),
 
     buildCurrentSystemPrompt: () => "system prompt",
+    syncLoopSystemPrompt: () => {},
     modelOverride: undefined,
 
     graphMemory: {
@@ -1266,7 +1268,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       mockEstimateTokens = () => {
         estimateCallCount++;
         // First call: preflight check — below budget
-        if (estimateCallCount === 1) return 100_000;
+        if (estimateCallCount === 1) {
+          return 100_000;
+        }
         // Subsequent calls: mid-loop check — above 85% threshold
         return 170_000;
       };
@@ -1364,10 +1368,16 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       mockEstimateTokens = () => {
         estimateCallCount++;
         // First call: preflight — well below budget
-        if (estimateCallCount === 1) return 50_000;
+        if (estimateCallCount === 1) {
+          return 50_000;
+        }
         // Checkpoint calls grow with each tool round
-        if (estimateCallCount === 2) return 100_000; // tool 1
-        if (estimateCallCount === 3) return 140_000; // tool 2
+        if (estimateCallCount === 2) {
+          return 100_000;
+        } // tool 1
+        if (estimateCallCount === 3) {
+          return 140_000;
+        } // tool 2
         // Tool 3: exceeds 161_500 threshold
         return 175_000;
       };

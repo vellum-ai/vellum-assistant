@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { MessageRow } from "../memory/conversation-crud.js";
+import type { MessageRow } from "../persistence/conversation-crud.js";
 import { parseSubagentMessages } from "../runtime/routes/subagents-routes.js";
 
 let msgCounter = 0;

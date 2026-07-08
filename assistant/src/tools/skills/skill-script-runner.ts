@@ -2,11 +2,8 @@ import { basename, join, resolve } from "node:path";
 
 import { bundledToolRegistry } from "../../config/bundled-tool-registry.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
-import type {
-  ExecutionTarget,
-  ToolContext,
-  ToolExecutionResult,
-} from "../types.js";
+import type { ExecutionTarget } from "../tool-types.js";
+import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { runSkillToolScriptSandbox } from "./sandbox-runner.js";
 import type { SkillToolScript } from "./script-contract.js";
 
@@ -46,6 +43,23 @@ export async function runSkillToolScript(
       expectedSkillVersionHash: options.expectedSkillVersionHash,
       skillDirHashResolver: options.skillDirHashResolver,
     });
+  }
+
+  // Host execution dynamically imports the executor into the daemon process —
+  // full host code execution with no sandbox boundary. This is a first-party
+  // capability reserved for bundled skills, which ship trusted, in-repo
+  // executors. A non-bundled skill (managed, workspace, plugin, extra) that
+  // declares `execution_target: host` must be refused: otherwise an
+  // attacker-planted TOOLS.json — e.g. written into a managed skill dir via
+  // scaffold_managed_skill companion files, or shipped in a third-party skill —
+  // could get arbitrary code imported into the host process and auto-approved
+  // under the low-risk threshold. Non-bundled skills must run their tools in the
+  // sandbox (handled above); host execution here is a hard, fail-closed deny.
+  if (options?.target === "host" && !options?.bundled) {
+    return {
+      content: `Skill tool "${executorPath}" requests host execution, which is only permitted for first-party bundled skills. Non-bundled skills must declare execution_target: "sandbox".`,
+      isError: true,
+    };
   }
 
   const scriptPath = resolve(join(skillDir, executorPath));

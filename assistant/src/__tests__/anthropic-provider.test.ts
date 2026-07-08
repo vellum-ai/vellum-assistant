@@ -68,21 +68,27 @@ mock.module("@anthropic-ai/sdk", () => ({
           if (scriptedStream) {
             for (const event of scriptedStream) {
               if (event.kind === "text") {
-                for (const cb of handlers["text"] ?? []) cb(event.text);
+                for (const cb of handlers["text"] ?? []) {
+                  cb(event.text);
+                }
               } else if (event.kind === "blockStart") {
-                for (const cb of handlers["streamEvent"] ?? [])
+                for (const cb of handlers["streamEvent"] ?? []) {
                   cb({
                     type: "content_block_start",
                     content_block: { type: event.blockType ?? "text" },
                   });
+                }
               } else if (event.kind === "blockStop") {
-                for (const cb of handlers["streamEvent"] ?? [])
+                for (const cb of handlers["streamEvent"] ?? []) {
                   cb({ type: "content_block_stop" });
+                }
               }
             }
           } else {
             // Default: a single "Hello" text event (preserves existing tests).
-            for (const cb of handlers["text"] ?? []) cb("Hello");
+            for (const cb of handlers["text"] ?? []) {
+              cb("Hello");
+            }
           }
           return fakeResponse;
         },
@@ -541,16 +547,29 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const system = lastStreamParams!.system as
       | Array<{ cache_control?: unknown }>
       | undefined;
-    for (const b of system ?? []) if (b.cache_control) breakpoints++;
+    for (const b of system ?? []) {
+      if (b.cache_control) {
+        breakpoints++;
+      }
+    }
     const tools = lastStreamParams!.tools as
       | Array<{ cache_control?: unknown }>
       | undefined;
-    for (const t of tools ?? []) if (t.cache_control) breakpoints++;
+    for (const t of tools ?? []) {
+      if (t.cache_control) {
+        breakpoints++;
+      }
+    }
     const messages = lastStreamParams!.messages as Array<{
       content: Array<{ cache_control?: { type: string; ttl?: string } }>;
     }>;
-    for (const m of messages)
-      for (const b of m.content) if (b.cache_control) breakpoints++;
+    for (const m of messages) {
+      for (const b of m.content) {
+        if (b.cache_control) {
+          breakpoints++;
+        }
+      }
+    }
 
     expect(breakpoints).toBe(4);
     // The stable pages block specifically must hold the preserved breakpoint.
@@ -2032,7 +2051,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual(["Hello world"]);
@@ -2049,7 +2070,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual([]);
@@ -2064,7 +2087,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual([]);
@@ -2081,10 +2106,66 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual([]);
+  });
+
+  test("suppresses a leading-space-corrupted sentinel echo (proxy dropped the guard byte)", async () => {
+    // OpenRouter's Anthropic-compat path returns the `\x00` guard as a leading
+    // space; the normalized prefix check must still hold and drop it.
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: " __PLACEHOLDER__[empty assistant turn]" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], {
+      onEvent: (event) => {
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
+      },
+    });
+    expect(emitted).toEqual([]);
+  });
+
+  test("suppresses a leading-space-corrupted sentinel split across chunks", async () => {
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: " __PLACE" },
+      { kind: "text", text: "HOLDER__[empty assistant turn]" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], {
+      onEvent: (event) => {
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
+      },
+    });
+    expect(emitted).toEqual([]);
+  });
+
+  test("still streams real text that begins with whitespace", async () => {
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: " hello there" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], {
+      onEvent: (event) => {
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
+      },
+    });
+    expect(emitted.join("")).toBe(" hello there");
   });
 
   test("flushes buffered prefix when the continuation diverges from all sentinels", async () => {
@@ -2100,7 +2181,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted.join("")).toBe("__PLACEHOLDER__ is bold in markdown");
@@ -2117,7 +2200,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual(["__PLACEHOLDER__"]);
@@ -2135,7 +2220,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual(["Fresh block content"]);
@@ -3173,7 +3260,9 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
     // Collect all thinking blocks across all assistant messages
     const allThinking: Anthropic.ContentBlockParam[] = [];
     for (const m of sent) {
-      if (m.role !== "assistant") continue;
+      if (m.role !== "assistant") {
+        continue;
+      }
       const blocks = m.content as Anthropic.ContentBlockParam[];
       for (const b of blocks) {
         if (typeof b !== "string" && b.type === "thinking") {
@@ -3197,11 +3286,14 @@ describe("AnthropicProvider — deprecated sampling params (temperature / top_p 
     lastStreamParams = null;
   });
 
-  // opus-4-7 / opus-4-8 (and, conservatively, fable) reject `temperature`,
-  // `top_p`, and `top_k` with a 400; the provider must strip all three.
+  // opus-4-7 / opus-4-8 / sonnet-5 (and, conservatively, fable) reject
+  // `temperature`, `top_p`, and `top_k` with a 400; the provider must strip
+  // all three. The OpenRouter `anthropic/...` form delegates here too.
   for (const model of [
     "claude-opus-4-8",
     "claude-opus-4-7",
+    "claude-sonnet-5",
+    "anthropic/claude-sonnet-5",
     "claude-fable-5",
   ]) {
     test(`strips temperature, top_p, and top_k for ${model}`, async () => {

@@ -22,6 +22,11 @@ export interface GraphResponse<T = unknown> {
   ok: boolean;
   status: number;
   data: T;
+  /**
+   * The connected account the daemon used to satisfy the request, when it
+   * reports one. Absent when the daemon does not surface an `account` field.
+   */
+  account?: string;
 }
 
 const MAX_RETRIES = 3;
@@ -105,6 +110,7 @@ export async function graphRequest<T = unknown>(
       status: number;
       headers: Record<string, string>;
       body: unknown;
+      account?: string;
     };
     try {
       result = JSON.parse(stdout);
@@ -135,6 +141,7 @@ export async function graphRequest<T = unknown>(
       ok: result.ok,
       status: result.status,
       data: result.body as T,
+      account: result.account,
     };
   }
 
@@ -232,12 +239,7 @@ export interface OutlookCalendarEvent {
   isAllDay?: boolean;
   isCancelled?: boolean;
   showAs?:
-    | "free"
-    | "tentative"
-    | "busy"
-    | "oof"
-    | "workingElsewhere"
-    | "unknown";
+    "free" | "tentative" | "busy" | "oof" | "workingElsewhere" | "unknown";
   importance?: "low" | "normal" | "high";
   sensitivity?: "normal" | "personal" | "private" | "confidential";
   webLink?: string;
@@ -261,12 +263,7 @@ export interface OutlookCalendarEventListResponse {
 /** A single schedule item (free/busy block). */
 export interface OutlookScheduleItem {
   status:
-    | "free"
-    | "tentative"
-    | "busy"
-    | "oof"
-    | "workingElsewhere"
-    | "unknown";
+    "free" | "tentative" | "busy" | "oof" | "workingElsewhere" | "unknown";
   start: OutlookDateTimeZone;
   end: OutlookDateTimeZone;
   subject?: string;

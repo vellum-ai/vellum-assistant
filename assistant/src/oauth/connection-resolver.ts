@@ -38,13 +38,32 @@ export interface ResolveOAuthConnectionOptions {
 }
 
 /**
+ * Outcome of resolving a connection, carrying the account that actually served
+ * the request plus the ambiguity signal callers surface to the model.
+ *
+ * When several active connections match a provider and the caller did not pin
+ * an account, resolution silently picks the most-recently-created one. That
+ * choice is invisible unless it is reported: `ambiguous` flags the situation
+ * and `allAccounts` lists every candidate's label so a caller can warn that a
+ * specific account should be selected.
+ */
+export interface OAuthConnectionResolution {
+  connection: OAuthConnection;
+  /** True when more than one active connection matched and no account was pinned. */
+  ambiguous: boolean;
+  /**
+   * Labels of every active connection considered, most-recent first. The first
+   * entry is always the one that served the request. Labels fall back to the
+   * connection ID when no human-readable account label is available.
+   */
+  allAccounts: string[];
+}
+
+/**
  * Resolve an OAuthConnection for a given provider.
  *
- * Managed providers (where the service config `mode` is `"managed"`) are
- * routed through the platform proxy with no local state required.
- *
- * BYO providers resolve from the local SQLite oauth-store and require an
- * active connection row and a stored access token.
+ * Thin wrapper over {@link resolveOAuthConnectionWithMeta} for callers that
+ * only need the connection and not the resolution metadata.
  *
  * @param provider - Provider identifier (e.g. "google").
  *   Maps to the `provider_key` primary key in the `oauth_providers` table.
@@ -58,6 +77,27 @@ export async function resolveOAuthConnection(
   provider: string,
   options?: ResolveOAuthConnectionOptions,
 ): Promise<OAuthConnection> {
+  const { connection } = await resolveOAuthConnectionWithMeta(
+    provider,
+    options,
+  );
+  return connection;
+}
+
+/**
+ * Resolve an OAuthConnection along with the account that served it and whether
+ * the selection was ambiguous.
+ *
+ * Managed providers (where the service config `mode` is `"managed"`) are
+ * routed through the platform proxy with no local state required.
+ *
+ * BYO providers resolve from the local SQLite oauth-store and require an
+ * active connection row and a stored access token.
+ */
+export async function resolveOAuthConnectionWithMeta(
+  provider: string,
+  options?: ResolveOAuthConnectionOptions,
+): Promise<OAuthConnectionResolution> {
   const { clientId, account, requiredScopes } = options ?? {};
   const providerRow = getProvider(provider);
   const managedKey = providerRow?.managedServiceConfigKey;
@@ -76,22 +116,27 @@ export async function resolveOAuthConnection(
         );
       }
 
-      const connectionId = await resolvePlatformConnectionId({
+      const resolution = await resolvePlatformConnectionId({
         client,
         provider,
         account,
         requiredScopes,
       });
 
-      return new PlatformOAuthConnection({
+      const connection = new PlatformOAuthConnection({
         id: provider,
         provider,
         externalId: provider,
-        accountInfo: account ?? null,
+        accountInfo: resolution.accountLabel ?? account ?? null,
         client,
-        connectionId,
+        connectionId: resolution.id,
         baseUrl: providerRow?.baseUrl ?? undefined,
       });
+      return {
+        connection,
+        ambiguous: resolution.ambiguous,
+        allAccounts: resolution.allAccountLabels,
+      };
     }
   }
 
@@ -120,7 +165,7 @@ export async function resolveOAuthConnection(
   // Only fail when EVERY active connection positively lacks a required scope;
   // unknown scope data never blocks. Without requiredScopes, behavior is
   // unchanged: take the most-recently-created connection.
-  let conn = candidates[0];
+  let selectionPool = candidates;
   if (requiredScopes?.length) {
     const { eligible, missingScopes } = partitionByScopes(
       candidates,
@@ -130,7 +175,25 @@ export async function resolveOAuthConnection(
     if (eligible.length === 0) {
       throw new Error(missingScopesMessage(provider, missingScopes));
     }
-    conn = eligible[0];
+    selectionPool = eligible;
+  }
+  const conn = selectionPool[0];
+
+  const allAccounts = selectionPool.map(
+    (row) => (row.accountInfo as string | null) ?? (row.id as string),
+  );
+  const ambiguous = selectionPool.length > 1 && !account;
+  if (ambiguous) {
+    log.warn(
+      {
+        provider,
+        count: selectionPool.length,
+        selectedId: conn.id,
+        allAccounts: allAccounts.join(", "),
+      },
+      "Multiple active OAuth connections found; using the most recently created. " +
+        "Pass an account option to select a specific connection.",
+    );
   }
 
   const tokenResult = await getConnectionAccessTokenResult({
@@ -150,12 +213,13 @@ export async function resolveOAuthConnection(
     );
   }
 
-  return new BYOOAuthConnection({
+  const connection = new BYOOAuthConnection({
     id: conn.id,
     provider: conn.provider,
     baseUrl: resolveEffectiveBaseUrl(conn.provider, baseUrl, conn.metadata),
     accountInfo: conn.accountInfo,
   });
+  return { connection, ambiguous, allAccounts };
 }
 
 /**
@@ -231,6 +295,22 @@ interface PlatformConnectionEntry {
   scopes_granted?: string[] | null;
 }
 
+interface PlatformConnectionResolution {
+  /** Platform-side connection ID used in the proxy URL path. */
+  id: string;
+  /** Human-readable account label of the connection that served the request. */
+  accountLabel: string | null;
+  /** Labels (falling back to IDs) of every connection considered, most-recent first. */
+  allAccountLabels: string[];
+  /** True when more than one active connection matched and no account was pinned. */
+  ambiguous: boolean;
+}
+
+/** Human-readable label for a platform connection, falling back to its ID. */
+function platformConnectionLabel(entry: PlatformConnectionEntry): string {
+  return entry.account_label ?? entry.id;
+}
+
 /**
  * Fetch active platform connections for a managed provider by calling the
  * List Connections endpoint.
@@ -276,7 +356,7 @@ async function fetchPlatformConnections(options: {
  */
 async function resolvePlatformConnectionId(
   options: ResolvePlatformConnectionIdOptions,
-): Promise<string> {
+): Promise<PlatformConnectionResolution> {
   const { client, provider, account, requiredScopes } = options;
 
   let connections = await fetchPlatformConnections({
@@ -324,23 +404,28 @@ async function resolvePlatformConnectionId(
     connections = eligible;
   }
 
-  if (connections.length > 1 && !account) {
-    const allAccounts = connections
-      .map((c) => c.account_label ?? c.id)
-      .join(", ");
+  const allAccountLabels = connections.map(platformConnectionLabel);
+  const ambiguous = connections.length > 1 && !account;
+  if (ambiguous) {
     log.warn(
       {
         provider,
         count: connections.length,
         selectedId: connections[0].id,
-        allAccounts,
+        allAccounts: allAccountLabels.join(", "),
       },
       "Multiple active platform connections found; using the most recently created. " +
         "Pass an account option to select a specific connection.",
     );
   }
 
-  return connections[0].id;
+  const selected = connections[0];
+  return {
+    id: selected.id,
+    accountLabel: selected.account_label ?? null,
+    allAccountLabels,
+    ambiguous,
+  };
 }
 
 /**

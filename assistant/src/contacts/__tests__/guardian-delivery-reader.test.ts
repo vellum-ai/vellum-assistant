@@ -37,7 +37,6 @@ mock.module("../../ipc/gateway-client.js", () => ({
   resetPersistentClient: () => {},
 }));
 
-import { emitContactChange } from "../contact-events.js";
 import {
   __resetGuardianDeliveryCacheForTest,
   anyGuardian,
@@ -135,16 +134,6 @@ describe("getGuardianDelivery", () => {
     expect(countCalls(METHOD)).toBe(2);
   });
 
-  test("a contact-change event clears the cache", async () => {
-    ipcHandlers.set(METHOD, () => ({ guardians: [telegramGuardian] }));
-
-    await getGuardianDelivery();
-    emitContactChange();
-    await getGuardianDelivery();
-
-    expect(countCalls(METHOD)).toBe(2);
-  });
-
   test("a burst of concurrent cold-cache calls issues only ONE IPC call (single-flight)", async () => {
     let resolveIpc: ((value: unknown) => void) | undefined;
     ipcHandlers.set(
@@ -232,9 +221,9 @@ describe("getGuardianDelivery", () => {
 
   test("getGuardianDeliveryFresh bypasses a stale cached empty list", async () => {
     ipcHandlers.set(METHOD, () => ({ guardians: [] }));
-    expect(
-      await getGuardianDelivery({ channelTypes: ["telegram"] }),
-    ).toEqual([]);
+    expect(await getGuardianDelivery({ channelTypes: ["telegram"] })).toEqual(
+      [],
+    );
 
     ipcHandlers.set(METHOD, () => ({ guardians: [telegramGuardian] }));
     expect(

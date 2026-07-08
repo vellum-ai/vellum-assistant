@@ -13,18 +13,18 @@ import { join } from "node:path";
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
-import { compileApp } from "../../bundler/app-compiler.js";
 import {
   getApp,
   getAppDirPath,
   isMultifileApp,
   resolveEffectiveAppHtml,
-} from "../../memory/app-store.js";
+} from "../../apps/app-store.js";
 import {
   getActivePublishedPageByAppId,
   insertPublishedPage,
   updatePublishedPage,
-} from "../../memory/published-pages-store.js";
+} from "../../apps/published-pages-store.js";
+import { compileApp } from "../../bundler/app-compiler.js";
 import { deployHtmlToVercel } from "../../services/vercel-deploy.js";
 import { credentialBroker } from "../../tools/credentials/broker.js";
 import { getLogger } from "../../util/logger.js";

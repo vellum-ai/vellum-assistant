@@ -118,6 +118,7 @@ import * as openSystemSettings from "./bundled-skills/settings/tools/open-system
 import * as voiceConfigUpdate from "./bundled-skills/settings/tools/voice-config-update.js";
 // ── skill-management ───────────────────────────────────────────────────────────
 import * as deleteManaged from "./bundled-skills/skill-management/tools/delete-managed.js";
+import * as findSimilarSkills from "./bundled-skills/skill-management/tools/find-similar.js";
 import * as scaffoldManaged from "./bundled-skills/skill-management/tools/scaffold-managed.js";
 // ── subagent ───────────────────────────────────────────────────────────────────
 import * as subagentAbort from "./bundled-skills/subagent/tools/subagent-abort.js";
@@ -262,6 +263,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   // skill-management
   ["skill-management:tools/scaffold-managed.ts", scaffoldManaged],
   ["skill-management:tools/delete-managed.ts", deleteManaged],
+  ["skill-management:tools/find-similar.ts", findSimilarSkills],
 
   // subagent
   ["subagent:tools/subagent-spawn.ts", subagentSpawn],

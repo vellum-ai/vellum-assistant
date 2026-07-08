@@ -4,7 +4,7 @@ import {
   getDocumentById,
   getDocumentsForConversation,
 } from "../documents/document-store.js";
-import { getSqlite } from "../memory/db-connection.js";
+import { getSqlite } from "../persistence/db-connection.js";
 import { executeDocumentCreate } from "../tools/document/document-tool.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { resetDbForTesting } from "./db-test-helpers.js";

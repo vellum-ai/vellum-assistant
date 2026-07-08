@@ -6,13 +6,12 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import {
     getModelsForProvider,
     PROVIDER_DISPLAY_NAMES,
-    MODELS_BY_PROVIDER,
 } from "@/assistant/llm-model-catalog";
 
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
+import { useSelectableCatalogProviders } from "@/domains/settings/ai/provider-availability";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { ConnectionModel, ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
-
-const ALL_PROVIDERS = Object.keys(MODELS_BY_PROVIDER) as (keyof typeof MODELS_BY_PROVIDER)[];
 
 const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
   "gpt-5.5",
@@ -100,10 +99,11 @@ export function ProfileEditorProviderSection({
   connectionNotFound,
   hideProviderField = false,
 }: ProfileEditorProviderSectionProps) {
+  const isMobile = useIsMobile();
   const providerMissing = provider.length === 0;
   const providerWithoutModel = provider.length > 0 && model.length === 0;
 
-  const allProvidersForPicker = ALL_PROVIDERS;
+  const allProvidersForPicker = useSelectableCatalogProviders();
 
   // Filter to providers with at least one connection — picking a provider
   // with zero connections binds a profile to a route the daemon can't
@@ -258,7 +258,7 @@ export function ProfileEditorProviderSection({
             >
               Provider
             </label>
-            {providerMissing ? (
+            {providerMissing && !isMobile ? (
               <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
                 Pick a provider
               </span>

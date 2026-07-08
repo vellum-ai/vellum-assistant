@@ -24,10 +24,24 @@ const TELEGRAM_DEFAULT_TIMEOUT_MS = 15_000;
 // Error types
 // ---------------------------------------------------------------------------
 
-class TelegramNonRetryableError extends Error {
-  constructor(message: string) {
+/**
+ * A Telegram Bot API call that returned a non-retryable client error (a 4xx
+ * with `ok: false`). The request itself is the problem — the chat, the method,
+ * or the payload — so retrying the same call is pointless. `description` carries
+ * Telegram's human-readable error text when present.
+ *
+ * Callers branch on this type to degrade gracefully: e.g. a rejected
+ * `sendRichMessage` falls back to a plain-text `sendMessage`. Branch on the
+ * type, not on `error_code` — the docs warn the numeric code is "subject to
+ * change" (https://core.telegram.org/bots/api#making-requests).
+ */
+export class TelegramNonRetryableError extends Error {
+  readonly description: string | undefined;
+
+  constructor(message: string, description?: string) {
     super(message);
     this.name = "TelegramNonRetryableError";
+    this.description = description;
   }
 }
 
@@ -132,7 +146,7 @@ async function retryableFetch<T>(
           ? `Telegram ${method} failed with status ${response.status}: ${redactBotTokens(body)}`
           : `Telegram ${method} failed with status ${response.status}`;
 
-      throw new TelegramNonRetryableError(message);
+      throw new TelegramNonRetryableError(message, description);
     }
 
     if (isRetryable(response.status)) {

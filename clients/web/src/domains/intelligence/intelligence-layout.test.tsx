@@ -6,9 +6,13 @@
  * `max-md:hidden`. On desktop the in-body <h1> renders the title and the
  * top-bar center is cleared (`setTopBarCenter(null)`).
  *
- * `useIsMobile` and the slots-store setter are mocked; the assistant name is
- * driven through the real identity store. `MemoryRouter` satisfies the
- * component's `useLocation`/`NavLink` usage.
+ * A second suite covers the Plugins tab's backwards-compat version gate:
+ * the tab only appears once the connected assistant's version is known and
+ * at or above the plugin-routes minimum.
+ *
+ * `useIsMobile` and the slots-store setter are mocked; the assistant name
+ * and version are driven through the real identity store. `MemoryRouter`
+ * satisfies the component's `useLocation`/`NavLink` usage.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { isValidElement } from "react";
@@ -16,6 +20,8 @@ import { cleanup, render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
+import { MIN_VERSION } from "@/lib/backwards-compat/plugins-surface";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const isMobileRef = { value: false };
@@ -30,18 +36,6 @@ mock.module("@/components/layout/chat-layout-slots-store", () => ({
   useChatLayoutSlotsStore: {
     use: {
       setTopBarCenter: () => setTopBarCenterMock,
-    },
-  },
-}));
-
-// The real feature-flag store imports the generated API client, which isn't
-// available under the test runner. Stub the two selectors the layout reads;
-// `false` for `externalPlugins` keeps the baseline tab set.
-mock.module("@/stores/assistant-feature-flag-store", () => ({
-  useAssistantFeatureFlagStore: {
-    use: {
-      hasHydrated: () => true,
-      externalPlugins: () => false,
     },
   },
 }));
@@ -66,6 +60,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
+  useAssistantFeatureFlagStore.setState({ channelTrustFloors: false });
 });
 
 describe("IntelligenceLayout", () => {
@@ -95,5 +90,43 @@ describe("IntelligenceLayout", () => {
     expect(heading?.textContent).toContain("About Ada");
 
     expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe("IntelligenceLayout — Plugins tab version gate", () => {
+  const tabLabels = (container: HTMLElement): (string | null)[] =>
+    Array.from(container.querySelectorAll("nav a")).map((a) => a.textContent);
+
+  test("shows the Plugins tab (between Identity and Skills) on a plugin-capable assistant", () => {
+    useAssistantIdentityStore.getState().setIdentity("Ada", MIN_VERSION);
+    useAssistantFeatureFlagStore.setState({ channelTrustFloors: true });
+    const { container } = renderLayout();
+    expect(tabLabels(container)).toEqual([
+      "Identity",
+      "Plugins",
+      "Skills",
+      "Workspace",
+      "Contacts",
+      "Channels",
+    ]);
+  });
+
+  test("hides the Channels tab while channel-trust-floors is off", () => {
+    useAssistantIdentityStore.getState().setIdentity("Ada", MIN_VERSION);
+    const { container } = renderLayout();
+    expect(tabLabels(container)).not.toContain("Channels");
+  });
+
+  test("hides the Plugins tab on an assistant too old for the plugin routes", () => {
+    useAssistantIdentityStore.getState().setIdentity("Ada", "0.10.2");
+    const { container } = renderLayout();
+    expect(tabLabels(container)).not.toContain("Plugins");
+  });
+
+  test("hides the Plugins tab until the assistant version hydrates", () => {
+    // beforeEach already seeds a null version; assert the pre-hydration
+    // default keeps the tab hidden rather than flashing it in.
+    const { container } = renderLayout();
+    expect(tabLabels(container)).not.toContain("Plugins");
   });
 });

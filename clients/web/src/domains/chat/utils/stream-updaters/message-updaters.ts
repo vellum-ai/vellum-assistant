@@ -32,6 +32,7 @@ export function createStreamingBubble(
   prev: DisplayMessage[],
   text: string,
   messageId?: string,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   return [
     ...prev,
@@ -42,7 +43,7 @@ export function createStreamingBubble(
       textSegments: [text],
       contentOrder: [{ type: "text", id: "0" }],
       contentBlocks: [{ type: "text", text }],
-      timestamp: Date.now(),
+      timestamp: at,
     },
   ];
 }
@@ -182,6 +183,7 @@ export function appendTextDelta(
   text: string,
   messageId?: string,
   seedTwin?: () => DisplayMessage | undefined,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
@@ -205,11 +207,11 @@ export function appendTextDelta(
     if (twin) {
       return appendTextSegmentIntoRow([...prev, twin], prev.length, text, messageId);
     }
-    return createStreamingBubble(prev, text, messageId);
+    return createStreamingBubble(prev, text, messageId, at);
   }
 
   if (!tailIsAssistant(prev)) {
-    return createStreamingBubble(prev, text, messageId);
+    return createStreamingBubble(prev, text, messageId, at);
   }
   return appendTextSegmentIntoRow(prev, prev.length - 1, text, undefined);
 }
@@ -228,6 +230,7 @@ export function createStreamingThinkingBubble(
   prev: DisplayMessage[],
   thinking: string,
   messageId?: string,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   return [
     ...prev,
@@ -238,7 +241,7 @@ export function createStreamingThinkingBubble(
       thinkingSegments: [thinking],
       contentOrder: [{ type: "thinking", id: "0" }],
       contentBlocks: [{ type: "thinking", thinking }],
-      timestamp: Date.now(),
+      timestamp: at,
     },
   ];
 }
@@ -257,6 +260,7 @@ export function appendThinkingDelta(
   thinking: string,
   messageId?: string,
   seedTwin?: () => DisplayMessage | undefined,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
@@ -283,11 +287,11 @@ export function appendThinkingDelta(
         messageId,
       );
     }
-    return createStreamingThinkingBubble(prev, thinking, messageId);
+    return createStreamingThinkingBubble(prev, thinking, messageId, at);
   }
 
   if (!tailIsAssistant(prev)) {
-    return createStreamingThinkingBubble(prev, thinking, messageId);
+    return createStreamingThinkingBubble(prev, thinking, messageId, at);
   }
   return appendThinkingSegmentIntoRow(prev, prev.length - 1, thinking, undefined);
 }
@@ -302,11 +306,14 @@ export function appendThinkingDelta(
  * conversation's processing state (see `liveAssistantRowId`), which the
  * idle event clears, so no per-row flag needs flipping here.
  */
-export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
+export function finalizeOnIdle(
+  prev: DisplayMessage[],
+  at: number = Date.now(),
+): DisplayMessage[] {
   let changed = false;
   const updated = prev.map((m) => {
     if (m.role !== "assistant") return m;
-    const finalized = finalizeRunningToolCalls(m);
+    const finalized = finalizeRunningToolCalls(m, at);
     if (!finalized) return m;
     changed = true;
     return { ...m, ...finalized };
@@ -347,6 +354,7 @@ export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
 export function finalizeMessageComplete(
   prev: DisplayMessage[],
   event: MessageCompleteEvent,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   const last = prev[prev.length - 1];
   const attachments = toDisplayAttachments(event.attachments);
@@ -359,13 +367,13 @@ export function finalizeMessageComplete(
         id: event.messageId ?? crypto.randomUUID(),
         ...(event.messageId ? {} : { isOptimistic: true }),
         role: "assistant" as const,
-        timestamp: Date.now(),
+        timestamp: at,
         attachments,
       },
     ];
   }
 
-  const finalized = finalizeRunningToolCalls(last);
+  const finalized = finalizeRunningToolCalls(last, at);
   const adoptServerId = last.isOptimistic === true && !!event.messageId;
   return [
     ...prev.slice(0, -1),
@@ -445,6 +453,7 @@ function findOptimisticUserEchoIdx(
 export function applyUserMessageEcho(
   prev: DisplayMessage[],
   event: { text: string; messageId?: string; clientMessageId?: string },
+  at: number = Date.now(),
 ): DisplayMessage[] {
   const serverId = event.messageId;
 
@@ -480,11 +489,17 @@ export function applyUserMessageEcho(
     {
       id: serverId ?? crypto.randomUUID(),
       ...(serverId === undefined ? { isOptimistic: true } : {}),
+      // Carry the nonce so the folded row shares the persisted server row's
+      // identity keys — the transcript overlay and the reseed prune both
+      // correlate on it (see `messageMatchKeys`).
+      ...(event.clientMessageId
+        ? { clientMessageId: event.clientMessageId }
+        : {}),
       role: "user",
       textSegments: [event.text],
       contentOrder: [{ type: "text", id: "0" }],
       contentBlocks: [{ type: "text", text: event.text }],
-      timestamp: Date.now(),
+      timestamp: at,
     },
   ];
 }
@@ -496,12 +511,13 @@ export function applyUserMessageEcho(
 /** Handle conversation error: finalize tool calls, remove empty bubbles. */
 export function handleConversationError(
   prev: DisplayMessage[],
+  at: number = Date.now(),
 ): DisplayMessage[] {
   const lastIdx = prev.length - 1;
   const last = prev[lastIdx];
   if (!last || last.role !== "assistant") return prev;
 
-  const finalized = finalizeRunningToolCalls(last);
+  const finalized = finalizeRunningToolCalls(last, at);
   const hasContent =
     messagePlainText(last).trim().length > 0 ||
     (last.thinkingSegments != null && last.thinkingSegments.length > 0) ||

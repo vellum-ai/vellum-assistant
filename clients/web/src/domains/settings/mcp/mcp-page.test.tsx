@@ -1,10 +1,23 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
 
 let assistantFlags: Record<string, boolean> = {};
+let flagsHydrated = true;
+
+const navigateToNewConversation = mock((..._args: unknown[]) => {});
+mock.module("@/utils/conversation-navigation", () => ({
+  navigateToNewConversation,
+}));
 
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "assistant-123",
@@ -14,6 +27,7 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
     mcpAddServer: () => assistantFlags.mcpAddServer ?? false,
+    hasHydrated: () => flagsHydrated,
   };
   return { useAssistantFeatureFlagStore: store };
 });
@@ -76,12 +90,18 @@ function Wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
+  );
 }
 
 afterEach(() => {
   cleanup();
   assistantFlags = {};
+  flagsHydrated = true;
+  navigateToNewConversation.mockClear();
 });
 
 describe("McpPage", () => {
@@ -104,5 +124,49 @@ describe("McpPage", () => {
     expect(
       await screen.findByRole("button", { name: "Add Server" }),
     ).not.toBeNull();
+  });
+
+  test("empty state starts a setup conversation when the mcpAddServer flag is off", async () => {
+    assistantFlags = { mcpAddServer: false };
+
+    render(<McpPage />, { wrapper: Wrapper });
+
+    const cta = await screen.findByRole("button", {
+      name: /Chat with your assistant to set up an MCP server/,
+    });
+    fireEvent.click(cta);
+
+    expect(navigateToNewConversation).toHaveBeenCalledTimes(1);
+    expect(navigateToNewConversation.mock.calls[0]?.[1]).toMatchObject({
+      prompt: expect.stringContaining("MCP server"),
+    });
+  });
+
+  test("empty state opens the add server modal when the mcpAddServer flag is on", async () => {
+    assistantFlags = { mcpAddServer: true };
+
+    render(<McpPage />, { wrapper: Wrapper });
+
+    const cta = await screen.findByRole("button", {
+      name: /Add an MCP server to extend your assistant with external tools/,
+    });
+    fireEvent.click(cta);
+
+    expect(navigateToNewConversation).not.toHaveBeenCalled();
+  });
+
+  test("empty state CTA stays inert until feature flags hydrate", async () => {
+    assistantFlags = { mcpAddServer: false };
+    flagsHydrated = false;
+
+    render(<McpPage />, { wrapper: Wrapper });
+
+    const cta = await screen.findByRole("button", {
+      name: /Chat with your assistant to set up an MCP server/,
+    });
+    expect((cta as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(cta);
+
+    expect(navigateToNewConversation).not.toHaveBeenCalled();
   });
 });

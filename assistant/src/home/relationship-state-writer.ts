@@ -21,8 +21,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { countConversations as countConversationsDb } from "../memory/conversation-queries.js";
+import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import { listConnections } from "../oauth/oauth-store.js";
+import { countConversations as countConversationsDb } from "../persistence/conversation-queries.js";
 import { resolveGuardianPersonaPath } from "../prompts/persona-resolver.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -162,6 +163,10 @@ export async function computeRelationshipState(): Promise<RelationshipState> {
   //      old workspaces that never ran migration 031.
   //   3. Empty string → extraction yields [] and `userName` is undefined.
   // Every step is guarded because the writer must never throw.
+  // Warm the vellum guardian-delivery cache so the sync persona resolution in
+  // resolveGuardianUserContent hits a fresh key instead of falling back to
+  // default.md on a cold/TTL-expired cache.
+  await getGuardianDelivery({ channelTypes: ["vellum"] });
   const userMd = resolveGuardianUserContent();
   const soulMd = safeRead(getWorkspacePromptPath("SOUL.md"));
   const identityPath = getWorkspacePromptPath("IDENTITY.md");

@@ -15,10 +15,14 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Pencil } from "lucide-react";
+import { ArrowLeft, ArrowRight, Dices, Pencil } from "lucide-react";
 
 import { OnboardingCharacterStage } from "@/domains/onboarding/components/onboarding-character-stage";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
+import {
+  OnboardingStageSizeProvider,
+  useElementSize,
+} from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import type { CharacterTraits } from "@/types/avatar";
@@ -76,6 +80,10 @@ export function GiveMeAFaceScreen({
   // so their custom name survives cycling through avatars.
   const nameCustomized = useRef(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  // Measure this screen's container so the decorative stage shares the exact
+  // coordinate space as the foreground arrows/title/buttons (see
+  // use-onboarding-stage-size).
+  const { ref: stageRef, size: stageSize } = useElementSize();
   // The current swap: the newly selected char + the slot it came from
   // (entering), and the old center + the slot it's heading to (exiting).
   const [swap, setSwap] = useState<{
@@ -144,16 +152,30 @@ export function GiveMeAFaceScreen({
     if (centeredTraits) onContinue({ traits: centeredTraits, name: name.trim() });
   }
 
+  // Roll a random name from the pool (different from the current one). Counts as
+  // a deliberate pick, so — like editing — it sticks across avatar cycling
+  // instead of being re-prefilled from the centered avatar.
+  function randomizeName() {
+    nameCustomized.current = true;
+    setName((current) => {
+      const options = ASSISTANT_NAMES.filter((candidate) => candidate !== current);
+      const pool = options.length > 0 ? options : ASSISTANT_NAMES;
+      return pool[Math.floor(Math.random() * pool.length)]!;
+    });
+  }
+
   const arrowClass =
-    "pointer-events-auto z-10 flex h-10 w-10 items-center justify-center rounded-full " +
+    "pointer-events-auto z-10 flex cursor-pointer h-10 w-10 items-center justify-center rounded-full " +
     "bg-[color-mix(in_srgb,var(--content-default)_10%,transparent)] text-[var(--content-default)] " +
     "transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--content-default)_18%,transparent)]";
 
   return (
     <div
+      ref={stageRef}
       data-theme="dark"
       className="relative h-full overflow-hidden bg-[var(--surface-base)] text-[var(--content-default)]"
     >
+      <OnboardingStageSizeProvider size={stageSize}>
       {ready && (
         <OnboardingCharacterStage
           components={components}
@@ -229,19 +251,30 @@ export function GiveMeAFaceScreen({
             className="w-[234px] rounded-2xl border border-[var(--border-element)] bg-transparent px-4 py-2.5 text-center text-lg text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-colors duration-150 focus:border-[var(--border-active)]"
           />
         ) : (
-          <button
-            type="button"
-            onClick={() => setEditingName(true)}
-            aria-label="Edit name"
-            className="flex items-center gap-2.5"
-          >
-            <span
-              className={`text-3xl font-medium ${name ? "text-[var(--content-default)]" : "text-[var(--content-tertiary)]"}`}
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setEditingName(true)}
+              aria-label="Edit name"
+              className="flex cursor-pointer items-center gap-2.5"
             >
-              {name || "Name your assistant"}
-            </span>
-            <Pencil className="h-5 w-5 text-[var(--content-tertiary)]" />
-          </button>
+              <span
+                className={`text-3xl font-medium ${name ? "text-[var(--content-default)]" : "text-[var(--content-tertiary)]"}`}
+              >
+                {name || "Name your assistant"}
+              </span>
+              <Pencil className="h-5 w-5 text-[var(--content-tertiary)]" />
+            </button>
+            <button
+              type="button"
+              onClick={randomizeName}
+              aria-label="Shuffle name"
+              title="Shuffle name"
+              className="cursor-pointer text-[var(--content-tertiary)] transition-[transform,color] duration-300 hover:rotate-180 hover:text-[var(--content-default)]"
+            >
+              <Dices className="h-5 w-5" />
+            </button>
+          </div>
         )}
 
         <Button
@@ -256,6 +289,7 @@ export function GiveMeAFaceScreen({
           Continue
         </Button>
       </div>
+      </OnboardingStageSizeProvider>
     </div>
   );
 }

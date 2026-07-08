@@ -9,11 +9,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 await import("../../__tests__/test-preload.js");
-const { initGatewayDb, resetGatewayDb, getGatewayDb } = await import(
-  "../../db/connection.js"
-);
-const { contacts: gwContacts, contactChannels: gwContactChannels } =
-  await import("../../db/schema.js");
+const { initGatewayDb, resetGatewayDb, getGatewayDb } =
+  await import("../../db/connection.js");
+const {
+  contacts: gwContacts,
+  contactChannels: gwContactChannels,
+  channelVerificationSessions: gwVerificationSessions,
+} = await import("../../db/schema.js");
 const { resolveTrustVerdict } = await import("../trust-verdict-resolver.js");
 
 const CHANNEL = "telegram";
@@ -47,7 +49,7 @@ function insertChannel(args: {
   status?: string;
   policy?: string;
   verifiedAt?: number | null;
-  verifiedVia?: string | null;
+  interactionCount?: number;
 }): void {
   const now = Date.now();
   getGatewayDb()
@@ -61,9 +63,29 @@ function insertChannel(args: {
       status: args.status ?? "active",
       policy: args.policy ?? "allow",
       verifiedAt: args.verifiedAt ?? now,
-      verifiedVia: args.verifiedVia ?? "challenge",
-      interactionCount: 0,
+      interactionCount: args.interactionCount ?? 0,
       createdAt: now,
+    })
+    .run();
+}
+
+function insertSession(args: {
+  id: string;
+  channel?: string;
+  status?: string;
+  expiresAt?: number;
+}): void {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(gwVerificationSessions)
+    .values({
+      id: args.id,
+      channel: args.channel ?? CHANNEL,
+      challengeHash: `hash-${args.id}`,
+      expiresAt: args.expiresAt ?? now + 600_000,
+      status: args.status ?? "pending",
+      createdAt: now,
+      updatedAt: now,
     })
     .run();
 }
@@ -75,6 +97,7 @@ beforeEach(async () => {
   // prior test left behind (channels first — FK cascade from contacts).
   getGatewayDb().delete(gwContactChannels).run();
   getGatewayDb().delete(gwContacts).run();
+  getGatewayDb().delete(gwVerificationSessions).run();
 });
 
 afterEach(() => {
@@ -131,7 +154,7 @@ describe("resolveTrustVerdict", () => {
       address: "U_MEMBER",
       externalChatId: "chat-member",
       status: "active",
-      verifiedVia: "manual",
+      interactionCount: 7,
     });
 
     const verdict = await resolveTrustVerdict({
@@ -147,7 +170,8 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.address).toBe("U_MEMBER");
     expect(verdict.externalChatId).toBe("chat-member");
     expect(verdict.memberDisplayName).toBe("Trusted Member");
-    expect(verdict.verifiedVia).toBe("manual");
+    // Interaction telemetry carried straight off the member channel row.
+    expect(verdict.interactionCount).toBe(7);
     // Guardian fields still populated from the channel binding.
     expect(verdict.guardianExternalUserId).toBe("U_GUARDIAN");
   });
@@ -160,7 +184,6 @@ describe("resolveTrustVerdict", () => {
       address: "U_PENDING",
       status: "unverified",
       verifiedAt: null,
-      verifiedVia: null,
     });
 
     const verdict = await resolveTrustVerdict({
@@ -185,6 +208,8 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.channelId).toBeUndefined();
     expect(verdict.status).toBeUndefined();
     expect(verdict.guardianExternalUserId).toBeUndefined();
+    // No member channel → no interaction telemetry.
+    expect(verdict.interactionCount).toBeUndefined();
   });
 
   test("no actorExternalId → unknown, canonicalSenderId null", async () => {
@@ -298,6 +323,201 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.trustClass).toBe("guardian");
   });
 
+  test("memberless sender whose address collides with the guardian's address on another channel type stays unknown", async () => {
+    // ATL-958 regression: external identifiers are channel-local namespaces.
+    // A telegram sender with NO telegram member row whose id happens to equal
+    // the guardian's vellum address is NOT the guardian — raw cross-channel
+    // address equality must never confer the class (it would grant
+    // self-approval, unsandboxed shell, and memory access to a spoofable id).
+    insertContact({
+      id: "c-guardian",
+      displayName: "Principal Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-guardian-vellum",
+      contactId: "c-guardian",
+      type: "vellum",
+      address: "GUARDIAN_ID",
+      status: "active",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "GUARDIAN_ID",
+    });
+
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.resolutionFailed).toBeUndefined();
+    expect(verdict.guardianPrincipalId).toBeUndefined();
+    expect(verdict.guardianDisplayName).toBeUndefined();
+    expect(verdict.guardianExternalUserId).toBeUndefined();
+    expect(verdict.contactId).toBeUndefined();
+  });
+
+  test("guardian with a pending same-channel row + active binding elsewhere → guardian, not unverified_contact", async () => {
+    insertContact({
+      id: "c-guardian",
+      displayName: "Pending-Channel Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-guardian-vellum",
+      contactId: "c-guardian",
+      type: "vellum",
+      address: "GUARDIAN_ANCHOR",
+      status: "active",
+    });
+    insertChannel({
+      id: "ch-guardian-telegram",
+      contactId: "c-guardian",
+      address: "U_GUARDIAN_TG",
+      status: "pending",
+      verifiedAt: null,
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_GUARDIAN_TG",
+    });
+
+    expect(verdict.trustClass).toBe("guardian");
+    expect(verdict.guardianPrincipalId).toBe("principal-1");
+    // The same-channel member row still surfaces verbatim.
+    expect(verdict.contactId).toBe("c-guardian");
+    expect(verdict.status).toBe("pending");
+  });
+
+  test("guardian with a blocked same-channel row stays unknown despite an active binding elsewhere", async () => {
+    // An explicit per-channel block wins over the principal-level check.
+    insertContact({
+      id: "c-guardian",
+      displayName: "Blocked-Channel Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-guardian-vellum",
+      contactId: "c-guardian",
+      type: "vellum",
+      address: "GUARDIAN_ANCHOR",
+      status: "active",
+    });
+    insertChannel({
+      id: "ch-guardian-telegram",
+      contactId: "c-guardian",
+      address: "U_GUARDIAN_TG",
+      status: "blocked",
+      policy: "deny",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_GUARDIAN_TG",
+    });
+
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.status).toBe("blocked");
+  });
+
+  test("guardian identity via a pending member row with a NULL principal is unresolved → resolutionFailed, not guardian", async () => {
+    // Pre-cutover artifact: the sender's same-channel row belongs to a
+    // guardian contact that has no principal. Classifying `guardian` would
+    // confer self-approving capabilities with nothing to authorize decisions
+    // against; classifying plain `unknown` would route the guardian through
+    // the stranger lane. The verdict is could-not-vouch instead: the
+    // consumer soft-denies with no stranger-lane side effects.
+    insertContact({
+      id: "c-guardian",
+      displayName: "Principal-less Guardian",
+      role: "guardian",
+    });
+    insertChannel({
+      id: "ch-guardian-vellum",
+      contactId: "c-guardian",
+      type: "vellum",
+      address: "GUARDIAN_ANCHOR",
+      status: "active",
+    });
+    insertChannel({
+      id: "ch-guardian-telegram",
+      contactId: "c-guardian",
+      address: "U_GUARDIAN_TG",
+      status: "pending",
+      verifiedAt: null,
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_GUARDIAN_TG",
+    });
+
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.resolutionFailed).toBe(true);
+  });
+
+  test("guardian whose only channel is revoked does not re-acquire guardian via the principal check", async () => {
+    insertContact({
+      id: "c-old-guardian",
+      displayName: "Fully Revoked Guardian",
+      role: "guardian",
+      principalId: "principal-old",
+    });
+    insertChannel({
+      id: "ch-old-guardian-vellum",
+      contactId: "c-old-guardian",
+      type: "vellum",
+      address: "OLD_GUARDIAN_ID",
+      status: "revoked",
+      policy: "deny",
+    });
+
+    // Sender matches the revoked vellum address on telegram (no telegram
+    // row): a memberless sender is a stranger — and even with a row, the
+    // principal-level check requires an ACTIVE guardian channel → unknown.
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "OLD_GUARDIAN_ID",
+    });
+
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.guardianPrincipalId).toBeUndefined();
+  });
+
+  test("active non-guardian member whose address matches nothing guardian stays trusted_contact", async () => {
+    // Guard against the principal check widening: a plain member is never
+    // upgraded by it.
+    insertContact({
+      id: "c-guardian",
+      displayName: "Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-guardian-vellum",
+      contactId: "c-guardian",
+      type: "vellum",
+      address: "GUARDIAN_ANCHOR",
+      status: "active",
+    });
+    insertContact({ id: "c-member", displayName: "Plain Member" });
+    insertChannel({
+      id: "ch-member",
+      contactId: "c-member",
+      address: "U_MEMBER",
+      status: "active",
+    });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_MEMBER",
+    });
+
+    expect(verdict.trustClass).toBe("trusted_contact");
+  });
+
   test("revoked guardian channel does NOT confer guardian → unknown", async () => {
     // P1 regression: a guardian contact whose only channel is revoked must not
     // re-acquire guardian privileges by code-match. The status='active' filter
@@ -325,5 +545,85 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.status).toBe("revoked");
     // No active guardian binding exists, so guardian label fields are absent.
     expect(verdict.guardianExternalUserId).toBeUndefined();
+  });
+});
+
+describe("resolveTrustVerdict — hasInterceptableVerificationSession stamp", () => {
+  test("no sessions → stamped false", async () => {
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_STRANGER",
+    });
+
+    expect(verdict.hasInterceptableVerificationSession).toBe(false);
+  });
+
+  test.each(["pending", "pending_bootstrap", "awaiting_response"])(
+    "non-expired %s session → stamped true",
+    async (status) => {
+      insertSession({ id: `s-${status}`, status });
+
+      const verdict = await resolveTrustVerdict({
+        channelType: CHANNEL,
+        actorExternalId: "U_STRANGER",
+      });
+
+      expect(verdict.hasInterceptableVerificationSession).toBe(true);
+    },
+  );
+
+  test.each(["consumed", "verified", "expired", "revoked", "locked"])(
+    "non-interceptable %s session → stamped false",
+    async (status) => {
+      insertSession({ id: `s-${status}`, status });
+
+      const verdict = await resolveTrustVerdict({
+        channelType: CHANNEL,
+        actorExternalId: "U_STRANGER",
+      });
+
+      expect(verdict.hasInterceptableVerificationSession).toBe(false);
+    },
+  );
+
+  test("expired pending session → stamped false", async () => {
+    insertSession({ id: "s-expired", expiresAt: Date.now() - 1_000 });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_STRANGER",
+    });
+
+    expect(verdict.hasInterceptableVerificationSession).toBe(false);
+  });
+
+  test("session on a different channel → stamped false (channel-scoped)", async () => {
+    insertSession({ id: "s-other", channel: "slack" });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_STRANGER",
+    });
+
+    expect(verdict.hasInterceptableVerificationSession).toBe(false);
+  });
+
+  test("stamp rides on member verdicts too", async () => {
+    insertContact({ id: "c-member", displayName: "Member" });
+    insertChannel({
+      id: "ch-member",
+      contactId: "c-member",
+      address: "U_MEMBER",
+      status: "active",
+    });
+    insertSession({ id: "s-pending" });
+
+    const verdict = await resolveTrustVerdict({
+      channelType: CHANNEL,
+      actorExternalId: "U_MEMBER",
+    });
+
+    expect(verdict.trustClass).toBe("trusted_contact");
+    expect(verdict.hasInterceptableVerificationSession).toBe(true);
   });
 });

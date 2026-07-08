@@ -105,6 +105,20 @@
       "updatedAt": "2026-06-03T03:10:07.000Z"
     },
     {
+      "id": "daily-briefing",
+      "name": "daily-briefing",
+      "description": "Proactive daily briefing that fires on a recurring schedule, pulls recent memory and workspace context, composes a structured summary (action items, progress, radar, next steps), and delivers it to all active channels. Enable with a time like \"set up my daily briefing at 9am\". Disable, reschedule, or check status at any time.",
+      "metadata": {
+        "emoji": "📋",
+        "vellum": {
+          "category": "productivity",
+          "display-name": "Daily Briefing"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-01T10:52:10.000Z"
+    },
+    {
       "id": "deploy-fullstack-vercel",
       "name": "deploy-fullstack-vercel",
       "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) or a Vellum app to Vercel as a serverless demo with seeded data",
@@ -131,7 +145,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "doordash",
@@ -161,7 +175,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-02T21:39:37.000Z"
     },
     {
       "id": "email-setup",
@@ -270,7 +284,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-23T21:50:11.000Z"
+      "updatedAt": "2026-07-07T04:41:23.000Z"
     },
     {
       "id": "google-calendar",
@@ -282,11 +296,16 @@
         "vellum": {
           "category": "calendar",
           "display-name": "Google Calendar",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "activation-hints": [
+            "check my availability this week",
+            "find open time slots / when am I free",
+            "cross-calendar free/busy across my connected accounts"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-07T04:41:13.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -461,7 +480,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "mcp-setup",
@@ -475,21 +494,6 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-06-12T18:05:36.000Z"
-    },
-    {
-      "id": "meet-join",
-      "name": "meet-join",
-      "description": "Join a Google Meet call to take notes; only when the user explicitly asks.",
-      "metadata": {
-        "icon": "assets/icon.svg",
-        "emoji": "📹",
-        "vellum": {
-          "category": "voice",
-          "display-name": "Meet Join",
-          "feature-flag": "meet"
-        }
-      },
       "updatedAt": "2026-06-12T18:05:36.000Z"
     },
     {
@@ -613,11 +617,16 @@
         "vellum": {
           "category": "calendar",
           "display-name": "Outlook Calendar",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "activation-hints": [
+            "check my availability this week",
+            "find open time slots / when am I free",
+            "cross-calendar free/busy across my connected accounts"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-07T04:41:13.000Z"
     },
     {
       "id": "plugin-builder",
@@ -644,7 +653,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-24T15:44:20.000Z"
+      "updatedAt": "2026-07-08T11:48:21.000Z"
     },
     {
       "id": "public-ingress",
@@ -680,7 +689,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "restaurant-reservation",
@@ -741,7 +750,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "slack",
@@ -761,7 +770,7 @@
     {
       "id": "slack-app-setup",
       "name": "slack-app-setup",
-      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — the skill generates a one-click manifest URL so they only have to name, save, and copy two tokens.",
+      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — opens a guided setup wizard in the side panel so the user can create the app, generate tokens, and connect in one flow.",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -782,7 +791,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-19T17:01:42.000Z"
+      "updatedAt": "2026-07-02T15:56:47.000Z"
     },
     {
       "id": "start-the-day",
@@ -823,7 +832,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "stripe-link-wallet",
@@ -937,12 +946,12 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-07T20:33:02.000Z"
     },
     {
       "id": "vellum-conversation-management",
       "name": "vellum-conversation-management",
-      "description": "Manage conversation threads (rename, list, export, wipe)",
+      "description": "Manage conversation threads (rename, list, export)",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -951,7 +960,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-06T16:01:24.000Z"
     },
     {
       "id": "vellum-github-app-setup",

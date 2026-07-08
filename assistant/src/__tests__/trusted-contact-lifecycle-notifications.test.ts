@@ -58,6 +58,24 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
+// Gateway IPC mock — session lifecycle goes through the gateway session
+// client; delegate verification_sessions_* methods to the local-service sim
+// so these tests keep reading/writing the local test DB.
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    const { handleVerificationSessionsIpc, isVerificationSessionsIpcMethod } =
+      await import("./helpers/verification-sessions-ipc-sim.js");
+    if (isVerificationSessionsIpcMethod(method)) {
+      return handleVerificationSessionsIpc(method, params);
+    }
+    return { ok: true };
+  },
+  ipcCall: async () => null,
+}));
+
 // Mock the approval conversation / copy generators so they return canned text.
 mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessage: () => "mock approval message",
@@ -65,12 +83,16 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 }));
 
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { createCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import { createCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
+import { resetVerificationSessionsSim } from "./helpers/verification-sessions-ipc-sim.js";
 
 await initializeDb();
 
@@ -82,16 +104,16 @@ const TEST_BEARER_TOKEN = "test-token";
 const GUARDIAN_APPROVAL_TTL_MS = 5 * 60 * 1000;
 
 function resetState(): void {
+  resetVerificationSessionsSim();
   const db = getDb();
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM channel_verification_sessions");
-  db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
 }
@@ -140,7 +162,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -150,7 +172,7 @@ describe("trusted contact lifecycle notification signals", () => {
     });
 
     // Set up requester contact with a display name so payloads are enriched
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
       externalChatId: "requester-chat-456",
@@ -234,7 +256,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -244,7 +266,7 @@ describe("trusted contact lifecycle notification signals", () => {
     });
 
     // Set up requester contact with a display name
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
       externalChatId: "requester-chat-456",
@@ -322,7 +344,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -392,9 +414,13 @@ describe("trusted contact lifecycle notification signals", () => {
     // Clear the guardian contact's displayName to empty string so the
     // display name resolution returns a falsy value. createGuardianBinding
     // defaults displayName to the externalUserId, which would be a non-empty
-    // string and defeat the purpose of this test.
+    // string and defeat the purpose of this test. The role column is
+    // gateway-owned now, so target the guardian contact by its seeded
+    // (externalUserId-derived) display name instead.
     const db = getDb();
-    db.run("UPDATE contacts SET display_name = '' WHERE role = 'guardian'");
+    db.run(
+      "UPDATE contacts SET display_name = '' WHERE display_name = 'guardian-noname-111'",
+    );
 
     // Do NOT create a requester contact — display name should resolve to null
 
@@ -466,7 +492,7 @@ describe("trusted contact activated notification signal", () => {
   test("guardian verification does NOT emit activated signal", async () => {
     // Create an inbound challenge (guardian flow, not trusted contact)
     const { createInboundVerificationSession } =
-      await import("../runtime/channel-verification-service.js");
+      await import("./helpers/verification-sessions-ipc-sim.js");
     const { secret } = createInboundVerificationSession("telegram");
 
     // "Guardian" enters the verification code

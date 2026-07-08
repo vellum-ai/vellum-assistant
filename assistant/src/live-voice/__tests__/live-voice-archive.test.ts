@@ -12,14 +12,14 @@ mock.module("../../util/logger.js", () => ({
 import {
   getAttachmentContent,
   getAttachmentsForMessage,
-} from "../../memory/attachments-store.js";
+} from "../../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,
-} from "../../memory/conversation-crud.js";
-import { getDb } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
-import { rawAll, rawGet, rawRun } from "../../memory/raw-query.js";
+} from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { rawAll, rawGet, rawRun } from "../../persistence/raw-query.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import type { LiveVoiceAudioArtifactMetadata } from "../live-voice-archive.js";
 import {
@@ -63,6 +63,7 @@ async function createMessage(role: "user" | "assistant" = "user") {
 
 function getMessageMetadata(messageId: string): Record<string, unknown> {
   const row = rawGet<{ metadata: string | null }>(
+    "test:getMessageMetadata",
     `SELECT metadata FROM messages WHERE id = ?`,
     messageId,
   );
@@ -80,6 +81,7 @@ function getLiveVoiceArtifacts(
 
 function countAttachmentsForMessage(messageId: string): number {
   const row = rawGet<{ count: number }>(
+    "test:countMessageAttachments",
     `SELECT COUNT(*) AS count FROM message_attachments WHERE message_id = ?`,
     messageId,
   );
@@ -88,6 +90,7 @@ function countAttachmentsForMessage(messageId: string): number {
 
 function countAllAttachments(): number {
   const row = rawGet<{ count: number }>(
+    "test:countAllAttachments",
     `SELECT COUNT(*) AS count FROM attachments`,
   );
   return row?.count ?? 0;
@@ -177,6 +180,7 @@ describe("live voice audio archive", () => {
       filePath: string | null;
       sourcePath: string | null;
     }>(
+      "test:fetchAudioArtifact",
       `SELECT
          data_base64 AS dataBase64,
          file_path AS filePath,
@@ -347,7 +351,11 @@ describe("live voice audio archive", () => {
     expect(first.type).toBe("archived");
     if (first.type !== "archived") throw new Error("expected archive result");
 
-    rawRun(`UPDATE messages SET metadata = NULL WHERE id = ?`, message.id);
+    rawRun(
+      "test:clearMessageMetadata",
+      `UPDATE messages SET metadata = NULL WHERE id = ?`,
+      message.id,
+    );
 
     const second = archiveLiveVoiceAssistantResponseAudio({
       messageId: message.id,
@@ -524,6 +532,7 @@ describe("live voice audio archive", () => {
       originalFilename: string;
       mimeType: string;
     }>(
+      "test:listAttachments",
       `SELECT original_filename AS originalFilename, mime_type AS mimeType
        FROM attachments`,
     );

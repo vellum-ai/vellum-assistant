@@ -1,126 +1,149 @@
 /**
  * Tests for workspace migration `031-drop-user-md`.
  *
- * Validates the five behavioral contracts spelled out in the plan:
- *   1. Fresh install (no guardian) — no-op.
- *   2. Pre-017 customized USER.md, guardian has no userFile — backfill slug,
- *      copy content into users/<slug>.md, delete USER.md.
- *   3. Post-017 state (users/<slug>.md already populated, USER.md still on disk
- *      as template) — migration does NOT overwrite users/<slug>.md, deletes USER.md.
- *   4. Idempotent re-run — running twice has no additional effect.
- *   5. Guardian with missing users/ directory — migration creates the directory.
+ * The migration resolves the guardian contact via a frozen raw-SQL read of
+ * the local `contacts`/`contact_channels` tables, backfills a `user_file`
+ * slug when missing, migrates any customized `USER.md` into
+ * `users/<slug>.md`, and deletes the legacy root `USER.md`.
  *
- * The migration imports `findGuardianForChannel`, `listGuardianChannels`,
- * and `generateUserFileSlug` from `contacts/contact-store.js`, and calls
- * `getDb()` to persist backfilled slugs. These tests stub the contact
- * store and DB layer so no real DB is exercised.
+ * These tests seed the guardian directly in the local DB so the migration
+ * is exercised end-to-end against real SQLite — no gateway or mocks.
  */
 
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-// ── Mock state ────────────────────────────────────────────────────
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 
-interface MockContact {
+await initializeDb();
+
+import { dropUserMdMigration } from "../workspace/migrations/031-drop-user-md.js";
+
+// ── DB seeding helpers ────────────────────────────────────────────
+
+function resetContactTables(): void {
+  const sqlite = getSqlite();
+  sqlite.run("DELETE FROM contact_channels");
+  sqlite.run("DELETE FROM contacts");
+}
+
+/** Whether a column exists on a table, via `PRAGMA table_info`. */
+function hasColumn(table: string, column: string): boolean {
+  const rows = getSqlite()
+    .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+    .all();
+  return rows.some((r) => r.name === column);
+}
+
+/**
+ * The guardian-cleanup path reads the legacy ACL columns `contacts.role` and
+ * `contact_channels.status` / `verified_at`, which migration 305 drops from the
+ * production schema. Re-add them (pre-drop shape) in the isolated test DB so the
+ * migration's `aclColumnsPresent` guard finds them and the cleanup path runs —
+ * exactly the historical schema the migration was written against.
+ */
+function ensureAclColumns(): void {
+  const sqlite = getSqlite();
+  if (!hasColumn("contacts", "role")) {
+    sqlite.run("ALTER TABLE contacts ADD COLUMN role TEXT");
+  }
+  if (!hasColumn("contact_channels", "status")) {
+    sqlite.run("ALTER TABLE contact_channels ADD COLUMN status TEXT");
+  }
+  if (!hasColumn("contact_channels", "verified_at")) {
+    sqlite.run("ALTER TABLE contact_channels ADD COLUMN verified_at INTEGER");
+  }
+}
+
+/**
+ * Insert a guardian contact plus an active channel so the migration's
+ * raw-SQL guardian read resolves it. Requires the legacy ACL columns, so
+ * it ensures they are present first.
+ */
+function seedGuardian(input: {
   id: string;
   displayName: string;
   userFile: string | null;
+  channelType?: string;
+  address?: string;
+  verifiedAt?: number;
+}): void {
+  ensureAclColumns();
+  const now = Date.now();
+  const sqlite = getSqlite();
+  sqlite.run(
+    `INSERT INTO contacts (id, display_name, created_at, updated_at, role, user_file, contact_type)
+     VALUES (?, ?, ?, ?, 'guardian', ?, 'human')`,
+    [input.id, input.displayName, now, now, input.userFile],
+  );
+  sqlite.run(
+    `INSERT INTO contact_channels (id, contact_id, type, address, status, verified_at, created_at)
+     VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+    [
+      `${input.id}-ch`,
+      input.id,
+      input.channelType ?? "vellum",
+      input.address ?? "vellum:self",
+      input.verifiedAt ?? now,
+      now,
+    ],
+  );
 }
 
-let mockVellumGuardian: {
-  contact: MockContact;
-  channel: Record<string, unknown>;
-} | null = null;
-let mockAnyGuardian: {
-  contact: MockContact;
-  channels: Record<string, unknown>[];
-} | null = null;
-let mockSlugOverride: ((displayName: string) => string) | null = null;
+/** Drop the legacy ACL columns the guardian read depends on, if present. */
+function dropAclColumns(): void {
+  const sqlite = getSqlite();
+  if (hasColumn("contacts", "role")) {
+    sqlite.run("ALTER TABLE contacts DROP COLUMN role");
+  }
+  if (hasColumn("contact_channels", "status")) {
+    sqlite.run("ALTER TABLE contact_channels DROP COLUMN status");
+  }
+  if (hasColumn("contact_channels", "verified_at")) {
+    sqlite.run("ALTER TABLE contact_channels DROP COLUMN verified_at");
+  }
+}
 
-// Records drizzle `.update(contacts).set({userFile: ...}).where(...).run()` calls.
-let updatedUserFiles: Array<{ contactId: string; userFile: string }> = [];
-
-// ── Mock modules (must precede migration import) ──────────────────
-
-mock.module("../contacts/contact-store.js", () => ({
-  findGuardianForChannel: (channelType: string) =>
-    channelType === "vellum" ? mockVellumGuardian : null,
-  listGuardianChannels: () => mockAnyGuardian,
-  generateUserFileSlug: (displayName: string) => {
-    if (mockSlugOverride) return mockSlugOverride(displayName);
-    const base =
-      displayName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "") || "user";
-    return `${base}.md`;
-  },
-}));
-
-// Minimal drizzle-compatible stub for the single `update` call in the
-// migration. The migration builds:
-//   db.update(contacts).set({ userFile: slug }).where(eq(contacts.id, guardian.id)).run();
-// The stub captures the payload into `updatedUserFiles` and also mutates
-// the active mock guardian in place so downstream reads observe the new slug.
-mock.module("../memory/db-connection.js", () => ({
-  getDb: () => ({
-    update: () => ({
-      set: (values: { userFile: string }) => ({
-        where: () => ({
-          run: () => {
-            const guardian =
-              mockVellumGuardian?.contact ?? mockAnyGuardian?.contact ?? null;
-            if (guardian) {
-              guardian.userFile = values.userFile;
-              updatedUserFiles.push({
-                contactId: guardian.id,
-                userFile: values.userFile,
-              });
-            }
-          },
-        }),
-      }),
-    }),
-  }),
-}));
-
-// drizzle-orm's `eq()` is invoked by the migration; stub it out so we
-// don't need the real module loaded for unit tests.
-mock.module("drizzle-orm", () => ({
-  eq: (_col: unknown, value: unknown) => ({ col: _col, value }),
-}));
-
-// Stub the schema import so drizzle operand construction doesn't touch
-// the real sqlite schema (which pulls in the DB).
-mock.module("../memory/schema/contacts.js", () => ({
-  contacts: { id: "id", userFile: "userFile" },
-}));
-
-// Import AFTER mocks so the migration binds to the stubs above.
-import { dropUserMdMigration } from "../workspace/migrations/031-drop-user-md.js";
+function guardianUserFile(id: string): string | null {
+  const row = getSqlite()
+    .query<
+      { user_file: string | null },
+      [string]
+    >(`SELECT user_file FROM contacts WHERE id = ?`)
+    .get(id);
+  return row?.user_file ?? null;
+}
 
 // ── Test workspace scaffold ───────────────────────────────────────
 
-let testRoot: string;
-let workspaceDir: string;
+function workspaceDir(): string {
+  const dir = process.env.VELLUM_WORKSPACE_DIR;
+  if (!dir) {
+    throw new Error(
+      "VELLUM_WORKSPACE_DIR should be set by the test preload — aborting",
+    );
+  }
+  return dir;
+}
+
+function userMdPath(): string {
+  return join(workspaceDir(), "USER.md");
+}
+
+function cleanupWorkspaceFiles(): void {
+  const dir = workspaceDir();
+  for (const p of [join(dir, "USER.md"), join(dir, "users")]) {
+    rmSync(p, { recursive: true, force: true });
+  }
+}
 
 function templateContent(): string {
   return `_ Lines starting with _ are comments - they won't appear in the system prompt
@@ -151,24 +174,14 @@ function customizedContent(): string {
 `;
 }
 
-beforeAll(() => {
-  testRoot = mkdtempSync(join(tmpdir(), "drop-user-md-test-"));
-});
-
-afterAll(() => {
-  rmSync(testRoot, { recursive: true, force: true });
-});
-
 beforeEach(() => {
-  workspaceDir = mkdtempSync(join(testRoot, "ws-"));
-  mockVellumGuardian = null;
-  mockAnyGuardian = null;
-  mockSlugOverride = null;
-  updatedUserFiles = [];
-});
-
-afterEach(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  resetContactTables();
+  cleanupWorkspaceFiles();
+  // Most scenarios exercise the guardian-cleanup path, which the migration
+  // only enters when the legacy ACL columns are present. Migration 305 drops
+  // them from the production schema, so re-add them (pre-drop shape) by default;
+  // the dedicated "ACL columns absent" test drops them to cover the skip-path.
+  ensureAclColumns();
 });
 
 // ── Tests ─────────────────────────────────────────────────────────
@@ -181,188 +194,210 @@ describe("workspace migration 031-drop-user-md", () => {
     );
   });
 
-  test("fresh install (no guardian, no USER.md) is a no-op", () => {
-    // No guardian stubbed in, no USER.md on disk.
-    dropUserMdMigration.run(workspaceDir);
+  test("does not declare retryFailedCheckpoint (no gateway coupling)", () => {
+    expect(dropUserMdMigration.retryFailedCheckpoint).toBeUndefined();
+  });
 
-    expect(existsSync(join(workspaceDir, "USER.md"))).toBe(false);
-    expect(existsSync(join(workspaceDir, "users"))).toBe(false);
-    expect(updatedUserFiles).toEqual([]);
+  test("fresh install (no guardian, no USER.md) is a no-op", () => {
+    dropUserMdMigration.run(workspaceDir());
+
+    expect(existsSync(userMdPath())).toBe(false);
+    expect(existsSync(join(workspaceDir(), "users"))).toBe(false);
+  });
+
+  test("no guardian with unmodified-template USER.md — deletes it", () => {
+    writeFileSync(userMdPath(), templateContent(), "utf-8");
+
+    dropUserMdMigration.run(workspaceDir());
+
+    expect(existsSync(userMdPath())).toBe(false);
+  });
+
+  test("no guardian with customized USER.md — preserves it (mirror may be stale)", () => {
+    const content = customizedContent();
+    writeFileSync(userMdPath(), content, "utf-8");
+
+    dropUserMdMigration.run(workspaceDir());
+
+    // The local guardian mirror can be stale, so a customized profile must
+    // not be destroyed when no guardian row resolves.
+    expect(existsSync(userMdPath())).toBe(true);
+    expect(readFileSync(userMdPath(), "utf-8")).toBe(content);
   });
 
   test("pre-017 customized USER.md with guardian missing userFile backfills slug and migrates content", () => {
-    // Guardian exists on the 'vellum' channel but has no userFile.
-    mockVellumGuardian = {
-      contact: {
-        id: "guardian-1",
-        displayName: "Chris",
-        userFile: null,
-      },
-      channel: { type: "vellum" },
-    };
+    seedGuardian({ id: "guardian-1", displayName: "Chris", userFile: null });
 
-    const userMdPath = join(workspaceDir, "USER.md");
     const content = customizedContent();
-    writeFileSync(userMdPath, content, "utf-8");
+    writeFileSync(userMdPath(), content, "utf-8");
 
-    dropUserMdMigration.run(workspaceDir);
+    dropUserMdMigration.run(workspaceDir());
 
-    // Backfill happened: drizzle update was called with the generated slug.
-    expect(updatedUserFiles).toHaveLength(1);
-    expect(updatedUserFiles[0].contactId).toBe("guardian-1");
-    expect(updatedUserFiles[0].userFile).toBe("chris.md");
+    // Backfill happened: the contact's user_file is now the generated slug.
+    expect(guardianUserFile("guardian-1")).toBe("chris.md");
 
     // Content was migrated into users/chris.md.
-    const destPath = join(workspaceDir, "users", "chris.md");
+    const destPath = join(workspaceDir(), "users", "chris.md");
     expect(existsSync(destPath)).toBe(true);
     expect(readFileSync(destPath, "utf-8")).toBe(content);
 
     // Legacy USER.md was deleted.
-    expect(existsSync(userMdPath)).toBe(false);
+    expect(existsSync(userMdPath())).toBe(false);
   });
 
   test("post-017 users/<slug>.md already populated, USER.md still on disk as template — does not overwrite dest, deletes USER.md", () => {
-    // Guardian already has a userFile from a prior 017 run.
-    mockVellumGuardian = {
-      contact: {
-        id: "guardian-2",
-        displayName: "Chris",
-        userFile: "chris.md",
-      },
-      channel: { type: "vellum" },
-    };
+    seedGuardian({
+      id: "guardian-2",
+      displayName: "Chris",
+      userFile: "chris.md",
+    });
 
-    // Pre-populated persona file (post-017 state).
-    const usersDir = join(workspaceDir, "users");
+    const usersDir = join(workspaceDir(), "users");
     mkdirSync(usersDir, { recursive: true });
     const destPath = join(usersDir, "chris.md");
     const existingPersona = "# Chris's Profile\n\n- Loves kayaking\n";
     writeFileSync(destPath, existingPersona, "utf-8");
 
-    // Leftover template-shape USER.md at workspace root.
-    const userMdPath = join(workspaceDir, "USER.md");
-    writeFileSync(userMdPath, templateContent(), "utf-8");
+    writeFileSync(userMdPath(), templateContent(), "utf-8");
 
-    dropUserMdMigration.run(workspaceDir);
+    dropUserMdMigration.run(workspaceDir());
 
     // users/chris.md is untouched.
     expect(readFileSync(destPath, "utf-8")).toBe(existingPersona);
-
     // USER.md is gone.
-    expect(existsSync(userMdPath)).toBe(false);
-
+    expect(existsSync(userMdPath())).toBe(false);
     // No slug backfill necessary.
-    expect(updatedUserFiles).toEqual([]);
+    expect(guardianUserFile("guardian-2")).toBe("chris.md");
   });
 
   test("idempotent: second run is a no-op after the first run deleted USER.md", () => {
-    mockVellumGuardian = {
-      contact: {
-        id: "guardian-3",
-        displayName: "Alice",
-        userFile: "alice.md",
-      },
-      channel: { type: "vellum" },
-    };
+    seedGuardian({
+      id: "guardian-3",
+      displayName: "Alice",
+      userFile: "alice.md",
+    });
 
-    const userMdPath = join(workspaceDir, "USER.md");
-    writeFileSync(userMdPath, customizedContent(), "utf-8");
+    writeFileSync(userMdPath(), customizedContent(), "utf-8");
 
-    // First run: migrates content and deletes USER.md.
-    dropUserMdMigration.run(workspaceDir);
-    expect(existsSync(userMdPath)).toBe(false);
-    const destPath = join(workspaceDir, "users", "alice.md");
+    dropUserMdMigration.run(workspaceDir());
+    expect(existsSync(userMdPath())).toBe(false);
+    const destPath = join(workspaceDir(), "users", "alice.md");
     expect(existsSync(destPath)).toBe(true);
     const afterFirst = readFileSync(destPath, "utf-8");
 
-    // Second run: no USER.md remains, users/alice.md already has content,
-    // so the destination is not rewritten and USER.md is still absent.
-    dropUserMdMigration.run(workspaceDir);
-    expect(existsSync(userMdPath)).toBe(false);
+    dropUserMdMigration.run(workspaceDir());
+    expect(existsSync(userMdPath())).toBe(false);
     expect(existsSync(destPath)).toBe(true);
     expect(readFileSync(destPath, "utf-8")).toBe(afterFirst);
   });
 
   test("guardian exists but users/ directory is missing — migration creates the directory", () => {
-    mockVellumGuardian = {
-      contact: {
-        id: "guardian-4",
-        displayName: "Bob",
-        userFile: "bob.md",
-      },
-      channel: { type: "vellum" },
-    };
+    seedGuardian({ id: "guardian-4", displayName: "Bob", userFile: "bob.md" });
 
-    // USER.md present but no users/ dir yet.
-    const userMdPath = join(workspaceDir, "USER.md");
-    writeFileSync(userMdPath, customizedContent(), "utf-8");
-    expect(existsSync(join(workspaceDir, "users"))).toBe(false);
+    writeFileSync(userMdPath(), customizedContent(), "utf-8");
+    expect(existsSync(join(workspaceDir(), "users"))).toBe(false);
 
-    dropUserMdMigration.run(workspaceDir);
+    dropUserMdMigration.run(workspaceDir());
 
-    expect(existsSync(join(workspaceDir, "users"))).toBe(true);
-    const destPath = join(workspaceDir, "users", "bob.md");
+    expect(existsSync(join(workspaceDir(), "users"))).toBe(true);
+    const destPath = join(workspaceDir(), "users", "bob.md");
     expect(existsSync(destPath)).toBe(true);
     expect(readFileSync(destPath, "utf-8")).toBe(customizedContent());
-    expect(existsSync(userMdPath)).toBe(false);
+    expect(existsSync(userMdPath())).toBe(false);
   });
 
-  // ─── Bonus coverage for edge cases ───────────────────────────────
+  test("falls back to any guardian when no vellum-channel guardian exists", () => {
+    seedGuardian({
+      id: "guardian-5",
+      displayName: "Carol",
+      userFile: "carol.md",
+      channelType: "telegram",
+      address: "carol-tg",
+    });
 
-  test("falls back to listGuardianChannels when no vellum-channel guardian exists", () => {
-    mockVellumGuardian = null;
-    mockAnyGuardian = {
-      contact: {
-        id: "guardian-5",
-        displayName: "Carol",
-        userFile: "carol.md",
-      },
-      channels: [{ type: "telegram" }],
-    };
+    writeFileSync(userMdPath(), customizedContent(), "utf-8");
 
-    const userMdPath = join(workspaceDir, "USER.md");
-    writeFileSync(userMdPath, customizedContent(), "utf-8");
+    dropUserMdMigration.run(workspaceDir());
 
-    dropUserMdMigration.run(workspaceDir);
-
-    const destPath = join(workspaceDir, "users", "carol.md");
+    const destPath = join(workspaceDir(), "users", "carol.md");
     expect(existsSync(destPath)).toBe(true);
     expect(readFileSync(destPath, "utf-8")).toBe(customizedContent());
-    expect(existsSync(userMdPath)).toBe(false);
+    expect(existsSync(userMdPath())).toBe(false);
+  });
+
+  test("prefers vellum-channel guardian over a more-recently-verified other guardian", () => {
+    // Older vellum guardian vs newer telegram guardian: vellum wins.
+    seedGuardian({
+      id: "guardian-vellum",
+      displayName: "Vee",
+      userFile: "vee.md",
+      channelType: "vellum",
+      address: "vellum:self",
+      verifiedAt: 1_000,
+    });
+    seedGuardian({
+      id: "guardian-tg",
+      displayName: "Tom",
+      userFile: "tom.md",
+      channelType: "telegram",
+      address: "tom-tg",
+      verifiedAt: 2_000,
+    });
+
+    writeFileSync(userMdPath(), customizedContent(), "utf-8");
+
+    dropUserMdMigration.run(workspaceDir());
+
+    expect(existsSync(join(workspaceDir(), "users", "vee.md"))).toBe(true);
+    expect(existsSync(join(workspaceDir(), "users", "tom.md"))).toBe(false);
   });
 
   test("template-shaped USER.md with no destination file — seeds scaffold and deletes USER.md", () => {
-    mockVellumGuardian = {
-      contact: {
-        id: "guardian-6",
-        displayName: "Dana",
-        userFile: "dana.md",
-      },
-      channel: { type: "vellum" },
-    };
+    seedGuardian({
+      id: "guardian-6",
+      displayName: "Dana",
+      userFile: "dana.md",
+    });
 
-    const userMdPath = join(workspaceDir, "USER.md");
-    writeFileSync(userMdPath, templateContent(), "utf-8");
+    writeFileSync(userMdPath(), templateContent(), "utf-8");
 
-    dropUserMdMigration.run(workspaceDir);
+    dropUserMdMigration.run(workspaceDir());
 
-    // USER.md is gone.
-    expect(existsSync(userMdPath)).toBe(false);
+    expect(existsSync(userMdPath())).toBe(false);
 
-    // The destination was scaffolded with the guardian persona template
-    // (parity with ensureGuardianPersonaFile for new installs).
-    const destPath = join(workspaceDir, "users", "dana.md");
+    const destPath = join(workspaceDir(), "users", "dana.md");
     expect(existsSync(destPath)).toBe(true);
     const content = readFileSync(destPath, "utf-8");
     expect(content).toContain("# User Profile");
     expect(content).toContain("Preferred name/reference:");
-    // Not the legacy template header.
     expect(content).not.toContain("# USER.md");
   });
 
   test("down() is a no-op (deletion is irreversible)", () => {
-    // Should not throw.
-    dropUserMdMigration.down(workspaceDir);
-    expect(existsSync(join(workspaceDir, "USER.md"))).toBe(false);
+    dropUserMdMigration.down(workspaceDir());
+    expect(existsSync(userMdPath())).toBe(false);
+  });
+
+  test("ACL columns absent — skips guardian cleanup cleanly and leaves USER.md untouched", () => {
+    // Mirror the post-drop assistant-DB schema (migration 305). The migration's
+    // `aclColumnsPresent` guard must skip the guardian-dependent cleanup with no
+    // throw. Guardian-seeding tests re-add the columns via `ensureAclColumns()`,
+    // so dropping them here only affects this scenario.
+    const content = customizedContent();
+    writeFileSync(userMdPath(), content, "utf-8");
+
+    dropAclColumns();
+    try {
+      expect(() => dropUserMdMigration.run(workspaceDir())).not.toThrow();
+    } finally {
+      // Restore schema so a later test that reads these columns directly is
+      // unaffected; beforeEach only clears rows, not schema.
+      ensureAclColumns();
+    }
+
+    // USER.md is left exactly as-is; no users/ scaffold is created.
+    expect(existsSync(userMdPath())).toBe(true);
+    expect(readFileSync(userMdPath(), "utf-8")).toBe(content);
+    expect(existsSync(join(workspaceDir(), "users"))).toBe(false);
   });
 });

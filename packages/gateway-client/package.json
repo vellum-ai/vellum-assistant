@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@slack/types": "2.21.1",
-    "@vellumai/service-contracts": "file:../service-contracts",
+    "@vellumai/service-contracts": "workspace:*",
     "zod": "4.3.6"
   },
   "devDependencies": {

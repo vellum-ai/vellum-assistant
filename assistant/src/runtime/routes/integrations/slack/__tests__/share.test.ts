@@ -1,12 +1,12 @@
 /**
- * Unit tests for the Share UI Slack route handlers.
+ * Unit tests for Slack route handler token routing.
  *
  * Verifies the read/write auth split mirrors `messaging/providers/slack/adapter.ts`:
- * - Channel enumeration (GET /v1/slack/channels) is a read path and must
- *   prefer the user_token when present so the picker surfaces channels the
- *   user is in but the bot isn't.
- * - Channel sharing (POST /v1/slack/share) is a write path and must always
- *   use the bot_token so posts come from the bot identity.
+ * - Channel enumeration (`channels.ts`, GET /v1/slack/channels) is a read
+ *   path and must prefer the user_token when present so the picker surfaces
+ *   channels the user is in but the bot isn't.
+ * - Channel sharing (`share.ts`, POST /v1/slack/share) is a write path and
+ *   must always use the bot_token so posts come from the bot identity.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -28,13 +28,12 @@ mock.module("../../../../../oauth/oauth-store.js", () => ({
 }));
 
 const FAKE_APP = { id: "app-1", name: "Test App", description: "desc" };
-mock.module("../../../../../memory/app-store.js", () => ({
+mock.module("../../../../../apps/app-store.js", () => ({
   getApp: (id: string) => (id === FAKE_APP.id ? FAKE_APP : undefined),
 }));
 
-const { handleListSlackChannels, handleShareToSlackChannel } = await import(
-  "../share.js"
-);
+const { handleListSlackChannels } = await import("../channels.js");
+const { handleShareToSlackChannel } = await import("../share.js");
 
 // ── fetch capture ───────────────────────────────────────────────────────────
 
@@ -102,7 +101,9 @@ describe("Slack share route token routing", () => {
 
   test("GET /v1/slack/channels: bot-only install reads with bot token", async () => {
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-      if (key === credentialKey("slack_channel", "bot_token")) return BOT_TOKEN;
+      if (key === credentialKey("slack_channel", "bot_token")) {
+        return BOT_TOKEN;
+      }
       return null;
     });
 
@@ -120,9 +121,12 @@ describe("Slack share route token routing", () => {
 
   test("GET /v1/slack/channels: bot + user tokens prefer user_token for reads", async () => {
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-      if (key === credentialKey("slack_channel", "bot_token")) return BOT_TOKEN;
-      if (key === credentialKey("slack_channel", "user_token"))
+      if (key === credentialKey("slack_channel", "bot_token")) {
+        return BOT_TOKEN;
+      }
+      if (key === credentialKey("slack_channel", "user_token")) {
         return USER_TOKEN;
+      }
       return null;
     });
 
@@ -140,9 +144,12 @@ describe("Slack share route token routing", () => {
 
   test("POST /v1/slack/share: bot + user tokens still write with bot token", async () => {
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-      if (key === credentialKey("slack_channel", "bot_token")) return BOT_TOKEN;
-      if (key === credentialKey("slack_channel", "user_token"))
+      if (key === credentialKey("slack_channel", "bot_token")) {
+        return BOT_TOKEN;
+      }
+      if (key === credentialKey("slack_channel", "user_token")) {
         return USER_TOKEN;
+      }
       return null;
     });
 

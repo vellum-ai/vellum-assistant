@@ -27,13 +27,13 @@ import {
   createCanonicalGuardianRequest,
   getPendingCanonicalRequestByDestinationMessage,
   listCanonicalGuardianDeliveries,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../contacts/canonical-guardian-store.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
 } from "../notifications/canonical-delivery-recorder.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 
 await initializeDb();
 

@@ -1,4 +1,6 @@
 import {
+  isAcpSpawnCall,
+  isBackgroundBashCall,
   isRunWorkflowCall,
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
@@ -7,6 +9,7 @@ import {
   type SubagentEntry,
 } from "@/domains/chat/subagent-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { useEmojiLookup } from "@/domains/chat/components/chat-composer/emoji-catalog";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
   AllowlistOption,
@@ -296,6 +299,134 @@ export function computeCardBackedWorkflowRunIds(
   return backed;
 }
 
+/**
+ * Extract the spawned `acpSessionId` from an `acp_spawn` tool call's result.
+ * The daemon's spawn tool returns `JSON.stringify({ acpSessionId, ... })`.
+ * Returns `null` when the result hasn't landed yet or the payload is malformed
+ * — callers fall back to the `byToolUseId` anchor so `running` runs still
+ * render an inline card.
+ */
+function extractAcpSessionIdFromResult(
+  toolCall: ChatMessageToolCall,
+): string | null {
+  if (!isAcpSpawnCall(toolCall)) return null;
+  if (typeof toolCall.result !== "string" || !toolCall.result) return null;
+  try {
+    const parsed = JSON.parse(toolCall.result) as { acpSessionId?: unknown };
+    return typeof parsed.acpSessionId === "string" ? parsed.acpSessionId : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract the `bg-…` id from a backgrounded `bash`/`host_bash` tool call's
+ * synchronous result. The daemon returns `JSON.stringify({ backgrounded: true,
+ * id })` when the command is launched in the background. Returns `undefined`
+ * for a foreground command or a non-JSON/malformed result so callers can anchor
+ * only on real background runs.
+ */
+export function extractBgIdFromResult(
+  toolCall: ChatMessageToolCall,
+): string | undefined {
+  if (!isBackgroundBashCall(toolCall)) return undefined;
+  if (typeof toolCall.result !== "string" || !toolCall.result) return undefined;
+  try {
+    const parsed = JSON.parse(toolCall.result) as {
+      backgrounded?: unknown;
+      id?: unknown;
+    };
+    return parsed.backgrounded === true && typeof parsed.id === "string"
+      ? parsed.id
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve the `bg-…` id for each backgrounded `bash`/`host_bash` tool call in
+ * `toolCalls`. Unlike the subagent/workflow/ACP triad there is no `byToolUseId`
+ * anchor — the id is carried only on the call's synchronous result, so each id
+ * resolves via {@link extractBgIdFromResult}. A foreground command or a call
+ * whose result hasn't landed resolves to nothing and is skipped.
+ *
+ * The caller owns the `claimed` Set so it persists across every invocation
+ * within a single message, stopping two non-consecutive background tool-call
+ * groups from both anchoring the same task id.
+ */
+export function resolveBackgroundTaskIds(
+  toolCalls: ChatMessageToolCall[],
+  claimed: Set<string>,
+): string[] {
+  const ids: string[] = [];
+
+  for (const tc of toolCalls) {
+    if (!isBackgroundBashCall(tc)) continue;
+    const id = extractBgIdFromResult(tc);
+    if (id && !claimed.has(id)) {
+      ids.push(id);
+      claimed.add(id);
+    }
+  }
+
+  return ids;
+}
+
+/**
+ * The `acpSessionId` a single `acp_spawn` tool call resolves to — its
+ * `byToolUseId` anchor (from the `acp_session_spawned` event), else the id
+ * encoded in its result — or `null` when none is available (e.g. the call
+ * FAILED before returning a session id). The transcript suppresses the raw tool
+ * chip ONLY for calls that resolve to a card; a failed call (`null`) keeps
+ * rendering its tool result so the error stays visible.
+ */
+export function acpRunIdForCall(
+  toolCall: ChatMessageToolCall,
+  byToolUseId: Map<string, string>,
+): string | null {
+  if (!isAcpSpawnCall(toolCall)) return null;
+  return byToolUseId.get(toolCall.id) ?? extractAcpSessionIdFromResult(toolCall);
+}
+
+/**
+ * Resolve the spawned `acpSessionId` for each `acp_spawn` tool call in
+ * `toolCalls`. Resolution priority per tool call:
+ *
+ *  1. `byToolUseId.get(tc.id)` — the deterministic, reconcile-proof anchor
+ *     carried on the `acp_session_spawned` event.
+ *  2. The id encoded in `toolCall.result` — present once the spawn tool result
+ *     has landed.
+ *
+ * The caller owns the `claimed` Set so it persists across every invocation
+ * within a single message, stopping two non-consecutive spawn tool-call groups
+ * from both anchoring the same session id.
+ */
+export function resolveAcpRunIds(
+  toolCalls: ChatMessageToolCall[],
+  byToolUseId: Map<string, string>,
+  claimed: Set<string>,
+): string[] {
+  const ids: string[] = [];
+
+  for (const tc of toolCalls) {
+    if (!isAcpSpawnCall(tc)) continue;
+    const byId = byToolUseId.get(tc.id);
+    if (byId && !claimed.has(byId)) {
+      ids.push(byId);
+      claimed.add(byId);
+      continue;
+    }
+    const fromResult = extractAcpSessionIdFromResult(tc);
+    if (fromResult && !claimed.has(fromResult)) {
+      ids.push(fromResult);
+      claimed.add(fromResult);
+    }
+  }
+
+  return ids;
+}
+
 function fallbackRoleLabel(
   role: DisplayMessage["role"],
   assistantDisplayName?: string | null,
@@ -354,6 +485,38 @@ export function SlackMessageAttribution({
       className={className}
     >
       <span>{label}</span>
+    </div>
+  );
+}
+
+/**
+ * Compact inline rendering of a Slack reaction event. Shows the emoji
+ * character (or `:shortcode:` fallback) plus the actor name and verb.
+ */
+export function SlackReactionLine({
+  message,
+}: {
+  message: DisplayMessage;
+}) {
+  const lookupEmoji = useEmojiLookup();
+  const reaction = message.slackMessage?.reaction;
+  if (!reaction) return null;
+
+  const emojiChar = lookupEmoji(reaction.emoji);
+  const emojiDisplay = emojiChar ?? `:${reaction.emoji}:`;
+  const actor = reaction.actorDisplayName
+    ?? message.slackMessage?.sender?.displayName
+    ?? message.slackMessage?.sender?.name;
+  const verb = reaction.op === "added" ? "reacted" : "removed reaction";
+
+  return (
+    <div
+      data-testid="slack-reaction-line"
+      className="flex items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]"
+    >
+      <span className="text-base">{emojiDisplay}</span>
+      {actor && <span>{actor}</span>}
+      <span>{verb}</span>
     </div>
   );
 }

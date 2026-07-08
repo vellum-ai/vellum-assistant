@@ -8,6 +8,13 @@
 import { z } from "zod";
 
 import {
+  buildIntroductionActions,
+  coerceSignalBoolean,
+  type IntroductionActionOption,
+  introductionMode,
+  isHandshakeOffered,
+} from "../runtime/introduction-policy.js";
+import {
   nonEmpty,
   sanitizeIdentityField,
   sanitizeMessagePreview,
@@ -20,8 +27,12 @@ const optStr = z
   .unknown()
   .transform((v) => (typeof v === "string" ? v : undefined));
 
-/** Accepts boolean or any other type — coerces non-true to undefined. */
-const optBool = z.unknown().transform((v) => (v === true ? true : undefined));
+/**
+ * Tri-state identity-signal boolean (see `coerceSignalBoolean`): explicit
+ * `false` is preserved as a positive platform resolution, everything
+ * non-boolean is unknown.
+ */
+const optBool = z.unknown().transform(coerceSignalBoolean);
 
 export const AccessRequestPayloadSchema = z.object({
   requestId: optStr,
@@ -36,9 +47,16 @@ export const AccessRequestPayloadSchema = z.object({
   guardianResolutionSource: optStr,
   previousMemberStatus: optStr,
   messagePreview: optStr,
+  isBot: optBool,
   isStranger: optBool,
   isRestricted: optBool,
   messageTs: optStr,
+  /**
+   * `"admitted"` marks an introduction nudge for a sender who cleared the
+   * admission floor (see access-request-helper `AccessRequestTrigger`);
+   * absent/other means the deny-path access request.
+   */
+  trigger: optStr,
 });
 
 export type ParsedAccessRequestPayload = z.infer<
@@ -49,6 +67,28 @@ export function parseAccessRequestPayload(
   payload: Record<string, unknown>,
 ): ParsedAccessRequestPayload {
   return AccessRequestPayloadSchema.parse(payload);
+}
+
+/**
+ * Whether the payload is an admitted-mode introduction nudge. Accepts both
+ * parsed payloads and the raw `contextPayload` record so every render surface
+ * shares one predicate.
+ */
+export function isAdmittedIntroduction(p: { trigger?: unknown }): boolean {
+  return p.trigger === "admitted";
+}
+
+/** Card/notification title, shared by every render surface. */
+export function accessRequestCardTitle(admitted: boolean): string {
+  return introductionMode(admitted ? "admitted" : "denied").cardTitle;
+}
+
+/**
+ * Card subtitle (also the Slack card's no-preview body label), shared by
+ * every render surface.
+ */
+export function accessRequestCardSubtitle(admitted: boolean): string {
+  return introductionMode(admitted ? "admitted" : "denied").cardSubtitle;
 }
 
 // ── Warnings ────────────────────────────────────────────────────────────────
@@ -64,6 +104,11 @@ export function buildAccessRequestWarnings(
   if (p.previousMemberStatus === "revoked") {
     warnings.push("This user was previously revoked.");
   }
+  if (p.isBot) {
+    warnings.push(
+      "Bot / integration account — code verification isn't possible.",
+    );
+  }
   if (p.isStranger) {
     warnings.push("External Slack user (not in this workspace).");
   }
@@ -71,6 +116,35 @@ export function buildAccessRequestWarnings(
     warnings.push("Guest / restricted account.");
   }
   return warnings;
+}
+
+// ── Introduction actions ─────────────────────────────────────────────────────
+
+/**
+ * Signal-driven introduction-card action list for a parsed access-request
+ * payload. Shared by every card renderer (Slack Card block, Telegram inline
+ * keyboard, Vellum Surface card) so the offered actions never drift between
+ * surfaces.
+ */
+export function buildIntroductionActionsForPayload(
+  p: ParsedAccessRequestPayload,
+): IntroductionActionOption[] {
+  return buildIntroductionActions(p.sourceChannel, {
+    isBot: p.isBot,
+    isStranger: p.isStranger,
+    isRestricted: p.isRestricted,
+  });
+}
+
+/** Whether the verification handshake is offered for this requester. */
+export function isHandshakeOfferedForPayload(
+  p: ParsedAccessRequestPayload,
+): boolean {
+  return isHandshakeOffered(p.sourceChannel, {
+    isBot: p.isBot,
+    isStranger: p.isStranger,
+    isRestricted: p.isRestricted,
+  });
 }
 
 // ── Slack conversation helpers ───────────────────────────────────────────────
@@ -139,7 +213,7 @@ function buildIdentityLineFromParsed(p: ParsedAccessRequestPayload): string {
     parts.push(`via ${p.sourceChannel}`);
   }
 
-  return `${parts.join(" ")} is requesting access to the assistant.`;
+  return introductionMode(p.trigger).identityLine(parts.join(" "));
 }
 
 export function buildAccessRequestIdentityLine(
@@ -159,10 +233,14 @@ function buildMessagePreviewFromParsed(
   p: ParsedAccessRequestPayload,
 ): string | undefined {
   const raw = p.messagePreview;
-  if (!raw) return undefined;
+  if (!raw) {
+    return undefined;
+  }
 
   const sanitized = sanitizeMessagePreview(raw);
-  if (sanitized.length === 0) return undefined;
+  if (sanitized.length === 0) {
+    return undefined;
+  }
 
   return `> Their message: "${sanitized}"`;
 }
@@ -189,16 +267,28 @@ export function normalizeForDirectiveMatching(text: string): string {
     .trim();
 }
 
+/** Build a negated-lookbehind directive regex for `reply ... "CODE <verb>"`. */
+function buildCodeDirectiveRegex(escapedCode: string, verb: string): RegExp {
+  return new RegExp(
+    `(?<!not\\s)(?<!n't\\s)(?<!never\\s)reply\\b[^.!?\\n]*?"${escapedCode}\\s+${verb}"`,
+    "i",
+  );
+}
+
 /**
- * Check whether a text contains the required access-request instruction elements:
- * 1. Approve directive: Reply "CODE approve"
- * 2. Reject directive: Reply "CODE reject"
- * 3. Invite directive: Reply "open invite flow"
+ * Check whether a text contains the required access-request instruction
+ * elements for the introduction card:
+ * 1. Trust directive: Reply "CODE trust"
+ * 2. Verify directive: Reply "CODE verify" — only when the handshake is
+ *    offered for this requester (never for bots / workspace-vouched members)
+ * 3. Leave-unverified directive: Reply "CODE reject"
+ * 4. Block directive: Reply "CODE block"
+ * 5. Invite directive: Reply "open invite flow"
  *
  * Each directive is matched independently using negative lookbehind to reject
  * matches preceded by negation words ("not", "n't", "never"). This prevents
  * contradictory copy like `Do not reply "CODE reject"` from satisfying the
- * check even when a positive approve directive exists nearby.
+ * check even when a positive directive exists nearby.
  *
  * The text is normalized before matching to handle smart apostrophes and
  * multiple whitespace characters that would otherwise bypass negation detection.
@@ -206,26 +296,28 @@ export function normalizeForDirectiveMatching(text: string): string {
 export function hasAccessRequestInstructions(
   text: string | undefined,
   requestCode: string,
+  options?: { handshakeOffered?: boolean },
 ): boolean {
-  if (typeof text !== "string") return false;
+  if (typeof text !== "string") {
+    return false;
+  }
+  const handshakeOffered = options?.handshakeOffered ?? true;
   const normalized = normalizeForDirectiveMatching(text);
   const escapedCode = requestCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // Each directive must follow "reply" without a preceding negation word.
   // Negative lookbehinds reject "do not reply", "don't reply", "never reply".
-  const approveRe = new RegExp(
-    `(?<!not\\s)(?<!n't\\s)(?<!never\\s)reply\\b[^.!?\\n]*?"${escapedCode}\\s+approve"`,
-    "i",
-  );
-  const rejectRe = new RegExp(
-    `(?<!not\\s)(?<!n't\\s)(?<!never\\s)reply\\b[^.!?\\n]*?"${escapedCode}\\s+reject"`,
-    "i",
-  );
+  const trustRe = buildCodeDirectiveRegex(escapedCode, "trust");
+  const verifyRe = buildCodeDirectiveRegex(escapedCode, "verify");
+  const rejectRe = buildCodeDirectiveRegex(escapedCode, "reject");
+  const blockRe = buildCodeDirectiveRegex(escapedCode, "block");
   const inviteRe =
     /(?<!not\s)(?<!n't\s)(?<!never\s)reply\b[^.!?\n]*?"open invite flow"/i;
 
   return (
-    approveRe.test(normalized) &&
+    trustRe.test(normalized) &&
+    (!handshakeOffered || verifyRe.test(normalized)) &&
     rejectRe.test(normalized) &&
+    blockRe.test(normalized) &&
     inviteRe.test(normalized)
   );
 }
@@ -237,7 +329,9 @@ export function hasAccessRequestInstructions(
  * directive should still be present.
  */
 export function hasInviteFlowDirective(text: string | undefined): boolean {
-  if (typeof text !== "string") return false;
+  if (typeof text !== "string") {
+    return false;
+  }
   const normalized = normalizeForDirectiveMatching(text);
   const inviteRe =
     /(?<!not\s)(?<!n't\s)(?<!never\s)reply\b[^.!?\n]*?"open invite flow"/i;
@@ -293,9 +387,15 @@ export function buildAccessRequestContractText(
 
   if (requestCode) {
     const code = requestCode.toUpperCase();
-    lines.push(
-      `Reply "${code} approve" to grant access or "${code} reject" to deny.`,
-    );
+    if (isHandshakeOfferedForPayload(p)) {
+      lines.push(
+        `Reply "${code} verify" to send them a verification code, "${code} trust" to trust them without one, "${code} reject" to leave them unverified, or "${code} block" to block them.`,
+      );
+    } else {
+      lines.push(
+        `Reply "${code} trust" to trust them, "${code} reject" to leave them unverified, or "${code} block" to block them.`,
+      );
+    }
   }
   lines.push(buildAccessRequestInviteDirective());
 
@@ -340,6 +440,8 @@ export interface AccessRequestCardView {
   warnings: string[];
   guardianResolutionSource: string | undefined;
   requestId: string | undefined;
+  /** Admitted-mode introduction nudge (sender cleared the admission floor). */
+  admitted: boolean;
 }
 
 /**
@@ -394,5 +496,6 @@ export function buildAccessRequestCardView(
     warnings: buildAccessRequestWarnings(p),
     guardianResolutionSource: nonEmpty(p.guardianResolutionSource),
     requestId: nonEmpty(p.requestId),
+    admitted: isAdmittedIntroduction(p),
   };
 }

@@ -18,7 +18,6 @@ import {
 } from "../config/env-registry.js";
 import { logSerializers } from "./log-redact.js";
 import { getLogsDir } from "./platform.js";
-import { createSentryLogStream } from "./sentry-log-stream.js";
 
 /** Common pino-pretty options that inline [module] into the message prefix. */
 function prettyOpts(extra?: PrettyOptions): PrettyOptions {
@@ -47,6 +46,15 @@ function formatDate(date: Date): string {
 
 function logFilePathForDate(dir: string, date: Date): string {
   return join(dir, `${LOG_FILE_PREFIX}${formatDate(date)}${LOG_FILE_SUFFIX}`);
+}
+
+/**
+ * Returns the path to today's log file (`<logsDir>/assistant-YYYY-MM-DD.log`).
+ * Used by callers that need to open the same file the logger writes to, e.g.
+ * the memory worker spawner piping the child's stderr into the log file.
+ */
+export function getCurrentLogFilePath(): string {
+  return logFilePathForDate(getLogsDir(), new Date());
 }
 
 export function pruneOldLogFiles(dir: string, retentionDays: number): number {
@@ -134,11 +142,6 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   activeLogDate = today;
   activeLogFileConfig = { ...config, dir };
 
-  const sentryStream = {
-    stream: createSentryLogStream(),
-    level: "error" as const,
-  };
-
   // When stdout is not a TTY (e.g. desktop app redirects to a hatch log file),
   // write to the rotating file only — the hatch log already captured early
   // startup output and echoing pino output there is unnecessary duplication.
@@ -147,10 +150,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   if (!process.stdout.isTTY && !getDebugStdoutLogs()) {
     return pino(
       { name: "assistant", level: "info", serializers: logSerializers },
-      pino.multistream([
-        { stream: fileStream, level: "info" as const },
-        sentryStream,
-      ]),
+      pino.multistream([{ stream: fileStream, level: "info" as const }]),
     );
   }
 
@@ -162,7 +162,6 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
         stream: pinoPretty(prettyOpts({ destination: 1 })),
         level: "info" as const,
       },
-      sentryStream,
     ]),
   );
 }

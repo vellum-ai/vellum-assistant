@@ -14,11 +14,15 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { messages } from "../memory/schema.js";
-import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
+import {
+  addMessage,
+  createConversation,
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { messages } from "../persistence/schema/index.js";
+import { queryUnreportedTurnEvents } from "../telemetry/turn-events-store.js";
+import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 
 await initializeDb();
 
@@ -256,5 +260,54 @@ describe("queryUnreportedTurnEvents", () => {
     expect(byId[legacyMsg.id].interfaceId).toBeNull();
     expect(byId[legacyMsg.id].channelId).toBeNull();
     expect(byId[legacyMsg.id].clientMetadata).toBeNull();
+  });
+
+  test("projects turn-outcome stamps from messages.metadata", async () => {
+    const conv = createConversation({ conversationType: "standard" });
+    const head = await addMessage(conv.id, "user", "first of a burst", {
+      metadata: { userMessageInterface: "web", userMessageChannel: "vellum" },
+    });
+    const final = await addMessage(conv.id, "user", "second of a burst");
+    const failed = await addMessage(conv.id, "user", "doomed turn");
+    const cancelled = await addMessage(conv.id, "user", "stopped turn");
+    const normal = await addMessage(conv.id, "user", "replied turn");
+
+    stampTurnOutcome(head.id, "batched", { batchedInto: final.id });
+    stampTurnOutcome(failed.id, "failed", {
+      failureCode: "PROVIDER_RATE_LIMIT",
+    });
+    stampTurnOutcome(cancelled.id, "cancelled");
+
+    const events = queryUnreportedTurnEvents(0, undefined, 100);
+    const byId = Object.fromEntries(events.map((e) => [e.id, e]));
+
+    expect(byId[head.id].outcome).toBe("batched");
+    expect(byId[head.id].batchedInto).toBe(final.id);
+    expect(byId[head.id].failureCode).toBeNull();
+    // The stamp shallow-merges into existing metadata: attribution keys
+    // written at persist time survive.
+    expect(byId[head.id].interfaceId).toBe("web");
+    expect(byId[head.id].channelId).toBe("vellum");
+
+    expect(byId[failed.id].outcome).toBe("failed");
+    expect(byId[failed.id].failureCode).toBe("PROVIDER_RATE_LIMIT");
+    expect(byId[failed.id].batchedInto).toBeNull();
+
+    expect(byId[cancelled.id].outcome).toBe("cancelled");
+    expect(byId[cancelled.id].batchedInto).toBeNull();
+    expect(byId[cancelled.id].failureCode).toBeNull();
+
+    // Unstamped turns (normal replies, pre-stamping rows) project null for
+    // all three outcome fields.
+    expect(byId[normal.id].outcome).toBeNull();
+    expect(byId[normal.id].batchedInto).toBeNull();
+    expect(byId[normal.id].failureCode).toBeNull();
+
+    // The batch-final turn itself carries no stamp.
+    expect(byId[final.id].outcome).toBeNull();
+  });
+
+  test("stampTurnOutcome never throws, even for a nonexistent message id", () => {
+    expect(() => stampTurnOutcome("no-such-message", "failed")).not.toThrow();
   });
 });

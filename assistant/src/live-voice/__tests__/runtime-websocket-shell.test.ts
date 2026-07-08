@@ -1,9 +1,34 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+
+// `mock.module` is process-global in Bun and leaks into sibling files that
+// run later in the same `bun test` invocation, so the STT/preflight stubs
+// delegate to the real implementation unless this file's tests are active
+// (`shellMocksActive`, toggled in beforeAll/afterAll). The real exports are
+// snapshotted into plain objects NOW, before the stubs register — a module
+// namespace is a live view, so reading the real export after the stub
+// installs would resolve back to the stub (infinite recursion).
+let shellMocksActive = false;
+
+const realSttResolveModule = {
+  ...(await import("../../providers/speech-to-text/resolve.js")),
+};
+const realPreflightModule = {
+  ...(await import("../live-voice-credential-preflight.js")),
+};
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -81,12 +106,31 @@ function createResolvedTranscriber(): MockStreamingTranscriber {
 }
 
 let resolveStreamingTranscriberImpl = async () => createResolvedTranscriber();
-const resolveStreamingTranscriberMock = mock(() =>
-  resolveStreamingTranscriberImpl(),
+const resolveStreamingTranscriberMock = mock(
+  (
+    options?: Parameters<
+      typeof realSttResolveModule.resolveStreamingTranscriber
+    >[0],
+  ) =>
+    shellMocksActive
+      ? resolveStreamingTranscriberImpl()
+      : realSttResolveModule.resolveStreamingTranscriber(options),
 );
 
 mock.module("../../providers/speech-to-text/resolve.js", () => ({
+  ...realSttResolveModule,
   resolveStreamingTranscriber: resolveStreamingTranscriberMock,
+}));
+
+// The shell tests exercise WebSocket frame routing and session locking, not
+// credential resolution — the preflight is stubbed ready so start frames
+// reach the session legs mocked above.
+mock.module("../live-voice-credential-preflight.js", () => ({
+  ...realPreflightModule,
+  resolveLiveVoiceCredentialReadiness: async () =>
+    shellMocksActive
+      ? { status: "ready" }
+      : realPreflightModule.resolveLiveVoiceCredentialReadiness(),
 }));
 
 import { CURRENT_POLICY_EPOCH } from "../../runtime/auth/policy.js";
@@ -234,6 +278,14 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
   let baseUrl: string;
   let wsBaseUrl: string;
   let clients: WebSocket[];
+
+  beforeAll(() => {
+    shellMocksActive = true;
+  });
+
+  afterAll(() => {
+    shellMocksActive = false;
+  });
 
   beforeEach(async () => {
     delete process.env.DISABLE_HTTP_AUTH;

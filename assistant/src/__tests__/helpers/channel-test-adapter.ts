@@ -63,15 +63,14 @@ mock.module("../../daemon/approval-generators.js", () => ({
 
 import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
 
-import {
-  findContactChannel,
-  findGuardianForChannel,
-} from "../../contacts/contact-store.js";
+import { isChannelId } from "../../channels/types.js";
+import { findContactChannel } from "../../contacts/contact-store.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
   MessageProcessor,
 } from "../../runtime/http-types.js";
+import { getCachedMemberAcl } from "../../runtime/member-verdict-cache.js";
 import {
   handleChannelDeliveryAck as _handleChannelDeliveryAck,
   handleListDeadLetters as _handleListDeadLetters,
@@ -82,6 +81,7 @@ import {
   handleDeleteConversation as _handleDeleteConversation,
 } from "../../runtime/routes/channel-inbound-routes.js";
 import { RouteError } from "../../runtime/routes/errors.js";
+import { deriveGuardianForChannel } from "./derive-guardian-delivery.js";
 
 /**
  * Wrap a transport-agnostic handler call, converting RouteError throws
@@ -161,18 +161,25 @@ export function resolveLocalTrustVerdict(input: {
         address: input.actorExternalId,
       })
     : null;
-  const guardian = findGuardianForChannel(input.channelType);
+  const guardian = deriveGuardianForChannel(input.channelType);
 
   const isGuardian =
     !!guardian &&
     !!canonicalSenderId &&
-    guardian.channel.address.toLowerCase() === canonicalSenderId.toLowerCase();
+    guardian.address.toLowerCase() === canonicalSenderId.toLowerCase();
+
+  // Mirror the gateway: read the member ACL from the warmed verdict cache (the
+  // source production resolves from) rather than the local ACL columns.
+  const memberAcl =
+    member && input.actorExternalId && isChannelId(input.channelType)
+      ? getCachedMemberAcl(input.channelType, input.actorExternalId)
+      : undefined;
 
   let trustClass: TrustClass;
   if (isGuardian) {
     trustClass = "guardian";
-  } else if (member) {
-    const status = member.channel.status;
+  } else if (memberAcl) {
+    const status = memberAcl.status;
     if (status === "active") trustClass = "trusted_contact";
     else if (status === "unverified" || status === "pending")
       trustClass = "unverified_contact";
@@ -184,28 +191,28 @@ export function resolveLocalTrustVerdict(input: {
   const verdict: TrustVerdict = { trustClass, canonicalSenderId };
 
   if (guardian) {
-    verdict.guardianExternalUserId = guardian.channel.address;
-    verdict.guardianDeliveryChatId = guardian.channel.externalChatId;
-    if (guardian.contact.principalId)
-      verdict.guardianPrincipalId = guardian.contact.principalId;
-    verdict.guardianDisplayName = guardian.contact.displayName;
+    verdict.guardianExternalUserId = guardian.address;
+    verdict.guardianDeliveryChatId = guardian.externalChatId ?? null;
+    if (guardian.principalId)
+      verdict.guardianPrincipalId = guardian.principalId;
+    verdict.guardianDisplayName = guardian.displayName ?? undefined;
   }
 
-  if (member) {
+  if (member && memberAcl) {
     verdict.contactId = member.channel.contactId;
     verdict.channelId = member.channel.id;
     verdict.type = member.channel.type;
     verdict.address = member.channel.address;
     verdict.externalChatId = member.channel.externalChatId;
-    verdict.status = member.channel.status;
-    verdict.policy = member.channel.policy;
-    verdict.verifiedAt = member.channel.verifiedAt;
-    verdict.verifiedVia = member.channel.verifiedVia;
+    verdict.status = memberAcl.status;
+    verdict.policy = memberAcl.policy;
     verdict.memberDisplayName = member.contact.displayName;
   }
 
   return verdict;
 }
+
+export { seedContactChannel } from "./seed-contact-channel.js";
 
 // ---------------------------------------------------------------------------
 // handleDeleteConversation adapter

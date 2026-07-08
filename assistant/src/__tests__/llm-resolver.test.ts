@@ -36,8 +36,14 @@ const fullDefault = {
 };
 
 describe("resolveCallSiteConfig", () => {
-  test("returns default when call site is absent and no profile", () => {
-    const llm = LLMSchema.parse({ default: fullDefault });
+  test("returns default when the call-site default profile is disabled and no custom fallback exists", () => {
+    // mainAgent's catalog default (`balanced`) always resolves from the code
+    // catalog, so the pure fall-through-to-default path requires a disabled
+    // stub (the BYOK hatch state) with no `custom-balanced` present.
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: { balanced: { source: "managed", status: "disabled" } },
+    });
     const resolved = resolveCallSiteConfig("mainAgent", llm);
     expect(resolved).toEqual(fullDefault);
   });
@@ -80,6 +86,76 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.provider).toBe("anthropic");
     expect(resolved.model).toBe("claude-haiku-4-5-20251001");
     expect(resolved.effort).toBe("low");
+  });
+
+  test("model-only override of a shared gateway model keeps a vercel-ai-gateway default provider", () => {
+    // `anthropic/claude-opus-4.8` is listed by both openrouter and
+    // vercel-ai-gateway; the applicable default provider serves it, so no
+    // provider is implied and the default wins.
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "vercel-ai-gateway",
+        model: "anthropic/claude-sonnet-4.6",
+      },
+      callSites: {
+        memoryExtraction: { model: "anthropic/claude-opus-4.8" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("vercel-ai-gateway");
+    expect(resolved.model).toBe("anthropic/claude-opus-4.8");
+  });
+
+  test("model-only override of a shared gateway model keeps an openrouter default provider", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "openrouter",
+        model: "anthropic/claude-sonnet-4.6",
+      },
+      callSites: {
+        memoryExtraction: { model: "anthropic/claude-opus-4.8" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("openrouter");
+    expect(resolved.model).toBe("anthropic/claude-opus-4.8");
+  });
+
+  test("model-only override of a gateway model with a non-serving default implies the catalog owner", () => {
+    // Anthropic's own catalog uses bare slugs, so it does not serve
+    // `anthropic/claude-sonnet-4.6` — the catalog owner (openrouter, the
+    // earliest entry listing it) is implied.
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      callSites: {
+        memoryExtraction: { model: "anthropic/claude-sonnet-4.6" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("openrouter");
+    expect(resolved.model).toBe("anthropic/claude-sonnet-4.6");
+  });
+
+  test("model unique to vercel-ai-gateway implies vercel-ai-gateway", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      callSites: {
+        memoryExtraction: { model: "openai/gpt-5.5-pro" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("vercel-ai-gateway");
+    expect(resolved.model).toBe("openai/gpt-5.5-pro");
   });
 
   test("unknown model-only override preserves inherited provider", () => {
@@ -496,7 +572,9 @@ describe("resolveCallSiteConfig", () => {
     // resolver itself must not throw (parity with `overrideProfile`).
     const llm: z.infer<typeof LLMSchema> = {
       default: fullDefault,
-      profiles: {},
+      // Disable the catalog default so the missing activeProfile's silent
+      // fall-through lands on `llm.default` rather than catalog `balanced`.
+      profiles: { balanced: { source: "managed", status: "disabled" } },
       profileOrder: [],
       callSites: {},
       activeProfile: "nonexistent",
@@ -938,6 +1016,9 @@ describe("resolveCallSiteConfig", () => {
         provider_connection: "anthropic-managed",
       },
       profiles: {
+        // Disable the catalog default so the stale connection under test
+        // comes from `llm.default`, not the catalog `balanced` layer.
+        balanced: { source: "managed", status: "disabled" },
         fireworks: {
           provider: "fireworks",
           model: "accounts/fireworks/models/kimi-k2p5",
@@ -969,6 +1050,9 @@ describe("mix profiles", () => {
       },
     },
     activeProfile: "ab",
+    // Dereference the same mix from a non-main call site so the
+    // cross-call-site agreement test below exercises both deref spots.
+    callSites: { memoryExtraction: { profile: "ab" } },
   });
 
   test("same seed resolves to the same arm (stable across calls)", () => {
@@ -1315,10 +1399,11 @@ describe("resolveDefaultProfileKey", () => {
     expect(resolveDefaultProfileKey("filingAgent", llm)).toBe("cost-optimized");
   });
 
-  test("non-mainAgent falls back to custom-* when catalog profile is missing", () => {
+  test("non-mainAgent falls back to custom-* when the catalog profile is disabled", () => {
     const llm = LLMSchema.parse({
       default: fullDefault,
       profiles: {
+        "cost-optimized": { source: "managed", status: "disabled" },
         "custom-cost-optimized": {
           provider: "openai",
           model: "gpt-5-mini",

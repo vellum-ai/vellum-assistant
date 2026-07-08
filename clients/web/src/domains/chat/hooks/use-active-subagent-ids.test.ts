@@ -41,7 +41,7 @@ describe("useActiveSubagentIds", () => {
     });
 
     // WHEN the hook renders
-    const { result } = renderHook(() => useActiveSubagentIds());
+    const { result } = renderHook(() => useActiveSubagentIds(null));
 
     // THEN only the active ids surface, in `orderedIds` (spawn) order
     expect(result.current).toEqual(["a", "c"]);
@@ -56,7 +56,7 @@ describe("useActiveSubagentIds", () => {
       seed("aborted", "aborted");
     });
 
-    const { result } = renderHook(() => useActiveSubagentIds());
+    const { result } = renderHook(() => useActiveSubagentIds(null));
 
     expect(result.current).toEqual(["running", "awaiting"]);
   });
@@ -68,7 +68,7 @@ describe("useActiveSubagentIds", () => {
       seed("done", "completed");
     });
 
-    const { result } = renderHook(() => useActiveSubagentIds());
+    const { result } = renderHook(() => useActiveSubagentIds(null));
     const first = result.current;
     expect(first).toEqual(["active"]);
 
@@ -84,5 +84,47 @@ describe("useActiveSubagentIds", () => {
 
     // THEN `useShallow` suppresses the churn — same reference, no re-render
     expect(result.current).toBe(first);
+  });
+});
+
+describe("useActiveSubagentIds — conversation scoping", () => {
+  function seedIn(
+    subagentId: string,
+    status: SubagentStatus,
+    conversationId?: string,
+  ) {
+    const store = useSubagentStore.getState();
+    store.spawnSubagent({
+      subagentId,
+      label: subagentId,
+      objective: "test",
+      timestamp: Date.now(),
+    });
+    store.changeStatus({ subagentId, status });
+    if (conversationId) store.setConversationId(subagentId, conversationId);
+  }
+
+  test("excludes an active subagent from a different conversation", () => {
+    act(() => {
+      seedIn("here", "running", "conv-1");
+      seedIn("elsewhere", "running", "conv-2");
+    });
+
+    const { result } = renderHook(() => useActiveSubagentIds("conv-1"));
+
+    expect(result.current).toEqual(["here"]);
+  });
+
+  test("keeps a subagent whose conversation isn't known yet (set post-spawn)", () => {
+    act(() => {
+      seedIn("unknown", "running"); // conversationId not assigned yet
+      seedIn("elsewhere", "running", "conv-2");
+    });
+
+    const { result } = renderHook(() => useActiveSubagentIds("conv-1"));
+
+    // The unknown-conversation entry stays visible; the one known to belong to
+    // another conversation is filtered out.
+    expect(result.current).toEqual(["unknown"]);
   });
 });

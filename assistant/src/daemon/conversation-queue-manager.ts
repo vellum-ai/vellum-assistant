@@ -130,6 +130,12 @@ export class MessageQueue {
     return this.items[index];
   }
 
+  /** FIFO snapshot of the queued messages. The array is a copy; the items are
+   * the live references (callers must treat them as read-only). */
+  snapshot(): QueuedMessage[] {
+    return [...this.items];
+  }
+
   /**
    * Pop up to `count` messages FIFO and return them in order.
    * Decrements the byte budget for each popped item using the same

@@ -29,10 +29,7 @@ import type {
   DisplayAttachment,
   DisplayMessage,
 } from "@/domains/chat/types/types";
-import {
-  conversationHistoryQueryKey,
-  type HistoryCache,
-} from "@/domains/chat/transcript/use-history-pagination";
+import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
 import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
@@ -74,7 +71,9 @@ import {
   parsePendingConfirmationData,
   parsePendingSecretState,
   resolvePostError,
+  shouldCleanupSupersededInteractions,
 } from "@/domains/chat/utils/send-message-utils";
+import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
@@ -85,9 +84,11 @@ import {
   fetchConversationMessages,
   postChatMessage,
   pollForResponse,
+  RECONCILE_LATEST_PAGE_LIMIT,
 } from "@/domains/chat/api/messages";
 import { surfaceConversation } from "@/domains/chat/api/conversations";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
+import { resolveSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import {
   ConversationNotFoundError,
   fetchConversationDetail,
@@ -113,9 +114,10 @@ type SendStreamResult =
       resolvedConversationId?: string;
       /** Server-assigned user message id from the active POST resolve.
        *  Absent for the queued path (POST returns only `requestId`) and
-       *  for scope-changed-mid-flight results. Used by `sendMessage` to
-       *  swap the optimistic user row's client id for the server id and
-       *  clear `isOptimistic`. */
+       *  for scope-changed-mid-flight results. The optimistic send is no
+       *  longer id-swapped against this — the snapshot's echoed row and the
+       *  overlay's `clientMessageId` dedup own that — so this is retained only
+       *  for diagnostics / callers that want the persisted id. */
       userMessageId?: string;
     }
   | { status: "ignored" }
@@ -130,6 +132,7 @@ interface UseSendMessageParams {
   assistantId: string | null;
   activeConversationId: string | null;
   diskPressureChatBlockReason: DiskPressureChatBlockReason | null;
+  uiContextRef: MutableRefObject<UIContext | null>;
 
   // Onboarding refs (ChatPage-local, not per-conversation)
   pendingOnboardingContextRef: MutableRefObject<PreChatOnboardingContext | null>;
@@ -150,6 +153,7 @@ export function useSendMessage({
   assistantId,
   activeConversationId,
   diskPressureChatBlockReason,
+  uiContextRef,
   pendingOnboardingContextRef,
   onboardingDraftConversationIdRef,
   startReconciliationLoop,
@@ -158,7 +162,8 @@ export function useSendMessage({
 }: UseSendMessageParams) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const setLiveTurn = useChatSessionStore.use.setLiveTurn();
+  const addOptimisticSend = useChatSessionStore.use.addOptimisticSend();
+  const setOptimisticSends = useChatSessionStore.use.setOptimisticSends();
   const setError = useChatSessionStore.use.setError();
   const setNotice = useChatSessionStore.use.setNotice();
 
@@ -202,7 +207,7 @@ export function useSendMessage({
 
   /**
    * Persist dismissed surface IDs to both the in-memory ref and local
-   * storage. Extracted so `setLiveTurn` updaters stay pure.
+   * storage. Extracted so optimistic-send updaters stay pure.
    */
   const persistDismissedSurfaces = useCallback(
     (dismissedIds: Set<string>) => {
@@ -264,7 +269,7 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string): Promise<SendStreamResult> => {
+    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string, isHidden = false): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -312,14 +317,32 @@ export function useSendMessage({
       const inferenceProfileForSend = useConversationStore
         .getState()
         .pendingDraftProfiles.get(requestConversationId);
+      // A per-chat plugin set the user picked in the composer before this
+      // conversation's row existed — mirrors `inferenceProfileForSend`. Only an
+      // EXPLICIT selection (an entry in the map, including an empty set) is
+      // forwarded; an untouched default has no entry and sends `undefined`.
+      // Gated on resolved daemon support — older daemons silently drop the
+      // field, so the version must hydrate before deciding (see
+      // `use-supports-new-chat-plugins`).
+      const draftPlugins = useConversationStore
+        .getState()
+        .pendingDraftPlugins.get(requestConversationId);
+      const enabledPluginsForSend =
+        draftPlugins && (await resolveSupportsNewChatPlugins())
+          ? [...draftPlugins].sort()
+          : undefined;
       const postResult = await postChatMessage(
         requestAssistantId,
         useServerMint ? null : requestConversationId,
         content,
-        attachmentIds,
-        onboardingContext ?? undefined,
-        clientMessageId,
-        inferenceProfileForSend,
+        {
+          attachmentIds,
+          onboarding: onboardingContext ?? undefined,
+          clientMessageId,
+          inferenceProfile: inferenceProfileForSend,
+          enabledPlugins: enabledPluginsForSend,
+          hidden: isHidden,
+        },
       );
       if (
         useServerMint &&
@@ -364,6 +387,15 @@ export function useSendMessage({
         useConversationStore
           .getState()
           .clearPendingDraftProfile(requestConversationId);
+      }
+      // Same lifecycle as the profile stash: the draft's plugin selection has
+      // now been persisted on the minted conversation, so drop this draft's
+      // entry. Cleared only on success — a failed send keeps the stash so a
+      // retry still carries the chosen plugins.
+      if (draftPlugins) {
+        useConversationStore
+          .getState()
+          .clearPendingDraftPlugins(requestConversationId);
       }
       if (onboardingDraftConversationIdRef.current === activeConversationId) {
         onboardingDraftConversationIdRef.current = null;
@@ -415,12 +447,61 @@ export function useSendMessage({
       });
 
       if (postResult.queued) {
+        // The client believed the conversation was idle (so it took the
+        // active-send path), but the assistant was still processing and
+        // queued this message instead. Reflect the queued state on the
+        // optimistic row so it renders with queued affordances rather than
+        // as a normal in-flight send: tag it `queueStatus: "queued"`, track
+        // it in the pending-queue FIFO so the `message_queued` SSE event can
+        // assign its real position, and register the request id eagerly so
+        // steer/cancel work before the event arrives. Mirrors the
+        // willQueue path in `sendMessage`.
+        if (clientMessageId) {
+          useChatSessionStore
+            .getState()
+            .pushPendingQueuedMessageId(clientMessageId);
+          setOptimisticSends((prev) =>
+            prev.map((m) =>
+              m.id === clientMessageId
+                ? {
+                    ...m,
+                    queueStatus: "queued" as const,
+                    queuePosition: m.queuePosition ?? 0,
+                  }
+                : m,
+            ),
+          );
+          if (postResult.requestId) {
+            useChatSessionStore
+              .getState()
+              .setRequestIdMapping(postResult.requestId, clientMessageId);
+          }
+        }
         return {
           status: "ok",
           resolvedConversationId: postResult.conversationId,
         };
       }
       if (hasMatchingActiveStream) {
+        return {
+          status: "ok",
+          userMessageId: postResult.messageId,
+          resolvedConversationId: postResult.conversationId,
+        };
+      }
+
+      if (isHidden) {
+        // Hidden sends (e.g. the onboarding "Let's chat" kickoff) never
+        // materialize a user row in `/messages` — the daemon suppresses it
+        // (see `conversation-routes.ts`) — so `pollForResponse`'s causal
+        // boundary (find the user message, then the assistant reply after it)
+        // can never match: the poll would spin the full timeout and then
+        // fire a spurious "Assistant did not respond in time." error even
+        // though the proactive greeting streamed in fine over SSE. Skip the
+        // poll entirely and lean on the reconciliation loop, which pulls the
+        // latest snapshot without needing a user-message boundary and folds
+        // the greeting in if the SSE stream dropped it.
+        startReconciliationLoop(epoch);
         return {
           status: "ok",
           userMessageId: postResult.messageId,
@@ -470,6 +551,7 @@ export function useSendMessage({
             const snapshot = await fetchConversationMessages(
               postResult.assistantId,
               effectiveConversationId,
+              { latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT },
             );
             serverSeq = snapshot?.seq ?? null;
           } catch {
@@ -478,11 +560,12 @@ export function useSendMessage({
           if (!isCurrentSendScope(effectiveConversationId)) return;
           // Advance the local seq frontier — we've observed this snapshot.
           recordLocalSeq(effectiveConversationId, serverSeq);
-          // Show the reply immediately on the live turn; pull the authoritative
-          // server view into the history cache. The turn-idle handoff prunes the
-          // live copy once history has it — no client-side merge.
-          setLiveTurn((prev) => {
-            if (!isCurrentSendScope(effectiveConversationId)) return prev;
+          // No active SSE stream delivered this turn (poll fallback): fold the
+          // polled reply onto the materialized snapshot immediately, then pull
+          // the authoritative server view into the history cache, which reseeds
+          // the snapshot. Upsert by id so a reply a late event already folded
+          // isn't duplicated.
+          useChatSessionStore.getState().patchSnapshotMessages((prev) => {
             const mapped = mapRuntimeToDisplayMessage(reply);
             const existingIdx = prev.findIndex((m) => m.id === reply.id);
             if (existingIdx >= 0) {
@@ -507,9 +590,10 @@ export function useSendMessage({
           });
           if (restoredConfData && isCurrentSendScope(effectiveConversationId)) {
             const capturedConfData = restoredConfData;
-            // Zustand set() is synchronous — messages already reflect the
-            // setLiveTurn call above, so getState() gives us fresh state.
-            const currentMessages = useChatSessionStore.getState().liveTurn;
+            // Zustand set() is synchronous — the snapshot already reflects the
+            // patch above, so getState() gives us fresh messages.
+            const currentMessages =
+              useChatSessionStore.getState().snapshot?.messages ?? [];
             const result = attachConfirmationToToolCall(currentMessages, capturedConfData);
             if (result.attachedToolCallId) {
               useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
@@ -517,7 +601,7 @@ export function useSendMessage({
             } else {
               useInteractionStore.getState().setInlineConfirmationToolCallId(null);
             }
-            setLiveTurn(() => result.updatedMessages);
+            useChatSessionStore.getState().patchSnapshotMessages(() => result.updatedMessages);
           }
           startReconciliationLoop(epoch);
         })
@@ -600,7 +684,17 @@ export function useSendMessage({
   // sendMessage — high-level send with UI state, queuing, draft resolution
   // -------------------------------------------------------------------------
   const sendMessage = useCallback(
-    async (content: string, attachments: DisplayAttachment[] = []) => {
+    async (
+      content: string,
+      attachments: DisplayAttachment[] = [],
+      opts: { hidden?: boolean } = {},
+    ) => {
+      // A hidden send (e.g. the onboarding "Let's chat" kickoff) drives a turn
+      // and the assistant's reply, but renders NO user bubble: skip the
+      // optimistic row here and the daemon suppresses the echo. Hidden sends are
+      // always a fresh first message (conversation idle), so they never take the
+      // queue path below.
+      const isHidden = opts.hidden === true;
       if (!activeConversationId || !assistantId) {
         setError({ message: "No active conversation. Please try again." });
         return;
@@ -639,46 +733,36 @@ export function useSendMessage({
       // single functional updater so the two transforms compose correctly
       // within React 18's batched state updates. Side effects (ref mutation,
       // localStorage persist) are kept outside the updater to stay pure.
-      // Scan the full rendered transcript — history ⊕ live turn — for
-      // superseded interactive surfaces and pending confirmations. After the
-      // turn-idle handoff prunes a completed turn, a superseded surface or
-      // confirmation lives in the history cache, not the live turn, so a
-      // live-turn-only scan would leave it rendering as actionable (and could
-      // let the user resubmit a request the daemon has already resolved). The
-      // clear + dismiss transform is applied to BOTH sources via
-      // patchTranscriptMessages (a no-op for rows it doesn't match), and the
-      // dismissed-id list that drives the hide set is computed over the union.
-      const cachedHistory =
-        assistantId && activeConversationId
-          ? queryClient.getQueryData<HistoryCache>(
-              conversationHistoryQueryKey(assistantId, activeConversationId),
-            )
-          : undefined;
-      const historyRows = cachedHistory
-        ? [...cachedHistory.pages].reverse().flatMap((page) => page.messages)
-        : [];
-      const transcriptForScan =
-        historyRows.length > 0
-          ? [...historyRows, ...useChatSessionStore.getState().liveTurn]
-          : useChatSessionStore.getState().liveTurn;
+      // Scan the full rendered transcript — the materialized snapshot, which
+      // holds both persisted history and the just-streamed turn — for
+      // superseded interactive surfaces and pending confirmations, so a
+      // resubmit can't act on a request the daemon already resolved. The
+      // clear + dismiss transform is applied via patchTranscriptMessages (a
+      // no-op for rows it doesn't match) to both the snapshot and the history
+      // cache, and the dismissed-id list that drives the hide set is computed
+      // over the same view.
+      if (shouldCleanupSupersededInteractions(uiContextRef.current)) {
+        const transcriptForScan =
+          useChatSessionStore.getState().snapshot?.messages ?? [];
 
-      patchTranscriptMessages((prev) => {
-        const cleared = clearPendingConfirmationsFromMessages(prev);
-        const { updatedMessages, dismissedIds } = dismissInteractiveSurfaces(
-          cleared,
+        patchTranscriptMessages((prev) => {
+          const cleared = clearPendingConfirmationsFromMessages(prev);
+          const { updatedMessages, dismissedIds } = dismissInteractiveSurfaces(
+            cleared,
+            transcriptForScan,
+          );
+          return dismissedIds.size > 0 ? updatedMessages : cleared;
+        });
+
+        // Persist dismissed surfaces outside the updater (side effect).
+        const { dismissedIds } = dismissInteractiveSurfaces(
+          transcriptForScan,
           transcriptForScan,
         );
-        return dismissedIds.size > 0 ? updatedMessages : cleared;
-      });
-
-      // Persist dismissed surfaces outside the updater (side effect).
-      const { dismissedIds } = dismissInteractiveSurfaces(
-        transcriptForScan,
-        transcriptForScan,
-      );
-      if (dismissedIds.size > 0) {
-        persistDismissedSurfaces(dismissedIds);
-        useTurnStore.getState().dismissSurface();
+        if (dismissedIds.size > 0) {
+          persistDismissedSurfaces(dismissedIds);
+          useTurnStore.getState().dismissSurface();
+        }
       }
 
       const willQueue = isSending(useTurnStore.getState().phase);
@@ -696,7 +780,7 @@ export function useSendMessage({
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(willQueue ? { queueStatus: "queued" as const, queuePosition: 0 } : {}),
       };
-      setLiveTurn((prev) => [...prev, userMessage]);
+      if (!isHidden) addOptimisticSend(userMessage);
       void getSoundManager().play("message_sent");
 
       // Queue path: POST to assistant (it queues internally) but don't
@@ -709,9 +793,7 @@ export function useSendMessage({
             assistantId,
             activeConversationId,
             content,
-            attachmentIds,
-            undefined,
-            clientMessageId,
+            { attachmentIds, clientMessageId, hidden: isHidden },
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);
@@ -738,7 +820,7 @@ export function useSendMessage({
             const queueIds = useChatSessionStore.getState().pendingQueuedMessageIds;
             const idx = queueIds.indexOf(userMessage.id);
             if (idx !== -1) queueIds.splice(idx, 1);
-            setLiveTurn((prev) =>
+            setOptimisticSends((prev) =>
               clearQueueStatus(prev, userMessage.id),
             );
             const fallbackTurnId = newTurnId();
@@ -804,14 +886,15 @@ export function useSendMessage({
           attachments.map((att) => att.id),
           isDraft,
           clientMessageId,
+          isHidden,
         );
 
         if (result.status === "failed") {
           // Roll back every piece of optimistic state we just set up: the
-          // bubble in the transcript, the processing flag on the conversation,
-          // the prepended draft conversation in the sidebar, and the cleared
+          // optimistic send, the processing flag on the conversation, the
+          // prepended draft conversation in the sidebar, and the cleared
           // composer input. Then surface the error.
-          setLiveTurn((prev) =>
+          setOptimisticSends((prev) =>
             prev.filter((m) => m.id !== userMessage.id),
           );
           useConversationStore
@@ -838,22 +921,6 @@ export function useSendMessage({
         }
 
         resolvedId = result.resolvedConversationId;
-
-        // POST resolve — swap the optimistic user row's client id for the
-        // server's. Gate on `isOptimistic` so a reconcile that already
-        // swapped this row doesn't get clobbered. Queued sends skip this
-        // and keep their optimistic id until the daemon echoes their
-        // `clientMessageId` back on the persisted row.
-        if (result.userMessageId) {
-          const serverUserMessageId = result.userMessageId;
-          setLiveTurn((prev) =>
-            prev.map((m) =>
-              m.isOptimistic && m.id === clientMessageId
-                ? { ...m, id: serverUserMessageId, isOptimistic: false }
-                : m,
-            ),
-          );
-        }
 
         // Resolve draft key -> server-assigned conversation ID.
         if (resolvedId && resolvedId !== activeConversationId) {
@@ -896,6 +963,7 @@ export function useSendMessage({
       activeConversationId,
       assistantId,
       diskPressureChatBlockReason,
+      uiContextRef,
       runLocalMetaCommand,
       sendMessageViaStream,
       refreshConversations,
@@ -916,7 +984,8 @@ export function useSendMessage({
       isProcessing: false,
     });
     endTurn({ conversationId: activeConversationId, reason: "cancelled" });
-    setLiveTurn(clearPendingConfirmationsFromMessages);
+    // Per-row clear (no-op for non-matching rows) → snapshot + history cache.
+    patchTranscriptMessages(clearPendingConfirmationsFromMessages);
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
     useWorkflowStore.getState().reset();

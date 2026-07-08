@@ -16,7 +16,7 @@ export async function executeScheduleDelete(
     return { content: `Error: Schedule not found: ${jobId}`, isError: true };
   }
 
-  const deleted = deleteSchedule(jobId);
+  const deleted = await deleteSchedule(jobId);
   if (!deleted) {
     return {
       content: `Error: Failed to delete schedule: ${jobId}`,

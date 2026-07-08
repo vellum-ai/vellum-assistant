@@ -9,10 +9,10 @@
 
 import { z } from "zod";
 
-import { getDb } from "../../memory/db-connection.js";
-import { getMaxRollbackVersion } from "../../memory/migrations/run-migrations.js";
-import { rollbackMemoryMigration } from "../../memory/migrations/validate-migration-state.js";
-import { migrationSteps } from "../../memory/steps.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { getMaxRollbackVersion } from "../../persistence/migrations/run-migrations.js";
+import { rollbackMemoryMigration } from "../../persistence/migrations/validate-migration-state.js";
+import { migrationSteps } from "../../persistence/steps.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import {
@@ -105,7 +105,11 @@ async function handleRollbackMigrations({ body = {} }: RouteHandlerArgs) {
   // Roll back DB migrations if requested.
   if (effectiveDbVersion !== undefined) {
     try {
-      rolledBack.db = rollbackMemoryMigration(getDb(), effectiveDbVersion, migrationSteps);
+      rolledBack.db = rollbackMemoryMigration(
+        getDb(),
+        effectiveDbVersion,
+        migrationSteps,
+      );
     } catch (err) {
       const detail = err instanceof Error ? err.message : "Unknown error";
       throw new InternalError(`DB migration rollback failed: ${detail}`);
@@ -122,9 +126,7 @@ async function handleRollbackMigrations({ body = {} }: RouteHandlerArgs) {
       .filter((m) => {
         const entry = checkpointsBefore.applied[m.id];
         return (
-          entry &&
-          entry.status !== "started" &&
-          entry.status !== "rolling_back"
+          entry && entry.status !== "started" && entry.status !== "rolling_back"
         );
       })
       .map((m) => m.id);
@@ -172,10 +174,7 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["admin"],
     handler: handleRollbackMigrations,
     requestBody: z.object({
-      targetDbVersion: z
-        .number()
-        .int()
-        .describe("Target DB migration version"),
+      targetDbVersion: z.number().int().describe("Target DB migration version"),
       targetWorkspaceMigrationId: z
         .string()
         .describe("Target workspace migration ID"),

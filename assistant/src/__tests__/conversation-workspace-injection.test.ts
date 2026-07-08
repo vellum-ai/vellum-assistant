@@ -110,9 +110,9 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationHistoryStrippedAt: () => {},
   provenanceFromTrustContext: () => ({
@@ -147,11 +147,11 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageContent: mock(() => {}),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   isLastUserMessageToolResult: () => false,
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   uploadAttachment: () => ({ id: "att-1" }),
   linkAttachmentToMessage: () => {},
 }));
@@ -175,7 +175,7 @@ mock.module("../memory/retriever.js", () => ({
 mock.module("../memory/query-builder.js", () => ({
   buildMemoryQuery: () => "",
 }));
-mock.module("../memory/retrieval-budget.js", () => ({
+mock.module("../plugins/defaults/memory/retrieval-budget.js", () => ({
   computeRecallBudget: () => 0,
 }));
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
@@ -201,10 +201,10 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   }),
   getSummaryFromContextMessage: () => null,
 }));
-mock.module("../memory/llm-usage-store.js", () => ({
+mock.module("../persistence/llm-usage-store.js", () => ({
   recordUsageEvent: () => ({ id: "usage-1", createdAt: Date.now() }),
 }));
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   updateApp: () => {},
 }));
@@ -279,7 +279,7 @@ mock.module("../agent/loop.js", () => ({
     }
   },
 }));
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
   listPendingRequestsByConversationScope: () => [],

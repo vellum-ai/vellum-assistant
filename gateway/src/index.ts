@@ -3,9 +3,7 @@ process.title = "vellum-gateway";
 import { randomBytes } from "node:crypto";
 
 import {
-  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
-  TWILIO_RELAY_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
@@ -40,12 +38,7 @@ import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js"
 import { createAudioProxyHandler } from "./http/routes/audio-proxy.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
-import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
 import { createTwilioVoiceVerifyCallbackHandler } from "./http/routes/twilio-voice-verify-callback.js";
-import {
-  createTwilioRelayWebsocketHandler,
-  getRelayWebsocketHandlers,
-} from "./http/routes/twilio-relay-websocket.js";
 import {
   createTwilioMediaWebsocketHandler,
   getMediaStreamWebsocketHandlers,
@@ -92,6 +85,11 @@ import {
   handleRevokeDevice,
 } from "./http/routes/devices.js";
 import { handlePair } from "./http/routes/pair.js";
+import { handleCredentialEntryPage } from "./http/routes/credential-entry-page.js";
+import {
+  handleCredentialRequestPeek,
+  handleCredentialRequestSubmit,
+} from "./http/routes/credential-requests.js";
 import { handleCreateRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-challenge.js";
 import { handleRemoteWebPairingToken } from "./http/routes/remote-web-pairing-token.js";
 import { handleVerifyRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-verification.js";
@@ -116,8 +114,6 @@ import {
   createBackupSnapshotHandler,
 } from "./backup/backup-routes.js";
 import { startBackupWorker } from "./backup/backup-worker.js";
-import { stopVoiceApprovalSync } from "./verification/voice-approval-sync.js";
-import { stopOutboundVoiceVerificationSync } from "./verification/outbound-voice-verification-sync.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
@@ -141,6 +137,12 @@ import {
   createChannelAdmissionPolicySetHandler,
   createChannelAdmissionPolicyDeleteHandler,
 } from "./http/routes/channel-admission-policy.js";
+import {
+  createChannelPermissionOverridesListHandler,
+  createChannelPermissionOverrideSetHandler,
+  createChannelPermissionOverrideDeleteHandler,
+  createChannelPermissionResolveHandler,
+} from "./http/routes/channel-permission-overrides.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
 import {
@@ -154,6 +156,7 @@ import {
   type SlackSocketModeClient,
 } from "./slack/socket-mode.js";
 import { downloadSlackFile } from "./slack/download.js";
+import { slackBotContactNote } from "./slack/normalize.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
@@ -188,11 +191,14 @@ import {
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import { inviteRoutes } from "./ipc/invite-handlers.js";
+import { verificationSessionRoutes } from "./ipc/verification-session-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
+import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
 import { trustVerdictRoutes } from "./ipc/trust-verdict-handlers.js";
 import { guardianDeliveryRoutes } from "./ipc/guardian-delivery-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
+import { createCredentialRequestIpcRoutes } from "./ipc/credential-request-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 import { trustRulesRoutes } from "./ipc/trust-rules-handlers.js";
@@ -276,6 +282,24 @@ function isLiveVoiceSocketData(data: unknown): data is LiveVoiceSocketData {
     typeof data === "object" &&
     (data as { wsType?: unknown }).wsType === "live-voice"
   );
+}
+
+/** Log-safe socket-type discriminant for unknown-socket diagnostics. */
+function extractWsType(data: unknown): unknown {
+  return data && typeof data === "object"
+    ? (data as { wsType?: unknown }).wsType
+    : undefined;
+}
+
+function closeUnknownSocket(
+  ws: { data: unknown; close(code?: number, reason?: string): void },
+  event: "open" | "message",
+): void {
+  log.error(
+    { event, wsType: extractWsType(ws.data) },
+    "WebSocket event for unknown socket type — closing",
+  );
+  ws.close(1011, "Unknown socket type");
 }
 
 function getClientIp(
@@ -434,19 +458,13 @@ async function main() {
     config,
     twilioValidationCaches,
   );
-  const handleTwilioConnectActionWebhook =
-    createTwilioConnectActionWebhookHandler(config, twilioValidationCaches);
   const handleTwilioVoiceVerifyCallback =
     createTwilioVoiceVerifyCallbackHandler(config, twilioValidationCaches);
-  const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config, {
-    configFile: configFileCache,
-  });
   const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config, {
     configFile: configFileCache,
   });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
-  const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
@@ -534,6 +552,14 @@ async function main() {
     createChannelAdmissionPolicySetHandler();
   const handleChannelAdmissionPolicyDelete =
     createChannelAdmissionPolicyDeleteHandler();
+  const handleChannelPermissionOverridesList =
+    createChannelPermissionOverridesListHandler();
+  const handleChannelPermissionOverrideSet =
+    createChannelPermissionOverrideSetHandler();
+  const handleChannelPermissionOverrideDelete =
+    createChannelPermissionOverrideDeleteHandler();
+  const handleChannelPermissionResolve =
+    createChannelPermissionResolveHandler();
 
   const handleAgentCard = createAgentCardHandler(configFileCache);
 
@@ -595,10 +621,6 @@ async function main() {
     {
       path: TWILIO_STATUS_WEBHOOK_PATH,
       handler: (req) => handleTwilioStatusWebhook(req),
-    },
-    {
-      path: TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
-      handler: (req) => handleTwilioConnectActionWebhook(req),
     },
     {
       path: "/webhooks/twilio/voice-verify",
@@ -750,6 +772,13 @@ async function main() {
       handler: (req) => handleContactPromptSubmit(req),
     },
     {
+      // Assistant-scoped variant for clients using the auto-prefix.
+      path: /^\/v1\/assistants\/[^/]+\/contacts\/prompt\/submit\/?$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleContactPromptSubmit(req),
+    },
+    {
       path: "/v1/contacts",
       method: "GET",
       auth: "edge",
@@ -757,6 +786,13 @@ async function main() {
     },
     {
       path: "/v1/contacts",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
+    },
+    {
+      // Assistant-scoped variant for clients using the auto-prefix.
+      path: /^\/v1\/assistants\/[^/]+\/contacts\/?$/,
       method: "POST",
       auth: "edge",
       handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
@@ -781,36 +817,51 @@ async function main() {
       handler: (req, params) =>
         contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
     },
+    {
+      // Assistant-scoped variant for clients using the auto-prefix.
+      path: /^\/v1\/assistants\/[^/]+\/contact-channels\/([^/]+)\/verify\/?$/,
+      method: "POST",
+      auth: "edge-guardian",
+      handler: (req, params) =>
+        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
+    },
     // ── Contacts/invites control plane ──
+    // Scope map: invites list → settings.read; create/redeem/revoke/call →
+    // settings.write.
     {
       path: "/v1/contacts/invites",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => contactsControlPlaneProxy.handleListInvites(req),
     },
     {
       path: "/v1/contacts/invites",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => contactsControlPlaneProxy.handleCreateInvite(req),
     },
     {
       path: "/v1/contacts/invites/redeem",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => contactsControlPlaneProxy.handleRedeemInvite(req),
     },
     {
       path: /^\/v1\/contacts\/invites\/([^/]+)\/call$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleCallInvite(req, params[0]),
     },
     {
       path: /^\/v1\/contacts\/invites\/([^/]+)$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleRevokeInvite(req, params[0]),
     },
@@ -869,6 +920,32 @@ async function main() {
       method: "POST",
       auth: "none",
       handler: (req) => handleRemoteWebPairingToken(req),
+    },
+    // ── Credential requests (one-time credential-collection links) ──
+    // Unauthenticated by design: the single-use token in the request BODY is
+    // the credential to act. Invalid tokens count as auth failures.
+    // The entry page is a static self-contained HTML shell (no token
+    // server-side — it rides the URL fragment); Velay-tunneled deployments
+    // have no SPA server behind the tunnel, so the gateway serves it.
+    {
+      path: "/assistant/credentials/enter",
+      method: "GET",
+      auth: "none",
+      handler: (req) => handleCredentialEntryPage(req),
+    },
+    {
+      path: "/v1/credential-requests/peek",
+      method: "POST",
+      auth: "track-failures",
+      trackFailureStatuses: [404],
+      handler: (req) => handleCredentialRequestPeek(req),
+    },
+    {
+      path: "/v1/credential-requests/submit",
+      method: "POST",
+      auth: "track-failures",
+      trackFailureStatuses: [404],
+      handler: (req) => handleCredentialRequestSubmit(req),
     },
     // ── Device management (localhost-only, auth: none; self-guards loopback) ──
     {
@@ -1547,6 +1624,75 @@ async function main() {
         handleChannelAdmissionPolicyDelete(req, params[0]),
     },
 
+    // ── Channel permission overrides (matrix cells) — flat routes ──
+    // HTTP mirror of the channel-permission IPC surface so configuration
+    // clients can read/write cascade cells. Gateway-owned storage; same
+    // platform-proxy path shape as channel-admission-policy above. The
+    // delete is a POST verb path because cells are keyed by a composite
+    // (selector × contact-type), not a row id.
+    {
+      path: /^\/v1\/channel-permission-overrides\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelPermissionOverridesList(req),
+    },
+    {
+      path: /^\/v1\/channel-permission-overrides\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleChannelPermissionOverrideSet(req),
+    },
+    {
+      path: /^\/v1\/channel-permission-overrides\/delete\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleChannelPermissionOverrideDelete(req),
+    },
+    // Resolve is a read (settings.read) despite the POST verb — the body
+    // carries a composite query, same rationale as /delete above.
+    {
+      path: /^\/v1\/channel-permission-overrides\/resolve\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelPermissionResolve(req),
+    },
+
+    // ── Channel permission overrides — assistant-scoped variants ──
+    // Matrix cells are gateway-global, so the assistant id is matched and
+    // discarded — same precedent as channel-admission-policy above.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-permission-overrides\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelPermissionOverridesList(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-permission-overrides\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleChannelPermissionOverrideSet(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-permission-overrides\/delete\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleChannelPermissionOverrideDelete(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-permission-overrides\/resolve\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelPermissionResolve(req),
+    },
+
     // ── Trust rules v3 — assistant-scoped variants ──
     // Mirror the flat /v1/trust-rules routes for clients that use
     // GatewayHTTPClient's auto-prefix (Swift TrustRuleClient and
@@ -1652,7 +1798,7 @@ async function main() {
           liveVoiceWebsocketHandlers.open(ws as never);
           return;
         }
-        twilioRelayWebsocketHandlers.open(ws as never);
+        closeUnknownSocket(ws, "open");
       },
       message(ws, message) {
         if (isMediaStreamSocketData(ws.data)) {
@@ -1667,7 +1813,7 @@ async function main() {
           liveVoiceWebsocketHandlers.message(ws as never, message);
           return;
         }
-        twilioRelayWebsocketHandlers.message(ws as never, message);
+        closeUnknownSocket(ws, "message");
       },
       close(ws, code, reason) {
         if (isMediaStreamSocketData(ws.data)) {
@@ -1682,7 +1828,10 @@ async function main() {
           liveVoiceWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
-        twilioRelayWebsocketHandlers.close(ws as never, code, reason);
+        log.error(
+          { wsType: extractWsType(ws.data), code, reason },
+          "WebSocket closed with unknown socket type",
+        );
       },
     },
     error(err) {
@@ -1757,6 +1906,66 @@ async function main() {
       return Response.json({ status: "ok" });
     }
 
+    if (url.pathname === "/readyz") {
+      if (draining) {
+        return Response.json({ status: "draining" }, { status: 503 });
+      }
+      // Check that the upstream assistant is also reachable so callers
+      // know the full stack is ready, not just the gateway process.
+      //
+      // The assistant's readiness body (`ready`, `dbMigrations`) is forwarded
+      // so programmatic callers — the upgrade/hatch CLI waits in particular —
+      // can distinguish "still migrating" (200, ready:false) from "ready" and
+      // detect terminally failed migrations.
+      //
+      // Status-code contract while the gateway's own post-assistant-ready
+      // work is incomplete (every non-probe route 503s "starting"):
+      // - Assistant still migrating (ready:false body): 200. Migrations can
+      //   take minutes and the orchestrator must keep the pod in service —
+      //   the forwarded ready:false body already keeps body-aware CLI waits
+      //   waiting.
+      // - Assistant ready, gateway backfills still running: 503 "starting".
+      //   This window is seconds long, and reporting ready here would let
+      //   the orchestrator route traffic — and CLI waits declare the stack
+      //   ready — while every route still 503s (upgrade would commit early;
+      //   hatch would burn its guardian-lease budget against the closed
+      //   gate).
+      try {
+        const upstream = await fetch(
+          `${config.assistantRuntimeBaseUrl}/readyz`,
+          { signal: AbortSignal.timeout(3000) },
+        );
+        const upstreamBody = (await upstream
+          .json()
+          .catch(() => null)) as Record<string, unknown> | null;
+        if (!upstream.ok) {
+          return Response.json(
+            {
+              ...(upstreamBody ?? {}),
+              status: "upstream_unhealthy",
+              upstream: upstream.status,
+            },
+            { status: 503 },
+          );
+        }
+        if (!postAssistantReadyComplete) {
+          if (upstreamBody?.ready === false) {
+            return Response.json(upstreamBody);
+          }
+          return Response.json(
+            { ...(upstreamBody ?? {}), status: "starting", ready: false },
+            { status: 503 },
+          );
+        }
+        return Response.json(upstreamBody ?? { status: "ok" });
+      } catch {
+        return Response.json(
+          { status: "upstream_unreachable" },
+          { status: 503 },
+        );
+      }
+    }
+
     if (!postAssistantReadyComplete) {
       return Response.json({ status: "starting" }, { status: 503 });
     }
@@ -1780,32 +1989,6 @@ async function main() {
       return Response.json(buildSchema());
     }
 
-    if (url.pathname === "/readyz") {
-      if (draining) {
-        return Response.json({ status: "draining" }, { status: 503 });
-      }
-      // Check that the upstream assistant is also reachable so callers
-      // know the full stack is ready, not just the gateway process.
-      try {
-        const upstream = await fetch(
-          `${config.assistantRuntimeBaseUrl}/readyz`,
-          { signal: AbortSignal.timeout(3000) },
-        );
-        if (!upstream.ok) {
-          return Response.json(
-            { status: "upstream_unhealthy", upstream: upstream.status },
-            { status: 503 },
-          );
-        }
-      } catch {
-        return Response.json(
-          { status: "upstream_unreachable" },
-          { status: 503 },
-        );
-      }
-      return Response.json({ status: "ok" });
-    }
-
     // Per-request IP resolver — scoped to this request so it remains
     // correct across async yields under concurrent load.
     const resolveClientIp: GetClientIp = () =>
@@ -1827,12 +2010,6 @@ async function main() {
     // ── Pre-router: WebSocket upgrades ──
     // Bun's WS upgrade needs `server.upgrade()` which doesn't return
     // a Response, so these can't go through the route table.
-    if (url.pathname === TWILIO_RELAY_WEBHOOK_PATH) {
-      const upgradeResult = handleTwilioRelayWs(req, server);
-      if (upgradeResult !== undefined) return upgradeResult;
-      return undefined as unknown as Response;
-    }
-
     if (
       url.pathname === TWILIO_MEDIA_STREAM_WEBHOOK_PATH ||
       url.pathname.startsWith(`${TWILIO_MEDIA_STREAM_WEBHOOK_PATH}/`)
@@ -1916,7 +2093,10 @@ async function main() {
   log.info({ port: server.port }, "Gateway HTTP server listening");
 
   // Complete post-assistant-ready startup work after binding /healthz.
-  // All non-health routes stay closed until this finishes.
+  // All non-health routes stay closed until this returns. When the assistant
+  // is not migration-ready within the bounded wait, this still returns (so
+  // traffic opens) while the deferred tasks keep retrying in the background —
+  // see post-assistant-ready.ts.
   try {
     await runPostAssistantReady();
     postAssistantReadyComplete = true;
@@ -2084,6 +2264,8 @@ async function main() {
         const forward = async () => {
           // Seed contact channel for the Slack actor (dual-write, fire-and-forget).
           // Covers both DMs (externalChatId = DM channel) and workspace messages.
+          // Bot/app senders are classified as 'assistant' contacts with a
+          // provenance note instead of the default 'human'.
           if (normalized.event.actor.actorExternalId) {
             void upsertContactChannel({
               sourceChannel: "slack",
@@ -2096,6 +2278,12 @@ async function main() {
                 : {}),
               displayName: normalized.event.actor.displayName,
               username: normalized.event.actor.username,
+              ...(normalized.botSender
+                ? {
+                    contactType: "assistant" as const,
+                    notes: slackBotContactNote(normalized.botSender),
+                  }
+                : {}),
             }).catch(() => {});
           }
 
@@ -2476,15 +2664,18 @@ async function main() {
     ...featureFlagRoutes,
     ...contactRoutes,
     ...inviteRoutes,
+    ...verificationSessionRoutes,
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...admissionPolicyRoutes,
+    ...channelPermissionRoutes,
     ...trustVerdictRoutes,
     ...guardianDeliveryRoutes,
     ...riskClassificationRoutes,
     ...createLogTailRoutes(config),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
+    ...createCredentialRequestIpcRoutes(configFileCache),
   ]);
   ipcServer.start();
 
@@ -2564,8 +2755,6 @@ async function main() {
     const shutdownTasks: Promise<void>[] = [];
     sleepWakeDetector.stop();
     backupWorkerHandle.stop();
-    stopVoiceApprovalSync();
-    stopOutboundVoiceVerificationSync();
     credentialWatcher.stop();
     configFileWatcher.stop();
     avatarSyncWatcher.stop();

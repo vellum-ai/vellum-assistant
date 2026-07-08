@@ -62,6 +62,13 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
 const WORKSPACE_GITIGNORE_RULES = [
   "data/db/",
   "data/qdrant/",
+  "data/monitoring/",
+  // App files under data/apps/ are tracked as ordinary workspace state, but
+  // their user data (form submissions), build output, and large preview blobs
+  // are not worth versioning and would churn the workspace repo.
+  "data/apps/*/records/",
+  "data/apps/*/dist/",
+  "data/apps/*.preview",
   "plugins/*/node_modules/",
   "logs/",
   "*.log",

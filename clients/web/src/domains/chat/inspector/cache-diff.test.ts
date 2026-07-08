@@ -229,6 +229,36 @@ describe("diffLines", () => {
     expect(result?.truncated).toBe(true);
     expect(result?.lines).toEqual([]);
   });
+
+  test("aligns multiple changed hunks via the flat-table LCS", () => {
+    const result = diffLines("a\nb\nc\nd\ne", "a\nB\nc\nD\ne");
+    expect(result?.truncated).toBe(false);
+    const byType = (type: CacheDiffLine["type"]) =>
+      result?.lines.filter((l) => l.type === type).map((l) => l.text);
+    expect(byType("context")).toEqual(["a", "c", "e"]);
+    expect(byType("removed")).toEqual(["b", "d"]);
+    expect(byType("added")).toEqual(["B", "D"]);
+  });
+
+  test("computes past the default cap when given a higher ceiling", () => {
+    const base = Array.from({ length: 600 }, (_, i) => `line ${i}`).join("\n");
+    const next = `${base}\nextra`;
+    // The default cap still bails on this input...
+    expect(diffLines(base, next)?.truncated).toBe(true);
+    // ...but an explicit higher ceiling diffs it.
+    const result = diffLines(base, next, 4000);
+    expect(result?.truncated).toBe(false);
+    expect(
+      result?.lines.some((l) => l.type === "added" && l.text === "extra"),
+    ).toBe(true);
+  });
+
+  test("still bails when the text exceeds the higher ceiling", () => {
+    const huge = Array.from({ length: 4100 }, (_, i) => `line ${i}`).join("\n");
+    const result = diffLines(huge, `${huge}\nextra`, 4000);
+    expect(result?.truncated).toBe(true);
+    expect(result?.lines).toEqual([]);
+  });
 });
 
 describe("collapseDiffContext", () => {

@@ -8,7 +8,7 @@
 import type { KnownBlock } from "@slack/types";
 
 import type { ChannelId } from "../../channels/types.js";
-import type { TrustContext } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { getLogger } from "../../util/logger.js";
 import { resolveCapabilities } from "../capabilities.js";
 import type { ApprovalDecisionResult } from "../channel-approval-types.js";
@@ -22,6 +22,7 @@ import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
 } from "../http-types.js";
+import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
 import { parseApprovalIntent } from "../nl-approval-parser.js";
 import { handleGuardianTextEngineDecision } from "./approval-strategies/guardian-text-engine-strategy.js";
 import {
@@ -171,6 +172,56 @@ export async function handleApprovalInterception(
         });
         return { handled: true, type: "assistant_turn" };
       }
+    }
+  }
+
+  // ── Guardian principal gate ──
+  // A guardian-class decision must be authorized by principal, not merely by
+  // the same-channel address match that produced the trust class: the acting
+  // principal (the channel binding's principal carried on the trust context)
+  // must be present and, when the assistant's vellum anchor resolves, equal
+  // it. This runs BEFORE any decision is applied (callback, text engine, NL
+  // parser). An unresolvable anchor read (transient gateway miss) defers to
+  // the gateway-stamped verdict — the gateway is the ACL source of truth and
+  // an absent verdict is already hard-denied at ingress. The failure copy is
+  // generic by design: no oracle about pending requests or authorization
+  // detail.
+  if (trustCtx.trustClass === "guardian") {
+    const actingPrincipalId = trustCtx.guardianPrincipalId;
+    const anchorPrincipalId = await findLocalGuardianPrincipalId();
+    const principalAuthorized =
+      !!actingPrincipalId &&
+      (!anchorPrincipalId || actingPrincipalId === anchorPrincipalId);
+    if (!principalAuthorized) {
+      log.warn(
+        {
+          conversationId,
+          sourceChannel,
+          hasActingPrincipal: !!actingPrincipalId,
+          hasAnchorPrincipal: !!anchorPrincipalId,
+        },
+        "Blocking guardian-class approval decision: acting principal missing or does not match the bound guardian principal",
+      );
+      if (replyCallbackUrl) {
+        const ephemeralUser = slackEphemeralUserId(
+          sourceChannel,
+          actorExternalId,
+        );
+        try {
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: conversationExternalId,
+            text: "Sorry, I couldn't process that. Please try again.",
+            assistantId,
+            ...(ephemeralUser ? { ephemeral: true, user: ephemeralUser } : {}),
+          });
+        } catch (err) {
+          log.error(
+            { err, conversationId },
+            "Failed to deliver principal-gate rejection reply",
+          );
+        }
+      }
+      return { handled: true, type: "stale_ignored" };
     }
   }
 

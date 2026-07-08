@@ -12,11 +12,12 @@
 import { v4 as uuid } from "uuid";
 
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
-import { getConversation } from "../memory/conversation-crud.js";
+import { getConversation } from "../persistence/conversation-crud.js";
 import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
 import {
   buildAccessRequestContractText,
+  buildIntroductionActionsForPayload,
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
 import { isGuardianSensitiveEvent } from "./adapters/macos.js";
@@ -28,10 +29,7 @@ import {
   updateDeliveryStatus,
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
-import {
-  parseGuardianQuestionPayload,
-  resolveGuardianInstructionModeFromPayload,
-} from "./guardian-question-mode.js";
+import { parseInteractiveApprovalPayload } from "./guardian-question-mode.js";
 import { nonEmpty } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
@@ -59,27 +57,32 @@ function resolveApprovalContext(
   signal: NotificationSignal,
 ): ApprovalUIMetadata | undefined {
   const payload = signal.contextPayload;
-  if (!payload) return undefined;
+  if (!payload) {
+    return undefined;
+  }
 
   if (signal.sourceEventName === "ingress.access_request") {
     const requestId = nonEmpty(
       typeof payload.requestId === "string" ? payload.requestId : undefined,
     );
-    if (!requestId) return undefined;
+    if (!requestId) {
+      return undefined;
+    }
     return {
       requestId,
-      actions: APPROVAL_ACTIONS,
+      actions: buildIntroductionActionsForPayload(
+        parseAccessRequestPayload(payload),
+      ),
       plainTextFallback: buildAccessRequestContractText(payload),
     };
   }
 
   if (signal.sourceEventName === "guardian.question") {
-    const parsed = parseGuardianQuestionPayload(payload);
-    if (!parsed) return undefined;
-    const { mode } = resolveGuardianInstructionModeFromPayload(parsed);
-    if (mode !== "approval") return undefined;
-    const requestId = nonEmpty(parsed.requestId);
-    if (!requestId) return undefined;
+    const parsed = parseInteractiveApprovalPayload(payload);
+    if (!parsed) {
+      return undefined;
+    }
+    const requestId = parsed.requestId;
 
     // Extract tool context so channel adapters can render structured
     // approval cards without re-parsing contextPayload.
@@ -184,8 +187,12 @@ export class NotificationBroadcaster {
     // event fires immediately, before slower channel sends (e.g. Telegram 30s
     // timeout) can delay it past the macOS deep-link retry window.
     const orderedChannels = [...decision.selectedChannels].sort((a, b) => {
-      if (a === "vellum") return -1;
-      if (b === "vellum") return 1;
+      if (a === "vellum") {
+        return -1;
+      }
+      if (b === "vellum") {
+        return 1;
+      }
       return 0;
     });
 
@@ -201,6 +208,13 @@ export class NotificationBroadcaster {
         ? parseAccessRequestPayload(signal.contextPayload)
         : undefined;
     const results: NotificationDeliveryResult[] = [];
+
+    // Vellum pairing carried forward for the platform channel's deep link.
+    // A single-pass carry is safe because orderedChannels sorts vellum first.
+    let vellumPairing: {
+      conversationId: string;
+      messageId: string | null;
+    } | null = null;
 
     for (const channel of orderedChannels) {
       const adapter = this.adapters.get(channel);
@@ -297,6 +311,15 @@ export class NotificationBroadcaster {
           channel,
         );
         if (existingDelivery) {
+          // On retry paths the vellum row already exists, so the fresh-pairing
+          // carry below never runs — seed the platform deep-link carry from
+          // the duplicate row's conversation instead.
+          if (channel === "vellum" && existingDelivery.conversationId) {
+            vellumPairing = {
+              conversationId: existingDelivery.conversationId,
+              messageId: existingDelivery.messageId,
+            };
+          }
           log.info(
             {
               channel,
@@ -328,92 +351,105 @@ export class NotificationBroadcaster {
         { conversationAction, bindingContext: destination.bindingContext },
       );
 
-      // For the vellum channel, merge the conversationId into deep-link metadata
-      // so the macOS client can navigate directly to the conversation. Prefer
-      // the paired conversation (interactive opt-in flows); otherwise fall back
-      // to the originating conversation referenced by `sourceContextId` when it
-      // resolves to a real row. Sentinel context ids (job IDs, call session IDs,
-      // access-req-* strings) leave the deep link without a conversation, and
-      // the macOS handler opens the app to its default landing.
+      if (channel === "vellum" && pairing.conversationId) {
+        vellumPairing = {
+          conversationId: pairing.conversationId,
+          messageId: pairing.messageId,
+        };
+      }
+
+      // For the vellum and platform channels, merge the conversationId into
+      // deep-link metadata so notification taps can navigate to the
+      // conversation. Prefer the channel's own pairing; platform (push_only,
+      // pairs nothing) takes this broadcast's vellum pairing; otherwise fall
+      // back to sourceContextId when it resolves to a real row. Sentinel
+      // context ids (job IDs, call session IDs, access-req-* strings) leave
+      // the deep link without a conversation, and the client opens the app to
+      // its default landing.
       let deepLinkTarget = decision.deepLinkTarget;
-      if (channel === "vellum") {
+      if (channel === "vellum" || channel === "platform") {
+        const deepLinkPairing =
+          channel === "platform" && !pairing.conversationId
+            ? (vellumPairing ?? pairing)
+            : pairing;
         const deepLinkConversationId =
-          pairing.conversationId ??
-          resolveSourceConversationId(signal.sourceContextId);
+          deepLinkPairing.conversationId ??
+          resolveSourceConversationId(signal.sourceContextId) ??
+          resolveDeepLinkConversationId(signal.contextPayload);
         if (deepLinkConversationId) {
           deepLinkTarget = {
             ...deepLinkTarget,
             conversationId: deepLinkConversationId,
           };
-          if (pairing.messageId) {
+          if (deepLinkPairing.messageId) {
             deepLinkTarget = {
               ...deepLinkTarget,
-              messageId: pairing.messageId,
+              messageId: deepLinkPairing.messageId,
             };
           }
         }
+      }
 
-        if (pairing.conversationId) {
-          // Resolve guardian scoping for conversation-created events so clients
-          // can filter guardian-sensitive conversations the same way they filter
-          // guardian-sensitive notification intents.
-          const guardianPrincipalId =
-            typeof destination.metadata?.guardianPrincipalId === "string"
-              ? destination.metadata.guardianPrincipalId
-              : undefined;
-          const targetGuardianPrincipalId =
-            guardianPrincipalId &&
-            isGuardianSensitiveEvent(signal.sourceEventName)
-              ? guardianPrincipalId
-              : undefined;
+      if (channel === "vellum" && pairing.conversationId) {
+        // Resolve guardian scoping for conversation-created events so clients
+        // can filter guardian-sensitive conversations the same way they filter
+        // guardian-sensitive notification intents.
+        const guardianPrincipalId =
+          typeof destination.metadata?.guardianPrincipalId === "string"
+            ? destination.metadata.guardianPrincipalId
+            : undefined;
+        const targetGuardianPrincipalId =
+          guardianPrincipalId &&
+          isGuardianSensitiveEvent(signal.sourceEventName)
+            ? guardianPrincipalId
+            : undefined;
 
-          const conversationTitle =
-            copy.conversationTitle ?? copy.title ?? signal.sourceEventName;
-          const conversationSilent =
-            signal.attentionHints.urgency !== "high" &&
-            signal.attentionHints.urgency !== "critical";
-          const info: ConversationCreatedInfo = {
-            conversationId: pairing.conversationId,
-            title: conversationTitle,
-            sourceEventName: signal.sourceEventName,
-            targetGuardianPrincipalId,
-            groupId: signal.conversationMetadata?.groupId,
-            source: signal.conversationMetadata?.source,
-            silent: conversationSilent,
-          };
+        const conversationTitle =
+          copy.conversationTitle ?? copy.title ?? signal.sourceEventName;
+        const conversationSilent =
+          signal.attentionHints.urgency !== "high" &&
+          signal.attentionHints.urgency !== "critical";
+        const info: ConversationCreatedInfo = {
+          conversationId: pairing.conversationId,
+          title: conversationTitle,
+          sourceEventName: signal.sourceEventName,
+          targetGuardianPrincipalId,
+          groupId: signal.conversationMetadata?.groupId,
+          source: signal.conversationMetadata?.source,
+          silent: conversationSilent,
+        };
 
-          // The per-dispatch onConversationCreated callback fires whenever a vellum
-          // conversation is paired (new or reused) because callers like
-          // dispatchGuardianQuestion rely on it to create delivery bookkeeping
-          // rows before emitNotificationSignal() returns.
-          if (options?.onConversationCreated) {
+        // The per-dispatch onConversationCreated callback fires whenever a vellum
+        // conversation is paired (new or reused) because callers like
+        // dispatchGuardianQuestion rely on it to create delivery bookkeeping
+        // rows before emitNotificationSignal() returns.
+        if (options?.onConversationCreated) {
+          try {
+            options.onConversationCreated(info);
+          } catch (err) {
+            log.error(
+              { err, signalId: signal.signalId },
+              "per-dispatch onConversationCreated callback failed — continuing broadcast",
+            );
+          }
+        }
+
+        // Emit notification_conversation_created event only when a NEW
+        // conversation was actually created. Reusing an existing conversation
+        // should not fire the event — the client already knows about the
+        // conversation.
+        if (
+          pairing.createdNewConversation &&
+          pairing.strategy === "start_new_conversation"
+        ) {
+          if (this.onConversationCreated) {
             try {
-              options.onConversationCreated(info);
+              this.onConversationCreated(info);
             } catch (err) {
               log.error(
                 { err, signalId: signal.signalId },
-                "per-dispatch onConversationCreated callback failed — continuing broadcast",
+                "onConversationCreated callback failed — continuing broadcast",
               );
-            }
-          }
-
-          // Emit notification_conversation_created event only when a NEW
-          // conversation was actually created. Reusing an existing conversation
-          // should not fire the event — the client already knows about the
-          // conversation.
-          if (
-            pairing.createdNewConversation &&
-            pairing.strategy === "start_new_conversation"
-          ) {
-            if (this.onConversationCreated) {
-              try {
-                this.onConversationCreated(info);
-              } catch (err) {
-                log.error(
-                  { err, signalId: signal.signalId },
-                  "onConversationCreated callback failed — continuing broadcast",
-                );
-              }
             }
           }
         }
@@ -552,9 +588,33 @@ export class NotificationBroadcaster {
 function resolveSourceConversationId(
   sourceContextId: string | undefined,
 ): string | undefined {
-  if (!sourceContextId) return undefined;
+  if (!sourceContextId) {
+    return undefined;
+  }
   try {
     return getConversation(sourceContextId) ? sourceContextId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve a deep-link conversation id from the signal's context payload.
+ * Signal producers that do not pair a conversation (e.g. `schedule.notify`
+ * in notify mode) can set `deepLinkConversationId` in the context payload so
+ * push notification taps navigate to a relevant existing conversation rather
+ * than the app's default landing. Validates that the id points at a real
+ * conversation row before returning it.
+ */
+function resolveDeepLinkConversationId(
+  contextPayload: Record<string, unknown> | undefined,
+): string | undefined {
+  const raw = contextPayload?.deepLinkConversationId;
+  if (typeof raw !== "string" || raw.length === 0) {
+    return undefined;
+  }
+  try {
+    return getConversation(raw) ? raw : undefined;
   } catch {
     return undefined;
   }

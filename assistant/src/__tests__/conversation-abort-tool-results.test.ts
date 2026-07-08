@@ -111,9 +111,9 @@ let persistedMessages: Array<{ role: string; content: string }> = [];
 let reservedRowContent: Map<string, string> = new Map();
 let reserveCounter = 0;
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -147,7 +147,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   }),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
@@ -282,7 +282,7 @@ mock.module("../agent/loop.js", () => ({
     }
   },
 }));
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
   listPendingRequestsByConversationScope: () => [],

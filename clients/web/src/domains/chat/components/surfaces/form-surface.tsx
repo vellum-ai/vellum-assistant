@@ -5,6 +5,9 @@ import type { Surface } from "@/domains/chat/types/types";
 import { Button, Toggle } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { PageProgress } from "@/domains/chat/components/surfaces/page-progress";
+import { PageTabs } from "@/domains/chat/components/surfaces/page-tabs";
+import { cn } from "@/utils/misc";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,7 +28,7 @@ interface FormField {
   options?: FormFieldOption[];
 }
 
-interface FormPage {
+export interface FormPage {
   id: string;
   title: string;
   description?: string;
@@ -42,6 +45,7 @@ interface FormSurfaceData {
     back?: string;
     submit?: string;
   };
+  progressStyle?: "bar" | "tabs";
 }
 
 interface FormSurfaceProps {
@@ -74,7 +78,7 @@ function renderField(
           value={typeof value === "string" ? value : ""}
           onChange={(e) => onChange(field.id, e.target.value)}
           placeholder={field.placeholder}
-          className={inputClasses + errorClasses}
+          className={cn(inputClasses, errorClasses)}
         />
       );
 
@@ -86,7 +90,7 @@ function renderField(
             value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(field.id, e.target.value)}
             placeholder={field.placeholder}
-            className={inputClasses + errorClasses}
+            className={cn(inputClasses, errorClasses)}
           />
           <p className="mt-1 flex items-center gap-1 text-body-small-default text-[var(--content-faint)]">
             <Lock className="h-3 w-3" />
@@ -102,7 +106,7 @@ function renderField(
           onChange={(e) => onChange(field.id, e.target.value)}
           placeholder={field.placeholder}
           rows={3}
-          className={inputClasses + errorClasses + " resize-none"}
+          className={cn(inputClasses, errorClasses, "resize-none")}
         />
       );
 
@@ -111,7 +115,7 @@ function renderField(
         <select
           value={typeof value === "string" ? value : ""}
           onChange={(e) => onChange(field.id, e.target.value)}
-          className={inputClasses + errorClasses}
+          className={cn(inputClasses, errorClasses)}
         >
           <option value="">{field.placeholder || "Select..."}</option>
           {(field.options ?? []).map((opt) => (
@@ -141,7 +145,7 @@ function renderField(
             onChange(field.id, num);
           }}
           placeholder={field.placeholder}
-          className={inputClasses + errorClasses}
+          className={cn(inputClasses, errorClasses)}
         />
       );
 
@@ -152,29 +156,10 @@ function renderField(
           value={typeof value === "string" ? value : String(value)}
           onChange={(e) => onChange(field.id, e.target.value)}
           placeholder={field.placeholder}
-          className={inputClasses + errorClasses}
+          className={cn(inputClasses, errorClasses)}
         />
       );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Progress indicator for multi-page forms
-// ---------------------------------------------------------------------------
-
-function PageProgress({ current, total }: { current: number; total: number }) {
-  return (
-    <div className="mb-4 flex items-center gap-1.5">
-      {Array.from({ length: total }, (_, i) => (
-        <div
-          key={i}
-          className={`h-1.5 flex-1 rounded-full transition-colors ${
-            i <= current ? "bg-[var(--primary-base)]" : "bg-[var(--border-subtle)]"
-          }`}
-        />
-      ))}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +240,15 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
     setCurrentPage((prev) => Math.max(prev - 1, 0));
   }, []);
 
+  const handleNavigate = useCallback(
+    (pageIndex: number) => {
+      if (pageIndex >= currentPage) return;
+      setValidationErrors({});
+      setCurrentPage(pageIndex);
+    },
+    [currentPage],
+  );
+
   const handleSubmit = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
@@ -282,6 +276,9 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
     ? (formData.pageLabels?.submit ?? "Submit")
     : (formData.submitLabel ?? "Submit");
 
+  const showStepProgress = isMultiPage && totalPages > 1;
+  const showTabs = showStepProgress && formData.progressStyle === "tabs";
+
   return (
     <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] p-4">
       {surface.title && (
@@ -292,11 +289,19 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
         </div>
       )}
 
-      {isMultiPage && totalPages > 1 && (
-        <PageProgress current={currentPage} total={totalPages} />
-      )}
+      {showStepProgress &&
+        (showTabs ? (
+          <PageTabs
+            current={currentPage}
+            pages={allPages}
+            onNavigate={handleNavigate}
+            disabled={isSubmitting}
+          />
+        ) : (
+          <PageProgress current={currentPage} total={totalPages} />
+        ))}
 
-      {currentPageData.title && isMultiPage && (
+      {currentPageData.title && isMultiPage && !showTabs && (
         <h3 className="mb-1 text-title-small text-[var(--content-strong)]">
           {currentPageData.title}
         </h3>

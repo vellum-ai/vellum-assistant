@@ -21,12 +21,12 @@ const resolveMock = mock(() => undefined as unknown);
 // Bun's module mocks are global within the worker, so keep this mock
 // transparent when this file is not actively exercising it.
 const realCanonicalGuardianStore =
-  await import("../memory/canonical-guardian-store.js");
+  await import("../contacts/canonical-guardian-store.js");
 (
   globalThis as Record<string, unknown>
 ).__approvalConsumptionUseMockCanonicalStore = false;
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   createCanonicalGuardianRequest: (
     ...args: Parameters<
       typeof realCanonicalGuardianStore.createCanonicalGuardianRequest
@@ -90,7 +90,7 @@ mock.module("../runtime/pending-interactions.js", () => ({
   resolve: resolveMock,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   addMessage: mock(async () => ({ id: "persisted-message-id" })),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
@@ -110,12 +110,11 @@ mock.module("../config/loader.js", () => ({
   API_KEY_PROVIDERS: [],
 }));
 
+const realLocalActorIdentity = await import(
+  "../runtime/local-actor-identity.js"
+);
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-    guardianPrincipalId: "local-principal",
-  }),
+  ...realLocalActorIdentity,
   resolveLocalAuthContext: () => ({
     scope: "local_v1",
     actorPrincipalId: "local-principal",

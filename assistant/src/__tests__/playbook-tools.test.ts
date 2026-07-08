@@ -15,7 +15,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // Stub memory job queue to avoid side effects
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
 }));
 
@@ -25,8 +25,8 @@ import { executePlaybookCreate } from "../config/bundled-skills/playbooks/tools/
 import { executePlaybookDelete } from "../config/bundled-skills/playbooks/tools/playbook-delete.js";
 import { executePlaybookList } from "../config/bundled-skills/playbooks/tools/playbook-list.js";
 import { executePlaybookUpdate } from "../config/bundled-skills/playbooks/tools/playbook-update.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import type { ToolContext } from "../tools/types.js";
 
 await initializeDb();

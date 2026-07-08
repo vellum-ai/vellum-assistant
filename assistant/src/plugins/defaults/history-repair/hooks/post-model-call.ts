@@ -23,7 +23,7 @@
  * empty-response hook; only a provider rejection is this hook's to act on.
  */
 
-import type { PluginHookFn, PostModelCallContext } from "@vellumai/plugin-api";
+import type { HookFunction, PostModelCallContext } from "@vellumai/plugin-api";
 
 import {
   isOrderingRepairAttempted,
@@ -31,7 +31,7 @@ import {
 } from "../repair-state-store.js";
 import { deepRepairHistory, isRepairableOrderingError } from "../terminal.js";
 
-const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
+const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   if (
     ctx.error &&
     isRepairableOrderingError(ctx.error.message) &&

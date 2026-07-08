@@ -19,7 +19,7 @@ import {
 import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
 import type { SkillSummary } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
-import { deleteSkillCapabilityNode } from "../../memory/graph/capability-seed.js";
+import { deleteSkillCapabilityNode } from "../../plugins/defaults/memory/graph/capability-seed.js";
 import {
   createTimeout,
   extractText,
@@ -334,6 +334,10 @@ function deriveOrigin(
   // null means "already read, nothing found" — don't re-read.
   const meta =
     installMeta !== undefined ? installMeta : readInstallMeta(directoryPath);
+  // Skills authored by the assistant's retrospective report a distinct origin
+  // so the UI badges them as "Assistant's Memory". They stay managed/deletable
+  // because that is driven by `kind === "installed"`, not the origin label.
+  if (meta?.author === "assistant") return "assistant-memory";
   return meta?.origin ?? "custom";
 }
 
@@ -397,7 +401,13 @@ function toSlimSkillResponse(
       };
     }
     case "custom":
+    case "assistant-memory":
       return { ...base, origin };
+    default:
+      // origin comes from install-meta.json on disk and isn't validated, so it
+      // may hold a value outside the known set. Degrade any such origin to
+      // "custom" — every skill must map to a defined response.
+      return { ...base, origin: "custom" };
   }
 }
 
@@ -472,6 +482,8 @@ function originDisplayLabel(origin: string): string {
       return "skills.sh";
     case "custom":
       return "Custom";
+    case "assistant-memory":
+      return "Assistant's Memory";
     default:
       return origin;
   }
@@ -1345,8 +1357,11 @@ export async function updateSkill(
     if (!result.success) {
       return { success: false, error: result.error ?? "Unknown error" };
     }
-    // Reload skill catalog to pick up updated skill
+    // Reload skill catalog to pick up updated skill, then reseed capability
+    // memory so changed description/activation-hints/avoid-when propagate to the
+    // graph nodes and v2 entries — matching the other skill-mutation handlers.
     loadSkillCatalog();
+    refreshSkillCapabilityMemories(getConfig());
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1727,6 +1742,7 @@ export async function createSkill(
       bodyMarkdown: params.bodyMarkdown,
       overwrite: params.overwrite,
       contactId: params.contactId,
+      author: "user",
     });
 
     if (!result.created) {

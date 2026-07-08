@@ -1,16 +1,16 @@
-import {
-  invalidateConfigCache,
-  loadRawConfig,
-  saveRawConfig,
-  setNestedValue,
-} from "../../../../config/loader.js";
-import { VALID_CONVERSATION_TIMEOUTS } from "../../../../config/schemas/elevenlabs.js";
 import { normalizeActivationKey } from "../../../../daemon/handlers/config-voice.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { listCatalogProviderIds } from "../../../../tts/provider-catalog.js";
+import {
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../../../loader.js";
+import { VALID_CONVERSATION_TIMEOUTS } from "../../../schemas/elevenlabs.js";
 
 /**
  * Valid voice config settings and their UserDefaults key mappings.
@@ -108,7 +108,7 @@ function validateSetting(
       return { ok: true, coerced: trimmed };
     }
     case "tts_provider": {
-      const catalogIds = listCatalogProviderIds();
+      const catalogIds: readonly string[] = listCatalogProviderIds();
       if (typeof value !== "string" || !catalogIds.includes(value.trim())) {
         return {
           ok: false,

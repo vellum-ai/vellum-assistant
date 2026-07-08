@@ -1,12 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -61,7 +53,7 @@ mock.module("../runtime/background-job-runner.js", () => ({
       };
     }
     const { createConversation } =
-      await import("../memory/conversation-crud.js");
+      await import("../persistence/conversation-crud.js");
     const conv = createConversation({
       title: "(test stub)",
       conversationType: opts.conversationType ?? "background",
@@ -86,13 +78,40 @@ mock.module("../runtime/background-job-runner.js", () => ({
   },
 }));
 
-import { deleteConversation } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+// The scheduler's reuse path dispatches into the existing conversation through
+// `processMessage`; capture those calls into the same shared log as the
+// fresh-bootstrap runner so assertions don't need to know which path ran.
+const captureProcessedMessage = async (
+  conversationId: string,
+  message: string,
+): Promise<void> => {
+  processedMessages.push({ conversationId, message });
+};
+let processMessageImpl: (
+  conversationId: string,
+  message: string,
+) => Promise<void> = captureProcessedMessage;
+mock.module("../daemon/process-message.js", () => ({
+  processMessage: (conversationId: string, message: string) =>
+    processMessageImpl(conversationId, message),
+}));
+
+import { loadRawConfig, saveRawConfig } from "../config/loader.js";
+import { deleteConversation } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { createSchedule, getScheduleRuns } from "../schedule/schedule-store.js";
-import { startScheduler } from "../schedule/scheduler.js";
+import { runScheduleDueWorkOnce } from "../schedule/scheduler.js";
 
 await initializeDb();
+
+// The schedule worker is on by default, which stands the daemon's in-process
+// scheduler down. These tests exercise that in-process execution path directly,
+// so pin the worker flag off for this test process.
+const rawConfig = loadRawConfig();
+rawConfig.schedules = { worker: { enabled: false } };
+saveRawConfig(rawConfig);
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {
@@ -119,26 +138,7 @@ function buildEveryMinuteRrule(dtstart: Date = new Date()): string {
   return `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1`;
 }
 
-// Replace setTimeout with a zero-delay version so the 500ms scheduler
-// wait calls fire instantly instead of waiting real time.
-let origSetTimeout: typeof globalThis.setTimeout;
-
 describe("scheduler conversation reuse", () => {
-  beforeAll(() => {
-    origSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = ((
-      fn: TimerHandler,
-      _ms?: number,
-      ...args: unknown[]
-    ) => {
-      return origSetTimeout(fn, 200, ...args);
-    }) as typeof setTimeout;
-  });
-
-  afterAll(() => {
-    globalThis.setTimeout = origSetTimeout;
-  });
-
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM cron_runs");
@@ -148,6 +148,7 @@ describe("scheduler conversation reuse", () => {
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     processedMessages.length = 0;
+    processMessageImpl = captureProcessedMessage;
     runBackgroundJobOptions.length = 0;
     runBackgroundJobShouldFail = false;
     runBackgroundJobBootstrapFails = false;
@@ -161,7 +162,7 @@ describe("scheduler conversation reuse", () => {
 
     // GIVEN a recurring schedule with reuseConversation enabled
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Reuse Test",
       cronExpression: rruleExpr,
       message: "Reuse conversation message",
@@ -173,13 +174,7 @@ describe("scheduler conversation reuse", () => {
     // WHEN the schedule fires for the first time
     forceScheduleDue(schedule.id);
 
-    const processMessage = async (conversationId: string, message: string) => {
-      processedMessages.push({ conversationId, message });
-    };
-
-    const scheduler1 = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler1.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN a conversation is created and recorded
     expect(processedMessages).toHaveLength(1);
@@ -196,9 +191,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    const scheduler2 = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler2.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN the same conversation is reused
     expect(processedMessages).toHaveLength(1);
@@ -221,7 +214,7 @@ describe("scheduler conversation reuse", () => {
 
     // GIVEN a recurring schedule with no explicit reuseConversation
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Default Reuse Test",
       cronExpression: rruleExpr,
       message: "Default reuse message",
@@ -233,13 +226,7 @@ describe("scheduler conversation reuse", () => {
     // WHEN the schedule fires for the first time
     forceScheduleDue(schedule.id);
 
-    const processMessage = async (conversationId: string, message: string) => {
-      processedMessages.push({ conversationId, message });
-    };
-
-    const scheduler1 = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler1.stop();
+    await runScheduleDueWorkOnce();
 
     expect(processedMessages).toHaveLength(1);
     const firstConversationId = processedMessages[0].conversationId;
@@ -249,9 +236,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    const scheduler2 = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler2.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN a fresh conversation is created instead of reusing the first
     expect(processedMessages).toHaveLength(1);
@@ -265,7 +250,7 @@ describe("scheduler conversation reuse", () => {
 
     // GIVEN a recurring schedule with reuseConversation explicitly disabled
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "No Reuse Test",
       cronExpression: rruleExpr,
       message: "New conv each run",
@@ -277,13 +262,7 @@ describe("scheduler conversation reuse", () => {
     // WHEN the schedule fires for the first time
     forceScheduleDue(schedule.id);
 
-    const processMessage = async (conversationId: string, message: string) => {
-      processedMessages.push({ conversationId, message });
-    };
-
-    const scheduler1 = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler1.stop();
+    await runScheduleDueWorkOnce();
 
     expect(processedMessages).toHaveLength(1);
     const firstConversationId = processedMessages[0].conversationId;
@@ -292,9 +271,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    const scheduler2 = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler2.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN a different conversation is created
     expect(processedMessages).toHaveLength(1);
@@ -309,7 +286,7 @@ describe("scheduler conversation reuse", () => {
 
     // GIVEN a recurring schedule with reuseConversation enabled that has already run once
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Deleted Conv Test",
       cronExpression: rruleExpr,
       message: "Handle deleted conv",
@@ -320,13 +297,7 @@ describe("scheduler conversation reuse", () => {
 
     forceScheduleDue(schedule.id);
 
-    const processMessage = async (conversationId: string, message: string) => {
-      processedMessages.push({ conversationId, message });
-    };
-
-    const scheduler1 = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler1.stop();
+    await runScheduleDueWorkOnce();
 
     expect(processedMessages).toHaveLength(1);
     const firstConversationId = processedMessages[0].conversationId;
@@ -338,9 +309,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    const scheduler2 = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler2.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN a new conversation is created (not the deleted one)
     expect(processedMessages).toHaveLength(1);
@@ -354,7 +323,7 @@ describe("scheduler conversation reuse", () => {
      */
 
     // GIVEN a one-shot schedule with reuseConversation enabled
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "One-shot Reuse Ignored",
       message: "One-shot with reuse flag",
       mode: "execute",
@@ -364,13 +333,7 @@ describe("scheduler conversation reuse", () => {
     });
 
     // WHEN the schedule fires
-    const processMessage = async (conversationId: string, message: string) => {
-      processedMessages.push({ conversationId, message });
-    };
-
-    const scheduler = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN the message is processed with a new conversation
     expect(processedMessages).toHaveLength(1);
@@ -390,7 +353,7 @@ describe("scheduler conversation reuse", () => {
 
     // GIVEN a recurring schedule with reuseConversation enabled
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Most Recent Success Test",
       cronExpression: rruleExpr,
       message: "Pick latest success",
@@ -403,14 +366,12 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
 
     let shouldFail = false;
-    const processMessage = async (conversationId: string, message: string) => {
+    processMessageImpl = async (conversationId, message) => {
       processedMessages.push({ conversationId, message });
       if (shouldFail) throw new Error("Simulated failure");
     };
 
-    const scheduler1 = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler1.stop();
+    await runScheduleDueWorkOnce();
 
     expect(processedMessages).toHaveLength(1);
     const successConversationId = processedMessages[0].conversationId;
@@ -420,9 +381,7 @@ describe("scheduler conversation reuse", () => {
     processedMessages.length = 0;
     shouldFail = true;
 
-    const scheduler2 = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler2.stop();
+    await runScheduleDueWorkOnce();
 
     // The failed run created a different conversation (since it failed
     // before the run could reuse — actually it does reuse the same one
@@ -434,9 +393,7 @@ describe("scheduler conversation reuse", () => {
     processedMessages.length = 0;
     shouldFail = false;
 
-    const scheduler3 = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler3.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN the third run reuses the conversation from the first successful run
     // (the lookup queries for status="ok", so it picks the first run's conversation)
@@ -453,6 +410,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     processedMessages.length = 0;
+    processMessageImpl = captureProcessedMessage;
     runBackgroundJobOptions.length = 0;
     runBackgroundJobShouldFail = false;
     runBackgroundJobBootstrapFails = false;
@@ -460,7 +418,7 @@ describe("scheduler talk-mode runner option propagation", () => {
 
   test("talk-mode propagates conversationType=scheduled, scheduleJobId, and quiet=>suppressFailureNotifications", async () => {
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Quiet Talk Mode",
       cronExpression: rruleExpr,
       message: "Background work",
@@ -470,10 +428,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     });
     forceScheduleDue(schedule.id);
 
-    const processMessage = async () => {};
-    const scheduler = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     expect(runBackgroundJobOptions).toHaveLength(1);
     const opts = runBackgroundJobOptions[0]!;
@@ -485,7 +440,7 @@ describe("scheduler talk-mode runner option propagation", () => {
 
   test("talk-mode without quiet leaves suppressFailureNotifications=false", async () => {
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Loud Talk Mode",
       cronExpression: rruleExpr,
       message: "Background work",
@@ -495,10 +450,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     });
     forceScheduleDue(schedule.id);
 
-    const processMessage = async () => {};
-    const scheduler = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     expect(runBackgroundJobOptions).toHaveLength(1);
     expect(runBackgroundJobOptions[0]!.suppressFailureNotifications).toBe(
@@ -514,7 +466,7 @@ describe("scheduler talk-mode runner option propagation", () => {
      * Guard ensures we substitute a recognizable sentinel.
      */
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Bootstrap Failure",
       cronExpression: rruleExpr,
       message: "x",
@@ -524,10 +476,7 @@ describe("scheduler talk-mode runner option propagation", () => {
     forceScheduleDue(schedule.id);
     runBackgroundJobBootstrapFails = true;
 
-    const processMessage = async () => {};
-    const scheduler = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     const runs = getScheduleRuns(schedule.id);
     expect(runs.length).toBe(1);
@@ -540,7 +489,7 @@ describe("scheduler talk-mode runner option propagation", () => {
 
   test("talk-mode fires onScheduleConversationCreated synchronously via runner callback (BEFORE the runner returns)", async () => {
     const rruleExpr = buildEveryMinuteRrule();
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "SSE timing",
       cronExpression: rruleExpr,
       message: "x",
@@ -554,15 +503,20 @@ describe("scheduler talk-mode runner option propagation", () => {
       scheduleJobId: string;
       title: string;
     }> = [];
-    const processMessage = async () => {};
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      undefined,
-      (info) => sseCalls.push(info),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        if (event.message.type === "schedule_conversation_created") {
+          sseCalls.push({
+            conversationId: event.message.conversationId,
+            scheduleJobId: event.message.scheduleJobId,
+            title: event.message.title,
+          });
+        }
+      },
+    });
+    await runScheduleDueWorkOnce();
+    subscription.dispose();
 
     expect(sseCalls).toHaveLength(1);
     expect(sseCalls[0]).toMatchObject({

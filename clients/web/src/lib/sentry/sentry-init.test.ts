@@ -14,7 +14,9 @@ mock.module("@/lib/sentry/sentry-control", () => ({
 mock.module("@/lib/sentry/consent-gate", () => ({
   diagnosticsConsentGranted: () => false,
 }));
-mock.module("@/runtime/diagnostics", () => ({ syncDiagnosticsToMain: () => {} }));
+mock.module("@/runtime/diagnostics", () => ({
+  syncDiagnosticsToMain: () => {},
+}));
 mock.module("@/utils/device-settings", () => ({
   getDeviceBool: () => false,
   watchDeviceSetting: () => () => {},
@@ -59,5 +61,25 @@ describe("initSentry DSN selection", () => {
     electron = true;
     initSentry();
     expect(syncedOptions?.dsn).toBe(import.meta.env.VITE_SENTRY_DSN_MACOS);
+  });
+});
+
+describe("initSentry client_os tag", () => {
+  function clientOsTag(): unknown {
+    return (
+      syncedOptions?.initialScope as
+        { tags?: Record<string, unknown> } | undefined
+    )?.tags?.client_os;
+  }
+
+  test("tags every event with the detected OS surface (web off-native)", () => {
+    initSentry();
+    expect(clientOsTag()).toBe("web");
+  });
+
+  test("tags macos in the Electron renderer", () => {
+    electron = true;
+    initSentry();
+    expect(clientOsTag()).toBe("macos");
   });
 });

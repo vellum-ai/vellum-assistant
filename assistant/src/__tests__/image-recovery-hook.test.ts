@@ -26,9 +26,9 @@ import {
   addMessage,
   createConversation,
   getMessages,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
   PluginLogger,
@@ -152,6 +152,7 @@ function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
     messages: [],
     exitReason: "no_tool_calls",
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
@@ -167,6 +168,7 @@ function makePostModelCallCtx(
     stopReason: null,
     decision: "stop",
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }

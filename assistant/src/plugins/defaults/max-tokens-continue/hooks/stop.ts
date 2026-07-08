@@ -9,11 +9,11 @@
  * budget, no matter how the turn ended.
  */
 
-import type { PluginHookFn, StopContext } from "@vellumai/plugin-api";
+import type { HookFunction, StopContext } from "@vellumai/plugin-api";
 
 import { clearMaxTokensContinueBudget } from "../continue-state-store.js";
 
-const stop: PluginHookFn<StopContext> = async (ctx) => {
+const stop: HookFunction<StopContext> = async (ctx) => {
   clearMaxTokensContinueBudget(ctx.conversationId);
 };
 

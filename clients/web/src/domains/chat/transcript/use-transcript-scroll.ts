@@ -76,6 +76,11 @@ export function useTranscriptScroll(
     onLoadOlder,
   } = args;
 
+  // Coerced to boolean so the dep arrays below re-fire exactly once on
+  // the 0→N transition (Transcript mounts) without re-firing on every
+  // TanStack Query background refetch that produces a new `items` array.
+  const hasItems = items.length > 0;
+
   const [isPinnedToLatest, setIsPinnedToLatest] = useState(true);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
 
@@ -386,9 +391,15 @@ export function useTranscriptScroll(
   //
   // The observer lifecycle is managed via refs so that we only
   // disconnect/reconnect when the underlying DOM node actually changes
-  // (e.g. Transcript remounts inside ResizablePanel), not on every items
-  // update. `items` is in the dep array so the check runs after
-  // Transcript's first render with content post-remount.
+  // (e.g. Transcript remounts inside ResizablePanel). `conversationId`
+  // is the dep-array signal for remounts — it corresponds directly to
+  // the `key={conversationId}` prop on the scroll container.
+  //
+  // `hasItems` covers the deferred-mount case: `Transcript` only
+  // renders when `messageCount > 0`, so on initial conversation load
+  // `conversationId` fires before the element exists. The boolean
+  // flips once on the 0→N transition, re-running the effect after
+  // the element mounts, without re-running on every TQ refetch.
   // -----------------------------------------------------------------------
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const observedElRef = useRef<HTMLElement | null>(null);
@@ -414,7 +425,7 @@ export function useTranscriptScroll(
     });
     observer.observe(el);
     resizeObserverRef.current = observer;
-  }, [items, transcriptRef]);
+  }, [conversationId, transcriptRef, hasItems]);
 
   // Disconnect observer on hook unmount.
   useEffect(() => () => {
@@ -458,7 +469,7 @@ export function useTranscriptScroll(
     });
     observer.observe(el);
     contentObserverRef.current = observer;
-  }, [items, transcriptRef]);
+  }, [conversationId, transcriptRef, hasItems]);
 
   useEffect(() => () => {
     contentObserverRef.current?.disconnect();
@@ -482,7 +493,7 @@ export function useTranscriptScroll(
       el.removeEventListener("touchmove", disengageAutoPin);
       el.removeEventListener("keydown", disengageAutoPin);
     };
-  }, [items, transcriptRef, disengageAutoPin]);
+  }, [conversationId, transcriptRef, disengageAutoPin, hasItems]);
 
   // -----------------------------------------------------------------------
   // Stable scroll handler. Reads latest props via the ref pattern.
@@ -552,9 +563,10 @@ export function useTranscriptScroll(
   // Attach the scroll-event listener. The hook owns its own listener
   // so the orchestrator does not have to wire one externally.
   //
-  // Re-runs on `items` so a transcript remount (inside ResizablePanel)
-  // re-binds to the newly mounted scroll element. `handleScroll` is
-  // stable across renders so it does not contribute to re-binding.
+  // Re-runs on `conversationId` so a transcript remount (inside
+  // ResizablePanel) re-binds to the newly mounted scroll element.
+  // `handleScroll` is stable across renders so it does not contribute
+  // to re-binding.
   // -----------------------------------------------------------------------
   useEffect(() => {
     const el = transcriptRef.current?.getScrollElement();
@@ -563,7 +575,7 @@ export function useTranscriptScroll(
     return () => {
       el.removeEventListener("scroll", handleScroll);
     };
-  }, [handleScroll, transcriptRef, items, conversationId]);
+  }, [handleScroll, transcriptRef, conversationId, hasItems]);
 
   return {
     showScrollToLatest,

@@ -37,7 +37,7 @@ mock.module("../../config/loader.js", () => ({
   loadConfig: () => ({}),
 }));
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: () => ({ id: "mock-msg-id" }),
   getMessageById: () => null,
   updateMessageContent: () => {},
@@ -45,7 +45,7 @@ mock.module("../../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../../memory/llm-request-log-store.js", () => ({
+mock.module("../../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
@@ -75,7 +75,6 @@ function createCollectorDeps(providerName = "anthropic"): {
     ctx: {
       conversationId: "conv-native-meta",
       provider: { name: providerName },
-      traceEmitter: { emit: () => {} },
       streamThinking: false,
       emitActivityState: () => {},
       markWorkspaceTopLevelDirty: () => {},

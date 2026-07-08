@@ -432,8 +432,9 @@ async function initSchema(): Promise<void> {
   // to already exist (production-wise, the daemon creates it). Touching the
   // global init triggers schema creation against the env-isolated path.
   const { getDb, getSqliteFrom } =
-    await import("../../../../memory/db-connection.js");
-  const { clearStoredDb } = await import("../../../../memory/db-singleton.js");
+    await import("../../../../persistence/db-connection.js");
+  const { clearStoredDb } =
+    await import("../../../../persistence/db-singleton.js");
   // Drop any connections a prior test (or test file) left open against a
   // now-deleted workspace, so init below opens fresh handles — main and the
   // dedicated logs/memory connections — at THIS test's workspace.
@@ -441,7 +442,7 @@ async function initSchema(): Promise<void> {
   clearStoredDb("logs");
   clearStoredDb("memory");
 
-  const { initializeDb } = await import("../../../../memory/db-init.js");
+  const { initializeDb } = await import("../../../../persistence/db-init.js");
   await initializeDb();
   // Close the singletons so backfill can open its own handle without
   // collision. WAL allows concurrent handles but cleaner ownership avoids

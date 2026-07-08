@@ -86,9 +86,9 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
   getDiskPressureStatus: () => diskPressureStatus,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversation: () => ({
     id: "conv-123",
     conversationType: "background",
@@ -155,11 +155,6 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache: new Map() as Context["skillProjectionCache"],
-    traceEmitter: { emit: () => {} } as unknown as Context["traceEmitter"],
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Context["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -182,6 +177,7 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     getTurnChannelContext: () => null,
 
     buildCurrentSystemPrompt: () => "system prompt",
+    syncLoopSystemPrompt: () => {},
     modelOverride: undefined,
     graphMemory: {} as Context["graphMemory"],
     ...overrides,

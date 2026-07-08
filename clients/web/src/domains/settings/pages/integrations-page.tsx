@@ -164,6 +164,7 @@ function IntegrationsPanelInner() {
   const filteredProviders = useMemo(() => {
     const needle = searchText.trim().toLowerCase();
     let list = managedProviders.filter((provider) => {
+      if (provider.provider_key === "slack") return false;
       if (!needle) {
         return true;
       }

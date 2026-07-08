@@ -28,7 +28,7 @@ const enqueueCalls: Array<{
 }> = [];
 let enqueueThrows = false;
 
-mock.module("../memory/jobs/embed-pkb-file.js", () => ({
+mock.module("../plugins/defaults/memory/jobs/embed-pkb-file.js", () => ({
   enqueuePkbIndexJob: (input: {
     pkbRoot: string;
     absPath: string;
@@ -49,16 +49,17 @@ function setWorkspaceDir(dir: string): void {
   process.env.VELLUM_WORKSPACE_DIR = dir;
 }
 
-import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
-import { getTool } from "../tools/registry.js";
+import { PKB_WORKSPACE_SCOPE } from "../plugins/defaults/memory/pkb/types.js";
+import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolContext } from "../tools/types.js";
 
 let fileWriteTool: Tool;
 const testDirs: string[] = [];
 
 beforeAll(async () => {
-  await import("../tools/filesystem/write.js");
-  fileWriteTool = getTool("file_write")!;
+  const { fileWriteTool: definition } =
+    await import("../tools/filesystem/write.js");
+  fileWriteTool = finalizeTool(definition, "file_write");
 });
 
 function makeContext(workingDir: string): ToolContext {
@@ -267,7 +268,7 @@ describe("file_write artifact-HTML guard", () => {
     const html =
       "<!doctype html><html><head><title>Food Market</title></head>" +
       "<body><canvas id='c'></canvas><script>" +
-      ("const data=[{x:1,y:2}];").padEnd(4000, "/") +
+      "const data=[{x:1,y:2}];".padEnd(4000, "/") +
       "new Chart(document.getElementById('c'), {data});</script></body></html>";
 
     const result = await fileWriteTool.execute(

@@ -6,8 +6,8 @@ import {
   attachmentExists,
   getAttachmentById,
   linkAttachmentToMessage,
-} from "../memory/attachments-store.js";
-import { rawAll, rawGet, rawRun } from "../memory/raw-query.js";
+} from "../persistence/attachments-store.js";
+import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("live-voice-archive");
@@ -237,6 +237,7 @@ function readMessageMetadata(
   messageId: string,
 ): MessageMetadataState | "not_found" | "invalid_metadata" {
   const row = rawGet<{ metadata: string | null }>(
+    "liveVoice:readMessageMetadata",
     `SELECT metadata FROM messages WHERE id = ?`,
     messageId,
   );
@@ -270,6 +271,7 @@ function messageAttachmentLinkExists(
   attachmentId: string,
 ): boolean {
   const row = rawGet<{ id: string }>(
+    "liveVoice:attachmentLinkExists",
     `SELECT id
      FROM message_attachments
      WHERE message_id = ? AND attachment_id = ?
@@ -299,6 +301,7 @@ function findExistingAttachmentByFilename(
   filenameStem: string,
 ): AttachmentLookupRow | null {
   const rows = rawAll<AttachmentLookupRow>(
+    "liveVoice:findAttachmentByFilename",
     `SELECT
        a.id AS id,
        a.original_filename AS originalFilename,
@@ -320,6 +323,7 @@ function findExistingAttachmentByFilename(
 
 function nextAttachmentPosition(messageId: string): number {
   const row = rawGet<{ nextPosition: number | null }>(
+    "liveVoice:nextAttachmentPosition",
     `SELECT COALESCE(MAX(position) + 1, 0) AS nextPosition
      FROM message_attachments
      WHERE message_id = ?`,
@@ -343,6 +347,7 @@ function persistArtifactMetadata(
   ];
 
   rawRun(
+    "liveVoice:persistArtifactMetadata",
     `UPDATE messages SET metadata = ? WHERE id = ?`,
     JSON.stringify({
       ...state.metadata,

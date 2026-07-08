@@ -4,10 +4,13 @@
  *
  * SPIKE — research-onboarding flow.
  *
- * Uses the exact same edge slots, sizing, and rotations as the picker step
+ * Uses the same edge slots and rotations as the picker step
  * (`OnboardingCharacterStage`) so the arrangement matches between the two
- * screens. Pool index 0 is the picker's centered avatar, so it's omitted here
- * (the form sits in the center); indices 1–9 fill edge slots 0–8.
+ * screens, but adds a per-slot depth pass — a slight size variation and reduced
+ * opacity on a few of the cast — so the first screen's ring reads with depth
+ * rather than a flat, uniform border. Pool index 0 is the picker's centered
+ * avatar, so it's omitted here (the form sits in the center); indices 1–9 fill
+ * edge slots 0–8.
  *
  * Decorative: `aria-hidden`, `pointer-events-none`, reduced-motion safe.
  */
@@ -19,6 +22,9 @@ import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import {
   edgeSize,
   edgeSlots,
+  slotDepthOpacity,
+  slotDepthScale,
+  slotDepthZ,
   SLOT_ROTATIONS,
 } from "@/domains/onboarding/components/onboarding-character-stage";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
@@ -75,25 +81,36 @@ export function OnboardingEdgeCharacters() {
         const p = positions[slot];
         if (!p) return null;
         const rotation = SLOT_ROTATIONS[slot % SLOT_ROTATIONS.length] ?? 0;
+        // Depth pass: a single per-slot layer (shared with the picker screen)
+        // drives size, opacity, and stacking so the further-back avatars shrink,
+        // fade, AND sit behind the front ones.
+        const avatarSize = size * slotDepthScale(slot);
+        const opacity = slotDepthOpacity(slot);
+        const zIndex = slotDepthZ(slot);
         return (
           <div
             key={i}
             className="absolute"
             style={{
-              left: p.x - size / 2,
-              top: p.y - size / 2,
-              width: size,
-              height: size,
+              left: p.x - avatarSize / 2,
+              top: p.y - avatarSize / 2,
+              width: avatarSize,
+              height: avatarSize,
+              zIndex,
               animation: reduce
                 ? undefined
                 : `character-pop-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) ${0.1 + i * 0.05}s both`,
             }}
           >
-            <div style={{ transform: `rotate(${rotation}deg)` }}>
+            {/* Opacity sits on this inner wrapper, not the animated parent: the
+                `character-pop-in` keyframes animate opacity 0→1 with `both`
+                fill, which would otherwise override an inline opacity on the
+                same element and pin every avatar to full opacity. */}
+            <div style={{ opacity, transform: `rotate(${rotation}deg)` }}>
               <AnimatedAvatar
                 components={components}
                 traits={traits}
-                size={size}
+                size={avatarSize}
                 breathe={false}
               />
             </div>

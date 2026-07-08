@@ -6,6 +6,7 @@ import { FileUploadSurfaceDataSchema } from "@vellumai/assistant-api";
 import type { Surface } from "@/domains/chat/types/types";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { cn } from "@/utils/misc";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -275,18 +276,20 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-6 transition-colors ${
+        className={cn(
+          "flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-6 transition-colors",
           isDragOver
             ? "border-[var(--system-positive-strong)] bg-[var(--system-positive-weak)]"
-            : "border-[var(--border-element)] bg-[var(--surface-sunken)] hover:border-[var(--content-faint)]"
-        }`}
+            : "border-[var(--border-element)] bg-[var(--surface-sunken)] hover:border-[var(--content-faint)]",
+        )}
       >
         <Upload
-          className={`h-8 w-8 ${
+          className={cn(
+            "h-8 w-8",
             isDragOver
               ? "text-[var(--system-positive-strong)]"
-              : "text-[var(--content-faint)]"
-          }`}
+              : "text-[var(--content-faint)]",
+          )}
         />
         <p className="text-body-medium-lighter text-[var(--content-quiet)]">
           Drag and drop files here, or click to browse

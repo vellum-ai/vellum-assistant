@@ -115,8 +115,7 @@ export const SYSTEM_PERMISSION_KINDS = [
   "notifications",
 ] as const;
 
-export type SystemPermissionKind =
-  (typeof SYSTEM_PERMISSION_KINDS)[number];
+export type SystemPermissionKind = (typeof SYSTEM_PERMISSION_KINDS)[number];
 
 export const SYSTEM_PERMISSION_STATUSES = [
   "unknown",
@@ -381,6 +380,9 @@ export interface LockfileAssistant {
   species?: string;
   hatchedAt?: string;
   organizationId?: string;
+  platformAssistantId?: string;
+  platformBaseUrl?: string;
+  platformOrganizationId?: string;
   resources?: LocalAssistantResources;
 }
 
@@ -395,6 +397,8 @@ export type LockfileWriteResult =
 
 export type LocalAssistantRuntimeState =
   | "healthy"
+  /** Alive and serving, but DB migrations failed — restart to recover. */
+  | "unhealthy"
   | "upgrading"
   | "sleeping"
   | "starting"

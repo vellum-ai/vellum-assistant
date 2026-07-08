@@ -23,7 +23,10 @@ import { buildHatchConfigValues, writeInitialConfig } from "./config-utils";
 import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
 import { getOrCreateHostDeviceId } from "./device-id.js";
-import { getDefaultPorts } from "./environments/paths.js";
+import {
+  ASSISTANT_INTERNAL_PORT,
+  getDefaultPorts,
+} from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { leaseGuardianToken } from "./guardian-token";
 import { logHatchNextSteps } from "./hatch-next-steps.js";
@@ -35,8 +38,9 @@ import {
   loadImageViaHost,
 } from "./host-image-loader.js";
 import {
-  fetchLatestStableVersion,
+  fetchLatestVersion,
   resolveImageRefs,
+  type ReleaseChannel,
 } from "./platform-releases.js";
 import {
   configureHatchProviderApiKey,
@@ -67,6 +71,7 @@ export {
   ASSISTANT_INTERNAL_PORT,
   GATEWAY_INTERNAL_PORT,
 } from "./environments/paths.js";
+import { classifyReadyzResponse } from "./http-client.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
@@ -321,6 +326,15 @@ export interface HatchDockerParams {
    * connection.
    */
   assistantCaCertPath?: string;
+  /**
+   * Release channel to resolve published images from when hatching without a
+   * local source tree (the image-pull fallback). `stable` (default) keeps the
+   * latest-stable behavior; `preview` pulls the latest preview release. Only
+   * affects the pull path — a local source build ignores it. Falls back to
+   * the `VELLUM_HATCH_CHANNEL` env var when unset, so callers that hatch via
+   * env (e.g. evals) can opt in without changing the invocation.
+   */
+  channel?: ReleaseChannel;
 }
 
 export type DockerProviderCredentialSetupAction =
@@ -711,6 +725,7 @@ export async function startContainers(
     extraAssistantEnv?: Record<string, string>;
     extraGatewayEnv?: Record<string, string>;
     gatewayPort: number;
+    assistantPort: number;
     imageTags: Record<ServiceName, string>;
     instanceName: string;
     res: ReturnType<typeof dockerResourceNames>;
@@ -934,6 +949,7 @@ function startFileWatcher(opts: {
   extraAssistantEnv?: Record<string, string>;
   extraGatewayEnv?: Record<string, string>;
   gatewayPort: number;
+  assistantPort: number;
   imageTags: Record<ServiceName, string>;
   instanceName: string;
   repoRoot: string;
@@ -941,7 +957,8 @@ function startFileWatcher(opts: {
   netnsContainer?: string;
   assistantCaCertPath?: string;
 }): () => void {
-  const { gatewayPort, imageTags, instanceName, repoRoot, res } = opts;
+  const { gatewayPort, assistantPort, imageTags, instanceName, repoRoot, res } =
+    opts;
 
   const { dirs: watchDirs, files: watchFiles } = collectWatchTargets(repoRoot);
 
@@ -957,6 +974,7 @@ function startFileWatcher(opts: {
     extraAssistantEnv: opts.extraAssistantEnv,
     extraGatewayEnv: opts.extraGatewayEnv,
     gatewayPort,
+    assistantPort,
     imageTags,
     instanceName,
     res,
@@ -1090,6 +1108,14 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
     flagEnvVars = {},
   } = params;
   let watch = params.watch ?? false;
+  // Resolve the release channel for the image-pull fallback: explicit param
+  // wins, then the VELLUM_HATCH_CHANNEL env var, else stable. Any value other
+  // than "preview" (case-insensitive) is treated as stable.
+  const channel: ReleaseChannel =
+    params.channel ??
+    (process.env.VELLUM_HATCH_CHANNEL?.trim().toLowerCase() === "preview"
+      ? "preview"
+      : "stable");
 
   resetLogFile("hatch.log");
   const provider =
@@ -1132,6 +1158,30 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
       if (gatewayPort !== preferredGatewayPort) {
         log(
           `Preferred gateway port ${preferredGatewayPort} is in use; allocated ${gatewayPort} for this instance.`,
+        );
+      }
+    }
+
+    // Allocate the assistant HTTP API host port. Same dynamic-allocation
+    // strategy as the gateway port: the env-default (production 7821 /
+    // non-prod overrides) is the *preferred* starting point, and we walk
+    // upward until we find a free port. Without this, two concurrent
+    // `vellum hatch --remote docker` on the same host collide on a fixed
+    // 7821 bind ("port is already allocated"). Unused when netnsContainer
+    // is set — no host ports are published in that mode.
+    let assistantPort: number;
+    if (params.netnsContainer) {
+      assistantPort = ASSISTANT_INTERNAL_PORT;
+    } else {
+      const preferredAssistantPort = getDefaultPorts(
+        getCurrentEnvironment(),
+      ).daemon;
+      assistantPort = await findOpenPort(preferredAssistantPort, {
+        exclude: [gatewayPort],
+      });
+      if (assistantPort !== preferredAssistantPort) {
+        log(
+          `Preferred assistant port ${preferredAssistantPort} is in use; allocated ${assistantPort} for this instance.`,
         );
       }
     }
@@ -1223,8 +1273,8 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         // Resolve image refs from a remote source that may have dev/local
         // builds. If resolution is unavailable, fall back to the CLI's own
         // version so a default tag can still be resolved.
-        log("🔍 Fetching latest stable release...");
-        const latestVersion = await fetchLatestStableVersion();
+        log(`🔍 Fetching latest ${channel} release...`);
+        const latestVersion = await fetchLatestVersion(channel);
         let versionTag: string;
         if (latestVersion) {
           versionTag = latestVersion.startsWith("v")
@@ -1238,7 +1288,7 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
           );
         }
         log("🔍 Resolving image references...");
-        const resolved = await resolveImageRefs(versionTag, log);
+        const resolved = await resolveImageRefs(versionTag, log, channel);
         imageTags.assistant = resolved.imageTags.assistant;
         imageTags.gateway = resolved.imageTags.gateway;
         imageTags["credential-executor"] =
@@ -1404,6 +1454,7 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         extraAssistantEnv,
         extraGatewayEnv,
         gatewayPort,
+        assistantPort,
         imageTags,
         instanceName,
         res,
@@ -1432,6 +1483,7 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         gatewayDigest: imageDigests?.gateway,
         cesDigest: imageDigests?.["credential-executor"],
         networkName: res.network,
+        assistantPort,
       },
     };
     emitProgress(5, 6, "Saving configuration...");
@@ -1440,19 +1492,24 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
 
     emitProgress(6, 6, "Waiting for services...");
     const waitDetached = watch ? false : detached;
-    const { ready, guardianAccessToken } = await waitForGatewayAndLease({
-      bootstrapSecret: ownSecret,
-      containerName: res.assistantContainer,
-      detached: waitDetached,
-      instanceName,
-      logFd,
-      runtimeUrl,
-      containersUpAt,
-      analyze: params.analyze ?? false,
-    });
+    const { ready, guardianAccessToken, notReadyReason } =
+      await waitForGatewayAndLease({
+        bootstrapSecret: ownSecret,
+        containerName: res.assistantContainer,
+        detached: waitDetached,
+        instanceName,
+        logFd,
+        runtimeUrl,
+        containersUpAt,
+        analyze: params.analyze ?? false,
+      });
 
     if (!ready && !(watch && repoRoot)) {
-      throw new Error("Timed out waiting for assistant to become ready");
+      throw new Error(
+        notReadyReason === "migrations_failed"
+          ? "Assistant database migrations failed — the container is running but DB-backed routes are unavailable; check its logs and restore a backup or retry the migration"
+          : "Timed out waiting for assistant to become ready",
+      );
     }
 
     if (ready) {
@@ -1502,6 +1559,7 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         extraAssistantEnv,
         extraGatewayEnv,
         gatewayPort,
+        assistantPort,
         imageTags,
         instanceName,
         repoRoot,
@@ -1553,7 +1611,13 @@ async function waitForGatewayAndLease(opts: {
   runtimeUrl: string;
   containersUpAt: number;
   analyze: boolean;
-}): Promise<{ ready: boolean; guardianAccessToken?: string }> {
+}): Promise<{
+  ready: boolean;
+  guardianAccessToken?: string;
+  /** Present when readiness was not reached because migrations terminally
+   * failed (returned in seconds, unlike an actual timeout). */
+  notReadyReason?: "migrations_failed";
+}> {
   const {
     bootstrapSecret,
     containerName,
@@ -1578,7 +1642,45 @@ async function waitForGatewayAndLease(opts: {
     log(`  Container: ${containerName}`);
     log("");
     log(`Stop with: vellum retire ${instanceName}`);
-    return { ready: true };
+
+    // Lease a guardian token even in detached mode so that `vellum ps`,
+    // `vellum exec`, and other CLI commands can authenticate to the
+    // gateway. Skip the /readyz readiness poll (the caller asked to detach
+    // and not block) but retry the lease itself since the gateway may need
+    // a moment to accept connections after the container starts.
+    const leaseStart = Date.now();
+    const leaseDeadline = containersUpAt + DOCKER_READY_TIMEOUT_MS;
+    let guardianAccessToken: string | undefined;
+    while (Date.now() < leaseDeadline) {
+      try {
+        const tokenData = await leaseGuardianToken(
+          runtimeUrl,
+          instanceName,
+          bootstrapSecret,
+        );
+        guardianAccessToken = tokenData.accessToken;
+        const leaseElapsed = ((Date.now() - leaseStart) / 1000).toFixed(1);
+        log(
+          `Guardian token lease: success after ${leaseElapsed}s (principalId=${tokenData.guardianPrincipalId})`,
+        );
+        break;
+      } catch (err) {
+        const elapsed = ((Date.now() - leaseStart) / 1000).toFixed(0);
+        const msg = err instanceof Error ? err.message : String(err);
+        log(
+          `Guardian token lease: attempt failed after ${elapsed}s (${msg.split("\n")[0]}), retrying...`,
+        );
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+    if (!guardianAccessToken) {
+      log(
+        `⚠️  Guardian token lease failed after ${DOCKER_READY_TIMEOUT_MS / 1000}s.\n` +
+          `   The assistant is running but CLI commands (vellum ps, vellum exec) will not authenticate.\n` +
+          `   Re-hatch or run \`vellum setup\` to recover.`,
+      );
+    }
+    return { ready: true, guardianAccessToken };
   }
 
   log(`  Container: ${containerName}`);
@@ -1589,24 +1691,34 @@ async function waitForGatewayAndLease(opts: {
   const readyUrl = `${runtimeUrl}/readyz`;
   const start = containersUpAt;
   let ready = false;
+  let migrationsFailed = false;
 
+  // Readiness is classified from the /readyz BODY: the assistant returns 200
+  // with `ready: false` while DB migrations run (the k8s keep-the-pod
+  // contract), so `resp.ok` alone would declare readiness mid-migration and
+  // the guardian token lease below would burn its shared budget against the
+  // gateway's still-closed traffic gate.
   while (Date.now() - start < DOCKER_READY_TIMEOUT_MS) {
     try {
       const resp = await loopbackSafeFetch(readyUrl, {
         signal: AbortSignal.timeout(5000),
       });
-      if (resp.ok) {
+      const body = (await resp.json().catch(() => null)) as {
+        status?: string;
+        upstream?: number;
+      } | null;
+      const readiness = classifyReadyzResponse(resp.ok, body);
+      if (readiness === "ready") {
         ready = true;
         break;
       }
-      const body = await resp.text();
-      let detail = "";
-      try {
-        const json = JSON.parse(body);
-        const parts = [json.status];
-        if (json.upstream != null) parts.push(`upstream=${json.upstream}`);
-        detail = ` — ${parts.join(", ")}`;
-      } catch {}
+      if (readiness === "failed") {
+        migrationsFailed = true;
+        break;
+      }
+      const parts = [body?.status].filter(Boolean);
+      if (body?.upstream != null) parts.push(`upstream=${body.upstream}`);
+      const detail = parts.length > 0 ? ` — ${parts.join(", ")}` : "";
       log(`Readiness check: ${resp.status}${detail} (retrying...)`);
     } catch {
       // Connection refused / timeout — not up yet
@@ -1616,11 +1728,20 @@ async function waitForGatewayAndLease(opts: {
 
   if (!ready) {
     log("");
-    log(`   \u26a0\ufe0f  Timed out waiting for assistant to become ready.`);
+    if (migrationsFailed) {
+      log(`   \u26a0\ufe0f  Assistant database migrations FAILED.`);
+    } else {
+      log(`   \u26a0\ufe0f  Timed out waiting for assistant to become ready.`);
+    }
     log(`   The container is still running.`);
     log(`   Check logs with: docker logs -f ${containerName}`);
     log("");
-    return { ready: false };
+    return {
+      ready: false,
+      ...(migrationsFailed
+        ? { notReadyReason: "migrations_failed" as const }
+        : {}),
+    };
   }
 
   const readyAt = Date.now();

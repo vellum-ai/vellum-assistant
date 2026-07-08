@@ -12,14 +12,14 @@
 
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 
-import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
+import { listPendingRequestsByConversationScope } from "../contacts/canonical-guardian-store.js";
+import { getDb } from "../persistence/db-connection.js";
 import {
   conversations,
   notificationDecisions,
   notificationDeliveries,
   notificationEvents,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
 import type { NotificationChannel } from "./types.js";
 

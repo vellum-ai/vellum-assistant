@@ -1,4 +1,4 @@
-import { recordUsageEvent } from "../memory/llm-usage-store.js";
+import { recordUsageEvent } from "../persistence/llm-usage-store.js";
 import { resolveUsageAttribution } from "../usage/attribution.js";
 import {
   buildPricingUsageFromResponse,
@@ -33,6 +33,12 @@ export class UsageTrackingProvider implements Provider {
     if (inner.countInputTokens) {
       this.countInputTokens = inner.countInputTokens.bind(inner);
     }
+  }
+
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    return this.inner.supportsNativeWebSearchFor
+      ? this.inner.supportsNativeWebSearchFor(options)
+      : this.inner.supportsNativeWebSearch === true;
   }
 
   async sendMessage(

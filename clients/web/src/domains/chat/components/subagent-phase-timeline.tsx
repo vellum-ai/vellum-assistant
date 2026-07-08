@@ -14,6 +14,7 @@
  */
 
 import { Brain, Globe } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { memo, useCallback, useMemo, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
@@ -258,6 +259,7 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
   onToggle: (key: string) => void;
   onStepDetailClick?: (detailKey: string) => void;
 }) {
+  const reduce = useReducedMotion();
   const rawStatus = phaseHeaderStatus(section.steps);
   // Only the active tail — the last phase while the subagent is still running —
   // may read as in-flight. Steps are sequential, so any OTHER phase computing
@@ -495,115 +497,135 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
           row's 8px gap → 22px). No own bottom padding — the container's `pb-4`
           (non-last rows) is the only bottom spacing, so the last pill sits 16px
           from the next group rather than 12px (pb-3) + 16px. */}
-      {isExpandable && expanded && (
-        <div className="flex flex-col items-start gap-1 pl-[22px]">
-          {section.steps.map((step, stepIdx) => {
-            // A step with a detail key + a wired handler renders a clickable
-            // `ToolStepPill` that opens its nested detail; everything else keeps
-            // the non-interactive `DefaultStepPill`.
-            const detailKey = onStepDetailClick
-              ? stepDetailKey(step)
-              : undefined;
-            if (detailKey && onStepDetailClick) {
-              if (step.kind === "tool") {
-                return (
-                  <ToolStepPill
-                    key={stepKey(step, stepIdx)}
-                    variant="tool"
-                    iconName={step.iconName}
-                    label={step.activity || step.info || step.title}
-                    riskLevel={step.riskLevel}
-                    tone={
-                      step.status === "error" || step.status === "denied"
-                        ? "error"
-                        : "default"
-                    }
-                    ariaLabel="View tool details"
-                    onClick={() => onStepDetailClick(detailKey)}
-                  />
-                );
-              }
-              if (step.kind === "thinking") {
-                return (
-                  <ToolStepPill
-                    key={stepKey(step, stepIdx)}
-                    variant="tool"
-                    iconName="brain"
-                    label={step.text}
-                    ariaLabel="View reasoning"
-                    onClick={() => onStepDetailClick(detailKey)}
-                  />
-                );
-              }
-              if (step.kind === "web_search") {
-                // The search's query becomes a clickable pill; its result
-                // sources move into the nested detail (query + links), mirroring
-                // the thinking-pill → reasoning-detail pattern. Falls back to the
-                // inline query label + chips below when no detail handler is
-                // wired (deploy-safe).
-                return (
-                  <ToolStepPill
-                    key={stepKey(step, stepIdx)}
-                    variant="tool"
-                    iconName="globe"
-                    label={step.query || step.title}
-                    ariaLabel="View search details"
-                    onClick={() => onStepDetailClick(detailKey)}
-                  />
-                );
-              }
-              if (step.kind === "web_search_error") {
-                // A failed search becomes an error-toned pill that opens the
-                // full, untruncated provider error in the nested detail —
-                // parity with a failed tool. Falls back to the inline error chip
-                // below when no detail handler is wired (deploy-safe).
-                return (
-                  <ToolStepPill
-                    key={stepKey(step, stepIdx)}
-                    variant="tool"
-                    iconName="globe"
-                    label={step.errorMessage}
-                    tone="error"
-                    ariaLabel="View search error"
-                    onClick={() => onStepDetailClick(detailKey)}
-                  />
-                );
-              }
+      <AnimatePresence initial={false}>
+        {isExpandable && expanded && (
+          <motion.div
+            key="phase-steps"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={
+              reduce
+                ? { duration: 0 }
+                : { duration: 0.25, ease: [0.16, 1, 0.3, 1] }
             }
-            // Web steps render as their own chip clusters (favicon chips /
-            // error chip) rather than the title-only `DefaultStepPill`, matching
-            // main chat. `web_search` results are parsed from the tool result by
-            // `computeSubagentCardData`.
-            if (step.kind === "web_search") {
-              // Label each search with its query so multiple (unclamped)
-              // searches in one "Searching the web" group stay visually
-              // distinct — the "N steps" count then maps to N labelled clusters.
-              return (
-                <div
-                  key={stepKey(step, stepIdx)}
-                  className="flex w-full flex-col gap-1"
-                >
-                  {step.query ? (
-                    <Typography
-                      variant="body-small-default"
-                      className="text-[var(--content-secondary)]"
+            className="overflow-hidden"
+          >
+            <div className="flex flex-col items-start gap-1 pl-[22px]">
+              {section.steps.map((step, stepIdx) => {
+                // A step with a detail key + a wired handler renders a clickable
+                // `ToolStepPill` that opens its nested detail; everything else keeps
+                // the non-interactive `DefaultStepPill`.
+                const detailKey = onStepDetailClick
+                  ? stepDetailKey(step)
+                  : undefined;
+                if (detailKey && onStepDetailClick) {
+                  if (step.kind === "tool") {
+                    return (
+                      <ToolStepPill
+                        key={stepKey(step, stepIdx)}
+                        variant="tool"
+                        iconName={step.iconName}
+                        label={step.activity || step.info || step.title}
+                        riskLevel={step.riskLevel}
+                        tone={
+                          step.status === "error" || step.status === "denied"
+                            ? "error"
+                            : "default"
+                        }
+                        ariaLabel="View tool details"
+                        onClick={() => onStepDetailClick(detailKey)}
+                      />
+                    );
+                  }
+                  if (step.kind === "thinking") {
+                    return (
+                      <ToolStepPill
+                        key={stepKey(step, stepIdx)}
+                        variant="tool"
+                        iconName="brain"
+                        label={step.text}
+                        ariaLabel="View reasoning"
+                        onClick={() => onStepDetailClick(detailKey)}
+                      />
+                    );
+                  }
+                  if (step.kind === "web_search") {
+                    // The search's query becomes a clickable pill; its result
+                    // sources move into the nested detail (query + links), mirroring
+                    // the thinking-pill → reasoning-detail pattern. Falls back to the
+                    // inline query label + chips below when no detail handler is
+                    // wired (deploy-safe).
+                    return (
+                      <ToolStepPill
+                        key={stepKey(step, stepIdx)}
+                        variant="tool"
+                        iconName="globe"
+                        label={step.query || step.title}
+                        ariaLabel="View search details"
+                        onClick={() => onStepDetailClick(detailKey)}
+                      />
+                    );
+                  }
+                  if (step.kind === "web_search_error") {
+                    // A failed search becomes an error-toned pill that opens the
+                    // full, untruncated provider error in the nested detail —
+                    // parity with a failed tool. Falls back to the inline error chip
+                    // below when no detail handler is wired (deploy-safe).
+                    return (
+                      <ToolStepPill
+                        key={stepKey(step, stepIdx)}
+                        variant="tool"
+                        iconName="globe"
+                        label={step.errorMessage}
+                        tone="error"
+                        ariaLabel="View search error"
+                        onClick={() => onStepDetailClick(detailKey)}
+                      />
+                    );
+                  }
+                }
+                // Web steps render as their own chip clusters (favicon chips /
+                // error chip) rather than the title-only `DefaultStepPill`, matching
+                // main chat. `web_search` results are parsed from the tool result by
+                // `computeSubagentCardData`.
+                if (step.kind === "web_search") {
+                  // Label each search with its query so multiple (unclamped)
+                  // searches in one "Searching the web" group stay visually
+                  // distinct — the "N steps" count then maps to N labelled clusters.
+                  return (
+                    <div
+                      key={stepKey(step, stepIdx)}
+                      className="flex w-full flex-col gap-1"
                     >
-                      {`"${step.query}"`}
-                    </Typography>
-                  ) : null}
-                  <WebSearchStepRow step={step} />
-                </div>
-              );
-            }
-            if (step.kind === "web_search_error") {
-              return (
-                <WebSearchErrorRow key={stepKey(step, stepIdx)} step={step} />
-              );
-            }
-            return <DefaultStepPill key={stepKey(step, stepIdx)} step={step} />;
-          })}
-        </div>
-      )}
+                      {step.query ? (
+                        <Typography
+                          variant="body-small-default"
+                          className="text-[var(--content-secondary)]"
+                        >
+                          {`"${step.query}"`}
+                        </Typography>
+                      ) : null}
+                      <WebSearchStepRow step={step} />
+                    </div>
+                  );
+                }
+                if (step.kind === "web_search_error") {
+                  return (
+                    <WebSearchErrorRow
+                      key={stepKey(step, stepIdx)}
+                      step={step}
+                    />
+                  );
+                }
+                return (
+                  <DefaultStepPill key={stepKey(step, stepIdx)} step={step} />
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 });

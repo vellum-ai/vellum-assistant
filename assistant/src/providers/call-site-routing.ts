@@ -23,7 +23,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
@@ -34,6 +34,7 @@ import {
 } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
+import { shouldUseNativeWebSearch } from "./registry.js";
 import type {
   Message,
   Provider,
@@ -53,10 +54,9 @@ export class CallSiteRoutingProvider implements Provider {
   // both in-flight at the same time on the same provider instance) each see
   // their own value — no clobbering, no premature clear.
   //
-  // During sendMessage, emitLlmCallStartedIfNeeded reads provider.name on the
-  // first text_delta (before the response completes). The getter below returns
-  // the async-context value so streaming trace events carry the routed
-  // provider's name, not the default's.
+  // The getter below returns the async-context value while a routed
+  // sendMessage is in flight, so any code that reads provider.name during
+  // the call sees the routed provider's name, not the default's.
   private readonly _activeProviderContext = new AsyncLocalStorage<string>();
 
   get name(): string {
@@ -113,9 +113,9 @@ export class CallSiteRoutingProvider implements Provider {
 
     const doSend = async (): Promise<ProviderResponse> => {
       const response = await target.sendMessage(messages, options);
-      // Also stamp actualProvider on the response so that handleUsage /
-      // llm_call_finished (which read event.actualProvider, not provider.name)
-      // attribute the call to the right provider.
+      // Also stamp actualProvider on the response so that handleUsage
+      // (which reads event.actualProvider, not provider.name) attributes
+      // the call to the right provider.
       if (isRouted && response.actualProvider == null) {
         return { ...response, actualProvider: target.name };
       }
@@ -123,11 +123,51 @@ export class CallSiteRoutingProvider implements Provider {
     };
 
     // Run inside the async context so that any code reading provider.name
-    // during streaming (e.g. emitLlmCallStartedIfNeeded on text_delta) sees
-    // the routed provider's name for this specific call, not the default.
+    // during streaming sees the routed provider's name for this specific
+    // call, not the default.
     return isRouted
       ? this._activeProviderContext.run(target.name, doSend)
       : doSend();
+  }
+
+  /**
+   * Native web-search capability of the provider/model THIS call routes to.
+   *
+   * `selectProvider` picks the transport from the routed connection, but each
+   * leaf provider's static `supportsNativeWebSearch` was fixed to the DEFAULT
+   * (provider, model) at boot. Resolving the call-site here — same
+   * `resolveCallSiteConfig` inputs `selectProvider` uses — and recomputing
+   * `shouldUseNativeWebSearch(resolved.provider, resolved.model)` yields the
+   * capability of the routed target instead of the construction-time default.
+   *
+   * Falls back to the default provider's static flag when no `callSite` is set
+   * (the legacy short-circuit `selectProvider` also takes).
+   *
+   * Known limitation: this reports the *resolved* target's capability and does
+   * not replay `selectProvider`'s async soft-credential fallback. If the routed
+   * connection has a transient credential failure at send time, `selectProvider`
+   * falls back to the default provider while this probe still reports the routed
+   * target — so a non-native default + native routed target with a credential
+   * blip can attach `web_search` to the fallback non-native provider. The probe
+   * stays sync (the loop assembles tools synchronously) and the worst case is
+   * bounded: the advisor consult that hits it degrades benignly (the unhandled
+   * tool surfaces as a caught failure → "(advisor unavailable)"), not a crash.
+   */
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    const callSite = options?.config?.callSite;
+    if (!callSite) {
+      return this.defaultProvider.supportsNativeWebSearch === true;
+    }
+    const resolved = resolveCallSiteConfig(callSite, getConfig().llm, {
+      overrideProfile: options?.config?.overrideProfile,
+      forceOverrideProfile: options?.config?.forceOverrideProfile,
+      selectionSeed: options?.config?.selectionSeed,
+    });
+    return shouldUseNativeWebSearch(
+      getConfig(),
+      resolved.provider,
+      resolved.model,
+    );
   }
 
   /**

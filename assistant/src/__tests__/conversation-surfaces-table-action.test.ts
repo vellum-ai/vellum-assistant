@@ -51,7 +51,6 @@ function makeContext(): SurfaceConversationContext & {
 
   return {
     conversationId: "test-convo",
-    traceEmitter: { emit: () => {} },
     sendToClient: (msg) => sentMessages.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<

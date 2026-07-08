@@ -1,7 +1,7 @@
 /**
  * Platform route handlers for the shared HTTP/IPC route table.
  *
- * Serves five operations:
+ * Serves six operations:
  *   - platform_status (GET platform/status): aggregates platform context,
  *     credentials, assistant ID, webhook secret, and Velay tunnel status.
  *   - platform_connect (POST platform/connect): checks existing credentials
@@ -12,6 +12,8 @@
  *     registers a callback route with the platform gateway.
  *   - platform_callback_routes_list (GET platform/callback-routes): lists
  *     registered callback routes for this assistant.
+ *   - platform_credits (GET platform/credits): fetches the org's remaining
+ *     credit balance from the platform billing summary.
  */
 
 import { z } from "zod";
@@ -27,6 +29,7 @@ import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
 } from "../../security/secure-keys.js";
+import { getExistingDeviceId } from "../../util/device-id.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
@@ -64,6 +67,7 @@ const PlatformStatusResponseSchema = z.object({
   assistantId: z.string(),
   hasAssistantApiKey: z.boolean(),
   hasWebhookSecret: z.boolean(),
+  clientInstallationId: z.string().nullable(),
   available: z.boolean(),
   organizationId: z.string().nullable(),
   userId: z.string().nullable(),
@@ -116,6 +120,16 @@ type CallbackRoutesListResponse = z.infer<
   typeof CallbackRoutesListResponseSchema
 >;
 
+const PlatformCreditsResponseSchema = z.object({
+  remaining: z.number(),
+  settled: z.number(),
+  pending: z.number(),
+  unit: z.literal("USD"),
+  stale: z.boolean(),
+  as_of: z.string(),
+});
+type PlatformCreditsResponse = z.infer<typeof PlatformCreditsResponseSchema>;
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -154,6 +168,7 @@ async function handlePlatformStatus(
     assistantId: context.assistantId,
     hasAssistantApiKey: context.hasAssistantApiKey,
     hasWebhookSecret,
+    clientInstallationId: getExistingDeviceId(),
     available: context.enabled,
     organizationId: organizationId || null,
     userId: userId || null,
@@ -349,6 +364,60 @@ async function handleCallbackRoutesList(
   return { routes };
 }
 
+async function handlePlatformCredits(
+  _args: RouteHandlerArgs,
+): Promise<PlatformCreditsResponse> {
+  const context = await resolvePlatformCallbackRegistrationContext();
+
+  if (!context.platformBaseUrl || !context.authHeader) {
+    throw new UnprocessableEntityError(
+      "Platform credentials not available — run 'assistant platform connect' or set VELLUM_PLATFORM_URL",
+    );
+  }
+
+  const url = `${context.platformBaseUrl}/v1/organizations/billing/summary/`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: context.authHeader,
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    throw new InternalError(
+      `Failed to fetch credit balance: ${(err as Error).message}`,
+    );
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new InternalError(
+      `Failed to fetch credit balance (HTTP ${response.status}): ${detail}`,
+    );
+  }
+
+  const summary = (await response.json()) as {
+    settled_balance_usd: string;
+    pending_compute_usd: string;
+    effective_balance_usd: string;
+    is_degraded: boolean;
+  };
+
+  return {
+    remaining: Number(summary.effective_balance_usd),
+    settled: Number(summary.settled_balance_usd),
+    pending: Number(summary.pending_compute_usd),
+    unit: "USD",
+    stale: summary.is_degraded,
+    // as_of is response receipt time; add a server as_of field if the billing
+    // summary endpoint ever returns one.
+    as_of: new Date().toISOString(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -429,5 +498,20 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["platform"],
     handler: handleCallbackRoutesList,
     responseBody: CallbackRoutesListResponseSchema,
+  },
+  {
+    operationId: "platform_credits",
+    endpoint: "platform/credits",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get the organization's remaining credit balance",
+    description:
+      "Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform billing summary.",
+    tags: ["platform"],
+    handler: handlePlatformCredits,
+    responseBody: PlatformCreditsResponseSchema,
   },
 ];

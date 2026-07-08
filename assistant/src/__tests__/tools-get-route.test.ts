@@ -8,7 +8,9 @@
  * the tool object.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { Conversation } from "../daemon/conversation.js";
 import {
@@ -25,6 +27,7 @@ import {
   registerTool,
 } from "../tools/registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 
 interface ToolListEntry {
   name: string;
@@ -78,10 +81,26 @@ function registerFakeConversation(id: string, toolNames: string[]): void {
   } as unknown as Conversation);
 }
 
+/** Drop a `.disabled` sentinel into a plugin's workspace directory. */
+function disablePluginSentinel(name: string): void {
+  const dir = join(getWorkspacePluginsDir(), name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, ".disabled"), "");
+}
+
 describe("GET /tools", () => {
   beforeEach(() => {
     __resetRegistryForTesting();
     clearConversations();
+  });
+
+  afterEach(() => {
+    // Remove any `.disabled` sentinels written during a test so plugin
+    // disabled-state never leaks across cases.
+    rmSync(join(getWorkspacePluginsDir(), "git-workflow"), {
+      recursive: true,
+      force: true,
+    });
   });
 
   test("returns each registered tool's metadata, sorted by name, with core source", async () => {
@@ -138,6 +157,30 @@ describe("GET /tools", () => {
     expect(sourceOf("p_tool")).toBe("plugin:echo");
     expect(sourceOf("m_tool")).toBe("mcp:linear");
     expect(sourceOf("s_tool")).toBe("skill:my-skill");
+  });
+
+  test("excludes tools contributed by a disabled plugin", async () => {
+    // GIVEN a core tool and a plugin tool, both initially registered
+    registerTool(makeFakeTool("a_core_tool"));
+    registerPluginTools("git-workflow", [makeFakeTool("gw_tool")]);
+
+    // THEN the plugin tool is visible before disabling
+    const before = (await handler({})) as ToolsGetResponse;
+    expect(before.names).toContain("gw_tool");
+    expect(before.tools.some((t) => t.name === "gw_tool")).toBe(true);
+    expect(before.schemas.gw_tool).toBeDefined();
+
+    // WHEN the plugin is disabled via its `.disabled` sentinel
+    disablePluginSentinel("git-workflow");
+
+    // THEN the plugin's tool drops from names, schemas, and the metadata
+    // array on the next call — no daemon restart required — while the core
+    // tool stays put.
+    const after = (await handler({})) as ToolsGetResponse;
+    expect(after.names).not.toContain("gw_tool");
+    expect(after.tools.some((t) => t.name === "gw_tool")).toBe(false);
+    expect(after.schemas.gw_tool).toBeUndefined();
+    expect(after.names).toContain("a_core_tool");
   });
 
   test("with conversationId, scopes to the conversation's tool snapshot and resolves metadata from the registry", async () => {
@@ -198,5 +241,75 @@ describe("GET /tools", () => {
     expect(() =>
       handler({ queryParams: { conversationId: "missing" } }),
     ).toThrow(/No active conversation "missing"/);
+  });
+
+  test("with agent=role, simulates the subagent tool projection", async () => {
+    // GIVEN core tools including ones in and out of the researcher allowlist
+    registerTool(makeFakeTool("web_search"));
+    registerTool(makeFakeTool("web_fetch"));
+    registerTool(makeFakeTool("file_read"));
+    registerTool(makeFakeTool("file_list"));
+    registerTool(makeFakeTool("recall"));
+    registerTool(makeFakeTool("notify_parent"));
+    // These should be filtered out for the researcher role:
+    registerTool(makeFakeTool("bash"));
+    registerTool(makeFakeTool("file_write"));
+    registerTool(makeFakeTool("file_edit"));
+
+    // WHEN the handler runs with agent=researcher
+    const { names } = (await handler({
+      queryParams: { agent: "researcher" },
+    })) as ToolsGetResponse;
+
+    // THEN only the researcher allowlist tools are returned
+    expect(names).toContain("web_search");
+    expect(names).toContain("web_fetch");
+    expect(names).toContain("file_read");
+    expect(names).toContain("file_list");
+    expect(names).toContain("recall");
+    expect(names).toContain("notify_parent");
+    // And tools outside the allowlist are excluded
+    expect(names).not.toContain("bash");
+    expect(names).not.toContain("file_write");
+    expect(names).not.toContain("file_edit");
+  });
+
+  test("with agent=general, returns all tools (no allowlist filter)", async () => {
+    // GIVEN core tools
+    registerTool(makeFakeTool("web_search"));
+    registerTool(makeFakeTool("bash"));
+    registerTool(makeFakeTool("notify_parent"));
+
+    // WHEN the handler runs with agent=general (allowedTools: undefined)
+    const { names } = (await handler({
+      queryParams: { agent: "general" },
+    })) as ToolsGetResponse;
+
+    // THEN all registered tools are visible — the general role has no
+    // allowlist, so nothing is filtered
+    expect(names).toContain("web_search");
+    expect(names).toContain("bash");
+    expect(names).toContain("notify_parent");
+  });
+
+  test("with agent=role, notify_parent is visible (subagent-only gating works)", async () => {
+    // GIVEN notify_parent registered as a core tool
+    registerTool(makeFakeTool("notify_parent"));
+
+    // WHEN the handler runs with agent=coder
+    const { names, tools } = (await handler({
+      queryParams: { agent: "coder" },
+    })) as ToolsGetResponse;
+
+    // THEN notify_parent appears because isSubagent=true satisfies
+    // the SUBAGENT_ONLY_TOOL_NAMES gate in isToolActiveForContext
+    expect(names).toContain("notify_parent");
+    expect(tools.some((t) => t.name === "notify_parent")).toBe(true);
+  });
+
+  test("with an unknown agent, throws a 404 RouteError", () => {
+    expect(() =>
+      handler({ queryParams: { agent: "nonexistent_role" } }),
+    ).toThrow(/Unknown agent "nonexistent_role"/);
   });
 });

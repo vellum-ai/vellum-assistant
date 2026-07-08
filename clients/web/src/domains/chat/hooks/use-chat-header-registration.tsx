@@ -5,8 +5,10 @@
  *
  * Owns:
  * - `headerSupplements` computation and slot registration
- * - `topBarRightSlot` (ConversationAssetsPill) computation and registration
- * - Slack conversation display derivation for the header label
+ * - `topBarRightSlot` (ChannelSourceLinkPill + ConversationAssetsPill +
+ *   InChatPluginPill) computation and registration
+ * - Slack conversation display derivation for the header label and the
+ *   source-thread link
  */
 
 import { useCallback, useEffect, useMemo } from "react";
@@ -21,10 +23,14 @@ import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conv
 import {
   formatSlackConversationDisplayLabel,
 } from "@/domains/chat/utils/slack-conversation-display";
+import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getChannelBindingDisplayText } from "@/domains/chat/utils/channel-conversation-display";
 import { getChannelLabel } from "@/utils/channel-presentation";
+import { ChannelSourceLinkPill } from "@/domains/chat/components/channel-source-link-pill";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
+import { InChatPluginPill } from "@/domains/chat/components/inchat-plugin-pill/inchat-plugin-pill";
+import { useSupportsInchatPluginEdit } from "@/lib/backwards-compat/use-supports-inchat-plugin-edit";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
@@ -51,9 +57,12 @@ export function useChatHeaderRegistration({
 }: UseChatHeaderRegistrationOptions): void {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const messages = useTranscriptMessages(assistantId, activeConversationId);
+  const messages = useTranscriptMessages();
   const setTopBarRightSlot = useChatLayoutSlotsStore.use.setTopBarRightSlot();
   const setHeaderSupplements = useChatLayoutSlotsStore.use.setHeaderSupplements();
+  // Older daemons omit `enabledPlugins` on the conversation GET, so the pill
+  // can't reflect per-chat state there — hide it until the daemon supports it.
+  const supportsPluginPill = useSupportsInchatPluginEdit();
 
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
 
@@ -84,6 +93,18 @@ export function useChatHeaderRegistration({
     slackConversationDisplay,
     activeConversation?.channelBinding,
   ]);
+
+  // Deep link back to the conversation's source in the external channel.
+  // Slack's display href comes first because it is richer — it folds in
+  // message-level links from the transcript — and it also covers daemons
+  // that predate the binding's channel-neutral `sourceLink`. Every other
+  // channel goes through `sourceLink`, so a channel lights up here as soon
+  // as its daemon-side binding-metadata builder emits one.
+  const channelSourceLinkHref = channelHeaderChannelId
+    ? slackConversationDisplay?.href ??
+      getExternalLinkUrl(activeConversation?.channelBinding?.sourceLink) ??
+      null
+    : null;
 
   // Header supplements — chat-specific data for the conversation header menu
   const hasPersistedMessage = useMemo(
@@ -132,15 +153,29 @@ export function useChatHeaderRegistration({
   const topBarRightContent = useMemo(() => {
     if (!activeConversation?.conversationId || !assistantId) return null;
     return (
-      <ConversationAssetsPill
-        assistantId={assistantId}
-        conversationId={activeConversation.conversationId}
-        refreshKey={assetsRefreshKey}
-        onOpenApp={handleOpenAppFromChat}
-        onOpenDocument={handleOpenDocument}
-      />
+      <>
+        {channelSourceLinkHref ? (
+          <ChannelSourceLinkPill
+            href={channelSourceLinkHref}
+            channelId={channelHeaderChannelId}
+          />
+        ) : null}
+        <ConversationAssetsPill
+          assistantId={assistantId}
+          conversationId={activeConversation.conversationId}
+          refreshKey={assetsRefreshKey}
+          onOpenApp={handleOpenAppFromChat}
+          onOpenDocument={handleOpenDocument}
+        />
+        {supportsPluginPill ? (
+          <InChatPluginPill
+            assistantId={assistantId}
+            conversationId={activeConversation.conversationId}
+          />
+        ) : null}
+      </>
     );
-  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
+  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument, supportsPluginPill, channelSourceLinkHref, channelHeaderChannelId]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);

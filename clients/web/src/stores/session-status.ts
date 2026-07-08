@@ -5,8 +5,7 @@
  * This module is intentionally dependency-free: it imports nothing, so any
  * module — including ones the auth store itself depends on (e.g. the assistant
  * lifecycle service) — can read session meaning without creating an import
- * cycle through the store. `import type` could not break that cycle because
- * the predicates are runtime values, not just types.
+ * cycle through the store.
  *
  * Imperative readers (middleware, lifecycle, route resolvers) call these
  * predicates directly with a status value. Reactive components read the

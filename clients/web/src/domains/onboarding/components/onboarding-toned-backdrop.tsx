@@ -14,27 +14,14 @@
  */
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { OnboardingPeekingEyes } from "@/domains/onboarding/components/onboarding-peeking-eyes";
+import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { pickOverlayColors } from "@/domains/onboarding/onboarding-avatar-colors";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-
-function useViewport() {
-  const [size, setSize] = useState(() => ({
-    w: typeof window === "undefined" ? 1280 : window.innerWidth,
-    h: typeof window === "undefined" ? 800 : window.innerHeight,
-  }));
-  useEffect(() => {
-    const onResize = () =>
-      setSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return size;
-}
 
 /**
  * The crowd that peeks in around the edges, in reveal order. The first few sit
@@ -103,7 +90,7 @@ export function OnboardingTonedBackdrop({
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const reduce = useReducedMotion();
-  const { w } = useViewport();
+  const { w } = useOnboardingStageSize();
   // Shrink the peeking characters on smaller screens (full size ≥ ~1100px wide).
   const peekScale = Math.max(0.42, Math.min(w / 1100, 1));
   // On narrow screens the content fills the middle, so the crowd retreats to a
@@ -201,7 +188,7 @@ export function OnboardingTonedBackdrop({
               <motion.div
                 key={`peek-${i}`}
                 aria-hidden="true"
-                className="pointer-events-none fixed z-[1]"
+                className="pointer-events-none absolute z-[1]"
                 style={{ ...position, width: size, height: size }}
                 initial={reduce ? false : { scale: 0, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}

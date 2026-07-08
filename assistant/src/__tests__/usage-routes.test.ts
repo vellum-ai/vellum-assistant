@@ -7,12 +7,13 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   getUsageCostForConversationWindow,
+  getUsageCostForRun,
   recordUsageEvent,
-} from "../memory/llm-usage-store.js";
+} from "../persistence/llm-usage-store.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/usage-routes.js";
 
@@ -128,11 +129,13 @@ function recordCostAt(
   requestId: string,
   createdAt: number,
   estimatedCostUsd: number,
+  cronRunId?: string,
 ) {
   recordUsageEvent(
     {
       conversationId,
       runId: null,
+      cronRunId: cronRunId ?? null,
       requestId,
       actor: "main_agent",
       callSite: "mainAgent",
@@ -247,6 +250,61 @@ describe("usage routes", () => {
       });
 
       expect(total).toBeCloseTo(0.06);
+    });
+  });
+
+  describe("getUsageCostForRun", () => {
+    test("sums rows stamped with the run's cron_run_id even with a sentinel conversation_id", () => {
+      // Script-mode usage: stamped with cron_run_id; conversation_id is a real
+      // conversation distinct from the sentinel the run record carries.
+      recordCostAt("conv-real", "run-stamped-1", 5_000, 0.12, "run-1");
+      recordCostAt("conv-real", "run-stamped-2", 6_000, 0.08, "run-1");
+      // A different run's usage must not leak in.
+      recordCostAt("conv-real", "run-other", 5_500, 0.99, "run-2");
+
+      // The sentinel conversationId matches no real rows, so attribution is
+      // driven purely by cron_run_id.
+      const total = getUsageCostForRun({
+        cronRunId: "run-1",
+        conversationId: "script:job-1",
+        from: 5_000,
+        to: 6_000,
+      });
+
+      expect(total).toBeCloseTo(0.2);
+    });
+
+    test("falls back to the conversation + time-window for un-stamped legacy rows", () => {
+      // Legacy usage: null cron_run_id, attributed by conversation + window.
+      recordCostAt("conv-legacy", "legacy-before", 999, 0.5);
+      recordCostAt("conv-legacy", "legacy-start", 1_000, 0.01);
+      recordCostAt("conv-legacy", "legacy-end", 2_000, 0.03);
+      recordCostAt("conv-legacy", "legacy-after", 2_001, 0.75);
+
+      const total = getUsageCostForRun({
+        cronRunId: "run-legacy",
+        conversationId: "conv-legacy",
+        from: 1_000,
+        to: 2_000,
+      });
+
+      expect(total).toBeCloseTo(0.04);
+    });
+
+    test("excludes rows stamped for a different run that overlap this run's window", () => {
+      // A different firing's stamped row shares the conversation + window; it
+      // must not count here — only the unstamped legacy row does.
+      recordCostAt("conv-shared", "legacy-in-window", 1_500, 0.04);
+      recordCostAt("conv-shared", "other-run-in-window", 1_600, 0.5, "run-x");
+
+      const total = getUsageCostForRun({
+        cronRunId: "run-shared",
+        conversationId: "conv-shared",
+        from: 1_000,
+        to: 2_000,
+      });
+
+      expect(total).toBeCloseTo(0.04);
     });
   });
 

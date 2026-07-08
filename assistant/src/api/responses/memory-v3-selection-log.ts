@@ -1,7 +1,7 @@
 /**
  * Wire contract for the memory v3 selection set surfaced in the inspector's
  * Memory tab. Mirrors the return value of `getMemoryV3SelectionForInspector`
- * in `assistant/src/plugins/defaults/memory-v3-shadow/selection-log-store.ts`.
+ * in `assistant/src/plugins/defaults/memory/v3/selection-log-store.ts`.
  *
  * Canonical wire-contract source. Assistant code imports the types directly
  * from this file via relative paths; external consumers (web client, gateway,
@@ -9,11 +9,10 @@
  *
  * Returned as part of `LlmContextResponse` — see `./llm-context-response.ts`.
  *
- * `live` / `shadow` reflect the CURRENT `memory-v3-live` / `memory-v3-shadow`
- * flag state, not the per-turn history (the selection rows don't record which
- * mode was active when they were written). When `live` is true the rendered
- * `injectedText` reflects the live selection; when only `shadow` is true it is
- * the block that WOULD have been injected.
+ * `live` reflects the CURRENT `memory.v3.live` config state, not the per-turn
+ * history (the selection rows don't record whether v3 was live when they were
+ * written). The rendered `injectedText` is the `<memory>` block for the logged
+ * selection.
  *
  * `injectedText` is inspector-only, not a verbatim record of the live cards +
  * spotlight. It re-renders each selection's matched section — resolved from the
@@ -58,7 +57,6 @@ export type MemoryV3SelectionRow = z.infer<typeof MemoryV3SelectionRowSchema>;
 export const MemoryV3SelectionLogSchema = z.object({
   turn: z.number(),
   live: z.boolean(),
-  shadow: z.boolean(),
   selections: z.array(MemoryV3SelectionRowSchema),
   injectedText: z.string(),
 });

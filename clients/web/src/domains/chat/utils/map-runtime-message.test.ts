@@ -8,7 +8,9 @@ import {
   messageText,
   wireTextBody,
 } from "@/domains/chat/utils/message-test-helpers";
-function makeMessage(overrides: Partial<ConversationMessage>): ConversationMessage {
+function makeMessage(
+  overrides: Partial<ConversationMessage>,
+): ConversationMessage {
   return makeServerMessage({ id: "msg-1", role: "assistant", ...overrides });
 }
 
@@ -114,6 +116,34 @@ describe("mapRuntimeToDisplayMessage", () => {
       filename: "sheet.csv",
       mimeType: "text/csv",
     });
+  });
+
+  test("flags an acpNotification message as isAcpNotification", () => {
+    const plain = makeMessage({ id: "m-plain", role: "user" });
+    expect(mapRuntimeToDisplayMessage(plain).isAcpNotification).toBeUndefined();
+
+    const m = makeMessage({
+      id: "m-acp",
+      role: "user",
+      acpNotification: { acpSessionId: "acp-1", agent: "claude" },
+    });
+    expect(mapRuntimeToDisplayMessage(m).isAcpNotification).toBe(true);
+  });
+
+  test("flags a backgroundEventNotification message as isBackgroundEventNotification", () => {
+    const plain = makeMessage({ id: "m-plain", role: "user" });
+    expect(
+      mapRuntimeToDisplayMessage(plain).isBackgroundEventNotification,
+    ).toBeUndefined();
+
+    const m = makeMessage({
+      id: "m-bg",
+      role: "user",
+      backgroundEventNotification: true,
+    });
+    expect(mapRuntimeToDisplayMessage(m).isBackgroundEventNotification).toBe(
+      true,
+    );
   });
 
   test("carries server thinkingSegments and contentOrder onto the display message", () => {

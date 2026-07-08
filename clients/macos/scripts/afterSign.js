@@ -100,11 +100,41 @@ exports.default = async function afterSign(context) {
   const productName = packager.appInfo.productFilename;
   const appDir = path.join(appOutDir, `${productName}.app`);
   const resourcesDir = path.join(appDir, "Contents", "Resources");
+  const binDir = path.join(resourcesDir, "bin");
   const identity = await resolveSigningIdentity(context);
   if (identity == null) {
     return;
   }
   const entitlementsDir = path.join(__dirname, "entitlements");
+
+  // The helper bundle's folder name is per-env (e.g. "Vellum Helper",
+  // "Vellum Helper Dev"). Discover it by reading the sidecar that
+  // build-mac-helper.sh writes alongside the bundle; fall back to walking
+  // the bin directory for any .app folder if the sidecar is missing.
+  let helperAppName = null;
+  const sidecarPath = path.join(binDir, ".vellum-mac-helper.bundle-name");
+  if (fs.existsSync(sidecarPath)) {
+    helperAppName = fs.readFileSync(sidecarPath, "utf8").trim();
+  }
+  if (!helperAppName) {
+    try {
+      const entries = fs.readdirSync(binDir, { withFileTypes: true });
+      const discovered = entries.find(
+        (entry) =>
+          entry.isDirectory() &&
+          entry.name.endsWith(".app") &&
+          entry.name !== "vellum-mac-helper.app",
+      );
+      if (discovered) {
+        helperAppName = discovered.name.replace(/\.app$/, "");
+      }
+    } catch {
+      // fall through to the default `vellum-mac-helper.app` name
+    }
+  }
+  const helperAppPath = helperAppName
+    ? path.join(binDir, `${helperAppName}.app`)
+    : path.join(binDir, "vellum-mac-helper.app");
 
   const executables = [
     {
@@ -113,8 +143,8 @@ exports.default = async function afterSign(context) {
       entitlements: path.join(entitlementsDir, "bun.plist"),
     },
     {
-      name: "vellum-mac-helper",
-      path: path.join(resourcesDir, "bin", "vellum-mac-helper.app"),
+      name: helperAppName ?? "vellum-mac-helper",
+      path: helperAppPath,
       entitlements: path.join(entitlementsDir, "helper.plist"),
     },
   ];

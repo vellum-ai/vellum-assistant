@@ -15,9 +15,9 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { LLMSchema } from "../config/schemas/llm.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { listUsageEvents } from "../memory/llm-usage-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { listUsageEvents } from "../persistence/llm-usage-store.js";
 import { CallSiteConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 import { UsageTrackingProvider } from "../providers/usage-tracking.js";
@@ -234,7 +234,7 @@ describe("native web-search capability survives the wrapper chain", () => {
     // UsageTracking → leaf. The advisor consult reads the flag off the top.
     const wrapped = new CallSiteConfiguredProvider(
       new UsageTrackingProvider(leaf(true)),
-      "advisor",
+      "subagentSpawn",
     );
     expect(wrapped.supportsNativeWebSearch).toBe(true);
   });

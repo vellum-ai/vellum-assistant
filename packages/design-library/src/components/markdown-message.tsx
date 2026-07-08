@@ -24,6 +24,13 @@ import { cn } from "../utils/cn";
 
 const MAX_CODE_BLOCK_HEIGHT = 400;
 
+export const quoteBlockquoteClassName = cn(
+  "mx-0 mt-0 mb-3 flex w-full items-center gap-3 rounded-md bg-[var(--surface-sunken)] px-3 py-2.5 text-body-small-default text-[var(--content-secondary)] last:mb-0",
+);
+export const quoteBlockquoteAccentClassName =
+  "h-5 w-0.5 shrink-0 rounded-full bg-[var(--content-tertiary)]";
+export const quoteBlockquoteContentClassName = "min-w-0 flex-1 [&_p]:mb-0";
+
 function CopyButton({ visible, onClick, copied }: {
   visible: boolean;
   onClick: () => void;
@@ -329,8 +336,9 @@ function buildMarkdownComponents(
     // emphasis render upright instead of skewed (see splitEmojiRuns).
     em: ({ children }) => <em>{renderUprightEmoji(children)}</em>,
     blockquote: ({ children }) => (
-      <blockquote className="mb-2 border-l-2 border-stone-300 pl-3 italic text-stone-600 last:mb-0 dark:border-stone-600 dark:text-stone-400">
-        {children}
+      <blockquote className={quoteBlockquoteClassName}>
+        <span aria-hidden="true" className={quoteBlockquoteAccentClassName} />
+        <div className={quoteBlockquoteContentClassName}>{children}</div>
       </blockquote>
     ),
     table: ({ children }) => (
@@ -392,13 +400,14 @@ function buildMarkdownComponents(
  * `$` into an italic math span. `–—` are literal members of the class; the
  * plain `-` stays last so it is never read as a range operator.
  *
- * A `+` is consumed only as part of a *suffixed* amount (`$1M+`, `$500K+` —
- * the "or more" idiom) so those amounts terminate at a clean boundary. It is
- * deliberately NOT a general boundary char: a bare `$1+1$` keeps `1` followed
- * by `+` with no boundary, so real arithmetic math is preserved.
+ * A trailing `+` (the "or more" idiom) is consumed as part of any amount,
+ * bare (`$50+`) or suffixed (`$1M+`, `$500K+`), so those amounts terminate at
+ * a clean boundary. It is deliberately NOT a general boundary char: in
+ * `$1+1$` the char after the `+` is a digit rather than a boundary, so real
+ * arithmetic math is preserved.
  */
 const CURRENCY_AMOUNT =
-  /\$(\d[\d,]*(?:\.\d+)?(?:(?:bn|tn|trn|[KMBT])\+?)?)(?=$|[\s).,;:!?%"'’\]}/–—-]|&)/gi;
+  /\$(\d[\d,]*(?:\.\d+)?(?:bn|tn|trn|[KMBT])?\+?)(?=$|[\s).,;:!?%"'’\]}/–—-]|&)/gi;
 
 /**
  * remark-math treats `$…$` as inline LaTeX, so monetary text like

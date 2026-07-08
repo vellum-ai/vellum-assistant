@@ -7,47 +7,15 @@
  * - Never nudges when a task_progress card was already shown this turn.
  * - Fires at most once per turn (dedupes parallel results / further rounds).
  * - Resets across turns so a later multi-step turn can nudge again.
- * - Gating: fires only for weak models (Kimi/DeepSeek/MiniMax) and skips
- *   capable models, non-mainAgent call sites, surface-incapable clients, and
- *   subagent conversations.
+ * - Gating: fires only for the plugin's target model families on a mainAgent
+ *   call site with a surface-capable client; skips non-target models,
+ *   non-mainAgent call sites (background work and subagents), and channels
+ *   without dynamic UI.
  * - Appends to (not overwrites) `additionalContext` set by an earlier hook.
  * - The nudge leaves the tool result's `content` untouched.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-import * as realConversationRegistry from "../daemon/conversation-registry.js";
-
-// The hook lazily imports the conversation registry and subagent manager on
-// the would-nudge path; mock both before importing the hook. The registry mock
-// spreads the real module so other consumers in the shared test process keep
-// their exports — only `findConversation` is overridden.
-interface MockConversation {
-  currentCallSite?: string;
-  currentTurnChannelCapabilities?: {
-    channel: string;
-    supportsDynamicUi: boolean;
-  };
-  channelCapabilities?: { channel: string; supportsDynamicUi: boolean };
-}
-let mockConversation: (
-  conversationId: string,
-) => MockConversation | undefined = () => ({
-  currentCallSite: "mainAgent",
-  currentTurnChannelCapabilities: { channel: "web", supportsDynamicUi: true },
-});
-mock.module("../daemon/conversation-registry.js", () => ({
-  ...realConversationRegistry,
-  findConversation: (conversationId: string) =>
-    mockConversation(conversationId),
-}));
-
-let mockParentInfo: (conversationId: string) => unknown = () => undefined;
-mock.module("../subagent/index.js", () => ({
-  getSubagentManager: () => ({
-    getParentInfo: (conversationId: string) => mockParentInfo(conversationId),
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { PluginLogger, PostToolUseContext } from "../plugin-api/types.js";
 import postToolUse, {
@@ -104,23 +72,30 @@ function currentResponse(toolUseId: string): ToolResultContent {
   };
 }
 
-/** A weak-model id that matches WEAK_OPEN_MODEL_PATTERN (the gated population). */
-const WEAK_MODEL = "minimax/minimax-m3";
+/** A model id matching NUDGE_TARGET_MODEL_PATTERN (the nudged population). */
+const TARGET_MODEL = "minimax/minimax-m3";
 
 function makeCtx(
   conversationId: string,
   toolResponse: ToolResultContent,
   messages: Message[],
-  model: string = WEAK_MODEL,
+  opts: {
+    callSite?: PostToolUseContext["callSite"];
+    model?: string;
+    supportsDynamicUi?: boolean;
+  } = {},
 ): PostToolUseContext {
   return {
     conversationId,
     toolResponse,
     messages,
     additionalContext: null,
-    model,
+    model: opts.model ?? TARGET_MODEL,
     maxInputTokens: 10_000,
+    callSite: opts.callSite ?? "mainAgent",
+    supportsDynamicUi: opts.supportsDynamicUi ?? true,
     logger: noopLogger,
+    broadcast: () => {},
   };
 }
 
@@ -158,14 +133,6 @@ function turnWithRounds(
 describe("task-progress-nudge post-tool-use hook", () => {
   beforeEach(() => {
     resetTaskProgressNudgeStateForTests();
-    mockConversation = () => ({
-      currentCallSite: "mainAgent",
-      currentTurnChannelCapabilities: {
-        channel: "web",
-        supportsDynamicUi: true,
-      },
-    });
-    mockParentInfo = () => undefined;
   });
 
   test("stays silent below the round threshold", async () => {
@@ -264,11 +231,12 @@ describe("task-progress-nudge post-tool-use hook", () => {
     expect(ctx3.additionalContext).toBe(TASK_PROGRESS_NUDGE_TEXT);
   });
 
-  test("fires for weak models (Kimi, DeepSeek, MiniMax)", async () => {
+  test("fires for the plugin's target model families", async () => {
     for (const model of [
       "moonshotai/kimi-k2.6",
       "deepseek/deepseek-chat",
       "accounts/fireworks/models/minimax-m3",
+      "z-ai/glm-4.6",
     ]) {
       const { messages, currentToolUseId } = turnWithRounds(
         TASK_PROGRESS_NUDGE_ROUND_THRESHOLD,
@@ -277,14 +245,14 @@ describe("task-progress-nudge post-tool-use hook", () => {
         freshConversationId(),
         currentResponse(currentToolUseId),
         messages,
-        model,
+        { model },
       );
       await postToolUse(ctx);
       expect(ctx.additionalContext).toBe(TASK_PROGRESS_NUDGE_TEXT);
     }
   });
 
-  test("skips capable models (not in the weak-model set)", async () => {
+  test("skips non-target models", async () => {
     for (const model of ["claude-opus-4-8", "gpt-5.5"]) {
       const { messages, currentToolUseId } = turnWithRounds(
         TASK_PROGRESS_NUDGE_ROUND_THRESHOLD + 2,
@@ -293,62 +261,38 @@ describe("task-progress-nudge post-tool-use hook", () => {
         freshConversationId(),
         currentResponse(currentToolUseId),
         messages,
-        model,
+        { model },
       );
       await postToolUse(ctx);
       expect(ctx.additionalContext).toBeNull();
     }
   });
 
-  test("skips non-mainAgent call sites", async () => {
-    mockConversation = () => ({
-      currentCallSite: "wake",
-      currentTurnChannelCapabilities: {
-        channel: "web",
-        supportsDynamicUi: true,
-      },
-    });
-    const { messages, currentToolUseId } = turnWithRounds(
-      TASK_PROGRESS_NUDGE_ROUND_THRESHOLD,
-    );
-    const ctx = makeCtx(
-      freshConversationId(),
-      currentResponse(currentToolUseId),
-      messages,
-    );
-    await postToolUse(ctx);
-    expect(ctx.additionalContext).toBeNull();
+  test("skips non-mainAgent call sites (background work and subagents)", async () => {
+    for (const callSite of ["heartbeatAgent", "subagentSpawn"] as const) {
+      const { messages, currentToolUseId } = turnWithRounds(
+        TASK_PROGRESS_NUDGE_ROUND_THRESHOLD,
+      );
+      const ctx = makeCtx(
+        freshConversationId(),
+        currentResponse(currentToolUseId),
+        messages,
+        { callSite },
+      );
+      await postToolUse(ctx);
+      expect(ctx.additionalContext).toBeNull();
+    }
   });
 
-  test("skips clients without dynamic UI support", async () => {
-    mockConversation = () => ({
-      currentCallSite: "mainAgent",
-      currentTurnChannelCapabilities: {
-        channel: "telegram",
-        supportsDynamicUi: false,
-      },
-    });
+  test("skips channels that cannot render dynamic UI surfaces", async () => {
     const { messages, currentToolUseId } = turnWithRounds(
-      TASK_PROGRESS_NUDGE_ROUND_THRESHOLD,
+      TASK_PROGRESS_NUDGE_ROUND_THRESHOLD + 2,
     );
     const ctx = makeCtx(
       freshConversationId(),
       currentResponse(currentToolUseId),
       messages,
-    );
-    await postToolUse(ctx);
-    expect(ctx.additionalContext).toBeNull();
-  });
-
-  test("skips subagent conversations", async () => {
-    mockParentInfo = () => ({ parentConversationId: "parent-1" });
-    const { messages, currentToolUseId } = turnWithRounds(
-      TASK_PROGRESS_NUDGE_ROUND_THRESHOLD,
-    );
-    const ctx = makeCtx(
-      freshConversationId(),
-      currentResponse(currentToolUseId),
-      messages,
+      { supportsDynamicUi: false }, // e.g. SMS/phone/email — ui_show is filtered out
     );
     await postToolUse(ctx);
     expect(ctx.additionalContext).toBeNull();

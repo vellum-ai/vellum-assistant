@@ -94,9 +94,9 @@ mock.module("../config/loader.js", () => ({
   loadConfig: () => ({}),
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: () => ({ id: "mock-msg-id" }),
   getMessageById: () => null,
   updateMessageContent: () => {},
@@ -104,7 +104,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
@@ -591,8 +591,8 @@ describe("Native Web Search — Backend Failure Handling", () => {
     expect(String(failureLog?.obj.rawDetail)).toContain("unavailable");
     expect(failureLog?.obj.fallbackShown).toBe(true);
 
-    const errorMessage = lastToolResult(events)?.activityMetadata?.webSearch
-      ?.errorMessage;
+    const errorMessage =
+      lastToolResult(events)?.activityMetadata?.webSearch?.errorMessage;
     expect(errorMessage).not.toContain("unavailable");
   });
 
@@ -623,9 +623,9 @@ describe("Native Web Search — Backend Failure Handling", () => {
     );
     // Both failures are logged, but only the first reports fallbackShown.
     expect(failureLogs).toHaveLength(2);
-    expect(failureLogs.filter((w) => w.obj.fallbackShown === true)).toHaveLength(
-      1,
-    );
+    expect(
+      failureLogs.filter((w) => w.obj.fallbackShown === true),
+    ).toHaveLength(1);
   });
 
   test("successful search leaves errorMessage undefined and populates results", async () => {
@@ -658,8 +658,8 @@ describe("Native Web Search — Backend Failure Handling", () => {
       errorCode: "query_too_long",
     });
 
-    const errorMessage = lastToolResult(events)?.activityMetadata?.webSearch
-      ?.errorMessage;
+    const errorMessage =
+      lastToolResult(events)?.activityMetadata?.webSearch?.errorMessage;
     expect(errorMessage).toBeDefined();
     expect(errorMessage).not.toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
     // Recoverable non-backend errors must NOT emit backend-failure telemetry.

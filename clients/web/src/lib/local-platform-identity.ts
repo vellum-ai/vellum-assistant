@@ -9,6 +9,7 @@ import {
   isPlatformDisabled,
   isRemoteGatewayMode,
   primeLocalGatewayConnectionWithRepair,
+  updateLockfileAssistant,
   type LockfileAssistant,
 } from "@/lib/local-mode";
 import {
@@ -30,16 +31,22 @@ const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 type PlatformStatusBody = {
   assistantId?: unknown;
   assistant_id?: unknown;
+  baseUrl?: unknown;
+  base_url?: unknown;
   organizationId?: unknown;
   organization_id?: unknown;
   hasAssistantApiKey?: unknown;
   has_assistant_api_key?: unknown;
+  clientInstallationId?: unknown;
+  client_installation_id?: unknown;
 };
 
 type LocalPlatformStatus = {
   assistantId: string | null;
+  baseUrl: string | null;
   organizationId: string | null;
   hasAssistantApiKey: boolean | null;
+  clientInstallationId: string | null;
 };
 
 type EnsureRegistrationResponse = {
@@ -70,8 +77,28 @@ type ResolveLocalAssistantPlatformIdentityOptions = {
 
 const platformAssistantIdCache = new Map<string, Promise<string>>();
 
+/**
+ * Backoff schedule for the best-effort bootstrap. After a daemon restart the
+ * gateway 502s every proxied /v1/* request (including the secret injection
+ * that stores the platform credentials) until the daemon is listening again —
+ * a window observed to last ~90s — so the schedule must outlast it.
+ */
+const BOOTSTRAP_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000, 60_000];
+
+let bootstrapRetryDelaysMs: readonly number[] = BOOTSTRAP_RETRY_DELAYS_MS;
+
+/** Assistants with a bootstrap retry loop currently running. */
+const activeBootstraps = new Set<string>();
+
 export function resetLocalPlatformIdentityCacheForTesting(): void {
   platformAssistantIdCache.clear();
+  activeBootstraps.clear();
+}
+
+export function setBootstrapRetryDelaysForTesting(
+  delays: readonly number[] | null,
+): void {
+  bootstrapRetryDelaysMs = delays ?? BOOTSTRAP_RETRY_DELAYS_MS;
 }
 
 export async function resolveLocalAssistantPlatformIdentity(
@@ -120,14 +147,45 @@ export function bootstrapLocalAssistantPlatformIdentity(
     targetAssistantId = assistant.assistantId;
   }
 
-  void resolveLocalAssistantPlatformIdentity(targetAssistantId, {
-    allowGatewayRepair: options.allowGatewayRepair ?? false,
-  }).catch(
-    options.onError ??
-      ((error: unknown) => {
-        console.warn("local assistant platform bootstrap failed", error);
-      }),
-  );
+  // One retrying bootstrap per assistant — a second trigger while a loop is
+  // waiting out a backoff delay would race the same registration and
+  // secret-injection flow.
+  if (activeBootstraps.has(targetAssistantId)) {
+    return;
+  }
+  activeBootstraps.add(targetAssistantId);
+  const target = targetAssistantId;
+
+  void (async () => {
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await resolveLocalAssistantPlatformIdentity(target, {
+            allowGatewayRepair: options.allowGatewayRepair ?? false,
+          });
+          return;
+        } catch (error) {
+          const delayMs = bootstrapRetryDelaysMs[attempt];
+          if (delayMs === undefined) {
+            (
+              options.onError ??
+              ((e: unknown) => {
+                console.warn("local assistant platform bootstrap failed", e);
+              })
+            )(error);
+            return;
+          }
+          console.warn(
+            `local assistant platform bootstrap attempt ${attempt + 1} failed, retrying in ${delayMs}ms`,
+            error,
+          );
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+    } finally {
+      activeBootstraps.delete(target);
+    }
+  })();
 }
 
 function resolveLocalAssistant(assistantId: string): LockfileAssistant | null {
@@ -153,6 +211,15 @@ async function ensureLocalAssistantPlatformIdentity(
       ? status.assistantId
       : null;
   if (statusPlatformAssistantId && status?.hasAssistantApiKey !== false) {
+    const statusOrganizationId =
+      status?.organizationId ?? assistant.platformOrganizationId ?? null;
+    if (statusOrganizationId) {
+      await persistPlatformRegistrationMetadata(assistant, {
+        platformAssistantId: statusPlatformAssistantId,
+        platformBaseUrl: status?.baseUrl ?? getPlatformRuntimeUrl(),
+        organizationId: statusOrganizationId,
+      });
+    }
     return statusPlatformAssistantId;
   }
 
@@ -161,10 +228,24 @@ async function ensureLocalAssistantPlatformIdentity(
     assistant,
   );
   if (!organizationId) {
-    throw new Error("Sign in to Vellum and select an organization to register this local assistant.");
+    throw new Error(
+      "Sign in to Vellum and select an organization to register this local assistant.",
+    );
   }
 
-  const registration = await ensureRegistration(assistant, organizationId);
+  const clientInstallationId =
+    status?.clientInstallationId ?? getDeviceId() ?? null;
+  if (!clientInstallationId) {
+    throw new Error(
+      "Unable to identify this local assistant host for platform registration.",
+    );
+  }
+
+  const registration = await ensureRegistration(
+    assistant,
+    organizationId,
+    clientInstallationId,
+  );
   const registrationPlatformAssistantId = firstString(
     registration.assistant?.id,
     registration.assistant_id,
@@ -180,18 +261,46 @@ async function ensureLocalAssistantPlatformIdentity(
 
   let assistantApiKey = stringValue(registration.assistant_api_key);
   if (!assistantApiKey && status?.hasAssistantApiKey !== true) {
-    assistantApiKey = await reprovisionApiKey(assistant, organizationId);
+    assistantApiKey = await reprovisionApiKey(
+      assistant,
+      organizationId,
+      clientInstallationId,
+    );
   }
 
+  const platformBaseUrl = status?.baseUrl ?? getPlatformRuntimeUrl();
   await injectPlatformCredentials(gateway, {
     assistantApiKey,
     platformAssistantId,
-    platformBaseUrl: getPlatformRuntimeUrl(),
+    platformBaseUrl,
     organizationId,
     webhookSecret: stringValue(registration.webhook_secret),
   });
+  await persistPlatformRegistrationMetadata(assistant, {
+    platformAssistantId,
+    platformBaseUrl,
+    organizationId,
+  });
 
   return platformAssistantId;
+}
+
+async function persistPlatformRegistrationMetadata(
+  assistant: LockfileAssistant,
+  params: {
+    platformAssistantId: string;
+    platformBaseUrl: string;
+    organizationId: string;
+  },
+): Promise<void> {
+  await updateLockfileAssistant({
+    ...assistant,
+    platformAssistantId: params.platformAssistantId,
+    platformBaseUrl: params.platformBaseUrl,
+    platformOrganizationId: params.organizationId,
+  }).catch((error: unknown) => {
+    console.warn("local assistant platform lockfile update failed", error);
+  });
 }
 
 async function ensureGatewayAccess(
@@ -215,7 +324,9 @@ async function ensureGatewayAccess(
   }
 
   if (!gatewayUrl || !actorToken) {
-    throw new Error("Unable to reach the local assistant for platform identity setup.");
+    throw new Error(
+      "Unable to reach the local assistant for platform identity setup.",
+    );
   }
 
   return { gatewayUrl, actorToken };
@@ -225,7 +336,10 @@ async function fetchPlatformStatus(
   gateway: { gatewayUrl: string; actorToken: string },
   runtimeAssistantId: string,
 ): Promise<LocalPlatformStatus | null> {
-  const url = gatewayUrl(gateway.gatewayUrl, `/v1/assistants/${encodeURIComponent(runtimeAssistantId)}/platform/status`);
+  const url = gatewayUrl(
+    gateway.gatewayUrl,
+    `/v1/assistants/${encodeURIComponent(runtimeAssistantId)}/platform/status`,
+  );
   const response = await fetch(url, {
     headers: {
       Accept: "application/json",
@@ -235,15 +349,20 @@ async function fetchPlatformStatus(
   }).catch(() => null);
   if (!response?.ok) return null;
 
-  const body = (await response.json().catch(() => null)) as
-    | PlatformStatusBody
-    | null;
+  const body = (await response
+    .json()
+    .catch(() => null)) as PlatformStatusBody | null;
   return {
     assistantId: firstString(body?.assistantId, body?.assistant_id),
+    baseUrl: firstString(body?.baseUrl, body?.base_url),
     organizationId: firstString(body?.organizationId, body?.organization_id),
     hasAssistantApiKey: firstBoolean(
       body?.hasAssistantApiKey,
       body?.has_assistant_api_key,
+    ),
+    clientInstallationId: firstString(
+      body?.clientInstallationId,
+      body?.client_installation_id,
     ),
   };
 }
@@ -254,25 +373,34 @@ async function resolveOrganizationId(
 ): Promise<string | null> {
   const existing =
     statusOrganizationId ??
+    assistant.platformOrganizationId ??
     getActiveOrganizationIdForRequests() ??
     assistant.organizationId ??
     null;
   if (existing) return existing;
 
-  await useOrganizationStore.getState().fetchOrganizations().catch(() => {});
+  await useOrganizationStore
+    .getState()
+    .fetchOrganizations()
+    .catch(() => {});
   return (
-    getActiveOrganizationIdForRequests() ?? assistant.organizationId ?? null
+    getActiveOrganizationIdForRequests() ??
+    assistant.platformOrganizationId ??
+    assistant.organizationId ??
+    null
   );
 }
 
 async function ensureRegistration(
   assistant: LockfileAssistant,
   organizationId: string,
+  clientInstallationId: string,
 ): Promise<EnsureRegistrationResponse> {
   const body = await platformPost<EnsureRegistrationResponse>(
     "/v1/assistants/self-hosted-local/ensure-registration/",
     assistant,
     organizationId,
+    clientInstallationId,
   );
   return body;
 }
@@ -280,11 +408,13 @@ async function ensureRegistration(
 async function reprovisionApiKey(
   assistant: LockfileAssistant,
   organizationId: string,
+  clientInstallationId: string,
 ): Promise<string | null> {
   const body = await platformPost<ReprovisionApiKeyResponse>(
     "/v1/assistants/self-hosted-local/reprovision-api-key/",
     assistant,
     organizationId,
+    clientInstallationId,
   );
   return stringValue(body.provisioning?.assistant_api_key);
 }
@@ -293,12 +423,8 @@ async function platformPost<T>(
   path: string,
   assistant: LockfileAssistant,
   organizationId: string,
+  clientInstallationId: string,
 ): Promise<T> {
-  const deviceId = getDeviceId();
-  if (!deviceId) {
-    throw new Error("Unable to identify this device for local assistant platform registration.");
-  }
-
   const headers = new Headers({
     ...(await buildVellumMutatingHeaders(
       {
@@ -323,16 +449,19 @@ async function platformPost<T>(
     );
   }
 
-  const response = await fetch(new URL(path, window.location.origin).toString(), {
-    method: "POST",
-    headers,
-    credentials: isElectron() ? "omit" : "same-origin",
-    body: JSON.stringify({
-      client_installation_id: deviceId,
-      runtime_assistant_id: assistant.assistantId,
-      client_platform: "macos",
-    }),
-  }).catch((error: unknown) => {
+  const response = await fetch(
+    new URL(path, window.location.origin).toString(),
+    {
+      method: "POST",
+      headers,
+      credentials: isElectron() ? "omit" : "same-origin",
+      body: JSON.stringify({
+        client_installation_id: clientInstallationId,
+        runtime_assistant_id: assistant.assistantId,
+        client_platform: isElectron() ? "macos" : "web",
+      }),
+    },
+  ).catch((error: unknown) => {
     throw new Error(
       `Unable to reach the platform registration endpoint: ${errorMessage(error)}`,
     );
@@ -365,7 +494,6 @@ async function injectPlatformCredentials(
   },
 ): Promise<void> {
   const entries: Array<[string, string | null]> = [
-    ["vellum:assistant_api_key", params.assistantApiKey],
     ["vellum:platform_assistant_id", params.platformAssistantId],
     ["vellum:platform_base_url", params.platformBaseUrl],
     ["vellum:platform_organization_id", params.organizationId],
@@ -377,6 +505,19 @@ async function injectPlatformCredentials(
       .filter((entry): entry is [string, string] => Boolean(entry[1]))
       .map(([name, value]) => injectCredential(gateway, name, value)),
   );
+
+  // The API key is the sentinel the status probe reports as
+  // has_assistant_api_key, and the bootstrap early-returns when it is
+  // present. Store it only after every other credential has landed, so a
+  // partial write can never look "healthy" to a later retry and suppress
+  // the re-injection of the missing credentials.
+  if (params.assistantApiKey) {
+    await injectCredential(
+      gateway,
+      "vellum:assistant_api_key",
+      params.assistantApiKey,
+    );
+  }
 }
 
 async function injectCredential(

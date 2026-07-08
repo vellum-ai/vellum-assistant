@@ -9,7 +9,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
 
-import { getDb } from "../memory/db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;

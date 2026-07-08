@@ -13,22 +13,13 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getPlatformOrganizationId, getPlatformUserId } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
-import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
+import { queryUnreportedOnboardingEvents } from "../onboarding/onboarding-events-store.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../memory/checkpoints.js";
-import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store.js";
-import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
-import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
-import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-store.js";
-import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
-import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
-import {
-  assembleBoundedTurnTrace,
-  isTurnSettled,
-} from "../memory/turn-trace-store.js";
-import { queryUnreportedWatchdogEvents } from "../memory/watchdog-events-store.js";
+} from "../persistence/checkpoints.js";
+import { queryUnreportedLifecycleEvents } from "../persistence/lifecycle-events-store.js";
+import { queryUnreportedUsageEvents } from "../persistence/llm-usage-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
 import {
   getCachedShareAnalytics,
@@ -36,6 +27,7 @@ import {
   getCachedShareDiagnosticsVersion,
 } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
+import { queryUnreportedAuthFallbackEvents } from "../security/auth-fallback-events-store.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
@@ -44,8 +36,13 @@ import {
   type ActivationStepName,
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
+import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
+import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.js";
+import { queryUnreportedTurnEvents } from "./turn-events-store.js";
+import { assembleBoundedTurnTrace, isTurnSettled } from "./turn-trace-store.js";
 import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
+import { queryUnreportedWatchdogEvents } from "./watchdog-events-store.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -122,10 +119,42 @@ export function getUsageTelemetryReporter(): UsageTelemetryReporter | null {
   return _instance;
 }
 
-export function setUsageTelemetryReporter(
-  reporter: UsageTelemetryReporter | null,
-): void {
-  _instance = reporter;
+/**
+ * Construct and start the singleton usage telemetry reporter. No-op in dev mode
+ * (VELLUM_DEV=1) and idempotent if already started.
+ *
+ * Started even when share_analytics consent is opted out: flush() re-checks
+ * consent each cycle and, when opted out, sends nothing but advances all
+ * watermarks (including the final flush in stop()). New opted-out
+ * tool_invocations rows are already unreportable by construction — the audit
+ * listener persists NULL telemetry columns for them, which the tool_executed
+ * projection filters out — so the opted-out flushes are defense in depth there
+ * (covering rows recorded under builds that predate that write-time gate) and
+ * remain the primary guard for the always-on tables without a write-time gate
+ * (llm_usage, turn events). Not gated on DB readiness: getDb() can still work
+ * when initializeDb() failed mid-migration, in which case the audit listener
+ * keeps writing rows the opt-out branch must keep covered. The reporter is
+ * degraded-mode safe — its constructor and flush() treat DB errors as non-fatal.
+ */
+export function startUsageTelemetryReporter(): void {
+  if (process.env.VELLUM_DEV === "1") return;
+  if (_instance) return;
+  _instance = new UsageTelemetryReporter();
+  _instance.start();
+  log.info("Usage telemetry reporter started");
+}
+
+/**
+ * Stop the singleton usage telemetry reporter (final flush + timer teardown)
+ * and clear it. No-op when the reporter was never started (e.g. dev mode).
+ */
+export async function stopUsageTelemetryReporter(): Promise<void> {
+  if (!_instance) return;
+  try {
+    await _instance.stop();
+  } finally {
+    _instance = null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -403,20 +432,23 @@ export class UsageTelemetryReporter {
         BATCH_SIZE,
       );
 
-      // Trace completeness barrier (trace-eligible owners only).
+      // Turn completeness barrier (every turn event).
       //
-      // When trace collection is on, a turn's trace must only be sent once that
-      // turn is COMPLETE — otherwise a flush that races an in-progress reply
-      // would capture a partial transcript and the watermark would advance past
-      // the turn, leaving it permanently partial. So we report only the leading
-      // run of complete turns and STOP at the first incomplete (in-flight) one:
-      // the turn watermark is a single monotonic `(createdAt, id)` cursor, so a
-      // later complete turn cannot be reported past an earlier deferred one
-      // without skipping it. The deferred turn (and everything after it) is
-      // picked up on a later flush once its response settles.
-      //
-      // When trace collection is OFF, no turn is deferred and reporting timing
-      // is unchanged for everyone else — `turn_raw` behavior is untouched.
+      // A turn event must only be sent once that turn is COMPLETE, for two
+      // reasons sharing the same failure mode (the watermark advances on ship,
+      // so anything captured early is frozen forever):
+      //   - the consented `trace` would capture a partial mid-reply
+      //     transcript, and
+      //   - the `outcome` stamp (`messages.metadata.turnOutcome`, written by
+      //     the agent loop / drainBatch while the conversation is still
+      //     processing) would be missed, permanently mislabeling a
+      //     failed/cancelled/batched turn as normally-replied.
+      // So we report only the leading run of complete turns and STOP at the
+      // first incomplete (in-flight) one: the turn watermark is a single
+      // monotonic `(createdAt, id)` cursor, so a later complete turn cannot be
+      // reported past an earlier deferred one without skipping it. The
+      // deferred turn (and everything after it) is picked up on a later flush
+      // once its response settles.
       //
       // Trace eligibility is composed daemon-side to mirror the platform's
       // authoritative owner-based ingest gate, so traces for ineligible owners
@@ -433,7 +465,7 @@ export class UsageTelemetryReporter {
         getCachedShareDiagnostics() &&
         isDiagnosticsConsentVersionEligible(getCachedShareDiagnosticsVersion());
       let reportableTurnEvents = turnEvents;
-      if (traceEligible && turnEvents.length > 0) {
+      if (turnEvents.length > 0) {
         let barrier = turnEvents.length;
         for (let i = 0; i < turnEvents.length; i++) {
           const t = turnEvents[i];
@@ -576,6 +608,16 @@ export class UsageTelemetryReporter {
               );
             }
           }
+          // Narrow the raw metadata projection to the wire union — only
+          // `stampTurnOutcome` writes the key, but the JSON column is
+          // uncontrolled, so an unexpected value is dropped rather than
+          // shipped.
+          const outcome =
+            e.outcome === "batched" ||
+            e.outcome === "failed" ||
+            e.outcome === "cancelled"
+              ? e.outcome
+              : null;
           return {
             type: "turn",
             daemon_event_id: e.id,
@@ -586,6 +628,15 @@ export class UsageTelemetryReporter {
             interface_id: e.interfaceId,
             channel_id: e.channelId,
             client,
+            // Outcome stamps are omit-when-absent: a normally-replied turn's
+            // wire shape is byte-identical to a pre-outcome turn event.
+            ...(outcome ? { outcome } : {}),
+            ...(outcome === "batched" && e.batchedInto
+              ? { batched_into: e.batchedInto }
+              : {}),
+            ...(outcome === "failed" && e.failureCode
+              ? { failure_code: e.failureCode }
+              : {}),
             // Only attach `trace` when consent is on AND a bounded trace was
             // assembled. Omitting the key entirely when there's no trace keeps
             // the wire shape byte-identical to pre-trace turn events for the

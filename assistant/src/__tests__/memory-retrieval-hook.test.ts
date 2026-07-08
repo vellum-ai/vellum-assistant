@@ -18,14 +18,14 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Stub the persistence helpers BEFORE importing the module under test so the
 // bindings resolve through the mocks.
 const updateMessageMetadataMock = mock((_id: string, _updates: unknown) => {});
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   updateMessageMetadata: updateMessageMetadataMock,
 }));
 
 const recordMemoryRecallLogMock = mock((_entry: unknown) => {});
-mock.module("../memory/memory-recall-log-store.js", () => ({
+mock.module("../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   recordMemoryRecallLog: recordMemoryRecallLogMock,
 }));
 
@@ -72,9 +72,9 @@ import type { UserPromptSubmitContext } from "@vellumai/plugin-api";
 import type { AssistantConfig } from "../config/schema.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import type { QdrantSparseVector } from "../memory/qdrant-client.js";
-import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit.js";
+import type { QdrantSparseVector } from "../persistence/embeddings/qdrant-client.js";
+import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory/hooks/user-prompt-submit.js";
 import type { Message } from "../providers/types.js";
 
 /** Canonical metrics payload the graph retriever attaches to a real hit. */
@@ -158,9 +158,10 @@ function makeHookCtx(
     latestMessages: [],
     requestId: "req-test",
     isNonInteractive: false,
-    modelProfileKey: null,
+    modelProfileKey: "balanced",
     prompt: "",
     originalMessages: [],
+    broadcast: () => {},
     ...overrides,
   };
 }

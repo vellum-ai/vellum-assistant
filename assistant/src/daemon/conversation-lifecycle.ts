@@ -4,21 +4,26 @@
  * can delegate without exposing its full surface.
  */
 
+import {
+  formatImageSourceAnnotation,
+  formatStoredPathAnnotation,
+} from "../agent/attachments.js";
 import { getConfig } from "../config/loader.js";
-import type { EventBus } from "../events/bus.js";
-import type { AssistantDomainEvents } from "../events/domain-events.js";
-import type { ToolProfiler } from "../events/tool-profiling-listener.js";
-import { enqueueAutoAnalysisIfEnabled } from "../memory/auto-analysis-enqueue.js";
-import { isAutoAnalysisConversation } from "../memory/auto-analysis-guard.js";
-import { enqueueMemoryJob, isMemoryEnabled } from "../memory/jobs-store.js";
-import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospective-enqueue.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+} from "../persistence/jobs-store.js";
 import { disposeContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
+import { enqueueMemoryRetrospectiveIfEnabled } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import { enqueueAutoAnalysisIfEnabled } from "../runtime/services/auto-analysis-enqueue.js";
+import { isAutoAnalysisConversation } from "../runtime/services/auto-analysis-guard.js";
 import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
+import { disposeToolProfiler } from "../tools/tool-profiler.js";
 import { type AbortReason, createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { unregisterCallNotifiers } from "./conversation-notifiers.js";
@@ -29,32 +34,52 @@ import type { SurfaceData, SurfaceType } from "./message-protocol.js";
 const log = getLogger("conversation-lifecycle");
 
 /**
- * Re-inject image source path annotations into message content blocks.
+ * Re-inject attachment path annotations into message content blocks.
  *
- * When the desktop client attaches images from local files, the source paths
- * are stored in `metadata.imageSourcePaths` (keyed by filename). The LLM-facing
- * content omits these paths at persistence time, so we re-inject them when
- * loading history from the DB. Only user messages are annotated.
+ * The LLM-facing content omits path annotations at persistence time, so we
+ * re-inject them when loading history from the DB, from two metadata keys:
+ * `imageSourcePaths` (where desktop-attached images came from) and
+ * `attachmentStoredPaths` (the canonical, collision-suffixed copies in the
+ * conversation's attachments/ directory), both keyed by
+ * `${position}:${filename}`. The rebuilt block must stay byte-identical to
+ * the one `enrichMessageWithSourcePaths` appends at persist time so reloads
+ * and forks keep provider prefix-cache parity. Only user messages are
+ * annotated.
  */
-export function reinjectImageSourcePaths(
+export function reinjectAttachmentPathAnnotations(
   content: ContentBlock[],
   role: string,
   metadataJson: string | null,
 ): ContentBlock[] {
-  if (role !== "user" || !metadataJson) return content;
+  if (role !== "user" || !metadataJson) {
+    return content;
+  }
   try {
     const meta = JSON.parse(metadataJson);
-    if (!meta.imageSourcePaths || typeof meta.imageSourcePaths !== "object") {
+    const lines: string[] = [];
+    if (meta.imageSourcePaths && typeof meta.imageSourcePaths === "object") {
+      for (const p of Object.values(meta.imageSourcePaths)) {
+        if (typeof p === "string") {
+          lines.push(formatImageSourceAnnotation(p));
+        }
+      }
+    }
+    if (
+      meta.attachmentStoredPaths &&
+      typeof meta.attachmentStoredPaths === "object"
+    ) {
+      for (const [key, p] of Object.entries(meta.attachmentStoredPaths)) {
+        if (typeof p !== "string") {
+          continue;
+        }
+        const filename = key.slice(key.indexOf(":") + 1);
+        lines.push(formatStoredPathAnnotation(filename, p));
+      }
+    }
+    if (lines.length === 0) {
       return content;
     }
-    const paths = Object.values(meta.imageSourcePaths).filter(
-      (v): v is string => typeof v === "string",
-    );
-    if (paths.length === 0) return content;
-    const annotation = paths
-      .map((p) => `[Attached image source: ${p}]`)
-      .join("\n");
-    return [...content, { type: "text" as const, text: annotation }];
+    return [...content, { type: "text" as const, text: lines.join("\n") }];
   } catch {
     // metadata parse failure — skip annotation, not critical
     return content;
@@ -66,6 +91,7 @@ export function reinjectImageSourcePaths(
 export interface AbortContext {
   readonly conversationId: string;
   isProcessing(): boolean;
+  setProcessing(value: boolean): void;
   abortController: AbortController | null;
   prompter: PermissionPrompter;
   secretPrompter: SecretPrompter;
@@ -90,9 +116,7 @@ export interface AbortContext {
 }
 
 export interface DisposeContext extends AbortContext {
-  eventBus: EventBus<AssistantDomainEvents>;
   readonly skillProjectionState: Map<string, string>;
-  profiler: ToolProfiler;
   messages: Message[];
   surfaceUndoStacks: Map<string, string[]>;
   currentTurnSurfaces: Array<unknown>;
@@ -122,7 +146,30 @@ export function abortConversation(
       { conversationId: ctx.conversationId, abortReason: effectiveReason },
       "Aborting in-flight processing",
     );
-    ctx.abortController?.abort(effectiveReason);
+    if (ctx.abortController) {
+      // A live turn owns this controller. Signal it and let the agent loop's
+      // own `finally` observe the abort, unwind, and clear the processing flag
+      // — that path clears it with the correct sync-invalidation ordering
+      // (after the awaited turn-boundary commit), so we deliberately do NOT
+      // clear it here and risk clobbering a client's optimistic state.
+      ctx.abortController.abort(effectiveReason);
+    } else {
+      // The flag is set but there is no live controller to signal: the turn
+      // that owned it already tore its controller down (the agent-loop
+      // `finally` nulls `abortController` before clearing the flag) or died
+      // without ever installing one. Either way no agent-loop `finally` is
+      // going to run to clear the flag. Without this branch the abort is a
+      // silent no-op — `?.abort()` does nothing — and the conversation stays
+      // wedged: every later submit is rejected with "already processing" and
+      // Stop appears dead. Force-clear the flag directly so the conversation
+      // frees up. `setProcessing(false)` also nulls the persisted column and
+      // emits the metadata invalidation that drives clients to idle.
+      log.warn(
+        { conversationId: ctx.conversationId },
+        "Abort requested while processing but no live abort controller — force-clearing stale processing flag",
+      );
+      ctx.setProcessing(false);
+    }
     ctx.prompter.dispose();
     ctx.secretPrompter.dispose();
     ctx.pendingSurfaceActions.clear();
@@ -227,11 +274,10 @@ export function disposeConversation(ctx: DisposeContext): void {
   unregisterCallNotifiers(ctx.conversationId);
   unregisterConversationSender(ctx.conversationId);
   resetSkillToolProjection(ctx.skillProjectionState);
-  ctx.eventBus.dispose();
 
   // Release heavy in-memory data so GC can reclaim it
   ctx.messages = [];
-  ctx.profiler.clear();
+  disposeToolProfiler(ctx.conversationId);
   ctx.surfaceUndoStacks.clear();
   ctx.currentTurnSurfaces = [];
   ctx.pendingSurfaceActions.clear();

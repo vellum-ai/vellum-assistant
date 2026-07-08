@@ -25,7 +25,7 @@ import {
   type CanonicalGuardianDelivery,
   createCanonicalGuardianDelivery,
   updateCanonicalGuardianDelivery,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import { getLogger } from "../util/logger.js";
 import type { NotificationDeliveryResult } from "./types.js";
 

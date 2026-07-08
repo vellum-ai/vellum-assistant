@@ -71,7 +71,7 @@ let mockDbMessages: Array<{
 let mockConversation: Record<string, unknown> | null = null;
 let nextMockMessageId = 1;
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
   updateConversationTitle: () => {},
@@ -106,7 +106,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
@@ -116,22 +116,22 @@ mock.module("../memory/conversation-queries.js", () => ({
 // unless this file is actively running (`mock.module` is process-global and
 // would otherwise leak into sibling files that use the real store).
 const realEverInjectedStore = {
-  ...(await import("../plugins/defaults/memory-v3-shadow/ever-injected-store.js")),
+  ...(await import("../plugins/defaults/memory/v3/ever-injected-store.js")),
 };
 let lifecycleStoreMockActive = false;
 let mockPrunedSlugs = new Set<string>();
-mock.module(
-  "../plugins/defaults/memory-v3-shadow/ever-injected-store.js",
-  () => ({
-    ...realEverInjectedStore,
-    getPrunedSlugs: (conversationId: string) =>
-      lifecycleStoreMockActive
-        ? mockPrunedSlugs
-        : realEverInjectedStore.getPrunedSlugs(conversationId),
-  }),
-);
+mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
+  ...realEverInjectedStore,
+  getPrunedSlugs: (conversationId: string) =>
+    lifecycleStoreMockActive
+      ? mockPrunedSlugs
+      : realEverInjectedStore.getPrunedSlugs(conversationId),
+}));
 
-import { Conversation } from "../daemon/conversation.js";
+import {
+  Conversation,
+  type ConversationConstructorOptions,
+} from "../daemon/conversation.js";
 
 beforeEach(() => {
   lifecycleStoreMockActive = true;
@@ -142,7 +142,9 @@ afterAll(() => {
   lifecycleStoreMockActive = false;
 });
 
-function makeConversation(): Conversation {
+function makeConversation(
+  options: ConversationConstructorOptions = { maxTokens: 4096 },
+): Conversation {
   const provider = {
     name: "mock",
     sendMessage: async () => ({
@@ -158,7 +160,7 @@ function makeConversation(): Conversation {
     "system prompt",
     () => {},
     "/tmp",
-    { maxTokens: 4096 },
+    options,
   );
   // Default to guardian trust so tests load all messages.
   conv.setTrustContext({ trustClass: "guardian", sourceChannel: "vellum" });
@@ -175,6 +177,23 @@ function defaultConv() {
     totalEstimatedCost: 0,
   };
 }
+
+describe("Conversation — subagent identity", () => {
+  test("is not a subagent by default", () => {
+    const conv = makeConversation();
+    expect(conv.parentConversationId).toBeUndefined();
+    expect(conv.isSubagent).toBe(false);
+  });
+
+  test("derives isSubagent from the constructor parentConversationId", () => {
+    const conv = makeConversation({
+      maxTokens: 4096,
+      parentConversationId: "parent-1",
+    });
+    expect(conv.parentConversationId).toBe("parent-1");
+    expect(conv.isSubagent).toBe(true);
+  });
+});
 
 describe("loadFromDb metadata injection rehydration", () => {
   beforeEach(() => {

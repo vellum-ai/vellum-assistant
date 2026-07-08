@@ -3,16 +3,20 @@ import { spawn } from "node:child_process";
 
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
+import type { BackgroundToolCompleted } from "../../daemon/message-types/background-tools.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { isUntrustedShellLockdownActive } from "../../runtime/effective-capabilities.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
+import type { CompletedBackgroundTool } from "../background-tool-registry.js";
 import {
   generateBackgroundToolId,
   isBackgroundToolLimitReached,
   MAX_BACKGROUND_TOOLS,
+  recordCompletedBackgroundTool,
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../background-tool-registry.js";
@@ -23,13 +27,12 @@ import {
   getOrStartSession,
   getSessionEnv,
 } from "../network/script-proxy/index.js";
-import { registerTool } from "../registry.js";
 import {
   formatShellOutput,
   MAX_OUTPUT_LENGTH,
 } from "../shared/shell-output.js";
+import type { ProxyEnvVars } from "../tool-types.js";
 import type {
-  ProxyEnvVars,
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
@@ -346,6 +349,7 @@ export const shellTool = {
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
+      let aborted = false;
       const startedAt = Date.now();
 
       const child = spawn(wrapped.command, wrapped.args, {
@@ -409,20 +413,66 @@ export const shellTool = {
           timeoutSec,
         );
 
-        const framing = `Background command completed (id=${bgId}, exit=${code ?? "unknown"}):`;
+        const status: BackgroundToolCompleted["status"] = aborted
+          ? "cancelled"
+          : timedOut
+            ? "failed"
+            : code === 0
+              ? "completed"
+              : "failed";
+        // A cancelled command exits with a null code, which formatShellOutput
+        // frames as "failed"; surface the cancellation instead.
+        const output =
+          status === "cancelled"
+            ? `Background command cancelled (id=${bgId}).`
+            : fmtResult.content;
+        const completedAt = Date.now();
+        const completion: CompletedBackgroundTool = {
+          id: bgId,
+          toolName: "bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          status,
+          exitCode: code ?? null,
+          output,
+          completedAt,
+        };
+
+        // Wake AFTER the terminal status is known so a user-cancelled run wakes
+        // the assistant with the cancellation — not the SIGKILL-framed "completed"
+        // output — matching the recorded/broadcast status and the inline card.
+        const framing =
+          status === "cancelled"
+            ? `Background command cancelled (id=${bgId}):`
+            : `Background command completed (id=${bgId}, exit=${code ?? "unknown"}):`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
           hint: framing,
           source: "background-tool",
           persistTriggerAsEvent: true,
+          backgroundToolCompletion: completion,
           untrustedOutput: {
-            content: fmtResult.content,
+            content: output,
             source: "tool_result",
             // Already bounded + recovery-marked by formatShellOutput; a larger
             // budget keeps wrapUntrustedContent from re-truncating the marker.
             maxChars: MAX_OUTPUT_LENGTH * 2,
           },
         });
+        recordCompletedBackgroundTool(completion);
+        broadcastMessage(
+          {
+            type: "background_tool_completed",
+            id: bgId,
+            conversationId: context.conversationId,
+            status,
+            exitCode: code ?? null,
+            output,
+            completedAt,
+          },
+          context.conversationId,
+        );
       });
 
       child.on("error", (err) => {
@@ -444,12 +494,40 @@ export const shellTool = {
           spawnError: err.message,
         });
 
+        const framing = `Background command failed (id=${bgId}): ${err.message}`;
+        const completedAt = Date.now();
+        const completion: CompletedBackgroundTool = {
+          id: bgId,
+          toolName: "bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          status: "failed",
+          exitCode: null,
+          output: framing,
+          completedAt,
+        };
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
-          hint: `Background command failed (id=${bgId}): ${err.message}`,
+          hint: framing,
           source: "background-tool",
           persistTriggerAsEvent: true,
+          backgroundToolCompletion: completion,
         });
+
+        recordCompletedBackgroundTool(completion);
+        broadcastMessage(
+          {
+            type: "background_tool_completed",
+            id: bgId,
+            conversationId: context.conversationId,
+            status: "failed",
+            exitCode: null,
+            output: framing,
+            completedAt,
+          },
+          context.conversationId,
+        );
       });
 
       registerBackgroundTool({
@@ -458,8 +536,23 @@ export const shellTool = {
         conversationId: context.conversationId,
         command,
         startedAt,
-        cancel: () => killTree("abort"),
+        cancel: () => {
+          aborted = true;
+          killTree("abort");
+        },
       });
+
+      broadcastMessage(
+        {
+          type: "background_tool_started",
+          id: bgId,
+          toolName: "bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+        },
+        context.conversationId,
+      );
 
       return {
         content: JSON.stringify({ backgrounded: true, id: bgId }),
@@ -668,5 +761,3 @@ function buildKillTree(
     }
   };
 }
-
-registerTool(shellTool);

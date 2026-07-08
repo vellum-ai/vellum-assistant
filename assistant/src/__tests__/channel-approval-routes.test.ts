@@ -69,25 +69,28 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => _testApprovalConversationGenerator,
 }));
 
-import { upsertContact } from "../contacts/contact-store.js";
-import type { Conversation } from "../daemon/conversation.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import * as deliveryChannels from "../memory/delivery-channels.js";
-import { resetTestTables } from "../memory/raw-query.js";
-import { conversations } from "../memory/schema.js";
+} from "../contacts/canonical-guardian-store.js";
+import type { Conversation } from "../daemon/conversation.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import * as deliveryChannels from "../persistence/delivery-channels.js";
+import { resetTestTables } from "../persistence/raw-query.js";
+import { conversations } from "../persistence/schema/index.js";
 import { initAuthSigningKey } from "../runtime/auth/token-service.js";
 import * as gatewayClient from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { _setTestPollMaxWait } from "../runtime/routes/channel-route-shared.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 initAuthSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
@@ -120,7 +123,6 @@ function resetTables(): void {
     "scoped_approval_grants",
     "canonical_guardian_deliveries",
     "canonical_guardian_requests",
-    "channel_verification_sessions",
     "conversation_keys",
     "message_runs",
     "channel_inbound_events",
@@ -129,6 +131,7 @@ function resetTables(): void {
     "contact_channels",
     "contacts",
   );
+  resetGatewayAclStore();
   deliveryChannels.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
 }
@@ -212,22 +215,19 @@ function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
 const noopProcessMessage = mock(async () => ({ messageId: "msg-1" }));
 
 function ensureTestContact(): void {
-  upsertContact({
+  seedContactChannel({
+    sourceChannel: "telegram",
+    externalUserId: "telegram-user-default",
     displayName: "Test User",
-    channels: [
-      {
-        type: "telegram",
-        address: "telegram-user-default",
-        status: "active",
-        policy: "allow",
-      },
-      {
-        type: "slack",
-        address: "slack-user-default",
-        status: "active",
-        policy: "allow",
-      },
-    ],
+    status: "active",
+    policy: "allow",
+  });
+  seedContactChannel({
+    sourceChannel: "slack",
+    externalUserId: "slack-user-default",
+    displayName: "Test User",
+    status: "active",
+    policy: "allow",
   });
 }
 
@@ -1926,16 +1926,12 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
       guardianDeliveryChatId: "guardian-tc-selfapproval-chat",
       guardianPrincipalId: "guardian-tc-selfapproval",
     });
-    upsertContact({
+    seedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "tc-selfapproval-user",
       displayName: "TC Self-Approval User",
-      channels: [
-        {
-          type: "telegram",
-          address: "tc-selfapproval-user",
-          status: "active",
-          policy: "allow",
-        },
-      ],
+      status: "active",
+      policy: "allow",
     });
   });
 

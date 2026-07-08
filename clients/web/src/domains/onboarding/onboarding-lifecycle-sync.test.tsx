@@ -219,9 +219,32 @@ mock.module("@/lib/local-mode", () => ({
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setActiveLockfileAssistant: async () => {},
   saveLockfileAssistant: async () => {},
+  updateLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
   primeLocalGatewayConnectionWithRepair: async () => {},
   getLocalGatewayUrl: () => localGatewayUrlValue,
+  // Mirrors the real probe against the mocked gateway URL, so tests that stub
+  // `globalThis.fetch` keep driving the readyz loop the same way.
+  probeLocalGatewayReady: async () => {
+    if (!localGatewayUrlValue) {
+      return false;
+    }
+    try {
+      const res = await fetch(`${localGatewayUrlValue}/readyz`);
+      if (!res.ok) {
+        return false;
+      }
+      const body: unknown = await res.json();
+      return (
+        body !== null &&
+        typeof body === "object" &&
+        "status" in body &&
+        (body as { status?: unknown }).status === "ok"
+      );
+    } catch {
+      return false;
+    }
+  },
 }));
 
 mock.module("@/runtime/local-mode-host", () => ({
@@ -344,6 +367,12 @@ mock.module("@/hooks/use-prefilled-input", () => ({
 mock.module("@/runtime/platform-detection", () => ({
   useIsIOSWeb: () => isIOSWeb,
   useIsMacOSWeb: () => isMacOSWeb,
+  // `messages`/`research-runner` (pulled in transitively) import
+  // `detectClientOs`, and `client-identity` imports `detectBrowserInfo`;
+  // this onboarding test doesn't exercise the OS/browser surface, so stub
+  // the web defaults to keep the partial module mock complete.
+  detectClientOs: () => "web",
+  detectBrowserInfo: () => ({}),
 }));
 
 mock.module("@/hooks/use-ios-app-nudge", () => ({
@@ -487,8 +516,7 @@ describe("onboarding lifecycle sync", () => {
       render(<HatchingScreen />);
 
       await waitFor(
-        () =>
-          expect(connectLocalAssistantMock).toHaveBeenCalledWith("local-1"),
+        () => expect(connectLocalAssistantMock).toHaveBeenCalledWith("local-1"),
         { timeout: 5_000 },
       );
     } finally {

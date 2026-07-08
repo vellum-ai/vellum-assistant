@@ -39,16 +39,16 @@ mock.module("../config/loader.js", () => ({
 // Imports — after mocks
 // ---------------------------------------------------------------------------
 
-import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { rawRun } from "../memory/raw-query.js";
+import { getConversationDirPath } from "../persistence/conversation-disk-view.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { rawRun } from "../persistence/raw-query.js";
 import {
   attachments,
   conversations,
   messageAttachments,
   messages,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { repairConversationDiskViewMigration } from "../workspace/migrations/013-repair-conversation-disk-view.js";
 
 await initializeDb();
@@ -357,6 +357,7 @@ describe("013-repair-conversation-disk-view migration", () => {
     writeFileSync(stalePath, "stale");
 
     rawRun(
+      "test:setAttachmentFilePath",
       `UPDATE attachments
        SET data_base64 = '', file_path = ?, source_path = NULL
        WHERE id = ?`,

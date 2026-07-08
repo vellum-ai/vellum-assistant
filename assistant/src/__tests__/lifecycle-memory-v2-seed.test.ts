@@ -1,7 +1,7 @@
 /**
  * Tests for the memory-v2 skill seed gate and the v2 concept-page schema
  * rebuild gate, both invoked from the daemon startup path
- * (`assistant/src/daemon/memory-v2-startup.ts`).
+ * (`assistant/src/plugins/defaults/memory/v2/memory-v2-startup.ts`).
  *
  * The gates are exercised in isolation rather than mounting the full
  * lifecycle import graph. Coverage matrix:
@@ -61,7 +61,7 @@ const state: TestState = {
 // Mocks — installed before the module under test is loaded.
 // ---------------------------------------------------------------------------
 
-mock.module("../memory/v2/skill-store.js", () => ({
+mock.module("../plugins/defaults/memory/v2/skill-store.js", () => ({
   seedV2SkillEntries: async (opts?: {
     throwOnError?: boolean;
   }): Promise<void> => {
@@ -74,11 +74,11 @@ mock.module("../memory/v2/skill-store.js", () => ({
 // Mock the sibling CLI-command seeder so `rebuildBm25CorpusStatsAndReseedSkills`
 // (which runs both reseeds in parallel) does not invoke the real Qdrant-backed
 // implementation and emit warnings that break the no-warnings assertions below.
-mock.module("../memory/v2/cli-command-store.js", () => ({
+mock.module("../plugins/defaults/memory/v2/cli-command-store.js", () => ({
   seedV2CliCommandEntries: async (): Promise<void> => {},
 }));
 
-mock.module("../memory/v2/qdrant.js", () => ({
+mock.module("../plugins/defaults/memory/v2/qdrant.js", () => ({
   ensureConceptPageCollection: async (): Promise<{ migrated: boolean }> => {
     state.ensureCollectionCallCount += 1;
     if (state.ensureCollectionThrows) throw state.ensureCollectionThrows;
@@ -93,19 +93,19 @@ mock.module("../memory/v2/qdrant.js", () => ({
   dropLegacySkillsCollection: async (): Promise<void> => {},
 }));
 
-mock.module("../memory/v2/page-store.js", () => ({
+mock.module("../plugins/defaults/memory/v2/page-store.js", () => ({
   hasConceptPages: async (): Promise<boolean> =>
     state.listPagesResult.length > 0,
 }));
 
-mock.module("../memory/v2/sparse-bm25.js", () => ({
+mock.module("../plugins/defaults/memory/v2/sparse-bm25.js", () => ({
   rebuildConceptPageCorpusStats: async (): Promise<void> => {
     state.corpusStatsBuildCount += 1;
     if (state.corpusStatsThrows) throw state.corpusStatsThrows;
   },
 }));
 
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: (
     type: string,
     payload: Record<string, unknown>,
@@ -113,6 +113,7 @@ mock.module("../memory/jobs-store.js", () => ({
     state.enqueueCalls.push({ type, payload });
     return "test-job-id";
   },
+  hasActiveJobOfType: (): boolean => false,
 }));
 
 mock.module("../util/platform.js", () => ({
@@ -141,7 +142,7 @@ const {
   maybeSeedMemoryV2Skills,
   maybeRebuildMemoryV2Concepts,
   rebuildBm25CorpusStatsAndReseedSkills,
-} = await import("../daemon/memory-v2-startup.js");
+} = await import("../plugins/defaults/memory/v2/memory-v2-startup.js");
 
 // ---------------------------------------------------------------------------
 // Test fixtures

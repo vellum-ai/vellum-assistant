@@ -12,8 +12,8 @@
  * canonical records.
  */
 
-import type { TrustContext } from "../daemon/trust-context.js";
-import type { CanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
+import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
@@ -115,8 +115,9 @@ export async function bridgeConfirmationRequestToGuardian(
   // new binding would leak requester/tool metadata to the wrong recipient.
   //
   // Both sides are canonicalized before comparison because the canonical request
-  // value was normalized by resolveTrustContext() while the binding stores the
-  // raw identity. On phone channels the same guardian can have format variance
+  // value was normalized by toTrustContext() (verdict and local resolution
+  // both route through it) while the binding stores the raw identity. On
+  // phone channels the same guardian can have format variance
   // (e.g. "+1 555-123-4567" vs "+15551234567") that would cause a false mismatch.
   const canonicalBindingId = canonicalizeInboundIdentity(
     sourceChannel,

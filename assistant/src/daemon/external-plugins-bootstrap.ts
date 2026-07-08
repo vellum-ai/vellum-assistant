@@ -12,27 +12,22 @@
  *    {@link registerDefaultPlugins}. Registration is idempotent so repeat
  *    calls (e.g. during integration tests) do not throw.
  * 2. Walks {@link getRegisteredPlugins} in registration order.
- * 3. For each plugin, consults `manifest.requiresFlag` against
- *    {@link isAssistantFeatureFlagEnabled}. If any listed flag is disabled,
- *    the plugin is skipped wholesale — no `init()`, no tool/route
- *    contributions, no entry in the shutdown hook, and the plugin is also
- *    dropped from the registry via {@link unregisterPlugin} so none of its
- *    hooks participate in the turn lifecycle. This is the primary mechanism for
- *    shipping experimental plugins behind a feature flag.
- * 4. Validates the config block under `plugins.<name>` against
+ * 3. Validates the config block under `plugins.<name>` against
  *    `manifest.config` if the manifest supplies a parser-like validator
  *    (Zod schemas with `.parse()` are supported; anything else is passed
  *    through untouched).
- * 5. Creates `<workspaceDir>/plugins-data/<plugin>/` on demand for per-plugin
- *    writable state and exposes it via {@link PluginInitContext.pluginStorageDir}.
- * 6. For each surviving plugin, registers its contributed tools and routes
+ * 4. Creates a per-plugin writable data directory on demand and exposes it via
+ *    {@link InitContext.pluginStorageDir}. For user plugins this is
+ *    `<pluginDir>/data/`; for default plugins it is
+ *    `<workspaceDir>/plugins-data/<plugin>/`.
+ * 5. For each surviving plugin, registers its contributed tools and routes
  *    into their global registries via {@link registerPluginTools} and
  *    {@link registerSkillRoute}. Contributions land BEFORE `init()` so
  *    the plugin's hook can observe a registry where its own model-visible
  *    surface is already wired — useful for plugins that want to attach
  *    metadata, warm caches, or otherwise interact with their own
  *    contributions during initialization.
- * 7. Awaits `plugin.init(ctx)` sequentially. An init failure is contained to
+ * 6. Awaits `plugin.init(ctx)` sequentially. An init failure is contained to
  *    the offending plugin: its already-registered tools and routes are rolled
  *    back, it is dropped from the registry, the failure is logged, and
  *    bootstrap continues with the remaining plugins. A single plugin's failure
@@ -41,30 +36,35 @@
  *    history repair, title generation) — so the daemon comes up with the
  *    failing plugin absent rather than blacking out the whole plugin layer.
  *
- * A single shutdown hook is registered via
- * {@link registerShutdownHook} that walks the plugin list in **reverse
- * registration order**. Only plugins that actually initialized (i.e. were
- * not skipped by the feature-flag gate) appear in that walk. For each such
- * plugin it first unregisters the contributed tools (so `onShutdown()`
- * observes a clean model-visible surface) and then awaits the optional
- * `onShutdown()`. Per-plugin shutdown failures are logged and swallowed —
- * the hook registry already swallows hook-level throws, but we log at the
- * plugin level so the plugin name is attributed.
+ * Plugin `shutdown` hooks fire through the unified `runHook(HOOKS.SHUTDOWN, …)`
+ * pipeline that the daemon shutdown handler runs — the same path every other
+ * lifecycle hook uses; this module does not register a shutdown hook of its own.
+ * Surfaces (tools/routes/injectors) are not unregistered at daemon shutdown:
+ * the process is exiting, so that in-memory registry state is discarded anyway.
+ * Surfaces are only torn down when a single plugin is rolled back after a failed
+ * bring-up, via {@link teardownPlugin}.
  */
 
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import { registerDefaultPlugins } from "../plugins/defaults/index.js";
+import {
+  getAllDefaultPlugins,
+  registerDefaultPluginInjectors,
+  registerDefaultPlugins,
+} from "../plugins/defaults/index.js";
+import {
+  registerPluginInjectors,
+  unregisterPluginInjectors,
+} from "../plugins/injector-registry.js";
 import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
   PluginExecutionError,
-  type PluginShutdownContext,
+  type ShutdownContext,
 } from "../plugins/types.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import {
@@ -79,7 +79,6 @@ import {
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePluginsDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
-import { registerShutdownHook } from "./shutdown-registry.js";
 
 const log = getLogger("plugins-bootstrap");
 
@@ -136,16 +135,6 @@ function ensurePluginStorageDir(pluginName: string): string {
   return dir;
 }
 
-function getDisabledPluginFlag(
-  plugin: Plugin,
-  config: AssistantConfig,
-): string | undefined {
-  for (const flagKey of plugin.manifest.requiresFlag ?? []) {
-    if (!isAssistantFeatureFlagEnabled(flagKey, config)) return flagKey;
-  }
-  return undefined;
-}
-
 /**
  * Bring the plugin layer up during daemon startup. Runs the full sequence in
  * the one order the rest of the system depends on:
@@ -174,8 +163,8 @@ export async function initializePlugins(): Promise<void> {
 }
 
 /**
- * Run every registered plugin's `init()` hook sequentially and install a
- * reverse-order shutdown hook. See the module docstring for full semantics.
+ * Run every registered plugin's `init()` hook sequentially. See the module
+ * docstring for full lifecycle semantics (including how `shutdown` hooks fire).
  *
  * Returns once every plugin has been processed. A plugin whose `init()` throws
  * is rolled back, dropped from the registry, and logged; bootstrap continues
@@ -195,12 +184,28 @@ export async function bootstrapPlugins(): Promise<void> {
   // tests) do not throw.
   registerDefaultPlugins();
 
-  const plugins = getRegisteredPlugins();
+  // Register the default plugins' runtime injectors up front — independent of
+  // each plugin's disabled-state, exactly as `registerDefaultPlugins` does for
+  // their hooks. The per-turn walker filters the injector union by
+  // `isPluginDisabled` at read time, so a default plugin that is disabled at
+  // boot (its init is skipped below by the `.disabled` sentinel `continue`)
+  // still has its injectors in the registry and reappears on the next turn
+  // after `assistant plugins enable <name>` — no restart required. Injector-only
+  // defaults have no init/hooks, so without this their injectors would never
+  // register while disabled.
+  registerDefaultPluginInjectors();
+
+  // Combine the canonical default plugins with any plugins registered via
+  // `registerPlugin` (test fixtures). In production, `getRegisteredPlugins`
+  // returns empty — all user plugins go through the mtime cache. Defaults come
+  // first so their hooks compose innermost.
+  const defaultPlugins = getAllDefaultPlugins();
+  const testPlugins = getRegisteredPlugins().filter(
+    (p) => !defaultPlugins.some((d) => d.manifest.name === p.manifest.name),
+  );
+  const plugins = [...defaultPlugins, ...testPlugins];
   if (plugins.length === 0) {
-    // No-op fast path. The default plugins normally populate the registry, so
-    // this branch is primarily for tests that call
-    // `resetPluginRegistryForTests()` and stub the default registration.
-    log.debug("bootstrapPlugins: registry empty — skipping");
+    log.debug("bootstrapPlugins: no plugins — skipping");
     return;
   }
 
@@ -208,36 +213,8 @@ export async function bootstrapPlugins(): Promise<void> {
 
   const assistantConfig = getConfig();
 
-  // Plugins that passed `requiresFlag` gating and therefore need the full
-  // init → contribute → shutdown lifecycle. Plugins skipped by the flag gate
-  // are omitted from this list so the shutdown hook below never tears down
-  // capabilities that were never wired up in the first place. Each entry
-  // carries the opaque route handles returned by `registerSkillRoute` so
-  // teardown can key on identity rather than regex-pattern text — two plugins
-  // registering the same pattern would otherwise step on each other's routes
-  // during shutdown, violating the "no traffic hits a plugin handler during
-  // onShutdown" invariant.
-  const activePlugins: ActivePlugin[] = [];
-
-  // Shutdown context is identical for every plugin in this boot — construct
-  // once and reuse across the per-plugin teardown and the normal shutdown
-  // hook below. Only `assistantVersion` is exposed today; future additions
-  // live on {@link PluginShutdownContext}.
-  const shutdownContext: PluginShutdownContext = {
-    assistantVersion: APP_VERSION,
-  };
-
   for (const plugin of plugins) {
     const name = plugin.manifest.name;
-    const disabledFlag = getDisabledPluginFlag(plugin, assistantConfig);
-    if (disabledFlag !== undefined) {
-      log.info(
-        { plugin: name, flag: disabledFlag },
-        `skipping plugin ${name}: feature flag ${disabledFlag} is disabled`,
-      );
-      unregisterPlugin(name);
-      continue;
-    }
 
     // Check for the .disabled sentinel. Both default and user plugins
     // can be disabled by creating a `.disabled` file at
@@ -247,7 +224,14 @@ export async function bootstrapPlugins(): Promise<void> {
     // out-of-band kill switch — the operator creates a directory named
     // after the plugin's manifest name (e.g. `plugins/default-advisor/`)
     // and drops a `.disabled` file inside it. Runs before init so no
-    // hooks, tools, or routes from the disabled plugin are ever wired.
+    // tools or routes from the disabled plugin are ever wired.
+    //
+    // We do NOT call `unregisterPlugin(name)` here. The plugin's hooks
+    // stay in the hook registry and are filtered at read time by
+    // `isPluginDisabled` in `getHooksFor`. This means `assistant plugins
+    // enable <name>` takes effect on the next turn without a restart —
+    // the hooks are already registered, they just need the sentinel
+    // removed to be included.
     const disabledSentinelPath = join(
       getWorkspacePluginsDir(),
       name,
@@ -258,20 +242,19 @@ export async function bootstrapPlugins(): Promise<void> {
         { plugin: name, sentinel: disabledSentinelPath },
         `skipping plugin ${name}: disabled via .disabled sentinel`,
       );
-      unregisterPlugin(name);
       continue;
     }
 
     try {
-      activePlugins.push(await initializePlugin(plugin, assistantConfig));
+      await initializePlugin(plugin, assistantConfig);
     } catch (err) {
       // Contain the failure to this plugin. `initializePlugin` already rolled
       // back its own partial tool/route contributions, so we just drop
-      // it from the registry and move on. A single plugin's init failure must
-      // never deregister the plugins that already came up — above all the
-      // first-party defaults, which carry core turn behavior. The daemon stays
-      // reachable with the failing plugin absent rather than losing the whole
-      // plugin layer.
+      // its hooks from the hook registry and move on. A single plugin's init
+      // failure must never deregister the plugins that already came up —
+      // above all the first-party defaults, which carry core turn behavior.
+      // The daemon stays reachable with the failing plugin absent rather than
+      // losing the whole plugin layer.
       unregisterPlugin(name);
       log.warn(
         { err, plugin: name },
@@ -279,27 +262,6 @@ export async function bootstrapPlugins(): Promise<void> {
       );
     }
   }
-
-  // Shutdown hook — walks plugins in REVERSE registration order. We snapshot
-  // only the plugins that actually initialized so later registrations (if
-  // any) don't end up being torn down by this hook, and plugins skipped by
-  // `requiresFlag` gating do not appear in the tear-down list. Subsequent
-  // bootstraps (hot-reload) would register their own hook.
-  //
-  // For each plugin we:
-  //   1. Unregister contributed HTTP routes so incoming requests stop hitting
-  //      the plugin's handlers before its state is torn down.
-  //   2. Unregister contributed tools so the model-visible tool surface is
-  //      cleared before `onShutdown()` runs.
-  //   3. Call `onShutdown()` (if defined) so the plugin can release resources
-  //      (background tasks, timers, connections) with its tools and routes
-  //      already removed.
-  const shutdownSnapshot: ActivePlugin[] = [...activePlugins];
-  registerShutdownHook("plugins", async (reason) => {
-    for (let i = shutdownSnapshot.length - 1; i >= 0; i--) {
-      await teardownPlugin(shutdownSnapshot[i]!, reason, shutdownContext);
-    }
-  });
 }
 
 /**
@@ -363,6 +325,14 @@ async function initializePlugin(
       );
     }
 
+    if (plugin.injectors && plugin.injectors.length > 0) {
+      registerPluginInjectors(name, plugin.injectors);
+      log.info(
+        { plugin: name, count: plugin.injectors.length },
+        "plugin injectors registered",
+      );
+    }
+
     if (plugin.hooks?.[HOOKS.INIT]) {
       try {
         await plugin.hooks[HOOKS.INIT](initContext);
@@ -382,43 +352,50 @@ async function initializePlugin(
     return { plugin, routeHandles };
   } catch (err) {
     if (initCompleted) {
-      await teardownPlugin({ plugin, routeHandles }, "bootstrap-failed", {
-        assistantVersion: APP_VERSION,
-      });
+      await teardownPlugin(
+        { plugin, routeHandles },
+        { assistantVersion: APP_VERSION, reason: "disable" },
+      );
     } else {
       for (const handle of routeHandles) {
         unregisterSkillRoute(handle);
       }
       unregisterPluginTools(name);
+      unregisterPluginInjectors(name);
     }
     throw err;
   }
 }
 
 /**
- * Tear down a single fully-initialized plugin: unregister routes, unregister
- * tools, then invoke `onShutdown()` if present. Every step swallows errors and
- * logs with plugin attribution so one bad plugin can't block teardown of the
- * rest.
+ * Unregister every initialized plugin's contributed routes and tools in reverse
+ * registration order, clearing the model-visible surface before the shutdown
+ * handler dispatches `shutdown` hooks via `runHook(HOOKS.SHUTDOWN, …)`. Reads
+ * the snapshot captured by the most recent {@link bootstrapPlugins} run; a
+ * no-op when no plugins initialized. Called by the daemon shutdown handler.
+ */
+/**
+ * Tear down a single fully-initialized plugin: unregister its model-visible
+ * surfaces (contributed HTTP routes — keyed by the opaque handles retained at
+ * registration time, since pattern text is not a stable key when two owners
+ * register the same regex — plus its tools and runtime injectors), then invoke
+ * its optional `shutdown` hook with the tools/routes already gone. Every step
+ * swallows errors and logs with plugin attribution so one bad plugin can't
+ * block teardown.
  *
- * Shared between the normal shutdown hook and the bootstrap error path; both
- * consume plugins that already cleared every contribution step.
+ * Used by the bootstrap-failure rollback path. The normal daemon shutdown path
+ * does not unregister surfaces (the process is exiting, so that in-memory state
+ * is discarded anyway); it only fires `shutdown` hooks through the unified
+ * `runHook(HOOKS.SHUTDOWN, …)` pipeline.
  */
 async function teardownPlugin(
   active: ActivePlugin,
-  reason: string,
-  shutdownContext: PluginShutdownContext,
+  shutdownContext: ShutdownContext,
 ): Promise<void> {
   const { plugin, routeHandles } = active;
   const name = plugin.manifest.name;
+  const { reason } = shutdownContext;
 
-  // Unregister model-visible surfaces before invoking `onShutdown()` so the
-  // plugin's onShutdown hook observes a registry state where its tools and
-  // routes are already gone. `unregisterPluginTools` is a no-op when the
-  // plugin never contributed tools, so we don't need to guard on
-  // `plugin.tools` here. Route unregistration keys on the opaque handles
-  // retained at registration time — pattern text is not a stable key because
-  // two owners can legitimately register the same regex.
   for (const handle of routeHandles) {
     try {
       unregisterSkillRoute(handle);
@@ -439,14 +416,12 @@ async function teardownPlugin(
     );
   }
 
+  unregisterPluginInjectors(name);
+
   if (plugin.hooks?.[HOOKS.SHUTDOWN]) {
     try {
       await plugin.hooks[HOOKS.SHUTDOWN](shutdownContext);
     } catch (err) {
-      // Swallow — we want every plugin's shutdown to get a chance to run
-      // even when an earlier one throws. The outer runShutdownHooks already
-      // logs at hook level, but the plugin-name attribution here is what
-      // operators read first.
       log.warn(
         { err, plugin: name, reason },
         "plugin shutdown hook failed (continuing with remaining plugins)",

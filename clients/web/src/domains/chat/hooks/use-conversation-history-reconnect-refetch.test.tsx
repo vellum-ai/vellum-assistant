@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
 import { __resetForTesting, publish } from "@/lib/event-bus";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------
 // Module mock — `@/domains/chat/transcript/use-history-pagination`.
@@ -25,6 +27,7 @@ function paginationStub(): HistoryPaginationResult {
     messages: [],
     latestPage: undefined,
     subagentNotifications: undefined,
+    backgroundToolCompletions: undefined,
     isLoading: false,
     isSuccess: false,
     isError: false,
@@ -51,7 +54,7 @@ const { useConversationHistory } = await import(
 );
 
 // The hook reads `useQueryClient()` (for surface cache writes and the
-// live-turn→history handoff), so it must render inside a provider.
+// turn-end history reseed), so it must render inside a provider.
 const queryClient = new QueryClient();
 
 function Wrapper({ children }: { children: ReactNode }) {
@@ -80,6 +83,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   __resetForTesting();
+  useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  useConversationStore.getState().removeProcessingConversationId("conv-A");
 });
 
 describe("useConversationHistory — refetch on SSE reopen", () => {
@@ -176,5 +181,32 @@ describe("useConversationHistory — refetch on SSE reopen", () => {
 
     // THEN no history refetch is issued
     expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
+  test("reseeds history from the server on a passively-observed processing→idle edge", () => {
+    /**
+     * Channel turns (phone, Slack, Telegram) and other-client sends stream in
+     * without a local `useSendMessage`, so `turnPhase` never enters a sending
+     * state. They still toggle the conversation's processing flag, so on the
+     * processing→idle edge the materialized snapshot must be reseeded from the
+     * authoritative server copy — pulled by invalidating the history query. The
+     * monotonic seq baseline makes the reseed a no-op when nothing new landed.
+     */
+    // GIVEN an active conversation marked processing (a server-driven turn
+    // streaming in)
+    renderHistory("conv-A");
+    act(() => {
+      useConversationStore.getState().markConversationProcessing("conv-A");
+    });
+    // No reseed while the turn is still in progress.
+    expect(invalidateSpy).not.toHaveBeenCalled();
+
+    // WHEN the turn finishes and the processing flag clears
+    act(() => {
+      useConversationStore.getState().removeProcessingConversationId("conv-A");
+    });
+
+    // THEN the history query is invalidated so the snapshot reseeds.
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
   });
 });

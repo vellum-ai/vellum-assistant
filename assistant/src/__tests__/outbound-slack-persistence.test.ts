@@ -71,9 +71,9 @@ const persistedRows: Array<{
   createdAt: number;
   metadata: string | null;
 }> = [];
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -153,16 +153,16 @@ mock.module("../memory/conversation-crud.js", () => ({
   ),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
 
-mock.module("../memory/memory-recall-log-store.js", () => ({
+mock.module("../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   backfillMemoryRecallLogMessageId: () => {},
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
 
@@ -174,13 +174,14 @@ mock.module("../runtime/gateway-client.js", () => ({
   }),
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: () => [],
 }));
 
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
 import type { AgentEvent } from "../agent/loop.js";
+import { clearThreadTs, setThreadTs } from "../channels/slack-thread-store.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -191,7 +192,6 @@ import {
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { clearThreadTs, setThreadTs } from "../memory/slack-thread-store.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { deliverReplyViaCallback } from "../runtime/channel-reply-delivery.js";
 
@@ -211,7 +211,6 @@ function makeDeps(
     ctx: {
       conversationId,
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       currentTurnSurfaces: [],
       trustContext: {
         sourceChannel: assistantMessageChannel,

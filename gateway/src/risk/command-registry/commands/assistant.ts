@@ -106,7 +106,6 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "conversations rename",
   "conversations export",
   "conversations clear",
-  "conversations wipe",
   "conversations wake",
   "credential-execution",
   "credential-execution grants",
@@ -158,6 +157,12 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "mcp auth",
   "mcp remove",
   "memory",
+  "memory items",
+  "memory items list",
+  "memory items get",
+  "memory items create",
+  "memory items update",
+  "memory items delete",
   "memory v2",
   "memory v2 reembed",
   "memory v2 reembed-skills",
@@ -198,10 +203,16 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "platform",
   "platform connect",
   "platform status",
+  "platform credits",
   "platform disconnect",
   "platform callback-routes",
   "platform callback-routes register",
   "platform callback-routes list",
+  "monitoring",
+  "monitoring start",
+  "monitoring stop",
+  "monitoring status",
+  "ps",
   "routes",
   "routes list",
   "routes inspect",
@@ -217,6 +228,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "schedules cancel",
   "schedules delete",
   "schedules execute",
+  "schedules worker",
+  "schedules worker start",
+  "schedules worker stop",
+  "schedules worker status",
   "sequence",
   "sequence list",
   "sequence get",
@@ -241,6 +256,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "telemetry flush",
   "tools",
   "tools list",
+  "tools run",
   "trust",
   "trust list",
   "tts",
@@ -385,11 +401,6 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "medium",
     reason: "Deletes conversation history",
   },
-  {
-    path: "conversations wipe",
-    risk: "high",
-    reason: "Deletes specific conversation data",
-  },
 
   // Mutating assistant state / external side effects
   { path: "attachment register", risk: "medium" },
@@ -463,6 +474,12 @@ const riskOverrides: AssistantRiskOverride[] = [
   },
   { path: "llm send", risk: "medium" },
   {
+    path: "tools run",
+    risk: "medium",
+    reason:
+      "Executes a registered tool directly. Runs non-interactive and non-guardian, so prompt-gated tools auto-deny, but it still invokes a tool outside the agent loop.",
+  },
+  {
     path: "inference session open",
     risk: "low",
     reason:
@@ -482,6 +499,24 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "mcp add", risk: "high" },
   { path: "mcp auth", risk: "medium" },
   { path: "mcp remove", risk: "low" },
+  {
+    path: "memory items create",
+    risk: "medium",
+    reason:
+      "Creates a memory item that persists into assistant memory and is embedded for recall",
+  },
+  {
+    path: "memory items update",
+    risk: "medium",
+    reason:
+      "Rewrites a memory item's content/metadata and re-embeds it for recall",
+  },
+  {
+    path: "memory items delete",
+    risk: "medium",
+    reason:
+      "Soft-deletes a memory item and removes its embeddings from the recall index (restorable via 'memory items update --status active')",
+  },
   {
     path: "memory v2 reembed",
     risk: "medium",
@@ -539,6 +574,21 @@ const riskOverrides: AssistantRiskOverride[] = [
   },
   {
     path: "memory worker status",
+    risk: "low",
+    reason: "Read-only liveness probe via PID file",
+  },
+  {
+    path: "monitoring start",
+    risk: "medium",
+    reason: "Spawns a background process that samples memory and disk",
+  },
+  {
+    path: "monitoring stop",
+    risk: "low",
+    reason: "Sends SIGTERM to the resource monitor process",
+  },
+  {
+    path: "monitoring status",
     risk: "low",
     reason: "Read-only liveness probe via PID file",
   },
@@ -605,6 +655,22 @@ const riskOverrides: AssistantRiskOverride[] = [
       "Triggers immediate schedule execution. Script-mode schedules shell out " +
       "via sh -c on the host, and the schedule ID arg is opaque to the " +
       "classifier — must conservatively assume host shell execution",
+  },
+  {
+    path: "schedules worker start",
+    risk: "medium",
+    reason: "Spawns a background process that runs scheduled jobs",
+  },
+  {
+    path: "schedules worker stop",
+    risk: "medium",
+    reason:
+      "Disables schedules.worker.enabled and sends SIGTERM to the schedule worker process",
+  },
+  {
+    path: "schedules worker status",
+    risk: "low",
+    reason: "Read-only liveness probe via PID file",
   },
   { path: "sequence pause", risk: "medium" },
   { path: "sequence resume", risk: "medium" },
@@ -715,5 +781,29 @@ scheduleUpdateNode.argRules = scheduleUpdateArgRules;
 // Both rule flags consume the next token as a value; declare them so the
 // arg parser pairs `--mode script` / `--script <cmd>` correctly.
 scheduleUpdateNode.argSchema = { valueFlags: ["--mode", "--script"] };
+
+// `schedules create` mirrors `schedules update`: a create that installs a
+// script payload persists host shell execution for a later fire — high like
+// `bash`.
+const scheduleCreateArgRules: ArgRule[] = [
+  {
+    id: "assistant-schedules-create:script",
+    flags: ["--script"],
+    risk: "high",
+    reason:
+      "Persists an arbitrary shell command that the schedule executes on fire",
+  },
+  {
+    id: "assistant-schedules-create:mode-script",
+    flags: ["--mode"],
+    valuePattern: "^script$",
+    risk: "high",
+    reason:
+      "Switches the schedule to script mode (host shell execution on fire)",
+  },
+];
+const scheduleCreateNode = getExistingPath(spec, "schedules create");
+scheduleCreateNode.argRules = scheduleCreateArgRules;
+scheduleCreateNode.argSchema = { valueFlags: ["--mode", "--script"] };
 
 export default spec;

@@ -37,8 +37,8 @@
  *   (optionally overriding the profile) and run inference through the
  *   workspace's configured profiles and credentials — no plugin-supplied API key
  *
- * - {@link PluginInitContext} — passed to `init` hook at bootstrap
- * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
+ * - {@link InitContext} — passed to `init` hook at bootstrap
+ * - {@link ShutdownContext} — passed to `shutdown` hook at teardown
  * - {@link UserPromptSubmitContext} — passed to `user-prompt-submit` hook,
  *   fired immediately before the agent loop receives a user's prompt
  * - {@link PostCompactContext} — passed to `post-compact` hook, fired after
@@ -55,8 +55,11 @@
  * - {@link PostModelCallContext} — passed to `post-model-call` hook, fired at
  *   every model-call outcome (a finalized reply or a provider rejection) to
  *   transform content and decide whether to retry
- * - {@link PluginHookFn} — signature every lifecycle hook implements
- * - {@link PluginLogger} — pino-compatible logger shape on the contexts
+ * - {@link HookFunction} — signature every lifecycle hook implements
+ * - {@link HookBroadcast} — the `ctx.broadcast(detail)` signature: emit a
+ *   transient `hook_event` to any UI watching the conversation
+ * - {@link PluginLogger} — pino-compatible logger shape on the contexts,
+ *   pre-tagged per hook with the hook name and owning plugin
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
  *   for both plugin tool files and workspace tool files)
  * - {@link ToolContext} — passed to a plugin tool's `execute` method
@@ -98,16 +101,18 @@ export type {
 export type { LLMCallSite } from "../config/schemas/llm.js";
 export type {
   AgentLoopExitReason,
+  ConversationDeletedContext,
+  HookBroadcast,
+  HookFunction,
+  InitContext,
   ModelProfileInfo,
-  PluginHookFn,
-  PluginInitContext,
   PluginLogger,
-  PluginShutdownContext,
   PostCompactContext,
   PostModelCallContext,
   PostModelCallDecision,
   PostToolUseContext,
   PreModelCallContext,
+  ShutdownContext,
   StopContext,
   ToolContext,
   ToolDefinition,
@@ -128,7 +133,15 @@ export type {
   AssistantEventHub,
   AssistantEventSubscription,
 } from "../runtime/assistant-event-hub.js";
-export { assistantEventHub } from "../runtime/assistant-event-hub.js";
+// The hub plugins receive is a capability-restricted facade over the daemon
+// singleton (see `event-hub-facade.ts`): plugins may `subscribe` to runtime
+// events (shared subscriber state), `publish` non-host events, and check
+// `hasSubscribersForEvent`. `publish` refuses daemon-to-client host-proxy
+// control events (`host_*`), and methods that return live subscriber callbacks
+// or mutate hub state are withheld — both would let a plugin drive privileged
+// host execution without the host proxies' approval gate.
+export type { PluginEventHub } from "./event-hub-facade.js";
+export { pluginAssistantEventHub as assistantEventHub } from "./event-hub-facade.js";
 export { getModelProfiles } from "./model-profiles.js";
 // Check whether a model or profile can process image input. Accepts a concrete
 // model id, a profile key, or a `ModelProfileInfo`; a bare string is resolved
@@ -147,3 +160,15 @@ export { doesSupportVision } from "./vision-support.js";
 // float the chosen profile above the call-site layers when the plugin must
 // run on a specific profile regardless of workspace tuning.
 export { getConfiguredProvider } from "../providers/provider-send-message.js";
+// Resolve an image/file block's media `source` to its bytes as inline base64,
+// whether the source is inline base64 or a persisted workspace reference
+// (attachment-store row or a file on disk). Returns null when a reference can no
+// longer be read. Plugins that need the raw bytes of a media block — captioning
+// an image, embedding it, re-encoding it — use this instead of reaching into
+// the host attachment store, so they stay agnostic to how media is persisted.
+export { resolveMediaSourceData } from "../providers/media-resolve.js";
+// Classify a provider stop reason: whether the turn was truncated at the
+// output token cap (vs. a natural stop or a tool call). A `post-model-call`
+// hook reads it off `PostModelCallContext.stopReason` to decide whether to
+// continue a cut-off reply.
+export { isMaxTokensStopReason } from "../providers/stop-reasons.js";

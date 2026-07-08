@@ -11,11 +11,11 @@
  * refused).
  */
 
-import type { PluginHookFn, StopContext } from "@vellumai/plugin-api";
+import type { HookFunction, StopContext } from "@vellumai/plugin-api";
 
 import { clearEmptyResponseNudged } from "../nudge-state-store.js";
 
-const stop: PluginHookFn<StopContext> = async (ctx) => {
+const stop: HookFunction<StopContext> = async (ctx) => {
   clearEmptyResponseNudged(ctx.conversationId);
 };
 

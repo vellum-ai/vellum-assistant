@@ -1,0 +1,65 @@
+{
+  "note": "Maps each bundled skill with a public reference page (https://www.vellum.ai/docs/skills-reference/<docsSlug>, authored in the vellum-assistant-platform repo) to a fingerprint of its SKILL.md. Enforced by scripts/check-skill-docs-sync.ts and assistant/src/__tests__/skill-docs-sync-guard.test.ts. When a SKILL.md changes, review its docs page, then run `bun run scripts/check-skill-docs-sync.ts --write` to re-record the fingerprint. Add an entry here when a bundled skill gains a public docs page.",
+  "skills": {
+    "acp": {
+      "docsSlug": "acp",
+      "sha256": "877dd2f4a23b94368d8cffaad46d6739dad4dc3c4dadac67688f0fc313b2c210"
+    },
+    "app-builder": {
+      "docsSlug": "app-builder",
+      "sha256": "788fdcd4aa29830604d25d9b9f3577bcc5a023a60e9ffad1d2e109a9f326ff8f"
+    },
+    "computer-use": {
+      "docsSlug": "computer-use",
+      "sha256": "648ad44fd3c3d052893aaa2b71b8478c73b1c786993aa3ede2aa6298b3a3cf5e"
+    },
+    "contacts": {
+      "docsSlug": "contacts",
+      "sha256": "41289fd9467deafe39eecf1a5484799642755332f3ff1fb963aa51b8983bb2bf"
+    },
+    "document-editor": {
+      "docsSlug": "document",
+      "sha256": "95f34b03900851215b2bc153d5e6c92e382476fa361147f31b28d4757ed6c4d3"
+    },
+    "followups": {
+      "docsSlug": "followups",
+      "sha256": "d34b30de6ec6bd57916f3e7a9b3ee8136809609b9f145009aeecd5dee549b3bb"
+    },
+    "image-studio": {
+      "docsSlug": "image-studio",
+      "sha256": "7a122d409ca7146fcaac4452d8f8dcd11b4f1e702f5079cd0472da992211a1c5"
+    },
+    "media-processing": {
+      "docsSlug": "media-processing",
+      "sha256": "4c93682daa54a9f74ccb12306e82409ae5417fcae253b26f8364bdd28f90a3d4"
+    },
+    "messaging": {
+      "docsSlug": "messaging",
+      "sha256": "bbe48449dc1d19d176ba0bf16988107a8b92eea74dac37e9d05e433947727315"
+    },
+    "phone-calls": {
+      "docsSlug": "phone-calls",
+      "sha256": "99a65fbcc7b683812aba75beb5865526d70476a0ef826a2f5002e5582b7803b1"
+    },
+    "playbooks": {
+      "docsSlug": "playbooks",
+      "sha256": "651bdbdee8719763cc7492b3800134c2e9ac4a88d97ea58e8a8144fcc78ae441"
+    },
+    "schedule": {
+      "docsSlug": "schedule",
+      "sha256": "4e82f6b9add84d81feaf10569f95024e9f54a60b9be13d05be85163cd6e51ee3"
+    },
+    "skill-management": {
+      "docsSlug": "skill-management",
+      "sha256": "eab58d56f6ad533e5644f2e6f857779e21a043334bdf59da4f7179b0e3f4fdea"
+    },
+    "subagent": {
+      "docsSlug": "subagent",
+      "sha256": "c0bb5268d5dc18b38375f2db4e379a941c4ab5082c1375720fcb8949e3f7e09e"
+    },
+    "transcribe": {
+      "docsSlug": "transcribe",
+      "sha256": "8e50033d564e9751f6db6ad75d6604df23b321722a93d402579185cbbdf7ede0"
+    }
+  }
+}

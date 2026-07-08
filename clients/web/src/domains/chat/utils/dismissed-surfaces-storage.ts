@@ -51,11 +51,15 @@ export function saveDismissedSurfaceIds(
 //
 // Returns the input array by reference when there is nothing to filter
 // (empty dismissed set, or no surfaces match), so callers can use identity
-// comparison to detect no-op cases.
+// comparison to detect no-op cases. A stable empty array is returned for
+// nullish input so the steady-state union stays referentially stable.
+const EMPTY_MESSAGES: DisplayMessage[] = [];
+
 export function filterDismissedSurfaces(
-  messages: DisplayMessage[],
+  messages: DisplayMessage[] | null | undefined,
   dismissed: ReadonlySet<string>,
 ): DisplayMessage[] {
+  if (!messages) return EMPTY_MESSAGES;
   if (dismissed.size === 0) return messages;
   let changed = false;
   const next = messages.map((msg) => {

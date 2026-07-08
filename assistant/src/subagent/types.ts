@@ -17,11 +17,15 @@ export type SubagentStatus =
   | "awaiting_input"
   | "completed"
   | "failed"
-  | "aborted";
+  | "aborted"
+  // Assigned on daemon restart to a subagent that was still in flight when the
+  // process died. Terminal — the run is not auto-resumed; the parent is left to
+  // decide whether to re-spawn.
+  | "interrupted";
 
 /** Terminal states — once entered, a subagent cannot transition out. */
 export const TERMINAL_STATUSES: ReadonlySet<SubagentStatus> =
-  new Set<SubagentStatus>(["completed", "failed", "aborted"]);
+  new Set<SubagentStatus>(["completed", "failed", "aborted", "interrupted"]);
 
 // ── Config (spawn-time) ─────────────────────────────────────────────────
 
@@ -116,7 +120,8 @@ export type SubagentRole =
   | "researcher"
   | "coder"
   | "planner"
-  | "investigator";
+  | "investigator"
+  | "advisor";
 
 export interface SubagentRoleConfig {
   /**
@@ -197,5 +202,11 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
         "Your final message must be a compact root-cause report with these sections: Symptom, Root cause, Evidence (file:line references), Suggested fix, Open questions.",
         "If you approach context limits, stop investigating and produce the report from what you have — a partial report delivered is worth more than a complete investigation lost.",
       ].join(" "),
+    },
+    advisor: {
+      allowedTools: [],
+      skillIds: [],
+      systemPromptPreamble:
+        "You are a read-only senior advisor consulted for a one-shot strategic review. Read the inherited conversation, then return focused, high-leverage guidance in a single response. You have no tools — you cannot search, read files, or run commands — so reason from the context you were given.",
     },
   };

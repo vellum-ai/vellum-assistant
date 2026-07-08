@@ -46,9 +46,13 @@
  * ignores the decision — so the hook returns early for both.
  */
 
-import type { PluginHookFn, PostModelCallContext } from "@vellumai/plugin-api";
+import type {
+  ContentBlock,
+  HookFunction,
+  Message,
+  PostModelCallContext,
+} from "@vellumai/plugin-api";
 
-import type { ContentBlock, Message } from "../../../../providers/types.js";
 import {
   isEmptyResponseNudged,
   markEmptyResponseNudged,
@@ -112,7 +116,7 @@ function currentCycleMessages(
   return messages;
 }
 
-const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
+const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   // A provider rejection carries no turn content to assess (a recovery hook
   // owns the rejection); the sibling `stop` hook clears the mark when the turn
   // terminates.

@@ -1,6 +1,6 @@
 /**
- * Tests that deleting or wiping a conversation with an associated schedule
- * job also deletes the schedule, preventing orphaned scheduled automations.
+ * Tests that deleting a conversation with an associated schedule job also
+ * deletes the schedule, preventing orphaned scheduled automations.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -26,7 +26,6 @@ mock.module("../daemon/handlers/conversations.js", () => ({
   clearAllConversations: async () => 0,
   switchConversation: async () => null,
   undoLastMessage: async () => null,
-  regenerateResponse: async () => null,
 }));
 
 import type { Database } from "bun:sqlite";
@@ -34,13 +33,13 @@ import type { Database } from "bun:sqlite";
 import {
   createConversation,
   getConversation,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   getDb,
   getLogsSqlite,
   getMemorySqlite,
-} from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { createSchedule, getSchedule } from "../schedule/schedule-store.js";
 
@@ -51,8 +50,6 @@ function getRawDb(): Database {
 }
 
 const deleteRoute = ROUTES.find((r) => r.operationId === "deleteConversation")!;
-
-const wipeRoute = ROUTES.find((r) => r.operationId === "wipeConversation")!;
 
 describe("DELETE /conversations/:id — schedule cleanup", () => {
   beforeEach(() => {
@@ -69,8 +66,8 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
     getRawDb().run("DELETE FROM conversations");
   });
 
-  test("deleting a conversation with a scheduleJobId removes the schedule", () => {
-    const schedule = createSchedule({
+  test("deleting a conversation with a scheduleJobId removes the schedule", async () => {
+    const schedule = await createSchedule({
       name: "Daily standup",
       expression: "0 9 * * 1-5",
       message: "Time for standup!",
@@ -83,7 +80,7 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
 
     expect(getSchedule(schedule.id)).not.toBeNull();
 
-    deleteRoute.handler({
+    await deleteRoute.handler({
       pathParams: { id: conv.id },
       body: {},
       headers: {},
@@ -93,8 +90,8 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
     expect(getConversation(conv.id)).toBeNull();
   });
 
-  test("deleting a conversation without a scheduleJobId does not affect schedules", () => {
-    const schedule = createSchedule({
+  test("deleting a conversation without a scheduleJobId does not affect schedules", async () => {
+    const schedule = await createSchedule({
       name: "Unrelated schedule",
       expression: "0 12 * * *",
       message: "Noon check",
@@ -102,7 +99,7 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
 
     const conv = createConversation("no-schedule-conv");
 
-    deleteRoute.handler({
+    await deleteRoute.handler({
       pathParams: { id: conv.id },
       body: {},
       headers: {},
@@ -112,8 +109,8 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
     expect(getConversation(conv.id)).toBeNull();
   });
 
-  test("deleting a conversation with a schedule also removes its cron_runs", () => {
-    const schedule = createSchedule({
+  test("deleting a conversation with a schedule also removes its cron_runs", async () => {
+    const schedule = await createSchedule({
       name: "Recurring job",
       expression: "0 9 * * *",
       message: "Daily task",
@@ -137,7 +134,7 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
       .get();
     expect(runBefore).not.toBeNull();
 
-    deleteRoute.handler({
+    await deleteRoute.handler({
       pathParams: { id: conv.id },
       body: {},
       headers: {},
@@ -150,8 +147,8 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
     expect(runAfter).toBeNull();
   });
 
-  test("deleting one of multiple conversations sharing a schedule preserves the schedule", () => {
-    const schedule = createSchedule({
+  test("deleting one of multiple conversations sharing a schedule preserves the schedule", async () => {
+    const schedule = await createSchedule({
       name: "Recurring daily",
       expression: "0 9 * * *",
       message: "Daily task",
@@ -166,7 +163,7 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
       scheduleJobId: schedule.id,
     });
 
-    deleteRoute.handler({
+    await deleteRoute.handler({
       pathParams: { id: conv1.id },
       body: {},
       headers: {},
@@ -175,13 +172,13 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
     expect(getSchedule(schedule.id)).not.toBeNull();
   });
 
-  test("deleting one scheduled conversation does not affect other schedules", () => {
-    const scheduleA = createSchedule({
+  test("deleting one scheduled conversation does not affect other schedules", async () => {
+    const scheduleA = await createSchedule({
       name: "Schedule A",
       expression: "0 9 * * *",
       message: "Task A",
     });
-    const scheduleB = createSchedule({
+    const scheduleB = await createSchedule({
       name: "Schedule B",
       expression: "0 17 * * *",
       message: "Task B",
@@ -196,7 +193,7 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
       scheduleJobId: scheduleB.id,
     });
 
-    deleteRoute.handler({
+    await deleteRoute.handler({
       pathParams: { id: convA.id },
       body: {},
       headers: {},
@@ -204,62 +201,5 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
 
     expect(getSchedule(scheduleA.id)).toBeNull();
     expect(getSchedule(scheduleB.id)).not.toBeNull();
-  });
-});
-
-describe("POST /conversations/:id/wipe — schedule cleanup", () => {
-  beforeEach(() => {
-    getRawDb().run("DELETE FROM cron_runs");
-    getRawDb().run("DELETE FROM cron_jobs");
-    getRawDb().run("DELETE FROM memory_graph_nodes");
-    getRawDb().run("DELETE FROM memory_segments");
-    getRawDb().run("DELETE FROM memory_summaries");
-    getRawDb().run("DELETE FROM memory_embeddings");
-    getMemorySqlite()!.run("DELETE FROM memory_jobs");
-    getRawDb().run("DELETE FROM tool_invocations");
-    getLogsSqlite()!.run("DELETE FROM llm_request_logs");
-    getRawDb().run("DELETE FROM messages");
-    getRawDb().run("DELETE FROM conversations");
-  });
-
-  test("wiping a conversation with a scheduleJobId removes the schedule", () => {
-    const schedule = createSchedule({
-      name: "Wipe-test schedule",
-      expression: "0 9 * * 1-5",
-      message: "Time for standup!",
-    });
-
-    const conv = createConversation({
-      source: "schedule",
-      scheduleJobId: schedule.id,
-    });
-
-    expect(getSchedule(schedule.id)).not.toBeNull();
-
-    wipeRoute.handler({
-      pathParams: { id: conv.id },
-      body: {},
-      headers: {},
-    });
-
-    expect(getSchedule(schedule.id)).toBeNull();
-  });
-
-  test("wiping a conversation without a scheduleJobId does not affect schedules", () => {
-    const schedule = createSchedule({
-      name: "Unrelated schedule",
-      expression: "0 12 * * *",
-      message: "Noon check",
-    });
-
-    const conv = createConversation("no-schedule-wipe");
-
-    wipeRoute.handler({
-      pathParams: { id: conv.id },
-      body: {},
-      headers: {},
-    });
-
-    expect(getSchedule(schedule.id)).not.toBeNull();
   });
 });

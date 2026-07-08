@@ -34,6 +34,7 @@ import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import { HostBrowserConfigSchema } from "./schemas/host-browser.js";
 import { IngressConfigSchema } from "./schemas/ingress.js";
 import { JournalConfigSchema } from "./schemas/journal.js";
+import { LiveVoiceConfigSchema } from "./schemas/live-voice.js";
 import { LLMSchema } from "./schemas/llm.js";
 import { LlmRequestLogsConfigSchema } from "./schemas/llm-request-logs.js";
 import {
@@ -42,12 +43,15 @@ import {
 } from "./schemas/logging.js";
 import { McpConfigSchema } from "./schemas/mcp.js";
 import { MemoryConfigSchema } from "./schemas/memory.js";
+import { MigrationsConfigSchema } from "./schemas/migrations.js";
+import { MonitoringConfigSchema } from "./schemas/monitoring.js";
 import { NotificationsConfigSchema } from "./schemas/notifications.js";
 import {
   DaemonConfigSchema,
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
+import { SchedulesConfigSchema } from "./schemas/schedules.js";
 import { SecretDetectionConfigSchema } from "./schemas/security.js";
 import { ServicesSchema } from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
@@ -63,6 +67,13 @@ export const AssistantConfigSchema = z
   .object({
     services: ServicesSchema.default(ServicesSchema.parse({})),
     memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
+    monitoring: MonitoringConfigSchema.default(
+      MonitoringConfigSchema.parse({}),
+    ),
+    schedules: SchedulesConfigSchema.default(SchedulesConfigSchema.parse({})),
+    migrations: MigrationsConfigSchema.default(
+      MigrationsConfigSchema.parse({}),
+    ),
     dataDir: z
       .string({ error: "dataDir must be a string" })
       .default(getDataDir())
@@ -110,6 +121,7 @@ export const AssistantConfigSchema = z
     compactionLogs: CompactionLogsConfigSchema,
     twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
     calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
+    liveVoice: LiveVoiceConfigSchema.default(LiveVoiceConfigSchema.parse({})),
     whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
     telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),
     slack: SlackConfigSchema.default(SlackConfigSchema.parse({})),

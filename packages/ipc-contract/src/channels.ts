@@ -51,6 +51,9 @@ export const COMMAND_EVENT = "vellum:command";
 // Status
 export const STATUS_CONNECTION = "vellum:status:connection";
 
+// Identity
+export const IDENTITY_NAME = "vellum:identity:name";
+
 // Icon / avatar
 export const ICON_SET_AVATAR = "vellum:icon:setAvatar";
 

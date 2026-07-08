@@ -6,9 +6,18 @@ import { credentialKey } from "../../credential-key.js";
 
 // --- Mocks ----------------------------------------------------------------
 
+type MockInboundResult = {
+  forwarded: boolean;
+  rejected: boolean;
+  verificationIntercepted?: boolean;
+  verificationReplyText?: string;
+  inviteIntercepted?: boolean;
+  inviteReplyText?: string;
+};
+
 const handleInboundMock = mock(
   (_config: GatewayConfig, _normalized: unknown, _options?: unknown) =>
-    Promise.resolve({ forwarded: true, rejected: false }),
+    Promise.resolve<MockInboundResult>({ forwarded: true, rejected: false }),
 );
 
 const resetConversationMock = mock(() => Promise.resolve());
@@ -356,6 +365,70 @@ describe("email-webhook", () => {
     const status = dedupCache.reserve("<unique-dedup-id@example.com>");
     // Should return false because it's already reserved/marked
     expect(status).toBe(false);
+  });
+
+  // Intercept response-shape pins. The platform email relay
+  // (vellum-assistant-platform django/app/email/views.py) gates only on
+  // `denied` in the gateway body and returns everything else verbatim — it
+  // reads neither intercept flag nor `replyText`. The flags name which
+  // intercept fired; keep both shapes stable for relay-side consumers.
+  it("returns { ok, verificationIntercepted, replyText } for a verification intercept", async () => {
+    handleInboundMock.mockResolvedValue({
+      forwarded: false,
+      rejected: false,
+      verificationIntercepted: true,
+      verificationReplyText: "You're verified!",
+    });
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({
+      messageId: "<verification-intercept@example.com>",
+    });
+    const res = await handler(postRequest(body));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      verificationIntercepted: true,
+      replyText: "You're verified!",
+    });
+  });
+
+  it("returns { ok, inviteIntercepted, replyText } for an invite intercept", async () => {
+    handleInboundMock.mockResolvedValue({
+      forwarded: false,
+      rejected: false,
+      inviteIntercepted: true,
+      inviteReplyText: "Invite redeemed — welcome!",
+    });
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({
+      messageId: "<invite-intercept@example.com>",
+    });
+    const res = await handler(postRequest(body));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      inviteIntercepted: true,
+      replyText: "Invite redeemed — welcome!",
+    });
+  });
+
+  it("marks the event as processed after an intercept (no reprocessing on retry)", async () => {
+    handleInboundMock.mockResolvedValue({
+      forwarded: false,
+      rejected: false,
+      inviteIntercepted: true,
+      inviteReplyText: "Invite redeemed — welcome!",
+    });
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({
+      messageId: "<intercept-dedup@example.com>",
+    });
+    await handler(postRequest(body));
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+
+    const res2 = await handler(postRequest(body));
+    expect(res2.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns 403 (not 409) when cache miss resolves on force-refresh but signature is invalid", async () => {

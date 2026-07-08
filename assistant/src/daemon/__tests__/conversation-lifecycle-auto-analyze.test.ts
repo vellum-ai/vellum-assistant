@@ -66,14 +66,14 @@ mock.module("../../config/loader.js", () => ({
   loadConfig: () => ({ memory: { v2: { enabled: v2Enabled } } }),
 }));
 
-mock.module("../../memory/auto-analysis-guard.js", () => ({
+mock.module("../../runtime/services/auto-analysis-guard.js", () => ({
   AUTO_ANALYSIS_SOURCE: "auto-analysis",
   isAutoAnalysisConversation: (conversationId: string) =>
     autoAnalysisConversations.has(conversationId),
 }));
 
-const realJobsStore = await import("../../memory/jobs-store.js");
-mock.module("../../memory/jobs-store.js", () => ({
+const realJobsStore = await import("../../persistence/jobs-store.js");
+mock.module("../../persistence/jobs-store.js", () => ({
   ...realJobsStore,
   enqueueMemoryJob: (type: string, payload: Record<string, unknown>) => {
     memoryJobCalls.push({ type, payload });
@@ -82,8 +82,8 @@ mock.module("../../memory/jobs-store.js", () => ({
 }));
 
 const realAutoAnalysisEnqueue =
-  await import("../../memory/auto-analysis-enqueue.js");
-mock.module("../../memory/auto-analysis-enqueue.js", () => ({
+  await import("../../runtime/services/auto-analysis-enqueue.js");
+mock.module("../../runtime/services/auto-analysis-enqueue.js", () => ({
   ...realAutoAnalysisEnqueue,
   enqueueAutoAnalysisIfEnabled: (args: {
     conversationId: string;
@@ -99,19 +99,22 @@ const memoryRetroCalls: Array<{
   trigger: string;
 }> = [];
 
-mock.module("../../memory/memory-retrospective-enqueue.js", () => ({
-  enqueueMemoryRetrospectiveIfEnabled: (args: {
-    conversationId: string;
-    trigger: string;
-  }) => {
-    memoryRetroCalls.push(args);
-  },
-  // Also export sibling functions other modules import from this file, so
-  // mocking it here doesn't break transitive imports loaded during the
-  // `disposeConversation` dynamic-import chain.
-  enqueueMemoryRetrospectiveOnCompaction: () => {},
-  isMemoryRetrospectiveConversation: (_id: string) => false,
-}));
+mock.module(
+  "../../plugins/defaults/memory/memory-retrospective-enqueue.js",
+  () => ({
+    enqueueMemoryRetrospectiveIfEnabled: (args: {
+      conversationId: string;
+      trigger: string;
+    }) => {
+      memoryRetroCalls.push(args);
+    },
+    // Also export sibling functions other modules import from this file, so
+    // mocking it here doesn't break transitive imports loaded during the
+    // `disposeConversation` dynamic-import chain.
+    enqueueMemoryRetrospectiveOnCompaction: () => {},
+    isMemoryRetrospectiveConversation: (_id: string) => false,
+  }),
+);
 
 // Stub all side-effecting cleanup helpers that disposeConversation chains
 // into after the enqueue block. We assert on enqueue behavior only.
@@ -297,7 +300,7 @@ describe("disposeConversation — auto-analysis enqueue", () => {
     // the cleanup chain runs.
     autoAnalyzeEnabled = true;
 
-    mock.module("../../memory/auto-analysis-guard.js", () => ({
+    mock.module("../../runtime/services/auto-analysis-guard.js", () => ({
       AUTO_ANALYSIS_SOURCE: "auto-analysis",
       isAutoAnalysisConversation: () => {
         throw new Error("db closed");
@@ -318,7 +321,7 @@ describe("disposeConversation — auto-analysis enqueue", () => {
     expect(autoAnalyzeCalls).toHaveLength(1);
 
     // Restore the non-throwing stub for subsequent tests.
-    mock.module("../../memory/auto-analysis-guard.js", () => ({
+    mock.module("../../runtime/services/auto-analysis-guard.js", () => ({
       AUTO_ANALYSIS_SOURCE: "auto-analysis",
       isAutoAnalysisConversation: (conversationId: string) =>
         autoAnalysisConversations.has(conversationId),
@@ -334,7 +337,7 @@ describe("disposeConversation — auto-analysis enqueue", () => {
     autoAnalyzeEnabled = true;
 
     // Temporarily re-mock the helper to throw.
-    mock.module("../../memory/auto-analysis-enqueue.js", () => ({
+    mock.module("../../runtime/services/auto-analysis-enqueue.js", () => ({
       enqueueAutoAnalysisIfEnabled: () => {
         throw new Error("boom");
       },
@@ -351,7 +354,7 @@ describe("disposeConversation — auto-analysis enqueue", () => {
     expect(memoryJobCalls).toHaveLength(1);
 
     // Restore the non-throwing stub so other tests aren't affected.
-    mock.module("../../memory/auto-analysis-enqueue.js", () => ({
+    mock.module("../../runtime/services/auto-analysis-enqueue.js", () => ({
       enqueueAutoAnalysisIfEnabled: (args: {
         conversationId: string;
         trigger: "batch" | "idle" | "lifecycle";

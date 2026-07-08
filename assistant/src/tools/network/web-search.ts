@@ -15,7 +15,6 @@ import {
   getHttpRetryDelay,
   sleep,
 } from "../../util/retry.js";
-import { registerTool } from "../registry.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -893,7 +892,7 @@ async function executeTavilySearch(
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
-          "X-Client-Source": "vellum-assistant",
+          "X-Client-Name": "vellum-assistant",
         },
         body: JSON.stringify(body),
         signal,
@@ -1270,5 +1269,3 @@ export const webSearchTool = {
     }
   },
 } satisfies ToolDefinition;
-
-registerTool(webSearchTool);

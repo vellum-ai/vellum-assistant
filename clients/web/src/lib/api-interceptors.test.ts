@@ -98,20 +98,20 @@ describe("api-interceptors / requestInterceptor", () => {
   test("attaches X-Vellum-Client-Id and X-Vellum-Interface-Id on GET", async () => {
     const headers = await intercept("GET");
     expect(headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-    expect(headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+    expect(headers.get("X-Vellum-Interface-Id")).toBe("web");
   });
 
   test("attaches X-Vellum-Client-Id and X-Vellum-Interface-Id on POST", async () => {
     const headers = await intercept("POST");
     expect(headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-    expect(headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+    expect(headers.get("X-Vellum-Interface-Id")).toBe("web");
   });
 
   test("attaches client + interface headers on PUT, PATCH, DELETE", async () => {
     for (const method of ["PUT", "PATCH", "DELETE"]) {
       const headers = await intercept(method);
       expect(headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-      expect(headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+      expect(headers.get("X-Vellum-Interface-Id")).toBe("web");
     }
   });
 
@@ -293,16 +293,15 @@ describe("api-interceptors / self-hosted rewriting", () => {
   });
 
   test("rewrites daemon/gateway-owned segments reached via the platform client", async () => {
-    // config / permissions / trust-rules are daemon- or gateway-owned and
-    // are called through the platform client via raw `client.*` requests
-    // (e.g. the background `TimezoneSync` PATCH to `config`). In local /
-    // self-hosted mode they must route to the gateway like conversations
-    // rather than fall through to the dead platform proxy and flood the
-    // console with 502s. (contacts / contact-channels / artifacts are NOT
-    // listed — their assistant-scoped routes aren't served by the gateway
-    // or daemon, so forwarding them would only 404.)
+    // config is daemon-owned and still called through the platform client
+    // via raw `client.*` requests (the background `TimezoneSync` PATCH).
+    // In local / self-hosted mode it must route to the gateway like
+    // conversations rather than fall through to the dead platform proxy
+    // and flood the console with 502s. (artifacts is NOT listed — its
+    // assistant-scoped routes aren't served by the gateway or daemon, so
+    // forwarding it would only 404.)
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
-    for (const segment of ["config", "permissions", "trust-rules"]) {
+    for (const segment of ["config"]) {
       const path = `/v1/assistants/${SELF_HOSTED_ID}/${segment}/`;
       const input = new Request(`https://platform.test${path}`, {
         method: "POST",
@@ -364,7 +363,7 @@ describe("api-interceptors / self-hosted rewriting", () => {
     const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
     const output = await requestInterceptor(input);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("web");
   });
 
   test("rewrites assistant event routes to the self-hosted gateway", async () => {
@@ -542,7 +541,7 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
     const input = new Request(`https://platform.test${DAEMON_SKILLS_PATH}`);
     const output = await daemonRequestInterceptor(input);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("web");
   });
 });
 

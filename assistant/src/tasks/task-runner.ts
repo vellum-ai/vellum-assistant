@@ -1,5 +1,5 @@
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
+import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
+import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
 import { getLogger } from "../util/logger.js";
 import { createTaskRun, getTask, updateTaskRun } from "./task-store.js";
 
@@ -52,7 +52,7 @@ export async function runTask(
   }
 
   const run = createTaskRun(task.id);
-  const conversation = bootstrapConversation({
+  const conversation = await bootstrapConversation({
     // Schedule-triggered tasks use "scheduled" so they don't crowd out
     // interactive conversations in the main list; non-schedule tasks use
     // "background" to stay out of the list entirely.

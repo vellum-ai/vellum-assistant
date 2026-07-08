@@ -32,7 +32,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
+import type { FetchLike } from "./fetch-like.js";
 import {
   inspectPlugin,
   type PluginInspection,
@@ -42,10 +44,8 @@ import {
 } from "./inspect-plugin.js";
 import {
   DEFAULT_PLUGIN_REF,
-  type FetchLike,
   finalizeStagedInstall,
   type GitRunner,
-  INSTALL_META_FILENAME,
   installPlugin,
   materializePluginTree,
   type PluginFetchSource,
@@ -459,9 +459,7 @@ async function mergeUpgrade(
     // otherwise a curated adapter overlay that moved since install would read
     // as base→ours/theirs edits and corrupt the merge. Verify against the
     // recorded fingerprint, exactly as `plugins diff` does.
-    const baseFingerprint = computeFingerprint(baseDir, [
-      INSTALL_META_FILENAME,
-    ]);
+    const baseFingerprint = computeFingerprint(baseDir, PRESERVED_ENTRIES);
     if (!fingerprintsEqual(baseFingerprint, recorded)) {
       throw new PluginMergeBaselineError(
         name,

@@ -2,12 +2,13 @@
  * Tests for plugin bootstrap (PR 14).
  *
  * Covers:
- * - A noop `init()` fires with a valid `PluginInitContext` that exposes every
+ * - A noop `init()` fires with a valid `InitContext` that exposes every
  *   documented field.
  * - Version-mismatch registration fails with an error that names the plugin
  *   (the registry enforces this at `registerPlugin` time, so bootstrap never
  *   sees the malformed plugin).
- * - Shutdown hook walks plugins in reverse registration order.
+ * - Plugins' `shutdown` hooks fire through the unified `runHook(HOOKS.SHUTDOWN)`
+ *   pipeline; `.disabled` plugins are excluded from that dispatch.
  *
  * `resetPluginRegistryForTests()` isolates registry state between cases.
  */
@@ -18,20 +19,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
-import { runShutdownHooks } from "../daemon/shutdown-registry.js";
-import { RiskLevel } from "../permissions/types.js";
+import { HOOKS } from "../plugin-api/constants.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
+import { runHook } from "../plugins/pipeline.js";
 import {
   closeRegistration,
   getRegisteredPlugins,
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import { type Plugin, type PluginInitContext } from "../plugins/types.js";
+import { type InitContext, type Plugin } from "../plugins/types.js";
 import { APP_VERSION } from "../version.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // Redirect plugin storage directory creation into a per-process temp tree so
 // the test doesn't touch the developer's real ~/.vellum.
@@ -51,11 +50,8 @@ function buildPlugin(
   name: string,
   extras: Partial<Omit<Plugin, "manifest" | "hooks">> & {
     hooks?: Plugin["hooks"];
-    init?: (ctx: PluginInitContext) => Promise<void>;
+    init?: (ctx: InitContext) => Promise<void>;
     onShutdown?: () => Promise<void>;
-  } = {},
-  options: {
-    requiresFlag?: string[];
   } = {},
 ): Plugin {
   const {
@@ -80,7 +76,6 @@ function buildPlugin(
     manifest: {
       name,
       version: "0.0.1",
-      ...(options.requiresFlag ? { requiresFlag: options.requiresFlag } : {}),
     },
     ...rest,
     ...(mergedHooks ? { hooks: mergedHooks } : {}),
@@ -90,16 +85,12 @@ function buildPlugin(
 describe("plugin bootstrap", () => {
   beforeEach(async () => {
     resetPluginRegistryForTests();
-    // Reset feature-flag cache so tests start from a known state. Individual
-    // tests that exercise `requiresFlag` use `setOverridesForTesting(...)`
-    // to install their own overrides.
-    clearFeatureFlagOverridesCache();
     // Clean storage directory between runs so nothing leaks across cases.
     await rm(TEST_WORKSPACE_DIR, { recursive: true, force: true });
   });
 
-  test("noop plugin: init fires with a fully-populated PluginInitContext", async () => {
-    let received: PluginInitContext | undefined;
+  test("noop plugin: init fires with a fully-populated InitContext", async () => {
+    let received: InitContext | undefined;
     const plugin: Plugin = buildPlugin("alpha", {
       async init(ctx) {
         received = ctx;
@@ -228,12 +219,12 @@ describe("plugin bootstrap", () => {
     // AND every first-party default survived, so core turn behavior (memory
     // retrieval, history repair, title generation) keeps running in degraded
     // mode instead of being torn down with the failing plugin
-    expect(names).toContain("default-memory-retrieval");
+    expect(names).toContain("default-memory");
     expect(names).toContain("default-history-repair");
     expect(names).toContain("default-title-generate");
   });
 
-  test("shutdown order: onShutdown fires in reverse registration order", async () => {
+  test("shutdown: onShutdown fires through the runHook pipeline in registration order", async () => {
     const callOrder: string[] = [];
     registerPlugin(
       buildPlugin("first-registered", {
@@ -251,12 +242,15 @@ describe("plugin bootstrap", () => {
     );
 
     await bootstrapPlugins();
-    await runShutdownHooks("test-shutdown");
+    // The plugins' `shutdown` hooks fire through the unified pipeline — the same
+    // dispatch path (and registration order) as every other lifecycle hook, so
+    // the first plugin to register runs first.
+    await runHook(HOOKS.SHUTDOWN, {
+      assistantVersion: APP_VERSION,
+      reason: "shutdown",
+    });
 
-    // The last plugin to register must shut down first; the first to register
-    // shuts down last. Symmetric tear-down around registration order is the
-    // whole point of the reverse walk.
-    expect(callOrder).toEqual(["second-registered", "first-registered"]);
+    expect(callOrder).toEqual(["first-registered", "second-registered"]);
   });
 
   test("empty registry: bootstrap seeds the first-party defaults without throwing", async () => {
@@ -300,186 +294,17 @@ describe("plugin bootstrap", () => {
     );
   });
 
-  // ── requiresFlag gating (G2.2) ──────────────────────────────────────────
-  //
-  // Plugins that declare `manifest.requiresFlag: [key1, ...]` must only
-  // activate when ALL listed flag keys resolve to `true` at bootstrap.
-  // "Skipping" a plugin means:
-  //   - init() is not invoked,
-  //   - tools/routes/skills are not registered,
-  //   - no shutdown hook entry is installed (nothing to tear down later).
-  // Plugins without `requiresFlag` are unaffected.
-  //
-  // Uses `setOverridesForTesting` to control the resolver deterministically
-  // — no disk writes, no gateway IPC, no reliance on registry defaults.
-
-  test("requiresFlag enabled: plugin inits normally", async () => {
-    setOverridesForTesting({ "plugin-gated-enabled": true });
-
-    let initFired = false;
-    const plugin = buildPlugin(
-      "gated-on",
-      {
-        async init() {
-          initFired = true;
-        },
-      },
-      { requiresFlag: ["plugin-gated-enabled"] },
-    );
-    registerPlugin(plugin);
-
-    await bootstrapPlugins();
-
-    expect(initFired).toBe(true);
-  });
-
-  test("requiresFlag disabled: init does not fire and no tools/routes are registered", async () => {
-    setOverridesForTesting({ "plugin-gated-disabled": false });
-
-    let initFired = false;
-    // Attach tool/route contributions alongside init. If gating works,
-    // none of them should land in their respective registries.
-    const plugin = buildPlugin(
-      "gated-off",
-      {
-        async init() {
-          initFired = true;
-        },
-        tools: [
-          {
-            name: "gated-off-tool",
-            description: "should not be registered",
-            category: "test",
-            defaultRiskLevel: RiskLevel.Low,
-            executionTarget: "sandbox",
-            input_schema: { type: "object", properties: {}, required: [] },
-            execute: async () => ({ content: "nope", isError: false }),
-          },
-        ],
-        routes: [
-          {
-            // Unique pattern so we don't collide with any other test's route.
-            pattern: /^\/_plugin\/gated-off\/status$/,
-            methods: ["GET"],
-            handler: async () => new Response("ok"),
-          },
-        ],
-      },
-      { requiresFlag: ["plugin-gated-disabled"] },
-    );
-    registerPlugin(plugin);
-
-    // Grab tool / route introspection helpers lazily so the import
-    // side effect happens after `mock.module` has taken effect.
-    const { getTool } = await import("../tools/registry.js");
-    const { matchSkillRoute } =
-      await import("../runtime/skill-route-registry.js");
-
-    await bootstrapPlugins();
-
-    // init must not have fired.
-    expect(initFired).toBe(false);
-    // No tool contributed.
-    expect(getTool("gated-off-tool")).toBeUndefined();
-    // No route wired up — `matchSkillRoute` returns null when nothing matches.
-    expect(matchSkillRoute("/_plugin/gated-off/status", "GET")).toBeNull();
-  });
-
-  test("requiresFlag absent: plugin activates unconditionally", async () => {
-    // Deliberately do not set any overrides — a plugin with no
-    // `requiresFlag` key must not consult the resolver at all.
-    let initFired = false;
-    const plugin = buildPlugin("no-flag", {
-      async init() {
-        initFired = true;
-      },
-    });
-    registerPlugin(plugin);
-
-    await bootstrapPlugins();
-
-    expect(initFired).toBe(true);
-  });
-
-  test("requiresFlag: one disabled flag out of several skips the plugin", async () => {
-    // When ANY listed flag is disabled, the plugin is skipped wholesale —
-    // this prevents sneaky partial activation on AND semantics.
-    setOverridesForTesting({
-      "plugin-multi-a": true,
-      "plugin-multi-b": false,
-    });
-
-    let initFired = false;
-    const plugin = buildPlugin(
-      "multi-flag",
-      {
-        async init() {
-          initFired = true;
-        },
-      },
-      { requiresFlag: ["plugin-multi-a", "plugin-multi-b"] },
-    );
-    registerPlugin(plugin);
-
-    await bootstrapPlugins();
-
-    expect(initFired).toBe(false);
-  });
-
-  test("requiresFlag disabled: the skipped plugin is removed from the registry", async () => {
-    // Regression: a flag-gated skip must call `unregisterPlugin()` so the
-    // gated-off plugin does not linger in `registeredPlugins` with its
-    // `init()` never having fired to set up the state it depends on.
-    setOverridesForTesting({ "plugin-registry-disabled": false });
-
-    const plugin = buildPlugin(
-      "gated-registry",
-      {},
-      { requiresFlag: ["plugin-registry-disabled"] },
-    );
-    registerPlugin(plugin);
-
-    await bootstrapPlugins();
-
-    // The gated-off plugin must not survive in the registry snapshot.
-    const names = getRegisteredPlugins().map((p) => p.manifest.name);
-    expect(names).not.toContain("gated-registry");
-  });
-
-  test("requiresFlag disabled: no shutdown hook entry installed for the skipped plugin", async () => {
-    setOverridesForTesting({ "plugin-shutdown-flag": false });
-
-    let shutdownFired = false;
-    const plugin = buildPlugin(
-      "shutdown-skipped",
-      {
-        async init() {},
-        async onShutdown() {
-          shutdownFired = true;
-        },
-      },
-      { requiresFlag: ["plugin-shutdown-flag"] },
-    );
-    registerPlugin(plugin);
-
-    await bootstrapPlugins();
-    await runShutdownHooks("test-shutdown");
-
-    // The shutdown hook is a single registered callback that walks a
-    // snapshot taken at bootstrap. A skipped plugin should never appear in
-    // that snapshot, so its `onShutdown` must never fire.
-    expect(shutdownFired).toBe(false);
-  });
-
   // ── .disabled sentinel gating ──────────────────────────────────────────
   //
   // A plugin is disabled when a `.disabled` file exists at
   // <workspace>/plugins/<manifest-name>/.disabled. The bootstrap must
-  // skip the plugin entirely — no init, no tools, no routes, no shutdown
-  // hook — and remove it from the registry, mirroring the requiresFlag
-  // gate.
+  // skip the plugin's init, tools, routes, and shutdown hook. The plugin
+  // is NOT removed from the registry — its hooks stay registered and are
+  // filtered at read time by `isPluginDisabled` in `getHooksFor`, so
+  // `assistant plugins enable` takes effect on the next turn without a
+  // restart.
 
-  test(".disabled sentinel: init does not fire and plugin is unregistered", async () => {
+  test(".disabled sentinel: init does not fire and hooks are filtered at read time", async () => {
     let initFired = false;
     const plugin = buildPlugin("sentinel-off", {
       async init() {
@@ -497,8 +322,17 @@ describe("plugin bootstrap", () => {
     await bootstrapPlugins();
 
     expect(initFired).toBe(false);
+    // The plugin stays in the registry (not unregistered) so its hooks can
+    // be re-enabled at runtime by removing the sentinel.
     const names = getRegisteredPlugins().map((p) => p.manifest.name);
-    expect(names).not.toContain("sentinel-off");
+    expect(names).toContain("sentinel-off");
+    // But its hooks are filtered out at read time by `isPluginDisabled`.
+    // Enabled default plugins (e.g. default-memory) contribute their own init
+    // hook, so assert specifically that the disabled plugin's hook is absent
+    // rather than that the list is empty.
+    const { getHooksFor } = await import("../hooks/registry.js");
+    const hooks = await getHooksFor("init");
+    expect(hooks).not.toContain(plugin.hooks?.init);
 
     await rm(sentinelDir, { recursive: true, force: true });
   });
@@ -538,10 +372,50 @@ describe("plugin bootstrap", () => {
     await writeFile(join(sentinelDir, ".disabled"), "");
 
     await bootstrapPlugins();
-    await runShutdownHooks("test-shutdown");
+    await runHook(HOOKS.SHUTDOWN, {
+      assistantVersion: APP_VERSION,
+      reason: "shutdown",
+    });
 
+    // A `.disabled` plugin keeps its hooks registered but they are filtered out
+    // at read time by `isPluginDisabled` inside `getHooksFor`, so the pipeline
+    // dispatch skips its `onShutdown` too.
     expect(shutdownFired).toBe(false);
 
     await rm(sentinelDir, { recursive: true, force: true });
+  });
+
+  test(".disabled sentinel on an injector-only default: injectors register up front and reappear on enable", async () => {
+    const { clearInjectorRegistry, getRegisteredInjectors } =
+      await import("../plugins/injector-registry.js");
+    clearInjectorRegistry();
+
+    // `default-workspace` is injector-only (no hooks) and contributes
+    // `workspace-context` among others. Disable it at boot via the sentinel —
+    // the per-plugin init loop will `continue` past it.
+    const sentinelDir = join(
+      TEST_WORKSPACE_DIR,
+      "plugins",
+      "default-workspace",
+    );
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(sentinelDir, { recursive: true });
+    await writeFile(join(sentinelDir, ".disabled"), "");
+
+    await bootstrapPlugins();
+
+    // Disabled at boot → its injectors are filtered out of the per-turn chain
+    // at read time...
+    expect(
+      getRegisteredInjectors().some((i) => i.name === "workspace-context"),
+    ).toBe(false);
+
+    // ...but enabling it (removing the sentinel) restores the injections on the
+    // next read with no restart — they were registered up front by
+    // `registerDefaultPluginInjectors`, not gated on the skipped init.
+    await rm(sentinelDir, { recursive: true, force: true });
+    expect(
+      getRegisteredInjectors().some((i) => i.name === "workspace-context"),
+    ).toBe(true);
   });
 });

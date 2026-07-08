@@ -1,4 +1,3 @@
-import * as Sentry from "@sentry/node";
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
@@ -7,7 +6,6 @@ import {
   CardSurfaceDataSchema,
   FileUploadSurfaceDataSchema,
 } from "../api/surfaces.js";
-import { isActivationSession } from "../memory/activation-session-store.js";
 import {
   addAppConversationId,
   getApp,
@@ -18,12 +16,13 @@ import {
   resolveAppDir,
   resolveEffectiveAppHtml,
   updateApp,
-} from "../memory/app-store.js";
+} from "../apps/app-store.js";
+import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
   updateMessageContent,
-} from "../memory/conversation-crud.js";
-import { recordActivationEvent } from "../memory/onboarding-events-store.js";
+} from "../persistence/conversation-crud.js";
+import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import {
   assistantEventHub,
   broadcastMessage,
@@ -74,7 +73,7 @@ import type {
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 const log = getLogger("conversation-surfaces");
 
@@ -580,27 +579,6 @@ function normalizeCardShowData(
       // as a subtitle, detail as supplementary) once production telemetry
       // reveals which combinations actually occur.
       normalized.body = candidates.join("\n\n");
-      const usedAliases = bodyAliasKeys.filter(
-        (k) =>
-          (typeof normalized[k] === "string" &&
-            (normalized[k] as string).trim().length > 0) ||
-          (typeof input[k] === "string" &&
-            (input[k] as string).trim().length > 0),
-      );
-      try {
-        Sentry.withScope((scope) => {
-          scope.setLevel("info");
-          scope.setTag("card_normalization", "alias_recovery");
-          scope.setTag("target_field", "body");
-          scope.setContext("card_normalization", {
-            used_aliases: usedAliases,
-            candidate_count: candidates.length,
-          });
-          Sentry.captureMessage("card_normalization:alias_recovery:body");
-        });
-      } catch {
-        // Never let telemetry break card rendering.
-      }
     }
   }
   for (const key of bodyAliasKeys) {
@@ -617,16 +595,6 @@ function normalizeCardShowData(
     ]);
     if (aliased !== undefined) {
       normalized.title = aliased;
-      try {
-        Sentry.withScope((scope) => {
-          scope.setLevel("info");
-          scope.setTag("card_normalization", "alias_recovery");
-          scope.setTag("target_field", "title");
-          Sentry.captureMessage("card_normalization:alias_recovery:title");
-        });
-      } catch {
-        // Never let telemetry break card rendering.
-      }
     }
   }
   for (const key of titleAliasKeys) {
@@ -651,16 +619,6 @@ function normalizeCardShowData(
     ]);
     if (aliased !== undefined) {
       normalized.subtitle = aliased;
-      try {
-        Sentry.withScope((scope) => {
-          scope.setLevel("info");
-          scope.setTag("card_normalization", "alias_recovery");
-          scope.setTag("target_field", "subtitle");
-          Sentry.captureMessage("card_normalization:alias_recovery:subtitle");
-        });
-      } catch {
-        // Never let telemetry break card rendering.
-      }
     }
   }
   for (const key of subtitleAliasKeys) {
@@ -710,21 +668,6 @@ function normalizeCardShowData(
       { droppedKeys },
       "ui_show card data carried keys the card contract does not model; their content will not render",
     );
-    try {
-      Sentry.withScope((scope) => {
-        scope.setLevel("warning");
-        scope.setTag("card_normalization", "dropped_keys");
-        scope.setContext("card_normalization", {
-          dropped_count: droppedKeys.length,
-        });
-        // Key names are model-controlled, so they ride in `extra`, which
-        // beforeSend redacts (it does not scrub `contexts`) — see instrument.ts.
-        scope.setExtra("dropped_keys", droppedKeys);
-        Sentry.captureMessage("card_normalization:dropped_keys");
-      });
-    } catch {
-      // Never let telemetry break card rendering.
-    }
   }
   const parsed = CardSurfaceDataSchema.safeParse(normalized);
   if (parsed.success) {
@@ -954,9 +897,6 @@ export interface SurfaceConversationContext {
   readonly channelCapabilities?: {
     channel: string;
     supportsDynamicUi: boolean;
-  };
-  readonly traceEmitter: {
-    emit(type: string, message: string, meta?: Record<string, unknown>): void;
   };
   sendToClient(msg: ServerMessage): void;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
@@ -1352,6 +1292,113 @@ export function cleanupStandaloneSurface(
     }, STANDALONE_TOMBSTONE_TTL_MS);
     ctx.recentlyCompletedStandaloneSurfaces.set(surfaceId, tombstoneTimer);
   }
+}
+
+/**
+ * How long to wait for a client to acknowledge an `open_panel` command
+ * before reporting failure to the model. The ack round-trip is one SSE
+ * delivery plus one HTTP POST, so this is generous — it only elapses when
+ * no connected client rendered the panel (event dropped, no client
+ * listening, or a client build that predates panel acknowledgment).
+ */
+const OPEN_PANEL_ACK_TIMEOUT_MS = 10_000;
+
+/**
+ * Open the channel-setup drawer on a connected client and wait for the
+ * client's acknowledgment.
+ *
+ * `open_panel` is a side-effect-only command: it is never persisted to the
+ * transcript, so a dropped event is unrecoverable by reload. The ack is what
+ * makes the emitting tool result truthful — "displayed" must mean a client
+ * actually rendered the drawer, not merely that the event was emitted.
+ *
+ * Reuses the standalone-surface pending machinery: the client responds via
+ * the existing surface-action route (`actionId: "ack"` on success, `"nack"`
+ * with `data.reason` when it received the event but could not open the
+ * panel), which `handleSurfaceAction` intercepts and resolves without an
+ * LLM turn. The surface-state entry exists only so the surface-action route
+ * can resolve the owning conversation by `surfaceId`; `cleanupStandaloneSurface`
+ * removes it on every outcome.
+ */
+export function openChannelSetupPanel(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+  data: Record<string, unknown>,
+  options?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<InteractiveUiResult> {
+  if (!canShowInteractiveUi(ctx) || !ctx.pendingStandaloneSurfaces) {
+    log.warn(
+      {
+        conversationId: ctx.conversationId,
+        hasNoClient: ctx.hasNoClient,
+        channel: ctx.channelCapabilities?.channel,
+      },
+      "channel_setup panel: no interactive UI capability; failing closed",
+    );
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+      cancellationReason: "no_interactive_surface" as const,
+    });
+  }
+  const pendingMap = ctx.pendingStandaloneSurfaces;
+  const signal = options?.signal;
+  const timeoutMs = options?.timeoutMs ?? OPEN_PANEL_ACK_TIMEOUT_MS;
+
+  if (signal?.aborted) {
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+      cancellationReason: "resolver_unavailable" as const,
+    });
+  }
+
+  return new Promise<InteractiveUiResult>((resolve) => {
+    const settle = (result: InteractiveUiResult) => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      log.warn(
+        { conversationId: ctx.conversationId, surfaceId, timeoutMs },
+        "channel_setup panel: no client acknowledged open_panel",
+      );
+      settle({ status: "timed_out", surfaceId });
+    }, timeoutMs);
+
+    const onAbort = () => {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      settle({
+        status: "cancelled",
+        surfaceId,
+        cancellationReason: "resolver_unavailable",
+      });
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    pendingMap.set(surfaceId, {
+      resolve: settle,
+      timer,
+      surfaceType: "channel_setup",
+    });
+    // Registered so the surface-action route's by-surfaceId conversation
+    // lookup finds this conversation when the ack arrives without a
+    // conversationId. Cleared by cleanupStandaloneSurface on all outcomes.
+    ctx.surfaceState.set(surfaceId, {
+      surfaceType: "channel_setup",
+      data: data as SurfaceData,
+    });
+
+    ctx.sendToClient({
+      type: "open_panel",
+      panelType: "channel_setup",
+      data,
+      conversationId: ctx.conversationId,
+      surfaceId,
+    });
+  });
 }
 
 /**
@@ -1787,6 +1834,20 @@ export async function handleSurfaceAction(
       summary,
     };
 
+    // channel_setup pendings are protocol-level acknowledgments for the
+    // `open_panel` command, not user-facing surfaces: nothing was rendered
+    // in the transcript, so there is no completion to broadcast, persist,
+    // or count as an activation commit. Resolve and clean up only.
+    if (standalone.surfaceType === "channel_setup") {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      standalone.resolve(result);
+      log.info(
+        { conversationId: ctx.conversationId, surfaceId, actionId, status },
+        "open_panel acknowledgment resolved",
+      );
+      return { accepted: true, conversationId: ctx.conversationId };
+    }
+
     broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
@@ -2027,12 +2088,6 @@ export async function handleSurfaceAction(
     const onEvent = (msg: ServerMessage) =>
       broadcastMessage(msg, ctx.conversationId);
 
-    ctx.traceEmitter.emit("request_received", "Surface action received", {
-      requestId,
-      status: "info",
-      attributes: { source: "surface_action", surfaceId, actionId },
-    });
-
     const result = ctx.enqueueMessage({
       content,
       attachments,
@@ -2260,12 +2315,6 @@ export async function handleSurfaceAction(
   const onEvent = (msg: ServerMessage) =>
     broadcastMessage(msg, ctx.conversationId);
 
-  ctx.traceEmitter.emit("request_received", "Surface action received", {
-    requestId,
-    status: "info",
-    attributes: { source: "surface_action", surfaceId, actionId },
-  });
-
   log.info(
     {
       surfaceId,
@@ -2353,15 +2402,6 @@ export async function handleSurfaceAction(
     log.info(
       { surfaceId, actionId, requestId },
       "Surface action queued (conversation busy)",
-    );
-    ctx.traceEmitter.emit(
-      "request_queued",
-      `Surface action queued at position ${position}`,
-      {
-        requestId,
-        status: "info",
-        attributes: { position },
-      },
     );
     onEvent({
       type: "message_queued",
@@ -2925,6 +2965,56 @@ export async function surfaceProxyResolver(
     const surfaceType = input.surface_type as SurfaceType;
     const title = typeof input.title === "string" ? input.title : undefined;
     const rawData = isPlainObject(input.data) ? input.data : {};
+
+    // channel_setup is a side-effect-only command: it opens the channel setup
+    // drawer on the client. Emitted as `open_panel` (not `ui_surface_show`)
+    // so the rolling-snapshot reducer never folds it into the transcript.
+    // Because the event is never persisted, success is gated on a client
+    // acknowledgment — "displayed" must mean a client actually rendered the
+    // drawer, otherwise the model announces a panel the user cannot see.
+    if (surfaceType === "channel_setup") {
+      const ack = await openChannelSetupPanel(
+        ctx,
+        surfaceId,
+        rawData as Record<string, unknown>,
+        { signal },
+      );
+
+      if (ack.status === "submitted" && ack.actionId === "ack") {
+        return {
+          content: JSON.stringify({ surfaceId, status: "displayed" }),
+          isError: false,
+        };
+      }
+
+      if (ack.status === "submitted") {
+        // Client received the event but could not open the panel (nack).
+        const reason =
+          typeof ack.submittedData?.reason === "string"
+            ? ack.submittedData.reason
+            : "unknown";
+        return {
+          content: `The channel setup panel could not be opened by the connected client (reason: ${reason}). Do NOT tell the user the panel is open. Troubleshoot with the user (e.g. ask them to reopen or refresh the Vellum app), then retry ui_show.`,
+          isError: true,
+        };
+      }
+
+      if (ack.status === "timed_out") {
+        return {
+          content:
+            "No connected client confirmed opening the channel setup panel. Do NOT tell the user the panel is open. The user's app may be closed, viewing a different conversation, or running a version that cannot show this panel. Ask the user to open this conversation in the Vellum app (web or desktop), then retry ui_show.",
+          isError: true,
+        };
+      }
+
+      // cancelled — no interactive client, or the turn was aborted.
+      return {
+        content:
+          "The channel setup panel could not be opened — no connected client can render interactive UI. Do NOT tell the user the panel is open. Ask the user to open the Vellum app (web or desktop), then retry ui_show.",
+        isError: true,
+      };
+    }
+
     // Each surface type that has a canonical Zod schema gets parsed through it;
     // the rest pass through raw until migrated (LUM-2134 scope). The per-type
     // normalizers validate+recover; the union cast at the end is only for the
@@ -2962,28 +3052,6 @@ export async function surfaceProxyResolver(
         const result = ModelActionSchema.safeParse(raw);
         if (result.success) {
           valid.push(result.data);
-        } else {
-          try {
-            Sentry.withScope((scope) => {
-              scope.setLevel("warning");
-              scope.setTag("card_normalization", "action_parse_failure");
-              scope.setContext("card_normalization", {
-                issue_paths: result.error.issues.map((i) => i.path.join(".")),
-              });
-              // raw object keys are model-controlled, so they ride in `extra`,
-              // which beforeSend redacts (it does not scrub `contexts`) — see
-              // instrument.ts.
-              scope.setExtra(
-                "raw_keys",
-                typeof raw === "object" && raw !== null
-                  ? Object.keys(raw)
-                  : [typeof raw],
-              );
-              Sentry.captureMessage("card_normalization:action_parse_failure");
-            });
-          } catch {
-            // Never let telemetry break card rendering.
-          }
         }
       }
       inputActions = valid.length > 0 ? valid : undefined;
@@ -3021,24 +3089,6 @@ export async function surfaceProxyResolver(
         !hasTemplate &&
         !hasActions
       ) {
-        try {
-          Sentry.withScope((scope) => {
-            scope.setLevel("warning");
-            scope.setTag("card_normalization", "empty_card_rejected");
-            scope.setContext("card_normalization", {
-              surface_type: surfaceType,
-              has_title: hasTitle,
-              has_body: hasBody,
-              has_subtitle: hasSubtitle,
-              has_metadata: hasMetadata,
-              has_template: hasTemplate,
-              has_actions: hasActions,
-            });
-            Sentry.captureMessage("card_normalization:empty_card_rejected");
-          });
-        } catch {
-          // Never let telemetry break card rendering.
-        }
         return {
           content:
             "Error: ui_show card requires content — provide `data.body`, a `template` (e.g. task_progress with steps), `data.metadata`, `data.subtitle`, a `title`, or `actions`. The surface was not displayed because it carried no renderable content. Resend ui_show with populated card content.",

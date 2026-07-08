@@ -15,6 +15,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -45,7 +46,11 @@ import {
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useOrganizationStore } from "@/stores/organization-store";
+import {
+  assistantsValidForOrg,
+  useResolvedAssistantsStore,
+} from "@/stores/resolved-assistants-store";
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
 
@@ -112,8 +117,10 @@ const STATUS_BANNER_PLACEMENT_CLASSES: Record<StatusBannerPlacement, string> = {
   electron: "min-h-8 rounded-[6px] px-2 py-[7px]",
 };
 
-export interface StatusBannerNoticeProps
-  extends Omit<ComponentProps<"div">, "title" | "children"> {
+export interface StatusBannerNoticeProps extends Omit<
+  ComponentProps<"div">,
+  "title" | "children"
+> {
   tone: NoticeTone;
   title: ReactNode;
   children?: ReactNode;
@@ -140,11 +147,13 @@ export function StatusBannerNotice({
       ? "text-body-medium-default leading-5"
       : "text-body-small-default leading-[18px]";
   const resolvedIcon =
-    icon === undefined
-      ? toneClasses.DefaultIcon
-        ? <toneClasses.DefaultIcon aria-hidden="true" />
-        : null
-      : icon;
+    icon === undefined ? (
+      toneClasses.DefaultIcon ? (
+        <toneClasses.DefaultIcon aria-hidden="true" />
+      ) : null
+    ) : (
+      icon
+    );
 
   return (
     <div
@@ -174,13 +183,7 @@ export function StatusBannerNotice({
           </span>
         ) : null}
         <div className="min-w-0">
-          <div
-            className={cn(
-              "truncate",
-              toneClasses.content,
-              titleClassName,
-            )}
-          >
+          <div className={cn("truncate", toneClasses.content, titleClassName)}>
             {title}
           </div>
           {children ? (
@@ -219,6 +222,7 @@ export function StatusBannerNotice({
 
 const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   initializing: "Assistant is initializing",
+  migrating: "Assistant is migrating",
   provisioning: "Assistant is provisioning",
   active: "Assistant is healthy",
   sleeping: "Assistant is sleeping",
@@ -229,7 +233,7 @@ const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   resizing_machine: "Assistant machine is resizing",
   resizing_storage: "Assistant storage is resizing",
   maintenance_mode: "Assistant is in maintenance mode",
-  crash_loop: "Assistant is crash looping",
+  crash_loop: "Assistant fatal error",
   unreachable: "Assistant is unreachable",
   not_found: "Assistant was not found",
   retiring: "Assistant is retiring",
@@ -243,6 +247,7 @@ const OPERATIONAL_STATUS_FAILED_TITLES: Partial<
   Record<AssistantOperationalState, string>
 > = {
   initializing: "Assistant failed to initialize",
+  migrating: "Assistant migration failed",
   provisioning: "Assistant failed to provision",
   waking: "Assistant failed to wake",
   restarting: "Assistant restart failed",
@@ -344,6 +349,7 @@ function operationalStatusBannerConfig(
     case "resizing_machine":
     case "resizing_storage":
     case "initializing":
+    case "migrating":
     case "provisioning":
       return {
         tone: "info",
@@ -397,6 +403,14 @@ function localHealthBannerConfig(
       return {
         tone: "warning",
         title: "Assistant is upgrading",
+        icon: (
+          <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+        ),
+      };
+    case "migrating":
+      return {
+        tone: "info",
+        title: "Assistant is migrating",
         icon: (
           <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
         ),
@@ -475,10 +489,43 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const { connectivityState, retryConnectivity } = useConnectivityState();
   const nativeConnected = useNetworkStatus();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const selectedAssistantId =
+    useResolvedAssistantsStore.use.selectedAssistantId();
+  const assistants = useResolvedAssistantsStore.use.assistants();
+  const currentOrganizationId =
+    useOrganizationStore.use.currentOrganizationId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const operationalStatusAssistantId =
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
-  const assistantId = operationalStatusAssistantId ?? activeAssistantId;
+  const selectedOperationalStatusAssistantId = useMemo(() => {
+    const platformAssistants = assistantsValidForOrg(
+      assistants,
+      currentOrganizationId,
+    ).filter(
+      (assistant) =>
+        assistant.isPlatformHosted === true && assistant.isLocal === false,
+    );
+    // Prefer the selected assistant when it is a platform assistant, else
+    // fall back to the org's first platform assistant. The unconditional
+    // fallback is deliberate: during boot and claim/migration windows the
+    // selection can legitimately be null, stale, or pointing at a local
+    // assistant while the org's platform assistant is the one with status
+    // worth showing (e.g. "Assistant is migrating"). Gating this on selection
+    // semantics breaks hydration, cross-org, and store-population edge
+    // cases; if the brief wrong-assistant poll while lifecycle is unresolved
+    // ever matters, fix it with a selector in assistant/selection.ts.
+    return (
+      platformAssistants.find(
+        (assistant) => assistant.id === selectedAssistantId,
+      )?.id ??
+      platformAssistants[0]?.id ??
+      null
+    );
+  }, [assistants, currentOrganizationId, selectedAssistantId]);
+  const assistantId =
+    operationalStatusAssistantId ??
+    activeAssistantId ??
+    selectedOperationalStatusAssistantId;
   const showDoctorAction =
     assistantState.kind === "active" &&
     !assistantState.isLocal &&
@@ -646,7 +693,8 @@ function useAssistantBannerConfig(): BannerConfig | null {
       if (!result.ok) {
         setIsLocalWakeSettling(false);
         setWakeLocalAssistantError(
-          result.error || "Wake failed. Try running vellum wake in your terminal.",
+          result.error ||
+            "Wake failed. Try running vellum wake in your terminal.",
         );
         return;
       }
@@ -783,7 +831,10 @@ function useAssistantBannerConfig(): BannerConfig | null {
     operationalStatus?.state === "unreachable" && wasRecentlySleeping
       ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
       : operationalStatus?.state === "unreachable" && wasRecentlyActive
-        ? { ...operationalStatus, state: "sleeping" as AssistantOperationalState }
+        ? {
+            ...operationalStatus,
+            state: "sleeping" as AssistantOperationalState,
+          }
         : operationalStatus;
 
   const isFailedOperationDismissed =

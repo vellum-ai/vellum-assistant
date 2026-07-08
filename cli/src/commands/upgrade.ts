@@ -14,6 +14,7 @@ import {
 import {
   captureImageRefs,
   GATEWAY_INTERNAL_PORT,
+  ASSISTANT_INTERNAL_PORT,
   dockerResourceNames,
   startContainers,
   stopContainers,
@@ -44,6 +45,7 @@ import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import { exec } from "../lib/step-runner.js";
 import {
   broadcastUpgradeEvent,
+  attemptFailedStateRestore,
   buildCompleteEvent,
   buildProgressEvent,
   buildStartingEvent,
@@ -65,6 +67,7 @@ import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 import {
   generateLocalSigningKey,
   ensureLocalRuntime,
+  startCes,
   startGateway,
   startLocalDaemon,
   stopLocalProcesses,
@@ -432,6 +435,10 @@ async function upgradeDocker(
     // use default
   }
 
+  // Recover the assistant host port from the entry, fall back to default.
+  const assistantPort =
+    entry.containerInfo?.assistantPort ?? ASSISTANT_INTERNAL_PORT;
+
   // Create pre-upgrade backup (best-effort, daemon must be running)
   await broadcastUpgradeEvent(
     entry.runtimeUrl,
@@ -483,6 +490,7 @@ async function upgradeDocker(
       extraAssistantEnv,
       extraGatewayEnv,
       gatewayPort,
+      assistantPort,
       imageTags,
       instanceName,
       res,
@@ -506,6 +514,7 @@ async function upgradeDocker(
         gatewayDigest: newDigests?.gateway,
         cesDigest: newDigests?.["credential-executor"],
         networkName: res.network,
+        assistantPort,
       },
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
@@ -589,6 +598,7 @@ async function upgradeDocker(
             extraAssistantEnv,
             extraGatewayEnv,
             gatewayPort,
+            assistantPort,
             imageTags: previousImageRefs,
             instanceName,
             res,
@@ -596,13 +606,43 @@ async function upgradeDocker(
           (msg) => console.log(msg),
         );
 
-        const rollbackReady = await waitForReady(entry.runtimeUrl);
+        let rollbackReady = await waitForReady(entry.runtimeUrl);
+        let restoredViaFailedState = false;
+        if (!rollbackReady && backupPath) {
+          const recovery = await attemptFailedStateRestore({
+            runtimeUrl: entry.runtimeUrl,
+            assistantId: entry.assistantId,
+            backupPath,
+            backupLabel: "pre-upgrade",
+            res,
+            containerOptions: {
+              signingKey,
+              bootstrapSecret,
+              cesServiceToken,
+              extraAssistantEnv,
+              extraGatewayEnv,
+              gatewayPort,
+              assistantPort,
+              imageTags: previousImageRefs,
+              instanceName,
+              res,
+            },
+          });
+          restoredViaFailedState = recovery.restored;
+          if (recovery.restored) {
+            rollbackReady = recovery.ready;
+          }
+        }
         if (rollbackReady) {
           // Restore data from the backup created for THIS upgrade attempt.
           // Only use the specific backupPath — never scan for the latest
           // backup on disk, which could be from a previous upgrade cycle
           // and contain stale data.
-          if (backupPath) {
+          if (restoredViaFailedState) {
+            console.log(
+              "   ✅ Data restored during failed-state recovery above\n",
+            );
+          } else if (backupPath) {
             await broadcastUpgradeEvent(
               entry.runtimeUrl,
               entry.assistantId,
@@ -654,6 +694,7 @@ async function upgradeDocker(
                 rollbackDigests?.["credential-executor"] ??
                 previousImageRefs["credential-executor"],
               networkName: res.network,
+              assistantPort,
             },
             previousContainerInfo: undefined,
             previousDbMigrationVersion: undefined,
@@ -976,8 +1017,14 @@ async function upgradeLocal(
   const previousAppVersion = process.env.APP_VERSION;
   process.env.APP_VERSION = stripVersionPrefix(targetVersion);
   try {
-    await startLocalDaemon(false, entry.resources, { signingKey });
-    await startGateway(false, entry.resources, { signingKey, bootstrapSecret });
+    // Bring CES, daemon, and gateway up in parallel, the way the Docker
+    // topology starts its sibling processes together. startCes is a no-op
+    // unless CES_STANDALONE is set.
+    await Promise.all([
+      startCes(false, entry.resources),
+      startLocalDaemon(false, entry.resources, { signingKey }),
+      startGateway(false, entry.resources, { signingKey, bootstrapSecret }),
+    ]);
   } finally {
     if (previousAppVersion === undefined) {
       delete process.env.APP_VERSION;

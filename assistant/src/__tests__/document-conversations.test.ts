@@ -3,9 +3,9 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { getSqliteFrom } from "../memory/db-connection.js";
-import { migrateCreateDocumentConversations } from "../memory/migrations/233-document-conversations.js";
-import * as schema from "../memory/schema.js";
+import { getSqliteFrom } from "../persistence/db-connection.js";
+import { migrateCreateDocumentConversations } from "../persistence/migrations/233-document-conversations.js";
+import * as schema from "../persistence/schema/index.js";
 
 interface TableRow {
   name: string;

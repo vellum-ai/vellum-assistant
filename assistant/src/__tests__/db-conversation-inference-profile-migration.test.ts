@@ -11,12 +11,12 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import { _resetDisplayOrderMigrationForTests } from "../memory/conversation-display-order-migration.js";
-import { _resetGroupMigrationForTests } from "../memory/conversation-group-migration.js";
-import { getSqliteFrom } from "../memory/db-connection.js";
-import { migrateAddConversationInferenceProfile } from "../memory/migrations/227-add-conversation-inference-profile.js";
-import { migrateRenameInferenceProfileSnakeCase } from "../memory/migrations/228-rename-inference-profile-snake-case.js";
-import * as schema from "../memory/schema.js";
+import { _resetDisplayOrderMigrationForTests } from "../persistence/conversation-display-order-migration.js";
+import { _resetGroupMigrationForTests } from "../persistence/conversation-group-migration.js";
+import { getSqliteFrom } from "../persistence/db-connection.js";
+import { migrateAddConversationInferenceProfile } from "../persistence/migrations/227-add-conversation-inference-profile.js";
+import { migrateRenameInferenceProfileSnakeCase } from "../persistence/migrations/228-rename-inference-profile-snake-case.js";
+import * as schema from "../persistence/schema/index.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 function createTestDb() {

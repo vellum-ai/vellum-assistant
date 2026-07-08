@@ -47,20 +47,6 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-// Control the advisor profile gate to verify the advisor tool is wired to it.
-// The gate's own config semantics (default-on, active-profile fallback) are
-// covered by advisor-gate.test.ts; here we only assert the wiring and the
-// profile argument isToolActiveForContext passes through.
-let advisorGateResult = true;
-const advisorGateProfiles: (string | null)[] = [];
-
-mock.module("../../plugins/defaults/advisor/advisor-gate.js", () => ({
-  advisorEnabledForProfile: (profile: string | null) => {
-    advisorGateProfiles.push(profile);
-    return advisorGateResult;
-  },
-}));
-
 // Dynamic imports after mock.module calls so the stubs take effect
 // before the modules under test are loaded.
 const { HOST_TOOL_NAMES, HOST_TOOL_TO_CAPABILITY, isToolActiveForContext } =
@@ -608,36 +594,6 @@ describe("isToolActiveForContext — ask_question macOS gating", () => {
         }),
       ),
     ).toBe(true);
-  });
-});
-
-describe("isToolActiveForContext — advisor profile gate", () => {
-  beforeEach(() => {
-    advisorGateResult = true;
-    advisorGateProfiles.length = 0;
-  });
-
-  test("advisor is active when the profile enables it", () => {
-    advisorGateResult = true;
-    expect(isToolActiveForContext("advisor", makeCtx())).toBe(true);
-  });
-
-  test("advisor is NOT active when the profile disables it", () => {
-    advisorGateResult = false;
-    expect(isToolActiveForContext("advisor", makeCtx())).toBe(false);
-  });
-
-  test("consults the gate with the per-turn override profile", () => {
-    isToolActiveForContext(
-      "advisor",
-      makeCtx({ currentTurnOverrideProfile: "cost-optimized" }),
-    );
-    expect(advisorGateProfiles).toEqual(["cost-optimized"]);
-  });
-
-  test("consults the gate with null when no per-turn override is set", () => {
-    isToolActiveForContext("advisor", makeCtx());
-    expect(advisorGateProfiles).toEqual([null]);
   });
 });
 

@@ -11,7 +11,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../memory/qdrant-client.js", () => ({
+mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     searchWithFilter: async () => [],
     upsertPoints: async () => {},
@@ -40,9 +40,9 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb, getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import { getDb, getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import {
   conversations,
   cronJobs,
@@ -52,11 +52,11 @@ import {
   messages,
   taskRuns,
   tasks,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import {
   invalidateAssistantInferredItemsForConversation,
   isConversationFailed,
-} from "../memory/task-memory-cleanup.js";
+} from "../plugins/defaults/memory/task-memory-cleanup.js";
 
 const DEFAULT_EMOTIONAL_CHARGE =
   '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}';
@@ -66,9 +66,11 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   const convId = "conv-task-cleanup";
   const otherConvId = "conv-other";
 
+  // initializeDb runs the full migration chain (hundreds of steps); under
+  // parallel CI load it can exceed bun's default 5s hook timeout, so allow more.
   beforeAll(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   beforeEach(() => {
     const db = getDb();

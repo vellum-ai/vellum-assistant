@@ -16,16 +16,17 @@ import {
 import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
-    openMarkdownOAuthLinkInPopup,
-    shouldOpenMarkdownLinkInOAuthPopup,
-} from "@/domains/chat/utils/oauth-popup-links";
-import {
-    type MarkdownImageComponent,
-    MarkdownMessage,
-    type MarkdownMessageProps,
+  type MarkdownImageComponent,
+  MarkdownMessage,
+  type MarkdownMessageProps,
 } from "@vellumai/design-library";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import { defaultUrlTransform } from "react-markdown";
+
+import {
+  openMarkdownOAuthLinkInPopup,
+  shouldOpenMarkdownLinkInOAuthPopup,
+} from "@/domains/chat/utils/oauth-popup-links";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {

@@ -26,7 +26,13 @@ async function restartLocalAssistant(
   return { ok: true };
 }
 
-export function RestartAssistant({ assistantId }: { assistantId: string }) {
+export function RestartAssistant({
+  assistantId,
+  isLocal,
+}: {
+  assistantId: string;
+  isLocal: boolean;
+}) {
   const [restarting, setRestarting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -34,11 +40,15 @@ export function RestartAssistant({ assistantId }: { assistantId: string }) {
     setConfirmOpen(false);
     setRestarting(true);
     try {
-      // CLI restart (sleep + wake) only when a local host is present to run it
-      // and the assistant is one wake operates on; otherwise the platform API.
-      // Mirrors the wake-affordance gating in status-banner / connect-recovery.
+      // A platform-hosted assistant (`is_local === false`) is always restarted
+      // through the platform API — running the local CLI sleep/wake against it
+      // would target a non-existent on-machine assistant. The CLI path is only
+      // taken for a local-kind assistant when a host is present to run it and
+      // wake operates on it. Mirrors the web-UI restart behavior.
       const isCli =
-        isLocalModeHostAvailable() && isCliWakeableAssistant(assistantId);
+        isLocal &&
+        isLocalModeHostAvailable() &&
+        isCliWakeableAssistant(assistantId);
 
       if (isCli) {
         const result = await restartLocalAssistant(assistantId);

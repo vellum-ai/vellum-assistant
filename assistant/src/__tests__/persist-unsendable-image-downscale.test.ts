@@ -34,10 +34,11 @@ import {
   addMessage,
   createConversation,
   getMessages,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { persistUnsendableImageDowngrades } from "../plugins/defaults/image-recovery/recover.js";
+import { base64Source } from "../providers/media-resolve.js";
 import type { ContentBlock } from "../providers/types.js";
 
 await initializeDb();
@@ -140,7 +141,8 @@ describe("persistUnsendableImageDowngrades (downscalable host)", () => {
     const nested = toolResult.contentBlocks?.[0];
     expect(nested?.type).toBe("image");
     expect(
-      (nested as Extract<ContentBlock, { type: "image" }>).source.data,
+      base64Source((nested as Extract<ContentBlock, { type: "image" }>).source)
+        .data,
     ).toBe(SHRUNK_DATA);
   });
 

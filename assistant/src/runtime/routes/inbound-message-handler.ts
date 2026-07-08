@@ -1,21 +1,22 @@
 /**
  * Channel inbound message handler: validates, records, and routes inbound
  * messages from all channels. Handles ingress ACL, edits, guardian
- * verification, guardian action answers, approval interception, and
- * invite token redemption.
+ * verification, guardian action answers, and approval interception.
+ * Invite token/code redemption is intercepted at gateway ingress before
+ * messages reach this handler.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
 import {
   ADMISSION_POLICY_DEFAULT,
   type AdmissionPolicy,
   isAdmissionPolicy,
+  isAdmissionPolicyExemptChannel,
 } from "@vellumai/gateway-client";
 
 import {
   attachmentsToContentBlocks,
   type MessageAttachmentInput,
 } from "../../agent/attachments.js";
-import { getChannelPermissionProfile } from "../../channels/permission-profiles.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -37,33 +38,9 @@ import {
 import { getDiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-policy.js";
 import { processMessage } from "../../daemon/process-message.js";
-import type { TrustContext } from "../../daemon/trust-context.js";
+import { mapChatTypeToConversationType } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import {
-  attachInlineAttachmentToMessage,
-  AttachmentUploadError,
-  getAttachmentsByIds,
-  validateAttachmentUpload,
-} from "../../memory/attachments-store.js";
-import {
-  recordConversationSeenSignal,
-  type SignalType,
-} from "../../memory/conversation-attention-store.js";
-import {
-  addMessage,
-  getMessageById,
-  getMessages,
-  selectSlackMetaCandidateMetadata,
-  updateMessageContent,
-  updateMessageMetadata,
-} from "../../memory/conversation-crud.js";
-import {
-  clearPayload,
-  findMessageBySourceId,
-  recordInbound,
-} from "../../memory/delivery-crud.js";
-import { markProcessed } from "../../memory/delivery-status.js";
-import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import {
   resolveSlackBotUserId,
@@ -85,19 +62,51 @@ import {
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../notifications/notification-utils.js";
+import {
+  attachInlineAttachmentToMessage,
+  AttachmentUploadError,
+  getAttachmentsByIds,
+  validateAttachmentUpload,
+} from "../../persistence/attachments-store.js";
+import {
+  recordConversationSeenSignal,
+  type SignalType,
+} from "../../persistence/conversation-attention-store.js";
+import {
+  addMessage,
+  getMessageById,
+  getMessages,
+  selectSlackMetaCandidateMetadata,
+  updateMessageContent,
+  updateMessageMetadata,
+} from "../../persistence/conversation-crud.js";
+import {
+  clearPayload,
+  findMessageBySourceId,
+  recordInbound,
+} from "../../persistence/delivery-crud.js";
+import { markProcessed } from "../../persistence/delivery-status.js";
+import { upsertBinding } from "../../persistence/external-conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
-import { notifyGuardianOfAccessRequest } from "../access-request-helper.js";
+import {
+  isApprovalHandshakeInProgress,
+  maybeNotifyGuardianOfAdmittedContact,
+  notifyGuardianOfAccessRequest,
+} from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
 import { trustContextFromVerdict } from "../trust-verdict-consumer.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
-import { enforceIngressAcl } from "./inbound-stages/acl-enforcement.js";
+import {
+  composeAccessDenialReply,
+  enforceIngressAcl,
+} from "./inbound-stages/acl-enforcement.js";
 import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
@@ -454,6 +463,13 @@ export async function handleChannelInbound({
     ? admissionPolicyFromGateway
     : undefined;
 
+  // Callback payloads (button presses, delete sentinels) are decision
+  // attempts / lifecycle events, not access attempts: the ACL stage must not
+  // respond to one by minting a verification challenge or creating an access
+  // request (LUM-2673). Reaction callbacks never reach this point — the
+  // intercept above returns for them.
+  const isCallbackInteraction = hasCallbackData;
+
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
     canonicalSenderId,
@@ -468,8 +484,8 @@ export async function handleChannelInbound({
     actorUsername: body.actorUsername,
     replyCallbackUrl: body.replyCallbackUrl,
     assistantId,
-    externalMessageId,
     effectiveAdmissionPolicy: effectiveAdmissionPolicyForAcl,
+    isCallbackInteraction,
   });
   if (aclResult.earlyResponse) return aclResult.earlyResponse;
   const { resolvedMember } = aclResult;
@@ -748,15 +764,16 @@ export async function handleChannelInbound({
   // inside `enforceAdmissionPolicy` — defense in depth alongside the
   // gateway's exempt-channel skip and the PUT-handler's 403.
   //
-  // Bootstrap deep-link: when ACL flagged a validated pending_bootstrap
+  // Bootstrap deep-link: when ACL resolved a validated pending_bootstrap
   // session, skip the floor entirely. The bootstrap intercept stage below
-  // handles identity binding and emits its own reply; the sender has not
-  // yet acquired a trust class and should not be denied here.
+  // reuses that session (no second gateway lookup), handles identity
+  // binding, and emits its own reply; the sender has not yet acquired a
+  // trust class and should not be denied here.
   // Gated by `channel-trust-floors`: when off, skip the floor entirely (admit)
   // so inbound falls back to ACL-only behavior. The gateway also omits the
   // floor when off, so the ACL above already saw the default permissive policy.
   const admissionResult =
-    !channelTrustFloorsEnabled || aclResult.isValidatedBootstrap
+    !channelTrustFloorsEnabled || aclResult.validatedBootstrapSession != null
       ? ({ admitted: true } as const)
       : enforceAdmissionPolicy({
           sourceChannel,
@@ -798,48 +815,70 @@ export async function handleChannelInbound({
     // `acl-enforcement.ts:267-449` for `not_a_member`, so denials are
     // visible in the same UI. previousMemberStatus is only meaningful when
     // a member record exists; we pass it through when available so the
-    // guardian sees "previously pending" etc.
+    // guardian sees "previously pending" etc. Callback interactions never
+    // create an access request (LUM-2673); the handshake window is still
+    // probed for reply copy.
     let guardianNotified = false;
-    try {
-      const accessResult = await notifyGuardianOfAccessRequest({
-        canonicalAssistantId,
-        sourceChannel,
-        conversationExternalId,
-        actorExternalId: canonicalSenderId ?? rawSenderId,
-        actorDisplayName: body.actorDisplayName,
-        actorUsername: body.actorUsername,
-        ...(resolvedMember
-          ? {
-              previousMemberStatus: channelStatusToMemberStatus(
-                resolvedMember.status,
-              ),
-            }
-          : {}),
-        messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
-        ...(typeof sourceMetadata?.isStranger === "boolean"
-          ? { isStranger: sourceMetadata.isStranger }
-          : {}),
-        ...(typeof sourceMetadata?.isRestricted === "boolean"
-          ? { isRestricted: sourceMetadata.isRestricted }
-          : {}),
-        ...(typeof sourceMetadata?.messageId === "string"
-          ? { messageTs: sourceMetadata.messageId }
-          : {}),
-      });
-      guardianNotified = accessResult.notified;
-    } catch (err) {
-      log.error(
-        { err, sourceChannel, conversationExternalId },
-        "Failed to notify guardian of access request (admission policy)",
-      );
+    let handshakeInProgress = false;
+    const floorSenderId = canonicalSenderId ?? rawSenderId;
+    if (isCallbackInteraction) {
+      if (floorSenderId) {
+        handshakeInProgress = isApprovalHandshakeInProgress({
+          canonicalAssistantId,
+          sourceChannel,
+          actorExternalId: floorSenderId,
+        });
+      }
+    } else {
+      try {
+        const accessResult = await notifyGuardianOfAccessRequest({
+          canonicalAssistantId,
+          sourceChannel,
+          conversationExternalId,
+          actorExternalId: floorSenderId,
+          actorDisplayName: body.actorDisplayName,
+          actorUsername: body.actorUsername,
+          ...(resolvedMember
+            ? {
+                previousMemberStatus: channelStatusToMemberStatus(
+                  resolvedMember.status,
+                ),
+              }
+            : {}),
+          messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
+          ...(typeof sourceMetadata?.isBot === "boolean"
+            ? { isBot: sourceMetadata.isBot }
+            : {}),
+          ...(typeof sourceMetadata?.isStranger === "boolean"
+            ? { isStranger: sourceMetadata.isStranger }
+            : {}),
+          ...(typeof sourceMetadata?.isRestricted === "boolean"
+            ? { isRestricted: sourceMetadata.isRestricted }
+            : {}),
+          ...(typeof sourceMetadata?.messageId === "string"
+            ? { messageTs: sourceMetadata.messageId }
+            : {}),
+        });
+        guardianNotified = accessResult.notified;
+        handshakeInProgress =
+          !accessResult.notified &&
+          accessResult.reason === "approval_pending_verification";
+      } catch (err) {
+        log.error(
+          { err, sourceChannel, conversationExternalId },
+          "Failed to notify guardian of access request (admission policy)",
+        );
+      }
     }
 
     // Canned reply mirrors the not_a_member surface. §8.2: no upgrade
     // challenge text for `trusted_contacts` / `guardian_only` denials —
     // sender gets the standard "ask the guardian" copy.
-    const replyText = guardianNotified
-      ? "Hmm looks like you don't have access to talk to me. I'll let your guardian know you tried."
-      : "Sorry, you haven't been approved to message this assistant.";
+    const replyText = composeAccessDenialReply({
+      verdict: inboundVerdict,
+      guardianNotified,
+      handshakeInProgress,
+    });
     let replyDelivered = false;
     if (replyCallbackUrl) {
       const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
@@ -964,28 +1003,6 @@ export async function handleChannelInbound({
       )
     : [];
 
-  // Inject channel-scoped permission hints for Slack channel messages
-  if (sourceChannel === "slack") {
-    const channelProfile = getChannelPermissionProfile(conversationExternalId);
-    if (channelProfile) {
-      if (channelProfile.blockedTools?.length) {
-        metadataHints.push(
-          `Channel policy: the following tools are blocked in this channel: ${channelProfile.blockedTools.join(", ")}`,
-        );
-      }
-      if (channelProfile.allowedToolCategories?.length) {
-        metadataHints.push(
-          `Channel policy: only these tool categories are allowed in this channel: ${channelProfile.allowedToolCategories.join(", ")}`,
-        );
-      }
-      if (channelProfile.trustLevel === "restricted") {
-        metadataHints.push(
-          "Channel policy: this channel has restricted trust level. Exercise caution with tool usage.",
-        );
-      }
-    }
-  }
-
   const metadataUxBrief =
     typeof sourceMetadata?.uxBrief === "string" &&
     sourceMetadata.uxBrief.trim().length > 0
@@ -1007,6 +1024,7 @@ export async function handleChannelInbound({
     sourceMetadata.chatType.trim().length > 0
       ? sourceMetadata.chatType.trim()
       : undefined;
+  trustCtx.conversationType = mapChatTypeToConversationType(sourceChatType);
 
   // Preserve locale from sourceMetadata so the model can greet in the user's language
   const sourceLanguageCode =
@@ -1024,6 +1042,7 @@ export async function handleChannelInbound({
     sourceChannel,
     conversationExternalId,
     eventId: result.eventId,
+    validatedBootstrapSession: aclResult.validatedBootstrapSession,
   });
   if (bootstrapResponse) return bootstrapResponse;
 
@@ -1232,6 +1251,58 @@ export async function handleChannelInbound({
         heartbeatService?.resetTimer();
       }
 
+      // ── Introduction nudge on first admit ──
+      // A sender the guardian has never classified can clear a permissive
+      // floor (`any_contact`, `strangers`) and start conversing with no
+      // guardian touchpoint — the introduction card otherwise fires only on
+      // deny. Nudge the guardian informationally so trust assignment does
+      // not depend on a denial; fire-and-forget, the turn proceeds
+      // regardless (LUM-2742). Runs after the secret ingress check so the
+      // persisted messagePreview can never carry a blocked secret. Exempt
+      // channels (`a2a`, `platform`) are outside the human-trust model, and
+      // a validated bootstrap session is already mid-verification.
+      if (
+        channelTrustFloorsEnabled &&
+        !isCallbackInteraction &&
+        aclResult.validatedBootstrapSession == null &&
+        !isAdmissionPolicyExemptChannel(sourceChannel) &&
+        (trustCtx.trustClass === "unverified_contact" ||
+          trustCtx.trustClass === "unknown")
+      ) {
+        const admittedSenderId = canonicalSenderId ?? rawSenderId;
+        if (admittedSenderId) {
+          void maybeNotifyGuardianOfAdmittedContact({
+            canonicalAssistantId,
+            sourceChannel,
+            conversationExternalId,
+            actorExternalId: admittedSenderId,
+            actorDisplayName: body.actorDisplayName,
+            actorUsername: body.actorUsername,
+            messagePreview: truncate(
+              trimmedContent,
+              MESSAGE_PREVIEW_MAX_LENGTH,
+            ),
+            ...(typeof sourceMetadata?.isBot === "boolean"
+              ? { isBot: sourceMetadata.isBot }
+              : {}),
+            ...(typeof sourceMetadata?.isStranger === "boolean"
+              ? { isStranger: sourceMetadata.isStranger }
+              : {}),
+            ...(typeof sourceMetadata?.isRestricted === "boolean"
+              ? { isRestricted: sourceMetadata.isRestricted }
+              : {}),
+            ...(typeof sourceMetadata?.messageId === "string"
+              ? { messageTs: sourceMetadata.messageId }
+              : {}),
+          }).catch((err) => {
+            log.warn(
+              { err, sourceChannel, conversationExternalId },
+              "Failed to send introduction nudge for admitted contact",
+            );
+          });
+        }
+      }
+
       // Slack inbound metadata captured for thread-aware persistence. The
       // gateway forwards `thread_ts` under `sourceMetadata.threadId` and the
       // message's own ts under `sourceMetadata.messageId`. Persistence turns
@@ -1251,6 +1322,12 @@ export async function handleChannelInbound({
         sourceChannel === "slack"
           ? resolveSlackTranscriptTimestampTimezone(inboundClientTimezone)
           : undefined;
+      const slackActorTeamId =
+        sourceChannel === "slack" &&
+        typeof sourceMetadata?.actorTeamId === "string" &&
+        sourceMetadata.actorTeamId.length > 0
+          ? sourceMetadata.actorTeamId
+          : undefined;
       const slackInbound =
         sourceChannel === "slack"
           ? {
@@ -1266,6 +1343,7 @@ export async function handleChannelInbound({
               ...(trustCtx.requesterExternalUserId
                 ? { actorExternalUserId: trustCtx.requesterExternalUserId }
                 : {}),
+              ...(slackActorTeamId ? { actorTeamId: slackActorTeamId } : {}),
               ...buildSlackTimezoneMetadata({
                 actorTimezone: slackActorTimezone?.timezone,
                 actorTimezoneLabel: slackActorTimezone?.timezoneLabel,
@@ -1683,6 +1761,7 @@ async function persistBackfilledSlackMessage(params: {
             downloaded.filename,
             downloaded.mimeType,
             downloaded.data,
+            { normalizeImage: true },
           );
           attachments.push({
             filename: downloaded.filename,

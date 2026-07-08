@@ -16,17 +16,6 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { packageApp } from "../../bundler/app-bundler.js";
-import { compileApp } from "../../bundler/app-compiler.js";
-import { scanBundle } from "../../bundler/bundle-scanner.js";
-import type { SignatureJson } from "../../bundler/bundle-signer.js";
-import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
-import { compareSemver } from "../../daemon/handlers/shared.js";
-import {
-  getAppDiff,
-  getAppHistory,
-  restoreAppVersion,
-} from "../../memory/app-git-service.js";
 import {
   type AppDefinition,
   createApp,
@@ -44,12 +33,21 @@ import {
   resolveEffectiveAppHtml,
   updateApp,
   updateAppRecord,
-} from "../../memory/app-store.js";
-import { createSharedAppLink } from "../../memory/shared-app-links-store.js";
+} from "../../apps/app-store.js";
+import { createSharedAppLink } from "../../apps/shared-app-links-store.js";
+import { packageApp } from "../../bundler/app-bundler.js";
+import { compileApp } from "../../bundler/app-compiler.js";
+import { scanBundle } from "../../bundler/bundle-scanner.js";
+import type { SignatureJson } from "../../bundler/bundle-signer.js";
+import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
+import { compareSemver } from "../../daemon/handlers/shared.js";
 import { computeContentId } from "../../util/content-id.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { publishAppsChanged } from "../sync/resource-sync-events.js";
+import {
+  getOriginClientId,
+  publishAppsChanged,
+} from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   NotFoundError,
@@ -62,12 +60,6 @@ const log = getLogger("app-management-routes");
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function getOriginClientId(
-  headers: RouteHandlerArgs["headers"],
-): string | undefined {
-  return headers?.["x-vellum-client-id"]?.trim() || undefined;
-}
 
 function getSharedAppsDir(): string {
   return join(
@@ -671,33 +663,6 @@ function handleUpdatePreview({ pathParams, body }: RouteHandlerArgs) {
   return { success: true, appId };
 }
 
-async function handleGetHistory({ pathParams, queryParams }: RouteHandlerArgs) {
-  const appId = pathParams?.id as string;
-  const limit = queryParams?.limit ? Number(queryParams.limit) : undefined;
-  const versions = await getAppHistory(appId, limit);
-  return { appId, versions };
-}
-
-async function handleGetDiff({ pathParams, queryParams }: RouteHandlerArgs) {
-  const appId = pathParams?.id as string;
-  const fromCommit = queryParams?.fromCommit;
-  if (!fromCommit) {
-    throw new BadRequestError("fromCommit query parameter is required");
-  }
-  const toCommit = queryParams?.toCommit;
-  const diff = await getAppDiff(appId, fromCommit, toCommit);
-  return { appId, diff };
-}
-
-async function handleRestore({ pathParams, body }: RouteHandlerArgs) {
-  const appId = pathParams?.id as string;
-  if (!body?.commitHash) {
-    throw new BadRequestError("commitHash is required");
-  }
-  await restoreAppVersion(appId, body.commitHash as string);
-  return { success: true };
-}
-
 async function handleBundle({ pathParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
   const result = await packageApp(appId);
@@ -1038,66 +1003,6 @@ export const ROUTES: RouteDefinition[] = [
       success: z.boolean(),
       appId: z.string(),
     }),
-  },
-  {
-    operationId: "apps_history",
-    endpoint: "apps/:id/history",
-    method: "GET",
-    policy: {
-      requiredScopes: ["settings.read"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    handler: handleGetHistory,
-    summary: "Get app version history",
-    description: "Return the git commit history of an app.",
-    tags: ["apps"],
-    queryParams: [{ name: "limit", type: "number" }],
-    responseBody: z.object({
-      appId: z.string(),
-      versions: z.array(
-        z.object({
-          commitHash: z.string(),
-          message: z.string(),
-          timestamp: z.number(),
-        }),
-      ),
-    }),
-  },
-  {
-    operationId: "apps_diff",
-    endpoint: "apps/:id/diff",
-    method: "GET",
-    policy: {
-      requiredScopes: ["settings.read"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    handler: handleGetDiff,
-    summary: "Get app diff",
-    description: "Return a git diff between two commits for an app.",
-    tags: ["apps"],
-    queryParams: [
-      { name: "fromCommit", type: "string", required: true },
-      { name: "toCommit", type: "string" },
-    ],
-    responseBody: z.object({
-      appId: z.string(),
-      diff: z.string(),
-    }),
-  },
-  {
-    operationId: "apps_restore",
-    endpoint: "apps/:id/restore",
-    method: "POST",
-    policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    handler: handleRestore,
-    summary: "Restore app version",
-    description: "Restore an app to a previous git commit.",
-    tags: ["apps"],
-    requestBody: z.object({ commitHash: z.string() }),
-    responseBody: z.object({ success: z.boolean() }),
   },
   {
     operationId: "apps_bundle",

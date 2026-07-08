@@ -53,6 +53,38 @@ describe("computeSkillVersionHash", () => {
     expect(hash1).not.toBe(hash2);
   });
 
+  test("ignores top-level provenance/usage metadata files", () => {
+    const dir = makeTempSkill();
+    writeFileSync(join(dir, "SKILL.md"), "# Skill\n");
+    const base = computeSkillVersionHash(dir);
+
+    // Writing install-meta.json / version.json must NOT change the version hash.
+    writeFileSync(
+      join(dir, "install-meta.json"),
+      JSON.stringify({
+        origin: "custom",
+        lastUsedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    writeFileSync(join(dir, "version.json"), JSON.stringify({ version: "1" }));
+    expect(computeSkillVersionHash(dir)).toBe(base);
+
+    // A later lastUsedAt usage stamp also leaves the hash unchanged.
+    writeFileSync(
+      join(dir, "install-meta.json"),
+      JSON.stringify({
+        origin: "custom",
+        lastUsedAt: "2026-12-31T23:59:59.000Z",
+      }),
+    );
+    expect(computeSkillVersionHash(dir)).toBe(base);
+
+    // Only TOP-LEVEL metadata is excluded; a nested same-named file is hashed.
+    mkdirSync(join(dir, "references"), { recursive: true });
+    writeFileSync(join(dir, "references", "install-meta.json"), "nested");
+    expect(computeSkillVersionHash(dir)).not.toBe(base);
+  });
+
   test("changes when a new file is added", () => {
     const dir = makeTempSkill();
     writeFileSync(join(dir, "SKILL.md"), "# Skill\n");

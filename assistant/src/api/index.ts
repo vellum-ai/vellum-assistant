@@ -1,10 +1,17 @@
 import { z } from "zod";
 
+import { AcpSessionCompletedEventSchema } from "./events/acp-session-completed.js";
+import { AcpSessionErrorEventSchema } from "./events/acp-session-error.js";
+import { AcpSessionSpawnedEventSchema } from "./events/acp-session-spawned.js";
+import { AcpSessionUpdateEventSchema } from "./events/acp-session-update.js";
+import { AcpSessionUsageEventSchema } from "./events/acp-session-usage.js";
 import { AssistantActivityStateEventSchema } from "./events/assistant-activity-state.js";
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantThinkingDeltaEventSchema } from "./events/assistant-thinking-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
 import { AvatarUpdatedEventSchema } from "./events/avatar-updated.js";
+import { BackgroundToolCompletedEventSchema } from "./events/background-tool-completed.js";
+import { BackgroundToolStartedEventSchema } from "./events/background-tool-started.js";
 import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
@@ -23,6 +30,7 @@ import { ErrorEventSchema } from "./events/error.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
+import { HookEventSchema } from "./events/hook-event.js";
 import { IdentityChangedEventSchema } from "./events/identity-changed.js";
 import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
@@ -32,6 +40,7 @@ import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
+import { OpenPanelEventSchema } from "./events/open-panel.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
@@ -44,7 +53,6 @@ import { ToolOutputChunkEventSchema } from "./events/tool-output-chunk.js";
 import { ToolResultEventSchema } from "./events/tool-result.js";
 import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
-import { TraceEventSchema } from "./events/trace-event.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
@@ -67,6 +75,30 @@ export {
   SSE_REPLAY_RING_COUNT_LIMIT,
 } from "./constants/sse-replay.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
+export {
+  type AcpSessionCompletedEvent,
+  AcpSessionCompletedEventSchema,
+  type AcpStopReason,
+  AcpStopReasonSchema,
+} from "./events/acp-session-completed.js";
+export {
+  type AcpSessionErrorEvent,
+  AcpSessionErrorEventSchema,
+} from "./events/acp-session-error.js";
+export {
+  type AcpSessionSpawnedEvent,
+  AcpSessionSpawnedEventSchema,
+} from "./events/acp-session-spawned.js";
+export {
+  type AcpSessionUpdateEvent,
+  AcpSessionUpdateEventSchema,
+  type AcpSessionUpdateType,
+  AcpSessionUpdateTypeSchema,
+} from "./events/acp-session-update.js";
+export {
+  type AcpSessionUsageEvent,
+  AcpSessionUsageEventSchema,
+} from "./events/acp-session-usage.js";
 export {
   type AssistantActivityAnchor,
   AssistantActivityAnchorSchema,
@@ -97,6 +129,14 @@ export {
   type AvatarUpdatedEvent,
   AvatarUpdatedEventSchema,
 } from "./events/avatar-updated.js";
+export {
+  type BackgroundToolCompletedEvent,
+  BackgroundToolCompletedEventSchema,
+} from "./events/background-tool-completed.js";
+export {
+  type BackgroundToolStartedEvent,
+  BackgroundToolStartedEventSchema,
+} from "./events/background-tool-started.js";
 export {
   type CompactionCircuitClosedEvent,
   CompactionCircuitClosedEventSchema,
@@ -192,6 +232,12 @@ export {
   HomeFeedUpdatedEventSchema,
 } from "./events/home-feed-updated.js";
 export {
+  type HookEvent,
+  type HookEventOwner,
+  HookEventOwnerSchema,
+  HookEventSchema,
+} from "./events/hook-event.js";
+export {
   type IdentityChangedEvent,
   IdentityChangedEventSchema,
 } from "./events/identity-changed.js";
@@ -229,6 +275,10 @@ export {
   type NotificationIntentEvent,
   NotificationIntentEventSchema,
 } from "./events/notification-intent.js";
+export {
+  type OpenPanelEvent,
+  OpenPanelEventSchema,
+} from "./events/open-panel.js";
 export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
 export {
   type QuestionEntry,
@@ -299,14 +349,6 @@ export {
   ToolUseStartEventSchema,
 } from "./events/tool-use-start.js";
 export {
-  type TraceEvent,
-  type TraceEventKind,
-  TraceEventKindSchema,
-  TraceEventSchema,
-  type TraceEventStatus,
-  TraceEventStatusSchema,
-} from "./events/trace-event.js";
-export {
   type UISurfaceCompleteEvent,
   UISurfaceCompleteEventSchema,
 } from "./events/ui-surface-complete.js";
@@ -365,6 +407,7 @@ export {
   DictationRequestSchema,
 } from "./requests/dictation.js";
 export {
+  type BackgroundToolCompletion,
   type ConversationAttachmentBlock,
   ConversationAttachmentBlockSchema,
   type ConversationContentBlock,
@@ -440,6 +483,10 @@ export {
   LlmContextResponseSchema,
 } from "./responses/llm-context-response.js";
 export {
+  type LatencyBreakdown,
+  LatencyBreakdownSchema,
+  type LatencyPhase,
+  LatencyPhaseSchema,
   type LLMCallError,
   LLMCallErrorSchema,
   type LLMCallSummary,
@@ -504,11 +551,18 @@ export {
  * migration recipe.
  */
 export const AssistantEventSchema = z.discriminatedUnion("type", [
+  AcpSessionCompletedEventSchema,
+  AcpSessionErrorEventSchema,
+  AcpSessionSpawnedEventSchema,
+  AcpSessionUpdateEventSchema,
+  AcpSessionUsageEventSchema,
   AssistantActivityStateEventSchema,
   AssistantTextDeltaEventSchema,
   AssistantThinkingDeltaEventSchema,
   AssistantTurnStartEventSchema,
   AvatarUpdatedEventSchema,
+  BackgroundToolCompletedEventSchema,
+  BackgroundToolStartedEventSchema,
   CompactionCircuitClosedEventSchema,
   CompactionCircuitOpenEventSchema,
   ConfirmationRequestEventSchema,
@@ -527,6 +581,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
   HomeFeedUpdatedEventSchema,
+  HookEventSchema,
   IdentityChangedEventSchema,
   InteractionResolvedEventSchema,
   MessageCompleteEventSchema,
@@ -536,6 +591,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageRequestCompleteEventSchema,
   NavigateSettingsEventSchema,
   NotificationIntentEventSchema,
+  OpenPanelEventSchema,
   OpenUrlEventSchema,
   QuestionRequestEventSchema,
   RelationshipStateUpdatedEventSchema,
@@ -548,7 +604,6 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ToolResultEventSchema,
   ToolUsePreviewStartEventSchema,
   ToolUseStartEventSchema,
-  TraceEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,

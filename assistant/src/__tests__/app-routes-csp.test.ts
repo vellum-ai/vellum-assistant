@@ -34,7 +34,7 @@ const apps = new Map<string, typeof legacyApp | typeof multifileApp>([
   ["multi-1", multifileApp],
 ]);
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: (id: string) => apps.get(id) ?? null,
   getAppsDir: () => "/fake/apps",
   getAppDirPath: (appId: string) => `/fake/apps/${appId}`,
@@ -42,7 +42,7 @@ mock.module("../memory/app-store.js", () => ({
 }));
 
 // Mock shared-app-links-store (imported by app-routes but unused here)
-mock.module("../memory/shared-app-links-store.js", () => ({
+mock.module("../apps/shared-app-links-store.js", () => ({
   createSharedAppLink: () => ({ shareToken: "tok" }),
   getSharedAppLink: () => null,
   incrementDownloadCount: () => {},

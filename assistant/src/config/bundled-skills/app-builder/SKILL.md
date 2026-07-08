@@ -72,9 +72,9 @@ All new apps use `formatVersion: 2` (multi-file TSX). No root-level `index.html`
 
 ## Responsive & design system
 
-Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block carries an `interface:` field: `ios` → mobile-first (design narrow first, body 17px); `macos`/`web` → desktop-first (multi-column, body 14px); absent → desktop-first unless the request implies phone use ("for my iPhone").
+Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block carries a `client_os:` field (the OS the user is on): `ios`/`android` → mobile-first (design narrow first, body 17px); `macos`/`web` → desktop-first (multi-column, body 14px); absent → desktop-first unless the request implies phone use ("for my iPhone"). (The sibling `interface:` field is the transport surface — always `web` for the apps — so key layout off `client_os`, not `interface`.)
 
-**Universal baseline — every build, regardless of interface:**
+**Universal baseline — every build, regardless of client_os:**
 - Viewport meta: `width=device-width, initial-scale=1, viewport-fit=cover`. Never `user-scalable=no` (blocks accessibility zoom).
 - Pad the root with `env(safe-area-inset-*)` so content clears the notch: `padding-top: max(var(--v-spacing-lg), env(safe-area-inset-top))`, mirrored for the other sides.
 - Full-height containers use `100dvh`, not `100vh`.
@@ -82,7 +82,7 @@ Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block
 - Interactive elements ≥44×44pt (`.v-button` already complies; custom controls set `min-height: 44px`). Gate hover behind `@media (hover: hover)`.
 - Fluid widths only — `%`, `fr`, `minmax`, `clamp()`, never fixed `px` on containers. Size chart containers in `vw`/`%`. At narrow widths, collapse tables into stacked label-value cards.
 
-**Mobile-first extras (`interface: ios`):** body `--v-font-size-lg` (17px); one column by default, multi-column only above `@media (min-width: 720px)`; bottom-anchor the primary action (`position: sticky; bottom: env(safe-area-inset-bottom)`); bottom sheets instead of side modals.
+**Mobile-first extras (`client_os: ios` / `android`):** body `--v-font-size-lg` (17px); one column by default, multi-column only above `@media (min-width: 720px)`; bottom-anchor the primary action (`position: sticky; bottom: env(safe-area-inset-bottom)`); bottom sheets instead of side modals.
 
 Full detail when reachable: `{baseDir}/references/RESPONSIVE.md`.
 
@@ -178,15 +178,17 @@ render(<App />, document.getElementById("app")!);
 2. **`file_write`** each real file, one per tool call, overwriting the placeholders and adding components.
 3. **`app_refresh`** ONCE at the end to compile.
 
+**Actually write the files.** Source code in reasoning/thinking is invisible to the app sandbox and is not a file write. Put every real file body in an `app_create.source_files`, `file_write`, `file_edit`, or `app_update.source_files` tool call, then verify the files exist before `app_refresh` when there is any doubt.
+
 **Allowed packages** (esbuild-resolved, no CDN): `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`. For icons, write inline `<svg>` markup directly — no icon package is bundled.
 
 **Constraints:** Preact not React. No CDN imports. No external fonts/images (system fonts, inline CSS/SVG). Responsive only, no fixed-pixel widths. The WebView blocks navigation — `href` and form `action` don't work.
 
 ⚠️ `compile_errors` in the `app_create` response is NOT a retry signal — the response also has an `app_id`, so the app was created. Proceed. Calling `app_create` again makes a duplicate.
 
-#### `app_create` accepts EXACTLY these 7 keys — nothing else
+#### `app_create` accepts EXACTLY these 6 keys — nothing else
 
-`name` (optional — defaults to the `preview` title, else "New App"), `description`, `schema_json`, `source_files`, `preview`, `auto_open`, `change_summary`.
+`name` (optional — defaults to the `preview` title, else "New App"), `description`, `schema_json`, `source_files`, `preview`, `auto_open`.
 
 Anything else fails with `Invalid input for tool "app_create": Unknown parameter "X"`. The retired keys models still reach for:
 
@@ -210,7 +212,7 @@ app_create({                         app_create({
                                       })
 ```
 
-**Key notes:** `preview` — always include, `title` required (plus optional `subtitle`, `description`, `icon`, up to 3 `metrics`). `auto_open` — **always pass `false`** so you don't get a duplicate preview card (Step 5 owns surfacing). `change_summary` — conventional commit message.
+**Key notes:** `preview` — always include, `title` required (plus optional `subtitle`, `description`, `icon`, up to 3 `metrics`). `auto_open` — **always pass `false`** so you don't get a duplicate preview card (Step 5 owns surfacing).
 
 ### 4 — Compile
 

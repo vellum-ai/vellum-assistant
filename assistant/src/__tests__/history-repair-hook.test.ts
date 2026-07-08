@@ -72,12 +72,13 @@ function makeCtx(messages: Message[]): UserPromptSubmitContext {
     conversationId: "conv-test",
     userMessageId: "msg-test",
     requestId: "req-test",
-    modelProfileKey: null,
+    modelProfileKey: "balanced",
     isNonInteractive: false,
     prompt: "",
     originalMessages: messages,
     latestMessages: messages,
     logger: noopLogger,
+    broadcast: () => {},
   };
 }
 
@@ -216,6 +217,7 @@ function makePostModelCallCtx(
     stopReason: null,
     decision: "stop",
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
@@ -352,6 +354,7 @@ function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
     messages: [],
     exitReason: "no_tool_calls",
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }

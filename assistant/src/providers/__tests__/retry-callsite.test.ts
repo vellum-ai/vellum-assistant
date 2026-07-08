@@ -247,6 +247,8 @@ describe("RetryProvider — callSite resolution", () => {
         maxTokens: 32000,
       },
       // No `callSites.memoryRetrieval` entry.
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
 
     let seen: SendMessageOptions | undefined;
@@ -481,7 +483,7 @@ describe("RetryProvider — callSite resolution", () => {
     expect("top_p" in config).toBe(false);
   });
 
-  test("strips effort/speed for providers that don't support them (e.g. fireworks)", async () => {
+  test("strips unsupported speed and thinking fields for Fireworks", async () => {
     setLlmConfig({
       default: {
         provider: "anthropic",
@@ -495,7 +497,8 @@ describe("RetryProvider — callSite resolution", () => {
     });
 
     let seen: SendMessageOptions | undefined;
-    // fireworks does not support speed or thinking — they must be stripped.
+    // Fireworks uses the OpenAI-compatible transport; speed and thinking stay
+    // out of the downstream config.
     const wrapped = new RetryProvider(
       makeProvider("fireworks", (options) => {
         seen = options;
@@ -511,6 +514,33 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.thinking).toBeUndefined();
     // Model still comes through.
     expect(config.model).toBe("claude-opus-4-7");
+  });
+
+  test("disabled thinking forces effort none before Fireworks strips thinking", async () => {
+    setLlmConfig({
+      default: {
+        provider: "fireworks",
+        model: "accounts/fireworks/models/glm-5p2",
+        effort: "high",
+        thinking: { enabled: false, streamThinking: false },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("fireworks", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.thinking).toBeUndefined();
+    expect(config.effort).toBe("none");
   });
 
   test("preserves thinking + level for Gemini provider", async () => {
@@ -795,6 +825,58 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     expect(config.temperature).toBe(0.7);
   });
 
+  test("drops temperature for Vercel AI Gateway when fronting an `anthropic/*` model", async () => {
+    setLlmConfig({
+      default: {
+        provider: "vercel-ai-gateway",
+        model: "anthropic/claude-opus-4.6",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("vercel-ai-gateway", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent", temperature: 0.7 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("anthropic/claude-opus-4.6");
+    expect(config.temperature).toBeUndefined();
+  });
+
+  test("preserves temperature for Vercel AI Gateway when fronting a non-Anthropic model", async () => {
+    setLlmConfig({
+      default: {
+        provider: "vercel-ai-gateway",
+        model: "xai/grok-4.3",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("vercel-ai-gateway", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent", temperature: 0.7 },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("xai/grok-4.3");
+    expect(config.temperature).toBe(0.7);
+  });
+
   test("guard does not fire when thinking has already been stripped by forced tool_choice", async () => {
     // `retry.ts` strips `thinking` when forced `tool_choice: { type: "tool" }`
     // is set on Anthropic — the guard runs after that step, so by the time
@@ -890,6 +972,60 @@ describe("RetryProvider — thinking/top_p conflict guard", () => {
     const config = seen?.config as Record<string, unknown>;
     expect(config.model).toBe("anthropic/claude-opus-4-7");
     expect(config.top_p).toBeUndefined();
+  });
+
+  test("drops top_p for Vercel AI Gateway when fronting an `anthropic/*` model", async () => {
+    setLlmConfig({
+      default: {
+        provider: "vercel-ai-gateway",
+        model: "anthropic/claude-opus-4.6",
+        thinking: { enabled: true, streamThinking: true },
+        topP: 0.9,
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("vercel-ai-gateway", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("anthropic/claude-opus-4.6");
+    expect(config.top_p).toBeUndefined();
+  });
+
+  test("preserves top_p for Vercel AI Gateway when fronting a non-Anthropic model", async () => {
+    setLlmConfig({
+      default: {
+        provider: "vercel-ai-gateway",
+        model: "xai/grok-4.3",
+        thinking: { enabled: true, streamThinking: true },
+        topP: 0.9,
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("vercel-ai-gateway", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.model).toBe("xai/grok-4.3");
+    expect(config.top_p).toBe(0.9);
   });
 
   test("preserves top_p when thinking is enabled on a non-Anthropic provider (fireworks)", async () => {
@@ -1011,7 +1147,7 @@ describe("RetryProvider — no callSite (pre-resolved config passes through)", (
 // `getConfiguredProvider` — call-site routing coverage lives in
 // `dispatch-connection-routing.test.ts`, where the connection lookup is
 // fully mocked. Keeping those tests here would require mocking
-// `inference/connections.js` and `memory/db-connection.js` at the file
+// `inference/connections.js` and `persistence/db-connection.js` at the file
 // level, and bun's `mock.module` leaks across files in a single suite
 // run — that pollutes `inference.test.ts` (which exercises the real
 // SQLite-backed `getConnection`).

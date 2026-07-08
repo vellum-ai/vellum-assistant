@@ -24,6 +24,13 @@ export function deriveLocalAssistantHealth(
 ): LocalAssistantHealth {
   if (!result.ok) return "unreachable";
   const status = result.data?.status;
+  // The daemon reports MIGRATING while its DB migrations run at startup — an
+  // expected, self-resolving phase that must render as in-progress, not as an
+  // unhealthy warning inviting a mid-migration restart. A terminally failed
+  // migration reports ERROR, which falls through to "unhealthy" below.
+  if (status === "MIGRATING") {
+    return "migrating";
+  }
   if (status !== undefined && !HEALTHY_STATUS_VALUES.has(status)) {
     return "unhealthy";
   }

@@ -42,25 +42,60 @@ mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async () => {},
 }));
 
+// Guardian identity resolves via the gateway delivery cache, not the local
+// contacts DB. Seed it per-test via seedGatewayGuardian so the guardian
+// reactor classifies as `trustClass === "guardian"`.
+interface GatewayGuardian {
+  channelType: string;
+  address: string;
+  principalId?: string | null;
+  externalChatId?: string | null;
+  status: string;
+}
+let gatewayGuardians: GatewayGuardian[] = [];
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => gatewayGuardians,
+  peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) => {
+    if (!input?.channelTypes) return gatewayGuardians;
+    return gatewayGuardians.filter((g) =>
+      input.channelTypes!.includes(g.channelType),
+    );
+  },
+  guardianForChannel: (list: GatewayGuardian[], channelType: string) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+  anyGuardian: (list: GatewayGuardian[]) => list[0],
+}));
+
+function seedGatewayGuardian(
+  g: Partial<GatewayGuardian> & {
+    channelType: string;
+    address: string;
+  },
+): void {
+  gatewayGuardians.push({ status: "active", ...g });
+}
+
 import { eq } from "drizzle-orm";
 
-import { upsertContactChannel } from "../contacts/contacts-write.js";
-import type { Conversation } from "../daemon/conversation.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { messages } from "../memory/schema/conversations.js";
+} from "../contacts/canonical-guardian-store.js";
+import type { Conversation } from "../daemon/conversation.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { messages } from "../persistence/schema/conversations.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import {
   isSlackReactionEvent,
   parseSlackReactionCallbackData,
 } from "../runtime/routes/inbound-stages/reaction-intercept.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 await initializeDb();
@@ -81,10 +116,11 @@ function resetState(): void {
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  gatewayGuardians = [];
 }
 
 function seedActiveMember(): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "slack",
     externalUserId: SLACK_USER_ID,
     externalChatId: SLACK_CHANNEL_ID,
@@ -382,7 +418,8 @@ describe("Slack reaction event persistence", () => {
     const messageRows = db.select().from(messages).all();
     expect(messageRows.length).toBe(1);
 
-    const { channelInboundEvents } = await import("../memory/schema.js");
+    const { channelInboundEvents } =
+      await import("../persistence/schema/index.js");
     const eventRow = db
       .select({ messageId: channelInboundEvents.messageId })
       .from(channelInboundEvents)
@@ -406,6 +443,12 @@ const GUARDIAN_REACTION_TOOL = "execute_shell";
 const GUARDIAN_REACTION_INPUT = { command: "rm -rf /tmp/test" };
 
 function seedGuardianForChannel(): void {
+  seedGatewayGuardian({
+    channelType: "slack",
+    address: GUARDIAN_USER_ID,
+    principalId: GUARDIAN_USER_ID,
+    externalChatId: SLACK_CHANNEL_ID,
+  });
   createGuardianBinding({
     channel: "slack",
     guardianExternalUserId: GUARDIAN_USER_ID,
@@ -478,6 +521,7 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
     db.run("DELETE FROM contacts");
     db.run("DELETE FROM canonical_guardian_requests");
     db.run("DELETE FROM canonical_guardian_deliveries");
+    gatewayGuardians = [];
     pendingInteractions.clear();
     msgCounter = 0;
   });
@@ -605,9 +649,14 @@ describe("reaction access control (no verification handshake)", () => {
 
   beforeEach(() => {
     resetState();
-    getDb().run("DELETE FROM channel_verification_sessions");
     // The assistant has a guardian (as in production); the reactors below are
     // different users.
+    seedGatewayGuardian({
+      channelType: "slack",
+      address: GUARDIAN_USER_ID,
+      principalId: GUARDIAN_USER_ID,
+      externalChatId: GUARDIAN_DM_CHAT,
+    });
     createGuardianBinding({
       channel: "slack",
       guardianExternalUserId: GUARDIAN_USER_ID,
@@ -644,8 +693,8 @@ describe("reaction access control (no verification handshake)", () => {
     expect(agentDispatched).toBe(false);
 
     // No verification handshake, and no side effects: a dropped reaction leaves
-    // no transcript row, no conversation, and no binding.
-    expect(tableCount("channel_verification_sessions")).toBe(0);
+    // no transcript row, no conversation, and no binding. (Sessions are
+    // gateway-owned; the absent challenge is asserted via the response above.)
     expect(readPersistedMessages().length).toBe(0);
     expect(tableCount("conversations")).toBe(0);
     expect(tableCount("external_conversation_bindings")).toBe(0);
@@ -655,7 +704,7 @@ describe("reaction access control (no verification handshake)", () => {
     // A pending contact classifies as `unverified_contact` — a known tier, so
     // its reactions are recorded. On a real message it would be re-challenged,
     // but a reaction must not trigger that.
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "slack",
       externalUserId: CONTACT_USER_ID,
       externalChatId: SLACK_CHANNEL_ID,
@@ -674,7 +723,6 @@ describe("reaction access control (no verification handshake)", () => {
 
     expect(json.denied).not.toBe(true);
     expect(json.reason).not.toBe("verification_challenge_sent");
-    expect(tableCount("channel_verification_sessions")).toBe(0);
 
     const rows = readPersistedMessages();
     expect(rows.length).toBe(1);

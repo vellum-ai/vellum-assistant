@@ -25,7 +25,7 @@ const setLastNotifiedInferenceProfile = mock(
   (_conversationId: string, _profileKey: string) => {},
 );
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   deleteMessageById: () => {},
   getConversation: () => null,
   getMessageById: () => null,
@@ -37,20 +37,23 @@ mock.module("../../memory/conversation-crud.js", () => ({
   updateMessageContent: () => {},
 }));
 
-mock.module("../../memory/llm-request-log-store.js", () => ({
+mock.module("../../persistence/llm-request-log-store.js", () => ({
   backfillMessageIdOnLogs: () => {},
   buildProviderErrorResponsePayload: () => ({}),
   recordRequestLog: () => {},
   setAgentLoopExitReasonOnLatestLog: () => {},
 }));
 
-mock.module("../../memory/memory-recall-log-store.js", () => ({
+mock.module("../../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   backfillMemoryRecallLogMessageId: () => {},
 }));
 
-mock.module("../../memory/memory-v2-activation-log-store.js", () => ({
-  backfillMemoryV2ActivationMessageId: () => {},
-}));
+mock.module(
+  "../../plugins/defaults/memory/memory-v2-activation-log-store.js",
+  () => ({
+    backfillMemoryV2ActivationMessageId: () => {},
+  }),
+);
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
 import type { AgentEvent } from "../../agent/loop.js";
@@ -72,7 +75,6 @@ function makeDeps(): EventHandlerDeps {
     ctx: {
       conversationId: CONVERSATION_ID,
       provider: { name: "mock-provider" },
-      traceEmitter: { emit: () => {} },
       currentTurnSurfaces: [],
       trustContext: undefined,
     } as unknown as EventHandlerDeps["ctx"],

@@ -16,37 +16,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
+import { pathBBox, unionBBox } from "@/domains/onboarding/components/eye-bbox";
+import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
-
-type BBox = { x: number; y: number; w: number; h: number };
-
-/** Tight bounding box of a single path's absolute coords. */
-function pathBBox(d: string): BBox {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  const re = /-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi;
-  const nums = d.match(re)?.map(Number) ?? [];
-  for (let i = 0; i + 1 < nums.length; i += 2) {
-    const x = nums[i]!;
-    const y = nums[i + 1]!;
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
-  }
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-}
-
-function unionBBox(boxes: BBox[]): BBox {
-  const minX = Math.min(...boxes.map((b) => b.x));
-  const minY = Math.min(...boxes.map((b) => b.y));
-  const maxX = Math.max(...boxes.map((b) => b.x + b.w));
-  const maxY = Math.max(...boxes.map((b) => b.y + b.h));
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-}
 
 /** How much of the eyes sits below the bottom edge — at rest, and at the dip. */
 const EYE_REST_CUTOFF = 0.25;
@@ -60,20 +33,6 @@ const PICKER_CENTER_VH = 40;
 /** Slight whole-eye cursor parallax. */
 const CURSOR_MAX_X = 14;
 const CURSOR_MAX_Y = 8;
-
-function useViewport() {
-  const [size, setSize] = useState(() => ({
-    w: typeof window === "undefined" ? 1280 : window.innerWidth,
-    h: typeof window === "undefined" ? 800 : window.innerHeight,
-  }));
-  useEffect(() => {
-    const onResize = () =>
-      setSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return size;
-}
 
 interface OnboardingPeekingEyesProps {
   /** Play the grow-in entrance (Introduction). Otherwise the eyes are at rest. */
@@ -102,7 +61,7 @@ export function OnboardingPeekingEyes({
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const reduce = useReducedMotion();
-  const { w, h } = useViewport();
+  const { w, h } = useOnboardingStageSize();
 
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   useEffect(() => {

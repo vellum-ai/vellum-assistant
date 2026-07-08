@@ -223,6 +223,25 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "claude-sonnet-5",
+        displayName: "Claude Sonnet 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
+        // $3/$15 standard rate). Bump to standard once the intro window ends.
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 10,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
+      },
+      {
         id: "claude-sonnet-4-6",
         displayName: "Claude Sonnet 4.6",
         contextWindowTokens: 1000000,
@@ -905,6 +924,25 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "anthropic/claude-sonnet-5",
+        displayName: "Claude Sonnet 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
+        // $3/$15 standard rate). Bump to standard once the intro window ends.
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 10,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
+      },
+      {
         id: "anthropic/claude-sonnet-4.6",
         displayName: "Claude Sonnet 4.6",
         contextWindowTokens: 1000000,
@@ -1317,6 +1355,224 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyPlaceholder: "sk-or-v1-...",
   },
   {
+    id: "vercel-ai-gateway",
+    displayName: "Vercel AI Gateway",
+    subtitle:
+      "Route to many LLM providers via a single Vercel AI Gateway API key.",
+    setupMode: "api-key",
+    setupHint:
+      "Enter your Vercel AI Gateway API key to access multiple models.",
+    envVar: "AI_GATEWAY_API_KEY",
+    credentialsGuide: {
+      description:
+        "Open the Vercel dashboard's AI Gateway tab and create an API key.",
+      url: "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keys",
+      linkLabel: "Open Vercel Dashboard",
+    },
+    // Model IDs verified 2026-07-07 against Vercel's model directory:
+    // https://vercel.com/ai-gateway/models
+    models: [
+      // Anthropic
+      // The gateway proxies anthropic/* through Anthropic's Messages API, so
+      // prompt caching and cache TTL metadata pass through unchanged and
+      // billing matches Anthropic's direct rates.
+      {
+        id: "anthropic/claude-fable-5",
+        displayName: "Claude Fable 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1,
+        },
+      },
+      {
+        id: "anthropic/claude-opus-4.8",
+        displayName: "Claude Opus 4.8",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
+        id: "anthropic/claude-opus-4.6",
+        displayName: "Claude Opus 4.6",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
+        id: "anthropic/claude-sonnet-5",
+        displayName: "Claude Sonnet 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
+        // $3/$15 standard rate). Bump to standard once the intro window ends.
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 10,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
+      },
+      {
+        id: "anthropic/claude-sonnet-4.6",
+        displayName: "Claude Sonnet 4.6",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 64000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 3,
+          outputPer1mTokens: 15,
+          cacheWritePer1mTokens: 3.75,
+          cacheReadPer1mTokens: 0.3,
+        },
+      },
+      {
+        id: "anthropic/claude-haiku-4.5",
+        displayName: "Claude Haiku 4.5",
+        contextWindowTokens: 200000,
+        maxOutputTokens: 64000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1,
+          outputPer1mTokens: 5,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
+        },
+      },
+      // OpenAI
+      {
+        id: "openai/gpt-5.5",
+        displayName: "GPT-5.5",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.5-pro",
+        displayName: "GPT-5.5 Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 30.0,
+          outputPer1mTokens: 180.0,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 60,
+              outputPer1mTokens: 270,
+            },
+          ],
+        },
+      },
+      // xAI (Vercel's vendor prefix is `xai/`, not OpenRouter's `x-ai/`)
+      {
+        id: "xai/grok-4.3",
+        displayName: "Grok 4.3",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 16000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 1.25, outputPer1mTokens: 2.5 },
+      },
+      // Moonshot
+      {
+        id: "moonshotai/kimi-k2.6",
+        displayName: "Kimi K2.6",
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        // Gateway list rate (blended across routed upstreams).
+        pricing: { inputPer1mTokens: 0.95, outputPer1mTokens: 4.0 },
+      },
+      // DeepSeek
+      {
+        id: "deepseek/deepseek-v4-flash",
+        displayName: "DeepSeek V4 Flash",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 384000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 0.14, outputPer1mTokens: 0.28 },
+      },
+    ],
+    defaultModel: "anthropic/claude-sonnet-4.6",
+    apiKeyUrl:
+      "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keys",
+    apiKeyPlaceholder: "vck_...",
+  },
+  {
     id: "openai-compatible",
     displayName: "OpenAI-compatible",
     subtitle:
@@ -1414,14 +1670,16 @@ export function isModelInCatalog(provider: string, modelId: string): boolean {
   return entry?.models.some((m) => m.id === modelId) ?? false;
 }
 
-/** Return the unique catalog provider that owns a model ID, if known. */
+/**
+ * Return the catalog provider that owns a model ID, if known. When multiple
+ * providers list the same ID (e.g. OpenRouter and the Vercel AI Gateway share
+ * `anthropic/*` IDs), the earliest entry in PROVIDER_CATALOG order wins.
+ */
 export function getCatalogProviderForModel(
   modelId: string,
 ): string | undefined {
-  const matches = PROVIDER_CATALOG.filter((p) =>
-    p.models.some((m) => m.id === modelId),
-  );
-  return matches.length === 1 ? matches[0]?.id : undefined;
+  return PROVIDER_CATALOG.find((p) => p.models.some((m) => m.id === modelId))
+    ?.id;
 }
 
 /**

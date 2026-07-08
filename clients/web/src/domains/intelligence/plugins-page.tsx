@@ -2,46 +2,34 @@ import { Navigate } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PluginsTab } from "@/domains/intelligence/components/plugins/plugins-tab";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useSupportsPluginsSurface } from "@/lib/backwards-compat/plugins-surface";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { routes } from "@/utils/routes";
 
 /**
  * Plugins tab for the "About Assistant" pages.
  *
- * Gated by the `external-plugins` assistant feature flag (store key
- * `externalPlugins`). When the flag is off, the route redirects back to
- * the Identity tab — Plugins is an unstable surface that may change
- * shape before stabilizing (see
- * `assistant/src/plugins/feature-gate.ts` and the registry entry in
- * `meta/feature-flags/feature-flag-registry.json`).
- *
- * The redirect waits for the assistant feature flag store to hydrate
- * (`hasHydrated`) before firing. Without this wait, deep-links and
- * refreshes to `/assistant/plugins` would redirect to Identity during
- * the initial defaults-window (registry default is `false`) even for
- * users who actually have the flag enabled — the new route would
- * silently behave as unavailable. See the `hasHydrated` doc on
- * `assistant-feature-flag-store.ts`.
- *
- * The tab is also conditionally rendered by `IntelligenceLayout` so
- * users without the flag never see the entry point. This redirect
- * exists to handle direct URL access.
+ * Gated on the connected assistant being new enough to expose the plugin
+ * routes (see `lib/backwards-compat/plugins-surface.ts`). On older
+ * assistants the routes 404, so a direct deep-link to `/assistant/plugins`
+ * redirects back to Identity rather than rendering a broken catalog. The
+ * redirect waits for the assistant version to hydrate so it never bounces
+ * a deep-link on a supported assistant during the initial identity fetch.
  */
 export function PluginsPage() {
-  const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
-  const externalPlugins = useAssistantFeatureFlagStore.use.externalPlugins();
+  const version = useAssistantIdentityStore.use.version();
+  const supportsPlugins = useSupportsPluginsSurface();
   const assistantId = useActiveAssistantId();
 
-  // Wait for the first real /feature-flags response before deciding to
-  // redirect. Rendering nothing for one render is preferable to bouncing
-  // a user who genuinely has the flag enabled away from a valid URL.
-  if (!hasHydrated) {
+  if (version === null) {
     return null;
   }
 
-  if (!externalPlugins) {
+  if (!supportsPlugins) {
     return <Navigate to={routes.identity} replace />;
   }
 
+  // `PluginsTab` reads the `?plugin=` deep-link itself (it owns the open-detail
+  // URL state), so nothing extra to thread through here.
   return <PluginsTab assistantId={assistantId} />;
 }

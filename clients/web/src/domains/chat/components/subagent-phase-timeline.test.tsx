@@ -13,7 +13,7 @@ import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import { useState } from "react";
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 import * as phaseGroupedStepList from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
@@ -35,7 +35,7 @@ function bash(
     title: "Working",
     info: command,
     activity,
-    iconName: "code",
+    iconName: "terminal",
     durationLabel: duration,
     toolCallId,
     status,
@@ -79,7 +79,7 @@ describe("SubagentPhaseTimeline — empty input", () => {
 });
 
 describe("SubagentPhaseTimeline — completed row", () => {
-  test("shows label + 'Worked for <dur>', hides pills by default, toggles on click", () => {
+  test("shows label + 'Worked for <dur>', hides pills by default, toggles on click", async () => {
     const steps: ToolCallCardStep[] = [
       bash("ls", "completed", "1s", "tc-a"),
       bash("pwd", "completed", "2s", "tc-b"),
@@ -104,9 +104,12 @@ describe("SubagentPhaseTimeline — completed row", () => {
     fireEvent.click(header);
     expect(queryAllByTestId("phase-step-pill").length).toBe(2);
 
-    // Toggling back hides them.
+    // Toggling back hides them — the collapse animates closed (height/opacity),
+    // so the pills stay mounted through the exit transition; await their removal.
     fireEvent.click(header);
-    expect(queryAllByTestId("phase-step-pill").length).toBe(0);
+    await waitFor(() =>
+      expect(queryAllByTestId("phase-step-pill").length).toBe(0),
+    );
   });
 });
 
@@ -695,7 +698,7 @@ describe("SubagentPhaseTimeline — phase grouping", () => {
   // Two same-label "Working" phases whose first steps both have empty
   // `toolCallId` must still get distinct section keys, so expanding one does
   // not expand the other.
-  test("same-label phases with empty toolCallId expand/collapse independently", () => {
+  test("same-label phases with empty toolCallId expand/collapse independently", async () => {
     const steps: ToolCallCardStep[] = [
       // First "Working" group — empty toolCallId on every step.
       bash("ls", "completed", "1s", ""),
@@ -732,9 +735,12 @@ describe("SubagentPhaseTimeline — phase grouping", () => {
     fireEvent.click(headerOf(working[1]!));
     expect(queryAllByTestId("phase-step-pill").length).toBe(4);
 
-    // Collapsing the first leaves the second's pills visible.
+    // Collapsing the first leaves the second's pills visible — the first row's
+    // pills animate closed, so await the exit transition removing just those two.
     fireEvent.click(headerOf(working[0]!));
-    expect(queryAllByTestId("phase-step-pill").length).toBe(2);
+    await waitFor(() =>
+      expect(queryAllByTestId("phase-step-pill").length).toBe(2),
+    );
   });
 });
 

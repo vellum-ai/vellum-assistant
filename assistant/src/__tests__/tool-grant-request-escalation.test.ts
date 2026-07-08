@@ -71,9 +71,16 @@ mock.module("../runtime/channel-verification-service.js", () => ({
     }
     return null;
   },
-  createOutboundSession: () => ({
-    conversationId: "test-session",
+}));
+
+// Gateway session client — the resolver mints verification sessions here.
+mock.module("../channels/gateway-verification-sessions.js", () => ({
+  createOutboundSession: async () => ({
+    sessionId: "test-session",
     secret: "123456",
+    challengeHash: "hash",
+    expiresAt: Date.now() + 600_000,
+    ttlSeconds: 600,
   }),
 }));
 
@@ -98,16 +105,16 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { scopedApprovalGrants } from "../memory/schema.js";
+} from "../contacts/canonical-guardian-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { scopedApprovalGrants } from "../persistence/schema/index.js";
 import {
   ToolApprovalHandler,
   waitForInlineGrant,
 } from "../tools/tool-approval-handler.js";
-import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
 /** Short wait config for tests — avoids blocking test suite on the 60s default. */
 const TEST_INLINE_WAIT_CONFIG = { maxWaitMs: 100, intervalMs: 20 };
@@ -183,16 +190,48 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
   const handler = new ToolApprovalHandler({
     inlineGrantWait: TEST_INLINE_WAIT_CONFIG,
   });
-  const events: ToolLifecycleEvent[] = [];
-  const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
-    events.push(event);
-  };
 
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
+  });
+
+  test("escalation copy is tool-framed — identity appears only as context", async () => {
+    const context = makeContext({
+      trustClass: "trusted_contact",
+      requesterDisplayName: "Bob",
+    });
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { command: "ls -la" },
+      context,
+      "high",
+      Date.now(),
+    );
+
+    // Trusted contact with a guardian binding: an escalation request is
+    // created, the short inline wait times out, and the invocation is denied.
+    expect(result.allowed).toBe(false);
+    if (result.allowed) {
+      return;
+    }
+
+    // The guardian-facing question asks about the tool, never about the person.
+    expect(emittedSignals.length).toBe(1);
+    const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
+    const questionText = payload.questionText as string;
+    expect(questionText.startsWith("Approve tool: bash")).toBe(true);
+    // Requester identity is context, not the subject of the question.
+    expect(questionText).toContain("(requested by Bob)");
+    expect(questionText).not.toMatch(/wants to use/i);
+    expect(questionText).not.toMatch(/is requesting/i);
+
+    // Denial copy is about the tool, not about actor identity.
+    expect(result.result.content).toContain(`Permission denied for "bash"`);
+    expect(result.result.content).toContain("guardian approval");
+    expect(result.result.content).not.toMatch(/actor/i);
+    expect(result.result.content).not.toMatch(/not the guardian/i);
   });
 
   test("unverified_channel does NOT create escalation request", async () => {
@@ -208,14 +247,14 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
     // Should get the generic denial message, not escalation
     expect(result.result.content).toContain("verified channel identity");
 
@@ -259,7 +298,9 @@ describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.grantMinted).toBe(true);
 
     // Verify canonical request is approved
@@ -289,7 +330,9 @@ describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.grantMinted).toBe(false);
 
     const resolved = getCanonicalGuardianRequest(req.id);
@@ -319,7 +362,9 @@ describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("identity_mismatch");
 
     const unchanged = getCanonicalGuardianRequest(req.id);
@@ -386,14 +431,8 @@ describe("end-to-end: tool grant escalation -> approval -> consume", () => {
 // ---------------------------------------------------------------------------
 
 describe("inline wait-and-resume", () => {
-  const events: ToolLifecycleEvent[] = [];
-  const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
-    events.push(event);
-  };
-
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
   });
@@ -647,15 +686,15 @@ describe("inline wait-and-resume", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
     const elapsed = Date.now() - start;
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
     // Unknown actors get the generic fail-closed message, not the wait behavior
     expect(result.result.content).toContain("verified channel identity");
     // Should be near-instant, no waiting

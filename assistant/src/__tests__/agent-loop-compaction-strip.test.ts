@@ -16,7 +16,7 @@ import type { PostCompactContext } from "@vellumai/plugin-api";
 import type { AgentEvent } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { ContextWindowConfig } from "../config/types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import {
   createContextWindowManager,
@@ -167,6 +167,7 @@ describe("AgentLoop compaction summarizer input", () => {
       onEvent: (event) => {
         events.push(event);
       },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
@@ -221,6 +222,7 @@ describe("AgentLoop compaction summarizer input", () => {
       onEvent: (event) => {
         events.push(event);
       },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },

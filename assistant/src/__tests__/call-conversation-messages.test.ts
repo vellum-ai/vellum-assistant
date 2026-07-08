@@ -16,10 +16,10 @@ import {
   recordCallEvent,
   updateCallSession,
 } from "../calls/call-store.js";
-import { getMessages } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { getMessages } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 
 await initializeDb();
 

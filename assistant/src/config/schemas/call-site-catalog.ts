@@ -282,29 +282,10 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Infers the category of a skill from its description.",
     domain: "skills",
   },
-  meetConsentMonitor: {
-    id: "meetConsentMonitor",
-    displayName: "Meet Consent Monitor",
-    description: "Monitors meeting consent signals during live calls.",
-    domain: "skills",
-  },
-  meetChatOpportunity: {
-    id: "meetChatOpportunity",
-    displayName: "Meet Chat Opportunity",
-    description: "Identifies opportunities to engage in meeting chat.",
-    domain: "skills",
-  },
   inference: {
     id: "inference",
     displayName: "Inference",
     description: "General-purpose LLM inference call site for skill use.",
-    domain: "skills",
-  },
-  advisor: {
-    id: "advisor",
-    displayName: "Advisor",
-    description:
-      "Stronger reviewer model consulted mid-task to shape or pressure-test the plan.",
     domain: "skills",
   },
   vision: {

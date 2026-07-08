@@ -37,17 +37,42 @@ import {
   resolveProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
+import {
+  MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_CONNECTION_PROVIDER,
+} from "@/domains/settings/ai/constants";
+import { isProviderSelectableForAssistant } from "@/domains/settings/ai/provider-availability";
 import type {
   ConnectionProvider,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
+import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
 // of selecting a provider.
 const CREATE_NEW_PROVIDER_SENTINEL = "__create_new_provider__";
+type EffortSelection = "inherit" | NonNullable<ProfileEntry["effort"]>;
+
+/**
+ * Whether a connection (identified by its stored `provider`) can back a profile
+ * whose provider is `selectedProvider`. The provider-agnostic Vellum-managed
+ * connection stores the `vellum` sentinel but serves every managed-routable
+ * provider, so it counts as available for those.
+ */
+function connectionServesProvider(
+  connectionProvider: string,
+  selectedProvider: string,
+): boolean {
+  if (connectionProvider === selectedProvider) return true;
+  return (
+    connectionProvider === VELLUM_CONNECTION_PROVIDER &&
+    MANAGED_ROUTABLE_PROVIDERS.has(selectedProvider)
+  );
+}
 
 export interface ProfileEditorModalProps {
   isOpen: boolean;
@@ -83,9 +108,9 @@ export interface ProfileEditorModalProps {
    *     delete-then-recreate cycle so omitted fields are reset to default.
    *   - `"merge"` (view mode): the parent skips the delete and sends a
    *     single deep-merge PATCH so unspecified fields (provider, model,
-   *     advanced params) survive. Required for managed-profile policy
-   *     edits — view mode sends only `{label, status}` and we must not
-   *     destroy the seed-owned fields.
+   *     advanced params) survive. View mode's only save is the managed
+   *     re-enable — `{status: "active"}` — and we must not destroy the
+   *     seed-owned fields.
    */
   onSave: (
     name: string,
@@ -166,16 +191,25 @@ function ProfileEditorModalInner({
   const [effectiveMode, setEffectiveMode] = useState<
     "create" | "edit" | "view"
   >(mode);
-  const isReadOnly = effectiveMode === "view";
+  // Managed profiles are read-only: no rename, no reshaping, no disabling —
+  // the only interactive control is the enable-only status toggle when the
+  // profile is disabled. The lock keys off the server-stamped `invariant`
+  // wire flag (the daemon stamps it exactly on the managed-source entries it
+  // freezes), so it must hold even if the parent opens the editor in edit
+  // mode. Customization goes through "Save As New", which switches
+  // `effectiveMode` to "create" and therefore drops the lock on the
+  // duplicate.
+  const isInvariant =
+    initialValues?.invariant === true && effectiveMode !== "create";
+  // The invariant lock forces read-only handling even in edit mode, so Save
+  // takes the partial-merge path and never the delete/recreate cycle the
+  // daemon rejects for managed profiles.
+  const isReadOnly = effectiveMode === "view" || isInvariant;
+  const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
+  const isMobile = useIsMobile();
 
-  // Managed profiles open the editor in view mode (mode === "view") so they
-  // can't be reshaped (provider, model, advanced params) — those are
-  // daemon-seeded. But the user is still allowed to rename them (label)
-  // and disable them (status) without leaving view mode, since those two
-  // fields are user policy, not daemon contract. The Save button at the
-  // footer is gated by `hasViewModeChanges` below so unchanged view-mode
-  // sessions stay close-only.
-  const initialLabel = initialValues?.label ?? "";
+  // Baseline for `hasViewModeChanges`: the enable flip is the only edit
+  // read-only mode permits.
   const initialStatus: ProfileStatus = initialValues?.status ?? "active";
 
   const [label, setLabel] = useState(initialValues?.label ?? "");
@@ -196,10 +230,6 @@ function ProfileEditorModalInner({
   const [status, setStatus] = useState<ProfileStatus>(
     initialValues?.status ?? "active",
   );
-  // Per-profile advisor toggle. Absent/null means ENABLED (default on); only an
-  // explicit `false` disables — so coalesce nil to `true`.
-  const initialAdvisorEnabled = initialValues?.advisorEnabled ?? true;
-  const [advisorEnabled, setAdvisorEnabled] = useState(initialAdvisorEnabled);
   // Connections created inline this session, before the parent's `connections`
   // prop has refetched. Unioned into the available-connections set so a
   // just-created binding is treated as valid immediately — otherwise
@@ -222,9 +252,8 @@ function ProfileEditorModalInner({
     );
 
   // Advanced params — segment controls
-  // effort: "none" is the sentinel for "not overridden"
-  const [effort, setEffort] = useState<NonNullable<ProfileEntry["effort"]>>(
-    initialValues?.effort ?? "none",
+  const [effort, setEffort] = useState<EffortSelection>(
+    initialValues?.effort ?? "inherit",
   );
   // speed: "standard" is the sentinel for "not overridden"
   const [speed, setSpeed] = useState<NonNullable<ProfileEntry["speed"]>>(
@@ -245,27 +274,18 @@ function ProfileEditorModalInner({
       : 0.7,
   );
 
-  // Advanced params — top P. Top P is editable in view mode (managed
-  // profiles), so capture its initial enabled flag + value as the baseline
-  // `hasViewModeChanges` compares against — mirroring `initialAdvisorEnabled`.
-  const initialTopPEnabled = typeof initialValues?.topP === "number";
-  const initialTopP =
-    typeof initialValues?.topP === "number" ? initialValues.topP : 0.95;
-  const [topPEnabled, setTopPEnabled] = useState<boolean>(initialTopPEnabled);
-  const [topP, setTopP] = useState<number>(initialTopP);
+  // Advanced params — top P
+  const [topPEnabled, setTopPEnabled] = useState<boolean>(
+    typeof initialValues?.topP === "number",
+  );
+  const [topP, setTopP] = useState<number>(
+    typeof initialValues?.topP === "number" ? initialValues.topP : 0.95,
+  );
 
-  // True when in view mode and the user has touched one of the fields that
-  // view mode permits editing (label, status, advisor, Top P). Drives the
-  // view-mode Save button's enabled state and the partial-update save path.
-  // Top P is compared on both the enabled flag and the value so flipping the
-  // toggle or dragging the slider both arm Save.
-  const hasViewModeChanges =
-    isReadOnly &&
-    (label !== initialLabel ||
-      status !== initialStatus ||
-      advisorEnabled !== initialAdvisorEnabled ||
-      topPEnabled !== initialTopPEnabled ||
-      (topPEnabled && topP !== initialTopP));
+  // True when read-only mode's one permitted edit — the enable flip
+  // (disabled → active) — has been made. Drives the view-mode Save button's
+  // enabled state and the re-enable save path.
+  const hasViewModeChanges = isReadOnly && status !== initialStatus;
 
   // Advanced params — thinking
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(
@@ -326,11 +346,15 @@ function ProfileEditorModalInner({
   }, [connections, locallyCreatedConnections]);
 
   // Connections matching the currently selected provider. Also used by
-  // the save handler for binding resolution.
+  // the save handler for binding resolution. The provider-agnostic `vellum`
+  // connection serves managed-routable providers, so it counts as available
+  // for those even though its own `provider` is the `vellum` sentinel.
   const availableConnectionsForProvider = useMemo(
     () =>
       provider
-        ? effectiveConnections.filter((c) => c.provider === provider)
+        ? effectiveConnections.filter((c) =>
+            connectionServesProvider(c.provider, provider),
+          )
         : [],
     [provider, effectiveConnections],
   );
@@ -364,13 +388,16 @@ function ProfileEditorModalInner({
 
   function handleProviderChange(newProvider: ConnectionProvider) {
     if (newProvider === provider) return;
+    // vellum is a connection type, not a selectable profile LLM provider — it's
+    // filtered out of the picker; this narrows ConnectionProvider to LlmProvider.
+    if (newProvider === "vellum") return;
     setProvider(newProvider);
     setModel("");
     // Auto-select connection: if exactly one connection exists for the new
     // provider, select it automatically. If multiple exist, clear so the user
     // must pick. If zero, clear.
-    const connectionsForProvider = effectiveConnections.filter(
-      (c) => c.provider === newProvider,
+    const connectionsForProvider = effectiveConnections.filter((c) =>
+      connectionServesProvider(c.provider, newProvider),
     );
     setProviderConnection(
       connectionsForProvider.length === 1 ? connectionsForProvider[0].name : "",
@@ -378,7 +405,7 @@ function ProfileEditorModalInner({
     // Reset all advanced params when provider changes
     setMaxTokens(null);
     setContextWindowMaxInputTokens(null);
-    setEffort("none");
+    setEffort("inherit");
     setSpeed("standard");
     setVerbosity("medium");
     setTemperatureEnabled(false);
@@ -453,6 +480,11 @@ function ProfileEditorModalInner({
   // provider + connection, collapse the sub-form, surface the helper note,
   // and invalidate the connections query so the dropdown picks up the row.
   function handleProviderCreated(connection: ProviderConnection) {
+    // The create form can't produce a vellum connection; bail before touching
+    // any state so the sub-form can't get stuck, and narrow the
+    // ConnectionProvider to the LlmProvider that setProvider accepts.
+    const newProvider = connection.provider;
+    if (newProvider === "vellum") return;
     // Optimistically register the new connection locally so the binding is
     // valid immediately (the parent `connections` refetch below is async).
     setLocallyCreatedConnections((prev) =>
@@ -460,7 +492,7 @@ function ProfileEditorModalInner({
         ? prev
         : [...prev, connection],
     );
-    setProvider(connection.provider);
+    setProvider(newProvider);
     setProviderConnection(connection.name);
     setModel("");
     setCreatingProvider(false);
@@ -500,36 +532,17 @@ function ProfileEditorModalInner({
 
   async function handleSave() {
     if (isInvalid && !isReadOnly) return;
-    // View mode is reserved for managed profiles. The user can rename them
-    // (label) and disable them (status) without leaving view mode, but
-    // everything else (provider, model, advanced params, binding) belongs
-    // to the daemon seed and must NOT be in the request body — the daemon
-    // would reject the request as a managed-profile mutation otherwise.
-    //
-    // `mode: "merge"` tells the parent to skip its delete-then-recreate
-    // cycle and send a single deep-merge PATCH. Without this, the seed
-    // fields (provider, model, advanced params) would be destroyed by
-    // the recreate step that only writes back the partial `{label, status}`
-    // entry.
+    // Read-only (managed) profiles reach Save only via the enable flip — the
+    // daemon rejects every other mutation on them — so the body is exactly
+    // `{status: "active"}`. `mode: "merge"` tells the parent to skip its
+    // delete-then-recreate cycle and send a single deep-merge PATCH so the
+    // seed-owned fields (provider, model, advanced params) stay intact.
     if (isReadOnly) {
       if (!hasViewModeChanges) return;
       setSaving(true);
       setSaveError(null);
       try {
-        const entry: ProfileEntry = {
-          label: label.trim() || null,
-          status,
-          advisorEnabled,
-        };
-        // Top P is the one advanced param managed profiles may override.
-        // Mirror the create/edit build-entry logic: enabled → number,
-        // cleared → null. Only when the selected provider/model surfaces the
-        // control. `mode: "merge"` means sending just this changed subset
-        // leaves the seed-owned fields intact.
-        if (visibility.topP) {
-          entry.topP = topPEnabled ? topP : null;
-        }
-        await onSave(keyTrimmed, entry, { mode: "merge" });
+        await onSave(keyTrimmed, { status: "active" }, { mode: "merge" });
       } catch {
         setSaveError("Failed to save profile. Please try again.");
       } finally {
@@ -577,7 +590,7 @@ function ProfileEditorModalInner({
       if (visibility.contextWindow && contextWindowMaxInputTokens !== null) {
         entry.contextWindow = { maxInputTokens: contextWindowMaxInputTokens };
       }
-      if (visibility.effort && effort !== "none") {
+      if (visibility.effort && effort !== "inherit") {
         entry.effort = effort;
       }
       if (visibility.speed && speed !== "standard") {
@@ -624,13 +637,6 @@ function ProfileEditorModalInner({
       } else if (status !== "active") {
         entry.status = status;
       }
-      // Advisor toggle — always include in edit mode; omit in create when
-      // enabled (absent/null already means enabled, so the default round-trips).
-      if (effectiveMode === "edit") {
-        entry.advisorEnabled = advisorEnabled;
-      } else if (!advisorEnabled) {
-        entry.advisorEnabled = advisorEnabled;
-      }
       // Do NOT include source or name
       await onSave(keyTrimmed, entry);
     } catch {
@@ -664,6 +670,7 @@ function ProfileEditorModalInner({
         value={label}
         onChange={(e) => handleLabelChange(e.target.value)}
         placeholder="e.g. Fast & Cheap"
+        disabled={isReadOnly}
         fullWidth
       />
     </div>
@@ -712,30 +719,23 @@ function ProfileEditorModalInner({
     </div>
   );
 
-  const activeToggle = (
-    <Toggle
-      checked={status === "active"}
-      onChange={(v) => setStatus(v ? "active" : "disabled")}
-      label="Active"
-    />
-  );
-
-  const advisorToggle = (
-    <Toggle
-      checked={advisorEnabled}
-      onChange={setAdvisorEnabled}
-      label="Advisor"
-      helperText="Let the model consult a stronger advisor model while using this profile."
-    />
-  );
+  // An active read-only (managed) profile shows no status toggle (it cannot
+  // be disabled); a disabled one keeps an enable-only toggle, mirroring the
+  // manage-profiles list item and the daemon's one-directional status rule.
+  const activeToggle =
+    !isReadOnly || status !== "active" ? (
+      <Toggle
+        checked={status === "active"}
+        onChange={(v) => setStatus(v ? "active" : "disabled")}
+        label="Active"
+        className="touch-mobile:mt-2 touch-mobile:[&_button]:h-7 touch-mobile:[&_button]:w-10 touch-mobile:[&_button>span]:h-6 touch-mobile:[&_button>span]:w-6"
+      />
+    ) : null;
 
   const advancedParamsNode = (
     <ProfileAdvancedParams
       visibility={visibility}
       isReadOnly={isReadOnly}
-      // Top P is user policy on managed profiles too, so it stays editable in
-      // view mode while the other advanced params remain locked by isReadOnly.
-      topPReadOnly={false}
       model={model}
       selectedModel={selectedModel}
       defaultMaxOutputTokens={defaultMaxOutputTokens}
@@ -788,6 +788,14 @@ function ProfileEditorModalInner({
       label: string;
     }[] = [];
     for (const c of effectiveConnections) {
+      if (
+        !isProviderSelectableForAssistant(
+          c.provider,
+          activeAssistantIsSelfHosted,
+        )
+      ) {
+        continue;
+      }
       if (!seen.has(c.provider)) {
         seen.add(c.provider);
         opts.push({
@@ -801,7 +809,7 @@ function ProfileEditorModalInner({
       label: "+ Create new provider",
     });
     return opts;
-  }, [effectiveConnections]);
+  }, [activeAssistantIsSelfHosted, effectiveConnections]);
 
   const createProviderSection = (
     <div className="space-y-4">
@@ -813,7 +821,7 @@ function ProfileEditorModalInner({
           >
             Provider
           </label>
-          {providerMissing && !creatingProvider ? (
+          {providerMissing && !creatingProvider && !isMobile ? (
             <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
               Pick a provider
             </span>
@@ -920,7 +928,6 @@ function ProfileEditorModalInner({
             {keyField}
             {descriptionField}
             {activeToggle}
-            {advisorToggle}
 
             {/* Advanced params — collapsed by default in create mode. */}
             {createAdvancedDisclosure}
@@ -936,7 +943,6 @@ function ProfileEditorModalInner({
             {descriptionField}
             {keyField}
             {activeToggle}
-            {advisorToggle}
 
             <ProfileEditorProviderSection
               provider={provider}
@@ -959,10 +965,15 @@ function ProfileEditorModalInner({
       </Modal.Body>
 
       <Modal.Footer>
-        {effectiveMode === "view" ? (
+        {/* `isReadOnly` (not `effectiveMode === "view"`) picks the footer so
+            an invariant profile opened in edit mode still gets the safe
+            footer: Close, Save As New, and a Save gated by
+            `hasViewModeChanges` that only ever takes the merge path. */}
+        {isReadOnly ? (
           <>
             <Button
               variant="outlined"
+              className="touch-mobile:h-10"
               onClick={onCancel}
               disabled={saving}
               data-testid="modal-cancel-btn"
@@ -971,6 +982,7 @@ function ProfileEditorModalInner({
             </Button>
             <Button
               variant="outlined"
+              className="touch-mobile:h-10"
               onClick={() => {
                 setEffectiveMode("create");
                 setKey("");
@@ -980,12 +992,12 @@ function ProfileEditorModalInner({
             >
               Save As New
             </Button>
-            {/* Save in view mode persists ONLY label and status changes
-                (managed profile policy fields). The button is gated by
-                `hasViewModeChanges` so an unchanged view session can't
-                round-trip a no-op write. */}
+            {/* Save in view mode persists ONLY the status re-enable. The
+                button is gated by `hasViewModeChanges` so an unchanged view
+                session can't round-trip a no-op write. */}
             <Button
               variant="primary"
+              className="touch-mobile:h-10"
               onClick={() => void handleSave()}
               disabled={!hasViewModeChanges || saving}
               data-testid="modal-save-btn"
@@ -997,6 +1009,7 @@ function ProfileEditorModalInner({
           <>
             <Button
               variant="outlined"
+              className="touch-mobile:h-10"
               onClick={onCancel}
               disabled={saving}
               data-testid="modal-cancel-btn"
@@ -1005,6 +1018,7 @@ function ProfileEditorModalInner({
             </Button>
             <Button
               variant="primary"
+              className="touch-mobile:h-10"
               onClick={() => void handleSave()}
               disabled={isInvalid || saving}
               data-testid="modal-save-btn"

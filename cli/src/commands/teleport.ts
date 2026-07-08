@@ -33,6 +33,7 @@ import {
   localRuntimeExportToGcs,
   localRuntimeIdentity,
   localRuntimeImportFromGcs,
+  localRuntimePreflightFromGcs,
   localRuntimePollJobStatus,
   MigrationInProgressError,
 } from "../lib/local-runtime-client.js";
@@ -707,11 +708,46 @@ async function importToAssistant(
 
   if (cloud === "local" || cloud === "docker") {
     if (dryRun) {
-      // TODO(cli): support dry-run against local targets
-      console.error(
-        "Error: --dry-run is not yet supported for local or docker targets (no preflight-from-gcs endpoint on the runtime).",
+      console.log("Running preflight analysis...\n");
+
+      // Query the target runtime's version before requesting a signed
+      // download URL — the platform uses it for the bundle compatibility check.
+      let targetRuntimeVersion: string;
+      try {
+        const identity = await callRuntimeWithAuthRetry(entry, (token) =>
+          localRuntimeIdentity(entry, token),
+        );
+        targetRuntimeVersion = identity.version;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+          `Error: Could not read target runtime version from '${entry.assistantId}': ${msg}`,
+        );
+        console.error(`Try: vellum wake ${entry.assistantId}`);
+        process.exit(1);
+      }
+
+      let bundleUrl: string;
+      try {
+        const result = await platformRequestSignedUrl(
+          { operation: "download", bundleKey, targetRuntimeVersion },
+          platformToken,
+          bundlePlatformUrl,
+        );
+        bundleUrl = result.url;
+      } catch (err) {
+        if (err instanceof VersionMismatchError) {
+          console.error(`Error: ${err.message}`);
+          process.exit(1);
+        }
+        throw err;
+      }
+
+      const preflightData = await callRuntimeWithAuthRetry(entry, (token) =>
+        localRuntimePreflightFromGcs(entry, token, { bundleUrl }),
       );
-      process.exit(1);
+      printPreflightSummary(preflightData as unknown as PreflightResponse);
+      return;
     }
 
     // Ask the platform for a signed download URL and hand it to the local
@@ -1087,6 +1123,7 @@ async function tryInjectPlatformCredentials(
       fetchCurrentVersion(entry.runtimeUrl),
       fetchAssistantIngressUrl(entry.runtimeUrl, entry.bearerToken),
     ]);
+    const platformUrl = getPlatformUrl();
     const registration = await ensureSelfHostedLocalRegistration(
       token,
       orgId,
@@ -1094,9 +1131,15 @@ async function tryInjectPlatformCredentials(
       entry.assistantId,
       "cli",
       assistantVersion,
-      getPlatformUrl(),
+      platformUrl,
       ingressUrl,
     );
+    saveAssistantEntry({
+      ...entry,
+      platformAssistantId: registration.assistant.id,
+      platformBaseUrl: platformUrl,
+      platformOrganizationId: orgId,
+    });
 
     // Resolve the API key: 1) fresh from registration, 2) existing from
     // daemon credential store, 3) reprovision as last resort (revokes old key).
@@ -1128,7 +1171,7 @@ async function tryInjectPlatformCredentials(
       bearerToken: entry.bearerToken,
       assistantApiKey,
       platformAssistantId: registration.assistant.id,
-      platformBaseUrl: getPlatformUrl(),
+      platformBaseUrl: platformUrl,
       organizationId: orgId,
       userId: user.id,
       webhookSecret: registration.webhook_secret,
@@ -1231,18 +1274,8 @@ export async function teleport(): Promise<void> {
         process.exit(1);
       }
 
-      // Dry-run feasibility check — reject local/docker targets BEFORE any
-      // export work. The local runtime has no preflight-from-gcs endpoint yet,
-      // so we can't actually run a dry-run against it; burning a GCS upload
-      // just to fail afterwards would be wasteful.
-      // TODO(cli): support dry-run against local targets (needs a
-      // preflight-from-gcs endpoint on the runtime).
-      if (toCloud === "local" || toCloud === "docker") {
-        console.error(
-          "Error: --dry-run is not yet supported for local or docker targets (no preflight-from-gcs endpoint on the runtime).",
-        );
-        process.exit(1);
-      }
+      // Nothing to reject — preflight-from-gcs is now implemented for all
+      // target topologies including local and docker.
 
       // Version guard: block platform→non-platform when target is behind
       if (fromCloud === "vellum" && toCloud !== "vellum") {

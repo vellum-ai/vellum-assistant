@@ -56,7 +56,6 @@ export function shouldSuppressGenericChatErrorNotice(
   return (
     getChatBillingBannerDecision(error) !== null ||
     error?.code === PROVIDER_NOT_CONFIGURED_CODE ||
-    error?.code === MANAGED_KEY_INVALID_CODE ||
     error?.displayAs === "modal"
   );
 }
@@ -65,4 +64,10 @@ export function shouldShowGenericChatErrorNotice(
   error: ChatErrorLike | null | undefined,
 ): boolean {
   return !!error && !shouldSuppressGenericChatErrorNotice(error);
+}
+
+export function isManagedCredentialChatError(
+  error: ChatErrorLike | null | undefined,
+): boolean {
+  return error?.code === MANAGED_KEY_INVALID_CODE;
 }

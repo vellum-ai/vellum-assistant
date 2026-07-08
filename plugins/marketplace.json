@@ -70,7 +70,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/marketing-expert",
-        "ref": "15d1f38c2e3c82b8f206ea8009fb158c5ba4746f"
+        "ref": "6a85ee33e184c2be56ed63cd5681d1287a941eff"
       },
       "description": "Acts as a full-stack marketing expert for any business (B2B or B2C): an on-demand persona plus playbook skills (positioning, demand planning, launches, content & copywriting, brand voice, email sequences, SEO & GEO, competitive teardown, board reporting) and deterministic funnel/positioning/GTM/competitive tools.",
       "category": "marketing",
@@ -106,11 +106,107 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/git-workflow",
-        "ref": "6a8a8df108615c3fdae2bb5c512c2b6632047dd6"
+        "ref": "829407aa93b63b8bca4717624533f2fc7f702a5d"
       },
       "description": "Git workflow tools and multi-perspective code review: branch management, push, stash, PR creation/review/merge/checkout, diffs, logs, changelog generation, and parallel subagent code review with confidence scoring.",
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/git-workflow",
+      "license": "MIT"
+    },
+    {
+      "name": "reading-pal",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/reading-pal",
+        "ref": "5219474719e67db7ea64848f6bd2a0b7312e4f27"
+      },
+      "description": "Your reading life in one plugin. Track your TBR pile, get guilt-tripped about your backlog, find your next read, and sync from Goodreads.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/reading-pal",
+      "license": "MIT"
+    },
+    {
+      "name": "writing-coach",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/writing-coach",
+        "ref": "9cb2289343fed2fd6ad8b0bb5db07616d1c8181c"
+      },
+      "description": "A writing coach in your pocket. Daily prompts that escalate with your streak, savage-but-constructive draft roasts, query letter critiques, and a word count enforcer that guilt-trips you when you skip.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/writing-coach",
+      "license": "MIT"
+    },
+    {
+      "name": "fitness-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/fitness-companion",
+        "ref": "fe4e02e2b514207a37f2a7e9f9c500ec8a73edcb"
+      },
+      "description": "Fitness and nutrition companion. Logs meals, workouts, and weight; looks up nutrition data from OpenFoodFacts; calculates macro targets; and injects daily fitness context into every conversation.",
+      "category": "health",
+      "homepage": "https://github.com/vellum-ai/fitness-companion",
+      "license": "MIT"
+    },
+    {
+      "name": "motion-design",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/motion-design",
+        "ref": "9cdc798c26e0141dcdf6887d7707559c38bfe00e"
+      },
+      "description": "Teaches the assistant to build polished UI animations with Motion (motion.dev) for React: animated product mockups, chat replays, typing effects, and staggered reveals, with a complete animated chat example included.",
+      "category": "creative",
+      "homepage": "https://github.com/vellum-ai/motion-design",
+      "license": "MIT"
+    },
+    {
+      "name": "travel-planner",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/travel-planner",
+        "ref": "10c2c4878b017997cb6766b8204b9803c56bc6cf"
+      },
+      "description": "A travel EA for your assistant. Remembers how you travel (carrier, miles, hotel budget, card benefits), keeps per-trip records, watches Gmail for booking changes, syncs your calendar, and emails an EA-style trip brief 48 hours before departure.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/AnitaKirkovska/travel-planner",
+      "license": "MIT"
+    },
+    {
+      "name": "astrology-horoscope",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/astrology-horoscope",
+        "ref": "d226ce2e0a021e12cbf89ca7313f7c76a0bd8e39"
+      },
+      "description": "Western tropical natal chart and transit computation. Local ephemeris (astronomy-engine, no API keys) for planet positions, ascendant/midheaven, whole-sign houses, and aspects, plus a natal-reading skill that interprets the raw chart into a readable report.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/astrology-horoscope",
+      "license": "MIT"
+    },
+    {
+      "name": "polyglot",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/polyglot",
+        "ref": "ab607b7c60b64b0ac5c6bf01609840a004cfd002"
+      },
+      "description": "Ambient language acquisition through your assistant. Three graduated modes (practice, ambient, immersive) weave a target language into your real conversations, with SM-2 spaced repetition, error-pattern tracking, and CEFR level history.",
+      "category": "education",
+      "homepage": "https://github.com/vellum-ai/polyglot",
+      "license": "MIT"
+    },
+    {
+      "name": "amex-perk-reminder",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/amex-perk-reminder",
+        "ref": "48649b3e9f5c37153c7a8b2887a740eadd7c0b1e"
+      },
+      "description": "Track every credit on the Amex cards you hold (Platinum, Gold, Business Platinum, Delta Gold/Platinum/Reserve) with status-aware reminders before any window closes.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/AnitaKirkovska/amex-perk-reminder",
       "license": "MIT"
     }
   ]

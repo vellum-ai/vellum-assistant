@@ -26,15 +26,15 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 import { invalidateConfigCache } from "../../../config/loader.js";
-import { createConversation } from "../../../memory/conversation-crud.js";
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { recordUsageEvent } from "../../../memory/llm-usage-store.js";
+import { createConversation } from "../../../persistence/conversation-crud.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { recordUsageEvent } from "../../../persistence/llm-usage-store.js";
+import { rawRun } from "../../../persistence/raw-query.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_SOURCE,
-} from "../../../memory/memory-retrospective-constants.js";
-import { rawRun } from "../../../memory/raw-query.js";
+} from "../../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { ROUTES } from "../retrospective-routes.js";
 import type { RouteDefinition } from "../types.js";
 
@@ -63,6 +63,7 @@ function insertMessage(
   createdAt: number,
 ): void {
   rawRun(
+    "test:insertMessage",
     "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
     `msg-${conversationId}-${role}-${createdAt}`,
     conversationId,
@@ -74,6 +75,7 @@ function insertMessage(
 
 function setCreatedAt(conversationId: string, createdAt: number): void {
   rawRun(
+    "test:setCreatedAt",
     "UPDATE conversations SET created_at = ? WHERE id = ?",
     createdAt,
     conversationId,
@@ -105,6 +107,7 @@ function recordUsageCostAt(
     { estimatedCostUsd, pricingStatus: "priced" },
   );
   rawRun(
+    "test:setUsageCreatedAt",
     "UPDATE llm_usage_events SET created_at = ? WHERE id = ?",
     createdAt,
     event.id,
@@ -268,6 +271,7 @@ describe("listRetrospectiveRuns handler", () => {
       source: MEMORY_RETROSPECTIVE_SOURCE,
     });
     rawRun(
+      "test:setCreatedAtAndCost",
       "UPDATE conversations SET created_at = ?, total_estimated_cost = ? WHERE id = ?",
       1000,
       0.42,

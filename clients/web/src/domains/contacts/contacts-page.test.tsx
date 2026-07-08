@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
 import { ApiError } from "@/utils/api-errors";
 import type { ContactPayload } from "@/domains/contacts/types";
@@ -63,6 +64,7 @@ mock.module("@/domains/contacts/contacts-gateway", () => ({
   },
   deleteContact: async () => {},
   verifyContactChannel: async () => {},
+  linkContactChannelAccount: async () => GUARDIAN,
   redeemA2AInvite: async () => ({ success: true }),
 }));
 
@@ -114,7 +116,11 @@ function Wrapper({ children }: { children: ReactNode }) {
       mutations: { retry: false },
     },
   });
-  return createElement(QueryClientProvider, { client }, children);
+  return createElement(
+    MemoryRouter,
+    null,
+    createElement(QueryClientProvider, { client }, children),
+  );
 }
 
 function getInputByPlaceholder(placeholder: string): HTMLInputElement {
@@ -156,6 +162,55 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("ContactsPage legacy setup deep link", () => {
+  test("?setup= deep link redirects to the Channels tab with the param intact", async () => {
+    // Old builds' mobile chat handoff (and saved links) pointed channel
+    // setup at this page; the credential forms now live only on the
+    // Channels tab, so the page must forward the link there.
+    function ChannelsMarker() {
+      const location = useLocation();
+      return createElement(
+        "div",
+        { "data-testid": "channels-page" },
+        location.search,
+      );
+    }
+
+    render(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ["/assistant/contacts?setup=slack"] },
+        createElement(
+          QueryClientProvider,
+          {
+            client: new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            }),
+          },
+          createElement(
+            Routes,
+            null,
+            createElement(Route, {
+              path: "/assistant/contacts",
+              element: createElement(ContactsPage, { assistantId: "asst-1" }),
+            }),
+            createElement(Route, {
+              path: "/assistant/channels",
+              element: createElement(ChannelsMarker),
+            }),
+          ),
+        ),
+      ),
+    );
+
+    await waitFor(() => {
+      const marker = document.querySelector('[data-testid="channels-page"]');
+      expect(marker).not.toBeNull();
+      expect(marker!.textContent).toBe("?setup=slack");
+    });
+  });
+});
 
 describe("ContactsPage mutation error handling", () => {
   test("a failed contact save surfaces a toast and does not reject", async () => {

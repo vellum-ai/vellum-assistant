@@ -13,7 +13,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { TrustContext } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 
 // ── Module mocks ─────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ let bootstrapCalls = 0;
 let bootstrapLastArgs: Record<string, unknown> | null = null;
 const STUB_CONVERSATION_ID = "conv-test-1";
 
-mock.module("../../memory/conversation-bootstrap.js", () => ({
+mock.module("../../persistence/conversation-bootstrap.js", () => ({
   bootstrapConversation: (opts: Record<string, unknown>) => {
     bootstrapCalls += 1;
     bootstrapLastArgs = opts;
@@ -35,7 +35,7 @@ const addMessageCalls: Array<{
   content: string;
 }> = [];
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: async (conversationId: string, role: string, content: string) => {
     addMessageCalls.push({ conversationId, role, content });
     return { id: `msg-${addMessageCalls.length}` };
@@ -159,7 +159,24 @@ describe("runBackgroundJob", () => {
       trustContext: TRUST_CONTEXT,
       callSite: "heartbeatAgent",
     });
+    // No requestOrigin set on baseOpts → none threaded to processMessage, so no
+    // origin-scoped permission grant can fire for an ordinary background job.
+    expect(
+      (processMessageCalls[0].options as { requestOrigin?: string })
+        .requestOrigin,
+    ).toBeUndefined();
     expect(emitCalls).toHaveLength(0);
+  });
+
+  test("threads requestOrigin into processMessage options when set", async () => {
+    await runBackgroundJob(baseOpts({ requestOrigin: "memory_consolidation" }));
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options).toMatchObject({
+      trustContext: TRUST_CONTEXT,
+      callSite: "heartbeatAgent",
+      requestOrigin: "memory_consolidation",
+    });
   });
 
   test("generic exception: returns ok=false with errorKind=exception and emits activity.failed with dedupeKey", async () => {

@@ -38,12 +38,12 @@ import { join } from "node:path";
 
 import { createTwoFilesPatch } from "diff";
 
+import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
+import type { FetchLike } from "./fetch-like.js";
 import {
   DEFAULT_PLUGIN_REF,
-  type FetchLike,
   type GitRunner,
-  INSTALL_META_FILENAME,
   materializePluginTree,
   type PluginFetchSource,
   PluginNotFoundError,
@@ -141,7 +141,9 @@ export interface DiffPluginDeps {
 function isBinary(buf: Buffer): boolean {
   const len = Math.min(buf.length, 8000);
   for (let i = 0; i < len; i++) {
-    if (buf[i] === 0) return true;
+    if (buf[i] === 0) {
+      return true;
+    }
   }
   return false;
 }
@@ -214,7 +216,9 @@ function baselineContent(
   recorded: Fingerprint,
   materialized: Fingerprint,
 ): FileContent | null {
-  if (materialized.files[path] !== recorded.files[path]) return null;
+  if (materialized.files[path] !== recorded.files[path]) {
+    return null;
+  }
   return readContent(join(baselineRoot, path));
 }
 
@@ -232,12 +236,8 @@ function buildFileDiffs(
   target: string,
   recorded: Fingerprint,
 ): PluginFileDiff[] {
-  const comparison = compareFingerprint(target, recorded, [
-    INSTALL_META_FILENAME,
-  ]);
-  const materialized = computeFingerprint(baselineRoot, [
-    INSTALL_META_FILENAME,
-  ]);
+  const comparison = compareFingerprint(target, recorded, PRESERVED_ENTRIES);
+  const materialized = computeFingerprint(baselineRoot, PRESERVED_ENTRIES);
 
   const files: PluginFileDiff[] = [];
   for (const path of comparison.modified) {

@@ -307,6 +307,32 @@ describe("classifyConversationError", () => {
     });
   });
 
+  describe("empty-request-messages errors", () => {
+    it("classifies Anthropic 400 'at least one message is required' with a friendly message", () => {
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages: at least one message is required"},"request_id":"req_011CcdT5QRtS4tapsQiAcJgz"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("empty_request_messages");
+      expect(result.userMessage).not.toMatch(
+        /at least one message is required/,
+      );
+      expect(result.userMessage.toLowerCase()).toContain("no content");
+    });
+
+    it("classifies an empty-messages ProviderError without a statusCode", () => {
+      const err = new ProviderError(
+        "Anthropic API error: messages: at least one message is required",
+        "anthropic",
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.errorCategory).toBe("empty_request_messages");
+    });
+  });
+
   describe("image-input dimension errors via ProviderError (400)", () => {
     it("classifies Anthropic 400 with image-dimension overflow as image_dimensions_too_large (non-retryable)", () => {
       const err = new ProviderError(
@@ -520,24 +546,6 @@ describe("classifyConversationError", () => {
     });
   });
 
-  describe("regenerate phase", () => {
-    it("returns REGENERATE_FAILED with nested classification info", () => {
-      const ctx: ErrorContext = { phase: "regenerate" };
-      const result = classifyConversationError(new Error("ECONNREFUSED"), ctx);
-      expect(result.code).toBe("REGENERATE_FAILED");
-      expect(result.retryable).toBe(true);
-      expect(result.userMessage).toContain("regenerate");
-      expect(result.errorCategory).toContain("regenerate:");
-    });
-
-    it("returns REGENERATE_FAILED for generic errors", () => {
-      const ctx: ErrorContext = { phase: "regenerate" };
-      const result = classifyConversationError(new Error("unknown issue"), ctx);
-      expect(result.code).toBe("REGENERATE_FAILED");
-      expect(result.retryable).toBe(true);
-    });
-  });
-
   describe("generic errors", () => {
     it("classifies unknown errors as CONVERSATION_PROCESSING_FAILED with error summary", () => {
       const result = classifyConversationError(
@@ -621,6 +629,24 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_INVALID_KEY");
       expect(result.retryable).toBe(false);
       expect(result.errorCategory).toBe("provider_invalid_key");
+    });
+
+    it("classifies managed-proxy auth failures as managed credential refresh failures", () => {
+      providerRoutingSources.anthropic = "managed-proxy";
+      const err = new ProviderError(
+        'Anthropic API error (403): {"detail":"API key has expired."}',
+        "anthropic",
+        403,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("MANAGED_KEY_INVALID");
+      expect(result.userMessage).toBe(
+        "Couldn't refresh assistant credentials.",
+      );
+      expect(result.retryable).toBe(false);
+      expect(result.errorCategory).toBe("managed_key_invalid");
     });
 
     it("classifies ProviderError 401 with 'invalid x-api-key' message as PROVIDER_INVALID_KEY", () => {

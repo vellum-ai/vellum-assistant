@@ -1,20 +1,24 @@
+import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
 import { getConfig } from "../config/loader.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
+import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { getConversation } from "../memory/conversation-crud.js";
-import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
+import { getConversation } from "../persistence/conversation-crud.js";
+import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
+import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
 import { runSequencesOnce } from "../sequence/engine.js";
 import { areCoreToolsInitialized } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
-import { runWatchersOnce, type WatcherNotifier } from "../watcher/engine.js";
+import { runWatchersOnce } from "../watcher/engine.js";
 import { normalizeCapabilityManifest } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
@@ -36,23 +40,123 @@ import {
   scheduleRetry,
   setScheduleRunConversationId,
 } from "./schedule-store.js";
+import {
+  startScheduleWorkerIfEnabled,
+  stopScheduleWorker,
+} from "./worker-control.js";
 
 const log = getLogger("scheduler");
 
-import type { ScheduleMessageProcessor } from "./scheduler-types.js";
-type ScheduleNotifyModeNotifier = (payload: {
+import type { ScheduleMessageOptions } from "./scheduler-types.js";
+
+/**
+ * Run a scheduled message through the daemon's agent pipeline, translating the
+ * schedule's `trustClass` into the trust context `processMessage` expects.
+ */
+async function dispatchScheduleMessage(
+  conversationId: string,
+  message: string,
+  options?: ScheduleMessageOptions,
+): Promise<void> {
+  await processMessage(
+    conversationId,
+    message,
+    options
+      ? {
+          ...(options.trustClass
+            ? {
+                trustContext: {
+                  sourceChannel: "vellum",
+                  trustClass: options.trustClass,
+                },
+              }
+            : {}),
+          ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
+          ...(options.overrideProfile
+            ? { overrideProfile: options.overrideProfile }
+            : {}),
+          ...(options.cronRunId ? { cronRunId: options.cronRunId } : {}),
+        }
+      : undefined,
+  );
+}
+
+/** Emit the attention signal for a `notify`-mode schedule firing. */
+async function emitScheduleNotifySignal(payload: {
   id: string;
   label: string;
   message: string;
   routingIntent: RoutingIntent;
   routingHints: Record<string, unknown>;
-}) => void | Promise<void>;
+  deepLinkConversationId?: string;
+}): Promise<void> {
+  await emitNotificationSignal({
+    sourceEventName: "schedule.notify",
+    sourceChannel: "scheduler",
+    sourceContextId: payload.id,
+    attentionHints: {
+      requiresAction: true,
+      urgency: "high",
+      isAsyncBackground: false,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      scheduleId: payload.id,
+      label: payload.label,
+      message: payload.message,
+      ...(payload.deepLinkConversationId
+        ? { deepLinkConversationId: payload.deepLinkConversationId }
+        : {}),
+    },
+    routingIntent: payload.routingIntent,
+    routingHints: payload.routingHints,
+    conversationMetadata: {
+      groupId: "system:scheduled",
+      scheduleJobId: payload.id,
+      source: "schedule",
+    },
+    dedupeKey: `schedule:notify:${payload.id}:${Date.now()}`,
+    throwOnError: true,
+  });
+}
 
-type ScheduleConversationCreatedNotifier = (info: {
+/** Emit the attention signal for a watcher notification. */
+function emitWatcherNotifySignal(notification: {
+  title: string;
+  body: string;
+}): void {
+  void emitNotificationSignal({
+    sourceEventName: "watcher.notification",
+    sourceChannel: "watcher",
+    sourceContextId: `watcher-${Date.now()}`,
+    attentionHints: {
+      requiresAction: false,
+      urgency: "low",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+    contextPayload: {
+      title: notification.title,
+      body: notification.body,
+    },
+    dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
+  });
+}
+
+/** Broadcast + refresh the conversation list when a schedule creates one. */
+function broadcastScheduleConversationCreated(info: {
   conversationId: string;
   scheduleJobId: string;
   title: string;
-}) => void;
+}): void {
+  broadcastMessage({
+    type: "schedule_conversation_created",
+    conversationId: info.conversationId,
+    scheduleJobId: info.scheduleJobId,
+    title: info.title,
+  });
+  publishConversationListChanged("created");
+}
 
 export interface SchedulerHandle {
   runOnce(): Promise<number>;
@@ -92,13 +196,13 @@ const WAKE_MAX_RETRIES = 20;
  * fires an `activity.failed` notification so the user sees that a job
  * permanently failed rather than just silently disappearing.
  */
-function handleExecutionFailure(params: {
+async function handleExecutionFailure(params: {
   job: ScheduleJob;
   errorMsg: string;
   isOneShot: boolean;
-}): void {
+}): Promise<void> {
   const decision = decideRetry(params.job);
-  applyRetryDecision({
+  await applyRetryDecision({
     job: params.job,
     isOneShot: params.isOneShot,
     errorMsg: params.errorMsg,
@@ -117,25 +221,26 @@ function handleExecutionFailure(params: {
   });
 }
 
-export function startScheduler(
-  processMessage: ScheduleMessageProcessor,
-  notifyScheduleOneShot: ScheduleNotifyModeNotifier,
-  watcherNotifier?: WatcherNotifier,
-  onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
-): SchedulerHandle {
+/** The running scheduler, retained so shutdown can stop it. */
+let instance: SchedulerHandle | null = null;
+
+export function startScheduler(): SchedulerHandle {
+  // When the schedule worker owns schedule execution, spawn it now as a child
+  // of the daemon so it is running immediately. Fire-and-forget — a worker
+  // failure must never block boot, and every tick below re-reads the flag so
+  // ownership stays consistent either way.
+  startScheduleWorkerIfEnabled();
+
   let stopped = false;
   let tickRunning = false;
 
   const tick = async () => {
-    if (stopped || tickRunning) return;
+    if (stopped || tickRunning) {
+      return;
+    }
     tickRunning = true;
     try {
-      await runScheduleOnce(
-        processMessage,
-        notifyScheduleOneShot,
-        watcherNotifier,
-        onScheduleConversationCreated,
-      );
+      await runScheduleOnce();
     } catch (err) {
       log.error({ err }, "Schedule tick failed");
     } finally {
@@ -149,57 +254,78 @@ export function startScheduler(
   timer.unref();
   void tick();
 
-  return {
+  instance = {
     async runOnce(): Promise<number> {
-      return runScheduleOnce(
-        processMessage,
-        notifyScheduleOneShot,
-        watcherNotifier,
-        onScheduleConversationCreated,
-      );
+      return runScheduleOnce();
     },
     async runDueWorkOnce(
       options?: SchedulerRunDueWorkOptions,
     ): Promise<SchedulerDueWorkResult> {
-      return runScheduleDueWorkOnce(
-        processMessage,
-        notifyScheduleOneShot,
-        watcherNotifier,
-        onScheduleConversationCreated,
-        options,
-      );
+      return runScheduleDueWorkOnce(options);
     },
     stop(): void {
       stopped = true;
       clearInterval(timer);
     },
   };
+
+  // Publish the initial background wake intent now that the scheduler is live
+  // and its schedules are visible to `computeNextBackgroundWakeIntent`.
+  refreshBackgroundWakeIntent("daemon-startup");
+
+  return instance;
 }
 
-export async function runScheduleOnce(
-  processMessage: ScheduleMessageProcessor,
-  notifyScheduleOneShot: ScheduleNotifyModeNotifier,
-  watcherNotifier?: WatcherNotifier,
-  onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
-): Promise<number> {
-  const result = await runScheduleDueWorkOnce(
-    processMessage,
-    notifyScheduleOneShot,
-    watcherNotifier,
-    onScheduleConversationCreated,
-  );
+/**
+ * Stop the running scheduler if one was started, and SIGTERM the schedule
+ * worker process if one is running. The worker stop is keyed off live state
+ * rather than config: it may have been spawned at startup or out of band via
+ * `assistant schedules worker start`.
+ */
+export function stopScheduler(): void {
+  stopScheduleWorker();
+  if (!instance) {
+    return;
+  }
+  instance.stop();
+  instance = null;
+}
+
+/** The running scheduler, or null if one was never started. */
+export function getScheduler(): SchedulerHandle | null {
+  return instance;
+}
+
+export async function runScheduleOnce(): Promise<number> {
+  const result = await runScheduleDueWorkOnce();
   return result.completed + result.failed + result.skipped;
 }
 
+/**
+ * True while the schedule worker process owns schedule execution. Read from
+ * config on every call so a runtime `assistant schedules worker start`/`stop`
+ * switches ownership without a restart.
+ */
+function scheduleWorkerOwnsSchedules(): boolean {
+  return getConfig().schedules?.worker?.enabled === true;
+}
+
 export async function runScheduleDueWorkOnce(
-  processMessage: ScheduleMessageProcessor,
-  notifyScheduleOneShot: ScheduleNotifyModeNotifier,
-  watcherNotifier?: WatcherNotifier,
-  onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
   options: SchedulerRunDueWorkOptions = {},
 ): Promise<SchedulerDueWorkResult> {
   const now = options.now ?? Date.now();
   const minStartBudgetMs = options.minStartBudgetMs ?? 0;
+  // While `schedules.worker.enabled` is set, the schedule worker process owns
+  // schedule execution: this process leaves every due schedule unclaimed so
+  // exactly one process runs them, and reports none of them as its own
+  // pending work. The flag is re-read from config every tick, so `assistant
+  // schedules worker start`/`stop` switch ownership without a restart.
+  // Watchers and sequences below always run in the daemon.
+  const workerOwnsSchedules = scheduleWorkerOwnsSchedules();
+  const countStillPending = (at: number): number =>
+    options.includeStillPending && !workerOwnsSchedules
+      ? countDueScheduleJobs(at)
+      : 0;
   const result: SchedulerDueWorkResult = {
     claimed: 0,
     completed: 0,
@@ -207,17 +333,12 @@ export async function runScheduleDueWorkOnce(
     skipped: 0,
     stillPending: 0,
   };
-  const mark = (status: "completed" | "failed" | "skipped") => {
-    result[status] += 1;
-  };
 
   if (
     options.deadlineAt != null &&
     options.deadlineAt - Date.now() < minStartBudgetMs
   ) {
-    result.stillPending = options.includeStillPending
-      ? countDueScheduleJobs(now)
-      : 0;
+    result.stillPending = countStillPending(now);
     result.skipped = result.stillPending;
     return result;
   }
@@ -233,14 +354,74 @@ export async function runScheduleDueWorkOnce(
         "Schedule tick skipped during disk pressure cleanup mode",
       );
     }
-    result.stillPending = options.includeStillPending
-      ? countDueScheduleJobs(now)
-      : 0;
+    result.stillPending = countStillPending(now);
     return result;
   }
 
   // ── Schedules (recurring cron/RRULE + one-shot) ─────────────────────
-  const jobs = claimDueSchedules(now);
+  if (!workerOwnsSchedules) {
+    const schedules = await runDueSchedulesOnce(now);
+    result.claimed = schedules.claimed;
+    result.completed += schedules.completed;
+    result.failed += schedules.failed;
+    result.skipped += schedules.skipped;
+  }
+
+  // ── Watchers (event-driven polling) ────────────────────────────────
+  try {
+    const watcherProcessed = await runWatchersOnce(emitWatcherNotifySignal);
+    result.completed += watcherProcessed;
+  } catch (err) {
+    log.error({ err }, "Watcher tick failed");
+  }
+
+  // ── Sequences (multi-step outreach) ──────────────────────────────
+  try {
+    const sequenceProcessed = await runSequencesOnce();
+    result.completed += sequenceProcessed;
+  } catch (err) {
+    log.error({ err }, "Sequence engine tick failed");
+  }
+
+  result.stillPending = countStillPending(Date.now());
+  const processed = result.completed + result.failed + result.skipped;
+  if (processed > 0) {
+    log.info({ processed }, "Schedule tick complete");
+  }
+  return result;
+}
+
+/**
+ * Claim and execute every due schedule (all modes: notify, script, wake,
+ * workflow, execute). Called from the daemon's tick while
+ * `schedules.worker.enabled` is off, and from the schedule worker process's
+ * tick while it is on. Claims are atomic in the schedule store, so a process
+ * whose view of the flag lags a tick behind cannot double-run a job another
+ * process already claimed.
+ */
+export async function runDueSchedulesOnce(
+  now: number = Date.now(),
+): Promise<Omit<SchedulerDueWorkResult, "stillPending">> {
+  const result = { claimed: 0, completed: 0, failed: 0, skipped: 0 };
+  const mark = (status: "completed" | "failed" | "skipped") => {
+    result[status] += 1;
+  };
+
+  const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
+  if (diskPressureGate.action === "skip") {
+    if (shouldLogDiskPressureBackgroundSkip("scheduler-schedules")) {
+      log.warn(
+        {
+          source: "schedule",
+          ...diskPressureBackgroundSkipLogFields(diskPressureGate),
+        },
+        "Due-schedule run skipped during disk pressure cleanup mode",
+      );
+    }
+    return result;
+  }
+
+  const jobs = await claimDueSchedules(now);
   result.claimed = jobs.length;
   for (const job of jobs) {
     const isOneShot = job.expression == null;
@@ -253,22 +434,28 @@ export async function runScheduleDueWorkOnce(
           { jobId: job.id, name: job.name, isOneShot },
           "Firing schedule notification",
         );
-        await notifyScheduleOneShot({
+        await emitScheduleNotifySignal({
           id: job.id,
           label: job.name,
           message: job.message,
           routingIntent: job.routingIntent,
           routingHints: job.routingHints,
+          ...(job.createdFromConversationId
+            ? { deepLinkConversationId: job.createdFromConversationId }
+            : {}),
         });
         if (isOneShot) {
-          const successRunId = createScheduleRun(job.id, `notify-ok:${job.id}`);
-          completeScheduleRun(successRunId, { status: "ok" });
-          completeOneShot(job.id);
+          const successRunId = await createScheduleRun(
+            job.id,
+            `notify-ok:${job.id}`,
+          );
+          await completeScheduleRun(successRunId, { status: "ok" });
+          await completeOneShot(job.id);
         } else {
           // Track recurring notify-mode success so lastStatus resets to ok
           // and retryCount clears after a transient failure.
-          const runId = createScheduleRun(job.id, `notify-ok:${job.id}`);
-          completeScheduleRun(runId, { status: "ok" });
+          const runId = await createScheduleRun(job.id, `notify-ok:${job.id}`);
+          await completeScheduleRun(runId, { status: "ok" });
         }
       } catch (err) {
         log.warn(
@@ -276,9 +463,15 @@ export async function runScheduleDueWorkOnce(
           "Schedule notification failed",
         );
         const errorMsg = err instanceof Error ? err.message : String(err);
-        const errorRunId = createScheduleRun(job.id, `notify-error:${job.id}`);
-        completeScheduleRun(errorRunId, { status: "error", error: errorMsg });
-        handleExecutionFailure({ job, errorMsg, isOneShot });
+        const errorRunId = await createScheduleRun(
+          job.id,
+          `notify-error:${job.id}`,
+        );
+        await completeScheduleRun(errorRunId, {
+          status: "error",
+          error: errorMsg,
+        });
+        await handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
       }
       mark(failed ? "failed" : "completed");
@@ -295,7 +488,7 @@ export async function runScheduleDueWorkOnce(
         mark("skipped");
         continue;
       }
-      const runId = createScheduleRun(job.id, `script:${job.id}`);
+      const runId = await createScheduleRun(job.id, `script:${job.id}`);
       let failed = false;
       try {
         log.info(
@@ -304,18 +497,22 @@ export async function runScheduleDueWorkOnce(
         );
         const result: ScriptResult = await runScript(job.script, {
           timeoutMs: job.timeoutMs ?? undefined,
+          scheduleRunId: runId,
+          scheduleId: job.id,
         });
-        completeScheduleRun(runId, {
+        await completeScheduleRun(runId, {
           status: result.exitCode === 0 ? "ok" : "error",
           output: result.stdout || undefined,
           error: result.stderr || undefined,
         });
         if (result.exitCode === 0) {
-          if (isOneShot) completeOneShot(job.id);
+          if (isOneShot) {
+            await completeOneShot(job.id);
+          }
         } else {
           const errorMsg =
             result.stderr || "Script exited with non-zero status";
-          handleExecutionFailure({ job, errorMsg, isOneShot });
+          await handleExecutionFailure({ job, errorMsg, isOneShot });
           failed = true;
         }
       } catch (err) {
@@ -324,8 +521,8 @@ export async function runScheduleDueWorkOnce(
           { err, jobId: job.id, name: job.name, isOneShot },
           "Script schedule execution failed",
         );
-        completeScheduleRun(runId, { status: "error", error: errorMsg });
-        handleExecutionFailure({ job, errorMsg, isOneShot });
+        await completeScheduleRun(runId, { status: "error", error: errorMsg });
+        await handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
       }
       mark(failed ? "failed" : "completed");
@@ -340,7 +537,9 @@ export async function runScheduleDueWorkOnce(
           { jobId: job.id, name: job.name },
           "Wake schedule missing wakeConversationId — completing as no-op",
         );
-        if (isOneShot) completeOneShot(job.id);
+        if (isOneShot) {
+          await completeOneShot(job.id);
+        }
         mark("skipped");
         continue;
       }
@@ -374,7 +573,7 @@ export async function runScheduleDueWorkOnce(
               },
               "Wake timed out and exceeded max retries — permanently failing",
             );
-            failOneShotPermanently(job.id);
+            await failOneShotPermanently(job.id);
           } else {
             log.warn(
               {
@@ -385,7 +584,7 @@ export async function runScheduleDueWorkOnce(
               },
               "Wake timed out waiting for idle conversation — will retry on next tick",
             );
-            retryOneShot(job.id);
+            await retryOneShot(job.id);
           }
           mark("skipped");
           continue;
@@ -404,15 +603,20 @@ export async function runScheduleDueWorkOnce(
             },
             "Wake not invoked; skipping feed event",
           );
-          if (isOneShot) completeOneShot(job.id);
+          if (isOneShot) {
+            await completeOneShot(job.id);
+          }
           mark("skipped");
           continue;
         }
 
         if (isOneShot) {
-          const successRunId = createScheduleRun(job.id, `wake-ok:${job.id}`);
-          completeScheduleRun(successRunId, { status: "ok" });
-          completeOneShot(job.id);
+          const successRunId = await createScheduleRun(
+            job.id,
+            `wake-ok:${job.id}`,
+          );
+          await completeScheduleRun(successRunId, { status: "ok" });
+          await completeOneShot(job.id);
         }
       } catch (err) {
         log.warn(
@@ -420,15 +624,15 @@ export async function runScheduleDueWorkOnce(
           "Wake schedule execution failed",
         );
         const errorMsg = err instanceof Error ? err.message : String(err);
-        const wakeErrorRunId = createScheduleRun(
+        const wakeErrorRunId = await createScheduleRun(
           job.id,
           `wake-error:${job.id}`,
         );
-        completeScheduleRun(wakeErrorRunId, {
+        await completeScheduleRun(wakeErrorRunId, {
           status: "error",
           error: errorMsg,
         });
-        handleExecutionFailure({ job, errorMsg, isOneShot });
+        await handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
       }
       mark(failed ? "failed" : "completed");
@@ -457,11 +661,11 @@ export async function runScheduleDueWorkOnce(
           { jobId: job.id, name: job.name, workflowName: job.workflowName },
           "Deferring workflow schedule until tools are registered",
         );
-        deferClaimedSchedule(job.id);
+        await deferClaimedSchedule(job.id);
         mark("skipped");
         continue;
       }
-      const runId = createScheduleRun(job.id, `workflow:${job.id}`);
+      const runId = await createScheduleRun(job.id, `workflow:${job.id}`);
       let failed = false;
       try {
         log.info(
@@ -495,19 +699,21 @@ export async function runScheduleDueWorkOnce(
         // `start` launches the run fire-and-forget and returns synchronously;
         // a successful trigger is recorded as ok. Workflow completion/failure
         // is surfaced out-of-band via workflow events and the completion wake.
-        completeScheduleRun(runId, {
+        await completeScheduleRun(runId, {
           status: "ok",
           output: `workflow run ${workflowRunId} started`,
         });
-        if (isOneShot) completeOneShot(job.id);
+        if (isOneShot) {
+          await completeOneShot(job.id);
+        }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         log.warn(
           { err, jobId: job.id, name: job.name, isOneShot },
           "Workflow schedule trigger failed",
         );
-        completeScheduleRun(runId, { status: "error", error: errorMsg });
-        handleExecutionFailure({ job, errorMsg, isOneShot });
+        await completeScheduleRun(runId, { status: "error", error: errorMsg });
+        await handleExecutionFailure({ job, errorMsg, isOneShot });
         failed = true;
       }
       mark(failed ? "failed" : "completed");
@@ -524,7 +730,7 @@ export async function runScheduleDueWorkOnce(
         job.syntax === "rrule" &&
         job.expression != null &&
         hasSetConstructs(job.expression);
-      const runId = createScheduleRun(job.id, null);
+      const runId = await createScheduleRun(job.id, null);
       let failed = false;
       try {
         log.info(
@@ -548,9 +754,10 @@ export async function runScheduleDueWorkOnce(
             scheduleJobId: job.id,
           },
           async (conversationId, message, taskRunId) => {
-            await processMessage(conversationId, message, {
+            await dispatchScheduleMessage(conversationId, message, {
               trustClass: "guardian",
               taskRunId,
+              cronRunId: runId,
               ...(job.inferenceProfile
                 ? { overrideProfile: job.inferenceProfile }
                 : {}),
@@ -558,8 +765,8 @@ export async function runScheduleDueWorkOnce(
           },
         );
 
-        setScheduleRunConversationId(runId, result.conversationId);
-        onScheduleConversationCreated?.({
+        await setScheduleRunConversationId(runId, result.conversationId);
+        broadcastScheduleConversationCreated({
           conversationId: result.conversationId,
           scheduleJobId: job.id,
           title: result.status === "failed" ? `${job.name}: Error` : job.name,
@@ -567,7 +774,7 @@ export async function runScheduleDueWorkOnce(
 
         if (result.status === "failed") {
           const errorMessage = result.error ?? "Task run failed";
-          completeScheduleRun(runId, {
+          await completeScheduleRun(runId, {
             status: "error",
             error: errorMessage,
           });
@@ -576,15 +783,17 @@ export async function runScheduleDueWorkOnce(
             conversationId: result.conversationId,
             errorMessage,
           });
-          handleExecutionFailure({
+          await handleExecutionFailure({
             job,
             errorMsg: errorMessage,
             isOneShot,
           });
           failed = true;
         } else {
-          completeScheduleRun(runId, { status: "ok" });
-          if (isOneShot) completeOneShot(job.id);
+          await completeScheduleRun(runId, { status: "ok" });
+          if (isOneShot) {
+            await completeOneShot(job.id);
+          }
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -602,7 +811,7 @@ export async function runScheduleDueWorkOnce(
           "Scheduled task execution failed",
         );
         // Create a fallback conversation for the schedule run record
-        const fallbackConversation = bootstrapConversation({
+        const fallbackConversation = await bootstrapConversation({
           conversationType: "scheduled",
           source: "schedule",
           scheduleJobId: job.id,
@@ -610,19 +819,19 @@ export async function runScheduleDueWorkOnce(
           origin: "schedule",
           systemHint: `Schedule: ${job.name}`,
         });
-        onScheduleConversationCreated?.({
+        broadcastScheduleConversationCreated({
           conversationId: fallbackConversation.id,
           scheduleJobId: job.id,
           title: `${job.name}: Error`,
         });
-        setScheduleRunConversationId(runId, fallbackConversation.id);
-        completeScheduleRun(runId, { status: "error", error: message });
+        await setScheduleRunConversationId(runId, fallbackConversation.id);
+        await completeScheduleRun(runId, { status: "error", error: message });
         emitTaskActivityFailed({
           taskId,
           conversationId: fallbackConversation.id,
           errorMessage: message,
         });
-        handleExecutionFailure({
+        await handleExecutionFailure({
           job,
           errorMsg: message,
           isOneShot,
@@ -670,22 +879,23 @@ export async function runScheduleDueWorkOnce(
     let errorMsg: string | undefined;
     const conversationReused = reusedConversationId != null;
     let runConversationId = reusedConversationId;
-    const runId = createScheduleRun(job.id, reusedConversationId);
+    const runId = await createScheduleRun(job.id, reusedConversationId);
 
     if (reusedConversationId) {
-      // Reuse path: keep using the injected `processMessage` callback so the
-      // existing conversation is continued in place. `runBackgroundJob`
-      // unconditionally bootstraps a new conversation and is therefore not a
-      // drop-in replacement for the reuse semantics.
+      // Reuse path: dispatch the message into the existing conversation so it
+      // is continued in place. `runBackgroundJob` unconditionally bootstraps a
+      // new conversation and is therefore not a drop-in replacement for the
+      // reuse semantics.
       conversationId = reusedConversationId;
-      onScheduleConversationCreated?.({
+      broadcastScheduleConversationCreated({
         conversationId,
         scheduleJobId: job.id,
         title: job.name,
       });
       try {
-        await processMessage(conversationId, job.message, {
+        await dispatchScheduleMessage(conversationId, job.message, {
           trustClass: "guardian",
+          cronRunId: runId,
           ...(job.inferenceProfile
             ? { overrideProfile: job.inferenceProfile }
             : {}),
@@ -709,6 +919,7 @@ export async function runScheduleDueWorkOnce(
         systemHint: `Schedule: ${job.name}`,
         trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
         callSite: "mainAgent",
+        cronRunId: runId,
         ...(job.inferenceProfile
           ? { overrideProfile: job.inferenceProfile }
           : {}),
@@ -721,10 +932,10 @@ export async function runScheduleDueWorkOnce(
         conversationType: "scheduled",
         scheduleJobId: job.id,
         suppressFailureNotifications: job.quiet === true,
-        onConversationCreated: (newConversationId) => {
+        onConversationCreated: async (newConversationId) => {
           runConversationId = newConversationId;
-          setScheduleRunConversationId(runId, newConversationId);
-          onScheduleConversationCreated?.({
+          await setScheduleRunConversationId(runId, newConversationId);
+          broadcastScheduleConversationCreated({
             conversationId: newConversationId,
             scheduleJobId: job.id,
             title: job.name,
@@ -742,15 +953,17 @@ export async function runScheduleDueWorkOnce(
           : result.conversationId;
       if (runConversationId !== conversationId) {
         runConversationId = conversationId;
-        setScheduleRunConversationId(runId, conversationId);
+        await setScheduleRunConversationId(runId, conversationId);
       }
       ok = result.ok;
       errorMsg = result.error?.message;
     }
 
     if (ok) {
-      completeScheduleRun(runId, { status: "ok" });
-      if (isOneShot) completeOneShot(job.id);
+      await completeScheduleRun(runId, { status: "ok" });
+      if (isOneShot) {
+        await completeOneShot(job.id);
+      }
       mark("completed");
     } else {
       log.warn(
@@ -767,8 +980,8 @@ export async function runScheduleDueWorkOnce(
           ? "One-shot schedule execution failed"
           : "Schedule execution failed",
       );
-      completeScheduleRun(runId, { status: "error", error: errorMsg });
-      handleExecutionFailure({
+      await completeScheduleRun(runId, { status: "error", error: errorMsg });
+      await handleExecutionFailure({
         job,
         errorMsg: errorMsg ?? "Schedule run failed",
         isOneShot,
@@ -793,31 +1006,6 @@ export async function runScheduleDueWorkOnce(
     }
   }
 
-  // ── Watchers (event-driven polling) ────────────────────────────────
-  if (watcherNotifier) {
-    try {
-      const watcherProcessed = await runWatchersOnce(watcherNotifier);
-      result.completed += watcherProcessed;
-    } catch (err) {
-      log.error({ err }, "Watcher tick failed");
-    }
-  }
-
-  // ── Sequences (multi-step outreach) ──────────────────────────────
-  try {
-    const sequenceProcessed = await runSequencesOnce();
-    result.completed += sequenceProcessed;
-  } catch (err) {
-    log.error({ err }, "Sequence engine tick failed");
-  }
-
-  if (options.includeStillPending) {
-    result.stillPending = countDueScheduleJobs(Date.now());
-  }
-  const processed = result.completed + result.failed + result.skipped;
-  if (processed > 0) {
-    log.info({ processed }, "Schedule tick complete");
-  }
   return result;
 }
 

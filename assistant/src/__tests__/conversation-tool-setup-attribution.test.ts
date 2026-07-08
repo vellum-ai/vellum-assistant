@@ -38,7 +38,9 @@ const baseConfig = {
 };
 
 function mockGetConfig() {
-  if (configThrows) throw new Error("config unavailable");
+  if (configThrows) {
+    throw new Error("config unavailable");
+  }
   return { ...baseConfig, llm: mockLlmConfig };
 }
 
@@ -71,13 +73,27 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
   registerConversationSender: mock(() => {}),
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
   isMultifileApp: mock(() => false),
   getAppsDir: mock(() => "/tmp/test-apps"),
   resolveAppIdByDirName: mock(() => null),
   resolveAppIdFromPath: mock(() => null),
+}));
+
+// Controls the conversation binding returned to the channel-permission
+// channel-ID population in createToolExecutor. Kept as a module mock so
+// these tests need no live external_conversation_bindings table.
+let mockBindingExternalChatId: string | null = null;
+const bindingLookups: string[] = [];
+mock.module("../persistence/external-conversation-store.js", () => ({
+  getBindingByConversation: (conversationId: string) => {
+    bindingLookups.push(conversationId);
+    return mockBindingExternalChatId
+      ? { conversationId, externalChatId: mockBindingExternalChatId }
+      : null;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -105,7 +121,6 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     currentRequestId: "req-1",
     workingDir: "/tmp/test",
     abortController: null,
-    traceEmitter: { emit: () => {} },
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
@@ -150,13 +165,7 @@ const noopSecretPrompter = {
 } as unknown as SecretPrompter;
 
 function makeToolFn(executor: ToolExecutor, ctx: ToolSetupContext) {
-  return createToolExecutor(
-    executor,
-    noopPrompter,
-    noopSecretPrompter,
-    ctx,
-    () => {},
-  );
+  return createToolExecutor(executor, noopPrompter, noopSecretPrompter, ctx);
 }
 
 // The module mock outlives this file when multiple test files share a
@@ -366,5 +375,55 @@ describe("createToolExecutor isInteractive threading", () => {
       makeCtx({ currentTurnIsNonInteractive: undefined, hasNoClient: false }),
     )("file_read", { path: "/tmp/a" });
     expect(withClient.calls[0].context.isInteractive).toBe(true);
+  });
+});
+
+describe("createToolExecutor channel-permission coordinate threading", () => {
+  beforeEach(() => {
+    mockBindingExternalChatId = null;
+    bindingLookups.length = 0;
+  });
+
+  test("stamps the binding's external chat id for any external channel adapter", async () => {
+    // The channel tier of permission-matrix cell resolution keys on this id
+    // for every channel adapter — a Telegram turn must carry its chat id
+    // exactly like a Slack turn, or a strict channel-scoped cell can never
+    // match its own channel.
+    mockBindingExternalChatId = "-1001234500000";
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        conversationId: "conv-tg",
+        currentTurnTrustContext: {
+          sourceChannel: "telegram",
+          trustClass: "trusted_contact",
+          conversationType: "private",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.channelPermissionChannelId).toBe("-1001234500000");
+    expect(calls[0].context.channelConversationType).toBe("private");
+    expect(bindingLookups).toEqual(["conv-tg"]);
+  });
+
+  test("internal turns carry no channel id and skip the binding lookup", async () => {
+    // "vellum" is the internal control-plane channel (and the fallback trust
+    // context); it never has an external conversation binding.
+    mockBindingExternalChatId = "should-not-appear";
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        currentTurnTrustContext: {
+          sourceChannel: "vellum",
+          trustClass: "guardian",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.channelPermissionChannelId).toBeUndefined();
+    expect(bindingLookups).toEqual([]);
   });
 });

@@ -7,7 +7,7 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
@@ -56,6 +56,12 @@ export class CallSiteConfiguredProvider implements Provider {
     this.name = inner.name;
     this.tokenEstimationProvider = inner.tokenEstimationProvider;
     this.supportsNativeWebSearch = inner.supportsNativeWebSearch;
+  }
+
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    return this.inner.supportsNativeWebSearchFor
+      ? this.inner.supportsNativeWebSearchFor(options)
+      : this.inner.supportsNativeWebSearch === true;
   }
 
   sendMessage(

@@ -26,19 +26,36 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
   getSourcePathsForAttachments: () => new Map<string, string>(),
   attachmentExists: () => false,
-  linkAttachmentToMessage: () => {},
-  attachInlineAttachmentToMessage: () => {},
+  linkAttachmentToMessage: () => "att-stored",
+  scopeAttachmentToMessageConversation: () => null,
+  createInlineAttachment: (
+    _conversationId: string,
+    _conversationCreatedAt: number,
+    filename: string,
+    mimeType: string,
+  ) => ({
+    id: "att-stored",
+    originalFilename: filename,
+    mimeType,
+    sizeBytes: 9,
+    kind: "file",
+    thumbnailBase64: null,
+    createdAt: 0,
+    filePath: "/tmp/att-stored.pdf",
+  }),
+  getAttachmentContent: () => null,
+  getFilePathForAttachment: () => "/tmp/att-stored.pdf",
   validateAttachmentUpload: () => ({ ok: true }),
   AttachmentUploadError: class extends Error {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: async (
     conversationId: string,
     role: string,
@@ -57,10 +74,13 @@ mock.module("../memory/conversation-crud.js", () => ({
   provenanceFromTrustContext: () => ({}),
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
+  extractImageSourcePaths: () => undefined,
+  extractAttachmentStoredPaths: () => undefined,
+  updateMessageMetadata: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
   updateMetaFile: () => {},
 }));
@@ -348,14 +368,16 @@ describe("processMessage displayContent", () => {
 
     expect(addMessageCalls).toHaveLength(1);
     const persistedBlocks = JSON.parse(addMessageCalls[0]!.content);
+    // Persisted as a workspace reference (attachment id + size), not inline
+    // base64, so the blob stays out of the messages.content row.
     expect(persistedBlocks).toEqual([
       {
         type: "file",
-        _attachmentId: "att-1",
         source: {
-          type: "base64",
+          type: "workspace_ref",
           media_type: "application/pdf",
-          data: Buffer.from("pdf bytes").toString("base64"),
+          attachmentId: "att-stored",
+          sizeBytes: 9,
           filename: "attachment.pdf",
         },
       },

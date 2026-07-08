@@ -16,14 +16,20 @@ import {
   countActiveMemoryNodes,
   getCheckpointValue,
   parseCheckpointInt,
-} from "../../memory/conversation-starter-checkpoints.js";
+} from "../../home/conversation-starter-checkpoints.js";
 import {
   buildConversationStarterValidationContext,
   isValidConversationStarterText,
-} from "../../memory/conversation-starter-validation.js";
-import { getDb, getMemoryDb } from "../../memory/db-connection.js";
-import { enqueueMemoryJob, isMemoryEnabled } from "../../memory/jobs-store.js";
-import { conversationStarters, memoryJobs } from "../../memory/schema.js";
+} from "../../home/conversation-starter-validation.js";
+import { getDb, getMemoryDb } from "../../persistence/db-connection.js";
+import {
+  enqueueMemoryJob,
+  isMemoryEnabled,
+} from "../../persistence/jobs-store.js";
+import {
+  conversationStarters,
+  memoryJobs,
+} from "../../persistence/schema/index.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";

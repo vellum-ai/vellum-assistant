@@ -14,12 +14,13 @@
  * - `useComposerSubmit` — submit logic, focus management
  * - `DiskPressureBannerSlot` — localStorage-backed dismiss/suppress
  * - `useRuleEditorBridge` — viewer-store → rule-editor bridge
- * - `useChatBannerSlots` — nudge/queued/slack banner assembly
+ * - `useChatBannerSlots` — nudge/queued banner assembly
  */
 
-import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { type Dispatch, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { useActiveSubagentIds } from "@/domains/chat/hooks/use-active-subagent-ids";
+import { useAcpRunRehydration } from "@/domains/chat/hooks/use-acp-run-rehydration";
+import { useBackgroundTaskRehydration } from "@/domains/chat/hooks/use-background-task-rehydration";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
@@ -30,13 +31,25 @@ import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
 import { TextSelectionPopover } from "@/domains/chat/components/text-selection-popover";
+import { useNativeQuoteReply } from "@/domains/chat/hooks/use-native-quote-reply";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
+import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
+import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
-import { ActiveSubagentsOverlay } from "@/domains/chat/components/active-subagents-overlay/active-subagents-overlay";
+import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
+import { PROCESS_KINDS } from "@/domains/chat/process-registry/registry";
+import type { ProcessKind } from "@/domains/chat/process-registry/types";
+import { SUBAGENT_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/subagent";
+import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/acp-run";
+import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
+import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/background-task";
+import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { ChatBody } from "@/domains/chat/components/chat-body";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { ChatRuleEditorModal } from "@/domains/chat/components/chat-rule-editor-modal";
@@ -48,15 +61,28 @@ import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-pr
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
 import { SendErrorModal } from "@/domains/chat/components/send-error-modal";
+import { SuggestionDetailPanel } from "@/domains/chat/components/suggestion-detail-panel";
+import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { BottomSheet } from "@vellumai/design-library";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import {
+  resolveDroppedDirectories,
+  WEB_FOLDER_DROP_ERROR,
+} from "@/domains/chat/components/chat-attachments/handle-folder-drop";
 import { Button } from "@vellumai/design-library";
 import { Link, useLocation, useNavigate } from "react-router";
-import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
+import {
+  getChatBillingBannerDecision,
+  isManagedCredentialChatError,
+  shouldShowGenericChatErrorNotice,
+} from "@/domains/chat/utils/error-classification";
+import { openUrlInPopupOrTab } from "@/domains/chat/utils/oauth-popup-links";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/types";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -67,7 +93,6 @@ import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
-import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { useViewerStore } from "@/stores/viewer-store";
 import { cmdEnterToSend } from "@/utils/composer-settings";
 import { haptic } from "@/utils/haptics";
@@ -135,6 +160,44 @@ export interface ChatMainPanelProps {
 /** @deprecated Use {@link ChatMainPanelProps} — kept as a re-export for migration. */
 export type ChatRouteContentProps = ChatMainPanelProps;
 
+/**
+ * Builds the registry-driven row of active background-process overlays.
+ *
+ * Each descriptor's `useActiveIds()` is a zero-arg hook that resolves the
+ * active conversation internally, so the hooks are called here at the
+ * orchestrator level (where the conversation lives in context). They must be
+ * called explicitly per-kind — the Rules of Hooks forbid iterating
+ * `PROCESS_KINDS` with hooks — and the results are keyed by `descriptor.kind`,
+ * so the overlay row order follows `PROCESS_KINDS` without positional coupling.
+ *
+ * `hasAny` lets the caller omit the row entirely when nothing is active, so the
+ * absolutely-positioned container never mounts empty; the overlays themselves
+ * also self-gate on their own ids.
+ */
+function useActiveProcessSlots() {
+  const subagentIds = SUBAGENT_DESCRIPTOR.useActiveIds();
+  const acpRunIds = ACP_RUN_DESCRIPTOR.useActiveIds();
+  const workflowIds = WORKFLOW_DESCRIPTOR.useActiveIds();
+  const backgroundTaskIds = BACKGROUND_TASK_DESCRIPTOR.useActiveIds();
+  // Keyed by `descriptor.kind` (not array position) so reordering
+  // `PROCESS_KINDS` can't silently feed an overlay the wrong kind's ids.
+  const idsByKind: Record<ProcessKind, string[]> = {
+    subagent: subagentIds,
+    "acp-run": acpRunIds,
+    workflow: workflowIds,
+    "background-task": backgroundTaskIds,
+  };
+  const hasAny = Object.values(idsByKind).some((ids) => ids.length > 0);
+  const overlays = PROCESS_KINDS.map((descriptor) => (
+    <ActiveProcessOverlay
+      key={descriptor.kind}
+      descriptor={descriptor}
+      ids={idsByKind[descriptor.kind]}
+    />
+  ));
+  return { overlays, hasAny };
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -164,7 +227,7 @@ export function ChatMainPanel({
 }: ChatMainPanelProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const statusBannerVisible = !location.search.includes("popout=1");
+  const statusBannerVisible = !isPopoutWindow(location.search);
 
   // -------------------------------------------------------------------------
   // Derived UI state (provides assistantId, activeConversationId,
@@ -185,7 +248,15 @@ export function ChatMainPanel({
     activeConversationId,
     activeConversation,
   } = useChatUIState();
-  const isChannelReadonly = isChannelConversation(activeConversation);
+
+  // Edit/recall + undo require a PROVEN-native conversation: while the row is
+  // unresolved (activeConversation undefined) or channel-origin, the undo path
+  // would delete imported channel history, so treat those as not-native.
+  const isNativeConversation =
+    activeConversation != null && !isChannelConversation(activeConversation);
+
+  // Gated to daemons that accept the per-chat plugin set (web is always-latest).
+  const supportsNewChatPlugins = useSupportsNewChatPlugins();
 
   // -------------------------------------------------------------------------
   // Composer — `ChatComposer` and `ComposerDraftNotices` self-source every
@@ -206,7 +277,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Store reads — per-conversation state
   // -------------------------------------------------------------------------
-  const messages = useTranscriptMessages(assistantId, activeConversationId);
+  const messages = useTranscriptMessages();
   const error = useChatSessionStore.use.error();
   const notice = useChatSessionStore.use.notice();
   const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
@@ -219,6 +290,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
+  const isAppMinimized = useViewerStore.use.isAppMinimized();
 
   // Conversation count (for nudges — TanStack Query deduped)
   const { conversations } = useConversationListQuery(assistantId, true);
@@ -262,7 +334,16 @@ export function ChatMainPanel({
     if (assistantId) void useViewerStore.getState().loadDocument(assistantId, surfaceId);
   }, [assistantId]);
 
-  const activeSubagentIds = useActiveSubagentIds();
+  const { overlays: activeProcessOverlays, hasAny: hasActiveProcess } =
+    useActiveProcessSlots();
+
+  // Rehydrate ACP runs from the daemon on conversation load so completed and
+  // in-progress runs reappear after a refresh / reconnect.
+  useAcpRunRehydration(assistantId, activeConversationId);
+
+  // Rehydrate still-running background tasks from the daemon so they reappear
+  // as active entries after a refresh.
+  useBackgroundTaskRehydration(activeConversationId);
 
   const onSubagentClick = useCallback((id: string) => {
     useViewerStore.getState().openSubagentDetail(id);
@@ -328,6 +409,7 @@ export function ChatMainPanel({
     const el = transcriptRef.current?.getScrollElement() ?? null;
     transcriptContainerRef.current = el;
   });
+  useNativeQuoteReply(transcriptContainerRef);
 
   // Clear staged quotes and dismiss the reply bubble when the active
   // conversation changes to prevent quotes from one conversation leaking
@@ -391,6 +473,13 @@ export function ChatMainPanel({
     useComposerStore.getState().setInput("");
   }, [cancelEditing]);
 
+  // Clear stale edit-recall state when the active conversation changes: ChatMainPanel
+  // is not keyed by conversation, so an edit started in one thread would otherwise
+  // leak into the next and drive its send down the undo path.
+  useEffect(() => {
+    cancelEditing();
+  }, [activeConversationId, cancelEditing]);
+
   // -------------------------------------------------------------------------
   // Nudges + ghost text
   // -------------------------------------------------------------------------
@@ -445,45 +534,68 @@ export function ChatMainPanel({
   const typingDisabled =
     isLoadingHistory ||
     (assistantState.kind === "active" && !!assistantState.maintenanceMode?.enabled) ||
-    diskPressureInputDisabled ||
-    isChannelReadonly;
+    diskPressureInputDisabled;
 
   const sendDisabled = isSendDisabledFromTurn || typingDisabled;
 
-  const handleQuoteReplyNow = useCallback(
-    (quotedText: string, replyText: string) => {
-      if (sendDisabled || isChannelReadonly) {
-        return;
-      }
-      const blockquote = quotedText
-        .split("\n")
-        .map((line) => `> ${line}`)
-        .join("\n");
-      void sendMessage(`${blockquote}\n\n${replyText}`);
-    },
-    [sendMessage, sendDisabled, isChannelReadonly],
-  );
+  const handleQuoteAddedToChat = useCallback(() => {
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  }, [inputRef]);
 
   const isEmptyConversation =
     !!activeConversationId &&
     !isLoadingHistory &&
     messages.length === 0 &&
+    // A turn already in flight (e.g. the onboarding auto-greet, or any send whose
+    // first token hasn't landed) is NOT an empty conversation — showing the
+    // "start a conversation" empty state here flashes it for a beat before the
+    // streaming reply materializes (notably across the onboarding draft→real
+    // conversation switch, which resets the snapshot mid-turn).
+    !activeConversationIsProcessing &&
+    !isAssistantStreaming &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
 
   const showDoctorAction =
     assistantState.kind === "active" && !assistantState.isLocal;
+  const doctorAction = showDoctorAction ? (
+    <Button asChild variant="outlined" size="compact">
+      <Link to={`${routes.settings.debug}?tab=doctor`}>
+        Go to Doctor
+      </Link>
+    </Button>
+  ) : undefined;
+
+  // Blocked automatic opens (see `handleOpenUrl`) carry the URL in
+  // `actionUrl`; the button click is a real user gesture, so the re-open
+  // always succeeds and the banner clears itself.
+  const buildOpenUrlAction = (
+    actionUrl: string | undefined,
+    clear: () => void,
+  ) =>
+    actionUrl ? (
+      <Button
+        variant="outlined"
+        size="compact"
+        onClick={() => {
+          if (openUrlInPopupOrTab(actionUrl)) {
+            clear();
+          }
+        }}
+      >
+        Open page
+      </Button>
+    ) : undefined;
 
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
         tone: "error" as const,
-        actions: showDoctorAction ? (
-          <Button asChild variant="outlined" size="compact">
-            <Link to={`${routes.settings.debug}?tab=doctor`}>
-              Go to Doctor
-            </Link>
-          </Button>
-        ) : undefined,
+        actions:
+          buildOpenUrlAction(error.actionUrl, () =>
+            useChatSessionStore.getState().setError(null),
+          ) ?? doctorAction,
       }
     : null;
   const hasGenericChatError = genericChatError !== null;
@@ -492,6 +604,11 @@ export function ChatMainPanel({
       ? {
           message: notice.message,
           tone: "warning" as const,
+          actions:
+            buildOpenUrlAction(notice.actionUrl, () =>
+              useChatSessionStore.getState().setNotice(null),
+            ) ??
+            (isManagedCredentialChatError(notice) ? doctorAction : undefined),
         }
       : null;
   const genericChatBanner = genericChatError ?? genericChatNotice;
@@ -573,11 +690,24 @@ export function ChatMainPanel({
     },
     [addChatAttachmentFiles, activeModelSupportsVision, visionGateActive],
   );
+  const handleDroppedDirectories = useCallback((directories: File[]) => {
+    const { resolvedPaths, unresolvedCount } =
+      resolveDroppedDirectories(directories);
+    if (resolvedPaths.length > 0) {
+      useComposerStore.getState().addPathReferences(resolvedPaths);
+    }
+    if (unresolvedCount > 0) {
+      useComposerStore.setState({
+        attachmentLastError: WEB_FOLDER_DROP_ERROR,
+      });
+    }
+  }, []);
   const {
     isDragOver: isAttachmentDragOver,
     dropHandlers: attachmentDropHandlers,
   } = useChatAttachmentDropZone({
     onFiles: handleDroppedFiles,
+    onDirectories: handleDroppedDirectories,
     disabled: typingDisabled || !assistantId,
   });
 
@@ -633,6 +763,7 @@ export function ChatMainPanel({
     isEditing,
     editingMessageId,
     cancelEditing,
+    canUndoEdit: isNativeConversation,
     sendDisabled,
     typingDisabled,
     assistantId,
@@ -643,6 +774,43 @@ export function ChatMainPanel({
     useComposerStore.getState().setInput(starter.prompt);
     void submitMessage(starter.prompt);
   }, [submitMessage]);
+
+  // -------------------------------------------------------------------------
+  // New-thread suggestion drawer (behind the flag, empty-state only)
+  // -------------------------------------------------------------------------
+  const newThreadSuggestionsEnabled =
+    useClientFeatureFlagStore.use.newThreadSuggestions();
+  // Called unconditionally — the desktop drawer vs mobile sheet choice below
+  // branches on this, but the hook must run on every render.
+  const isMobile = useIsMobile();
+  const [selectedSuggestion, setSelectedSuggestion] =
+    useState<ThreadSuggestion | null>(null);
+
+  // Clear any open suggestion detail when the active conversation changes or the
+  // thread leaves the empty state. Keying on `activeConversationId` covers the
+  // empty→empty switch (id changes while `isEmptyConversation` stays true), which
+  // the non-empty transition alone would miss — otherwise the stale drawer/sheet
+  // could submit the previous selection into the newly active thread, since
+  // ChatMainPanel is not keyed by conversation. Setting null on a fresh empty
+  // conversation is harmless because no card is selected yet.
+  useEffect(() => {
+    setSelectedSuggestion(null);
+  }, [activeConversationId, isEmptyConversation]);
+
+  // Close, and Save-for-later, both just dismiss the drawer: persisting saved
+  // suggestions is not implemented yet.
+  const handleCloseSuggestion = useCallback(() => setSelectedSuggestion(null), []);
+
+  const handleConfirmSuggestion = useCallback(
+    (s: ThreadSuggestion) => {
+      // Seed the composer before submitting (mirrors handleSelectStarter) so a
+      // blocked send leaves the prompt in the composer to retry, rather than
+      // silently dropping it when the drawer closes.
+      handleSelectStarter({ prompt: s.prompt });
+      setSelectedSuggestion(null);
+    },
+    [handleSelectStarter],
+  );
 
   // -------------------------------------------------------------------------
   // Rule editor bridge (viewer-store seq → rule editor open)
@@ -666,6 +834,8 @@ export function ChatMainPanel({
   const {
     emptyStateProps: chatEmptyStateProps,
     startersSlot,
+    belowFoldSlot,
+    dockStartersToBottom,
     renderAvatar,
     emptyStatePlaceholder,
   } = useChatEmptyState({
@@ -678,12 +848,15 @@ export function ChatMainPanel({
     isAssistantStreaming,
     activeConversationIsProcessing,
     onSelectStarter: handleSelectStarter,
+    onSelectSuggestion: newThreadSuggestionsEnabled
+      ? setSelectedSuggestion
+      : undefined,
   });
 
   // -------------------------------------------------------------------------
-  // Banner slots (nudge, queued, slack)
+  // Banner slots (nudge, queued)
   // -------------------------------------------------------------------------
-  const { mainBannerSlot, mainQueuedDrawerSlot, channelReadonlyBannerSlot } = useChatBannerSlots({
+  const { mainBannerSlot, mainQueuedDrawerSlot } = useChatBannerSlots({
     nudges,
     queuedMessages,
     onCancelQueuedMessage: handleCancelQueuedMessage,
@@ -691,9 +864,6 @@ export function ChatMainPanel({
     onSteerMessage: handleSteerMessage,
     onEditQueueTail: handleEditQueueTail,
     queueSteering,
-    activeConversation,
-    sanitizedMessages,
-    assistantId,
   });
 
   // -------------------------------------------------------------------------
@@ -761,8 +931,13 @@ export function ChatMainPanel({
       onStopGenerating={handleStopGenerating}
       canStopGenerating={canStopGenerating}
       assistantId={assistantId}
-      conversationId={activeConversation?.conversationId}
-      onRecallLastMessage={isIdle ? handleRecallLastMessage : undefined}
+      // Routing-truth id (NOT `activeConversation?.conversationId`, which is
+      // transiently undefined until the row loads and always undefined for
+      // drafts): live-voice session ownership compares against this, and the
+      // session should attach to the thread the user is looking at — draft
+      // ids included (the runtime accepts client-generated conversation ids).
+      conversationId={activeConversationId}
+      onRecallLastMessage={isIdle && isNativeConversation ? handleRecallLastMessage : undefined}
       onCancelEdit={isEditing ? handleCancelEdit : undefined}
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
@@ -804,8 +979,7 @@ export function ChatMainPanel({
           }
           diskPressureBanner={diskPressureBannerSlot}
           showMissingApiKeyBanner={
-            error?.code === "PROVIDER_NOT_CONFIGURED" ||
-            error?.code === "MANAGED_KEY_INVALID"
+            error?.code === "PROVIDER_NOT_CONFIGURED"
           }
           onOpenAiSettings={pushToAiSettings}
           onDismissApiKeyError={handleDismissApiKeyError}
@@ -832,13 +1006,9 @@ export function ChatMainPanel({
     transcriptProps: chatTranscriptProps,
   };
 
-  const activeSubagentsSlot =
-    activeSubagentIds.length > 0 ? (
-      <ActiveSubagentsOverlay
-        subagentIds={activeSubagentIds}
-        onSubagentClick={onSubagentClick}
-        onStopSubagent={onStopSubagent}
-      />
+  const newChatPluginsSlot =
+    isEmptyConversation && supportsNewChatPlugins && assistantId ? (
+      <NewChatPluginsSection assistantId={assistantId} />
     ) : undefined;
 
   // -------------------------------------------------------------------------
@@ -848,36 +1018,119 @@ export function ChatMainPanel({
   const isSidePanel = mainView === "app-editing" && !!openedAppState && !!editingConversationId;
   const variant = isSidePanel ? "side-panel" : "main";
 
+  // Mobile-only: while the app overlay is minimized to its bottom strip, the
+  // strip covers the bottom of the chat. Reserve its height so the composer
+  // sits above it. The guard mirrors the strip's mount condition — the strip
+  // renders only while `mainView === "app"`, and navigation can leave
+  // `isAppMinimized`/`openedAppState` set after it unmounts. The strip peeks
+  // `--app-strip-h` above the safe area, and the chat shell already pads for
+  // the safe area itself, so only the strip height needs reserving.
+  const appStripBottomInset =
+    isMobile && mainView === "app" && isAppMinimized && openedAppState
+      ? "var(--app-strip-h, 64px)"
+      : undefined;
+
+  const chatBody = (
+    <ChatBody
+      variant={variant}
+      bottomInset={appStripBottomInset}
+      scrollAreaProps={{
+        ...chatBodyScrollAreaPropsBase,
+        showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
+      }}
+      composerSlot={composerNode}
+      pluginPillsSlot={newChatPluginsSlot}
+      dragHandlers={attachmentDropHandlers}
+      isAttachmentDragOver={isAttachmentDragOver}
+      showScrollToLatest={
+        scrollCoordinator.showScrollToLatest && messages.length > 0
+      }
+      onScrollToLatest={handleScrollToLatest}
+      isStreaming={isAssistantStreaming}
+      refreshFeedback={refreshFeedback}
+      onDismissRefreshFeedback={handleDismissRefreshFeedback}
+      onRetryRefresh={handleRetryRefreshFromPill}
+      genericChatError={genericChatBanner}
+      onDismissChatError={handleDismissChatError}
+      bannerSlot={isSidePanel ? undefined : mainBannerSlot}
+      queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
+      startersSlot={startersSlot}
+      belowFoldSlot={belowFoldSlot}
+      dockStartersToBottom={dockStartersToBottom}
+      activeProcessOverlaysSlot={
+        hasActiveProcess ? activeProcessOverlays : undefined
+      }
+    />
+  );
+
+  const suggestionDetailPanel = selectedSuggestion ? (
+    <SuggestionDetailPanel
+      suggestion={selectedSuggestion}
+      onClose={handleCloseSuggestion}
+      onConfirm={handleConfirmSuggestion}
+    />
+  ) : null;
+
+  // Behind the flag the picked suggestion's detail rides alongside the chat.
+  //
+  // Desktop: an animated right-hand drawer. The wrapper is gated on the flag
+  // (and desktop), NOT on `isEmptyConversation`, so the `chatBody` subtree keeps
+  // the same tree position across the empty→active transition and never
+  // remounts — preserving composer focus/textarea state through the first send.
+  // Suggestion cards only render in the empty state, so `selectedSuggestion` is
+  // null in active conversations and the drawer simply sits closed there.
+  //
+  // Mobile: `AnimatedRightDrawer` is a desktop split that overflows narrow
+  // viewports, so the chat renders normally and the detail floats above it in a
+  // `BottomSheet` instead.
+  //
+  // Flag off (either viewport): the chat renders exactly as before — no wrapper.
+  let mainContent: ReactNode = chatBody;
+  if (newThreadSuggestionsEnabled && !isMobile) {
+    mainContent = (
+      <AnimatedRightDrawer
+        open={Boolean(selectedSuggestion)}
+        storageKey="vellum:suggestion-drawer-width"
+        left={chatBody}
+        right={suggestionDetailPanel}
+      />
+    );
+  } else if (newThreadSuggestionsEnabled && isMobile) {
+    mainContent = (
+      <>
+        {chatBody}
+        <BottomSheet.Root
+          open={Boolean(selectedSuggestion)}
+          onOpenChange={(next) => {
+            if (!next) handleCloseSuggestion();
+          }}
+        >
+          {/* `SuggestionDetailPanel` brings its own visible heading + scroll-
+              body + footer, so it sits directly inside `Content` (no
+              BottomSheet.Body). The taller cap plus the panel's `h-full` give it
+              a bounded height inside the sheet's flex column so its body scrolls.
+              Radix Dialog still needs a Title for screen readers; the panel's
+              heading isn't a Dialog.Title, so a visually-hidden one mirrors it
+              (matches composer-settings-menu's pattern). */}
+          <BottomSheet.Content
+            aria-describedby={undefined}
+            className="h-[80dvh] max-h-[80dvh]"
+          >
+            <BottomSheet.Header className="sr-only">
+              <BottomSheet.Title>
+                {selectedSuggestion?.detail.heading ?? "Suggestion"}
+              </BottomSheet.Title>
+            </BottomSheet.Header>
+            {suggestionDetailPanel}
+          </BottomSheet.Content>
+        </BottomSheet.Root>
+      </>
+    );
+  }
+
   return (
     <>
-      <ChatBody
-        variant={variant}
-        scrollAreaProps={{
-          ...chatBodyScrollAreaPropsBase,
-          showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
-        }}
-        composerSlot={composerNode}
-        onStopGenerating={handleStopGenerating}
-        dragHandlers={attachmentDropHandlers}
-        isAttachmentDragOver={isAttachmentDragOver}
-        showScrollToLatest={
-          scrollCoordinator.showScrollToLatest && messages.length > 0
-        }
-        onScrollToLatest={handleScrollToLatest}
-        isStreaming={isAssistantStreaming}
-        refreshFeedback={refreshFeedback}
-        onDismissRefreshFeedback={handleDismissRefreshFeedback}
-        onRetryRefresh={handleRetryRefreshFromPill}
-        genericChatError={genericChatBanner}
-        onDismissChatError={handleDismissChatError}
-        isChannelReadonly={isChannelReadonly}
-        canStopGenerating={canStopGenerating}
-        bannerSlot={isSidePanel ? undefined : mainBannerSlot}
-        queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
-        readonlyBannerSlot={channelReadonlyBannerSlot}
-        startersSlot={startersSlot}
-        activeSubagentsSlot={activeSubagentsSlot}
-      />
+      {mainContent}
       <MicPermissionPrimer
         open={showPrimer}
         onContinue={handlePrimerContinue}
@@ -885,12 +1138,8 @@ export function ChatMainPanel({
       />
       {sendErrorModalNode}
       {ruleEditorModalNode}
-      {!isChannelReadonly && (
-        <>
-          <TextSelectionPopover containerRef={transcriptContainerRef} />
-          <QuoteReplyBubble onSendNow={handleQuoteReplyNow} />
-        </>
-      )}
+      <TextSelectionPopover containerRef={transcriptContainerRef} />
+      <QuoteReplyBubble onAddToChat={handleQuoteAddedToChat} />
     </>
   );
 }

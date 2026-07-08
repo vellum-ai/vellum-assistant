@@ -1,7 +1,6 @@
 import { extname } from "node:path";
 
 import { RiskLevel } from "../../permissions/types.js";
-import { registerTool } from "../registry.js";
 import {
   AUDIO_EXTENSIONS,
   readAudioFile,
@@ -127,5 +126,3 @@ export const fileReadTool = {
     return { content: result.value.content, isError: false };
   },
 } satisfies ToolDefinition;
-
-registerTool(fileReadTool);

@@ -31,20 +31,23 @@
  * sized generously enough that a typical refresh round-trip (~1-3s)
  * is well within window.
  *
- * Persisted-seq map: alongside the live counter and ring, this module
- * tracks, per conversation, the `seq` of the last event whose content is
- * durably committed to the message rows (`persistedSeqByConversation`).
- * The `/messages` snapshot returns this value so a client can align the
- * snapshot with the stream: "these rows reflect all of this
- * conversation's events through `seq = S`." It is recorded at each
- * persistence flush (assistant rows persist incrementally, debounced, so
- * the snapshot can lag the live counter) -- never the live counter
- * itself, which would over-claim events that have streamed but not yet
- * been written. The map is in-memory and clears on restart; because the
- * counter resumes above the persisted reservation, a value recorded by
- * a previous process could only ever be lower than any seq the new
- * process assigns -- never ambiguous against it. The map is LRU-bounded; an
- * evicted conversation reports no seq and the client cold-starts.
+ * Persisted seq: alongside the live counter and ring, the `seq` of the last
+ * event whose content is durably committed to a conversation's message rows
+ * is stored on the `conversations.seq` column (see `conversation-crud`). The
+ * `/messages` snapshot returns it so a client can align the snapshot with the
+ * stream: "these rows reflect all of this conversation's events through
+ * `seq = S`." It is written at each persistence flush (assistant rows persist
+ * incrementally, debounced, so the snapshot can lag the live counter) and at
+ * each user-row echo (the row persists before the echo is emitted, so the
+ * echo's seq is covered the moment it exists) -- never the live counter while
+ * a turn is streaming, which would over-claim events that have streamed but
+ * not yet been written. Under-claiming is equally a contract violation: a
+ * snapshot carrying a row whose event is above the advertised seq defeats
+ * clients that compare the anchor against their fold watermark to detect
+ * stale in-flight fetches. Because it lives in the database it survives a
+ * restart; and because the counter resumes above the persisted reservation, a
+ * value written by a previous process could only ever be lower than any seq
+ * the new process assigns -- never ambiguous against it.
  */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -54,8 +57,11 @@ import {
   SSE_REPLAY_RING_AGE_LIMIT_MS,
   SSE_REPLAY_RING_COUNT_LIMIT,
 } from "../api/constants/sse-replay.js";
+import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import type { AssistantEvent } from "./assistant-event.js";
+
+const log = getLogger("assistant-stream-state");
 
 // ── Tunables ─────────────────────────────────────────────────────────
 
@@ -65,16 +71,6 @@ import type { AssistantEvent } from "./assistant-event.js";
 const RING_COUNT_LIMIT = SSE_REPLAY_RING_COUNT_LIMIT;
 const RING_SIZE_LIMIT_BYTES = 256 * 1024;
 const RING_AGE_LIMIT_MS = SSE_REPLAY_RING_AGE_LIMIT_MS;
-
-/**
- * Cap on how many conversations retain a persisted-seq entry. Unlike the
- * ring (which the live stream needs only briefly), the persisted-seq map
- * grows with the number of conversations that have ever streamed in this
- * process. Bound it LRU so it can't grow without limit; an evicted
- * conversation simply reports no seq on its next `/messages` and the
- * client cold-starts, which is harmless.
- */
-const PERSISTED_SEQ_CONVERSATION_LIMIT = 1024;
 
 /**
  * How many seq values are reserved per persisted write. The counter can
@@ -141,13 +137,6 @@ interface AssistantStreamState {
   firstStampedSeq: number;
   ring: RingEntry[];
   totalSizeBytes: number;
-  /**
-   * Per-conversation `seq` of the last event durably committed to the
-   * message rows. Insertion order is maintained as an LRU recency list:
-   * the oldest key is evicted first once the map exceeds
-   * {@link PERSISTED_SEQ_CONVERSATION_LIMIT}.
-   */
-  persistedSeqByConversation: Map<string, number>;
 }
 
 // ── State ────────────────────────────────────────────────────────────
@@ -159,7 +148,6 @@ const state: AssistantStreamState = {
   firstStampedSeq: 0,
   ring: [],
   totalSizeBytes: 0,
-  persistedSeqByConversation: new Map(),
 };
 
 // ── Public API ───────────────────────────────────────────────────────
@@ -181,16 +169,37 @@ export function stampAndBuffer(
   event: AssistantEvent,
   options?: { targeting?: EventTargeting },
 ): void {
-  if (event.conversationId == null) return;
-
-  reserveSeqCapacity();
-  event.seq = state.nextSeq++;
-  if (state.firstStampedSeq === 0) state.firstStampedSeq = event.seq;
+  if (event.conversationId == null) {
+    return;
+  }
 
   // Approximate size by serialized JSON length. This is the same
   // bytes-on-wire we'll send, so it tracks ring memory pressure
-  // closely without a separate measurement pass.
-  const sizeBytes = JSON.stringify(event).length;
+  // closely without a separate measurement pass. Serialized before `seq`
+  // is stamped, so the count misses that one small field — negligible
+  // against the ring budget. An event whose payload cannot serialize
+  // (circular reference, BigInt, throwing toJSON — e.g. a plugin-supplied
+  // `hook_event` detail) is left unstamped and not buffered: it could
+  // never be written to the SSE wire, so buffering it would poison
+  // reconnect replay, and skipping the stamp entirely (like an unscoped
+  // event) keeps the seq stream gap-free. Live delivery to in-process
+  // subscribers still proceeds.
+  let sizeBytes: number;
+  try {
+    sizeBytes = JSON.stringify(event).length;
+  } catch (err) {
+    log.error(
+      { err, eventType: event.message.type },
+      "event payload failed to serialize — not stamping or buffering for replay",
+    );
+    return;
+  }
+
+  reserveSeqCapacity();
+  event.seq = state.nextSeq++;
+  if (state.firstStampedSeq === 0) {
+    state.firstStampedSeq = event.seq;
+  }
   const entry: RingEntry = {
     seq: event.seq,
     event,
@@ -232,7 +241,9 @@ export function getReplayWindow(
 ): readonly AssistantEvent[] | null {
   evict();
 
-  if (state.ring.length === 0) return [];
+  if (state.ring.length === 0) {
+    return [];
+  }
 
   // A cursor from before this process started can skip over the
   // reservation gap: seqs below `firstStampedSeq` were never assigned
@@ -243,7 +254,9 @@ export function getReplayWindow(
   const oldest = state.ring[0]?.seq ?? Infinity;
   const coversRestartGap =
     lastSeenSeq < state.firstStampedSeq && oldest === state.firstStampedSeq;
-  if (lastSeenSeq < oldest - 1 && !coversRestartGap) return null;
+  if (lastSeenSeq < oldest - 1 && !coversRestartGap) {
+    return null;
+  }
 
   return state.ring
     .filter(
@@ -258,8 +271,10 @@ export function getReplayWindow(
 
 /**
  * Current high-water `seq` -- the value last assigned by
- * {@link stampAndBuffer}, or `0` when nothing has been stamped yet in
- * this process.
+ * {@link stampAndBuffer}, or the persisted reservation ceiling when this
+ * process hasn't stamped yet (every seq a previous process could have
+ * emitted is at or below that ceiling). `0` only on a true cold start
+ * with no reservation file.
  *
  * Read synchronously right after emitting an event to learn that event's
  * `seq`: `stampAndBuffer` runs inline on the publish path (before the
@@ -267,47 +282,8 @@ export function getReplayWindow(
  * returning and this read on the single-threaded event loop.
  */
 export function getCurrentSeq(): number {
+  loadSeqReservation();
   return state.nextSeq - 1;
-}
-
-/**
- * Record that conversation `conversationId` has durably persisted all of
- * its events through `seq`. Called at each persistence flush with the
- * `seq` of the last event whose content the write committed.
- *
- * Monotonic: a lower `seq` never regresses a higher one (out-of-order
- * async commits are clamped). LRU-bounded by
- * {@link PERSISTED_SEQ_CONVERSATION_LIMIT}: re-recording refreshes
- * recency, and the oldest conversation is evicted once the cap is
- * exceeded. Non-positive or non-finite `seq` values are ignored.
- */
-export function recordPersistedSeq(conversationId: string, seq: number): void {
-  if (!Number.isFinite(seq) || seq <= 0) return;
-
-  const map = state.persistedSeqByConversation;
-  const prev = map.get(conversationId);
-  if (prev !== undefined) {
-    // Re-insert to move this key to the most-recently-used end.
-    map.delete(conversationId);
-    map.set(conversationId, Math.max(prev, seq));
-    return;
-  }
-
-  map.set(conversationId, seq);
-  if (map.size > PERSISTED_SEQ_CONVERSATION_LIMIT) {
-    const oldestKey = map.keys().next().value;
-    if (oldestKey !== undefined) map.delete(oldestKey);
-  }
-}
-
-/**
- * Highest `seq` durably persisted for `conversationId`, or `null` when
- * none has been recorded in this process (cold conversation, or evicted
- * from the LRU map). Returned by `/messages` so a client can align the
- * snapshot with the live stream.
- */
-export function getPersistedSeq(conversationId: string): number | null {
-  return state.persistedSeqByConversation.get(conversationId) ?? null;
 }
 
 /**
@@ -323,7 +299,6 @@ export function _resetStreamStateForTesting(): void {
   state.firstStampedSeq = 0;
   state.ring = [];
   state.totalSizeBytes = 0;
-  state.persistedSeqByConversation.clear();
 }
 
 /**
@@ -337,7 +312,6 @@ export function _simulateRestartForTesting(): void {
   state.firstStampedSeq = 0;
   state.ring = [];
   state.totalSizeBytes = 0;
-  state.persistedSeqByConversation.clear();
 }
 
 /**
@@ -376,16 +350,29 @@ function seqReservationPath(): string {
  * still advanced so the write is retried at most once per block, not
  * per event), matching the daemon's degraded-mode philosophy.
  */
-function reserveSeqCapacity(): void {
-  if (!state.seqReservationLoaded) {
-    state.seqReservationLoaded = true;
-    state.reservedSeqCeiling = readReservedCeiling();
-    if (state.reservedSeqCeiling >= state.nextSeq) {
-      state.nextSeq = state.reservedSeqCeiling + 1;
-    }
+/**
+ * Load the persisted seq reservation once per process, advancing
+ * `nextSeq` past the ceiling so this process never re-assigns (or
+ * reports, via {@link getCurrentSeq}) a seq a previous process could
+ * have emitted.
+ */
+function loadSeqReservation(): void {
+  if (state.seqReservationLoaded) {
+    return;
   }
+  state.seqReservationLoaded = true;
+  state.reservedSeqCeiling = readReservedCeiling();
+  if (state.reservedSeqCeiling >= state.nextSeq) {
+    state.nextSeq = state.reservedSeqCeiling + 1;
+  }
+}
 
-  if (state.nextSeq <= state.reservedSeqCeiling) return;
+function reserveSeqCapacity(): void {
+  loadSeqReservation();
+
+  if (state.nextSeq <= state.reservedSeqCeiling) {
+    return;
+  }
 
   const ceiling = state.nextSeq + SEQ_RESERVATION_BLOCK - 1;
   try {
@@ -436,7 +423,9 @@ function matchesSubscriber(
   subscriber: ReplaySubscriber,
 ): boolean {
   const t = entry.targeting;
-  if (!t) return true;
+  if (!t) {
+    return true;
+  }
 
   // Self-echo suppression: the originating client never receives the
   // event back.
@@ -494,13 +483,17 @@ function evict(): void {
   const now = Date.now();
   while (state.ring.length > 0) {
     const head = state.ring[0];
-    if (head == null) break;
+    if (head == null) {
+      break;
+    }
 
     const overCount = state.ring.length > RING_COUNT_LIMIT;
     const overSize = state.totalSizeBytes > RING_SIZE_LIMIT_BYTES;
     const overAge = now - head.emittedAt > RING_AGE_LIMIT_MS;
 
-    if (!overCount && !overSize && !overAge) break;
+    if (!overCount && !overSize && !overAge) {
+      break;
+    }
 
     state.ring.shift();
     state.totalSizeBytes -= head.sizeBytes;

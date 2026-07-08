@@ -7,12 +7,15 @@
  * 3. Records guardian_action_delivery rows from pipeline delivery results
  */
 
-import { findGuardianForChannel } from "../contacts/contact-store.js";
 import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
@@ -86,16 +89,16 @@ async function dispatchGuardianQuestionInner(
   try {
     const expiresAt = Date.now() + getUserConsultationTimeoutMs();
 
-    // Resolve the request principal from the same local source as the
-    // submitting actor (guardian-action-routes / actor-trust-resolver both read
-    // findGuardianForChannel("vellum")?.contact.principalId), so they cannot
-    // diverge. applyCanonicalGuardianDecision requires strict equality with
-    // request.guardianPrincipalId; sharing this local source guarantees the
-    // stamped principal == the submitting principal even when the gateway and
-    // local bindings drift during migration. This pair converts to the gateway
-    // together with the actor-trust path.
-    const guardianPrincipalId =
-      findGuardianForChannel("vellum")?.contact.principalId ?? undefined;
+    // Resolve the request principal from the gateway guardian delivery — the
+    // same source the submitting actor (guardian-action-routes /
+    // actor-trust-resolver) resolves, so they cannot diverge.
+    // applyCanonicalGuardianDecision requires strict equality with
+    // request.guardianPrincipalId; sharing this gateway source guarantees the
+    // stamped principal == the submitting principal.
+    const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
+    const guardianPrincipalId = guardians
+      ? (guardianForChannel(guardians, "vellum")?.principalId ?? undefined)
+      : undefined;
 
     if (!guardianPrincipalId) {
       log.error(

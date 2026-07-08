@@ -15,11 +15,12 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 mock.module("../../permissions/checker.js", () => ({
+  isDynamicSkillLoadInvocation: () => false,
   check: async () => ({ decision: "prompt" }),
   classifyRisk: async () => ({ level: "high" }),
 }));
 
-import { initializeDb } from "../../memory/db-init.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import { createTask } from "../../tasks/task-store.js";
 import { createWorkItem } from "../../work-items/work-item-store.js";
 import { ForbiddenError } from "./errors.js";

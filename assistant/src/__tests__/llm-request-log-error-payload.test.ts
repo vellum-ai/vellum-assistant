@@ -24,7 +24,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { buildProviderErrorResponsePayload } from "../memory/llm-request-log-store.js";
+import { buildProviderErrorResponsePayload } from "../persistence/llm-request-log-store.js";
 import { AssistantError, ErrorCode, ProviderError } from "../util/errors.js";
 
 function persisted(err: Error): {

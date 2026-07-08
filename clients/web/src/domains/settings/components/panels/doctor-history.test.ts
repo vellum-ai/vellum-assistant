@@ -5,9 +5,13 @@ import type { DoctorMessage } from "@/generated/api/types.gen";
 import {
   hasPendingApproval,
   hasPendingBackup,
+  isReplayableDoctorSourceEventId,
+  latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
+  replayableDoctorSourceEventIds,
   selectLatestHistorySession,
+  serializeSessionToText,
 } from "@/domains/settings/components/panels/doctor-history";
 import type { ChatEntry } from "@/domains/settings/components/panels/doctor-history";
 
@@ -17,6 +21,7 @@ function msg(overrides: Partial<DoctorMessage> & Pick<DoctorMessage, "kind">): D
     content: "",
     metadata: null,
     sequence: 0,
+    source_event_id: null,
     occurred_at: "2026-01-01T00:00:00Z",
     ...overrides,
   };
@@ -66,7 +71,9 @@ describe("mapPersistedMessagesToEntries", () => {
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
     expect(entry.kind).toBe("tool_call");
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("run_diagnostics");
     expect(entry.meta.input).toEqual({ flag: true });
     expect(entry.meta.toolCallId).toBe("tc-1");
@@ -78,7 +85,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "tool_call", content: "fallback_name", metadata: {} }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("fallback_name");
     expect(entry.content).toBe("fallback_name");
   });
@@ -88,7 +97,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ id: "msg-tc", kind: "tool_call", content: "tool", metadata: { toolName: "tool" } }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolCallId).toBe("msg-tc");
   });
 
@@ -109,7 +120,9 @@ describe("mapPersistedMessagesToEntries", () => {
     ]);
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.result).toBe("result data");
     expect(entry.meta.isError).toBe(false);
     expect(entry.meta.status).toBe("completed");
@@ -131,7 +144,9 @@ describe("mapPersistedMessagesToEntries", () => {
       }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.isError).toBe(true);
     expect(entry.meta.status).toBe("error");
   });
@@ -162,7 +177,9 @@ describe("mapPersistedMessagesToEntries", () => {
     ]);
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
-    if (entry.kind !== "approval") throw new Error("unreachable");
+    if (entry.kind !== "approval") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("exec_command");
     expect(entry.meta.toolCallId).toBe("ap-1");
     expect(entry.meta.description).toBe("Run ls in /tmp");
@@ -173,7 +190,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "approval", content: "exec", metadata: { toolName: "exec" } }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "approval") throw new Error("unreachable");
+    if (entry.kind !== "approval") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.description).toBe("");
   });
 
@@ -224,7 +243,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "tool_call", content: "tool", metadata: "not an object" }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("tool");
     expect(entry.meta.input).toEqual({});
   });
@@ -234,7 +255,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "tool_call", content: "tool", metadata: null }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("tool");
   });
 
@@ -243,7 +266,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "tool_call", content: "tool", metadata: [1, 2, 3] }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("tool");
     expect(entry.meta.input).toEqual({});
   });
@@ -269,7 +294,9 @@ describe("mapPersistedMessagesToEntries", () => {
     expect(entries).toHaveLength(4);
     expect(entries.map((e) => e.kind)).toEqual(["user", "assistant", "tool_call", "status"]);
     const toolEntry = entries[2]!;
-    if (toolEntry.kind !== "tool_call") throw new Error("unreachable");
+    if (toolEntry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(toolEntry.meta.status).toBe("completed");
   });
 
@@ -291,6 +318,51 @@ describe("mapPersistedStatusToPanelStatus", () => {
   });
   test("maps error", () => {
     expect(mapPersistedStatusToPanelStatus("error")).toBe("error");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// replayable Doctor source event IDs
+// ---------------------------------------------------------------------------
+
+describe("Doctor source event ID helpers", () => {
+  test("accepts Redis stream IDs and rejects legacy or malformed values", () => {
+    expect(isReplayableDoctorSourceEventId("123-0")).toBe(true);
+    expect(isReplayableDoctorSourceEventId("123")).toBe(false);
+    expect(isReplayableDoctorSourceEventId("evt-123")).toBe(false);
+    expect(isReplayableDoctorSourceEventId(null)).toBe(false);
+    expect(isReplayableDoctorSourceEventId(undefined)).toBe(false);
+  });
+
+  test("extracts replayable IDs in persisted message order", () => {
+    const messages = [
+      { source_event_id: null },
+      { source_event_id: "1-0" },
+      { source_event_id: "legacy-event" },
+      { source_event_id: "2-0" },
+    ];
+
+    expect(replayableDoctorSourceEventIds(messages)).toEqual(["1-0", "2-0"]);
+  });
+
+  test("returns the latest replayable ID from persisted history", () => {
+    const messages = [
+      { source_event_id: "1-0" },
+      { source_event_id: null },
+      { source_event_id: "2-0" },
+      { source_event_id: "legacy-event" },
+    ];
+
+    expect(latestReplayableDoctorSourceEventId(messages)).toBe("2-0");
+  });
+
+  test("returns null when persisted history has no replayable IDs", () => {
+    expect(
+      latestReplayableDoctorSourceEventId([
+        { source_event_id: null },
+        { source_event_id: "legacy-event" },
+      ]),
+    ).toBeNull();
   });
 });
 
@@ -361,6 +433,189 @@ describe("hasPendingBackup", () => {
 
   test("returns false for empty entries", () => {
     expect(hasPendingBackup([])).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// serializeSessionToText
+// ---------------------------------------------------------------------------
+
+describe("serializeSessionToText", () => {
+  test("returns empty string for empty entries", () => {
+    // GIVEN an empty entries array
+    const entries: ChatEntry[] = [];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN the result is empty
+    expect(result).toBe("");
+  });
+
+  test("serializes user and assistant messages with role prefixes", () => {
+    // GIVEN user and assistant entries
+    const entries: ChatEntry[] = [
+      { id: "1", kind: "user", content: "help me", timestamp: 0 },
+      { id: "2", kind: "assistant", content: "sure thing", timestamp: 0 },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN each entry has the correct prefix, separated by double newlines
+    expect(result).toBe("User: help me\n\nDoctor: sure thing");
+  });
+
+  test("serializes tool_call with input and output", () => {
+    // GIVEN a tool_call entry with input and result
+    const entries: ChatEntry[] = [
+      {
+        id: "1",
+        kind: "tool_call",
+        content: "search",
+        timestamp: 0,
+        meta: {
+          toolName: "search",
+          input: { q: "hello" },
+          toolCallId: "tc-1",
+          status: "completed",
+          result: "found it",
+          isError: false,
+        },
+      },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN it includes tool name, input, and output
+    expect(result).toContain("Tool Call: search");
+    expect(result).toContain("Input:");
+    expect(result).toContain('"q": "hello"');
+    expect(result).toContain("Output: found it");
+  });
+
+  test("serializes tool_call error result with Error label", () => {
+    // GIVEN a tool_call entry with an error result
+    const entries: ChatEntry[] = [
+      {
+        id: "1",
+        kind: "tool_call",
+        content: "rm",
+        timestamp: 0,
+        meta: {
+          toolName: "rm",
+          input: {},
+          toolCallId: "tc-1",
+          status: "error",
+          result: "permission denied",
+          isError: true,
+        },
+      },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN the result is labeled as Error
+    expect(result).toContain("Error: permission denied");
+  });
+
+  test("serializes approval with description and input", () => {
+    // GIVEN an approval entry with description and input
+    const entries: ChatEntry[] = [
+      {
+        id: "1",
+        kind: "approval",
+        content: "delete_thing",
+        timestamp: 0,
+        meta: {
+          toolName: "delete_thing",
+          input: { target: "workspace" },
+          toolCallId: "ap-1",
+          description: "Delete x permanently",
+        },
+      },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN it includes tool name, description, and input
+    expect(result).toContain("Approval Required: delete_thing — Delete x permanently");
+    expect(result).toContain("Input:");
+    expect(result).toContain('"target": "workspace"');
+  });
+
+  test("serializes error entry with Error prefix", () => {
+    // GIVEN an error entry
+    const entries: ChatEntry[] = [
+      { id: "1", kind: "error", content: "connection lost", timestamp: 0 },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN it has the Error prefix
+    expect(result).toBe("Error: connection lost");
+  });
+
+  test("serializes status entry with separator formatting", () => {
+    // GIVEN a status entry
+    const entries: ChatEntry[] = [
+      { id: "1", kind: "status", content: "Session completed", timestamp: 0 },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN it uses separator formatting
+    expect(result).toBe("--- Session completed ---");
+  });
+
+  test("serializes backup_prompt with tool name", () => {
+    // GIVEN a backup_prompt entry
+    const entries: ChatEntry[] = [
+      {
+        id: "1",
+        kind: "backup_prompt",
+        content: "modify_config",
+        timestamp: 0,
+        meta: { toolName: "modify_config" },
+      },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN it includes the tool name
+    expect(result).toBe("Backup Prompt: modify_config");
+  });
+
+  test("serializes a full session in order with double newline separators", () => {
+    // GIVEN a mixed session timeline
+    const entries: ChatEntry[] = [
+      { id: "1", kind: "user", content: "fix my assistant", timestamp: 0 },
+      { id: "2", kind: "assistant", content: "Looking into it...", timestamp: 0 },
+      {
+        id: "3",
+        kind: "tool_call",
+        content: "inspect",
+        timestamp: 0,
+        meta: { toolName: "inspect", input: {}, toolCallId: "tc-1", status: "completed" },
+      },
+      { id: "4", kind: "assistant", content: "Found the issue.", timestamp: 0 },
+      { id: "5", kind: "status", content: "Session completed", timestamp: 0 },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN all entries are present in order separated by double newlines
+    const parts = result.split("\n\n");
+    expect(parts).toHaveLength(5);
+    expect(parts[0]).toBe("User: fix my assistant");
+    expect(parts[4]).toBe("--- Session completed ---");
   });
 });
 

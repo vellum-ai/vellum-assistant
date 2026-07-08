@@ -11,10 +11,22 @@
 
 import { existsSync, type FSWatcher, watch } from "node:fs";
 
-import { getAppsDir, resolveAppIdByDirName } from "../memory/app-store.js";
+import {
+  getApp,
+  getAppDirPath,
+  getAppsDir,
+  isMultifileApp,
+  resolveAppIdByDirName,
+} from "../apps/app-store.js";
+import { compileApp } from "../bundler/app-compiler.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
+import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";
+import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { attachFsWatcherErrorHandler } from "../util/fs-watcher-error.js";
 import { getLogger } from "../util/logger.js";
+import { allConversations } from "./conversation-registry.js";
+import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 
 const log = getLogger("app-source-watcher");
 
@@ -22,18 +34,16 @@ const APP_REFRESH_DEBOUNCE_MS = 500;
 
 export type AppSourceChangeCallback = (appId: string) => void;
 
+/** Process-level singleton; created by {@link startAppSourceWatcher}. */
+let instance: AppSourceWatcher | null = null;
+
 /**
- * Module-level callback so tool-side-effects can ensure the watcher starts
- * after the apps directory is created (e.g. on first app_create).
+ * Ensure the watcher is running. Called by tool-side-effects after the apps
+ * directory may have been created (e.g. on first app_create), since the
+ * watcher is skipped at startup when the directory doesn't exist yet.
  */
-let ensureWatcherStarted: (() => void) | null = null;
-
-export function setEnsureAppSourceWatcher(fn: () => void): void {
-  ensureWatcherStarted = fn;
-}
-
 export function ensureAppSourceWatcher(): void {
-  ensureWatcherStarted?.();
+  instance?.ensureStarted();
 }
 
 /**
@@ -46,6 +56,14 @@ function resolveAppIdFromRelPath(relPath: string): string | null {
 
   const dirName = relPath.slice(0, slashIdx);
   const innerPath = relPath.slice(slashIdx + 1);
+
+  // Skip a git repo at the root of the apps directory. Older installs may
+  // still carry a legacy .git there; its objects/index/refs churn constantly,
+  // and each event would otherwise hit resolveAppIdByDirName -> existsSync,
+  // which is needless work on a path that can never be an app.
+  if (dirName === ".git") {
+    return null;
+  }
 
   // Skip non-source directories (include bare directory names for fs.watch events)
   if (
@@ -138,4 +156,55 @@ export class AppSourceWatcher {
       this.watcher = null;
     }
   }
+}
+
+/**
+ * Handle a detected app source file change. Recompiles multifile apps and
+ * refreshes surfaces across ALL conversations.
+ */
+function handleAppSourceChange(appId: string): void {
+  const app = getApp(appId);
+  if (!app) return;
+
+  const doRefresh = () => {
+    for (const conversation of allConversations()) {
+      refreshSurfacesForApp(conversation, appId, { fileChange: true });
+    }
+    broadcastMessage({ type: "app_files_changed", appId });
+    publishAppsChanged();
+    void updatePublishedAppDeployment(appId);
+  };
+
+  if (isMultifileApp(app)) {
+    const appDir = getAppDirPath(appId);
+    void compileApp(appDir)
+      .then((result) => {
+        if (!result.ok) {
+          log.warn(
+            { appId, errors: result.errors },
+            "Recompile failed on app source change",
+          );
+        }
+        doRefresh();
+      })
+      .catch((err) => {
+        log.warn({ appId, err }, "Recompile threw on app source change");
+        doRefresh();
+      });
+    return;
+  }
+
+  doRefresh();
+}
+
+/** Start watching app source directories for the life of the daemon. */
+export function startAppSourceWatcher(): void {
+  instance = new AppSourceWatcher();
+  instance.start(handleAppSourceChange);
+}
+
+/** Stop the app source watcher during daemon shutdown. */
+export function stopAppSourceWatcher(): void {
+  instance?.stop();
+  instance = null;
 }

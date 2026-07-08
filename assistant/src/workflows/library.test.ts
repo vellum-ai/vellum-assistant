@@ -218,8 +218,8 @@ describe("getWorkflow", () => {
   });
 });
 
-describe("name collisions", () => {
-  test("a directory wins over a same-base-name flat file", () => {
+describe("name collisions (fail closed)", () => {
+  test("a base-name collision (dir + flat) resolves NEITHER", () => {
     writeWorkflow(
       "foo.workflow.ts",
       `export const meta = { name: "foo", description: "flat" };\nreturn "FLAT";`,
@@ -229,16 +229,12 @@ describe("name collisions", () => {
       `export const meta = { name: "foo", description: "dir" };\nreturn "DIR";`,
     );
 
-    const resolved = getWorkflow("foo")!;
-    expect(resolved.source).toContain("DIR");
-    expect(resolved.path.endsWith(join("foo", "workflow.ts"))).toBe(true);
-
-    const foos = listWorkflows().filter((e) => e.name === "foo");
-    expect(foos).toHaveLength(1);
-    expect(foos[0]!.description).toBe("dir");
+    // Neither the base name nor the (shared) meta.name resolves.
+    expect(getWorkflow("foo")).toBeNull();
+    expect(listWorkflows().filter((e) => e.name === "foo")).toHaveLength(0);
   });
 
-  test("the shadowed flat file's own meta.name no longer resolves", () => {
+  test("a base-name collision hides both sides' own meta.names", () => {
     writeWorkflow(
       "bar.workflow.ts",
       `export const meta = { name: "flat-name", description: "flat" };\nreturn "FLAT";`,
@@ -248,14 +244,33 @@ describe("name collisions", () => {
       `export const meta = { name: "dir-name", description: "dir" };\nreturn "DIR";`,
     );
 
-    expect(getWorkflow("dir-name")!.source).toContain("DIR");
+    expect(getWorkflow("dir-name")).toBeNull();
     expect(getWorkflow("flat-name")).toBeNull();
-    // Base-name fallback also lands on the directory.
-    expect(getWorkflow("bar")!.source).toContain("DIR");
-    expect(listWorkflows().map((e) => e.name)).toEqual(["dir-name"]);
+    expect(getWorkflow("bar")).toBeNull();
+    expect(listWorkflows()).toEqual([]);
   });
 
-  test("listWorkflows dedups a duplicate meta.name across different files", () => {
+  test("a base-name collision does not affect unrelated workflows", () => {
+    writeWorkflow(
+      "foo.workflow.ts",
+      `export const meta = { name: "foo", description: "flat" };\nreturn "FLAT";`,
+    );
+    writeDirWorkflow(
+      "foo",
+      `export const meta = { name: "foo", description: "dir" };\nreturn "DIR";`,
+    );
+    // A separate, non-colliding workflow still resolves normally.
+    writeWorkflow(
+      "safe.workflow.ts",
+      `export const meta = { name: "safe", description: "ok" };\nreturn "SAFE";`,
+    );
+
+    expect(getWorkflow("safe")!.source).toContain("SAFE");
+    expect(listWorkflows().map((e) => e.name)).toEqual(["safe"]);
+  });
+
+  test("a duplicate meta.name across different files resolves NEITHER", () => {
+    // Distinct base names, same meta.name → fail closed (no hijack by order).
     writeWorkflow(
       "a.workflow.ts",
       `export const meta = { name: "dup", description: "from-a" };\nreturn "A";`,
@@ -265,10 +280,10 @@ describe("name collisions", () => {
       `export const meta = { name: "dup", description: "from-b" };\nreturn "B";`,
     );
 
-    // One entry; the directory (yielded first) wins, consistent with getWorkflow.
-    const dups = listWorkflows().filter((e) => e.name === "dup");
-    expect(dups).toHaveLength(1);
-    expect(dups[0]!.description).toBe("from-b");
-    expect(getWorkflow("dup")!.source).toContain("B");
+    expect(getWorkflow("dup")).toBeNull();
+    expect(listWorkflows().filter((e) => e.name === "dup")).toHaveLength(0);
+    // Each file is still reachable by its unambiguous base name.
+    expect(getWorkflow("a")!.source).toContain("A");
+    expect(getWorkflow("b")!.source).toContain("B");
   });
 });

@@ -21,11 +21,18 @@
  * - WebSocket `open` -> extract callSessionId from upgrade params,
  *   create `MediaStreamCallSession`.
  * - Media stream `start` event -> capture streamSid/callSid, wire
- *   output adapter, create controller.
+ *   output adapter, run setup routing and hand the outcome to a
+ *   `CallSetupFlow` (deny, verification, invite redemption, name
+ *   capture / guardian wait, unverified caller, normal call). The
+ *   controller is created only once the flow completes with a
+ *   `proceed-*` result.
  * - Media stream `media` events -> forwarded to STT session for
  *   turn detection and transcription.
- * - STT `onTranscriptFinal` -> routed to controller's
+ * - STT `onTranscriptFinal` -> routed to the active setup flow's
+ *   `pushTranscriptFinal()`, else the controller's
  *   `handleCallerUtterance()`.
+ * - STT `onDtmf` -> routed to the active setup flow's
+ *   `pushDtmfDigit()` for code-collection sub-flows.
  * - STT `onSpeechStart` -> barge-in: clears outbound audio queue
  *   and interrupts the in-flight LLM turn via the controller.
  * - Media stream `stop` event / WebSocket close -> finalize call.
@@ -33,11 +40,24 @@
 
 import type { ServerWebSocket } from "bun";
 
-import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
-import { toTrustContext } from "../runtime/actor-trust-resolver.js";
+import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
+import { getAssistantName } from "../daemon/identity-helpers.js";
+import { addMessage } from "../persistence/conversation-crud.js";
+import { resolveGuardianName } from "../prompts/user-reference.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { CallController } from "./call-controller.js";
-import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
+import {
+  formatDuration,
+  postPointerMessageSafe,
+} from "./call-pointer-messages.js";
+import { CallSetupFlow, type CallSetupFlowDeps } from "./call-setup-flow.js";
+import type { SetupFlowResult } from "./call-setup-flow-types.js";
+import {
+  routeSetup,
+  type SetupOutcome,
+  type SetupResolved,
+} from "./call-setup-router.js";
 import { speakSystemPrompt } from "./call-speech-output.js";
 import {
   fireCallTranscriptNotifier,
@@ -50,9 +70,8 @@ import {
   recordCallEvent,
   updateCallSession,
 } from "./call-store.js";
-import { getChannelAdmissionPolicy } from "./channel-admission-reader.js";
 import { finalizeCall } from "./finalize-call.js";
-import { getPhoneCallerVerdict } from "./inbound-trust-reader.js";
+import { readPhoneCallerTrust } from "./inbound-trust-reader.js";
 import { MediaStreamOutput } from "./media-stream-output.js";
 import { parseMediaStreamFrame } from "./media-stream-parser.js";
 import type { MediaStreamStartEvent } from "./media-stream-protocol.js";
@@ -61,9 +80,56 @@ import {
   type MediaStreamSttSessionCallbacks,
   type MediaStreamSttSessionConfig,
 } from "./media-stream-stt-session.js";
-import { routeSetup } from "./relay-setup-router.js";
+import {
+  TRUST_UNAVAILABLE_DENY_MESSAGE,
+  unresolvedActorTrust,
+} from "./unresolved-caller-trust.js";
 
 const log = getLogger("media-stream-server");
+const UUID_SHAPED_NAME =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Resolve the assistant's display name from identity configuration.
+ * Returns the trimmed name, or null when unavailable or UUID-shaped.
+ */
+function resolveAssistantLabel(): string | null {
+  try {
+    const trimmed = getAssistantName()?.trim();
+    if (!trimmed || UUID_SHAPED_NAME.test(trimmed)) {
+      return null;
+    }
+    return trimmed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Deny routing for an inbound call whose combined trust-verdict +
+ * admission-floor read failed (gateway unreachable / malformed answer).
+ * Mirrors the router's floor-deny outcome shape so the setup flow runs the
+ * standard deny teardown (denial copy + hangup). Trust is stamped `unknown`
+ * via the shared builder: with no gateway answer the caller cannot be vetted.
+ */
+function admissionUnavailableDeny(otherPartyNumber: string): {
+  outcome: SetupOutcome;
+  resolved: SetupResolved;
+} {
+  return {
+    outcome: {
+      action: "deny",
+      message: TRUST_UNAVAILABLE_DENY_MESSAGE,
+      logReason: "Inbound voice admission floor: gateway unreachable",
+    },
+    resolved: {
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      isInbound: true,
+      otherPartyNumber,
+      actorTrust: unresolvedActorTrust(otherPartyNumber),
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Active sessions registry (keyed by callSessionId)
@@ -89,20 +155,30 @@ export class MediaStreamCallSession {
   private output: MediaStreamOutput;
   private sttSession: MediaStreamSttSession;
   private controller: CallController | null = null;
+  /**
+   * Active setup flow driving the pre-conversation phase (verification,
+   * invite redemption, name capture, guardian wait, deny). Non-null from
+   * setup routing until the flow completes; caller input routes into it
+   * instead of the controller while set.
+   */
+  private setupFlow: CallSetupFlow | null = null;
+  /** Guardian displayName primed from the setup trust verdict. */
+  private primedGuardianDisplayName: string | undefined;
   private streamSid: string | null = null;
   private callSid: string | null = null;
   private disposed = false;
   // True from the synchronous start of handleStart until setup routing
-  // completes. Resolving the admission floor yields the event loop, so
-  // transcripts/barge-in arriving in this window are ignored — a denied or
-  // not-yet-authorized caller's speech is never persisted before the floor
-  // and trust ACL are applied. The controller-existence checks below also
-  // gate persistence, but this guard makes the intent explicit and covers
-  // the brief async window before the controller is created.
+  // completes. Resolving the trust verdict + admission floor yields the
+  // event loop, so transcripts/barge-in arriving in this window are ignored
+  // — a denied or not-yet-authorized caller's speech is never persisted
+  // before the floor and trust ACL are applied. The controller-existence
+  // checks below also gate persistence, but this guard makes the intent
+  // explicit and covers the brief async window before the controller is
+  // created.
   private setupRouting = false;
   // Resolves when the async setup routing kicked off by the `start` frame
   // settles. Exposed via whenSetupSettled() for deterministic test awaiting,
-  // since handleStart now yields on the admission-policy read.
+  // since handleStart yields on the gateway trust read.
   private setupSettled: Promise<void> = Promise.resolve();
 
   // ── Operational diagnostics counters ──────────────────────────────
@@ -156,6 +232,13 @@ export class MediaStreamCallSession {
   }
 
   /**
+   * Get the active setup flow (for test assertions).
+   */
+  getSetupFlow(): CallSetupFlow | null {
+    return this.setupFlow;
+  }
+
+  /**
    * Resolves once the async setup routing started by the `start` frame has
    * settled. Test-only convenience — production code does not await this.
    */
@@ -171,21 +254,18 @@ export class MediaStreamCallSession {
    * audio processing.
    */
   handleMessage(raw: string): void {
-    if (this.disposed) return;
+    if (this.disposed) {return;}
 
     // Intercept `start` to bootstrap the session before forwarding.
     const parseResult = parseMediaStreamFrame(raw);
     if (parseResult.ok && parseResult.event.event === "start") {
-      // handleStart resolves the admission floor asynchronously; the
-      // setupRouting guard set synchronously at its top ensures inbound
-      // frames forwarded below are ignored until routing completes.
-      this.setupSettled = this.handleStart(parseResult.event).catch((err) => {
-        log.error(
-          { err, callSessionId: this.callSessionId },
-          "Media-stream setup routing failed",
-        );
-        this.setupRouting = false;
-      });
+      // handleStart resolves the trust verdict + admission floor
+      // asynchronously; the setupRouting guard set synchronously at its top
+      // ensures inbound frames forwarded below are ignored until routing
+      // completes.
+      this.setupSettled = this.handleStart(parseResult.event).catch((err) =>
+        this.handleSetupFailure(err),
+      );
     }
 
     // Always forward to the STT session (it handles all event types).
@@ -197,11 +277,26 @@ export class MediaStreamCallSession {
    * in a terminal state.
    */
   handleTransportClosed(code?: number, reason?: string): void {
-    if (this.disposed) return;
+    if (this.disposed) {return;}
+
+    // Tear down an in-flight setup flow first: clears its timers and emits
+    // the guardian-wait callback handoff when the caller opted in.
+    const setupFlow = this.setupFlow;
+    this.setupFlow = null;
+    setupFlow?.dispose("transport_closed");
 
     const session = getCallSession(this.callSessionId);
-    if (!session) return;
-    if (isTerminalState(session.status)) return;
+    if (!session) {return;}
+    if (isTerminalState(session.status)) {
+      // A hangup during a flow-terminal goodbye: dispose above swallowed the
+      // flow's pending complete(), so finalize + revoke grants here. Normal
+      // completion nulls setupFlow and hasFinalized() covers flow-side
+      // finalization, keeping this exactly-once.
+      if (setupFlow && !setupFlow.hasFinalized()) {
+        this.runFinalizationAndGrantCleanup(session);
+      }
+      return;
+    }
 
     const isNormalClose = code === 1000;
     const terminationReason = isNormalClose ? "normal_stop" : "premature_abort";
@@ -232,19 +327,14 @@ export class MediaStreamCallSession {
         const durationMs = session.startedAt
           ? Date.now() - session.startedAt
           : 0;
-        addPointerMessage(
+        postPointerMessageSafe(
           session.initiatedFromConversationId,
           "completed",
           session.toNumber,
           {
             duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
           },
-        ).catch((err) => {
-          log.warn(
-            { conversationId: session.initiatedFromConversationId, err },
-            "Skipping pointer write — origin conversation may no longer exist",
-          );
-        });
+        );
       }
     } else {
       const detail =
@@ -261,49 +351,35 @@ export class MediaStreamCallSession {
       });
 
       if (session.initiatedFromConversationId) {
-        addPointerMessage(
+        postPointerMessageSafe(
           session.initiatedFromConversationId,
           "failed",
           session.toNumber,
           { reason: detail },
-        ).catch((err) => {
-          log.warn(
-            { conversationId: session.initiatedFromConversationId, err },
-            "Skipping pointer write — origin conversation may no longer exist",
-          );
-        });
+        );
       }
     }
 
-    // Revoke any scoped approval grants bound to this call session.
-    // Revoke by both callSessionId and conversationId because the
-    // guardian-approval-interception minting path sets callSessionId: null
-    // but always sets conversationId.
-    try {
-      revokeScopedApprovalGrantsForContext({
-        callSessionId: this.callSessionId,
-      });
-      revokeScopedApprovalGrantsForContext({
-        conversationId: session.conversationId,
-      });
-    } catch (err) {
-      log.warn(
-        { err, callSessionId: this.callSessionId },
-        "Failed to revoke scoped grants on media-stream transport close",
-      );
-    }
+    this.revokeScopedGrants(session.conversationId);
 
-    finalizeCall(this.callSessionId, session.conversationId);
+    // A setup flow that reached a flow-terminal path already ran
+    // finalizeCall — keep finalization exactly-once.
+    if (!setupFlow?.hasFinalized()) {
+      finalizeCall(this.callSessionId, session.conversationId);
+    }
   }
 
   /**
    * Dispose of the session, cleaning up all resources.
    */
   destroy(): void {
-    if (this.disposed) return;
+    if (this.disposed) {return;}
     this.disposed = true;
 
     this.sttSession.dispose();
+
+    this.setupFlow?.dispose("teardown");
+    this.setupFlow = null;
 
     if (this.controller) {
       this.controller.destroy();
@@ -329,7 +405,7 @@ export class MediaStreamCallSession {
 
   private async handleStart(event: MediaStreamStartEvent): Promise<void> {
     // Enter the setup-pending window synchronously, before any await. The
-    // admission-policy read below yields the event loop, so frames forwarded
+    // gateway trust read below yields the event loop, so frames forwarded
     // to the STT session can produce transcripts/barge-in before routing
     // completes — those are dropped while setupRouting is true.
     this.setupRouting = true;
@@ -351,7 +427,7 @@ export class MediaStreamCallSession {
         session.status !== "waiting_on_user"
       ) {
         updates.status = "in_progress";
-        if (!session.startedAt) updates.startedAt = Date.now();
+        if (!session.startedAt) {updates.startedAt = Date.now();}
       }
       updateCallSession(this.callSessionId, updates);
     }
@@ -365,61 +441,68 @@ export class MediaStreamCallSession {
     });
 
     // ── Setup-policy routing ────────────────────────────────────────
-    // Run the same routeSetup() that the ConversationRelay path uses
-    // to enforce ACL/deny/escalate, verification, and invite flows.
-    // The media-stream transport does not support interactive sub-flows
-    // (DTMF entry, name capture, guardian wait), so non-normal outcomes
-    // are rejected gracefully with a TTS message and session teardown.
+    // Run routeSetup() to enforce ACL/deny/escalate, verification, and
+    // invite flows. The resulting outcome is handed to a CallSetupFlow,
+    // which drives every interactive sub-flow (DTMF/spoken code entry,
+    // invite redemption, name capture, guardian wait) over this
+    // transport.
     const from = session?.fromNumber ?? "";
     const to = session?.toNumber ?? "";
-
-    // Resolve the phone channel's inbound admission floor so the trust floor
-    // (e.g. guardian_only) is enforced on this transport too — not just the
-    // gateway webhook's no_one kill switch. The reader fails open to `null`
-    // by contract, so a transport hiccup admits the caller.
-    const admissionPolicy = await getChannelAdmissionPolicy("phone");
-
-    // The admission-policy read above yields the event loop; if Twilio closed
-    // the WebSocket meanwhile, the close handler will have called destroy().
-    // Abort setup so we don't create a controller or speak on a disposed
-    // session.
-    if (this.disposed) {
-      log.info(
-        { callSessionId: this.callSessionId },
-        "Media-stream session disposed during admission read — aborting setup",
-      );
-      this.setupRouting = false;
-      return;
-    }
-
-    // Verdict-first caller trust so this transport enforces the same gateway
-    // ACL as ConversationRelay. routeSetup uses it when present and not
-    // resolutionFailed, else falls back to local resolution. The reader returns
-    // null on failure, keeping the local path on a gateway blip.
     const isInbound = session?.initiatedFromConversationId == null;
     const otherPartyNumber = isInbound ? from : to;
-    const verdict = await getPhoneCallerVerdict(otherPartyNumber);
 
-    // The verdict read above yields the event loop; abort if the session was
-    // disposed meanwhile, matching the admission-read guard above.
-    if (this.disposed) {
-      log.info(
-        { callSessionId: this.callSessionId },
-        "Media-stream session disposed during verdict read — aborting setup",
-      );
-      this.setupRouting = false;
+    // Single gateway round-trip for caller trust: the verdict (this
+    // transport's sole caller-trust source) rides with the phone channel's
+    // inbound admission floor, so the trust floor (e.g. guardian_only) is
+    // enforced here too — not just the gateway webhook's no_one kill switch.
+    // The read fails closed: an unreachable gateway denies inbound setup
+    // below rather than admitting unvetted callers past the floor.
+    const trustRead = await readPhoneCallerTrust(otherPartyNumber);
+
+    // The trust read above yields the event loop; if Twilio closed the
+    // WebSocket meanwhile, the close handler will have called destroy().
+    // Abort setup so we don't create a controller or speak on a disposed
+    // session.
+    if (this.abortIfDisposed("trust read")) {
       return;
     }
 
-    const { outcome, resolved } = routeSetup({
-      callSessionId: this.callSessionId,
-      session: session ?? null,
-      from,
-      to,
-      customParameters: event.start.customParameters,
-      admissionPolicy,
-      verdict,
-    });
+    let routed: { outcome: SetupOutcome; resolved: SetupResolved };
+    if (isInbound && !trustRead.ok) {
+      // Fail closed: with no gateway answer neither the floor nor the caller
+      // trust can be resolved, so the caller cannot be vetted.
+      log.warn(
+        { callSessionId: this.callSessionId, from },
+        "Inbound voice trust/admission read unavailable — denying call setup",
+      );
+      routed = admissionUnavailableDeny(otherPartyNumber);
+    } else {
+      // Guardian displayName for setup-flow copy comes off the verdict (the
+      // gateway stamps the channel's guardian binding label independent of
+      // who is calling); absent → the default guardian reference.
+      const verdict = trustRead.ok ? trustRead.verdict : null;
+      this.primedGuardianDisplayName = verdict?.guardianDisplayName;
+
+      // routeSetup fails closed on a missing/failed verdict (inbound deny,
+      // outbound setup-failure teardown). Outbound calls never consult
+      // admission, so a failed read degrades to a null policy here.
+      routed = await routeSetup({
+        callSessionId: this.callSessionId,
+        session: session ?? null,
+        from,
+        to,
+        customParameters: event.start.customParameters,
+        admissionPolicy: trustRead.ok ? trustRead.admissionPolicy : null,
+        verdict,
+      });
+
+      // routeSetup can yield the event loop (gateway voice-invite read); abort
+      // if the session was disposed meanwhile, matching the guard above.
+      if (this.abortIfDisposed("setup routing")) {
+        return;
+      }
+    }
+    const { outcome, resolved } = routed;
 
     log.info(
       {
@@ -431,141 +514,220 @@ export class MediaStreamCallSession {
       "Media stream session started",
     );
 
-    switch (outcome.action) {
-      case "normal_call": {
-        // Create the call controller only for normal calls. Deny and
-        // unsupported-flow paths speak a message via the output adapter
-        // directly and don't need a controller. Creating it eagerly
-        // would start duration/silence timers that leak when the
-        // session is torn down before destroy() runs.
-        const initialTrustContext = toTrustContext(
-          resolved.actorTrust,
-          resolved.otherPartyNumber,
-        );
-        this.controller = new CallController(
-          this.callSessionId,
-          this.output,
-          session?.task ?? null,
-          {
-            assistantId: resolved.assistantId,
-            trustContext: initialTrustContext,
-          },
-        );
-        registerCallController(this.callSessionId, this.controller);
+    const flow = new CallSetupFlow(
+      this.callSessionId,
+      this.output,
+      this.buildSetupFlowDeps(session),
+    );
+    this.setupFlow = flow;
+    // Routing/ACL cleared — the flow owns the setup phase from here, so
+    // transcripts and DTMF route into it until it completes.
+    this.setupRouting = false;
+    await flow.start(outcome, resolved);
+  }
 
-        // Routing/ACL cleared — leave the setup-pending window so subsequent
-        // transcripts and barge-in are handled normally.
-        this.setupRouting = false;
+  // ── Setup flow wiring ─────────────────────────────────────────────
 
-        // Fire the initial greeting.
-        this.controller.startInitialGreeting().catch((err) => {
-          log.error(
-            { err, callSessionId: this.callSessionId },
-            "Failed to start initial greeting on media-stream session",
-          );
-        });
-        return;
+  /**
+   * Abort a pending setup when the session was disposed across an await
+   * in {@link handleStart}: logs the stage and clears the setup-routing
+   * input gate. Returns true when setup must abort.
+   */
+  private abortIfDisposed(stage: string): boolean {
+    if (!this.disposed) {
+      return false;
+    }
+    log.info(
+      { callSessionId: this.callSessionId, stage },
+      "Media-stream session disposed during setup — aborting",
+    );
+    this.setupRouting = false;
+    return true;
+  }
+
+  /**
+   * Fail-loud teardown when setup routing rejects (outbound unusable-verdict
+   * abort, gateway pending-session/invite read throw). Without this the call
+   * stays connected with no flow or controller — a live silent line whose
+   * transcripts are dropped. Mirrors the abnormal-close teardown: mark the
+   * session failed, notify the initiating conversation, end the stream, and
+   * finalize.
+   */
+  private handleSetupFailure(err: unknown): void {
+    log.error(
+      { err, callSessionId: this.callSessionId },
+      "Media-stream setup routing failed — ending call",
+    );
+    this.setupRouting = false;
+
+    // Transport already closed mid-setup: handleTransportClosed ran teardown.
+    if (this.disposed) {
+      return;
+    }
+
+    const flow = this.setupFlow;
+    this.setupFlow = null;
+    flow?.dispose("teardown");
+
+    const session = getCallSession(this.callSessionId);
+    if (session && !isTerminalState(session.status)) {
+      const detail = err instanceof Error ? err.message : String(err);
+      updateCallSession(this.callSessionId, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: `Call setup failed: ${detail}`,
+      });
+      recordCallEvent(this.callSessionId, "call_failed", {
+        reason: "setup_routing_failed",
+        transport: "media-stream",
+      });
+      if (session.initiatedFromConversationId) {
+        postPointerMessageSafe(
+          session.initiatedFromConversationId,
+          "failed",
+          session.toNumber,
+          { reason: "call setup failed" },
+        );
       }
+    }
 
-      case "deny":
-        // Deny — speak the denial message and tear down.
-        log.warn(
-          {
-            callSessionId: this.callSessionId,
-            reason: outcome.logReason,
-          },
-          "Media-stream setup denied by ACL policy",
-        );
-        recordCallEvent(this.callSessionId, "inbound_acl_denied", {
-          from,
-          trustClass: resolved.actorTrust.trustClass,
-        });
-        updateCallSession(this.callSessionId, {
-          status: "failed",
-          endedAt: Date.now(),
-          lastError: outcome.logReason,
-        });
-        // Run finalization now because handleTransportClosed will see
-        // terminal status and exit early when the WebSocket closes.
-        this.runFinalizationAndGrantCleanup(session);
-        void speakSystemPrompt(this.output, outcome.message).finally(() => {
-          setTimeout(() => this.output.endSession(outcome.logReason), 3000);
-        });
-        return;
-
-      default:
-        // All interactive sub-flows (verification, invite_redemption,
-        // name_capture, callee_verification, outbound_verification) are
-        // not supported on the media-stream transport. The TwiML preflight
-        // in twilio-routes.ts should have caught this and fallen back to
-        // ConversationRelay — reaching here indicates the preflight was
-        // bypassed or a new setup action was added without updating the
-        // preflight guard. Speak a generic apology and end the session
-        // rather than silently bypassing policy enforcement.
-        log.error(
-          {
-            callSessionId: this.callSessionId,
-            action: outcome.action,
-          },
-          "Media-stream transport received unsupported setup flow — preflight guard should have prevented this",
-        );
-        recordCallEvent(this.callSessionId, "call_failed", {
-          reason: `Setup flow '${outcome.action}' not supported on media-stream transport (preflight guard bypass)`,
-          transport: "media-stream",
-        });
-        updateCallSession(this.callSessionId, {
-          status: "failed",
-          endedAt: Date.now(),
-          lastError: `Setup flow '${outcome.action}' not supported on media-stream transport — preflight guard should have prevented this`,
-        });
-        // Run finalization now because handleTransportClosed will see
-        // terminal status and exit early when the WebSocket closes.
-        this.runFinalizationAndGrantCleanup(session);
-        void speakSystemPrompt(
-          this.output,
-          "Sorry, this call requires additional verification that isn't available right now. Please try calling back. Goodbye.",
-        ).finally(() => {
-          setTimeout(
-            () =>
-              this.output.endSession(
-                `Unsupported setup flow: ${outcome.action} (preflight guard bypass)`,
-              ),
-            3000,
-          );
-        });
-        return;
+    // The terminal status set above makes handleTransportClosed exit early
+    // on the socket close, so finalize + revoke grants inline (exactly-once
+    // guarded by the flow's own finalization).
+    this.output.endSession("setup-failed");
+    if (!flow?.hasFinalized()) {
+      this.runFinalizationAndGrantCleanup(session);
     }
   }
 
-  // ── Finalization helper for early-teardown paths ─────────────────
+  /**
+   * Real side-effect surface for the {@link CallSetupFlow}. Pure-logic
+   * deps (code validation, invite redemption, guardian notification,
+   * trust re-resolution, guardian wait construction) use the flow's
+   * real-implementation defaults.
+   */
+  private buildSetupFlowDeps(
+    session: ReturnType<typeof getCallSession>,
+  ): CallSetupFlowDeps {
+    return {
+      speakSystemPrompt: (text) => speakSystemPrompt(this.output, text),
+      updateCallSession,
+      recordCallEvent,
+      onComplete: (result) => this.handleSetupFlowResult(result, session),
+      getCallSession,
+      // Flow-terminal paths set a terminal session status, so the
+      // transport-close handler skips its cleanup — revoke scoped grants
+      // here alongside finalization.
+      finalizeCall: (callSessionId, conversationId) => {
+        this.revokeScopedGrants(conversationId);
+        finalizeCall(callSessionId, conversationId);
+      },
+      addMessage,
+      postPointerMessage: postPointerMessageSafe,
+      fireCallTranscriptNotifier,
+      resolveGuardianLabel: () =>
+        resolveGuardianName(this.primedGuardianDisplayName),
+      resolveAssistantLabel,
+    };
+  }
 
   /**
-   * Run scoped-grant revocation and call finalization inline. Used by
-   * the deny and unsupported-flow branches which set terminal status
-   * before `endSession()`. When the WebSocket subsequently closes,
-   * {@link handleTransportClosed} sees the terminal status and exits
-   * early — so we must perform cleanup here to avoid leaking grants
-   * and skipping `finalizeCall()` side-effects.
+   * Continue the call once the setup flow reaches a terminal result:
+   * create + register the call controller and fire the matching opener
+   * for `proceed-*` variants, or complete finalization for `ended`
+   * (the flow already spoke its terminal copy, set terminal status,
+   * and scheduled its own delayed `endSession`).
    */
-  private runFinalizationAndGrantCleanup(
+  private handleSetupFlowResult(
+    result: SetupFlowResult,
     session: ReturnType<typeof getCallSession>,
   ): void {
+    const flow = this.setupFlow;
+    this.setupFlow = null;
+
+    if (result.kind === "ended") {
+      // handleTransportClosed will see the terminal status and exit early
+      // when the WebSocket closes, so run cleanup inline — unless a
+      // flow-terminal path already finalized (grants revoked there too).
+      if (!flow?.hasFinalized()) {
+        this.runFinalizationAndGrantCleanup(session);
+      }
+      return;
+    }
+
+    const controller = new CallController(
+      this.callSessionId,
+      this.output,
+      session?.task ?? null,
+      {
+        assistantId: result.assistantId,
+        trustContext: result.trustContext,
+      },
+    );
+    this.controller = controller;
+    registerCallController(this.callSessionId, controller);
+
+    const opener =
+      result.kind === "proceed-post-verification-greeting"
+        ? controller.startPostVerificationGreeting()
+        : result.kind === "proceed-handoff-spoken"
+          ? Promise.resolve(controller.markNextCallerTurnAsOpeningAck())
+          : controller.startInitialGreeting();
+
+    const deferredTranscripts = result.deferredTranscripts ?? [];
+    void opener
+      .then(async () => {
+        // Replay transcripts buffered during mid-setup trust re-resolution,
+        // in order, so the caller's first utterance runs under the upgraded
+        // trust context.
+        for (const text of deferredTranscripts) {
+          await controller.handleCallerUtterance(text);
+        }
+      })
+      .catch((err) => {
+        log.error(
+          { err, callSessionId: this.callSessionId },
+          "Failed to start call flow after setup completion",
+        );
+      });
+  }
+
+  // ── Finalization helpers for early-teardown paths ─────────────────
+
+  /**
+   * Revoke any scoped approval grants bound to this call session.
+   * Revoke by both callSessionId and conversationId because the
+   * guardian-approval-interception minting path sets callSessionId: null
+   * but always sets conversationId.
+   */
+  private revokeScopedGrants(conversationId: string | undefined): void {
     try {
       revokeScopedApprovalGrantsForContext({
         callSessionId: this.callSessionId,
       });
-      if (session?.conversationId) {
-        revokeScopedApprovalGrantsForContext({
-          conversationId: session.conversationId,
-        });
+      if (conversationId) {
+        revokeScopedApprovalGrantsForContext({ conversationId });
       }
     } catch (err) {
       log.warn(
         { err, callSessionId: this.callSessionId },
-        "Failed to revoke scoped grants on early teardown path",
+        "Failed to revoke scoped grants for media-stream session",
       );
     }
+  }
 
+  /**
+   * Run scoped-grant revocation and call finalization inline. Used for
+   * setup-terminal paths which set terminal status before `endSession()`.
+   * When the WebSocket subsequently closes, {@link handleTransportClosed}
+   * sees the terminal status and exits early — so cleanup must happen
+   * here to avoid leaking grants and skipping `finalizeCall()`
+   * side-effects.
+   */
+  private runFinalizationAndGrantCleanup(
+    session: ReturnType<typeof getCallSession>,
+  ): void {
+    this.revokeScopedGrants(session?.conversationId);
     if (session?.conversationId) {
       finalizeCall(this.callSessionId, session.conversationId);
     }
@@ -581,12 +743,16 @@ export class MediaStreamCallSession {
     // handleBargeIn path so initial inbound audio frames do not cancel a
     // still-starting initial turn.
     //
-    // clearAudio runs BEFORE handleBargeIn so that the end-of-turn mark
-    // enqueued by handleInterrupt (called within handleBargeIn) is not
-    // wiped by the queue flush.
+    // clearAudio runs via the onAccepted hook so it only fires when the
+    // barge-in passes the speaking gate — an ignored barge-in (controller
+    // idle/processing) must not flush queued/in-flight TTS such as a
+    // buffered greeting. The hook runs before handleInterrupt so the
+    // end-of-turn mark it enqueues survives the queue flush.
     if (this.output && this.controller) {
-      this.output.clearAudio();
-      const accepted = this.controller.handleBargeIn();
+      const output = this.output;
+      const accepted = this.controller.handleBargeIn(() =>
+        output.clearAudio(),
+      );
       if (accepted) {
         this.bargeInAccepted++;
         log.info(
@@ -594,6 +760,11 @@ export class MediaStreamCallSession {
           "Media-stream barge-in accepted — cleared outbound audio",
         );
       } else {
+        // No turn to abort, but a completed turn's tail can still be
+        // playing from Twilio's buffer — flush only that buffer so the
+        // caller isn't talked over. Queued speech that hasn't reached
+        // Twilio yet (greeting, handoff prompt) is preserved.
+        output.clearBufferedAudio();
         this.bargeInIgnored++;
         log.debug(
           { callSessionId: this.callSessionId },
@@ -604,7 +775,7 @@ export class MediaStreamCallSession {
   }
 
   private handleTranscriptFinal(text: string, _durationMs: number): void {
-    if (!text.trim()) return;
+    if (!text.trim()) {return;}
 
     // Drop transcripts arriving while setup routing is still pending so a
     // not-yet-authorized / floor-denied caller's speech is never persisted
@@ -618,6 +789,23 @@ export class MediaStreamCallSession {
     }
 
     this.transcriptFinalsProduced++;
+
+    // While a setup flow is active it owns caller speech (name capture,
+    // spoken code entry, guardian-wait utterances). Fire the transcript
+    // notifier for UI subscribers, then route into the flow.
+    if (this.setupFlow) {
+      const setupSession = getCallSession(this.callSessionId);
+      if (setupSession) {
+        fireCallTranscriptNotifier(
+          setupSession.conversationId,
+          this.callSessionId,
+          "caller",
+          text,
+        );
+      }
+      this.setupFlow.pushTranscriptFinal(text);
+      return;
+    }
 
     if (!this.controller) {
       log.warn(
@@ -671,6 +859,10 @@ export class MediaStreamCallSession {
       dtmfDigit: digit,
       transport: "media-stream",
     });
+
+    // While a setup flow is active, digits feed its code-collection
+    // sub-flows (the flow itself records no per-digit events).
+    this.setupFlow?.pushDtmfDigit(digit);
   }
 
   private handleStreamStop(): void {

@@ -3,26 +3,23 @@
  *
  * Provides two discovery strategies:
  *
- * 1. **Local mode** — Locates the bundled `credential-executor` binary and
- *    returns the path for `process-manager.ts` to spawn as a child process
- *    with stdio transport.
+ * 1. **Sibling mode** — Locates the CLI-launched CES sibling process via its
+ *    Unix socket (`CES_LOCAL_SOCKET`). Used by bare-metal/local instances.
  *
  * 2. **Managed mode** — Locates the bootstrap Unix socket exposed by the CES
  *    sidecar container through a shared emptyDir volume, and returns a
  *    connected Unix socket transport.
  *
- * Both strategies fail closed: if the executable or socket cannot be found,
- * the discovery returns a structured error rather than falling back to
- * in-process credential handling.
+ * Both strategies fail closed: if the socket cannot be found, the discovery
+ * returns a structured error rather than falling back to in-process
+ * credential handling.
  */
 
 import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
-import { getBinDir } from "../util/platform.js";
 
 const log = getLogger("ces-discovery");
 
@@ -58,56 +55,23 @@ function getManagedBootstrapSocketPath(): string {
   );
 }
 
-/**
- * Candidate locations for the local credential-executor binary, checked
- * in order. The first existing path wins.
- *
- * Only paths outside the sandbox working directory are eligible.
- * `getDataDir()` (under `$VELLUM_WORKSPACE_DIR/data`) was previously included
- * but is inside the sandbox write boundary, so a sandboxed tool could plant
- * a malicious binary there. Removed to close the sandbox-escape vector.
- *
- * Search order:
- * 1. Alongside the running executable, but ONLY when running from a
- *    packaged macOS app bundle (`<App>.app/Contents/MacOS/credential-executor`).
- *    In dev mode, `process.execPath` points at the bun/node install dir
- *    (e.g. `~/.bun/bin`), where an unrelated file named `credential-executor`
- *    could be picked up by accident.
- * 2. `<binDir>/credential-executor` — user-installed override (dev flow).
- */
-function getLocalBinarySearchPaths(): string[] {
-  const paths: string[] = [];
-
-  // Only check the sibling of process.execPath when running from a packaged
-  // app bundle — the .app/Contents/MacOS directory is a controlled location.
-  // In dev mode, process.execPath is the bun/node binary (e.g. ~/.bun/bin/bun)
-  // and a sibling lookup there could discover an unrelated or untrusted
-  // executable.
-  const execDir = dirname(process.execPath);
-  if (execDir.includes(".app/Contents/MacOS")) {
-    paths.push(join(execDir, "credential-executor"));
-  }
-
-  paths.push(join(getBinDir(), "credential-executor"));
-  return paths;
-}
-
 // ---------------------------------------------------------------------------
 // Discovery result types
 // ---------------------------------------------------------------------------
 
-export interface LocalDiscoverySuccess {
-  mode: "local";
-  executablePath: string;
-}
-
-export interface LocalSourceDiscoverySuccess {
-  mode: "local-source";
-  sourcePath: string;
-}
-
 export interface ManagedDiscoverySuccess {
   mode: "managed";
+  socketPath: string;
+}
+
+/**
+ * A local CES running as an independent sibling process (not spawned by the
+ * assistant), reached over a Unix socket. Transport-identical to managed; the
+ * distinct mode records that the assistant does not own this process's
+ * lifecycle. This is the default topology for bare-metal/local instances.
+ */
+export interface SiblingDiscoverySuccess {
+  mode: "sibling";
   socketPath: string;
 }
 
@@ -117,69 +81,9 @@ export interface DiscoveryFailure {
 }
 
 export type DiscoveryResult =
-  | LocalDiscoverySuccess
-  | LocalSourceDiscoverySuccess
   | ManagedDiscoverySuccess
+  | SiblingDiscoverySuccess
   | DiscoveryFailure;
-
-// ---------------------------------------------------------------------------
-// Local discovery
-// ---------------------------------------------------------------------------
-
-/**
- * Discover the local CES executable.
- *
- * Searches well-known paths for the `credential-executor` binary. If the
- * compiled binary is not found, falls back to the TypeScript source entry
- * point in the monorepo. Returns a structured result — never throws. If
- * neither the binary nor the source entry point is found, returns
- * `{ mode: "unavailable" }` so the caller can fail closed.
- */
-export function discoverLocalCes():
-  | LocalDiscoverySuccess
-  | LocalSourceDiscoverySuccess
-  | DiscoveryFailure {
-  const searchPaths = getLocalBinarySearchPaths();
-
-  for (const candidate of searchPaths) {
-    if (existsSync(candidate)) {
-      log.info({ path: candidate }, "Found local CES executable");
-      return { mode: "local", executablePath: candidate };
-    }
-  }
-
-  // Fallback: check for source entry point in the monorepo
-  const monorepoRoot = join(import.meta.dir, "..", "..", "..");
-  const sourceEntry = join(
-    monorepoRoot,
-    "credential-executor",
-    "src",
-    "main.ts",
-  );
-  if (existsSync(sourceEntry)) {
-    log.info({ path: sourceEntry }, "Found local CES source entry point");
-    return { mode: "local-source", sourcePath: sourceEntry };
-  }
-
-  // npm-layout fallback: resolve via node_modules when installed as a package
-  try {
-    const _require = createRequire(import.meta.url);
-    const pkgPath = _require.resolve(
-      "@vellumai/credential-executor/package.json",
-    );
-    const npmSourceEntry = join(dirname(pkgPath), "src", "main.ts");
-    if (existsSync(npmSourceEntry)) {
-      log.info({ path: npmSourceEntry }, "Found CES source via npm package");
-      return { mode: "local-source", sourcePath: npmSourceEntry };
-    }
-  } catch {
-    // Package not installed — fall through to unavailable
-  }
-
-  const reason = `CES executable not found. Searched: ${searchPaths.join(", ")}; also checked source at ${sourceEntry}`;
-  log.warn(reason);
-  return { mode: "unavailable", reason };
-}
 
 // ---------------------------------------------------------------------------
 // Managed discovery
@@ -212,6 +116,44 @@ export function discoverManagedCes():
 }
 
 // ---------------------------------------------------------------------------
+// Sibling discovery (local bare-metal topology)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the assistant should connect to a CLI-launched CES sibling process
+ * instead of spawning CES itself. Now always true for non-containerized
+ * (bare-metal) homes — the sibling model is the default topology.
+ */
+export function isCesSiblingOptIn(): boolean {
+  return !getIsContainerized();
+}
+
+/**
+ * Discover a CLI-launched local CES sibling via its Unix socket. The CLI sets
+ * `CES_LOCAL_SOCKET` on both the sibling and the daemon so they agree on the
+ * path. Does not open a connection — that happens in `CesProcessManager.start()`.
+ */
+export function discoverLocalSiblingCes():
+  | SiblingDiscoverySuccess
+  | DiscoveryFailure {
+  const socketPath = process.env["CES_LOCAL_SOCKET"];
+  if (!socketPath) {
+    const reason =
+      "CES_LOCAL_SOCKET is not set — cannot locate the CES sibling socket. The CLI should set this during wake/hatch.";
+    log.warn(reason);
+    return { mode: "unavailable", reason };
+  }
+  if (!existsSync(socketPath)) {
+    return {
+      mode: "unavailable",
+      reason: `CES sibling socket not found at ${socketPath}`,
+    };
+  }
+  log.info({ socketPath }, "Local CES sibling socket found");
+  return { mode: "sibling", socketPath };
+}
+
+// ---------------------------------------------------------------------------
 // Auto-discovery
 // ---------------------------------------------------------------------------
 
@@ -220,13 +162,13 @@ export function discoverManagedCes():
  * current deployment topology.
  *
  * - Containerized environments → managed sidecar discovery
- * - Non-containerized environments → local executable discovery
+ * - Non-containerized → CLI-launched sibling socket discovery
  */
 export function discoverCes(): DiscoveryResult {
   if (getIsContainerized()) {
     return discoverManagedCes();
   }
-  return discoverLocalCes();
+  return discoverLocalSiblingCes();
 }
 
 /** How long to poll for the managed bootstrap socket before giving up. */
@@ -254,12 +196,10 @@ export async function discoverCesWithRetry({
   timeoutMs = MANAGED_DISCOVERY_TIMEOUT_MS,
   intervalMs = MANAGED_DISCOVERY_INTERVAL_MS,
 }: { timeoutMs?: number; intervalMs?: number } = {}): Promise<DiscoveryResult> {
-  // Only the managed bootstrap socket is worth polling for; a missing local
-  // binary will not appear by waiting.
-  if (!getIsContainerized()) {
-    return discoverCes();
-  }
-
+  // Both the managed bootstrap socket and the CLI-launched sibling socket
+  // are bound asynchronously, so polling is worthwhile. A missing local
+  // binary (the old stdio path) would not appear by waiting, but that path
+  // is gone — the sibling is the only local topology now.
   const deadline = Date.now() + timeoutMs;
   let result = discoverCes();
   while (result.mode === "unavailable" && Date.now() < deadline) {

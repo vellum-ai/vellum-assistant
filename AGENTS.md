@@ -13,6 +13,7 @@ Bun + TypeScript monorepo with multiple packages:
 - `scripts/` — Utility scripts
 - `skills/` — First-party skill catalog (portable skill packages). See `skills/AGENTS.md` for contribution rules and portability requirements.
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`). Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks; repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/` as local skill directories. The `/update` command uses `vellum ps`, `vellum sleep`, and `vellum wake` to manage assistant lifecycle.
+- Evals have moved to a dedicated repo: [vellum-ai/evals](https://github.com/vellum-ai/evals).
 
 **`meta/` is a parent package, NOT a shared package.** Its purpose is to be the root workspace that all service packages (`gateway/`, `assistant/`, etc.) descend from — it provides workspace-level tooling, CI configuration, and build scripts. It must never contain runtime code, constants, or configuration files that child services import. A gateway or assistant module importing from `../../meta/` is a layering violation. Static config files (e.g. allowlists, registries) that a service consumes at runtime belong in that service's own package directory. Existing `meta/` contents (feature flags, test infra) are either shared build/CI metadata or are being migrated out.
 
@@ -24,7 +25,7 @@ Defend technical positions with evidence. Don't flip-flop to placate the user �
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`clients/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
-- **Package manager**: Use `bun install` for dependencies (each package has its own `bun.lock`).
+- **Package manager**: This is a bun workspace — one root `bun.lock` covers every member (services, `packages/*`, `clients/web`, `clients/macos`). Run `bun install` anywhere in the tree (it resolves to the workspace root), or scope it with name filters like `--filter=@vellumai/assistant` (path filters resolve against the cwd — avoid them). Cross-package deps use `workspace:*`; `overrides`, `patchedDependencies`, and `trustedDependencies` are honored only in the root manifest. Non-members (`clients/chrome-extension`, skills) keep their own lockfiles.
 
 ```bash
 cd assistant && bun install          # Install dependencies
@@ -72,6 +73,10 @@ The Capacitor iOS source-of-truth lives in [`clients/ios/`](./clients/ios/) and 
 
 TestFlight builds are produced by the `release-ios.yaml` reusable workflow in this repo. Both `dev-release.yaml` and `release.yml` call it as a same-repo `uses:` job with `{ environment, version }` inputs. The workflow runs on `macos-15`, installs web dependencies, runs `cap sync ios`, generates the Xcode project via XcodeGen, archives, signs, and uploads to TestFlight.
 
+## Cutting Releases
+
+**Never cut or promote a release automatically — always get explicit manual confirmation from the user first.** This applies to both release steps: dispatching `create-release-branch.yml` (branch cut + staging bake) and dispatching `release.yml` on a `release/v<X.Y.Z>` branch (production deploy). An explicit user request for the release in the current conversation counts as confirmation; otherwise ask and wait. Never dispatch either workflow as a side effect of other work (merging PRs, completing a plan, scheduled or autonomous agent runs), and standing authorizations (e.g. auto-merge) do not extend to releases. The scheduled Tue/Fri branch cut is the only sanctioned automation; production promotion is always a deliberate human action. Process details: `/release` (`.claude/skills/release/SKILL.md`).
+
 ## Testing
 
 The full test suite is large and will hang or timeout if run unscoped. **Never run `bun test` without specifying file paths.**
@@ -97,13 +102,21 @@ When a Vellum [Linear](https://linear.app/) ticket exists for the work, link it 
 
 ## Keep Docs Up to Date
 
-- **Internal reference**: When modifying slash commands in `.claude/commands/`, update the "Claude Code Workflow" section in `docs/internal-reference.md` to match.
+- **Internal reference**: When modifying slash commands in `.claude/skills/`, update the "Claude Code Workflow" section in `docs/internal-reference.md` to match.
 - **Architecture**: When introducing, removing, or significantly modifying a service/module/data flow, update `ARCHITECTURE.md` and impacted domain docs. Mermaid diagrams must reflect current architecture.
 - **AGENTS.md**: When a PR establishes a new mandatory pattern or architectural constraint, update `AGENTS.md`. Only for project-wide rules — use code comments for module-scoped patterns.
 
 ## Worktrees & Source Control
 
 Never commit worktree directories or worktree artifacts. Git worktrees are local working copies and must remain local. The `.gitignore` already excludes common patterns (`worktrees/`, `.worktrees/`, `.codex-worktrees/`, `*-worktrees/`); if a tool creates worktree directories under a new prefix, add the pattern to `.gitignore` before committing.
+
+## Single Source of Truth
+
+Don't copy-paste logic. Duplicated logic drifts: a bug gets fixed in one copy and left in the others, and the copies diverge silently over time. When the same behavior (a derivation, formatter, guard, validation, fetch/retry sequence, handler) appears in more than one place, extract it into one named function/hook/module that every caller imports — fix it once, it's fixed everywhere.
+
+- Extract on the **second** occurrence, not the fifth — two copies is the signal, not a milestone to pass.
+- Share **behavior**, not just shapes: reusing a type while re-implementing the logic around it still drifts.
+- Put the extracted code at the right layer (see the package's own docs — e.g. `clients/web/docs/CONVENTIONS.md` "Top-level shared directories"): used by one area → inside it; used by two or more → a shared module. Then delete the originals in the same change.
 
 ## Dead Code Removal
 
@@ -121,6 +134,10 @@ Proactively remove unused code during every change. Remove code your change make
 - If a comment only makes sense to someone reading the diff, move it to the PR description.
 
 Default to no comment — bias aggressively toward terseness and rely on good naming. Follow the commenting density of the surrounding code.
+
+## Control-Flow Braces
+
+Wrap every `if` / `else` / `for` / `while` / `do…while` body in braces, even a single-statement one-liner. Braces make control flow easy to scan — the block boundary is explicit — and close a common footgun: a second line added under a braceless condition reads as if it sits inside the branch but runs unconditionally. The ESLint `curly` rule flags this in both `assistant/` and `clients/web/` (currently at `warn`); it is fully auto-fixable, so add braces to any control statement you touch.
 
 ## Generic Examples
 
@@ -144,11 +161,11 @@ We have real users — maintain backwards compatibility for all interfaces, pers
 | What changed | Migration type | Location |
 |---|---|---|
 | Workspace files (renames, moves, format changes under `$VELLUM_WORKSPACE_DIR/`) | Workspace migration | `assistant/src/workspace/migrations/` — append to `WORKSPACE_MIGRATIONS` in `registry.ts` |
-| Database schema or data (columns, indexes, backfills) | DB migration | `assistant/src/memory/migrations/` — add function and register in `db-init.ts` |
+| Database schema or data (columns, indexes, backfills) | DB migration | `assistant/src/persistence/migrations/` — add function and register in the `migrationSteps` array in `assistant/src/persistence/steps.ts` |
 
-Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
+Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Each new DB migration file takes a fresh numeric prefix — never reuse one; the historical duplicate prefixes are frozen in `assistant/src/persistence/migrations/__tests__/migration-prefix-guard.test.ts`. Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
 
-DB migration steps registered in `db-init.ts` are checkpointed by function name in the shared `memory_checkpoints` ledger (under the `step:` namespace) and run at most once per database, so each step needs a stable, non-empty name. Add a new migration as its own entry in the list — every step is imported directly and listed individually so it is checkpointed on its own. Never hide a growing set of migrations behind a single stably-named wrapper function (or spread a shared array of them into the list under one import): once that name is checkpointed the whole group is skipped, so anything added to it later never runs. Crash recovery runs unconditionally inside `runMigrationSteps` before the step loop. Rolling a migration back (`rollbackMemoryMigration`) discards all `step:` checkpoints, so a later upgrade re-runs every step and restores any schema a `down()` reversed.
+DB migration steps registered in `steps.ts` are checkpointed by function name in the shared `memory_checkpoints` ledger (under the `step:` namespace) and run at most once per database, so each step needs a stable, non-empty name. Add a new migration as its own entry in the list — every step is imported directly and listed individually so it is checkpointed on its own. Never hide a growing set of migrations behind a single stably-named wrapper function (or spread a shared array of them into the list under one import): once that name is checkpointed the whole group is skipped, so anything added to it later never runs. Crash recovery runs unconditionally inside `runMigrationSteps` before the step loop. Rolling a migration back (`rollbackMemoryMigration`) discards all `step:` checkpoints, so a later upgrade re-runs every step and restores any schema a `down()` reversed.
 
 ## Multi-Client Assistant State Sync
 
@@ -196,9 +213,7 @@ Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/co
 
 ## Skill Isolation
 
-The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/meet-join/...`), and `skills/` must not import from `assistant/`. Both directions are enforced by `assistant/src/__tests__/skill-boundary-guard.test.ts`.
-
-First-party skills run as separate processes. The daemon ships their source tree alongside its binary (Docker build context whitelisted by the repo-root `.dockerignore`; macOS `.app` Resources/) plus a generated `manifest.json` that lists the skill's tools, routes, and shutdown hooks. At daemon startup, `assistant/src/daemon/meet-host-startup.ts` reads the manifest and installs proxy tools/routes/hooks; on first invocation, `MeetHostSupervisor` spawns the skill via `bun run` and dispatches via the `assistant-skill.sock` IPC socket. The skill speaks to the daemon through the `SkillHost` contract in `@vellumai/skill-host-contracts` — neither side imports the other. See `skills/meet-join/AGENTS.md` for the meet-join-specific shape.
+The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/<name>/...`), and `skills/` must not import from `assistant/`. Both directions are enforced by `assistant/src/__tests__/skill-boundary-guard.test.ts`.
 
 ## Tooling Direction
 
@@ -235,7 +250,7 @@ Docker instances use six per-service volumes enforcing least-privilege at the co
 - **Trust rules** are owned by the gateway. In Docker mode (`IS_CONTAINERIZED=true`), the assistant reads/writes trust rules via the gateway's HTTP trust API — no direct filesystem access to `trust.json`.
 - **Credentials** are owned by the CES. The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`). Neither has filesystem access to `keys.enc` / `store.key`.
 - **Meet bots in Docker mode** are not yet supported. The assistant container has no elevated capabilities (`--privileged`, `CAP_SYS_ADMIN` are absent). In bare-metal mode, meet bots are sibling containers on the host's Docker engine.
-- **CES bootstrap socket auth is intentionally absent**: the CES managed-mode Unix socket on the shared `emptyDir` volume does not require a handshake auth token because all containers in the pod are controlled by Vellum — no untrusted process can connect to the socket.
+- **CES socket auth is intentionally absent**: the CES Unix socket (managed-mode `emptyDir` volume or local-mode sibling `ces.sock`) does not require a handshake auth token. All processes on the host/pod are trusted — the security boundary is rules-based access control on credential operations inside CES, not network-level socket auth. Assistant subprocesses (tools, skills) are expected to be able to connect to CES; preventing credential exfiltration requires per-credential policy enforcement, not hiding the socket path.
 
 ## Workspace & Secrets
 

@@ -196,6 +196,44 @@ export async function localRuntimeImportFromGcs(
 }
 
 /**
+ * Run a dry-run preflight analysis on a .vbundle archive stored at a signed
+ * GCS download URL.
+ *
+ * For local/docker assistants this POSTs to
+ * `{runtimeUrl}/v1/migrations/preflight-from-gcs` with guardian-token bearer
+ * auth. The daemon fetches the bundle from GCS, validates it, and returns a
+ * report of what would change on import — without writing anything to disk.
+ *
+ * Returns the raw preflight response body. Callers should cast to their
+ * local `PreflightResponse` shape (mirrors the `/import-preflight` shape).
+ */
+export async function localRuntimePreflightFromGcs(
+  entry: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId">,
+  token: string,
+  params: { bundleUrl: string },
+): Promise<Record<string, unknown>> {
+  const response = await fetch(
+    resolveRuntimeMigrationUrl(entry, "preflight-from-gcs"),
+    {
+      method: "POST",
+      headers: await migrationRequestHeaders(entry, token),
+      body: JSON.stringify({ bundle_url: params.bundleUrl }),
+    },
+  );
+
+  if (response.status !== 200) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(
+      `Local runtime preflight-from-gcs failed (${response.status}): ${
+        errText || response.statusText
+      }`,
+    );
+  }
+
+  return (await response.json()) as Record<string, unknown>;
+}
+
+/**
  * Poll the runtime's unified job-status endpoint.
  *
  * For local/docker assistants this GETs

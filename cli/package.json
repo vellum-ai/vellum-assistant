@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/cli",
-  "version": "0.10.2",
+  "version": "0.10.7",
   "description": "CLI tools for vellum-assistant",
   "type": "module",
   "exports": {
@@ -22,7 +22,6 @@
     "format:check": "prettier --check .",
     "lint": "eslint",
     "lint:unused": "knip --include files,dependencies,unlisted",
-    "prepack": "node ../scripts/prepack-bundled-deps.mjs",
     "compile:check": "bun build --compile --external react-devtools-core src/index.ts --outfile /dev/null",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
@@ -30,8 +29,8 @@
   "author": "Vellum AI",
   "license": "MIT",
   "dependencies": {
-    "@vellumai/environments": "file:../packages/environments",
-    "@vellumai/local-mode": "file:../packages/local-mode",
+    "@vellumai/environments": "workspace:*",
+    "@vellumai/local-mode": "workspace:*",
     "chalk": "5.6.2",
     "ink": "6.8.0",
     "nanoid": "5.1.7",

@@ -19,7 +19,7 @@ let mockAttachments: Array<{
 }> = [];
 let mockTranscriber: BatchTranscriber | null = null;
 
-mock.module("../../../memory/attachments-store.js", () => ({
+mock.module("../../../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: (ids: string[]) =>
     mockAttachments.filter((a) => ids.includes(a.id)),
   getAttachmentById: (id: string, _opts?: { hydrateFileData?: boolean }) =>

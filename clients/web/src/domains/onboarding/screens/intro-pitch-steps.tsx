@@ -27,6 +27,7 @@ import {
   useReducedMotion,
 } from "motion/react";
 
+import { Button } from "@vellumai/design-library/components/button";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import {
   MotionEyes,
@@ -143,10 +144,12 @@ export function PitchStep({
 
   // Push the text/Continue block up so it doesn't crowd the eyes peeking from
   // the bottom — more so on short viewports, where the three lines + button and
-  // the eyes are otherwise tight. The eye-wipe "above" target tracks this.
+  // the eyes are otherwise tight. The eye-wipe "above" target tracks this. The
+  // short-screen offset stays modest so the Continue button sits close to the
+  // text rather than stranded high above the eyes.
   const shortScreen = h > 0 && h <= 800;
-  const contentTopFrac = shortScreen ? 0.12 : 0.22;
-  const topClass = shortScreen ? "top-[12%]" : "top-[22%]";
+  const contentTopFrac = shortScreen ? 0.17 : 0.22;
+  const topClass = shortScreen ? "top-[17%]" : "top-[22%]";
 
   // The assistant's eyes rise to wipe the first lines in, then settle at rest.
   const eyeCy = useMotionValue(0);
@@ -477,17 +480,22 @@ export function PitchStep({
         </div>
 
         {landed && (
-          <motion.button
-            type="button"
-            onClick={onContinue}
-            className="flex h-11 w-[234px] items-center justify-center gap-2 rounded-[10px] bg-black text-body-medium-default text-white transition-transform duration-150 active:scale-[0.97]"
+          <motion.div
             initial={reduce ? false : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={reduce ? { duration: 0 } : { duration: 0.4 }}
           >
-            Continue
-            <ArrowRight className="h-4 w-4" />
-          </motion.button>
+            <Button
+              type="button"
+              variant="primary"
+              size="regular"
+              rightIcon={<ArrowRight size={16} />}
+              onClick={onContinue}
+              className="h-11 w-[234px] text-base"
+            >
+              Continue
+            </Button>
+          </motion.div>
         )}
       </div>
     </div>

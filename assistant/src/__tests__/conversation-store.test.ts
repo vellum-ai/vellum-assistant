@@ -12,7 +12,7 @@ import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
-} from "../memory/attachments-store.js";
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   clearAll,
@@ -21,11 +21,11 @@ import {
   deleteLastExchange,
   getConversation,
   getMessages,
-} from "../memory/conversation-crud.js";
-import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { skillLoadedEvents } from "../memory/schema.js";
+} from "../persistence/conversation-crud.js";
+import { isLastUserMessageToolResult } from "../persistence/conversation-queries.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { skillLoadedEvents } from "../persistence/schema/index.js";
 // Initialize db once before all tests
 await initializeDb();
 

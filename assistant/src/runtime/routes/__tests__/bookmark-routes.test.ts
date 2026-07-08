@@ -25,13 +25,13 @@ mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: async () => {},
 }));
 
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import {
   conversations,
   messageBookmarks,
   messages,
-} from "../../../memory/schema.js";
+} from "../../../persistence/schema/index.js";
 import { ROUTES as BOOKMARK_ROUTES } from "../bookmark-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 

@@ -7,6 +7,10 @@ export interface AcpSessionSpawned {
   acpSessionId: string;
   agent: string;
   parentConversationId: string;
+  /** Tool-use id of the `acp_spawn` call that spawned this session. */
+  parentToolUseId?: string;
+  /** Objective text for the spawned session. */
+  task?: string;
 }
 
 export interface AcpSessionUpdate {
@@ -24,6 +28,16 @@ export interface AcpSessionUpdate {
   toolTitle?: string;
   toolKind?: string;
   toolStatus?: string;
+  /** Optional raw input parameters sent to the tool (ACP `rawInput`); shape is tool-specific. */
+  rawInput?: unknown;
+  /** Optional raw output returned by the tool (ACP `rawOutput`); shape is tool-specific. */
+  rawOutput?: unknown;
+  /** Files touched by this tool call (for the file-diff affordance). */
+  locations?: { path: string; line?: number }[];
+  /** Stable id for the message this chunk belongs to. */
+  messageId?: string;
+  /** Monotonic ordering hint within the session. */
+  seq?: number;
 }
 
 export interface AcpSessionCompleted {
@@ -43,10 +57,22 @@ export interface AcpSessionError {
   error: string;
 }
 
+export interface AcpSessionUsage {
+  type: "acp_session_usage";
+  acpSessionId: string;
+  usedTokens: number;
+  contextSize: number;
+  costAmount?: number;
+  costCurrency?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
 // --- Domain-level union alias (consumed by message-protocol.ts) ---
 
 export type _AcpServerMessages =
   | AcpSessionSpawned
   | AcpSessionUpdate
   | AcpSessionCompleted
-  | AcpSessionError;
+  | AcpSessionError
+  | AcpSessionUsage;

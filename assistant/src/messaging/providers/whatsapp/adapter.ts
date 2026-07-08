@@ -4,9 +4,9 @@
  * Calls the Meta Cloud API directly — no gateway proxy hop.
  */
 
-import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
-import { upsertOutboundBinding } from "../../../memory/external-conversation-store.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
+import { getOrCreateConversation } from "../../../persistence/conversation-key-store.js";
+import { upsertOutboundBinding } from "../../../persistence/external-conversation-store.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import type { MessagingProvider } from "../../provider.js";

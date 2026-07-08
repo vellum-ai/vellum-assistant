@@ -28,9 +28,9 @@ mock.module("../../assistant-event-hub.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { conversations } from "../../../memory/schema.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { conversations } from "../../../persistence/schema/index.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "../conversation-management-routes.js";
 import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "../inference-profile-session-routes.js";
 import type { RouteDefinition } from "../types.js";

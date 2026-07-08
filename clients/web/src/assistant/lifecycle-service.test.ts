@@ -462,6 +462,79 @@ describe("lifecycleService — bootstrap branches", () => {
     });
   });
 
+  test("gateway-auth mode does NOT reset on a platform sessionStatus flip to unauthenticated", async () => {
+    // Local (gateway) and platform are independent session authorities:
+    // a platform identity loss must not tear down a local lifecycle.
+    isGatewayAuthModeMock.mockImplementation(() => true);
+
+    // Drive into the gateway-auth active (self-hosted/local) state.
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.respondToInputs();
+    const activeBefore = useResolvedAssistantsStore.getState().activeAssistantId;
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "active",
+    );
+
+    // Flip the platform session unauthenticated and reconcile — the
+    // gateway authority drives the lifecycle, so no reset happens.
+    lifecycleService.setInputs({
+      ...baseInputs,
+      sessionStatus: "unauthenticated",
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.respondToInputs();
+
+    expect(getAssistantMock).not.toHaveBeenCalled();
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.isLocal).toBe(true);
+    }
+    expect(useResolvedAssistantsStore.getState().activeAssistantId).toBe(
+      activeBefore,
+    );
+  });
+
+  test("platform mode (not gateway-auth) still resets on a sessionStatus flip to unauthenticated", async () => {
+    // Drive into an active state through the platform path.
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-platform-reset",
+        status: "active",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "active",
+    );
+
+    // Platform identity loss (not gateway-auth) still resets the lifecycle.
+    lifecycleService.setInputs({
+      ...baseInputs,
+      sessionStatus: "unauthenticated",
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.respondToInputs();
+
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
+      kind: "loading",
+    });
+  });
+
   test("remote gateway short-circuit preserves a public path prefix", async () => {
     isGatewayAuthModeMock.mockImplementation(() => true);
     isRemoteGatewayModeMock.mockImplementation(() => true);

@@ -9,12 +9,12 @@ import {
   RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE,
   RECALL_SOURCE_ROUNDS_BY_DEPTH,
   RECALL_TOTAL_EVIDENCE_TEXT_CAP,
-} from "../memory/context-search/limits.js";
+} from "../plugins/defaults/memory/context-search/limits.js";
 import type {
   RecallInput,
   RecallSource,
   RecallSourceAdapter,
-} from "../memory/context-search/types.js";
+} from "../plugins/defaults/memory/context-search/types.js";
 
 describe("normalizeRecallInput", () => {
   test("defaults omitted sources, max results, and depth", () => {

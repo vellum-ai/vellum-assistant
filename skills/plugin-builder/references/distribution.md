@@ -1,8 +1,60 @@
 # Distribution
 
-Plugins ship through a curated marketplace and install by name from the CLI. This reference covers the catalog, the install flow, and the manifest that lists every installable plugin.
+Plugins ship through a curated marketplace and install by name from the CLI. This reference covers the catalog, the install flow, the manifest that lists every installable plugin, and how to install a plugin directly from a GitHub URL before it is in the catalog.
 
-A plugin does not have to live in your workspace to be installed. Vellum keeps a curated catalog of external plugins, and the CLI installs any of them by name. The catalog is a single manifest the Vellum team reviews and approves, so installing a plugin only ever pulls code that has been vetted into that list.
+A plugin does not have to live in your workspace to be installed. Vellum keeps a curated catalog of external plugins, and the CLI installs any of them by name. The catalog is a single manifest the Vellum team reviews and approves, so installing a catalog plugin only ever pulls code that has been vetted into that list.
+
+For plugins not yet in the catalog, the CLI also accepts a GitHub URL directly. See "Installing from a GitHub URL (untrusted)" below.
+
+## Publishing your plugin
+
+Once your plugin works locally, you can list it in the marketplace catalog so anyone can install it by name. The catalog is a curated allowlist: you open a PR adding an entry, the Vellum team reviews it, and once merged the plugin is discoverable via `assistant plugins search` and installable via `assistant plugins install`.
+
+### 1. Push your plugin to a public GitHub repo
+
+The marketplace resolves plugins from GitHub repositories. Push your plugin to a public repo, then note the full commit SHA you want to pin:
+
+```
+# Get the full 40-char commit SHA of the revision to publish
+$ git rev-parse HEAD
+e83c5163316f89bfbde7d9ab23ca2e25604af290
+```
+
+The SHA must be a full commit hash (40 or 64 hex chars). Tags and branches are rejected because they are mutable. If you want to pin a release tag, resolve it to the underlying commit first (see "Why entries pin a commit" below).
+
+Your plugin can live at the root of its own repo or in a subdirectory. If it is not at the root, use `source.path` to point at the subdirectory.
+
+### 2. Add your entry to `marketplace.json`
+
+Open a PR against [`vellum-ai/vellum-assistant`](https://github.com/vellum-ai/vellum-assistant) adding your plugin to `plugins/marketplace.json`. Copy this template and fill in your details:
+
+```json
+{
+  "name": "my-plugin",
+  "source": {
+    "source": "github",
+    "repo": "you/my-plugin",
+    "ref": "e83c5163316f89bfbde7d9ab23ca2e25604af290"
+  },
+  "description": "One-line summary shown in the catalog.",
+  "category": "productivity",
+  "homepage": "https://github.com/you/my-plugin",
+  "license": "MIT"
+}
+```
+
+The `name` must be a single kebab-case segment (e.g. `my-plugin`, not `myPlugin` or `my_plugin`). Only `name`, `source.source`, `source.repo`, and `source.ref` are required; the rest are optional but recommended for discoverability. See "The marketplace manifest" below for the full schema.
+
+### 3. Wait for review
+
+The Vellum team reviews each entry before it lands in the catalog. The review checks that:
+
+- The pinned commit matches a public, reachable revision of the repo.
+- The plugin has a valid `package.json` with a `@vellumai/plugin-api` peer dependency.
+- The plugin loads cleanly (hooks register, tools validate, no import errors at boot).
+- The surfaces the plugin claims (hooks, tools, skills) contribute something on boot rather than silently failing.
+
+Once the review approves and the PR merges, the plugin appears in `assistant plugins search` and is installable by name.
 
 ## The marketplace catalog
 
@@ -35,6 +87,39 @@ simple-memory  0.1.0    ok
 
 The plugins command group is gated behind a beta feature flag while the install path stabilizes. Once installed, a plugin is just a directory in your workspace, so everything on the Plugins reference applies to it.
 
+## Installing from a GitHub URL (untrusted)
+
+While a plugin is still under development, before it is whitelisted in the catalog, you can install it directly from its GitHub repo by passing a URL (anything containing a slash) instead of a marketplace name:
+
+```
+# Install from a repo URL (default branch)
+$ assistant plugins install https://github.com/owner/repo
+⚠ Installing "repo" from an unreviewed GitHub source: owner/repo @ default branch.
+ This plugin is NOT in the Vellum marketplace and has not been reviewed.
+ Its hooks and tools run inside the assistant with full access — install it only if you trust the source.
+Installed untrusted plugin "repo" (8 files) → ~/.vellum/workspace/plugins/repo
+
+# Install from a specific branch and sub-path
+$ assistant plugins install https://github.com/owner/repo/tree/my-branch/packages/cool-plugin
+
+# Install with a custom name
+$ assistant plugins install owner/repo --name my-plugin --force
+
+# Shorthand: owner/repo works without the full URL
+$ assistant plugins install owner/repo
+```
+
+The ref comes from the URL's `/tree/<ref>/` segment, or defaults to the repository's default branch. The install directory name is derived from the repo (or sub-path leaf) and can be overridden with `--name`.
+
+A direct install **bypasses marketplace curation entirely**:
+
+- The tree is materialized verbatim. No [postinstall adapter](#adapting-external-plugins) stub is overlaid, so a plugin authored for another ecosystem may install but contribute nothing on boot.
+- The source is **untrusted**. It has not been reviewed, and its hooks and tools run inside the assistant with full access. The CLI prints a yellow warning naming the source so the choice to trust it is explicit.
+- Unlike marketplace installs, which pin an immutable, reviewed commit SHA, a branch or `HEAD` ref is mutable. A direct install is a development convenience, not a reproducible pin. If you pin a full commit SHA in the URL, the integrity check still enforces it.
+- The marketplace-only flags (`--ref`, `--pin`, `--allow-unreviewed`) do not apply to a direct install. The ref lives in the URL.
+
+Once the plugin is ready for broader distribution, add it to `marketplace.json` so others can install it by name with a reviewed, reproducible pin.
+
 ### The plugins CLI
 
 Six subcommands cover the lifecycle.
@@ -49,12 +134,15 @@ Search the catalog for plugin names matching `<query>` (a case-insensitive regex
 
 #### `plugins install`
 
-**Signature:** `assistant plugins install <name>`
+**Signature:** `assistant plugins install <name-or-url>`
 
-Resolve `<name>` in the catalog, shallow-clone its repo at the pinned commit, and materialize it under `<workspaceDir>/plugins/<name>/`. The resolved commit is recorded for provenance.
+Resolve `<name>` in the catalog, shallow-clone its repo at the pinned commit, and materialize it under `<workspaceDir>/plugins/<name>/`. The resolved commit is recorded for provenance. Or pass a GitHub URL (or `owner/repo` shorthand) to install directly from an untrusted source, bypassing the catalog. See "Installing from a GitHub URL (untrusted)" below.
 
 - `--force`: Overwrite an existing install of the same name.
-- `--ref <ref>`: Advanced. Read the catalog (and any adapter stub) from a different ref of the vellum-assistant repo; defaults to main. The external plugin itself is still fetched at the commit pinned in the manifest, never this ref.
+- `--ref <ref>`: Advanced. Read the catalog (and any adapter stub) from a different ref of the vellum-assistant repo; defaults to main. The external plugin itself is still fetched at the commit pinned in the manifest, never this ref. Marketplace installs only; for a GitHub URL, put the ref in the URL (`.../tree/<ref>/...`).
+- `--pin <sha>`: Install a specific reviewed marketplace pin (full commit SHA). Run `plugins versions <name>` to list them. Marketplace installs only.
+- `--allow-unreviewed`: With `--pin`, install a SHA that is not in the reviewed marketplace history. Marketplace installs only.
+- `--name <name>`: Install directory name for a GitHub-URL install (default: derived from the repo or sub-path leaf). Ignored for marketplace installs.
 
 Note: Installs are hot-loaded, and all surfaces should be picked up automatically.
 
@@ -83,13 +171,13 @@ Move an installed plugin to the marketplace's current pinned commit. It is a no-
 - `--dry-run`: Report the commit move without touching the install.
 - `--json`: Emit machine-readable JSON instead of a summary.
 
-Note: Upgrading re-installs at the new commit and overwrites any local edits to the plugin's files. The upgraded code is picked up immediately for each surface.
+Note: Upgrading re-installs at the new commit and overwrites any local edits to the plugin's source files. Preserved entries (`config.json`, `data/`, `.disabled`) are carried over to the new install, so user config and runtime data survive upgrades. The upgraded code is picked up immediately for each surface.
 
 #### `plugins uninstall`
 
 **Signature:** `assistant plugins uninstall <name>`
 
-Remove `<workspaceDir>/plugins/<name>/`. Prompts for confirmation unless stdin is non-interactive.
+Remove `<workspaceDir>/plugins/<name>/`. Prompts for confirmation unless stdin is non-interactive. The entire plugin directory is removed, including `config.json` and `data/`, so no orphaned state is left behind.
 
 - `--force`: Skip the confirmation prompt.
 
@@ -101,7 +189,7 @@ Installs are pinned. Because the catalog pins each plugin to an immutable commit
 
 ### Drift and local edits
 
-Every install records its provenance (the resolved commit, the commit's timestamp, and a per-file fingerprint of the materialized tree) in an `install-meta.json` sidecar at the plugin root. `assistant plugins inspect <name>` reads that sidecar, compares the installed commit against the marketplace's current pin, and reports one of six states:
+Every install records its provenance (the resolved commit, the commit's timestamp, and a per-file fingerprint of the materialized tree) in an `install-meta.json` sidecar at the plugin root. The fingerprint excludes four preserved entries (`install-meta.json`, `config.json`, `data/`, `.disabled`) so user config edits and runtime data never show as drift. `assistant plugins inspect <name>` reads that sidecar, compares the installed commit against the marketplace's current pin, and reports one of six states:
 
 - `up-to-date`: the installed commit matches the pin.
 - `update-available`: the pin has moved past the installed commit.

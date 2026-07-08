@@ -20,6 +20,24 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
+// Gateway IPC mock — session lifecycle goes through the gateway session
+// client; delegate verification_sessions_* methods to the local-service sim
+// so these tests keep reading/writing the local test DB.
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    const { handleVerificationSessionsIpc, isVerificationSessionsIpcMethod } =
+      await import("./helpers/verification-sessions-ipc-sim.js");
+    if (isVerificationSessionsIpcMethod(method)) {
+      return handleVerificationSessionsIpc(method, params);
+    }
+    return { ok: true };
+  },
+  ipcCall: async () => null,
+}));
+
 const _conversationMocks = new Map<string, unknown>();
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
@@ -42,9 +60,9 @@ import {
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../contacts/canonical-guardian-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { processGuardianDecision } from "../runtime/guardian-action-service.js";
 import { GUARDIAN_DECISION_ACTIONS } from "../runtime/guardian-decision-types.js";
 import {

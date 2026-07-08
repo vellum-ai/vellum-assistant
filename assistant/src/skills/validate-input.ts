@@ -103,6 +103,53 @@ export function coerceStringBooleans(
 }
 
 /**
+ * Coerce finite JSON numbers to strings for properties the schema declares as
+ * `type: "string"`.
+ *
+ * Some providers' models emit numeric-looking string values as unquoted JSON
+ * numbers (e.g. a phone number `15550100` instead of `"+15550100"`).
+ * Plain `JSON.parse` yields a JS `Number`, which then fails the validator's
+ * `typeof === "string"` check with a confusing "must be a string" error that
+ * sends the model down a wrong retry path. The value's intent is unambiguous —
+ * a string field received a number — so coerce it the same way we coerce
+ * string-encoded booleans. The E.164 / format / enum checks downstream still
+ * run on the coerced string, so a number missing a `+` prefix still gets a
+ * self-correcting format error rather than a type error.
+ *
+ * Only finite numbers are coerced; `NaN`/`Infinity` (which can't come from
+ * JSON.parse anyway) and non-number types are left untouched. Integers outside
+ * the safe range are also left untouched: `JSON.parse` has already rounded them
+ * (e.g. `12345678901234567890` → `12345678901234567000`), so `String()` would
+ * emit a corrupted identifier. Leaving them un-coerced makes the validator
+ * return a type error, prompting the model to retry with a quoted string that
+ * preserves every digit. Pure: returns a new object when a coercion applies,
+ * otherwise returns `input` unchanged. Never mutates `input` or `schema`.
+ */
+export function coerceStringNumbers(
+  input: Record<string, unknown>,
+  schema: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!schema) return input;
+  const properties = schema.properties;
+  if (!isPlainObject(properties)) return input;
+
+  let coerced: Record<string, unknown> | undefined;
+  for (const [key, rawSubSchema] of Object.entries(properties)) {
+    if (!isPlainObject(rawSubSchema)) continue;
+    if (rawSubSchema.type !== "string") continue;
+    const value = input[key];
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    // An integer beyond the safe range was already rounded by JSON.parse;
+    // coercing it would lock in a corrupted identifier. Skip it so validation
+    // fails and the model retries with a lossless quoted string.
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) continue;
+    coerced ??= { ...input };
+    coerced[key] = String(value);
+  }
+  return coerced ?? input;
+}
+
+/**
  * Validate a tool input object against the (optional) JSON-schema definition
  * declared on the tool entry. Returns `{ ok: true }` if the input is valid (or
  * if there is nothing actionable to validate); otherwise returns a list of

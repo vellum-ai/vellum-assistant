@@ -1,12 +1,4 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -27,12 +19,25 @@ mock.module("../runtime/agent-wake.js", () => ({
   wakeAgentForOpportunity: mockWakeAgentForOpportunity,
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+const mockProcessMessage = mock((..._args: unknown[]) => Promise.resolve());
+mock.module("../daemon/process-message.js", () => ({
+  processMessage: mockProcessMessage,
+}));
+
+import { loadRawConfig, saveRawConfig } from "../config/loader.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
-import { startScheduler } from "../schedule/scheduler.js";
+import { runScheduleDueWorkOnce } from "../schedule/scheduler.js";
 
 await initializeDb();
+
+// The schedule worker is on by default, which stands the daemon's in-process
+// scheduler down. These tests exercise that in-process execution path directly,
+// so pin the worker flag off for this test process.
+const rawConfig = loadRawConfig();
+rawConfig.schedules = { worker: { enabled: false } };
+saveRawConfig(rawConfig);
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {
@@ -48,26 +53,7 @@ function forceScheduleDue(scheduleId: string): void {
   ]);
 }
 
-// Replace setTimeout with a fast-forward version so the scheduler
-// wait calls fire quickly instead of waiting real time.
-let origSetTimeout: typeof globalThis.setTimeout;
-
 describe("scheduler wake mode", () => {
-  beforeAll(() => {
-    origSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = ((
-      fn: TimerHandler,
-      _ms?: number,
-      ...args: unknown[]
-    ) => {
-      return origSetTimeout(fn, 200, ...args);
-    }) as typeof setTimeout;
-  });
-
-  afterAll(() => {
-    globalThis.setTimeout = origSetTimeout;
-  });
-
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM cron_runs");
@@ -77,11 +63,12 @@ describe("scheduler wake mode", () => {
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     mockWakeAgentForOpportunity.mockClear();
+    mockProcessMessage.mockClear();
   });
 
   test("wake schedule calls wakeAgentForOpportunity with correct args", async () => {
     // GIVEN a one-shot wake schedule with a conversation ID
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Wake Test",
       message: "Check back on this",
       mode: "wake",
@@ -90,12 +77,8 @@ describe("scheduler wake mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    const processMessage = mock(() => Promise.resolve());
-
     // WHEN the scheduler fires
-    const scheduler = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN wakeAgentForOpportunity is called with the correct arguments
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
@@ -107,14 +90,14 @@ describe("scheduler wake mode", () => {
     });
 
     // AND processMessage is never called (wake mode doesn't use it)
-    expect(processMessage).not.toHaveBeenCalled();
+    expect(mockProcessMessage).not.toHaveBeenCalled();
   });
 
   test("missing wakeConversationId logs warning and completes (not fails)", async () => {
     // GIVEN a one-shot wake schedule WITHOUT a conversation ID
     // We need to create it with a wakeConversationId first (validation requires it),
     // then clear it at the DB level to simulate a missing value at runtime.
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Wake No Conv",
       message: "Missing conv",
       mode: "wake",
@@ -127,12 +110,8 @@ describe("scheduler wake mode", () => {
     );
     forceScheduleDue(schedule.id);
 
-    const processMessage = mock(() => Promise.resolve());
-
     // WHEN the scheduler fires
-    const scheduler = startScheduler(processMessage, () => {});
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN wakeAgentForOpportunity is NOT called
     expect(mockWakeAgentForOpportunity).not.toHaveBeenCalled();
@@ -151,7 +130,7 @@ describe("scheduler wake mode", () => {
       producedToolCalls: false,
     });
 
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Wake Complete",
       message: "Should complete",
       mode: "wake",
@@ -161,12 +140,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    const scheduler = startScheduler(
-      mock(() => Promise.resolve()),
-      () => {},
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN the one-shot is marked as completed (status = 'fired')
     const row = getRawDb()
@@ -179,7 +153,7 @@ describe("scheduler wake mode", () => {
     // GIVEN a one-shot wake schedule where wakeAgentForOpportunity throws
     mockWakeAgentForOpportunity.mockRejectedValueOnce(new Error("Wake failed"));
 
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Wake Fail",
       message: "Should fail",
       mode: "wake",
@@ -189,12 +163,7 @@ describe("scheduler wake mode", () => {
     forceScheduleDue(schedule.id);
 
     // WHEN the scheduler fires
-    const scheduler = startScheduler(
-      mock(() => Promise.resolve()),
-      () => {},
-    );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    scheduler.stop();
+    await runScheduleDueWorkOnce();
 
     // THEN the one-shot is reverted to 'active' for retry (failOneShot behavior)
     const row = getRawDb()
@@ -216,7 +185,7 @@ describe("scheduler wake mode", () => {
         producedToolCalls: false,
       });
 
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Wake Retry",
       message: "Retry after timeout",
       mode: "wake",
@@ -225,13 +194,8 @@ describe("scheduler wake mode", () => {
     });
     forceScheduleDue(schedule.id);
 
-    const scheduler = startScheduler(
-      mock(() => Promise.resolve()),
-      () => {},
-    );
-
-    // WHEN the first tick runs (fires immediately from startScheduler)
-    await new Promise((resolve) => origSetTimeout(resolve, 600));
+    // WHEN the first tick runs
+    await runScheduleDueWorkOnce();
 
     // THEN the job is NOT completed — it's reverted to 'active' for retry
     const rowAfterFirst = getRawDb()
@@ -240,9 +204,8 @@ describe("scheduler wake mode", () => {
     expect(rowAfterFirst?.status).toBe("active");
     expect(rowAfterFirst?.retry_count).toBe(1);
 
-    // WHEN the second tick fires (call runOnce directly to avoid waiting for setInterval)
-    await scheduler.runOnce();
-    scheduler.stop();
+    // WHEN the second tick fires
+    await runScheduleDueWorkOnce();
 
     // THEN the job IS completed (status = 'fired')
     const rowAfterSecond = getRawDb()
@@ -262,7 +225,7 @@ describe("scheduler wake mode", () => {
       reason: "timeout",
     });
 
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Wake Max Retry",
       message: "Always busy",
       mode: "wake",
@@ -276,13 +239,8 @@ describe("scheduler wake mode", () => {
       schedule.id,
     ]);
 
-    // WHEN the scheduler fires (first tick runs immediately from startScheduler)
-    const scheduler = startScheduler(
-      mock(() => Promise.resolve()),
-      () => {},
-    );
-    await new Promise((resolve) => origSetTimeout(resolve, 600));
-    scheduler.stop();
+    // WHEN the scheduler fires
+    await runScheduleDueWorkOnce();
 
     // THEN the job is permanently failed (status = 'cancelled', enabled = false)
     const row = getRawDb()

@@ -23,7 +23,11 @@ import {
   type RpcEnvelope,
 } from "@vellumai/service-contracts/credential-rpc";
 
-import { getCesDataRoot, getBootstrapSocketPath, getHealthPort } from "../paths.js";
+import {
+  getCesDataRoot,
+  getBootstrapSocketPath,
+  getHealthPort,
+} from "../paths.js";
 import { CesRpcServer, type RpcHandlerRegistry } from "../server.js";
 
 // ---------------------------------------------------------------------------
@@ -104,7 +108,16 @@ function createTestServer(handlers: RpcHandlerRegistry = {}) {
     return JSON.parse(lines[lines.length - 1]) as RpcEnvelope;
   }
 
-  return { server, input, output, send, collectOutputLines, handshake, rpc, logs };
+  return {
+    server,
+    input,
+    output,
+    send,
+    collectOutputLines,
+    handshake,
+    rpc,
+    logs,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -190,19 +203,19 @@ describe("health probes", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Local stdio transport not inherited by subprocesses
+// 3. Local socket transport not inherited by subprocesses
 // ---------------------------------------------------------------------------
 
 describe("local entrypoint transport isolation", () => {
-  test("main.ts uses process.stdin/stdout, not TCP listeners", () => {
+  test("main.ts serves over a Unix socket, never stdio or a TCP listener", () => {
     const src = readFileSync(resolve(__dirname, "..", "main.ts"), "utf-8");
-    // Uses stdin/stdout for transport
-    expect(src).toMatch(/process\.stdin/);
-    expect(src).toMatch(/process\.stdout/);
-    // Does not open any TCP or Unix socket listener
+    // Socket transport only — no stdio-child transport.
+    expect(src).not.toMatch(/process\.stdin/);
+    expect(src).not.toMatch(/process\.stdout/);
+    // Listens on a Unix socket path only — never a numeric TCP port — and
+    // never opens an HTTP server.
     expect(src).not.toMatch(/Bun\.serve\(/);
-    expect(src).not.toMatch(/createServer\(/);
-    expect(src).not.toMatch(/\.listen\(/);
+    expect(src).not.toMatch(/\.listen\(\d+/);
   });
 
   test("main.ts logs to stderr, not stdout (avoids polluting transport)", () => {
@@ -310,9 +323,10 @@ describe("CesRpcServer", () => {
 
     const resp = await rpc("nonexistent_method", {});
     expect(resp.kind).toBe("response");
-    expect((resp.payload as { success: boolean; error: { code: string } }).error.code).toBe(
-      "METHOD_NOT_FOUND",
-    );
+    expect(
+      (resp.payload as { success: boolean; error: { code: string } }).error
+        .code,
+    ).toBe("METHOD_NOT_FOUND");
 
     server.close();
     input.end();
@@ -332,7 +346,10 @@ describe("CesRpcServer", () => {
 
     const resp = await rpc("fail_method", {});
     expect(resp.kind).toBe("response");
-    const payload = resp.payload as { success: boolean; error: { code: string; message: string } };
+    const payload = resp.payload as {
+      success: boolean;
+      error: { code: string; message: string };
+    };
     expect(payload.error.code).toBe("HANDLER_ERROR");
     expect(payload.error.message).toMatch(/Intentional test failure/);
 

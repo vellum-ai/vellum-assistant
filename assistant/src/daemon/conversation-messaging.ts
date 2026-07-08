@@ -8,41 +8,54 @@
 import { v4 as uuid } from "uuid";
 
 import {
+  type AttachmentReferenceInput,
+  attachmentsToReferenceBlocks,
   enrichMessageWithSourcePaths,
   type MessageAttachmentInput,
 } from "../agent/attachments.js";
+import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import { createUserMessage } from "../agent/message-types.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import {
-  attachInlineAttachmentToMessage,
-  attachmentExists,
-  AttachmentUploadError,
-  linkAttachmentToMessage,
-  validateAttachmentUpload,
-} from "../memory/attachments-store.js";
-import {
-  addMessage,
-  extractImageSourcePaths,
-  getConversation,
-  provenanceFromTrustContext,
-  setConversationOriginChannelIfUnset,
-  setConversationOriginInterfaceIfUnset,
-} from "../memory/conversation-crud.js";
-import {
-  syncMessageToDisk,
-  updateMetaFile,
-} from "../memory/conversation-disk-view.js";
+  parseChannelId,
+  parseClientOs,
+  parseInterfaceId,
+} from "../channels/types.js";
+import { parseImageDimensions } from "../context/image-dimensions.js";
 import {
   buildSlackTimezoneMetadata,
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
-import type { Message } from "../providers/types.js";
+import {
+  attachmentExists,
+  AttachmentUploadError,
+  createInlineAttachment,
+  getAttachmentContent,
+  getFilePathForAttachment,
+  linkAttachmentToMessage,
+  scopeAttachmentToMessageConversation,
+  validateAttachmentUpload,
+} from "../persistence/attachments-store.js";
+import {
+  addMessage,
+  extractAttachmentStoredPaths,
+  extractImageSourcePaths,
+  getConversation,
+  provenanceFromTrustContext,
+  setConversationOriginChannelIfUnset,
+  setConversationOriginInterfaceIfUnset,
+  updateMessageMetadata,
+} from "../persistence/conversation-crud.js";
+import {
+  syncMessageToDisk,
+  updateMetaFile,
+} from "../persistence/conversation-disk-view.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
@@ -52,7 +65,7 @@ import type {
   UserMessageAttachment,
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 const log = getLogger("conversation-messaging");
 
@@ -197,21 +210,149 @@ export interface MessagingConversationContext {
   authContext?: AuthContext;
   currentTurnAuthContext?: AuthContext;
   currentTurnSourceActorPrincipalId?: string;
+  /**
+   * OS surface reported by the connected client ("web" | "ios" | "macos" |
+   * "android"), re-applied from transport metadata on every inbound message.
+   * Persisted under `metadata.client.os` so turn telemetry can attribute the
+   * real platform — the transport `interfaceId` is "web" for the web, iOS,
+   * and macOS apps alike (they share the web renderer).
+   */
+  clientOs?: string;
   getTurnChannelContext(): TurnChannelContext | null;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
 
+/**
+ * Serialize the user message as it is PERSISTED into `messages.content`.
+ *
+ * When `attachmentRefs` is supplied (the regular upload path), attachments are
+ * written as `workspace_ref` blocks so their bytes stay in the attachment store
+ * instead of the DB row and lexical index. Callers without materialized
+ * attachments (slash-command branches) omit it and fall back to the base64
+ * blocks the in-memory message carries.
+ */
 export function serializePersistedUserMessageContent(
   content: string,
   attachments: MessageAttachmentInput[],
   displayContent: string | undefined,
+  attachmentRefs?: AttachmentReferenceInput[],
 ): string {
-  return JSON.stringify(
-    createUserMessage(
-      displayContent !== undefined ? displayContent : content,
-      attachments,
-    ).content,
+  const text = displayContent !== undefined ? displayContent : content;
+  if (attachmentRefs === undefined) {
+    return JSON.stringify(createUserMessage(text, attachments).content);
+  }
+  const blocks: ContentBlock[] = [];
+  if (text.trim().length > 0) {
+    blocks.push({ type: "text", text });
+  }
+  blocks.push(...attachmentsToReferenceBlocks(attachmentRefs));
+  return JSON.stringify(blocks);
+}
+
+/**
+ * Pixel dimensions to record on an image reference. The model receives the
+ * transport-optimized image (`resolveMediaReferences` applies the same
+ * optimization at send time), so we hint the optimized dimensions rather than
+ * the stored original — keeping the per-turn token estimate accurate without a
+ * disk read on the hot path.
+ */
+function computeReferenceImageDimensions(
+  attachmentId: string,
+  mediaType: string,
+): { width: number; height: number } | null {
+  const bytes = getAttachmentContent(attachmentId);
+  if (!bytes) return null;
+  const optimized = optimizeImageForTransport(
+    bytes.toString("base64"),
+    mediaType,
   );
+  return parseImageDimensions(optimized.data, optimized.mediaType);
+}
+
+interface PreparedUserAttachment {
+  position: number;
+  attachmentId: string;
+  ref: AttachmentReferenceInput;
+}
+
+/**
+ * Materialize each user attachment into an attachment-store row BEFORE the
+ * message content is serialized, so the content can reference it by id instead
+ * of inlining base64. Pre-uploaded attachments are scoped into the
+ * conversation; inline uploads create a new row now (rather than after
+ * `addMessage`). Returns the per-attachment reference inputs plus the row id
+ * and position needed to write the `message_attachments` link once the message
+ * exists. Attachments that fail validation are skipped (logged), matching the
+ * prior best-effort indexing behavior.
+ */
+function prepareUserAttachmentReferences(
+  conversationId: string,
+  conversationCreatedAt: number,
+  attachments: MessageAttachmentInput[],
+): PreparedUserAttachment[] {
+  const prepared: PreparedUserAttachment[] = [];
+  for (let i = 0; i < attachments.length; i++) {
+    const a = attachments[i];
+    let stored: { id: string; mimeType: string; sizeBytes: number } | null =
+      null;
+    try {
+      if (a.id && attachmentExists(a.id)) {
+        stored = scopeAttachmentToMessageConversation(
+          conversationId,
+          conversationCreatedAt,
+          a.id,
+        );
+      } else if (a.data) {
+        const validation = validateAttachmentUpload(a.filename, a.mimeType);
+        if (!validation.ok) {
+          log.warn(
+            { filename: a.filename, error: validation.error },
+            "Skipping user attachment: validation failed",
+          );
+          continue;
+        }
+        stored = createInlineAttachment(
+          conversationId,
+          conversationCreatedAt,
+          a.filename,
+          a.mimeType,
+          a.data,
+          { sourcePath: a.filePath, normalizeImage: true },
+        );
+      }
+    } catch (err) {
+      if (err instanceof AttachmentUploadError) {
+        log.warn(
+          { filename: a.filename, error: err.message },
+          "Skipping user attachment",
+        );
+      } else {
+        log.error(
+          { filename: a.filename, err },
+          "Failed to materialize user attachment",
+        );
+      }
+      continue;
+    }
+    if (!stored) continue;
+
+    const ref: AttachmentReferenceInput = {
+      attachmentId: stored.id,
+      filename: a.filename,
+      mimeType: stored.mimeType,
+      sizeBytes: stored.sizeBytes,
+      extractedText: a.extractedText,
+    };
+    if (stored.mimeType.toLowerCase().startsWith("image/")) {
+      const dims = computeReferenceImageDimensions(stored.id, stored.mimeType);
+      if (dims) {
+        ref.width = dims.width;
+        ref.height = dims.height;
+      }
+    }
+    prepared.push({ position: i, attachmentId: stored.id, ref });
+  }
+  return prepared;
 }
 
 function extractTurnChannelContext(
@@ -412,10 +553,13 @@ export async function persistUserMessage(
 
   const reqId = options.requestId ?? uuid();
   ctx.currentRequestId = reqId;
-  ctx.setProcessing(true);
   ctx.abortController = new AbortController();
 
   try {
+    // `setProcessing(true)` persists the flag and can throw (e.g.
+    // SQLITE_BUSY). Keeping it inside the try ensures a failure here unwinds
+    // the request-id/abort bookkeeping below rather than stranding it.
+    ctx.setProcessing(true);
     const result = await persistQueuedMessageBody(ctx, {
       ...options,
       attachments,
@@ -428,7 +572,18 @@ export async function persistUserMessage(
     }
     return result;
   } catch (err) {
-    ctx.setProcessing(false);
+    // Clear the flag, but never let a clear failure mask the original error
+    // or skip the bookkeeping reset. `setProcessing` reverts its own
+    // in-memory flag when its persist throws, so the conversation is left
+    // consistent either way.
+    try {
+      ctx.setProcessing(false);
+    } catch (clearErr) {
+      log.error(
+        { err: clearErr, conversationId: ctx.conversationId },
+        "Failed to clear processing flag after persistUserMessage failure",
+      );
+    }
     ctx.abortController = null;
     ctx.currentRequestId = undefined;
     throw err;
@@ -458,30 +613,18 @@ export async function persistQueuedMessageBody(
     displayContent,
     clientMessageId,
   } = options;
-  const attachmentInputs = attachments.map((attachment) => ({
-    id: attachment.id,
-    filename: attachment.filename,
-    mimeType: attachment.mimeType,
-    data: attachment.data,
-    extractedText: attachment.extractedText,
-    filePath: attachment.filePath,
-  }));
+  const attachmentInputs: MessageAttachmentInput[] = attachments.map(
+    (attachment) => ({
+      id: attachment.id,
+      filename: attachment.filename,
+      mimeType: attachment.mimeType,
+      data: attachment.data,
+      extractedText: attachment.extractedText,
+      filePath: attachment.filePath,
+    }),
+  );
   const cleanMessage = createUserMessage(content, attachmentInputs);
-  const llmMessage = enrichMessageWithSourcePaths(
-    cleanMessage,
-    attachmentInputs,
-  );
-  log.info(
-    {
-      requestId,
-      contentBlockTypes: Array.isArray(llmMessage.content)
-        ? llmMessage.content.map((b) => b.type)
-        : typeof llmMessage.content,
-      attachmentCount: attachments.length,
-    },
-    "persistUserMessage: content blocks being sent to model",
-  );
-  ctx.messages.push(llmMessage);
+  let pushedToHistory = false;
 
   try {
     const turnCtx =
@@ -505,6 +648,27 @@ export async function persistQueuedMessageBody(
       turnChannel: turnCtx?.userMessageChannel,
     });
 
+    // Client attribution for turn telemetry, stored under the `client`
+    // metadata bag which `turn-events-store` forwards onto
+    // `TurnTelemetryEvent.client`. The bag merges two sources per key:
+    // caller-supplied `client` metadata (e.g. the sanitized browser/OS/
+    // version headers read by `handleSendMessage`) wins, and the
+    // transport-reported OS (validated through `parseClientOs`) fills in
+    // `os` when the caller didn't supply one — so header-less paths (CLI,
+    // channel ingress) keep their OS attribution.
+    const clientOs = parseClientOs(ctx.clientOs);
+    const callerClient =
+      metadataWithoutSlackInbound.client != null &&
+      typeof metadataWithoutSlackInbound.client === "object"
+        ? (metadataWithoutSlackInbound.client as Record<string, unknown>)
+        : null;
+    const clientEntries = {
+      ...(clientOs ? { os: clientOs } : {}),
+      ...(callerClient ?? {}),
+    };
+    const clientBag =
+      Object.keys(clientEntries).length > 0 ? { client: clientEntries } : {};
+
     const mergedMetadata = {
       ...metadataWithoutSlackInbound,
       ...provenance,
@@ -520,9 +684,22 @@ export async function persistQueuedMessageBody(
             assistantMessageInterface: turnIfCtx.assistantMessageInterface,
           }
         : {}),
+      ...clientBag,
       ...(imageSourcePaths ? { imageSourcePaths } : {}),
       ...(slackMeta ? { slackMeta } : {}),
     };
+
+    // Materialize each attachment into an attachment-store row up front so the
+    // persisted content can reference it by id instead of inlining base64. The
+    // message link (message_attachments) is written after addMessage below,
+    // once the message id exists.
+    const conversationCreatedAt =
+      getConversation(ctx.conversationId)?.createdAt ?? Date.now();
+    const preparedAttachments = prepareUserAttachmentReferences(
+      ctx.conversationId,
+      conversationCreatedAt,
+      attachmentInputs,
+    );
 
     // When displayContent is provided (e.g. original text before recording
     // intent stripping), persist that to DB so users see the full message
@@ -532,16 +709,16 @@ export async function persistQueuedMessageBody(
       content,
       attachmentInputs,
       displayContent,
+      preparedAttachments.map((p) => p.ref),
     );
     const persistedUserMessage = await addMessage(
       ctx.conversationId,
       "user",
       contentToPersist,
-      { metadata: mergedMetadata, clientMessageId },
+      { metadata: mergedMetadata, clientMessageId, id: requestId },
     );
 
     if (persistedUserMessage.deduplicated) {
-      ctx.messages.pop();
       return { id: persistedUserMessage.id, deduplicated: true };
     }
 
@@ -570,51 +747,52 @@ export async function persistQueuedMessageBody(
       throw new Error("Failed to persist user message");
     }
 
-    // Index user attachments in the attachments table for later retrieval.
-    for (let i = 0; i < attachments.length; i++) {
-      const a = attachments[i];
+    // Link each materialized attachment to the persisted message. The link row
+    // is the GC anchor (an attachment with no link is collectible), and it
+    // resolves the canonical stored path — name collisions in the conversation's
+    // attachments/ dir get a -2/-3 suffix, so the stored path (not the original
+    // filename) is the only reliable on-disk handle for the file.
+    for (const p of preparedAttachments) {
       try {
-        // If the attachment already exists in the store (e.g. file-backed
-        // attachments uploaded separately), link it directly without
-        // re-uploading. This handles the case where data is empty because
-        // the attachment content lives on disk.
-        if (a.id && attachmentExists(a.id)) {
-          linkAttachmentToMessage(persistedUserMessage.id, a.id, i);
-          continue;
-        }
-
-        if (!a.data) continue;
-
-        const validation = validateAttachmentUpload(a.filename, a.mimeType);
-        if (!validation.ok) {
-          log.warn(
-            { filename: a.filename, error: validation.error },
-            "Skipping user attachment indexing: validation failed",
-          );
-          continue;
-        }
-        attachInlineAttachmentToMessage(
+        const scopedAttachmentId = linkAttachmentToMessage(
           persistedUserMessage.id,
-          i,
-          a.filename,
-          a.mimeType,
-          a.data,
-          { sourcePath: a.filePath },
+          p.attachmentId,
+          p.position,
         );
+        attachmentInputs[p.position].storedPath =
+          getFilePathForAttachment(scopedAttachmentId) ?? undefined;
       } catch (err) {
-        if (err instanceof AttachmentUploadError) {
-          log.warn(
-            { filename: a.filename, error: err.message },
-            "Skipping user attachment indexing",
-          );
-        } else {
-          log.error(
-            { filename: a.filename, err },
-            "Failed to index user attachment",
-          );
-        }
+        log.error(
+          { attachmentId: p.attachmentId, err },
+          "Failed to link user attachment to message",
+        );
       }
     }
+
+    // Persist the resolved paths so history reloads can rebuild the same
+    // annotation block the in-memory message carries below.
+    const attachmentStoredPaths =
+      extractAttachmentStoredPaths(attachmentInputs);
+    if (attachmentStoredPaths) {
+      updateMessageMetadata(persistedUserMessage.id, { attachmentStoredPaths });
+    }
+
+    const llmMessage = enrichMessageWithSourcePaths(
+      cleanMessage,
+      attachmentInputs,
+    );
+    log.info(
+      {
+        requestId,
+        contentBlockTypes: Array.isArray(llmMessage.content)
+          ? llmMessage.content.map((b) => b.type)
+          : typeof llmMessage.content,
+        attachmentCount: attachments.length,
+      },
+      "persistUserMessage: content blocks being sent to model",
+    );
+    ctx.messages.push(llmMessage);
+    pushedToHistory = true;
 
     // Sync the persisted user message (with attachments) to the disk view
     const conv = getConversation(ctx.conversationId);
@@ -628,7 +806,9 @@ export async function persistQueuedMessageBody(
 
     return { id: persistedUserMessage.id, deduplicated: false };
   } catch (err) {
-    ctx.messages.pop();
+    if (pushedToHistory) {
+      ctx.messages.pop();
+    }
     throw err;
   }
 }

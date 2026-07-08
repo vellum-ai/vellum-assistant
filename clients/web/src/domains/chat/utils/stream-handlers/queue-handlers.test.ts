@@ -25,7 +25,7 @@ describe("handleMessageQueued", () => {
     expect(ctx.turnActions.enqueueMessage).toHaveBeenCalled();
     expect(ctx.shiftPendingQueuedMessageId).toHaveBeenCalled();
     expect(ctx.setRequestIdMapping).toHaveBeenCalledWith("req-1", "stable-1");
-    expect(ctx.setMessages).toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).toHaveBeenCalled();
   });
 
   it("returns early when no pending messageId", () => {
@@ -41,7 +41,7 @@ describe("handleMessageQueued", () => {
       },
       ctx,
     );
-    expect(ctx.setMessages).not.toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 
   it("deletes queued message when messageId is in pending deletions", () => {
@@ -59,7 +59,7 @@ describe("handleMessageQueued", () => {
       ctx,
     );
     expect(ctx.consumePendingLocalDeletion).toHaveBeenCalledWith("stable-1");
-    expect(ctx.setMessages).not.toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 });
 
@@ -78,10 +78,10 @@ describe("handleMessageDequeued", () => {
     );
     expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
     expect(ctx.popRequestIdMapping).toHaveBeenCalledWith("req-1");
-    expect(ctx.setMessages).toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).toHaveBeenCalled();
   });
 
-  it("skips setMessages when no messageId mapping exists", () => {
+  it("skips setOptimisticSends when no messageId mapping exists", () => {
     const ctx = makeCtx();
     handleMessageDequeued(
       {
@@ -92,7 +92,7 @@ describe("handleMessageDequeued", () => {
       ctx,
     );
     expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
-    expect(ctx.setMessages).not.toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 });
 
@@ -111,10 +111,10 @@ describe("handleMessageQueuedDeleted", () => {
     );
     expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalled();
     expect(ctx.popRequestIdMapping).toHaveBeenCalledWith("req-1");
-    expect(ctx.setMessages).toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).toHaveBeenCalled();
   });
 
-  it("skips setMessages when no messageId mapping exists", () => {
+  it("skips setOptimisticSends when no messageId mapping exists", () => {
     const ctx = makeCtx();
     handleMessageQueuedDeleted(
       {
@@ -125,7 +125,7 @@ describe("handleMessageQueuedDeleted", () => {
       ctx,
     );
     expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalled();
-    expect(ctx.setMessages).not.toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 });
 
@@ -140,6 +140,6 @@ describe("handleMessageRequestComplete", () => {
       },
       ctx,
     );
-    expect(ctx.setMessages).not.toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 });

@@ -19,15 +19,15 @@ import {
 import {
   getAttachmentsByIds,
   getSourcePathsForAttachments,
-} from "../memory/attachments-store.js";
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   getConversation,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
-} from "../memory/conversation-crud.js";
-import { updateMetaFile } from "../memory/conversation-disk-view.js";
+} from "../persistence/conversation-crud.js";
+import { updateMetaFile } from "../persistence/conversation-disk-view.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -51,6 +51,7 @@ import {
   getOrCreateConversation as getOrCreateActiveConversation,
   mergeConversationOptions,
 } from "./conversation-store.js";
+import { getDbMigrationReadiness } from "./daemon-readiness.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
@@ -71,6 +72,20 @@ type ProcessMessageOptions = ConversationCreateOptions & {
   sourceChannel?: string;
   /** Originating interface (e.g. "cli", "web"). Defaults to "web". */
   sourceInterface?: string;
+  /**
+   * Origin tag of the turn (the conversation's `TitleOrigin`, e.g.
+   * "memory_consolidation"), threaded from `runBackgroundJob`. Propagated
+   * into the agent loop and tool context so the permission checker can scope
+   * narrow non-interactive auto-grants to a specific internal background
+   * origin. Unset for normal user-initiated turns.
+   */
+  requestOrigin?: string;
+  /**
+   * Firing's `cron_runs.id`, threaded through to the turn's usage rows so a
+   * scheduled execute turn attributes its LLM spend to that firing. Per-turn:
+   * not stored on the long-lived conversation.
+   */
+  cronRunId?: string | null;
 };
 
 function buildEventEmitter(
@@ -146,6 +161,8 @@ async function prepareConversationForMessage(
     sourceChannel,
     sourceInterface,
     onEvent: _onEvent,
+    cronRunId: _cronRunId,
+    requestOrigin: _requestOrigin,
     ...conversationOptions
   } = options ?? {};
   const conversation = await getOrCreateActiveConversation(
@@ -269,11 +286,33 @@ async function prepareConversationForMessage(
 // processMessage — main entry point for channel inbound + daemon callers
 // ---------------------------------------------------------------------------
 
+/**
+ * Defense-in-depth: never run a turn against a not-yet-migrated schema.
+ * The HTTP send path is already gated by dbMigrationUnavailableForPath, the
+ * IPC transport by dbMigrationGateResponse, and the background sweeps are
+ * deferred until migrations settle — but {@link processMessage} and
+ * {@link processMessageInBackground} are the two sinks every message caller
+ * funnels through (sweeps, scheduler, pointer, signal handlers, the
+ * conversation launcher), and the signal-file transport reaches them without
+ * passing either transport gate. Migrations run async during startup, so a
+ * caller can get here before the tables exist.
+ */
+function assertDbMigrationsReadyForTurn(): void {
+  const migrationReadiness = getDbMigrationReadiness();
+  if (!migrationReadiness.ready) {
+    throw new Error(
+      `Cannot process message: database migrations ${migrationReadiness.state}`,
+    );
+  }
+}
+
 export async function processMessage(
   conversationId: string,
   content: string,
   options?: ProcessMessageOptions,
 ): Promise<{ messageId: string; assistantMessageId?: string }> {
+  assertDbMigrationsReadyForTurn();
+
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
     content,
@@ -537,6 +576,10 @@ export async function processMessage(
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }
         : {}),
+      ...(options?.requestOrigin
+        ? { requestOrigin: options.requestOrigin }
+        : {}),
+      ...(options?.cronRunId ? { cronRunId: options.cronRunId } : {}),
     });
   } finally {
     if (
@@ -563,6 +606,8 @@ export async function processMessageInBackground(
   content: string,
   options?: ProcessMessageOptions,
 ): Promise<{ messageId: string }> {
+  assertDbMigrationsReadyForTurn();
+
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
     content,
@@ -597,6 +642,7 @@ export async function processMessageInBackground(
       ...(options?.overrideProfile
         ? { overrideProfile: options.overrideProfile }
         : {}),
+      ...(options?.cronRunId ? { cronRunId: options.cronRunId } : {}),
     })
     .finally(() => {
       if (

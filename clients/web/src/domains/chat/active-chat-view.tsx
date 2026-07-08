@@ -20,6 +20,7 @@ import { useParams, useSearchParams } from "react-router";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useAuthStore } from "@/stores/auth-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -78,6 +79,7 @@ import { useChatHeaderRegistration } from "@/domains/chat/hooks/use-chat-header-
 import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversation-change-effects";
 import { useComposerKeyboard } from "@/domains/chat/hooks/use-composer-keyboard";
 import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
+import { useOnboardingAttribution } from "@/hooks/use-onboarding-attribution";
 
 import { ChatContentLayout } from "@/domains/chat/components/chat-content-layout";
 import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
@@ -119,6 +121,7 @@ export function ActiveChatView() {
   // store via atomic selectors per `docs/STATE_MANAGEMENT.md` rather
   // than maintaining its own local copy.
   const assistantName = useAssistantIdentityStore.use.name();
+  const authUserId = useAuthStore.use.user()?.id ?? null;
 
   // -------------------------------------------------------------------------
   // Pin-sync side-effect
@@ -277,6 +280,7 @@ export function ActiveChatView() {
     assistantId,
     activeConversationId,
     diskPressureChatBlockReason,
+    uiContextRef,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
     startReconciliationLoop,
@@ -289,10 +293,21 @@ export function ActiveChatView() {
     assistantId,
     activeConversationId,
     searchParams,
+    setSearchParams,
     sendMessage,
     reachabilityPhase: reachability.state.phase,
     reachabilityProbe: reachability.probe,
     getPendingInitialMessage: () => peekPendingPreChatContext()?.initialMessage ?? undefined,
+    getPendingInitialMessageHidden: () =>
+      peekPendingPreChatContext()?.initialMessageHidden === true,
+  });
+
+  // Onboarding deep-link attribution: emit the research-onboarding check-in
+  // funnel step when the user lands here from the Day-2 calendar event's CTA.
+  useOnboardingAttribution({
+    searchParams,
+    setSearchParams,
+    userId: authUserId,
   });
 
   useEffect(() => {

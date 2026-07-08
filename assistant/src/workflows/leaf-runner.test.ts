@@ -80,9 +80,12 @@ class MockConversationGraphMemory {
     disposeCalls += 1;
   }
 }
-mock.module("../memory/graph/conversation-graph-memory.js", () => ({
-  ConversationGraphMemory: MockConversationGraphMemory,
-}));
+mock.module(
+  "../plugins/defaults/memory/graph/conversation-graph-memory.js",
+  () => ({
+    ConversationGraphMemory: MockConversationGraphMemory,
+  }),
+);
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
@@ -143,9 +146,9 @@ mock.module("../providers/provider-send-message.js", () => ({
 // Module under test (after mocks).
 // ---------------------------------------------------------------------------
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { runLeaf, WorkflowUnknownProfileError } from "./leaf-runner.js";

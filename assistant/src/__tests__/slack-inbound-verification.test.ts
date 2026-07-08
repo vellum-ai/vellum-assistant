@@ -84,11 +84,32 @@ function seedGatewayGuardian(
   });
 }
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { findActiveSession } from "../runtime/channel-verification-service.js";
+import { createCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import {
+  createOutboundSession,
+  createOutboundSessionGuarded,
+  findActiveSession,
+  getPendingSession,
+  resetVerificationSessionsSim,
+} from "./helpers/verification-sessions-ipc-sim.js";
+
+// The inbound stages read/write sessions via the gateway-backed IPC client;
+// delegate it to the in-memory sim so this suite keeps exercising the full
+// challenge-offer/dedup matrix without a live gateway.
+mock.module("../channels/gateway-verification-sessions.js", () => ({
+  createOutboundSession: async (
+    params: Parameters<typeof createOutboundSession>[0],
+  ) => createOutboundSession(params),
+  createOutboundSessionConditional: async (
+    params: Parameters<typeof createOutboundSessionGuarded>[0],
+  ) => createOutboundSessionGuarded(params),
+  getPendingSession: async (channel: string) => getPendingSession(channel),
+  findActiveSession: async (channel: string) => findActiveSession(channel),
+}));
 
 await initializeDb();
 
@@ -99,9 +120,8 @@ await initializeDb();
 const TEST_BEARER_TOKEN = "test-token";
 
 function resetState(): void {
+  resetVerificationSessionsSim();
   const db = getDb();
-  db.run("DELETE FROM channel_verification_sessions");
-  db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
@@ -184,6 +204,41 @@ describe("Slack inbound trusted contact verification", () => {
     expect(
       (deliverReplyCalls[0].payload as Record<string, unknown>).text,
     ).toContain("I don't recognize you yet");
+  });
+
+  test("a terminally-denied Slack sender gets no challenge and no guardian re-prompt", async () => {
+    // Guardian previously denied this sender (terminal). Seed the denied
+    // canonical request under the assistant-scoped conversationId the ingress
+    // path derives for (self, slack, U0123UNKNOWN).
+    createCanonicalGuardianRequest({
+      id: `denied-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "slack",
+      conversationId: "access-req-self-slack-U0123UNKNOWN",
+      requesterExternalUserId: "U0123UNKNOWN",
+      guardianPrincipalId: "guardian-principal",
+      toolName: "ingress_access_request",
+      status: "denied",
+    });
+
+    const resp = await handleChannelInbound(
+      buildSlackInboundRequest(),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    // Still denied — but not via a fresh, unusable verification challenge.
+    expect(json.denied).toBe(true);
+    expect(json.reason).not.toBe("verification_challenge_sent");
+    expect(json.verificationSessionId).toBeUndefined();
+
+    // No verification session was minted for the denied sender.
+    expect(findActiveSession("slack")).toBeNull();
+
+    // And the guardian was not re-notified.
+    expect(emitSignalCalls.length).toBe(0);
   });
 
   test("verification session is identity-bound to the Slack user", async () => {

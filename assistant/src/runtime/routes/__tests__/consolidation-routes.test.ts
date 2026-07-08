@@ -37,11 +37,11 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 import { invalidateConfigCache } from "../../../config/loader.js";
-import { createConversation } from "../../../memory/conversation-crud.js";
-import { getDb, getMemorySqlite } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { recordUsageEvent } from "../../../memory/llm-usage-store.js";
-import { rawRun } from "../../../memory/raw-query.js";
+import { createConversation } from "../../../persistence/conversation-crud.js";
+import { getDb, getMemorySqlite } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { recordUsageEvent } from "../../../persistence/llm-usage-store.js";
+import { rawRun } from "../../../persistence/raw-query.js";
 import { ROUTES } from "../consolidation-routes.js";
 import type { RouteDefinition } from "../types.js";
 
@@ -71,6 +71,7 @@ function insertMessage(
   createdAt: number,
 ): void {
   rawRun(
+    "test:insertMessage",
     "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
     `msg-${conversationId}-${role}-${createdAt}`,
     conversationId,
@@ -105,6 +106,7 @@ function recordUsageCostAt(
     { estimatedCostUsd, pricingStatus: "priced" },
   );
   rawRun(
+    "test:setUsageCreatedAt",
     "UPDATE llm_usage_events SET created_at = ? WHERE id = ?",
     createdAt,
     event.id,
@@ -188,6 +190,7 @@ describe("listConsolidationRuns handler", () => {
       source: "memory_v2_consolidation",
     });
     rawRun(
+      "test:setCreatedAt",
       "UPDATE conversations SET created_at = ? WHERE id = ?",
       1000,
       conv.id,
@@ -224,6 +227,7 @@ describe("listConsolidationRuns handler", () => {
       source: "memory_v2_consolidation",
     });
     rawRun(
+      "test:setCreatedAtAndCost",
       "UPDATE conversations SET created_at = ?, total_estimated_cost = ? WHERE id = ?",
       1000,
       0.42,
@@ -244,6 +248,7 @@ describe("listConsolidationRuns handler", () => {
       source: "memory_v2_consolidation",
     });
     rawRun(
+      "test:setCreatedAt",
       "UPDATE conversations SET created_at = ? WHERE id = ?",
       1000,
       conv.id,
@@ -284,6 +289,7 @@ describe("listConsolidationRuns handler", () => {
       source: "memory_v2_consolidation",
     });
     rawRun(
+      "test:setCreatedAtAndLastMsg",
       "UPDATE conversations SET created_at = ?, last_message_at = ? WHERE id = ?",
       1000,
       1100,
@@ -328,9 +334,24 @@ describe("listConsolidationRuns handler", () => {
       title: "c",
       source: "memory_v2_consolidation",
     });
-    rawRun("UPDATE conversations SET created_at = ? WHERE id = ?", 1000, a.id);
-    rawRun("UPDATE conversations SET created_at = ? WHERE id = ?", 3000, b.id);
-    rawRun("UPDATE conversations SET created_at = ? WHERE id = ?", 2000, c.id);
+    rawRun(
+      "test:setCreatedAt",
+      "UPDATE conversations SET created_at = ? WHERE id = ?",
+      1000,
+      a.id,
+    );
+    rawRun(
+      "test:setCreatedAt",
+      "UPDATE conversations SET created_at = ? WHERE id = ?",
+      3000,
+      b.id,
+    );
+    rawRun(
+      "test:setCreatedAt",
+      "UPDATE conversations SET created_at = ? WHERE id = ?",
+      2000,
+      c.id,
+    );
 
     const handler = findHandler("listConsolidationRuns");
     const result = (await handler({})) as ListRunsResponse;

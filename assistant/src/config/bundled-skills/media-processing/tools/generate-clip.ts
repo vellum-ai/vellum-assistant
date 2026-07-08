@@ -11,8 +11,8 @@ import { access, constants, mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { uploadFileBackedAttachment } from "../../../../memory/attachments-store.js";
-import { getMediaAssetById } from "../../../../memory/media-store.js";
+import { uploadFileBackedAttachment } from "../../../../persistence/attachments-store.js";
+import { getMediaAssetById } from "../../../../persistence/media-store.js";
 import type {
   ToolContext,
   ToolExecutionResult,

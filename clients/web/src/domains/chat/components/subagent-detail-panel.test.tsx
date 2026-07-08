@@ -9,7 +9,14 @@
  */
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render as rtlRender,
+  screen,
+} from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 
 mock.module("@/components/avatar-renderer", () => ({
   AvatarRenderer: () => <div data-testid="avatar" />,
@@ -76,6 +83,25 @@ mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
 
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel";
 import type { SubagentEntry } from "@/domains/chat/subagent-store";
+
+// The nested tool-detail body (`ToolDetailBody`) resolves the live tool call
+// from the transcript union, which is backed by a TanStack Query cache. Render
+// every case under a provider so drilling into a tool step doesn't throw "No
+// QueryClient set". No history is seeded: with no active conversation the
+// history query stays disabled, so the body falls back to the step's open-time
+// snapshot — exactly the values these tests assert.
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
+function wrapper({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+
+const render = (ui: Parameters<typeof rtlRender>[0]) =>
+  rtlRender(ui, { wrapper });
 
 const noop = () => {};
 

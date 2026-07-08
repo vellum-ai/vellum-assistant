@@ -9,11 +9,9 @@ interface MockResponse {
 let mockGet: ReturnType<typeof mock<(...args: unknown[]) => Promise<MockResponse>>>;
 let mockPut: ReturnType<typeof mock<(...args: unknown[]) => Promise<MockResponse>>>;
 
-mock.module("@/generated/api/client.gen", () => ({
-  client: {
-    get: (...args: unknown[]) => mockGet(...args),
-    put: (...args: unknown[]) => mockPut(...args),
-  },
+mock.module("@/generated/gateway/sdk.gen", () => ({
+  assistantChannelAdmissionPolicyList: (...args: unknown[]) => mockGet(...args),
+  assistantChannelAdmissionPolicySet: (...args: unknown[]) => mockPut(...args),
 }));
 
 const { fetchChannelPolicies, setChannelPolicy, isInternalChannel, ApiError } =
@@ -151,7 +149,7 @@ describe("setChannelPolicy", () => {
     expect(mockPut).not.toHaveBeenCalled();
   });
 
-  test("sends the policy payload to the assistant-scoped PUT route", async () => {
+  test("sends the policy payload through the generated SDK setter", async () => {
     mockPut = mock(async () =>
       ok({
         policy: {
@@ -168,14 +166,10 @@ describe("setChannelPolicy", () => {
     expect(mockPut).toHaveBeenCalledTimes(1);
     const call = mockPut.mock.calls[0] as unknown as [
       {
-        url: string;
         path: { assistant_id: string; channel_type: string };
         body: { policy: string; note: string | null };
       },
     ];
-    expect(call[0].url).toContain(
-      "/v1/assistants/{assistant_id}/channel-admission-policy/{channel_type}",
-    );
     expect(call[0].path).toEqual({
       assistant_id: "asst-1",
       channel_type: "slack",

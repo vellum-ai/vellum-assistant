@@ -45,9 +45,13 @@
  * the `post-model-call` chain — later hooks see (and may override) its decision.
  */
 
-import type { PluginHookFn, PostModelCallContext } from "@vellumai/plugin-api";
+import type {
+  ContentBlock,
+  HookFunction,
+  Message,
+  PostModelCallContext,
+} from "@vellumai/plugin-api";
 
-import type { ContentBlock, Message } from "../../../../providers/types.js";
 import {
   isSurfaceCompletionNudged,
   markSurfaceCompletionNudged,
@@ -246,7 +250,7 @@ function hasDanglingProgressSurface(messages: ReadonlyArray<Message>): boolean {
   return false;
 }
 
-const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
+const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   // A provider rejection carries no turn content to assess (a recovery hook
   // owns the rejection).
   if (ctx.error) return;

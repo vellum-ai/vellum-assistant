@@ -9,14 +9,14 @@
 
 import { randomUUID } from "node:crypto";
 
-import { updateConversationTitle } from "../memory/conversation-crud.js";
-import { getOrCreateConversation as getOrCreateConversationKey } from "../memory/conversation-key-store.js";
+import { updateConversationTitle } from "../persistence/conversation-crud.js";
+import { getOrCreateConversation as getOrCreateConversationKey } from "../persistence/conversation-key-store.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { getOrCreateConversation } from "./conversation-store.js";
 import { processMessageInBackground } from "./process-message.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 const log = getLogger("conversation-launch");
 

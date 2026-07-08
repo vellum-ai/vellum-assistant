@@ -9,7 +9,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  resolveResearchCompletionStatus,
+  resolveOnboardingPluginInstalls,
   selectRecommendableCapabilities,
+  shouldArchiveCompletedResearchConversation,
   shouldSettleResearchPoll,
 } from "@/domains/onboarding/research-runner";
 
@@ -23,6 +26,7 @@ function match(
   return {
     name,
     path: `github:${repo}@abc123`,
+    category: null,
     ...(description ? { description } : {}),
     source: { kind: "github", repo, ref: "abc123" },
   };
@@ -77,6 +81,39 @@ describe("selectRecommendableCapabilities", () => {
   });
 });
 
+describe("resolveOnboardingPluginInstalls", () => {
+  test("includes admin-copilot from the first-party catalog for every role", () => {
+    const { validNames } = selectRecommendableCapabilities([
+      match("admin-copilot", "vellum-ai/admin-copilot", "Chief-of-staff."),
+      match("marketing-expert", "vellum-ai/marketing-expert", "Full-stack marketing."),
+    ]);
+
+    expect(
+      resolveOnboardingPluginInstalls({
+        role: "Teacher",
+        validNames,
+        modelPlugins: [],
+      }),
+    ).toEqual(["admin-copilot"]);
+  });
+
+  test("dedupes deterministic and model picks while rejecting non-catalog names", () => {
+    const { validNames } = selectRecommendableCapabilities([
+      match("admin-copilot", "vellum-ai/admin-copilot", "Chief-of-staff."),
+      match("marketing-expert", "vellum-ai/marketing-expert", "Full-stack marketing."),
+      match("caveman", "JuliusBrussee/caveman", "Compression mode."),
+    ]);
+
+    expect(
+      resolveOnboardingPluginInstalls({
+        role: "Founder",
+        validNames,
+        modelPlugins: ["marketing-expert", "caveman", "made-up-plugin"],
+      }),
+    ).toEqual(["admin-copilot", "marketing-expert"]);
+  });
+});
+
 describe("shouldSettleResearchPoll", () => {
   test("does not settle an incomplete response even after repeated identical polls", () => {
     expect(
@@ -93,6 +130,38 @@ describe("shouldSettleResearchPoll", () => {
   test("waits for the complete response to stabilize", () => {
     expect(
       shouldSettleResearchPoll({ complete: true, stableReads: 1 }),
+    ).toBe(false);
+  });
+});
+
+describe("resolveResearchCompletionStatus", () => {
+  test("marks complete JSON payloads done", () => {
+    expect(
+      resolveResearchCompletionStatus({ sawCompletePayload: true }),
+    ).toBe("done");
+  });
+
+  test("marks timed-out partial payloads as error", () => {
+    expect(
+      resolveResearchCompletionStatus({ sawCompletePayload: false }),
+    ).toBe("error");
+  });
+});
+
+describe("shouldArchiveCompletedResearchConversation", () => {
+  test("archives when a complete payload was observed", () => {
+    expect(
+      shouldArchiveCompletedResearchConversation({
+        sawCompletePayload: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("does not archive partial or timed-out research turns", () => {
+    expect(
+      shouldArchiveCompletedResearchConversation({
+        sawCompletePayload: false,
+      }),
     ).toBe(false);
   });
 });

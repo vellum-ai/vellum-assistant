@@ -22,9 +22,9 @@ import type {
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
-import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
+import { AgentLoop } from "../agent/loop.js";
 import type { ContextWindowConfig } from "../config/types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import {
   createContextWindowManager,
@@ -35,6 +35,7 @@ import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
+import { isMaxTokensStopReason } from "../providers/stop-reasons.js";
 import type {
   Message,
   Provider,
@@ -459,6 +460,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
@@ -499,6 +501,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       onEvent: (event) => {
         events.push(event);
       },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },

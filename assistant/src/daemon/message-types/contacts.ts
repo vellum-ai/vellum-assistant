@@ -1,4 +1,4 @@
-// Contact management: list, get, update channel status, and delete.
+// Contact management: list, get, and delete.
 
 import type { ContactRequestEvent } from "../../api/events/contact-request.js";
 
@@ -6,17 +6,9 @@ import type { ContactRequestEvent } from "../../api/events/contact-request.js";
 
 export interface ContactsRequest {
   type: "contacts";
-  action: "list" | "get" | "update_channel" | "delete";
+  action: "list" | "get" | "delete";
   /** Contact ID (get and delete). */
   contactId?: string;
-  /** Channel ID (update_channel only). */
-  channelId?: string;
-  /** New status for channel (update_channel only). */
-  status?: "active" | "pending" | "revoked" | "blocked" | "unverified";
-  /** New policy for channel (update_channel only). */
-  policy?: "allow" | "deny" | "escalate";
-  /** Reason for status change (update_channel only). */
-  reason?: string;
   /** Filter by role (list only). */
   role?: "guardian" | "contact";
   /** Limit (list only). */

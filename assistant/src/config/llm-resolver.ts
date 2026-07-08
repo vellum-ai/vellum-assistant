@@ -1,7 +1,11 @@
 import { z } from "zod";
 
-import { getCatalogProviderForModel } from "../providers/model-catalog.js";
+import {
+  getCatalogProviderForModel,
+  isModelInCatalog,
+} from "../providers/model-catalog.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
+import { getEffectiveProfile } from "./default-profile-catalog.js";
 import {
   type LLMCallSite,
   LLMConfigBase,
@@ -66,7 +70,9 @@ import {
  * the same way.
  *
  * `activeProfile` and `overrideProfile` are resolved by name lookup against
- * `llm.profiles`. Missing references silently fall through (no throw) so the
+ * the effective profile catalog (code-defined defaults + workspace
+ * `llm.profiles`; see `getEffectiveProfile`). Missing references silently
+ * fall through (no throw) so the
  * resolver stays pure; schema validation in `LLMSchema.superRefine` catches
  * unknown `activeProfile` references at config-load time.
  *
@@ -198,9 +204,7 @@ export function resolveCallSiteConfig(
     );
   }
 
-  const resolved = finalize(
-    deepMerge(...layers.map(withImpliedProviderForKnownModel)),
-  );
+  const resolved = finalize(deepMerge(...withImpliedProviders(layers)));
   // `logitBias` is profile-scoped: the winning profile is its only source.
   // Overwrite — or clear — whatever the deep-merge may have copied from a
   // non-profile layer (`llm.default` or a call-site fragment), so a preset set
@@ -302,7 +306,7 @@ function resolveProfileFragment(
   opts: ResolveCallSiteOpts,
 ): ProfileEntry | undefined {
   if (name == null) return undefined;
-  const entry = llm.profiles?.[name];
+  const entry = getEffectiveProfile(llm.profiles, name);
   if (entry?.mix == null) return entry;
 
   // Mix: pick one constituent. Seed by per-conversation seed + the mix's own
@@ -316,7 +320,7 @@ function resolveProfileFragment(
   opts.onMixSelected?.({ mixProfile: name, chosenProfile: chosen.profile });
 
   // The chosen arm must be a standard profile (enforced by superRefine).
-  return llm.profiles?.[chosen.profile];
+  return getEffectiveProfile(llm.profiles, chosen.profile);
 }
 
 /**
@@ -335,7 +339,7 @@ export function resolveDefaultProfileKey(
   llm: z.infer<typeof LLMSchema>,
 ): string | undefined {
   if (callSite === "mainAgent" && llm.activeProfile != null) {
-    const active = llm.profiles?.[llm.activeProfile];
+    const active = getEffectiveProfile(llm.profiles, llm.activeProfile);
     if (active != null && active.status !== "disabled") {
       return llm.activeProfile;
     }
@@ -343,13 +347,30 @@ export function resolveDefaultProfileKey(
 
   const dflt = CALL_SITE_DEFAULTS[callSite];
   if (dflt?.profile == null) return undefined;
-  const target = llm.profiles?.[dflt.profile];
+  const target = getEffectiveProfile(llm.profiles, dflt.profile);
   if (target != null && target.status !== "disabled") return dflt.profile;
   const customKey = `custom-${dflt.profile}`;
-  const customTarget = llm.profiles?.[customKey];
+  const customTarget = getEffectiveProfile(llm.profiles, customKey);
   if (customTarget != null && customTarget.status !== "disabled")
     return customKey;
   return undefined;
+}
+
+/**
+ * Stable non-null identity for profileless configs. Callers should prefer real
+ * profile keys first; when no named profile applies, the resolved model id is
+ * the only model-selection identifier available.
+ */
+export function resolveProfilelessModelKey(
+  callSite: LLMCallSite,
+  llm: z.infer<typeof LLMSchema>,
+  opts: ResolveCallSiteOpts = {},
+): string {
+  try {
+    return resolveCallSiteConfig(callSite, llm, opts).model;
+  } catch {
+    return llm.default?.model ?? "default";
+  }
 }
 
 function effectiveDefault(
@@ -360,14 +381,16 @@ function effectiveDefault(
   const dflt = CALL_SITE_DEFAULTS[callSite];
   if (dflt == null) return undefined;
   const targetProfile =
-    dflt.profile != null ? llm.profiles?.[dflt.profile] : undefined;
+    dflt.profile != null
+      ? getEffectiveProfile(llm.profiles, dflt.profile)
+      : undefined;
   const profileUnavailable =
     dflt.profile != null &&
     (targetProfile == null || targetProfile.status === "disabled");
 
   if (profileUnavailable && !hasOverrideProfile) {
     const customKey = `custom-${dflt.profile}`;
-    const customProfile = llm.profiles?.[customKey];
+    const customProfile = getEffectiveProfile(llm.profiles, customKey);
     if (customProfile != null && customProfile.status !== "disabled") {
       return { ...dflt, profile: customKey };
     }
@@ -381,18 +404,41 @@ function effectiveDefault(
   return dflt;
 }
 
-function withImpliedProviderForKnownModel(source: Mergeable): Mergeable {
-  if (source.provider !== undefined) return source;
-  const model = source.model;
-  if (typeof model !== "string" || model.length === 0) return source;
-
-  const provider = getCatalogProviderForModel(model);
-  if (provider === undefined) return source;
-
-  return {
-    ...source,
-    provider,
-  };
+/**
+ * Stamp a catalog-implied provider onto model-only layers whose model the
+ * provider applicable at that point in the merge does not serve. Layers are
+ * scanned in merge order (low → high precedence), tracking the provider the
+ * merged config would carry at each layer: when that provider already lists
+ * the layer's model in its own catalog, no implication is needed and the
+ * layer stays provider-less so the lower-precedence provider wins. Models
+ * unknown to the catalog never imply a provider.
+ */
+function withImpliedProviders(layers: Mergeable[]): Mergeable[] {
+  let applicableProvider: string | undefined;
+  return layers.map((layer) => {
+    if (layer.provider !== undefined) {
+      if (typeof layer.provider === "string") {
+        applicableProvider = layer.provider;
+      }
+      return layer;
+    }
+    const model = layer.model;
+    if (typeof model !== "string" || model.length === 0) {
+      return layer;
+    }
+    if (
+      applicableProvider !== undefined &&
+      isModelInCatalog(applicableProvider, model)
+    ) {
+      return layer;
+    }
+    const provider = getCatalogProviderForModel(model);
+    if (provider === undefined) {
+      return layer;
+    }
+    applicableProvider = provider;
+    return { ...layer, provider };
+  });
 }
 
 /**
@@ -497,9 +543,6 @@ function profileConfigFragment(profile: ProfileEntry): Mergeable {
     // lower-precedence (e.g. active) profile into one that merely inherited it.
     // `RetryProvider` resolves it from the applied profile, not the merge.
     logitBias: _logitBias,
-    // Per-profile advisor toggle is profile identity, not inheritable model
-    // config — strip it so it can't leak into the merged `LLMConfigBase`.
-    advisorEnabled: _advisorEnabled,
     // `temperature`/`top_p` are provider-coupled: only the winning profile
     // contributes them (tracked via `samplingRef`, applied post-merge), so a
     // shadowed profile's sampling can never reach a different provider through

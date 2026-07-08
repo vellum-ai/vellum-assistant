@@ -19,10 +19,11 @@
  * that drive it live in the screen above). Reduced-motion safe.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { motion, useReducedMotion, type Easing } from "motion/react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 /** Where the centered avatar sits, as viewport fractions. */
@@ -35,6 +36,32 @@ const CENTER_POINT = { x: 0.5, y: 0.4 };
 export const SLOT_ROTATIONS = [-8, 6, 9, 0, 7, -6, 5, 0, -7, 4, -5, 6];
 function slotRotation(slot: number): number {
   return SLOT_ROTATIONS[slot % SLOT_ROTATIONS.length] ?? 0;
+}
+
+/**
+ * Two-plane depth per edge slot — 0 = background, 1 = foreground — shared by both
+ * onboarding screens (the first-screen scatter and this picker) so the cast
+ * layers identically. The one value drives stacking (z-index), opacity, and
+ * size together: background avatars are dimmed, shrunk, and sit behind; the
+ * foreground stays full opacity and on top. No in-between opacities. Slots past
+ * the table default to foreground. The centered (selected) avatar always renders
+ * above every edge.
+ */
+const SLOT_DEPTH = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0];
+const DEPTH_SCALE = [0.72, 1];
+const DEPTH_OPACITY = [0.4, 1];
+const DEPTH_Z = [10, 20];
+/** z-index for the centered avatar — above every edge plane. */
+const CENTER_Z = 50;
+
+export function slotDepthScale(slot: number): number {
+  return DEPTH_SCALE[SLOT_DEPTH[slot] ?? 1] ?? 1;
+}
+export function slotDepthOpacity(slot: number): number {
+  return DEPTH_OPACITY[SLOT_DEPTH[slot] ?? 1] ?? 1;
+}
+export function slotDepthZ(slot: number): number {
+  return DEPTH_Z[SLOT_DEPTH[slot] ?? 1] ?? 20;
 }
 
 /**
@@ -94,20 +121,6 @@ function offscreenPoint(
   return { x: from.x + (dx / len) * push, y: from.y + (dy / len) * push };
 }
 
-function useViewport() {
-  const [size, setSize] = useState(() => ({
-    w: typeof window === "undefined" ? 1280 : window.innerWidth,
-    h: typeof window === "undefined" ? 800 : window.innerHeight,
-  }));
-  useEffect(() => {
-    const onResize = () =>
-      setSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return size;
-}
-
 export interface OnboardingCharacterStageProps {
   components: CharacterComponents;
   characters: CharacterTraits[];
@@ -142,7 +155,7 @@ export function OnboardingCharacterStage({
   onEnterComplete,
   onSelectChar,
 }: OnboardingCharacterStageProps) {
-  const { w, h } = useViewport();
+  const { w, h } = useOnboardingStageSize();
   const reduce = useReducedMotion();
 
   // On narrow screens the side avatars sit behind the title/fields and feel
@@ -176,7 +189,7 @@ export function OnboardingCharacterStage({
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
+      className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
     >
       {/* Soft contact shadow under the centered avatar. */}
       <div
@@ -200,17 +213,21 @@ export function OnboardingCharacterStage({
         if (isEntering) {
           const from = slots[entering.fromSlot]!;
           const off = offscreenPoint(from, centerX, centerY, w, h);
+          // Start at the source slot's depth (it may be a dim/shrunk background
+          // slot), then resolve to the full-size, full-opacity centre.
+          const fromScale = slotDepthScale(entering.fromSlot);
+          const fromOpacity = slotDepthOpacity(entering.fromSlot);
           return (
             <motion.div
               key={i}
               className="absolute left-0 top-0"
-              style={{ width: size, height: size }}
+              style={{ width: size, height: size, zIndex: CENTER_Z }}
               initial={false}
               animate={{
                 x: [from.x - half, off.x - half, off.x - half, centerTx, centerTx, centerTx],
                 y: [from.y - half, off.y - half, off.y - half, centerTy, centerTy, centerTy],
-                scale: [1, 1, 1, centerScaleVal * 0.7, centerScaleVal * 1.08, centerScaleVal],
-                opacity: [1, 1, 0, 0, 1, 1],
+                scale: [fromScale, fromScale, fromScale, centerScaleVal * 0.7, centerScaleVal * 1.08, centerScaleVal],
+                opacity: [fromOpacity, fromOpacity, 0, 0, 1, 1],
               }}
               transition={{
                 duration: 0.85,
@@ -233,17 +250,21 @@ export function OnboardingCharacterStage({
           if (slotHidden(exiting.toSlot)) return null;
           const to = slots[exiting.toSlot]!;
           const off = offscreenPoint(to, centerX, centerY, w, h);
+          // Settle into the destination slot's depth (dim/shrunk if it's a
+          // background slot) rather than always full size + opacity.
+          const toScale = slotDepthScale(exiting.toSlot);
+          const toOpacity = slotDepthOpacity(exiting.toSlot);
           return (
             <motion.div
               key={i}
               className="absolute left-0 top-0"
-              style={{ width: size, height: size }}
+              style={{ width: size, height: size, zIndex: slotDepthZ(exiting.toSlot) }}
               initial={false}
               animate={{
                 x: [centerTx, centerTx, off.x - half, off.x - half, to.x - half, to.x - half],
                 y: [centerTy, centerTy, off.y - half, off.y - half, to.y - half, to.y - half],
-                scale: [centerScaleVal, centerScaleVal * 0.6, 1, 1, 1.1, 1],
-                opacity: [1, 0, 0, 1, 1, 1],
+                scale: [centerScaleVal, centerScaleVal * 0.6, toScale, toScale, toScale * 1.1, toScale],
+                opacity: [1, 0, 0, toOpacity, toOpacity, toOpacity],
               }}
               transition={{
                 duration: 0.85,
@@ -275,13 +296,18 @@ export function OnboardingCharacterStage({
             key={i}
             // Edge avatars are clickable to select; the center one isn't.
             className={`absolute left-0 top-0 ${isCenter ? "" : "pointer-events-auto cursor-pointer"}`}
-            style={{ width: size, height: size }}
+            style={{
+              width: size,
+              height: size,
+              zIndex: isCenter ? CENTER_Z : slotDepthZ(charSlot),
+            }}
             initial={false}
             animate={{
               x: point.x - half,
               y: point.y - half,
-              scale: isCenter ? centerScaleVal : 1,
-              opacity: 1,
+              // Background slots sit smaller, dimmer, and behind (see slot depth).
+              scale: isCenter ? centerScaleVal : slotDepthScale(charSlot),
+              opacity: isCenter ? 1 : slotDepthOpacity(charSlot),
             }}
             transition={
               reduce

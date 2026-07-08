@@ -5,7 +5,6 @@ import { minimatch } from "minimatch";
 import { RE2JS } from "re2js";
 
 import { RiskLevel } from "../../permissions/types.js";
-import { registerTool } from "../registry.js";
 import {
   isDeniedBasename,
   sandboxPolicy,
@@ -539,5 +538,3 @@ export const codeSearchTool = {
     };
   },
 } satisfies ToolDefinition;
-
-registerTool(codeSearchTool);

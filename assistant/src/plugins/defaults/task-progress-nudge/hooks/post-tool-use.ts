@@ -15,10 +15,10 @@
  *   a card unnecessary.
  * - A failed or ignored card never blocks the turn.
  *
- * It is scoped to weaker open models (Kimi, DeepSeek, MiniMax) that disregard
- * the static progress-card instruction; capable models follow the prompt and
- * never need the reminder. It also self-targets: a model that already showed a
- * card this turn is never nudged.
+ * It is scoped to weaker open-weight model families (the plugin's own list,
+ * {@link NUDGE_TARGET_MODEL_PATTERN}) that disregard the static progress-card
+ * instruction; models that follow the prompt are never reminded. It also
+ * self-targets: a model that already showed a card this turn is never nudged.
  *
  * The turn state is derived from conversation history on every call (mirroring
  * the tool-error and exploration-drift plugins) so the signal survives
@@ -27,16 +27,17 @@
  * tool_result blocks). Within it we count tool-use rounds and detect whether a
  * `ui_show` task_progress card was issued.
  *
- * Gating:
- * - weaker open models only (Kimi, DeepSeek, MiniMax) — checked first on the
- *   hot path so capable-model turns short-circuit immediately.
- * - mainAgent call site only — background turns (wake, title-gen, memory) and
- *   subagents have no live user watching, so a progress card is pointless.
- * - the client must support dynamic UI — otherwise `ui_show` is blocked
- *   client-side and the nudge would only provoke a wasted, erroring call.
- *
- * The call-site, capability, and subagent gates are resolved lazily on the
- * would-nudge path; the model gate is a cheap regex test run up front.
+ * Gating (cheap `ctx` reads, checked up front so the hot path short-circuits
+ * before scanning history):
+ * - mainAgent call site only — background turns (wake, title-gen, memory) run
+ *   under their own call sites and subagents under `subagentSpawn`, none of
+ *   which have a live user watching a progress card.
+ * - the client must support dynamic UI surfaces — on channels that lack it
+ *   (SMS, phone, email, most chat bridges) `ui_show` is filtered out of the
+ *   tool set, so the nudge would only coach the model toward a tool it cannot
+ *   call.
+ * - a weaker open-weight model family ({@link NUDGE_TARGET_MODEL_PATTERN});
+ *   models that follow the static prompt never need the reminder.
  *
  * Dedup uses a per-conversation high-water mark of the round count at the last
  * nudge: a non-zero mark means "already nudged this turn", which also dedupes
@@ -45,10 +46,12 @@
  * below it (a new turn restarts counting low).
  */
 
-import type { PluginHookFn, PostToolUseContext } from "@vellumai/plugin-api";
-
-import type { ContentBlock, Message } from "../../../../providers/types.js";
-import { isWeakOpenModel } from "../../../../providers/weak-open-model.js";
+import type {
+  ContentBlock,
+  HookFunction,
+  Message,
+  PostToolUseContext,
+} from "@vellumai/plugin-api";
 
 /**
  * Canonical nudge notice. Module-level constant so tests and wrapping plugins
@@ -66,6 +69,16 @@ export const TASK_PROGRESS_NUDGE_TEXT =
  * nudged, and only once. Lower from telemetry if cards still arrive too late.
  */
 export const TASK_PROGRESS_NUDGE_ROUND_THRESHOLD = 3;
+
+/**
+ * Weaker open-weight model families (Kimi, DeepSeek, MiniMax, GLM) that tend to
+ * disregard the static progress-card instruction and so benefit from the
+ * mid-turn nudge. This is the plugin's own coaching policy, kept local and
+ * matched against `ctx.model` rather than read off a shared context flag —
+ * "weak" / "needs steering" is a judgement specific to this nudge, not a
+ * general property of the turn, and the set is the plugin owner's to tune.
+ */
+const NUDGE_TARGET_MODEL_PATTERN = /kimi|deepseek|minimax|glm/i;
 
 /**
  * Round count at the last nudge, per conversation. A non-zero entry means the
@@ -134,8 +147,15 @@ function scanTurn(messages: ReadonlyArray<Message>): {
   return { rounds, taskProgressShown };
 }
 
-const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
-  if (!isWeakOpenModel(ctx.model)) return;
+const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
+  // These gates are cheap ctx reads, so short-circuit before scanning history:
+  // act only on a live user-facing main-agent turn (subagents run under
+  // `subagentSpawn`, background work under its own call sites), on a client
+  // that can actually render the card, driven by a model family this nudge
+  // targets.
+  if (ctx.callSite !== "mainAgent") return;
+  if (!ctx.supportsDynamicUi) return;
+  if (!NUDGE_TARGET_MODEL_PATTERN.test(ctx.model)) return;
 
   const { rounds, taskProgressShown } = scanTurn(ctx.messages);
 
@@ -156,32 +176,6 @@ const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
 
   if (rounds < TASK_PROGRESS_NUDGE_ROUND_THRESHOLD) return;
   if (lastNudged !== 0) return; // already nudged this turn
-
-  // Resolve gating lazily on the rare would-nudge path to keep the hot path
-  // free of the conversation-registry and subagent module graphs.
-  const { findConversation } =
-    await import("../../../../daemon/conversation-registry.js");
-  const conversation = findConversation(ctx.conversationId);
-  if (!conversation) return;
-
-  if (
-    conversation.currentCallSite &&
-    conversation.currentCallSite !== "mainAgent"
-  ) {
-    return; // background call site — no live user watching
-  }
-
-  const capabilities =
-    conversation.currentTurnChannelCapabilities ??
-    conversation.channelCapabilities;
-  if (capabilities && capabilities.supportsDynamicUi === false) {
-    return; // client cannot render surfaces — a nudge would only error
-  }
-
-  const { getSubagentManager } = await import("../../../../subagent/index.js");
-  if (getSubagentManager().getParentInfo(ctx.conversationId) !== undefined) {
-    return; // subagents have no live user
-  }
 
   lastNudgedRoundsByConversation.set(ctx.conversationId, rounds);
   ctx.logger.info(

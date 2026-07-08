@@ -10,7 +10,6 @@
  * conventions.
  */
 
-import { z } from "zod";
 import {
   isAdmissionPolicyExemptChannel,
   isAdmissionPolicyHiddenChannel,
@@ -24,8 +23,13 @@ import {
   type AdmissionPolicyRow,
 } from "../../db/admission-policy-store.js";
 import { invalidateAdmissionPolicyCache } from "../../risk/admission-policy-cache.js";
-import { CHANNEL_IDS, isChannelId, type ChannelId } from "../../channels/types.js";
+import {
+  CHANNEL_IDS,
+  isChannelId,
+  type ChannelId,
+} from "../../channels/types.js";
 import { getLogger } from "../../logger.js";
+import { SetChannelPolicyRequestSchema } from "./channel-admission-policy-routes.js";
 
 const log = getLogger("channel-admission-policy");
 
@@ -33,10 +37,8 @@ const log = getLogger("channel-admission-policy");
 // Validation
 // ---------------------------------------------------------------------------
 
-const SetPolicyBodySchema = z.object({
-  policy: z.enum(ADMISSION_POLICY_VALUES as readonly [string, ...string[]]),
-  note: z.string().nullable().optional(),
-});
+// Wire schema shared with the published OpenAPI spec (single source).
+const SetPolicyBodySchema = SetChannelPolicyRequestSchema;
 
 // ---------------------------------------------------------------------------
 // Response shape
@@ -117,8 +119,7 @@ export function createChannelAdmissionPolicySetHandler() {
     if (isAdmissionPolicyExemptChannel(channelType)) {
       return Response.json(
         {
-          error:
-            "internal channels are exempt from admission policy",
+          error: "internal channels are exempt from admission policy",
           channelType,
         },
         { status: 403 },

@@ -14,7 +14,7 @@
  * broadcast the resulting `conversation_title_updated` / `sync_changed`
  * events.
  *
- * Mocks `memory/conversation-title-service.js` and `config/loader.js` so the
+ * Mocks `persistence/conversation-title-service.js` and `config/loader.js` so the
  * tests don't touch the real provider stack or config, and resets the plugin
  * registry between cases.
  */
@@ -37,7 +37,7 @@ const queueRegenerateConversationTitleMock = mock(
     onlyIfReplaceable?: boolean;
   }): void => undefined,
 );
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   AUTO_TITLE_DETERMINISTIC: 2,
   isReplaceableTitle: (title: string | null) =>
     title == null ||
@@ -63,9 +63,9 @@ const mockGetConversation = mock(
       conversationType: string;
     },
 );
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversation: mockGetConversation,
 }));
 
@@ -109,12 +109,13 @@ function makeCtx(
     conversationId: "conv-1",
     userMessageId: "msg-1",
     requestId: "req-1",
-    modelProfileKey: null,
+    modelProfileKey: "balanced",
     isNonInteractive: false,
     prompt: "first message",
     originalMessages: messages,
     latestMessages: messages,
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
@@ -156,6 +157,7 @@ function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
     messages: historyWithUserTurns(3),
     exitReason: "no_tool_calls",
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
@@ -183,6 +185,22 @@ describe("title-generate user-prompt-submit hook", () => {
     expect(call?.userMessage).toBe("first message");
     expect(call).not.toHaveProperty("provider");
     expect(call).not.toHaveProperty("onTitleUpdated");
+  });
+
+  test("skips title generation for hidden machine-signal prompts", async () => {
+    // A hidden send (e.g. the channel-setup wizard-close marker) is not user
+    // speech — minting a title from it would surface invisible scaffolding
+    // text in the sidebar.
+    const ctx = makeCtx({
+      prompt:
+        "[User action on channel_setup surface: closed the slack setup wizard]",
+      isHiddenPrompt: true,
+    });
+
+    await userPromptSubmit(ctx);
+    await flushMacrotasks();
+
+    expect(queueGenerateConversationTitleMock).toHaveBeenCalledTimes(0);
   });
 
   test("does not block: returns before the title job is scheduled", async () => {

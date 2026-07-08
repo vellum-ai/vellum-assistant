@@ -42,7 +42,7 @@ import {
   createListGrantsHandler,
   createListAuditRecordsHandler,
 } from "../grants/rpc-handlers.js";
-import { CesRpcServer, type RpcHandlerRegistry, type ServeEndReason, type SessionIdRef } from "../server.js";
+import { CesRpcServer, type RpcHandlerRegistry, type ServeEndReason } from "../server.js";
 import { createLocalSecureKeyBackend } from "../materializers/local-secure-key-backend.js";
 
 // ---------------------------------------------------------------------------
@@ -412,7 +412,7 @@ describe("managed CES integration (real Unix socket)", () => {
     // -- Server gets the connection and wires up RPC ---------------------------
     const conn = await connectionPromise;
 
-    const sessionIdRef: SessionIdRef = { current: `integ-${Date.now()}` };
+    let observedSessionId = "";
     const handlers = buildMinimalHandlers(dataDir);
 
     serverRpcServer = new CesRpcServer({
@@ -426,7 +426,7 @@ describe("managed CES integration (real Unix socket)", () => {
       },
       signal: controller.signal,
       onHandshakeComplete: (hsSessionId) => {
-        sessionIdRef.current = hsSessionId;
+        observedSessionId = hsSessionId;
       },
     });
 
@@ -449,8 +449,10 @@ describe("managed CES integration (real Unix socket)", () => {
     expect(ack.protocolVersion).toBe(CES_PROTOCOL_VERSION);
     expect(ack.sessionId).toBe(handshakeSessionId);
 
-    // Verify onHandshakeComplete callback fired
-    expect(sessionIdRef.current).toBe(handshakeSessionId);
+    // Verify onHandshakeComplete callback fired and the server populated its
+    // per-connection SessionContext.
+    expect(observedSessionId).toBe(handshakeSessionId);
+    expect(serverRpcServer.currentSessionId).toBe(handshakeSessionId);
 
     // -- Step 2: RPC dispatch (list_grants) ------------------------------------
     const rpcId = "rpc-1";

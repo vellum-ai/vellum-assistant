@@ -24,11 +24,26 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-// The pending_question request principal is resolved via the SAME local source
-// the Vellum actor uses — findGuardianForChannel("vellum")?.contact.principalId
-// — so the stamped principal always equals the submitting actor principal. The
-// real contacts DB is seeded in resetTables(); tests model drift / missing
-// guardian by reseeding or clearing that local binding directly.
+// The pending_question request principal is resolved via the gateway guardian
+// delivery for the vellum channel — the SAME source the Vellum actor uses — so
+// the stamped principal always equals the submitting actor principal. The real
+// contacts DB is seeded in resetTables(); the reader mock below derives the
+// gateway delivery from that DB binding so tests model drift / missing guardian
+// by reseeding or clearing the local binding directly.
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async (input?: { channelTypes?: string[] }) => {
+    const { deriveGuardianDeliveries } =
+      await import("./helpers/derive-guardian-delivery.js");
+    return deriveGuardianDeliveries({
+      channelTypes: input?.channelTypes ?? [],
+    });
+  },
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
 const emitCalls: unknown[] = [];
 let conversationCreatedFromMock: ConversationCreatedInfo | null = null;
 let mockEmitResult: {
@@ -68,10 +83,11 @@ import {
   createPendingQuestion,
 } from "../calls/call-store.js";
 import { dispatchGuardianQuestion } from "../calls/guardian-dispatch.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -100,6 +116,7 @@ function resetTables(): void {
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
 
   // Seed the vellum guardian binding (gateway does this at startup in production)
   createGuardianBinding({
@@ -195,6 +212,7 @@ describe("guardian-dispatch", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
     createGuardianBinding({
       channel: "vellum",
       guardianExternalUserId: "local-actor-principal",
@@ -227,9 +245,7 @@ describe("guardian-dispatch", () => {
       .query(
         "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
       )
-      .get(session.id) as
-      | { guardian_principal_id: string | null }
-      | undefined;
+      .get(session.id) as { guardian_principal_id: string | null } | undefined;
     expect(request).toBeDefined();
     expect(request!.guardian_principal_id).toBe("local-actor-principal");
   });
@@ -238,6 +254,7 @@ describe("guardian-dispatch", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
 
     const convId = "conv-dispatch-no-principal";
     ensureConversation(convId);

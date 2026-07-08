@@ -32,7 +32,7 @@ mock.module("../calls/twilio-config.js", () => ({
 }));
 
 mock.module("../calls/twilio-provider.js", () => ({
-  TwilioConversationRelayProvider: class {
+  TwilioVoiceProvider: class {
     async checkCallerIdEligibility(number: string) {
       if (number === "+15550002222") return { eligible: true };
       return {
@@ -95,7 +95,7 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
     "https://test.example.com/webhooks/twilio/status",
 }));
 
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: () => {},
 }));
 
@@ -103,6 +103,12 @@ mock.module("../daemon/handlers/config-ingress.js", () => ({
   computeGatewayTarget: () => "http://127.0.0.1:7830",
   handleIngressConfig: async () => {},
   syncTwilioWebhooks: async () => ({ success: true }),
+}));
+
+// Credential readiness gate inside preflightVoiceIngress — ready by default.
+let mockCredentialReadiness: Record<string, unknown> = { status: "ready" };
+mock.module("../calls/telephony-credential-preflight.js", () => ({
+  resolveTelephonyCredentialReadiness: async () => mockCredentialReadiness,
 }));
 
 import {
@@ -116,10 +122,10 @@ import {
   startCall,
 } from "../calls/call-domain.js";
 import type { AssistantConfig } from "../config/types.js";
-import { getMessages } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { getMessages } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 
 await initializeDb();
 
@@ -131,6 +137,7 @@ beforeEach(() => {
   twilioInitiateCallArgs = [];
   mockIngressEnabled = true;
   mockIngressPublicBaseUrl = "https://test.example.com";
+  mockCredentialReadiness = { status: "ready" };
 });
 
 let ensuredConvIds = new Set<string>();
@@ -358,6 +365,46 @@ describe("startCall — pointer message regression", () => {
       expect(result.error).toContain("Public ingress");
     }
     expect(twilioInitiateCallCount).toBe(0);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const text = getLatestAssistantText(convId);
+    expect(text).not.toBeNull();
+    expect(text!).toContain("+15559876543");
+    expect(text!).toContain("failed");
+  });
+
+  test("fails fast when telephony credentials are not ready and never reaches Twilio dialing", async () => {
+    const convId = "conv-domain-creds-not-ready";
+    ensureConversation(convId);
+    mockCredentialReadiness = {
+      status: "not-ready",
+      missing: [
+        {
+          kind: "stt",
+          providerId: "deepgram",
+          reason: 'No API key configured for credential provider "deepgram"',
+        },
+      ],
+      userMessage:
+        'Phone calls are unavailable because they require an API key for the speech-to-text provider "deepgram".',
+    };
+
+    const result = await startCall({
+      phoneNumber: "+15559876543",
+      task: "Test call",
+      conversationId: convId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(503);
+      // The tool-facing error names the offending provider.
+      expect(result.error).toContain('speech-to-text provider "deepgram"');
+    }
+    // No Twilio call was placed and no call session was created.
+    expect(twilioInitiateCallCount).toBe(0);
+    expect(listActiveCallLeases()).toHaveLength(0);
 
     await new Promise((r) => setTimeout(r, 50));
 

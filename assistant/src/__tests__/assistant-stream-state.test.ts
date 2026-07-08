@@ -12,9 +12,7 @@ import {
   _resetStreamStateForTesting,
   _simulateRestartForTesting,
   getCurrentSeq,
-  getPersistedSeq,
   getReplayWindow,
-  recordPersistedSeq,
   stampAndBuffer,
 } from "../runtime/assistant-stream-state.js";
 
@@ -571,80 +569,9 @@ describe("assistant-stream-state", () => {
     });
   });
 
-  describe("persisted seq", () => {
-    test("getPersistedSeq is null for an unknown conversation", () => {
-      expect(getPersistedSeq("conv_unknown")).toBeNull();
-    });
-
-    test("records and retrieves a per-conversation value", () => {
-      recordPersistedSeq("conv_a", 7);
-      expect(getPersistedSeq("conv_a")).toBe(7);
-      expect(getPersistedSeq("conv_b")).toBeNull();
-    });
-
-    test("tracks conversations independently", () => {
-      recordPersistedSeq("conv_a", 3);
-      recordPersistedSeq("conv_b", 9);
-      expect(getPersistedSeq("conv_a")).toBe(3);
-      expect(getPersistedSeq("conv_b")).toBe(9);
-    });
-
-    test("advances monotonically and never regresses", () => {
-      recordPersistedSeq("conv_a", 5);
-      recordPersistedSeq("conv_a", 12);
-      expect(getPersistedSeq("conv_a")).toBe(12);
-
-      // A lower seq (e.g. an out-of-order async commit) is clamped.
-      recordPersistedSeq("conv_a", 8);
-      expect(getPersistedSeq("conv_a")).toBe(12);
-    });
-
-    test("ignores non-positive and non-finite seq values", () => {
-      recordPersistedSeq("conv_a", 0);
-      recordPersistedSeq("conv_a", -3);
-      recordPersistedSeq("conv_a", Number.NaN);
-      recordPersistedSeq("conv_a", Number.POSITIVE_INFINITY);
-      expect(getPersistedSeq("conv_a")).toBeNull();
-    });
-
-    test("is cleared by reset", () => {
-      recordPersistedSeq("conv_a", 4);
-      _resetStreamStateForTesting();
-      expect(getPersistedSeq("conv_a")).toBeNull();
-    });
-
-    test("evicts the least-recently-recorded conversation past the cap", () => {
-      // The map is LRU-bounded at 1024 conversations. Fill to the cap,
-      // then one more insert evicts the oldest key.
-      const CAP = 1024;
-      for (let i = 0; i < CAP; i++) {
-        recordPersistedSeq(`conv_${i}`, i + 1);
-      }
-      // All present at the cap.
-      expect(getPersistedSeq("conv_0")).toBe(1);
-      expect(getPersistedSeq(`conv_${CAP - 1}`)).toBe(CAP);
-
-      // One more distinct conversation evicts the oldest (conv_0).
-      recordPersistedSeq("conv_overflow", 9999);
-      expect(getPersistedSeq("conv_0")).toBeNull();
-      expect(getPersistedSeq("conv_1")).toBe(2);
-      expect(getPersistedSeq("conv_overflow")).toBe(9999);
-    });
-
-    test("re-recording refreshes recency so a kept key is not evicted first", () => {
-      const CAP = 1024;
-      for (let i = 0; i < CAP; i++) {
-        recordPersistedSeq(`conv_${i}`, i + 1);
-      }
-      // Touch the oldest key so it moves to the most-recent end.
-      recordPersistedSeq("conv_0", 5000);
-
-      // The next insert now evicts conv_1 (the new oldest), not conv_0.
-      recordPersistedSeq("conv_overflow", 9999);
-      expect(getPersistedSeq("conv_0")).toBe(5000);
-      expect(getPersistedSeq("conv_1")).toBeNull();
-    });
-  });
+  // Per-conversation persisted seq now lives on the `conversations.seq`
+  // column (see conversation-crud `getConversationPersistedSeq` /
+  // `recordConversationPersistedSeq`); its tests live with that module.
 
   describe("seq persistence across restarts", () => {
     test("counter resumes above the persisted reservation after a restart", () => {
@@ -658,6 +585,24 @@ describe("assistant-stream-state", () => {
 
       // THEN the next stamp resumes above the reserved block instead of 1,
       // so clients never observe the counter moving backwards.
+      const b = mkEvent();
+      stampAndBuffer(b);
+      expect(b.seq).toBe(1025);
+    });
+
+    test("getCurrentSeq reports the persisted ceiling before the first stamp of a process", () => {
+      // GIVEN a process that stamped events (reserving a seq block on disk)
+      stampAndBuffer(mkEvent());
+
+      // WHEN the daemon restarts and nothing has been stamped yet
+      _simulateRestartForTesting();
+
+      // THEN the high-water read loads the reservation instead of reporting
+      // 0 — callers seeding baselines at creation (conversation rows) must
+      // never treat a warm workspace as a cold start.
+      expect(getCurrentSeq()).toBe(1024);
+
+      // AND the next stamped event still lands strictly above it.
       const b = mkEvent();
       stampAndBuffer(b);
       expect(b.seq).toBe(1025);

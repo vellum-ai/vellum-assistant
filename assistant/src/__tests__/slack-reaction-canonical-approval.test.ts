@@ -24,17 +24,20 @@ mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
 
-import type { Conversation } from "../daemon/conversation.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByDestinationMessage,
   resolveCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
+} from "../contacts/canonical-guardian-store.js";
+import type { Conversation } from "../daemon/conversation.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  inferDecisionActionFromFreeText,
+  routeGuardianReply,
+} from "../runtime/guardian-reply-router.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 await initializeDb();
@@ -281,5 +284,52 @@ describe("routeGuardianReply / reactions", () => {
     expect(result.replyText).toMatch(/permission/i);
     expect(getCanonicalGuardianRequest("req-1")?.status).toBe("pending");
     expect(hcr).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Free-text decision inference (no request code)
+// ---------------------------------------------------------------------------
+
+describe("inferDecisionActionFromFreeText / introduction verbs", () => {
+  // Regression: a bare "block" on an access request must map to the block
+  // action (revoke), not the weaker generic reject (leave_unverified).
+  test('"block" maps to block for access requests, reject elsewhere', () => {
+    expect(inferDecisionActionFromFreeText("block", "access_request")).toBe(
+      "block",
+    );
+    expect(inferDecisionActionFromFreeText("Block!", "access_request")).toBe(
+      "block",
+    );
+    expect(inferDecisionActionFromFreeText("block")).toBe("reject");
+    expect(inferDecisionActionFromFreeText("block", "tool_approval")).toBe(
+      "reject",
+    );
+  });
+
+  test("trust and verify verbs are recognized for access requests", () => {
+    expect(inferDecisionActionFromFreeText("trust", "access_request")).toBe(
+      "trust",
+    );
+    expect(inferDecisionActionFromFreeText("verify", "access_request")).toBe(
+      "verify_code",
+    );
+    // Unknown outside access requests — falls through to null (no cue).
+    expect(inferDecisionActionFromFreeText("trust")).toBeNull();
+  });
+
+  test("generic vocabulary keeps its semantics per kind", () => {
+    expect(inferDecisionActionFromFreeText("no", "access_request")).toBe(
+      "leave_unverified",
+    );
+    expect(inferDecisionActionFromFreeText("reject", "access_request")).toBe(
+      "leave_unverified",
+    );
+    expect(inferDecisionActionFromFreeText("yes", "access_request")).toBe(
+      "approve_once",
+    );
+    expect(inferDecisionActionFromFreeText("no", "tool_approval")).toBe(
+      "reject",
+    );
   });
 });

@@ -24,7 +24,7 @@ import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import {
   AUTO_ANALYSIS_GROUP_ID,
   AUTO_ANALYSIS_SOURCE,
-} from "../../memory/auto-analysis-guard.js";
+} from "../../persistence/auto-analysis-constants.js";
 import {
   addMessage,
   createConversation,
@@ -32,10 +32,11 @@ import {
   getConversation,
   getConversationSource,
   getMessages,
-} from "../../memory/conversation-crud.js";
-import { resolveConversationId } from "../../memory/conversation-key-store.js";
-import { isMemoryRetrospectiveSource } from "../../memory/memory-retrospective-constants.js";
+} from "../../persistence/conversation-crud.js";
+import { resolveConversationId } from "../../persistence/conversation-key-store.js";
+import { isMemoryRetrospectiveSource } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { getLogger } from "../../util/logger.js";
+import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import {
   buildAutoAnalysisPrompt,
@@ -162,9 +163,13 @@ export async function analyzeConversation(
   let stripTools: boolean;
 
   if (opts.trigger === "manual") {
-    const newConv = createConversation({
-      title: `Analysis: ${conversation.title ?? "Untitled"}`,
-    });
+    const newConv = await withSqliteRetry(
+      () =>
+        createConversation({
+          title: `Analysis: ${conversation.title ?? "Untitled"}`,
+        }),
+      { op: "analyzeConversation.manual" },
+    );
     analysisConversationId = newConv.id;
     prompt = buildManualAnalysisPrompt(transcript);
     trustClass = "unknown";
@@ -179,12 +184,16 @@ export async function analyzeConversation(
       // do not appear in the default `system:all` list rendered by clients
       // that don't filter on `source` (CLI, gateway, web). Existing rolling
       // conversations stay where they were — no migration needed.
-      const newConv = createConversation({
-        title: `Analysis: ${conversation.title ?? "Untitled"}`,
-        source: AUTO_ANALYSIS_SOURCE,
-        groupId: AUTO_ANALYSIS_GROUP_ID,
-        forkParentConversationId: resolvedId,
-      });
+      const newConv = await withSqliteRetry(
+        () =>
+          createConversation({
+            title: `Analysis: ${conversation.title ?? "Untitled"}`,
+            source: AUTO_ANALYSIS_SOURCE,
+            groupId: AUTO_ANALYSIS_GROUP_ID,
+            forkParentConversationId: resolvedId,
+          }),
+        { op: "analyzeConversation.auto" },
+      );
       analysisConversationId = newConv.id;
     }
     prompt = buildAutoAnalysisPrompt(transcript);
@@ -223,12 +232,19 @@ export async function analyzeConversation(
   }
 
   // i. Persist the user message (with provenance snapshot matching the
-  // trust context we will run under).
+  // trust context we will run under). Mint the request ID up front and
+  // persist the row under it so the analysis prompt's row id and the
+  // turn's `currentRequestId` are the same value: the same
+  // requestId-as-row-id invariant the standard submit path holds. Without
+  // this, `addMessage` would auto-assign a fresh row id while step (k)
+  // minted an unrelated `currentRequestId`, leaving `userMessageId` and
+  // `requestId` divergent for the analysis turn.
+  const requestId = crypto.randomUUID();
   const message = await addMessage(
     analysisConversationId,
     "user",
     JSON.stringify([{ type: "text", text: prompt }]),
-    { metadata: { provenanceTrustClass: trustClass } },
+    { id: requestId, metadata: { provenanceTrustClass: trustClass } },
   );
   const messageId = message.id;
 
@@ -259,10 +275,13 @@ export async function analyzeConversation(
   // j. Wire broadcastMessage as the event publisher
   analysisConversation.updateClient(broadcastMessage, !hasLiveSubscriber);
 
-  // k. Set up processing state (required by runAgentLoop guard)
+  // k. Set up processing state (required by runAgentLoop guard). Reuse the
+  // request ID the prompt row was persisted under (step i) so
+  // `currentRequestId` equals the user message's row id, keeping
+  // `requestId === userMessageId` for the analysis turn.
   analysisConversation.setProcessing(true);
   analysisConversation.abortController = new AbortController();
-  analysisConversation.currentRequestId = crypto.randomUUID();
+  analysisConversation.currentRequestId = requestId;
 
   // l. Fire-and-forget the agent loop. `callSite: 'analyzeConversation'`
   // routes the per-call provider config through `resolveCallSiteConfig`

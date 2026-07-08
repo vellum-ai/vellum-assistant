@@ -6,6 +6,12 @@
  * requests served via the legacy loopback auth fallback. The gateway counts
  * fallbacks in memory and flushes them here per window; the usage telemetry
  * reporter ships the persisted rows to the platform.
+ *
+ * POST /v1/internal/telemetry/watchdog — relay a gateway-origin watchdog
+ * event straight to platform ingest via the direct (unbuffered) emit path,
+ * bypassing the SQLite watchdog buffer. Used for integrity alarms (e.g.
+ * `gateway_guardian_missing`) that must not depend on the state they report
+ * on. Consent/platform gating happens inside the direct emit.
  */
 
 import { z } from "zod";
@@ -13,7 +19,8 @@ import { z } from "zod";
 import {
   type AuthFallbackCount,
   recordAuthFallbackCounts,
-} from "../../memory/auth-fallback-events-store.js";
+} from "../../security/auth-fallback-events-store.js";
+import { emitWatchdogEventDirect } from "../../telemetry/watchdog-direct-emit.js";
 import { getLogger } from "../../util/logger.js";
 import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
@@ -60,6 +67,25 @@ function handleRecordAuthFallback({ body }: RouteHandlerArgs) {
   return { recorded };
 }
 
+const watchdogRelayBody = z.object({
+  check_name: z.string().min(1).max(128),
+  detail: z.record(z.string(), z.unknown()).nullable().optional(),
+  value: z.number().nullable().optional(),
+});
+
+async function handleRelayWatchdogEvent({ body }: RouteHandlerArgs) {
+  const parsed = watchdogRelayBody.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(
+      `Invalid watchdog payload: ${parsed.error.message}`,
+    );
+  }
+  const { check_name, detail, value } = parsed.data;
+  // Never throws; opt-out and platform gates are enforced inside.
+  await emitWatchdogEventDirect(check_name, detail ?? null, value ?? null);
+  return { ok: true as const };
+}
+
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "internal_telemetry_auth_fallback",
@@ -84,5 +110,23 @@ export const ROUTES: RouteDefinition[] = [
       }),
     ]),
     handler: handleRecordAuthFallback,
+  },
+  {
+    operationId: "internal_telemetry_watchdog",
+    endpoint: "internal/telemetry/watchdog",
+    method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
+    summary: "Relay a watchdog telemetry event",
+    description:
+      "Emits a gateway-origin watchdog telemetry event directly to platform " +
+      "ingest, bypassing the SQLite watchdog buffer, so integrity alarms " +
+      "never depend on the state they report on.",
+    tags: ["internal", "telemetry"],
+    requestBody: watchdogRelayBody,
+    responseBody: z.object({ ok: z.literal(true) }),
+    handler: handleRelayWatchdogEvent,
   },
 ];

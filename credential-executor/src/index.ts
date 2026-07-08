@@ -29,7 +29,7 @@ export type {
   RpcHandlerRegistry,
   RpcMethodHandler,
   RunAuthenticatedCommandHandlerOptions,
-  SessionIdRef,
+  SessionContext,
 } from "./server.js";
 
 export {

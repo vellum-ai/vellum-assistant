@@ -40,7 +40,6 @@ These are the fields a tool definition can set. Names and types come from `ToolD
 | `assistantId`                   | `string?`                                  | Logical assistant scope for multi-assistant routing.                                                                          |
 | `taskRunId`                     | `string?`                                  | Set when the execution is part of a task run; used to retrieve ephemeral permission rules.                                    |
 | `skillId`                       | `string?`                                  | Id of the skill whose `skill_execute` dispatch triggered this invocation. Absent for direct (non-skill) tool calls.           |
-| `onToolLifecycleEvent`          | `ToolLifecycleEventHandler?`               | Callback for tool lifecycle events (start, prompt, deny, execute, error).                                                     |
 | `proxyToolResolver`             | `ProxyToolResolver?`                       | Resolver for proxy tools; delegates execution to an external client.                                                          |
 | `allowedToolNames`              | `Set<string>?`                             | When set, only tools in this set may execute; others are blocked with an error.                                               |
 | `diskPressureCleanupModeActive` | `boolean?`                                 | True when the turn is restricted to storage cleanup-safe tools.                                                               |
@@ -77,6 +76,22 @@ The result is what the model sees back:
 | `status`        | `string?`         | Short status message for client display, such as "truncated" or "timed out".                            |
 | `yieldToUser`   | `boolean?`        | When true, the loop returns control to the user after this result instead of making another model call. |
 | `contentBlocks` | `ContentBlock[]?` | Rich content blocks (for example images) to include alongside the text result.                          |
+
+## Persisting data from a tool
+
+A tool that needs durable storage should derive the directory from the workspace root, which matches where the host provisions plugin storage (`<workspaceDir>/plugins/<plugin-name>/data`):
+
+```ts
+execute: async (input, ctx) => {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const storageDir = path.join(process.env.VELLUM_WORKSPACE_DIR, "plugins", "my-plugin-name", "data");
+  await fs.mkdir(storageDir, { recursive: true });
+  // read/write files under storageDir
+},
+```
+
+Note that `pluginStorageDir` is only available on `InitContext` (the `init` hook), not on `ToolContext`, so a tool cannot read it inside `execute`.
 
 ## Resolution order
 

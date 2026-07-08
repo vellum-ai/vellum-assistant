@@ -1285,20 +1285,24 @@ jobs:
 
       - name: Install package dependencies
         run: |
-          PACKAGE="${{ matrix.package }}"
-          cd "$PACKAGE"
-          if ! bun install --frozen-lockfile; then
+          if ! bun install --frozen-lockfile --filter="./${{ matrix.package }}"; then
             echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
             rm -f bun.lock
             rm -rf node_modules
-            bun install
+            bun install --filter="./${{ matrix.package }}"
           fi
+      # bun pm pack bundles the workspace deps listed in bundledDependencies
+      # and rewrites workspace:* to concrete versions; npm pack does neither
+      # for symlinked workspace deps.
+      - name: Strip bundled deps from the manifest
+        run: bun scripts/strip-bundled-deps.mjs "${{ matrix.package }}"
       - name: Pack tarball
         run: |
           cd "${{ matrix.package }}"
           mkdir -p /tmp/npm-dist
-          npm pack --pack-destination /tmp/npm-dist
+          bun pm pack --destination /tmp/npm-dist
           mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          bun ../scripts/strip-bundled-field-from-tarball.mjs /tmp/npm-dist/package.tgz
           node -p "require('./package.json').name" > /tmp/npm-dist/name
           node -p "require('./package.json').version" > /tmp/npm-dist/version
       - name: Upload tarball
@@ -1371,24 +1375,13 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-      - name: Install assistant dependencies
+      - name: Install dependencies
         run: |
-          cd assistant
-          if ! bun install --frozen-lockfile; then
+          if ! bun install --frozen-lockfile --filter=@vellumai/assistant; then
             echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
             rm -f bun.lock
-            rm -rf node_modules
-            bun install
+            bun install --filter=@vellumai/assistant
           fi
-      # The rollup compiles the `packages/*` contract sources the authoring
-      # surface reaches, so each must have its own node_modules (the repo uses
-      # per-package file: deps with no Bun workspaces — see the root AGENTS.md).
-      - name: Install shared package dependencies
-        run: |
-          for dir in packages/*/; do
-            [ -f "${dir}/package.json" ] || continue
-            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
-          done
       - name: Build plugin-api package
         run: cd assistant && bun run scripts/build-plugin-api.ts --version "${{ needs.extract-version.outputs.version }}"
       - name: Pack tarball
@@ -1455,16 +1448,18 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd cli
-          if ! bun install --frozen-lockfile; then
-            rm -f bun.lock && rm -rf node_modules && bun install
+          if ! bun install --frozen-lockfile --filter=@vellumai/cli; then
+            rm -f bun.lock && rm -rf node_modules && bun install --filter=@vellumai/cli
           fi
 
+      - name: Strip bundled deps from the manifest
+        run: bun scripts/strip-bundled-deps.mjs cli
       - name: Pack CLI tarball
         run: |
           cd cli
-          npm pack
+          bun pm pack
           TARBALL=$(ls vellumai-cli-*.tgz)
+          bun ../scripts/strip-bundled-field-from-tarball.mjs "$TARBALL"
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
           echo "Packed: $TARBALL"
         id: pack
@@ -1524,16 +1519,18 @@ jobs:
         run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' ${{ matrix.package }}/package.json > ${{ matrix.package }}/package.json.tmp && mv ${{ matrix.package }}/package.json.tmp ${{ matrix.package }}/package.json
       - name: Install package dependencies
         run: |
-          cd "${{ matrix.package }}"
-          if ! bun install --frozen-lockfile; then
-            rm -f bun.lock && rm -rf node_modules && bun install
+          if ! bun install --frozen-lockfile --filter="./${{ matrix.package }}"; then
+            rm -f bun.lock && rm -rf node_modules && bun install --filter="./${{ matrix.package }}"
           fi
+      - name: Strip bundled deps from the manifest
+        run: bun scripts/strip-bundled-deps.mjs "${{ matrix.package }}"
       - name: Pack tarball
         run: |
           cd "${{ matrix.package }}"
           mkdir -p /tmp/npm-dist
-          npm pack --pack-destination /tmp/npm-dist
+          bun pm pack --destination /tmp/npm-dist
           mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          bun ../scripts/strip-bundled-field-from-tarball.mjs /tmp/npm-dist/package.tgz
           node -p "require('./package.json').name" > /tmp/npm-dist/name
           node -p "require('./package.json').version" > /tmp/npm-dist/version
       - name: Upload tarball
@@ -1594,21 +1591,13 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-      - name: Install assistant dependencies
+      - name: Install dependencies
         run: |
-          cd assistant
-          if ! bun install --frozen-lockfile; then
-            rm -f bun.lock && rm -rf node_modules && bun install
+          if ! bun install --frozen-lockfile --filter=@vellumai/assistant; then
+            echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
+            rm -f bun.lock
+            bun install --filter=@vellumai/assistant
           fi
-      # The rollup compiles the `packages/*` contract sources the authoring
-      # surface reaches, so each must have its own node_modules (the repo uses
-      # per-package file: deps with no Bun workspaces — see the root AGENTS.md).
-      - name: Install shared package dependencies
-        run: |
-          for dir in packages/*/; do
-            [ -f "${dir}/package.json" ] || continue
-            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
-          done
       - name: Build plugin-api package
         run: cd assistant && bun run scripts/build-plugin-api.ts --version "${{ needs.extract-version.outputs.version }}"
       - name: Pack tarball
@@ -1661,7 +1650,7 @@ jobs:
 
   build-web-staging:
     name: build-npm-staging (web)
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, ci-web]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1675,22 +1664,14 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-      - name: Install design-library dependencies
-        working-directory: packages/design-library
-        run: bun install --frozen-lockfile
-      - name: Install web dependencies
-        working-directory: clients/web
+      - name: Install dependencies
         run: |
-          if ! bun install --frozen-lockfile; then
-            rm -f bun.lock && rm -rf node_modules && bun install
+          if ! bun install --frozen-lockfile --filter=@vellumai/web; then
+            rm -f bun.lock && rm -rf node_modules && bun install --filter=@vellumai/web
           fi
       - name: Generate API clients
         working-directory: clients/web
         run: bun run openapi-ts
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
       - name: Build
         working-directory: clients/web
         env:
@@ -1833,11 +1814,70 @@ jobs:
           fi
           npm publish --tag staging --access public --no-provenance
 
+  # ── Web SPA (staging/production buckets) ──────────────────────────────
+  # The platform SPA (VITE_PLATFORM_MODE=true → GCS) ships with releases:
+  # staging bucket on every staging release, production bucket when a
+  # release goes live. The dev bucket is deployed by dev-release.yaml.
+  # Both jobs gate on register-release (like the dev deploy's
+  # register-release gate) so the UI is never updated when the backend
+  # release failed to register; on production runs the SPA ships LAST,
+  # after the GitHub Release is published and the release is registered
+  # with the platform.
+  deploy-web-spa-staging:
+    name: Deploy Web SPA (staging)
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, ci-web, register-release]
+    # register-release is gated with `always()`; a downstream job that needs an
+    # always()-gated job must gate on its needs' results explicitly, or the
+    # runner inherits the upstream conditional and skips this job even when every
+    # dependency succeeded. Mirror deploy-web-spa-production's explicit gating.
+    if: >-
+      ${{
+        always() && !cancelled()
+        && needs.extract-version.outputs.is_staging == 'true'
+        && needs.extract-version.result == 'success'
+        && needs.ci-assistant.result == 'success'
+        && needs.ci-cli.result == 'success'
+        && needs.ci-gateway.result == 'success'
+        && needs.ci-credential-executor.result == 'success'
+        && needs.ci-web.result == 'success'
+        && needs.register-release.result == 'success'
+      }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-platform-web-spa.yaml
+    with:
+      environment: staging
+    secrets: inherit
+
+  # The production SPA deploy is the LAST step of a production release,
+  # matching the dev/staging convention (registration first, SPA last): it
+  # runs only after the GitHub Release is published and the release is
+  # registered with the platform, so a failed go-live never leaves the prod
+  # UI ahead of the backend. Gating on register-release transitively
+  # guarantees everything else: its production `if` requires the three
+  # image manifests, the DockerHub push, AND the `release` job — which
+  # itself requires the npm/web/meta/plugin-api publishes and the Electron
+  # build + update upload. Only ci-web is not covered transitively, so it
+  # stays explicit. A failed SPA upload after registration is retryable
+  # (re-run this job) and is surfaced as a failed release by notify-release.
+  deploy-web-spa-production:
+    name: Deploy Web SPA (production)
+    needs: [extract-version, ci-web, register-release]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.ci-web.result == 'success' && needs.register-release.result == 'success' }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-platform-web-spa.yaml
+    with:
+      environment: production
+    secrets: inherit
+
   build-web-prod:
     name: build-npm-prod (web)
     # Build has no side effects; release-ordering gates live on publish-web-prod.
-    needs: [extract-version, ci-cli, ci-gateway]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' }}
+    needs: [extract-version, ci-cli, ci-gateway, ci-web]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && needs.ci-web.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -1853,28 +1893,18 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Install design-library dependencies
-        working-directory: packages/design-library
-        run: bun install --frozen-lockfile
-
-      - name: Install web dependencies
-        working-directory: clients/web
+      - name: Install dependencies
         run: |
-          if ! bun install --frozen-lockfile; then
+          if ! bun install --frozen-lockfile --filter=@vellumai/web; then
             echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
             rm -f bun.lock
             rm -rf node_modules
-            bun install
+            bun install --filter=@vellumai/web
           fi
 
       - name: Generate API clients
         working-directory: clients/web
         run: bun run openapi-ts
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
 
       - name: Build
         working-directory: clients/web
@@ -2086,23 +2116,16 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
-
-      - name: Install design-library dependencies
-        working-directory: packages/design-library
-        run: bun install --frozen-lockfile
-
-      - name: Install web dependencies
-        working-directory: clients/web
+        working-directory: ${{ github.workspace }}
         run: |
-          if ! bun install --frozen-lockfile; then
-            rm -f bun.lock && rm -rf node_modules && bun install
+          if ! bun install --frozen-lockfile --filter=@vellumai/macos --filter=@vellumai/web; then
+            rm -f bun.lock && rm -rf node_modules && bun install --filter=@vellumai/macos --filter=@vellumai/web
           fi
+
+      # Installing does not download the Electron binary or build the mac
+      # helper, so packaging provisions them explicitly.
+      - name: Set up Electron binary and mac helper
+        run: bun run setup
 
       - name: Stamp release version into package.json
         run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
@@ -2116,6 +2139,20 @@ jobs:
           VITE_SENTRY_DSN_MACOS: ${{ secrets.SENTRY_DSN_MACOS }}
           VITE_SENTRY_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
           VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
+          # Sentry release tracking for the Electron renderer. VITE_APP_VERSION
+          # tags renderer events with the release (read in
+          # clients/web/src/lib/sentry/sentry-init.ts) and names the registered
+          # release; the Vite Sentry plugin uploads source maps to SENTRY_PROJECT
+          # (vellum-assistant-macos, overriding the web default) so stacks
+          # symbolicate and issues resolve per release. The semver release
+          # version gives Sentry a correctly ordered release timeline.
+          VITE_APP_VERSION: ${{ needs.extract-version.outputs.version }}
+          SENTRY_UPLOAD_SOURCE_MAPS: "true"
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_PROJECT: vellum-assistant-macos
+          # A source-map upload failure degrades to a warning instead of failing
+          # the release build (see clients/web/vite.config.ts).
+          SENTRY_ALLOW_UPLOAD_FAILURE: "true"
         run: bun run pack --environment "${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}"
 
       - name: Rename DMG for release
@@ -2596,13 +2633,8 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
         working-directory: assistant
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client skills/meet-join gateway
 
       - name: Lint
         run: bun run lint
@@ -2645,13 +2677,8 @@ jobs:
         with:
           bun-version: '1.3.11'
 
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
-
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/cli
         working-directory: cli
 
       - name: Lint
@@ -2673,13 +2700,8 @@ jobs:
         with:
           bun-version: '1.3.11'
 
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts packages/ces-client packages/assistant-client packages/gateway-client
-
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/vellum-gateway
         working-directory: gateway
 
       - name: Lint
@@ -2706,13 +2728,8 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/credential-executor
         working-directory: credential-executor
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts
 
       - name: Typecheck
         run: bun run typecheck
@@ -2722,10 +2739,43 @@ jobs:
         run: bun run test
         working-directory: credential-executor
 
+  # Gates the staging/production SPA deploys: web lint/typecheck/test must
+  # pass on the release SHA before either bucket is updated.
+  ci-web:
+    needs: extract-version
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --filter=@vellumai/web
+        working-directory: clients/web
+
+      - name: Generate API clients
+        run: bun run openapi-ts
+        working-directory: clients/web
+
+      - name: Lint
+        run: bun run lint
+        working-directory: clients/web
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: clients/web
+
+      - name: Test
+        run: bun run test:ci
+        working-directory: clients/web
+
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, build-chrome-extension, publish-chrome-extension]
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-web, build-chrome-extension, publish-chrome-extension, deploy-web-spa-staging, deploy-web-spa-production]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2747,9 +2797,12 @@ jobs:
           VERSION_TAG="v${VERSION}"
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
 
-          # Determine release status
+          # Determine release status. The production SPA deploy runs AFTER
+          # the release job (registration-first ordering), so its failure
+          # must mark the release failed here — release.result no longer
+          # covers it.
           RELEASE_FAILED="false"
-          if [ "$IS_STAGING" != "true" ] && [ "${{ needs.release.result }}" != "success" ]; then
+          if [ "$IS_STAGING" != "true" ] && { [ "${{ needs.release.result }}" != "success" ] || [ "${{ needs.deploy-web-spa-production.result }}" != "success" ]; }; then
             RELEASE_FAILED="true"
           fi
 
@@ -2769,6 +2822,9 @@ jobs:
               STAGING_READY="false"
             fi
             if [ "${{ needs.register-release.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.deploy-web-spa-staging.result }}" != "success" ]; then
               STAGING_READY="false"
             fi
           fi
@@ -2796,6 +2852,7 @@ jobs:
           C=$(ci_icon "${{ needs.ci-cli.result }}")
           CE=$(ci_icon "${{ needs.ci-credential-executor.result }}")
           G=$(ci_icon "${{ needs.ci-gateway.result }}")
+          W=$(ci_icon "${{ needs.ci-web.result }}")
           DE=$(ci_icon "${{ needs.build-electron.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
@@ -2812,7 +2869,7 @@ jobs:
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s desktop-electron\n• %s release-ios\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$DE" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s web\n• %s desktop-electron\n• %s release-ios\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$W" "$DE" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"

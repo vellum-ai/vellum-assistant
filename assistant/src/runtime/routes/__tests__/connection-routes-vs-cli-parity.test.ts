@@ -17,6 +17,10 @@ mock.module("../../../config/loader.js", () => ({
   getConfigReadOnly: () => ({}),
   getConfig: () => ({}),
   invalidateConfigCache: () => {},
+  // Unused by these tests, but the route module's import chain
+  // (config/default-provider.js) needs the named exports to resolve.
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
 }));
 
 mock.module("../../../util/logger.js", () => ({
@@ -26,9 +30,9 @@ mock.module("../../../util/logger.js", () => ({
 
 // ── Real imports ──────────────────────────────────────────────────────────────
 
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { providerConnections } from "../../../memory/schema/inference.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { providerConnections } from "../../../persistence/schema/inference.js";
 import {
   createConnection,
   getConnection,

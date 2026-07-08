@@ -78,15 +78,17 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../config/loader.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { messages } from "../memory/schema/conversations.js";
 import {
   readSlackMetadata,
   type SlackMessageMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { messages } from "../persistence/schema/conversations.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 
 await initializeDb();
 
@@ -117,7 +119,7 @@ function setConfiguredSlackBotUserId(botUserId: string): void {
 }
 
 function seedActiveMember(): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "slack",
     externalUserId: SLACK_DM_USER_ID,
     externalChatId: SLACK_DM_CHANNEL_ID,
@@ -128,7 +130,7 @@ function seedActiveMember(): void {
 }
 
 function seedSlackGuardian(): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "slack",
     externalUserId: SLACK_DM_USER_ID,
     externalChatId: SLACK_DM_CHANNEL_ID,

@@ -14,9 +14,18 @@ export {
   resolveDevCliInvocation,
 } from "./util";
 export type { CliInvocation } from "./util";
-export { resolveLocalConfigFromEnv, resolveLockfilePaths, resolveConfigDir, guardianTokenPath } from "./config";
+export {
+  resolveLocalConfigFromEnv,
+  resolveLockfilePaths,
+  resolveConfigDir,
+  guardianTokenPath,
+} from "./config";
 export type { LocalEndpointConfig } from "./config";
-export { defaultEnvironmentFilePath, readDefaultEnvironment, resolveEnvironmentName } from "./environment";
+export {
+  defaultEnvironmentFilePath,
+  readDefaultEnvironment,
+  resolveEnvironmentName,
+} from "./environment";
 export {
   getLockfileData,
   upsertLockfileAssistant,
@@ -34,12 +43,12 @@ export type {
 export { runHatch } from "./hatch";
 export type { HatchResult } from "./hatch";
 export { runRetire } from "./retire";
-export type { RetireResult } from "./retire";
+export type { RetireOptions, RetireResult } from "./retire";
 export { runSleep } from "./sleep";
 export type { SleepResult } from "./sleep";
 export { runWake } from "./wake";
 export type { WakeOptions, WakeResult } from "./wake";
-export { runUpgrade } from "./upgrade";
+export { runUpgrade, isValidReleaseVersion } from "./upgrade";
 export type { UpgradeOptions, UpgradeResult } from "./upgrade";
 export { getLocalAssistantStatus } from "./status";
 export type {

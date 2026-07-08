@@ -2,7 +2,6 @@ import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { PendingConfirmationState } from "@/domains/chat/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { clearConfirmationByRequestId } from "@/domains/chat/utils/send-message-utils";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   ConfirmationRequestEvent,
@@ -51,17 +50,20 @@ export function handleConfirmationRequest(
   };
   useInteractionStore.getState().showConfirmation(confData);
 
-  const result = attachConfirmationToToolCall(
-    ctx.messages,
+  // The reducer folds the inline confirmation marker onto the tool-call row in
+  // the snapshot. Here we only need the matched tool-call id for the
+  // interaction store, so compute it read-only against the current snapshot
+  // (the tool call is already present from the `tool_use_start` fold).
+  const { attachedToolCallId } = attachConfirmationToToolCall(
+    useChatSessionStore.getState().snapshot?.messages ?? [],
     confData,
   );
-  ctx.setMessages(() => result.updatedMessages);
 
-  if (result.attachedToolCallId) {
+  if (attachedToolCallId) {
     useInteractionStore
       .getState()
-      .setInlineConfirmationToolCallId(result.attachedToolCallId);
-    ctx.setConfirmationToolCall(confData.requestId, result.attachedToolCallId);
+      .setInlineConfirmationToolCallId(attachedToolCallId);
+    ctx.setConfirmationToolCall(confData.requestId, attachedToolCallId);
   } else {
     useInteractionStore.getState().setInlineConfirmationToolCallId(null);
   }
@@ -85,7 +87,6 @@ export function handleConfirmationRequest(
  */
 export function handleInteractionResolved(
   event: InteractionResolvedEvent,
-  ctx: StreamHandlerContext,
 ): void {
   if (event.kind !== "confirmation" && event.kind !== "acp_confirmation") {
     return;
@@ -104,7 +105,8 @@ export function handleInteractionResolved(
     interaction.setInlineConfirmationToolCallId(null);
   }
 
-  ctx.setMessages((prev) => clearConfirmationByRequestId(prev, requestId));
+  // The reducer folds the marker-clear onto the snapshot tool call; here we
+  // only release the interaction-store bookkeeping.
   session.deleteConfirmationToolCall(requestId);
 }
 

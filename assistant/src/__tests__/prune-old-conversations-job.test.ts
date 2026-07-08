@@ -9,15 +9,15 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import type { AssistantConfig } from "../config/schema.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { pruneOldConversationsJob } from "../memory/job-handlers/cleanup.js";
-import type { MemoryJob } from "../memory/jobs-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { pruneOldConversationsJob } from "../persistence/job-handlers/cleanup.js";
+import type { MemoryJob } from "../persistence/jobs-store.js";
 import {
   conversations,
   skillLoadedEvents,
   toolInvocations,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 
 await initializeDb();
 

@@ -1,9 +1,16 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import type { DrizzleDb } from "../../memory/db-connection.js";
-import { providerConnections } from "../../memory/schema/inference.js";
+import type { DrizzleDb } from "../../persistence/db-connection.js";
+import { providerConnections } from "../../persistence/schema/inference.js";
+import { getLogger } from "../../util/logger.js";
 import { clearConnectionProviderCache } from "../registry.js";
+import {
+  VELLUM_MANAGED_CONNECTION_NAME,
+  VELLUM_MANAGED_PROVIDER,
+} from "../vellum-model-routing.js";
+
+export { VELLUM_MANAGED_CONNECTION_NAME };
 import {
   type Auth,
   AuthSchema,
@@ -12,8 +19,11 @@ import {
   type ConnectionProvider,
   ConnectionProviderSchema,
   type ProviderConnection,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   VALID_CONNECTION_PROVIDERS,
 } from "./auth.js";
+
+const log = getLogger("providers/inference/connections");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,9 +38,6 @@ function parseModelsColumn(raw: string | null): ConnectionModel[] | null {
     return null;
   }
 }
-
-export const PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: ReadonlySet<string> =
-  new Set(["openai-compatible"]);
 
 // ---------------------------------------------------------------------------
 // Read
@@ -316,6 +323,21 @@ export function deleteConnection(
 // Seed canonical connections (upsert, used at boot time)
 // ---------------------------------------------------------------------------
 
+/**
+ * The former per-provider `*-managed` connection names, now collapsed into the
+ * single `vellum` connection. They are no longer seeded, but existing installs
+ * (and fresh installs seeded by migration 243) may still carry these rows until
+ * a follow-up migration deletes them. They are filtered out of the connection
+ * list so the UI never shows the pre-consolidation duplicates.
+ */
+export const LEGACY_MANAGED_CONNECTION_NAMES: ReadonlySet<string> = new Set([
+  "anthropic-managed",
+  "openai-managed",
+  "gemini-managed",
+  "fireworks-managed",
+  "together-managed",
+]);
+
 const CANONICAL_CONNECTIONS: Array<{
   name: string;
   provider: string;
@@ -323,40 +345,16 @@ const CANONICAL_CONNECTIONS: Array<{
   label: string;
 }> = [
   {
-    name: "anthropic-managed",
-    provider: "anthropic",
+    name: VELLUM_MANAGED_CONNECTION_NAME,
+    provider: VELLUM_MANAGED_PROVIDER,
     auth: { type: "platform" },
-    label: "Anthropic",
-  },
-  {
-    name: "openai-managed",
-    provider: "openai",
-    auth: { type: "platform" },
-    label: "OpenAI",
-  },
-  {
-    name: "gemini-managed",
-    provider: "gemini",
-    auth: { type: "platform" },
-    label: "Google Gemini",
-  },
-  {
-    name: "fireworks-managed",
-    provider: "fireworks",
-    auth: { type: "platform" },
-    label: "Fireworks",
-  },
-  {
-    name: "together-managed",
-    provider: "together",
-    auth: { type: "platform" },
-    label: "Together AI",
+    label: "Vellum",
   },
 ];
 
 /**
- * Names of the canonical Vellum-managed connections. These are seeded on every
- * daemon boot via `seedCanonicalConnections` and represent the platform-managed
+ * Names of the canonical Vellum-managed connections. Seeded on every daemon
+ * boot via `seedCanonicalConnections` and representing the platform-managed
  * inference route. They are write-protected at the route layer:
  *   - DELETE is blocked outright (would resurrect on next boot anyway, but
  *     blocking prevents a confusing delete → re-appear loop).
@@ -374,7 +372,7 @@ export const MANAGED_CONNECTION_NAMES: ReadonlySet<string> = new Set(
 );
 
 /**
- * Upsert the three canonical connections on every boot. Existing rows are
+ * Upsert the canonical connections on every boot. Existing rows are
  * updated to the latest provider/auth values so Vellum can push connection
  * changes to customers in new releases.
  *
@@ -388,6 +386,26 @@ export const MANAGED_CONNECTION_NAMES: ReadonlySet<string> = new Set(
 export function seedCanonicalConnections(db: DrizzleDb): void {
   const now = Date.now();
   for (const { name, provider, auth, label } of CANONICAL_CONNECTIONS) {
+    // Never clobber a pre-existing user connection that happens to share this
+    // canonical name. `vellum` was not a reserved name before consolidation, so
+    // an install may already have a BYOK connection keyed `vellum` (with a real
+    // provider + api_key auth). Upserting it here would silently rewrite it to
+    // the platform-auth sentinel and make it managed/write-protected, breaking
+    // any profile that references the user's connection. Only seed/refresh when
+    // the row is absent or already our sentinel (same provider).
+    const existing = db
+      .select({ provider: providerConnections.provider })
+      .from(providerConnections)
+      .where(eq(providerConnections.name, name))
+      .get();
+    if (existing && existing.provider !== provider) {
+      log.warn(
+        { name, existingProvider: existing.provider },
+        `Skipping canonical seed for "${name}": a user-owned connection already claims this name.`,
+      );
+      continue;
+    }
+
     db.insert(providerConnections)
       .values({
         name,

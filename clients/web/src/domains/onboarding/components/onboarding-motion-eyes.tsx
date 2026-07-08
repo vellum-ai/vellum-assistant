@@ -9,58 +9,17 @@
  * `showBottomEyes={false}`) and swap in these without a visible jump.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { motion, useTransform, type MotionValue } from "motion/react";
 
+import { pathBBox, unionBBox, type BBox } from "@/domains/onboarding/components/eye-bbox";
+import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 const EYE_TARGET_HEIGHT = 0.3;
 const EYE_MAX_WIDTH = 0.85;
 const EYE_REST_CUTOFF = 0.25;
-
-type BBox = { x: number; y: number; w: number; h: number };
-
-/** Tight bounding box of a single path's absolute coords. */
-function pathBBox(d: string): BBox {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  const nums =
-    d.match(/-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi)?.map(Number) ?? [];
-  for (let i = 0; i + 1 < nums.length; i += 2) {
-    const x = nums[i]!;
-    const y = nums[i + 1]!;
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
-  }
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-}
-
-function unionBBox(boxes: BBox[]): BBox {
-  const minX = Math.min(...boxes.map((b) => b.x));
-  const minY = Math.min(...boxes.map((b) => b.y));
-  const maxX = Math.max(...boxes.map((b) => b.x + b.w));
-  const maxY = Math.max(...boxes.map((b) => b.y + b.h));
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
-}
-
-function useViewport() {
-  const [size, setSize] = useState(() => ({
-    w: typeof window === "undefined" ? 1280 : window.innerWidth,
-    h: typeof window === "undefined" ? 800 : window.innerHeight,
-  }));
-  useEffect(() => {
-    const onResize = () =>
-      setSize({ w: window.innerWidth, h: window.innerHeight });
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return size;
-}
 
 export interface OnboardingEyeArt {
   paths: { svgPath: string; color: string }[];
@@ -86,7 +45,7 @@ export function useOnboardingEyes(): OnboardingEyes {
   const characters = useOnboardingAvatarPoolStore.use.characters();
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
-  const { w, h } = useViewport();
+  const { w, h } = useOnboardingStageSize();
 
   const art = useMemo<OnboardingEyeArt | null>(() => {
     if (!components || !chosen) return null;
