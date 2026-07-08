@@ -49,6 +49,8 @@ const importBackgroundTaskDetailPanel = () =>
   import(
     "@/domains/chat/components/background-task-detail-panel/background-task-detail-panel"
   );
+const importSkillDetailPanel = () =>
+  import("@/domains/chat/components/skill-detail-panel");
 
 const SubagentDetailPanel = lazy(() =>
   importSubagentDetailPanel().then((m) => ({ default: m.SubagentDetailPanel })),
@@ -66,6 +68,9 @@ const BackgroundTaskDetailPanel = lazy(() =>
   importBackgroundTaskDetailPanel().then((m) => ({
     default: m.BackgroundTaskDetailPanel,
   })),
+);
+const SkillDetailPanel = lazy(() =>
+  importSkillDetailPanel().then((m) => ({ default: m.SkillDetailPanel })),
 );
 
 // ---------------------------------------------------------------------------
@@ -98,6 +103,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const activeBackgroundTaskEntry = useBackgroundTaskStore((s) =>
     activeBackgroundTaskId ? s.byId[activeBackgroundTaskId] : undefined,
   );
+  const activeSkillDetailId = useViewerStore.use.activeSkillDetailId();
   const activeChannelSetup = useViewerStore.use.activeChannelSetup();
 
   const isSharing = useDeployStore.use.isSharing();
@@ -187,6 +193,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     useViewerStore.getState().closeBackgroundTaskDetail();
   }, []);
 
+  const onCloseSkillDetail = useCallback(() => {
+    useViewerStore.getState().closeSkillDetail();
+  }, []);
+
   const onCloseChannelSetup = useCallback(() => {
     useViewerStore.getState().closeChannelSetup();
   }, []);
@@ -215,7 +225,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
   // thought process, subagent detail, workflow detail, acp run detail,
-  // document viewer). Surfaces stacked
+  // skill detail, document viewer). Surfaces stacked
   // above the panel that own Escape — Radix layers (dialogs, popovers,
   // dropdowns), the command palette, voice recording, the attachment
   // preview — all run before this bubble-phase window listener (document
@@ -251,6 +261,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         case "background-task-detail":
           viewer.closeBackgroundTaskDetail();
           break;
+        case "skill-detail":
+          viewer.closeSkillDetail();
+          break;
         case "channel-setup":
           viewer.closeChannelSetup();
           break;
@@ -278,6 +291,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       importAcpRunDetailPanel().catch(() => {});
       importWorkflowDetailPanel().catch(() => {});
       importBackgroundTaskDetailPanel().catch(() => {});
+      importSkillDetailPanel().catch(() => {});
     };
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(run);
@@ -448,6 +462,15 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             onClose={onCloseWorkflowDetail}
             onStop={onStopWorkflow}
             onRequestJournal={onRequestWorkflowJournal}
+          />
+        </LazyBoundary>
+      );
+    } else if (mainView === "skill-detail" && activeSkillDetailId) {
+      rightPanel = (
+        <LazyBoundary>
+          <SkillDetailPanel
+            skillId={activeSkillDetailId}
+            onClose={onCloseSkillDetail}
           />
         </LazyBoundary>
       );

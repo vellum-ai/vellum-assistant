@@ -86,7 +86,7 @@ describe("SkillCreatedCard", () => {
     expect(container.querySelectorAll(".rounded-lg")).toHaveLength(1);
   });
 
-  test("View navigates to the Skills tab deep-link for the clicked skill", () => {
+  test("View navigates to the skill detail page for the clicked skill", () => {
     const { getByRole, getByTestId } = renderCard(
       makeSurface({
         data: {
@@ -101,7 +101,7 @@ describe("SkillCreatedCard", () => {
     fireEvent.click(getByRole("button", { name: "View Skill two" }));
 
     expect(getByTestId("location").textContent).toBe(
-      "/assistant/skills?skill=skill-2",
+      "/assistant/skills/skill-2",
     );
   });
 

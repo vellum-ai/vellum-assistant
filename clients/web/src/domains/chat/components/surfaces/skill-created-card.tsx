@@ -67,9 +67,9 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
   const navigate = useNavigate();
   const skills = parseSkills(surface.data.skills);
 
-  // Every row deep-links to the Skills tab with the clicked skill selected.
+  // Every row deep-links to the skill's dedicated detail page.
   const handleView = (skillId: string) => {
-    navigate(`${routes.skills}?skill=${encodeURIComponent(skillId)}`);
+    navigate(routes.skills.detail(skillId));
   };
 
   if (skills.length === 0) {
