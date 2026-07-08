@@ -9,8 +9,10 @@ import {
   type DefaultProfileProvider,
   OS_BETA_PROFILE_KEY,
 } from "./default-profile-names.js";
+import { resolveDefaultConnectionName } from "./default-provider-resolution.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+  type DefaultProviderConfig,
   type ProfileEntry,
 } from "./schemas/llm.js";
 
@@ -340,8 +342,23 @@ export function getEffectiveProfile(
     Record<string, ProfileEntry>
   > = CODE_DEFAULT_PROFILE_ENTRIES,
 ): ProfileEntry | undefined {
-  const workspace = workspaceProfiles?.[name];
-  const body = catalogEntries[name];
+  return resolveAgainstBody(
+    workspaceProfiles?.[name],
+    name,
+    catalogEntries[name],
+  );
+}
+
+/**
+ * The shared workspace-overlay step of effective-profile resolution: given
+ * the workspace entry for a name and the code-owned body that name resolves
+ * to, apply the precedence documented on `getEffectiveProfile`.
+ */
+function resolveAgainstBody(
+  workspace: ProfileEntry | undefined,
+  name: string,
+  body: ProfileEntry | undefined,
+): ProfileEntry | undefined {
   if (body == null) {
     return workspace;
   }
@@ -358,6 +375,68 @@ export function getEffectiveProfile(
     }
   }
   return merged;
+}
+
+/**
+ * Resolve a default-profile intent through the workspace's default provider:
+ * like `getEffectiveProfile`, but the code-owned body for a default profile
+ * key comes from that provider's column of the intent × provider matrix
+ * instead of always the `vellum` column.
+ *
+ * - The body's connection is `resolveDefaultConnectionName(defaultProvider)`
+ *   (an explicit `connectionName` wins; `vellum` maps to the managed
+ *   connection; BYOK maps to `${provider}-personal`). For the `vellum`
+ *   column the stamped provider stays the column's underlying provider
+ *   (e.g. `fireworks` for `balanced`) — `vellum` is a routing identity, not
+ *   a dispatch provider.
+ * - The resolved body carries `source: "managed"` regardless of column:
+ *   default profile content is code-owned whichever provider implements it.
+ *   (The BYOK templates' `source: "user"` is hatch-time state for
+ *   materialized `custom-*` copies, not an ownership claim on the catalog
+ *   body.)
+ * - Workspace precedence is identical to `getEffectiveProfile`: a
+ *   user-source workspace entry shadows the default outright; a
+ *   managed-source stub contributes only `label`/`status`/`topP`.
+ * - A `null` defaultProvider (defensive: M5 guarantees the field post-boot)
+ *   and every non-matrix name (custom profiles, `os-beta`) fall back to
+ *   `CODE_DEFAULT_PROFILE_ENTRIES` — exactly `getEffectiveProfile`'s
+ *   behavior.
+ *
+ * No runtime consumers yet: the M6 override-or-default resolver adopts this
+ * as the call-site default-intent lookup.
+ */
+export function resolveDefaultProfileForProvider(
+  workspaceProfiles: Record<string, ProfileEntry> | undefined,
+  name: string,
+  defaultProvider: DefaultProviderConfig | null,
+): ProfileEntry | undefined {
+  return resolveAgainstBody(
+    workspaceProfiles?.[name],
+    name,
+    defaultProfileBodyForProvider(name, defaultProvider),
+  );
+}
+
+function isDefaultProfileKey(name: string): name is DefaultProfileKey {
+  return (DEFAULT_PROFILE_KEYS as readonly string[]).includes(name);
+}
+
+function defaultProfileBodyForProvider(
+  name: string,
+  defaultProvider: DefaultProviderConfig | null,
+): ProfileEntry | undefined {
+  if (defaultProvider == null || !isDefaultProfileKey(name)) {
+    return CODE_DEFAULT_PROFILE_ENTRIES[name];
+  }
+  const impl = PROFILE_IMPLS[name][defaultProvider.provider];
+  return {
+    ...materializeProfile(
+      impl,
+      impl.provider,
+      resolveDefaultConnectionName(defaultProvider),
+    ),
+    source: "managed",
+  };
 }
 
 /**
