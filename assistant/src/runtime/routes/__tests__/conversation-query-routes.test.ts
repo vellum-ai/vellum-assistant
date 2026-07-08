@@ -56,7 +56,7 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   },
 }));
 
-import type { ConversationCreateType } from "../../../persistence/conversation-crud.js";
+import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
 import { getDb, getLogsDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import {

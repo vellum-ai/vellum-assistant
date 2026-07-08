@@ -17,7 +17,7 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../contacts/guardian-delivery-reader.js";
-import type { ConversationCreateType } from "../persistence/conversation-crud.js";
+import type { ConversationCreateType } from "../persistence/conversation-types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { VellumAdapter } from "./adapters/macos.js";
