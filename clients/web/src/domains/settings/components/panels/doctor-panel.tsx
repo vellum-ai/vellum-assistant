@@ -1,4 +1,4 @@
-import { ArrowUp, Check, ChevronDown, ClipboardCopy, Loader2, Play, Square } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ClipboardCopy, Loader2, Play, RefreshCw, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -363,6 +363,18 @@ export function DoctorPanel() {
     });
   };
 
+  // Re-attach to the durable session after a transient stream failure.
+  // The SSE hook resumes from the stored replay cursor (Last-Event-ID);
+  // if the session actually expired, reconnecting surfaces that instead
+  // (404/410 → "Previous session expired").
+  const handleReconnect = () => {
+    if (!sessionId) {
+      return;
+    }
+    useDoctorPanelStore.getState().setSessionStatus("active");
+    connectSSE(assistantId, sessionId);
+  };
+
   const handleEndSession = () => {
     abort();
     const store = useDoctorPanelStore.getState();
@@ -454,6 +466,9 @@ export function DoctorPanel() {
   const isSessionActive = sessionId !== null && storeSessionStatus === "active";
   const isSessionEnded = !isSessionActive && storeEntries.length > 0 &&
     (storeSessionStatus === "completed" || storeSessionStatus === "error");
+  // Only the error state is re-attachable: completed/expired sessions are
+  // terminal server-side, and without a sessionId there is nothing to rejoin.
+  const canReconnect = storeSessionStatus === "error" && sessionId !== null;
   const sessionStatus = (isSessionActive || isSessionEnded)
     ? storeSessionStatus
     : (historyStatus ?? "idle");
@@ -706,13 +721,28 @@ export function DoctorPanel() {
             </form>
           )}
 
-          {/* Session ended — option to restart */}
+          {/* Session ended — reconnect (durable sessions survive transient
+              stream failures) and/or restart */}
           {(isSessionEnded || (!isSessionActive && historyStatus && historyStatus !== "active")) && (
             <div className="flex shrink-0 items-center justify-center gap-3 py-2">
+              {canReconnect && (
+                <button
+                  type="button"
+                  onClick={handleReconnect}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)]"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Reconnect
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleNewSession}
-                className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)]"
+                className={
+                  canReconnect
+                    ? "flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--surface-raised)] px-4 py-2 text-body-medium-default text-[var(--content-default)] transition-colors hover:bg-[var(--surface-hover)]"
+                    : "flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)]"
+                }
               >
                 <Play className="h-4 w-4" />
                 New Session

@@ -19,7 +19,9 @@ const DOCTOR_UNAVAILABLE_BASE =
 
 export const DOCTOR_UNAVAILABLE_MESSAGE = `${DOCTOR_UNAVAILABLE_BASE} Please try again in a moment.`;
 
-export const DOCTOR_UNAVAILABLE_STREAM_MESSAGE = `${DOCTOR_UNAVAILABLE_BASE} Start a new session to continue.`;
+// Durable sessions survive a Doctor restart, so point users at Reconnect —
+// the session and its transcript resume where they left off.
+export const DOCTOR_UNAVAILABLE_STREAM_MESSAGE = `${DOCTOR_UNAVAILABLE_BASE} Reconnect in a moment to continue this session.`;
 
 /**
  * Expected Doctor conditions that should not be reported to Sentry:
@@ -46,7 +48,7 @@ export function doctorStreamTerminalMessage(
   failedStatus: number | null,
 ): string {
   if (failedStatus === null) {
-    return "Event stream disconnected. Start a new session to continue.";
+    return "Event stream disconnected. Reconnect to continue this session.";
   }
   if (isDoctorUnavailableStatus(failedStatus)) {
     return DOCTOR_UNAVAILABLE_STREAM_MESSAGE;

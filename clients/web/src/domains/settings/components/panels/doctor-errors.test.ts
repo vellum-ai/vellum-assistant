@@ -23,9 +23,9 @@ describe("doctorStreamTerminalMessage", () => {
     );
   });
 
-  test("keeps the generic message when the stream dropped without a status", () => {
+  test("points at reconnect when the stream dropped without a status", () => {
     expect(doctorStreamTerminalMessage(null)).toBe(
-      "Event stream disconnected. Start a new session to continue.",
+      "Event stream disconnected. Reconnect to continue this session.",
     );
   });
 });
