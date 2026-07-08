@@ -41,11 +41,28 @@ export interface AssistantAttachmentDraft {
 // ---------------------------------------------------------------------------
 
 /**
- * Estimate the decoded byte length of a base64-encoded string.
- * Accounts for trailing `=` padding characters.
+ * Decoded byte length of an image/file block's media payload.
+ *
+ * Given a raw base64 string, estimate the decoded length from its length and
+ * `=` padding. Given a media `source`, prefer its captured `sizeBytes`
+ * (`workspace_ref` blocks carry it) and otherwise estimate from inline `data`
+ * (legacy base64 blocks) — so callers get the byte size without caring which
+ * storage form the block uses.
  */
-export function estimateBase64Bytes(base64: string): number {
-  const trimmed = base64.replace(/\s/g, "");
+export function estimateBase64Bytes(base64: string): number;
+export function estimateBase64Bytes(
+  source: { data?: unknown; sizeBytes?: unknown } | null | undefined,
+): number;
+export function estimateBase64Bytes(
+  arg: string | { data?: unknown; sizeBytes?: unknown } | null | undefined,
+): number {
+  if (arg == null) return 0;
+  if (typeof arg !== "string") {
+    if (typeof arg.sizeBytes === "number") return arg.sizeBytes;
+    if (typeof arg.data === "string") return estimateBase64Bytes(arg.data);
+    return 0;
+  }
+  const trimmed = arg.replace(/\s/g, "");
   const padding = trimmed.endsWith("==") ? 2 : trimmed.endsWith("=") ? 1 : 0;
   return Math.max(0, Math.floor((trimmed.length * 3) / 4) - padding);
 }
