@@ -34,6 +34,7 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
+import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
 import { VoiceAvatar } from "./voice-avatar";
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
 import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
@@ -179,6 +180,11 @@ function VoiceRoomOverlay() {
       transition={{ duration: reduce ? 0 : 0.4 }}
     >
       <VoiceRoomAmbientBackground />
+
+      {/* Optional muted echo of the live transcript, floating above (user) and
+          below (assistant) the centered avatar. Pref-gated and absolutely
+          positioned, so it never shifts the avatar and stays absent by default. */}
+      <VoiceAmbientTranscript />
 
       {/* Persistent exit control — rendered above all room chrome and never
           gated behind avatar readiness, so exit works even mid-load / on
