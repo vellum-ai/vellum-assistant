@@ -16,9 +16,11 @@ import {
     documentsGetOptions,
     documentsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { DeleteAppDialog } from "@/components/delete-app-dialog";
 import {
     AppAssetActions,
     DocumentAssetActions,
+    useAppDelete,
 } from "@/domains/chat/components/conversation-asset-actions";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
@@ -122,6 +124,8 @@ export function ConversationAssetsPill({
     [onOpenApp, onOpenDocument],
   );
 
+  const appDelete = useAppDelete(assistantId);
+
   if (assets.length === 0) {
     return null;
   }
@@ -141,6 +145,7 @@ export function ConversationAssetsPill({
             assistantId={assistantId}
             app={asset.app}
             isMobile={isMobile}
+            onRequestDelete={appDelete.requestDelete}
           />
         ) : asset.type === "document" && asset.doc ? (
           <DocumentAssetActions
@@ -156,58 +161,74 @@ export function ConversationAssetsPill({
 
   if (isMobile) {
     return (
-      <BottomSheet.Root open={open} onOpenChange={setOpen}>
-        <BottomSheet.Trigger asChild>
-          <Button
-            variant="ghost"
-            active
-            iconOnly={<Layers />}
-            tintColor="var(--content-default)"
-            aria-label={ariaLabel}
-          />
-        </BottomSheet.Trigger>
-        <BottomSheet.Content>
-          <BottomSheet.Header>
-            <BottomSheet.Title>Assets</BottomSheet.Title>
-          </BottomSheet.Header>
-          <BottomSheet.Body className="pt-0">{assetItems}</BottomSheet.Body>
-        </BottomSheet.Content>
-      </BottomSheet.Root>
+      <>
+        <BottomSheet.Root open={open} onOpenChange={setOpen}>
+          <BottomSheet.Trigger asChild>
+            <Button
+              variant="ghost"
+              active
+              iconOnly={<Layers />}
+              tintColor="var(--content-default)"
+              aria-label={ariaLabel}
+            />
+          </BottomSheet.Trigger>
+          <BottomSheet.Content>
+            <BottomSheet.Header>
+              <BottomSheet.Title>Assets</BottomSheet.Title>
+            </BottomSheet.Header>
+            <BottomSheet.Body className="pt-0">{assetItems}</BottomSheet.Body>
+          </BottomSheet.Content>
+        </BottomSheet.Root>
+        <DeleteAppDialog
+          app={appDelete.pendingDelete}
+          isDeleting={appDelete.isDeleting}
+          onConfirm={appDelete.confirmDelete}
+          onCancel={appDelete.cancelDelete}
+        />
+      </>
     );
   }
 
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
-        <Button
-          variant="ghost"
-          active
-          leftIcon={<Layers />}
-          className="rounded-full"
-          tintColor="var(--content-default)"
-          aria-label={ariaLabel}
-        >
-          {label}
-        </Button>
-      </Popover.Trigger>
-      <Popover.Content
-        side="bottom"
-        align="center"
-        sideOffset={8}
-        className="w-60 p-0"
-      >
-        <div className="px-3 pt-3 pb-1">
-          <Typography
-            variant="label-small-default"
-            className="text-[var(--content-tertiary)]"
+    <>
+      <Popover.Root open={open} onOpenChange={setOpen}>
+        <Popover.Trigger asChild>
+          <Button
+            variant="ghost"
+            active
+            leftIcon={<Layers />}
+            className="rounded-full"
+            tintColor="var(--content-default)"
+            aria-label={ariaLabel}
           >
-            Assets
-          </Typography>
-        </div>
-        <div className="max-h-[240px] overflow-y-auto px-2 pb-2">
-          {assetItems}
-        </div>
-      </Popover.Content>
-    </Popover.Root>
+            {label}
+          </Button>
+        </Popover.Trigger>
+        <Popover.Content
+          side="bottom"
+          align="center"
+          sideOffset={8}
+          className="w-60 p-0"
+        >
+          <div className="px-3 pt-3 pb-1">
+            <Typography
+              variant="label-small-default"
+              className="text-[var(--content-tertiary)]"
+            >
+              Assets
+            </Typography>
+          </div>
+          <div className="max-h-[240px] overflow-y-auto px-2 pb-2">
+            {assetItems}
+          </div>
+        </Popover.Content>
+      </Popover.Root>
+      <DeleteAppDialog
+        app={appDelete.pendingDelete}
+        isDeleting={appDelete.isDeleting}
+        onConfirm={appDelete.confirmDelete}
+        onCancel={appDelete.cancelDelete}
+      />
+    </>
   );
 }

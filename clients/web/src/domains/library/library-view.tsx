@@ -13,7 +13,7 @@ import { Search, Upload } from "lucide-react";
 import { type ChangeEvent, useCallback, useRef, useState } from "react";
 
 import { DeployDialogs } from "@/components/deploy-dialogs";
-import { DeleteAppDialog } from "@/domains/library/components/delete-app-dialog";
+import { DeleteAppDialog } from "@/components/delete-app-dialog";
 import { LibraryDocumentCard } from "@/domains/library/components/library-document-card";
 import { LibraryEmptyState } from "@/domains/library/components/library-empty-state";
 import { LibraryGridSection } from "@/domains/library/components/library-grid-section";

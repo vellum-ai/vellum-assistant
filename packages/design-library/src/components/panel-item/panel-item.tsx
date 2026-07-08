@@ -203,8 +203,11 @@ const TRAILING_ACTION_CLASSES = [
   "group-focus-within:opacity-100",
   "has-[[aria-expanded=true]]:opacity-100",
   "group-aria-[current=page]:opacity-100",
-  // Touch devices have no hover to reveal the action — keep it visible.
-  "touch-mobile:opacity-100",
+  // Coarse-pointer (touch) devices have no hover to reveal the action — keep
+  // it visible. Gates on pointer capability alone (not viewport width) so
+  // tablets and wide mobile layouts are covered too; a coarse primary
+  // pointer never matches desktop browsers or Electron.
+  "pointer-coarse:opacity-100",
 ].join(" ");
 
 // ---------------------------------------------------------------------------

@@ -13,7 +13,6 @@ import type { FC, MouseEvent, ReactNode } from "react";
 
 import { BottomSheet, Button, Menu, PanelItem, toast } from "@vellumai/design-library";
 
-import { DeleteAppDialog } from "@/domains/library/components/delete-app-dialog";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { appsByIdDeletePost, documentsByIdPdfGet } from "@/generated/daemon/sdk.gen";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
@@ -79,45 +78,26 @@ function MenuShell({ isMobile, title, ariaLabel, children, desktopItems }: MenuS
 }
 
 // ---------------------------------------------------------------------------
-// App actions
+// Delete state (owned by the pill, outside the popover/sheet)
 // ---------------------------------------------------------------------------
 
-interface AppAssetActionsProps {
-  assistantId: string;
-  app: AppSummary;
-  isMobile: boolean;
-}
-
-export const AppAssetActions: FC<AppAssetActionsProps> = ({
-  assistantId,
-  app,
-  isMobile,
-}) => {
+/**
+ * App-deletion state and mutation for the assets pill. Lives OUTSIDE the
+ * Popover/BottomSheet subtree (see `onRequestDelete` note above), mirroring
+ * the gallery's delete flow: `appsByIdDeletePost` + HTML cache clear +
+ * `appsGet` invalidation + unpin.
+ */
+export function useAppDelete(assistantId: string) {
   const queryClient = useQueryClient();
   const togglePin = usePinnedAppsStore.use.togglePin();
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
-  const isPinned = pinnedAppIds.has(app.id);
-
-  const [isSharing, setIsSharing] = useState(false);
-  const handleShare = useCallback(async () => {
-    if (isSharing) return;
-    setIsSharing(true);
-    try {
-      await shareApp(assistantId, app.id, app.name);
-      toast.success("App exported", { description: `${app.name}.vellum` });
-    } catch (err) {
-      toast.error("Failed to share app", {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setIsSharing(false);
-    }
-  }, [assistantId, app.id, app.name, isSharing]);
-
   const [pendingDelete, setPendingDelete] = useState<AppSummary | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const handleConfirmDelete = useCallback(async () => {
-    if (!pendingDelete || isDeleting) return;
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete || isDeleting) {
+      return;
+    }
     setIsDeleting(true);
     try {
       await appsByIdDeletePost({
@@ -139,9 +119,62 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
     }
   }, [pendingDelete, isDeleting, assistantId, pinnedAppIds, togglePin, queryClient]);
 
+  const cancelDelete = useCallback(() => {
+    if (!isDeleting) {
+      setPendingDelete(null);
+    }
+  }, [isDeleting]);
+
+  return { pendingDelete, isDeleting, requestDelete: setPendingDelete, confirmDelete, cancelDelete };
+}
+
+// ---------------------------------------------------------------------------
+// App actions
+// ---------------------------------------------------------------------------
+
+interface AppAssetActionsProps {
+  assistantId: string;
+  app: AppSummary;
+  isMobile: boolean;
+  /**
+   * Ask the owner to show the delete confirmation. The dialog must be
+   * rendered OUTSIDE the hosting Popover/BottomSheet: it portals and steals
+   * focus, which the popover treats as an outside interaction and closes —
+   * unmounting this component and any dialog state held here with it.
+   */
+  onRequestDelete: (app: AppSummary) => void;
+}
+
+export const AppAssetActions: FC<AppAssetActionsProps> = ({
+  assistantId,
+  app,
+  isMobile,
+  onRequestDelete,
+}) => {
+  const togglePin = usePinnedAppsStore.use.togglePin();
+  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
+  const isPinned = pinnedAppIds.has(app.id);
+
+  const [isSharing, setIsSharing] = useState(false);
+  const handleShare = useCallback(async () => {
+    if (isSharing) {
+      return;
+    }
+    setIsSharing(true);
+    try {
+      await shareApp(assistantId, app.id, app.name);
+      toast.success("App exported", { description: `${app.name}.vellum` });
+    } catch (err) {
+      toast.error("Failed to share app", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setIsSharing(false);
+    }
+  }, [assistantId, app.id, app.name, isSharing]);
+
   return (
-    <>
-      <MenuShell
+    <MenuShell
         isMobile={isMobile}
         title={app.name}
         ariaLabel={`Options for ${app.name}`}
@@ -163,7 +196,7 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
             </Menu.Item>
             <Menu.Item
               leftIcon={<Trash2 size={14} />}
-              onSelect={() => setPendingDelete(app)}
+              onSelect={() => onRequestDelete(app)}
               className="whitespace-nowrap"
             >
               Delete
@@ -201,21 +234,12 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
               label="Delete"
               onSelect={() => {
                 close();
-                setPendingDelete(app);
+                onRequestDelete(app);
               }}
             />
           </>
         )}
-      </MenuShell>
-      <DeleteAppDialog
-        app={pendingDelete}
-        isDeleting={isDeleting}
-        onConfirm={handleConfirmDelete}
-        onCancel={() => {
-          if (!isDeleting) setPendingDelete(null);
-        }}
-      />
-    </>
+    </MenuShell>
   );
 };
 
