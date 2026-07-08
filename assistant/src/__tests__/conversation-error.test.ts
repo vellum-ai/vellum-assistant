@@ -911,6 +911,23 @@ describe("classifyConversationError", () => {
       expect(user.errorCategory).toBe("rate_limit");
     });
 
+    it("classifies reason=rate_limited managed quota bodies as MANAGED_USAGE_LIMIT even without a managed routing source", () => {
+      // Per-connection platform auth path leaves routingSource unset, so the
+      // managed quota body pattern must still win over PROVIDER_RATE_LIMIT.
+      providerRoutingSources.openai = "user-key";
+      const result = classifyConversationError(
+        new ProviderError(
+          '{"code":"daily_quota_exceeded"}',
+          "openai",
+          429,
+          { reason: "rate_limited" },
+        ),
+        baseCtx,
+      );
+      expect(result.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(result.errorCategory).toBe("managed_usage_limit");
+    });
+
     it("defers reason=bad_request to the existing status/regex fallback", () => {
       const err = new ProviderError(
         "context_length_exceeded: your prompt is too long",

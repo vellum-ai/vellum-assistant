@@ -515,7 +515,11 @@ function reasonToClassification(
       }
       return invalidApiKeyClassification(args.attribution);
     case "rate_limited":
-      if (managed) {
+      // A managed quota response (e.g. daily_quota_exceeded) can arrive with a
+      // stamped `rate_limited` reason but no managed routing source when the
+      // call used a per-connection platform auth path, so honor the body
+      // patterns too — mirroring the legacy isManagedUsageLimitError check.
+      if (managed || MANAGED_USAGE_LIMIT_PATTERNS.some((p) => p.test(args.message))) {
         return {
           code: "MANAGED_USAGE_LIMIT",
           userMessage:
