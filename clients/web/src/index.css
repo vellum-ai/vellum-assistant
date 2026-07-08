@@ -125,9 +125,9 @@ body {
 }
 
 /* Chat-loading skeleton shimmer — a soft gradient band sweeping left→right
- * over the placeholder bars while conversation history loads (replaces the
- * old opacity pulse). The highlight mixes the surface toward `--foreground`
- * so it reads in every theme: lighter band in dark/velvet, darker in light. */
+ * over the placeholder bars while conversation history loads. The highlight
+ * mixes the surface toward `--foreground` so it reads in every theme:
+ * lighter band in dark/velvet, darker in light. */
 @keyframes skeleton-shimmer {
   from { background-position: 150% 0; }
   to { background-position: -50% 0; }
