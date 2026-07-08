@@ -4506,6 +4506,60 @@ paths:
                   - domains
                   - callSites
                 additionalProperties: false
+  /v1/config/llm/default-provider:
+    get:
+      operationId: config_llm_defaultprovider_get
+      summary: Get the default provider and its availability
+      description:
+        Returns `llm.defaultProvider`, the connection name it resolves to, and whether that connection is currently
+        usable (connection exists, credential stored, Vellum authenticated). Availability is informational — a broken
+        default is a valid persisted state that surfaces explainable errors at resolution time.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DefaultProviderStatus"
+    put:
+      operationId: config_llm_defaultprovider_put
+      summary: Set the default provider
+      description:
+        Replaces `llm.defaultProvider`. Strict-validates the body (unlike the generic config write paths, which
+        silently drop invalid values). Does not require the referenced connection to exist — a dangling name is allowed
+        by design and reported via the availability status.
+      tags:
+        - config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  enum:
+                    - anthropic
+                    - openai
+                    - gemini
+                    - fireworks
+                    - openrouter
+                    - vellum
+                connectionName:
+                  type: string
+                  minLength: 1
+              required:
+                - provider
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DefaultProviderStatus"
   /v1/config/llm/profiles:
     get:
       operationId: config_llm_profiles_get
@@ -32141,6 +32195,24 @@ components:
                 provider_connection:
                   type: string
               additionalProperties: false
+            defaultProvider:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  enum:
+                    - anthropic
+                    - openai
+                    - gemini
+                    - fireworks
+                    - openrouter
+                    - vellum
+                connectionName:
+                  type: string
+                  minLength: 1
+              required:
+                - provider
+              additionalProperties: false
             profiles:
               type: object
               propertyNames:
@@ -32495,6 +32567,48 @@ components:
         invariant:
           type: boolean
       additionalProperties: {}
+    DefaultProviderStatus:
+      type: object
+      properties:
+        provider:
+          anyOf:
+            - type: string
+              enum:
+                - anthropic
+                - openai
+                - gemini
+                - fireworks
+                - openrouter
+                - vellum
+            - type: "null"
+        connectionName:
+          type: string
+        resolvedConnectionName:
+          anyOf:
+            - type: string
+            - type: "null"
+        availability:
+          type: object
+          properties:
+            status:
+              type: string
+              enum:
+                - ok
+                - missing_default
+                - missing_connection
+                - missing_credential
+                - vellum_unauthenticated
+                - unknown
+            message:
+              type: string
+          required:
+            - status
+          additionalProperties: false
+      required:
+        - provider
+        - resolvedConnectionName
+        - availability
+      additionalProperties: false
     ProviderConnection:
       type: object
       properties:
