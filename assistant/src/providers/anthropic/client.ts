@@ -111,14 +111,21 @@ export function deriveAnthropicReason(
   if (apiType === "authentication_error" || status === 401) {
     return "invalid_credentials";
   }
+  // A plan/tier model restriction requires an explicit model signal; a generic
+  // authorization/scope 403 or a missing gateway resource on 404 stays on the
+  // credential path / defers to the legacy fallback so the real detail survives.
+  const mentionsModel = /\bmodel\b/i.test(haystack);
   if (apiType === "permission_error" || status === 403) {
-    return /model|plan|not\s+(?:allowed|permitted|enabled)|access/i.test(
-      haystack,
-    )
+    return mentionsModel &&
+      /\b(?:plan|tier|upgrade|restricted|not\s+available|access|entitle)/i.test(
+        haystack,
+      )
       ? "model_restricted"
       : "invalid_credentials";
   }
-  if (apiType === "not_found_error" || status === 404) return "model_not_found";
+  if (apiType === "not_found_error" || status === 404) {
+    return mentionsModel ? "model_not_found" : "bad_request";
+  }
   if (apiType === "rate_limit_error" || status === 429) return "rate_limited";
   if (apiType === "overloaded_error" || status === 529) return "overloaded";
   if (status !== undefined && status >= 500) return "server_error";

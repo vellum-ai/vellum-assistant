@@ -156,6 +156,15 @@ describe("AnthropicProvider — semantic reason stamping", () => {
       reason: "model_restricted",
     },
     {
+      name: "generic 403 'not allowed' without model context → invalid_credentials",
+      error: new FakeAPIError(
+        403,
+        "Request not allowed: access denied",
+        anthropicBody("permission_error"),
+      ),
+      reason: "invalid_credentials",
+    },
+    {
       name: "not_found_error → model_not_found",
       error: new FakeAPIError(
         404,
@@ -163,6 +172,11 @@ describe("AnthropicProvider — semantic reason stamping", () => {
         anthropicBody("not_found_error"),
       ),
       reason: "model_not_found",
+    },
+    {
+      name: "non-model 404 (missing gateway resource) → bad_request (defers to legacy fallback)",
+      error: new FakeAPIError(404, "Not Found: /v1/messages", undefined),
+      reason: "bad_request",
     },
     {
       name: "rate_limit_error → rate_limited",
