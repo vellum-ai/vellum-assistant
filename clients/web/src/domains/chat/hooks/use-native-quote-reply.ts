@@ -10,8 +10,9 @@
  *    assistant message and opens the reply bubble — reusing the same
  *    resolution logic as the web floating chip (`resolveAssistantSelection`).
  * 2. Posts `{ canReply }` to the `vellumTextSelection` script-message handler
- *    on every `selectionchange`, so native can gate the menu item to
- *    assistant-message selections only.
+ *    so native can gate the menu item to assistant-message selections only.
+ *    It primes the flag on `pointerdown` (from the touched node, before the
+ *    long-press builds the edit menu) and keeps it in sync on `selectionchange`.
  *
  * No-op outside the Capacitor shell. The wire contract is intentionally
  * minimal (one window global + one message-handler name) and resilient to
@@ -96,12 +97,13 @@ export function useNativeQuoteReply(
       handler.postMessage({ canReply });
     };
 
-    // `selectstart` fires as the gesture begins — before iOS builds the edit
-    // menu — but the new selection range is not yet associated, so eligibility
-    // is derived from the gesture's target node rather than the (still empty)
-    // window selection. This primes native's `canReply` flag ahead of the
-    // first menu presentation.
-    const handleSelectStart = (event: Event) => {
+    // `pointerdown` fires on finger contact — well before the long-press
+    // threshold that builds the native edit menu — and, unlike `selectstart`,
+    // is reliably dispatched by the iOS WKWebView. At this point no selection
+    // range exists yet, so eligibility is derived from the touched node rather
+    // than the window selection. This primes native's `canReply` flag ahead of
+    // the first menu presentation.
+    const handlePointerDown = (event: PointerEvent) => {
       const target = event.target instanceof Node ? event.target : null;
       postCanReply(isAssistantMessageNode(target, containerRef.current));
     };
@@ -112,10 +114,10 @@ export function useNativeQuoteReply(
     };
 
     window.__vellumQuoteReplyFromSelection = openFromSelection;
-    document.addEventListener("selectstart", handleSelectStart);
+    document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("selectionchange", handleSelectionChange);
     return () => {
-      document.removeEventListener("selectstart", handleSelectStart);
+      document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("selectionchange", handleSelectionChange);
       if (window.__vellumQuoteReplyFromSelection === openFromSelection) {
         delete window.__vellumQuoteReplyFromSelection;
