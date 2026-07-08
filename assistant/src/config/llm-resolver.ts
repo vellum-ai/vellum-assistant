@@ -357,6 +357,38 @@ export function resolveDefaultProfileKey(
 }
 
 /**
+ * Returns the profile key that `resolveCallSiteConfig` would actually treat as
+ * the winning (highest-precedence) profile for a turn — the profile whose
+ * fragment supplies the resolved provider/model. Unlike `resolveDefaultProfileKey`
+ * this accounts for the per-turn `overrideProfile`/`forceOverrideProfile` and
+ * for `effectiveDefault` stripping the catalog default when an override is
+ * present, so error attribution names the slot the resolver really used:
+ * - `mainAgent`: override → active → catalog default.
+ * - forced override: the override.
+ * - other sites: the call-site's own profile (explicit or catalog default) when
+ *   one survives; otherwise override → active. A pinned override on a bare call
+ *   site therefore attributes to the override, not the stripped catalog default.
+ */
+export function resolveEffectiveProfileKey(
+  callSite: LLMCallSite,
+  llm: z.infer<typeof LLMSchema>,
+  opts: ResolveCallSiteOpts = {},
+): string | undefined {
+  const override = opts.overrideProfile ?? undefined;
+  if (callSite === "mainAgent") {
+    return override ?? resolveDefaultProfileKey(callSite, llm);
+  }
+  if (opts.forceOverrideProfile === true && override != null) {
+    return override;
+  }
+  const site =
+    llm.callSites?.[callSite] ??
+    effectiveDefault(callSite, llm, override != null);
+  if (site?.profile != null) return site.profile;
+  return override ?? llm.activeProfile ?? undefined;
+}
+
+/**
  * Stable non-null identity for profileless configs. Callers should prefer real
  * profile keys first; when no named profile applies, the resolved model id is
  * the only model-selection identifier available.

@@ -29,6 +29,7 @@ import {
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
+  resolveEffectiveProfileKey,
   resolveProfilelessModelKey,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
@@ -414,22 +415,21 @@ export async function runAgentLoopImpl(
   } => {
     try {
       const overrideProfile = readCurrentOverrideProfile();
-      const resolved = resolveCallSiteConfig(turnCallSite, config.llm, {
+      const resolveOpts = {
         overrideProfile,
         forceOverrideProfile,
         selectionSeed: ctx.conversationId,
-      });
-      // Mirror the resolver's precedence: for mainAgent (and a forced
-      // override) the override/active selection wins; for other call sites
-      // the call-site's own profile is authoritative and the override/active
-      // profile only stands when the site resolves no profile of its own.
-      const siteProfileKey =
-        config.llm.callSites?.[turnCallSite]?.profile ??
-        resolveDefaultProfileKey(turnCallSite, config.llm);
-      const profileName =
-        turnCallSite === "mainAgent" || forceOverrideProfile
-          ? (overrideProfile ?? siteProfileKey ?? config.llm.activeProfile)
-          : (siteProfileKey ?? overrideProfile ?? config.llm.activeProfile);
+      };
+      const resolved = resolveCallSiteConfig(
+        turnCallSite,
+        config.llm,
+        resolveOpts,
+      );
+      const profileName = resolveEffectiveProfileKey(
+        turnCallSite,
+        config.llm,
+        resolveOpts,
+      );
       return {
         ...(resolved.provider_connection
           ? { connectionName: resolved.provider_connection }
