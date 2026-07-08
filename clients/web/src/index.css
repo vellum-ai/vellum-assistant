@@ -124,6 +124,35 @@ body {
   }
 }
 
+/* Chat-loading skeleton shimmer — a soft gradient band sweeping left→right
+ * over the placeholder bars while conversation history loads (replaces the
+ * old opacity pulse). The highlight mixes the surface toward `--foreground`
+ * so it reads in every theme: lighter band in dark/velvet, darker in light. */
+@keyframes skeleton-shimmer {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+
+.skeleton-shimmer {
+  background-color: var(--surface-active);
+  background-image: linear-gradient(
+    90deg,
+    var(--surface-active) 35%,
+    color-mix(in srgb, var(--surface-active), var(--foreground) 12%) 50%,
+    var(--surface-active) 65%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer {
+    animation: none;
+    background-image: none;
+  }
+}
+
 /* Deep-link message highlight — a one-shot background flash applied when the
  * transcript scrolls to a message (e.g. opening a saved bookmark). Fades from
  * the active-surface tint back to transparent over 2s. */
