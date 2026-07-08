@@ -127,6 +127,28 @@ describe("schedules routes", () => {
   });
 });
 
+describe("skills routes", () => {
+  test("captures the skill id as a route param", () => {
+    const matches =
+      matchRoutes(routeTree as never, "/assistant/skills/my-skill") ?? [];
+    expect(matches.at(-1)?.params.skillId).toBe("my-skill");
+  });
+
+  // Round-trip for namespaced skills.sh catalog ids (`org/repo/skill`):
+  // `routes.skills.detail` percent-encodes the id into a single path segment
+  // so `skills/:skillId` matches, and React Router decodes the param back to
+  // the raw id — the detail page must NOT decode again.
+  test("round-trips slash-containing skill ids through detail URLs", async () => {
+    const { routes } = await import("@/utils/routes");
+    const url = routes.skills.detail("org/repo/shared-skill");
+    expect(url).toBe("/assistant/skills/org%2Frepo%2Fshared-skill");
+
+    const matches = matchRoutes(routeTree as never, url) ?? [];
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.at(-1)?.params.skillId).toBe("org/repo/shared-skill");
+  });
+});
+
 describe("settings route compatibility", () => {
   test("legacy MCP settings URL redirects to the Integrations MCP tab", () => {
     expect(leafRouteComponentName("/assistant/settings/mcp")).toBe(
