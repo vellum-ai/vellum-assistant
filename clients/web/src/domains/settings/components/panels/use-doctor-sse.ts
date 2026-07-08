@@ -187,20 +187,28 @@ export function useDoctorSSE() {
           useDoctorPanelStore.getState().setStreamingEntryId(id),
       };
 
-      const failStream = (content: string) => {
+      const failStream = (
+        content: string,
+        opts?: { reconnectable?: boolean },
+      ) => {
         if (!isCurrentStream()) {
           return;
         }
         controllerRef.current = null;
         const s = useDoctorPanelStore.getState();
-        // Transport failure — the session may still be live server-side.
-        // Snapshot the pending prompt flags so Reconnect can restore them.
-        // Server-terminal paths (status/error events) never set this, which
-        // is what gates the Reconnect affordance in the panel.
-        s.setReconnectSnapshot({
-          pendingApproval: s.pendingApproval,
-          pendingBackup: s.pendingBackup,
-        });
+        // A reconnectable failure is a transport-level one where the session
+        // may still be live server-side: snapshot the pending prompt flags so
+        // Reconnect can restore them. Unrecoverable paths (replay gaps,
+        // non-gateway HTTP failures) and server-terminal status/error events
+        // never set the snapshot, which is what gates the Reconnect button.
+        s.setReconnectSnapshot(
+          opts?.reconnectable
+            ? {
+                pendingApproval: s.pendingApproval,
+                pendingBackup: s.pendingBackup,
+              }
+            : null,
+        );
         s.setThinking(false);
         s.setPendingApproval(false);
         s.setPendingBackup(false);
@@ -443,7 +451,10 @@ export function useDoctorSSE() {
             if (!isDoctorUnavailableStatus(failedStatus)) {
               captureError(streamError, { context: "doctor_sse_stream" });
             }
-            failStream(doctorStreamTerminalMessage(failedStatus));
+            failStream(doctorStreamTerminalMessage(failedStatus), {
+              reconnectable:
+                failedStatus === null || isDoctorUnavailableStatus(failedStatus),
+            });
             return;
           }
 

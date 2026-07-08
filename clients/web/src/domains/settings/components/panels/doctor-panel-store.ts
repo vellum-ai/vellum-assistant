@@ -55,10 +55,11 @@ export interface DoctorPanelState {
   processedSourceEventIds: Set<string>;
 
   /**
-   * Pending prompt flags captured at the moment of a *transport* stream
-   * failure. Only `failStream` sets this — a server-terminal session error
-   * never does — so its presence is what marks an error state as
-   * re-attachable via Reconnect. Cleared on reconnect and on session reset.
+   * Pending prompt flags captured when the stream fails in a way that is
+   * re-attachable (transport-level failure while the session may still be
+   * live server-side). Unrecoverable stream failures and server-terminal
+   * session errors never set this, so its presence is what gates the
+   * Reconnect affordance. Cleared on reconnect and on session reset.
    */
   reconnectSnapshot: { pendingApproval: boolean; pendingBackup: boolean } | null;
 }
