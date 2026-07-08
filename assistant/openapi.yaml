@@ -26390,6 +26390,11 @@ paths:
                           origin:
                             type: string
                             const: assistant-memory
+                          sourceConversationId:
+                            description:
+                              Conversation whose trace the retrospective distilled this skill from. Present only when recorded in
+                              install-meta.
+                            type: string
                         required:
                           - id
                           - name

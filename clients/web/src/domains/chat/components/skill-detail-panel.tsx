@@ -23,6 +23,7 @@ import {
 } from "@vellumai/design-library";
 
 import { FileMarkdown } from "@/components/file-markdown";
+import { SkillLineageLink } from "@/components/skill-lineage-link";
 import { DetailShell } from "@/domains/chat/components/detail-shell";
 import {
   skillsByIdFilesContentGetOptions,
@@ -175,6 +176,13 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
               >
                 {skill.description}
               </Typography>
+            )}
+            {skill && (
+              <SkillLineageLink
+                skill={skill}
+                className="mb-4"
+                onNavigate={onClose}
+              />
             )}
             {skillMdContent && <FileMarkdown content={skillMdContent} />}
           </>

@@ -18,6 +18,7 @@ import {
     SourcePre,
 } from "@/components/file-editor";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
+import { SkillLineageLink } from "@/components/skill-lineage-link";
 import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
@@ -44,6 +45,11 @@ interface SkillDetailProps {
   onRemove?: () => void;
   isInstalling?: boolean;
   isRemoving?: boolean;
+  /**
+   * Source conversation this skill was distilled from (assistant-memory
+   * skills only) — renders a quiet lineage link when present.
+   */
+  sourceConversationId?: string;
 }
 
 export function SkillDetail({
@@ -54,6 +60,7 @@ export function SkillDetail({
   onRemove,
   isInstalling = false,
   isRemoving = false,
+  sourceConversationId,
 }: SkillDetailProps) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
@@ -119,6 +126,10 @@ export function SkillDetail({
               >
                 {skill.description}
               </p>
+              <SkillLineageLink
+                skill={{ origin: skill.origin, sourceConversationId }}
+                className="mt-1"
+              />
             </div>
           </div>
           {available ? (

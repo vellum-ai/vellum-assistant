@@ -12,7 +12,10 @@ import { SkillsLoadingState } from "@/domains/intelligence/components/skills/ski
 import { SkillsStateCard } from "@/domains/intelligence/components/skills/skills-state-card";
 import { type SkillInfo } from "@/domains/intelligence/skills/types";
 import { useSkillActions } from "@/domains/intelligence/skills/use-skill-actions";
-import { skillsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  skillsByIdGetOptions,
+  skillsGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
@@ -80,6 +83,20 @@ export function SkillDetailPage() {
     [skills, skillId],
   );
 
+  // Conversation lineage lives only on the single-skill detail response, not
+  // the list the page resolves from — fetch it lazily, and only for
+  // retrospective-authored skills (the only origin that can carry it).
+  const lineageQuery = useQuery({
+    ...skillsByIdGetOptions({
+      path: { assistant_id: assistantId, id: skillId ?? "" },
+    }),
+    enabled: Boolean(skillId) && skill?.origin === "assistant-memory",
+    select: (data) =>
+      data.skill.origin === "assistant-memory"
+        ? (data.skill.sourceConversationId ?? null)
+        : null,
+  });
+
   if (!skillId) {
     return <Navigate to={routes.skills.root} replace />;
   }
@@ -120,6 +137,7 @@ export function SkillDetailPage() {
     onRemove: () => handleRemove(skill),
     isInstalling: isInstallingSkill(skill),
     isRemoving: isRemovingSkill(skill),
+    sourceConversationId: lineageQuery.data ?? undefined,
   };
 
   return (

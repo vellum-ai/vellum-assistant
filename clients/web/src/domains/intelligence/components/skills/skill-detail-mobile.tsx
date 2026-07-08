@@ -13,6 +13,7 @@ import { useEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
 import { isMarkdown } from "@/components/file-markdown";
+import { SkillLineageLink } from "@/components/skill-lineage-link";
 import {
     isAvailableSkill,
     isRemovableSkill,
@@ -39,6 +40,11 @@ interface SkillDetailMobileProps {
    * subtree, so the owning page can't wrap it in its own ref'd container.
    */
   swipeContainerRef?: RefObject<HTMLDivElement | null>;
+  /**
+   * Source conversation this skill was distilled from (assistant-memory
+   * skills only) — renders a quiet lineage link when present.
+   */
+  sourceConversationId?: string;
 }
 
 /**
@@ -69,6 +75,7 @@ export function SkillDetailMobile({
   isInstalling = false,
   isRemoving = false,
   swipeContainerRef,
+  sourceConversationId,
 }: SkillDetailMobileProps) {
   const available = isAvailableSkill(skill);
   const removable = isRemovableSkill(skill);
@@ -168,6 +175,9 @@ export function SkillDetailMobile({
         >
           {skill.description}
         </p>
+        <SkillLineageLink
+          skill={{ origin: skill.origin, sourceConversationId }}
+        />
       </div>
 
       {/* Content card — 24px below the description */}
