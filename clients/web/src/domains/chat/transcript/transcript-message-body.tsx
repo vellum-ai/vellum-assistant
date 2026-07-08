@@ -24,15 +24,12 @@ import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/desc
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import { MultiActivityGroup } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
+import { WEB_TOOL_NAMES } from "@/domains/chat/utils/tool-call-card-utils";
 import {
-  WEB_TOOL_NAMES,
-  type ToolCallCardItem,
-} from "@/domains/chat/utils/tool-call-card-utils";
-import {
+  activityItemsToCardData,
   type ContentBlockActivityItem,
   groupContentBlocks,
   isSubagentSpawnCall,
-  isSuppressedUiTool,
 } from "@/domains/chat/transcript/message-content";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
@@ -459,29 +456,11 @@ export function TranscriptMessageBody({
     isLastGroup: boolean,
     groupIndex: number,
   ): ReactNode => {
-    const cardItems: ToolCallCardItem[] = [];
-    const groupToolCalls: ChatMessageToolCall[] = [];
-    const thinkingContents: string[] = [];
-    for (const item of items) {
-      if (item.type === "thinking") {
-        if (item.thinking) {
-          thinkingContents.push(item.thinking);
-          cardItems.push({
-            kind: "thinking",
-            text: item.thinking,
-            startedAt: item.startedAt,
-            completedAt: item.completedAt,
-          });
-        }
-      } else {
-        const tc = item.toolCall;
-        if (isSuppressedUiTool(tc)) {
-          continue;
-        }
-        groupToolCalls.push(tc);
-        cardItems.push({ kind: "toolCall", toolCall: tc });
-      }
-    }
+    const { cardItems, toolCalls: groupToolCalls } =
+      activityItemsToCardData(items);
+    const thinkingContents = cardItems.flatMap((it) =>
+      it.kind === "thinking" ? [it.text] : [],
+    );
     const renderableToolCalls = groupToolCalls.filter(
       // Suppress the raw chip only for a card-backed run_workflow / acp_spawn /
       // background bash call (see cardBackedWorkflowRunId / cardBackedAcpRunId /
