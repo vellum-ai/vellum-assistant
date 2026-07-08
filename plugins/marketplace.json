@@ -94,7 +94,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/admin-copilot",
-        "ref": "3d375a31c910448e45723487d18358b78bf3ddb0"
+        "ref": "d30596aa50a1c702f5d74e05c45bd965d14e2107"
       },
       "description": "Proactive chief-of-staff: a morning digest, propose-then-confirm inbox triage, calendar prep, and a weekly competitor brief.",
       "category": "productivity",

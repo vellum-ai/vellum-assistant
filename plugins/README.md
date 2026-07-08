@@ -36,10 +36,12 @@ wired surface.
 
 The external plugin loader extends the assistant by wiring these contribution surfaces.
 
-| Surface             | Directory         | Discovery                                     |
-| ------------------- | ----------------- | --------------------------------------------- |
-| Lifecycle hooks     | `hooks/<name>.ts` | filename → `plugin.hooks[<name>]`             |
-| Model-visible tools | `tools/<name>.ts` | each file's default export → `plugin.tools[]` |
+| Surface             | Directory                | Discovery                                                       |
+| ------------------- | ------------------------ | --------------------------------------------------------------- |
+| Lifecycle hooks     | `hooks/<name>.ts`        | filename → `plugin.hooks[<name>]`                               |
+| Model-visible tools | `tools/<name>.ts`        | each file's default export → `plugin.tools[]`                   |
+| Skills              | `skills/<id>/SKILL.md`   | picked up on disk by the skill catalog loader                   |
+| Skill-scoped tools  | `skills/<id>/TOOLS.json` | registered only while the skill is active (see [Tools](#tools)) |
 
 ---
 
@@ -503,6 +505,19 @@ derives the model-visible tool name from the file basename (for example,
 `tools/recall.ts` becomes `recall`). Plugin tools land in the same registry
 as built-in tools and are visible to the model through the standard tool
 catalog.
+
+**Always-on cost — prefer skill-scoped tools.** A `tools/<name>.ts` tool sits
+on every conversation's tool catalog on every turn, whether or not the plugin
+is relevant. When a tool only matters while one of the plugin's skills is
+active, declare it in that skill's `TOOLS.json` instead: it registers when the
+skill loads, unregisters when the skill deactivates, and is invoked through
+`skill_execute` (its schema is rendered into the `skill_load` output). Skill
+tools in plugin skills must declare `execution_target: "sandbox"` — host
+execution is reserved for first-party bundled skills — and a tool name may be
+owned by only one skill, so share a single carrier skill via the parents'
+`includes` rather than duplicating the entry. See the `plugin-builder` skill's
+`references/skills.md` for the manifest shape; `admin-copilot` is the
+reference implementation.
 
 ```ts
 // tools/my_tool.ts
