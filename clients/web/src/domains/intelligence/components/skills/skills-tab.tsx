@@ -1,73 +1,67 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
     CheckCircle,
     CloudOff,
     Globe,
     LayoutGrid,
-    Loader2,
     Package,
     Puzzle,
     Sparkles,
     Terminal,
-    TriangleAlert,
     User,
     X,
     Zap,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { CategorySidebar } from "@/domains/intelligence/components/skills/category-sidebar";
-import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
-import { SkillDetailMobile } from "@/domains/intelligence/components/skills/skill-detail-mobile";
 import { FilterBar } from "@/domains/intelligence/components/skills/skill-filters";
+import { SkillRemovalDialog } from "@/domains/intelligence/components/skills/skill-removal-dialog";
 import { SkillRow } from "@/domains/intelligence/components/skills/skill-row";
-import { installSkill } from "@/domains/intelligence/skills/install";
+import { SkillsErrorState } from "@/domains/intelligence/components/skills/skills-error-state";
+import { SkillsLoadingState } from "@/domains/intelligence/components/skills/skills-loading-state";
+import { SkillsStateCard } from "@/domains/intelligence/components/skills/skills-state-card";
 import {
     type SkillFilter,
     type SkillInfo,
 } from "@/domains/intelligence/skills/types";
+import { useSkillActions } from "@/domains/intelligence/skills/use-skill-actions";
 import { useSkillCategories } from "@/domains/intelligence/skills/use-skill-categories";
 import { resolveFilterParams, sortSkills } from "@/domains/intelligence/skills/utils";
-import {
-    skillsGetOptions,
-    skillsGetQueryKey,
-    useSkillsByIdDeleteMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-import { type Options } from "@/generated/daemon/sdk.gen";
-import type { SkillsGetData } from "@/generated/daemon/types.gen";
+import { skillsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, setLocalBool } from "@/utils/local-settings";
-import { Button, Card, ConfirmDialog } from "@vellumai/design-library";
+import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library";
 
 interface SkillsTabProps {
   assistantId: string;
-  /**
-   * Optional skill id to open in the detail view on first mount. Comes from
-   * the `?skill=<id>` deep-link. Only seeds the initial state — internal
-   * navigation thereafter is local state.
-   */
-  initialSkillId?: string;
 }
 
 const SEARCH_DEBOUNCE_MS = 300;
 const TIP_STORAGE_KEY = "vellum:skills:tipDismissed";
 
-export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
-  const queryClient = useQueryClient();
-  const isMobile = useIsMobile();
+export function SkillsTab({ assistantId }: SkillsTabProps) {
+  const navigate = useNavigate();
 
   const [searchValue, setSearchValue] = useState("");
   const debouncedSearch = useDebouncedValue(searchValue.trim(), SEARCH_DEBOUNCE_MS);
   const [filter, setFilter] = useState<SkillFilter>("all");
   const [category, setCategory] = useState<string | null>(null);
-  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(initialSkillId ?? null);
-  const [installingSkillId, setInstallingSkillId] = useState<string | null>(null);
-  const [removingSkillId, setRemovingSkillId] = useState<string | null>(null);
-  const [skillPendingRemoval, setSkillPendingRemoval] = useState<SkillInfo | null>(null);
   const [tipDismissed, setTipDismissed] = useState(() =>
     getLocalBool(TIP_STORAGE_KEY, false),
   );
+
+  const {
+    handleInstall,
+    handleRemove,
+    isInstallingSkill,
+    isRemovingSkill,
+    skillPendingRemoval,
+    confirmRemove,
+    cancelRemove,
+  } = useSkillActions(assistantId);
 
   const { data: categories = [] } = useSkillCategories(assistantId);
 
@@ -110,52 +104,6 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
     enabled: Boolean(assistantId) && category !== null,
   });
 
-  const invalidateSkills = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: skillsGetQueryKey({
-        path: { assistant_id: assistantId },
-      } as Options<SkillsGetData>),
-    });
-  }, [assistantId, queryClient]);
-
-  const installMutation = useMutation({
-    mutationFn: (slug: string) => installSkill(assistantId, slug),
-    onMutate: (slug) => setInstallingSkillId(slug),
-    onSettled: () => {
-      setInstallingSkillId(null);
-      invalidateSkills();
-    },
-  });
-
-  const uninstallMutation = useSkillsByIdDeleteMutation({
-    onMutate: (variables) => setRemovingSkillId(variables.path.id),
-    onSettled: () => {
-      setRemovingSkillId(null);
-      invalidateSkills();
-    },
-  });
-
-  const handleInstall = useCallback(
-    (skill: SkillInfo) => {
-      installMutation.mutate(skill.slug ?? skill.id);
-    },
-    [installMutation],
-  );
-
-  const handleRemove = useCallback((skill: SkillInfo) => {
-    setSkillPendingRemoval(skill);
-  }, []);
-
-  const confirmRemove = useCallback(() => {
-    if (!skillPendingRemoval) {
-      return;
-    }
-    uninstallMutation.mutate({
-      path: { assistant_id: assistantId, id: skillPendingRemoval.id },
-    });
-    setSkillPendingRemoval(null);
-  }, [assistantId, skillPendingRemoval, uninstallMutation]);
-
   const handleDismissTip = useCallback(() => {
     setTipDismissed(true);
     setLocalBool(TIP_STORAGE_KEY, true);
@@ -174,50 +122,6 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   );
 
   const displayedSkills = useMemo(() => sortSkills(allSkills), [allSkills]);
-
-  const selectedSkill = useMemo(() => {
-    if (!selectedSkillId) return null;
-    return allSkills.find((s) => s.id === selectedSkillId) ?? null;
-  }, [allSkills, selectedSkillId]);
-
-  const removalDialog = (
-    <ConfirmDialog
-      open={skillPendingRemoval !== null}
-      title="Remove skill"
-      message={
-        skillPendingRemoval
-          ? `Remove "${skillPendingRemoval.name}" from this assistant?`
-          : ""
-      }
-      confirmLabel="Remove"
-      destructive
-      onConfirm={confirmRemove}
-      onCancel={() => setSkillPendingRemoval(null)}
-    />
-  );
-
-  if (selectedSkill) {
-    const detailProps = {
-      assistantId,
-      skill: selectedSkill,
-      onBack: () => setSelectedSkillId(null),
-      onInstall: () => handleInstall(selectedSkill),
-      onRemove: () => handleRemove(selectedSkill),
-      isInstalling:
-        installingSkillId === (selectedSkill.slug ?? selectedSkill.id),
-      isRemoving: removingSkillId === selectedSkill.id,
-    };
-    return (
-      <>
-        {isMobile ? (
-          <SkillDetailMobile {...detailProps} />
-        ) : (
-          <SkillDetail {...detailProps} />
-        )}
-        {removalDialog}
-      </>
-    );
-  }
 
   const isSearching = skillsQuery.isFetching && Boolean(debouncedSearch);
 
@@ -253,9 +157,9 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
 
         <div className="min-w-0 flex-1 overflow-y-auto">
           {skillsQuery.isLoading ? (
-            <LoadingState />
+            <SkillsLoadingState />
           ) : skillsQuery.isError ? (
-            <ErrorState />
+            <SkillsErrorState />
           ) : displayedSkills.length === 0 ? (
             <EmptyState filter={filter} category={category} />
           ) : (
@@ -264,11 +168,11 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
                 <li key={skill.id}>
                   <SkillRow
                     skill={skill}
-                    onSelect={() => setSelectedSkillId(skill.id)}
+                    onSelect={() => navigate(routes.skills.detail(skill.id))}
                     onInstall={() => handleInstall(skill)}
                     onRemove={() => handleRemove(skill)}
-                    isInstalling={installingSkillId === (skill.slug ?? skill.id)}
-                    isRemoving={removingSkillId === skill.id}
+                    isInstalling={isInstallingSkill(skill)}
+                    isRemoving={isRemovingSkill(skill)}
                   />
                 </li>
               ))}
@@ -276,7 +180,11 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
           )}
         </div>
       </div>
-      {removalDialog}
+      <SkillRemovalDialog
+        skill={skillPendingRemoval}
+        onConfirm={confirmRemove}
+        onCancel={cancelRemove}
+      />
     </div>
   );
 }
@@ -335,43 +243,6 @@ function TipBanner({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
-function LoadingState() {
-  return (
-    <div className="flex items-center justify-center py-16">
-      <Loader2
-        className="h-6 w-6 animate-spin"
-        style={{ color: "var(--content-tertiary)" }}
-      />
-    </div>
-  );
-}
-
-function ErrorState() {
-  return (
-    <Card.Root>
-      <Card.Body className="flex flex-col items-center justify-center py-16 text-center">
-        <TriangleAlert
-          className="mb-3 h-8 w-8"
-          style={{ color: "var(--system-danger)" }}
-          aria-hidden
-        />
-        <h3
-          className="text-title-small"
-          style={{ color: "var(--content-default)" }}
-        >
-          Failed to load skills
-        </h3>
-        <p
-          className="mt-1 max-w-sm text-body-medium-lighter"
-          style={{ color: "var(--content-tertiary)" }}
-        >
-          Something went wrong. Try refreshing the page.
-        </p>
-      </Card.Body>
-    </Card.Root>
-  );
-}
-
 function EmptyState({
   filter,
   category,
@@ -380,29 +251,7 @@ function EmptyState({
   category: string | null;
 }) {
   const { title, subtitle, Icon } = getEmptyStateCopy(filter, category);
-  return (
-    <Card.Root>
-      <Card.Body className="flex flex-col items-center justify-center py-16 text-center">
-        <Icon
-          className="mb-3 h-8 w-8"
-          style={{ color: "var(--content-tertiary)" }}
-          aria-hidden
-        />
-        <h3
-          className="text-title-small"
-          style={{ color: "var(--content-default)" }}
-        >
-          {title}
-        </h3>
-        <p
-          className="mt-1 max-w-sm text-body-medium-lighter"
-          style={{ color: "var(--content-tertiary)" }}
-        >
-          {subtitle}
-        </p>
-      </Card.Body>
-    </Card.Root>
-  );
+  return <SkillsStateCard icon={Icon} title={title} subtitle={subtitle} />;
 }
 
 function getEmptyStateCopy(
