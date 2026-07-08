@@ -6,47 +6,23 @@ import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routin
 import type { LLMConfigBase, ProfileEntry } from "./schemas/llm.js";
 
 /**
- * Materializes a partial custom profile into a complete, standalone override
- * by baking in the fields it currently inherits from `llm.default` under the
- * deep-merge resolver.
+ * Materializes a partial custom profile into a complete, standalone
+ * override: what `resolveCallSiteConfig` produces when this profile is the
+ * only profile layer above `llm.default`. Replicates the deep-merge
+ * resolver's non-obvious rules exactly:
  *
- * The completed entry pins the profile's *standalone* meaning: what
- * `resolveCallSiteConfig` produces today when this profile is the only
- * profile layer above `llm.default` (e.g. an override on a profile-less call
- * site). This is the baseline the M6 override-or-default resolver assumes —
- * once resolution stops merging, a profile must carry everything it means.
- *
- * Deliberate parity quirks with the current resolver:
- *
- * - Non-null `temperature`/`topP` on the default ARE inherited: the
- *   resolver's winning-profile scoping only blocks one PROFILE's sampling
- *   from leaking under another, while `llm.default`'s base sampling stands
- *   whenever no profile opts in. A null default (the schema default) is
- *   skipped — baking an explicit `null` would be noise with the same
- *   resolved result. `logitBias` is NEVER inherited: the resolver deletes
- *   any non-profile value post-merge, so only a profile that opted in
- *   carries it.
- * - Nested `thinking`/`contextWindow`/`openrouter` fragments merge
- *   leaf-by-leaf into the default's full object, mirroring the resolver's
- *   `deepMerge`.
+ * - Non-null default `temperature`/`topP` ARE inherited — winning-profile
+ *   scoping only blocks one profile's sampling from leaking under another;
+ *   `llm.default`'s base sampling stands when no profile opts in. Null
+ *   defaults are skipped (same resolved result, no noise). `logitBias` is
+ *   NEVER inherited — the resolver deletes non-profile values post-merge.
  * - A model-only profile gets the provider `withImpliedProviders` would
- *   stamp: the inherited default provider when it serves the model, else the
- *   model's catalog owner.
- * - The default's `provider_connection` is inherited when the completed
- *   provider is still the default's provider, and always when it is the
- *   provider-agnostic Vellum managed connection (which routes any managed
- *   provider via `expectedProvider`). A provider-SPECIFIC connection is not
- *   baked onto a profile that resolved to a different provider (explicitly
- *   or via model implication) — that would pin a mismatch; dispatch
- *   auto-resolves an absent connection by provider, exactly as it does for
- *   the partial profile today.
+ *   stamp: the default provider when it serves the model, else the model's
+ *   catalog owner.
  *
  * Mix profiles (no config fields, schema-enforced) and managed profiles
- * (bodies owned by the code catalog) pass through untouched.
- *
- * Idempotent: completing an already-complete profile is the identity.
- * Pure and synchronous; the returned entry never aliases `dflt`'s nested
- * objects.
+ * (bodies owned by the code catalog) pass through untouched. Idempotent,
+ * pure, and the result never aliases `dflt`'s nested objects.
  */
 export function completeCustomProfile(
   dflt: LLMConfigBase,
@@ -107,15 +83,11 @@ export function completeCustomProfile(
     }
   }
 
-  // A provider-specific connection row belongs to one provider: inheriting
-  // it onto a profile that resolved to a different provider (explicitly or
-  // via model implication) would bake in a mismatch, so it is inherited only
-  // when the completed provider is still the default's. The Vellum managed
-  // connection is the exception — it is provider-agnostic (dispatch routes
-  // it with `expectedProvider` set to the profile's provider), so dropping
-  // it would cut managed installs off from platform-proxy routing.
-  // Dispatch auto-resolves an absent connection by provider, exactly as it
-  // does for the partial profile today.
+  // A provider-specific connection baked onto a different provider would pin
+  // a mismatch (dispatch auto-resolves an absent connection by provider
+  // instead). The Vellum managed connection is provider-agnostic — dispatch
+  // routes it via `expectedProvider` — so it must survive a provider change
+  // or managed installs lose platform-proxy routing.
   if (
     profile.provider_connection === undefined &&
     dflt.provider_connection !== undefined &&
