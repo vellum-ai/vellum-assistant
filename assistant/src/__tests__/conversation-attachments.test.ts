@@ -29,6 +29,7 @@ const checkSpy = mock(() => Promise.resolve({ decision: "allow" }));
 const addRuleSpy = mock(() => {});
 
 mock.module("../permissions/checker.js", () => ({
+  isDynamicSkillLoadInvocation: () => false,
   check: checkSpy,
   classifyRisk: () => Promise.resolve({ level: "low" }),
   generateAllowlistOptions: () => Promise.resolve([]),
