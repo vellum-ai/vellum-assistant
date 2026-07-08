@@ -954,6 +954,38 @@ describe("classifyConversationError", () => {
     });
   });
 
+  describe("reason-less fallback stays functional", () => {
+    it("classifies a reason-less network Error via the regex battery", () => {
+      const result = classifyConversationError(
+        new Error("ECONNREFUSED"),
+        baseCtx,
+      );
+      expect(result.code).toBe("PROVIDER_NETWORK");
+      expect(result.errorCategory).toBe("provider_network");
+    });
+
+    it("classifies a reason-less ProviderError 500 via the status switch", () => {
+      const err = new ProviderError("Internal server error", "openai", 500);
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_server_error");
+    });
+
+    it("yields the same classification for a stamped reason and its reason-less twin", () => {
+      const withReason = classifyConversationError(
+        new ProviderError("boom", "openai", 500, { reason: "server_error" }),
+        baseCtx,
+      );
+      const withoutReason = classifyConversationError(
+        new ProviderError("boom", "openai", 500),
+        baseCtx,
+      );
+      expect(withReason.code).toBe(withoutReason.code);
+      expect(withReason.errorCategory).toBe(withoutReason.errorCategory);
+      expect(withReason.userMessage).toBe(withoutReason.userMessage);
+    });
+  });
+
   describe("debug detail truncation", () => {
     it("truncates debugDetails longer than 4000 chars", () => {
       const longMsg = "x".repeat(5000);
