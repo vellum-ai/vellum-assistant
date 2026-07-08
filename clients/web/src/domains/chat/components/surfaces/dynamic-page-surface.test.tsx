@@ -47,7 +47,9 @@ function isOpenAppEnabled(html: string): boolean {
   const openAppMatch = html.match(
     /<button([^>]*)>(?:(?!<\/button>)[\s\S])*?Open App/,
   );
-  if (!openAppMatch) return false;
+  if (!openAppMatch) {
+    return false;
+  }
   return !openAppMatch[1].includes('disabled=""');
 }
 
