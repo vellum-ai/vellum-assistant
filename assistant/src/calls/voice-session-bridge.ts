@@ -50,6 +50,58 @@ export function resolveProcessingWaitMs(
   return turnCommitMaxWaitMs + abortUnwindMs + PROCESSING_WAIT_MARGIN_MS;
 }
 
+/**
+ * Pending teardown of the most recent voice turn, per conversation id.
+ *
+ * `waitForIdle` releases on the `setProcessing(false)` transition, which the
+ * prior turn reaches BEFORE its agent-loop continuation runs
+ * `finally { cleanup() }`. A turn that starts on the idle transition alone
+ * could install its per-turn conversation state (trust context, call session
+ * id, client callback) and then have the prior turn's cleanup null that
+ * state mid-turn. The next turn awaits this promise — bounded by the same
+ * processing-wait budget — so cleanup always completes first.
+ */
+const pendingTurnTeardowns = new Map<string, Promise<void>>();
+
+/**
+ * Await a prior turn's teardown, bounded by `timeoutMs` and `signal`.
+ * Resolves `true` when the teardown settles, `false` on timeout; rejects
+ * when the signal aborts mid-wait. Timer and abort listener are removed on
+ * every exit path.
+ */
+async function waitForPriorTurnTeardown(
+  teardown: Promise<void>,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (signal?.aborted) {
+    throw new Error("Turn aborted while waiting for conversation");
+  }
+  return await new Promise<boolean>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const settleWait = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
+      settleWait();
+      reject(new Error("Turn aborted while waiting for conversation"));
+    };
+    timer = setTimeout(() => {
+      settleWait();
+      resolve(false);
+    }, timeoutMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    void teardown.then(() => {
+      settleWait();
+      resolve(true);
+    });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -350,17 +402,19 @@ export async function startVoiceTurn(
   // Get or create the conversation
   const conversation = await getOrCreateConversation(opts.conversationId);
 
+  const config = getConfig();
+  const maxWaitMs = resolveProcessingWaitMs(
+    config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
+    ABORT_WATCHDOG_MS,
+  );
+  const waitStartedAt = Date.now();
+
   if (conversation.isProcessing()) {
     // Voice barge-in can race with turn teardown. Wait for the previous
     // turn to finish aborting before giving up. The wait is event-driven —
     // `waitForIdle` resolves from the `setProcessing(false)` transition —
     // so the turn starts on the same tick the lock releases instead of
     // paying up to a 50 ms poll interval after every barge-in.
-    const config = getConfig();
-    const maxWaitMs = resolveProcessingWaitMs(
-      config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
-      ABORT_WATCHDOG_MS,
-    );
     let idle: boolean;
     try {
       idle = await conversation.waitForIdle({
@@ -379,6 +433,25 @@ export async function startVoiceTurn(
       // releasing, so the prior turn is genuinely wedged. The controller
       // catches this terminal error and speaks a brief non-technical
       // re-prompt rather than staying silent.
+      throw new Error("Conversation is already processing a message");
+    }
+  }
+
+  // The idle transition alone is not enough: the prior turn's
+  // `finally { cleanup() }` runs after `setProcessing(false)`. Wait for that
+  // teardown on the remaining budget so this turn's per-turn conversation
+  // state cannot be nulled by the prior turn's cleanup (see
+  // `pendingTurnTeardowns`). In practice this settles within a few
+  // microtasks; the bound only guards a wedged continuation.
+  const priorTeardown = pendingTurnTeardowns.get(opts.conversationId);
+  if (priorTeardown) {
+    const remainingMs = Math.max(0, maxWaitMs - (Date.now() - waitStartedAt));
+    const torndown = await waitForPriorTurnTeardown(
+      priorTeardown,
+      remainingMs,
+      opts.signal,
+    );
+    if (!torndown) {
       throw new Error("Conversation is already processing a message");
     }
   }
@@ -591,6 +664,21 @@ export async function startVoiceTurn(
   });
   clientCallbackInstalled = true;
 
+  // Registered before the agent loop starts so the NEXT turn on this
+  // conversation waits for this turn's `finally { cleanup() }` — not just
+  // the processing-flag release — before installing its own per-turn state.
+  let resolveTeardown!: () => void;
+  const teardownSettled = new Promise<void>((resolve) => {
+    resolveTeardown = resolve;
+  });
+  pendingTurnTeardowns.set(opts.conversationId, teardownSettled);
+  const settleTurnTeardown = () => {
+    if (pendingTurnTeardowns.get(opts.conversationId) === teardownSettled) {
+      pendingTurnTeardowns.delete(opts.conversationId);
+    }
+    resolveTeardown();
+  };
+
   // Fire-and-forget the agent loop
   void (async () => {
     try {
@@ -645,6 +733,7 @@ export async function startVoiceTurn(
       eventSink.onError(message);
     } finally {
       cleanup();
+      settleTurnTeardown();
     }
   })();
 

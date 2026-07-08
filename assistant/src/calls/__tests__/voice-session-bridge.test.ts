@@ -74,6 +74,8 @@ interface FakeConversation {
 function makeFakeConversation(opts: {
   processing: boolean;
   waitForIdle?: (options: WaitForIdleCall) => Promise<boolean>;
+  runAgentLoop?: () => Promise<void>;
+  events?: string[];
 }) {
   const waitForIdleCalls: WaitForIdleCall[] = [];
   let persistCount = 0;
@@ -99,10 +101,15 @@ function makeFakeConversation(opts: {
     setVoiceCallControlPrompt: () => {},
     persistUserMessage: async () => {
       persistCount += 1;
+      opts.events?.push("persist");
       return { id: `msg-${persistCount}` };
     },
-    updateClient: () => {},
-    runAgentLoop: async () => {},
+    // The install (reset falsy) / reset (reset true) pair marks a turn
+    // taking ownership of the conversation vs a turn's cleanup releasing it.
+    updateClient: (_cb, reset) => {
+      opts.events?.push(reset ? "client:reset" : "client:install");
+    },
+    runAgentLoop: () => (opts.runAgentLoop ?? (async () => {}))(),
     abort: () => {},
   };
   return {
@@ -112,9 +119,9 @@ function makeFakeConversation(opts: {
   };
 }
 
-function makeTurnOptions(signal?: AbortSignal) {
+function makeTurnOptions(signal?: AbortSignal, conversationId?: string) {
   return {
-    conversationId: "conv-voice-bridge-test",
+    conversationId: conversationId ?? "conv-voice-bridge-test",
     // The synthetic opener marker keeps the turn off the user-echo
     // broadcast path (no event-hub / persisted-seq side effects in tests).
     content: CALL_OPENING_MARKER,
@@ -241,5 +248,74 @@ describe("startVoiceTurn conversation-lock wait", () => {
       startVoiceTurn(makeTurnOptions(controller.signal)),
     ).rejects.toThrow("Turn aborted while waiting for conversation");
     expect(fake.persistCount()).toBe(0);
+  });
+});
+
+describe("startVoiceTurn prior-turn teardown barrier", () => {
+  test("the next turn waits for the prior turn's cleanup before installing its state", async () => {
+    const events: string[] = [];
+    let releaseAgentLoop!: () => void;
+    const fake = makeFakeConversation({
+      // The processing flag is already false — modeling the window after
+      // `setProcessing(false)` fired the idle waiters but before the prior
+      // turn's agent-loop continuation ran `finally { cleanup() }`.
+      processing: false,
+      events,
+      runAgentLoop: () =>
+        new Promise<void>((resolve) => {
+          releaseAgentLoop = resolve;
+        }),
+    });
+    fakeConversation = fake.conversation;
+
+    // Turn 1 starts and suspends inside its agent loop.
+    await startVoiceTurn(makeTurnOptions(undefined, "conv-teardown-order"));
+    await flushMicrotasks();
+    expect(events).toEqual(["persist", "client:install"]);
+
+    // Turn 2 arrives during the teardown window: it must not persist or
+    // install its client callback until turn 1's cleanup has run.
+    const turn2 = startVoiceTurn(
+      makeTurnOptions(undefined, "conv-teardown-order"),
+    );
+    await flushMicrotasks();
+    expect(events).toEqual(["persist", "client:install"]);
+
+    releaseAgentLoop();
+    await flushMicrotasks();
+    await turn2;
+    // Turn 1's cleanup (client:reset) strictly precedes turn 2's persist
+    // and install — the state clobber the barrier exists to prevent.
+    expect(events).toEqual([
+      "persist",
+      "client:install",
+      "client:reset",
+      "persist",
+      "client:install",
+    ]);
+  });
+
+  test("an abort while waiting on a wedged prior teardown throws the turn-aborted error", async () => {
+    const controller = new AbortController();
+    const fake = makeFakeConversation({
+      processing: false,
+      // Wedged: the prior turn's agent loop never settles, so its
+      // teardown never runs.
+      runAgentLoop: () => new Promise<void>(() => {}),
+    });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn(makeTurnOptions(undefined, "conv-teardown-wedged"));
+    expect(fake.persistCount()).toBe(1);
+
+    const turn2 = startVoiceTurn(
+      makeTurnOptions(controller.signal, "conv-teardown-wedged"),
+    );
+    await flushMicrotasks();
+    controller.abort();
+    await expect(turn2).rejects.toThrow(
+      "Turn aborted while waiting for conversation",
+    );
+    expect(fake.persistCount()).toBe(1);
   });
 });
