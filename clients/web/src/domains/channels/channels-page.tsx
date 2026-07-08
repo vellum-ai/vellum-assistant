@@ -15,13 +15,13 @@ export interface ChannelsPageProps {
 }
 
 /**
- * Channels settings — the Slack/Telegram/Phone sub-tabs where the guardian
- * manages how and where the assistant can be reached. Rendered as its own tab
- * in the About Assistant nav (`/assistant/channels`): a page-level subtitle
- * above the tabbed content (the nav's tab already reads "Channels", so the
- * page repeats no heading). The Contacts page's assistant detail
- * (`AssistantChannelsDetail`) shows only a connect/disconnect summary of the
- * same channels; management stays here.
+ * Channels settings — the Slack/Telegram/Phone master-detail surface where
+ * the guardian manages how and where the assistant can be reached. Rendered
+ * as its own tab in the About Assistant nav (`/assistant/channels`): a
+ * page-level subtitle above the adapter list + detail panel (the nav's tab
+ * already reads "Channels", so the page repeats no heading). The Contacts
+ * page's assistant detail (`AssistantChannelsDetail`) shows only a
+ * connect/disconnect summary of the same channels; management stays here.
  */
 export function ChannelsPage({
   assistantId,
@@ -40,20 +40,18 @@ export function ChannelsPage({
   });
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden">
       <DetailCard
         showBorder={false}
         subtitle={`Manage where ${displayName} can be reached.`}
       />
 
-      <DetailCard>
-        <AssistantChannelsList
-          assistantId={assistantId}
-          assistantName={displayName}
-          initialChannel={setupChannel}
-          {...channelsController}
-        />
-      </DetailCard>
+      <AssistantChannelsList
+        assistantId={assistantId}
+        assistantName={displayName}
+        initialChannel={setupChannel}
+        {...channelsController}
+      />
 
       {a2aChannel ? (
         <ShareConnectionLinkButton onClick={inviteDialog.open} />
