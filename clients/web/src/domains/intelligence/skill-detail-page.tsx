@@ -120,7 +120,10 @@ export function SkillDetailPage() {
     return <SkillsLoadingState />;
   }
 
-  if (skillsQuery.isError) {
+  // `refetchOnMount: "always"` means every mount revalidates — a failed
+  // background refetch sets `isError` while keeping the cached list, so only
+  // surface the full-page error when there's no data to fall back on.
+  if (skillsQuery.isError && !skills) {
     return <SkillsErrorState />;
   }
 

@@ -7,6 +7,8 @@
  * - the page forces that refetch itself even when the cached list is still
  *   fresh under the app QueryClient's `staleTime` (the test client mirrors
  *   the production value so this can't silently regress),
+ * - a failed mount revalidation degrades to the cached render — the
+ *   full-page error state is reserved for a failure with no cached list,
  * - the back button restores the Skills list's query string passed as
  *   router state (search/filter/category survive detail navigation).
  *
@@ -52,9 +54,11 @@ function makeQueryClient() {
 }
 
 // Per-test holder: each `skillsGet` call resolves with the current payload,
-// gated on `listGate` when set (lets a case hold a refetch in flight).
+// gated on `listGate` when set (lets a case hold a refetch in flight) and
+// rejecting with `listError` when set (lets a case fail the fetch).
 let listSkills: SkillInfo[];
 let listGate: Promise<unknown> | null = null;
+let listError: Error | null = null;
 
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => ASSISTANT_ID,
@@ -66,6 +70,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   skillsGet: mock(async () => {
     if (listGate) {
       await listGate;
+    }
+    if (listError) {
+      throw listError;
     }
     return {
       data: { skills: listSkills } as SkillsGetResponse,
@@ -165,6 +172,7 @@ function renderDetail({
 beforeEach(() => {
   listSkills = [makeSkill()];
   listGate = null;
+  listError = null;
 });
 
 afterEach(() => {
@@ -231,6 +239,44 @@ describe("SkillDetailPage stale-list guard", () => {
     await waitFor(() => {
       expect(screen.getByText("Skill not found")).toBeTruthy();
     });
+  });
+});
+
+describe("SkillDetailPage revalidation failure", () => {
+  test("keeps the cached detail rendered when the mount revalidation fails", async () => {
+    // Every mount revalidates (`refetchOnMount: "always"`), and in TanStack
+    // v5 a failed refetch sets `isError` while KEEPING the cached data — a
+    // brief daemon blip must not replace an already-rendered detail with the
+    // full-page error state.
+    listError = new Error("daemon unavailable");
+
+    const client = makeQueryClient();
+    client.setQueryData(listQueryKey(), {
+      skills: [makeSkill()],
+    } as SkillsGetResponse);
+
+    renderDetail({ skillId: "skill-1", client });
+
+    // The cached detail renders immediately...
+    expect(screen.getByText("Detail: Fresh Skill")).toBeTruthy();
+
+    // ...and survives the refetch settling into an error.
+    await waitFor(() => {
+      expect(client.getQueryState(listQueryKey())?.status).toBe("error");
+    });
+    expect(screen.getByText("Detail: Fresh Skill")).toBeTruthy();
+    expect(screen.queryByText("Failed to load skills")).toBeNull();
+  });
+
+  test("shows the error state when the list fails with no cached data", async () => {
+    listError = new Error("daemon unavailable");
+
+    renderDetail({ skillId: "skill-1" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to load skills")).toBeTruthy();
+    });
+    expect(screen.queryByText("Detail: Fresh Skill")).toBeNull();
   });
 });
 
