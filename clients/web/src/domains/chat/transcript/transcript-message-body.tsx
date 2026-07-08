@@ -12,6 +12,7 @@ import {
 import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
+import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
@@ -62,24 +63,6 @@ import {
   type TranscriptMessageBodyProps,
   workflowRunIdForCall,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
-
-function inferImageMimeType(imageData: string): string {
-  const normalized = imageData.replace(/\s/g, "");
-  if (normalized.startsWith("iVBORw0KGgo")) return "image/png";
-  if (normalized.startsWith("/9j/")) return "image/jpeg";
-  if (normalized.startsWith("UklGR")) return "image/webp";
-  if (normalized.startsWith("R0lGOD")) return "image/gif";
-  if (normalized.startsWith("Qk")) return "image/bmp";
-  return "image/png";
-}
-
-function toolResultImageSrc(imageData: string): string {
-  const trimmed = imageData.trim();
-  if (/^data:image\/[a-z0-9.+-]+;base64,/i.test(trimmed)) {
-    return trimmed;
-  }
-  return `data:${inferImageMimeType(trimmed)};base64,${trimmed}`;
-}
 
 /**
  * Renders a `DisplayMessage`'s body by walking its unified `contentBlocks`
@@ -438,27 +421,13 @@ export function TranscriptMessageBody({
     );
   };
 
-  const renderToolResultImages = (toolCalls: ChatMessageToolCall[]) => {
-    if (hasAttachments) return null;
-    const images = toolCalls.flatMap((tc) => {
-      if (tc.imageDataList?.length) return tc.imageDataList;
-      return tc.imageData ? [tc.imageData] : [];
-    });
-    if (images.length === 0) return null;
-    return (
-      <div className="flex w-full flex-wrap gap-2">
-        {images.map((imageData, index) => (
-          <img
-            key={`tool-result-image-${index}`}
-            data-testid="tool-result-image"
-            src={toolResultImageSrc(imageData)}
-            alt={`Generated image ${index + 1}`}
-            className="max-h-72 max-w-full rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] object-contain sm:max-w-[28rem]"
-          />
-        ))}
-      </div>
-    );
-  };
+  const renderToolResultImages = (toolCalls: ChatMessageToolCall[]) => (
+    <ToolResultImages
+      toolCalls={toolCalls}
+      hasAttachments={hasAttachments}
+      assistantId={assistantId}
+    />
+  );
 
   const renderSurfaceNode = (
     surface: ConversationMessageSurface,
