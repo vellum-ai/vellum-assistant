@@ -160,6 +160,14 @@ describe("hook output sanitization", () => {
               { type: "file", source: { type: "base64" } },
               // Serializers read `content` off tool results.
               { type: "tool_result", tool_use_id: "tu-1" },
+              // Nested contentBlocks are validated recursively — media
+              // resolution dereferences nested image/file sources unguarded.
+              {
+                type: "tool_result",
+                tool_use_id: "tu-3",
+                content: "ok",
+                contentBlocks: [{ type: "image" }],
+              },
               // Valid siblings survive.
               {
                 type: "image",

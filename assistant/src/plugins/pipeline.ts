@@ -193,10 +193,13 @@ function isBlockish(block: unknown): block is ContentBlock {
         b.input !== null
       );
     case "tool_result":
+      // `contentBlocks` is validated recursively — media resolution recurses
+      // into it and dereferences nested image/file sources unguarded.
       return (
         typeof b.tool_use_id === "string" &&
         (typeof b.content === "string" || Array.isArray(b.content)) &&
-        (b.contentBlocks === undefined || Array.isArray(b.contentBlocks))
+        (b.contentBlocks === undefined ||
+          (Array.isArray(b.contentBlocks) && b.contentBlocks.every(isBlockish)))
       );
     case "web_search_tool_result":
       // `content` is deliberately unchecked — it is an opaque,
