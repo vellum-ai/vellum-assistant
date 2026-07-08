@@ -747,9 +747,9 @@ export class MediaStreamOutput implements CallTransport {
    * base64-encoded mu-law frames.
    *
    * Rather than trusting the declared `format` parameter (which may not
-   * match the actual bytes — e.g. when a provider is asked for WAV but
-   * returns mp3), this method **sniffs the magic bytes** to detect the
-   * real format:
+   * match the actual bytes — e.g. the declared format may be pcm while
+   * the provider returned mp3), this method **sniffs the magic bytes**
+   * to detect the real format:
    *
    * - **WAV** (`RIFF` header, bytes `0x52 0x49 0x46 0x46`): extracts
    *   raw PCM data from the WAV container, converts it to 8 kHz using the
