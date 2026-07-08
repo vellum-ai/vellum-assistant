@@ -8,7 +8,7 @@
  * 120 px so it never dominates the viewport.
  */
 
-import { MessageSquareQuote, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import {
   Button,
@@ -54,41 +54,38 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
       bordered
       className="group/quote bg-[var(--surface-lift)]"
     >
-      <Card.Body padding="md" className="flex items-start gap-2.5">
-        <MessageSquareQuote className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]" />
-        <div className="min-w-0 flex-1">
-          <Typography
-            as="div"
-            variant="body-small-default"
-            className={`${quoteBlockquoteClassName} mb-0`}
-          >
-            <span
-              aria-hidden="true"
-              className={quoteBlockquoteAccentClassName}
-            />
-            <span className={quoteBlockquoteContentClassName}>
-              {truncate(quote.quotedText, 80)}
-            </span>
-          </Typography>
-          <textarea
-            ref={replyRef}
-            value={quote.replyText}
-            onChange={(e) =>
-              updateStagedQuoteReply(quote.id, e.target.value)
-            }
-            rows={1}
-            placeholder="Type your reply…"
-            aria-label="Edit reply"
-            className="mt-1.5 w-full resize-none overflow-hidden border-none bg-transparent p-0 text-body-small-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none"
+      <Card.Body padding="md" className="relative flex flex-col gap-2 pr-8">
+        <Typography
+          as="div"
+          variant="body-small-default"
+          className={`${quoteBlockquoteClassName} mb-0`}
+        >
+          <span
+            aria-hidden="true"
+            className={quoteBlockquoteAccentClassName}
           />
-        </div>
+          <span className={quoteBlockquoteContentClassName}>
+            {truncate(quote.quotedText, 80)}
+          </span>
+        </Typography>
+        <textarea
+          ref={replyRef}
+          value={quote.replyText}
+          onChange={(e) =>
+            updateStagedQuoteReply(quote.id, e.target.value)
+          }
+          rows={1}
+          placeholder="Type your reply…"
+          aria-label="Edit reply"
+          className="w-full resize-none overflow-hidden border-none bg-transparent p-0 text-body-medium-lighter text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none"
+        />
         <Button
           variant="ghost"
           size="compact"
           iconOnly={<X />}
           expandOnMobile={false}
           onClick={() => removeStagedQuote(quote.id)}
-          className="shrink-0 self-center opacity-0 transition-opacity group-hover/quote:opacity-100 focus-visible:opacity-100"
+          className="absolute right-1 top-1 shrink-0 opacity-0 transition-opacity group-hover/quote:opacity-100 focus-visible:opacity-100"
           aria-label="Remove quote"
         />
       </Card.Body>
@@ -121,7 +118,7 @@ export function StagedQuotesStrip() {
   }
 
   return (
-    <div ref={scrollRef} className="mb-2 max-h-[180px] overflow-y-auto">
+    <div ref={scrollRef} className="mb-2 max-h-[180px] overflow-y-auto touch-mobile:px-3">
       <div className="flex flex-col gap-1.5">
         {stagedQuotes.map((quote) => (
           <StagedQuoteChip key={quote.id} quote={quote} />
