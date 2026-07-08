@@ -130,6 +130,32 @@ done
 exit 0
 `;
 
+/**
+ * Parse NUL-terminated `git status --porcelain -z` output into status/path
+ * pairs. NUL termination is required so paths with special characters
+ * (non-ASCII, quotes, newlines) arrive verbatim instead of C-style quoted.
+ * A rename/copy record is followed by a bare origin-path entry, which is
+ * skipped.
+ */
+function parsePorcelainZ(
+  stdout: string,
+): Array<{ status: string; path: string }> {
+  const entries = stdout.split("\0");
+  const parsed: Array<{ status: string; path: string }> = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i] ?? "";
+    if (entry.length < 4) {
+      continue;
+    }
+    const status = entry.substring(0, 2);
+    parsed.push({ status, path: entry.substring(3) });
+    if (status[0] === "R" || status[0] === "C") {
+      i++;
+    }
+  }
+  return parsed;
+}
+
 /** Properties added by Node's child_process errors. */
 interface ExecError extends Error {
   killed?: boolean;
@@ -724,23 +750,20 @@ export class WorkspaceGitService {
     // --untracked-files=all enumerates files inside untracked directories
     // instead of a "dir/" placeholder, so the per-file size filter below can
     // see them — otherwise a directory holding only oversized files would
-    // keep the workspace dirty forever.
+    // keep the workspace dirty forever. -z delivers special-character paths
+    // verbatim (unquoted) for the same reason.
     const { stdout } = await this.execGitStreaming([
       "status",
       "--porcelain",
       "--untracked-files=all",
+      "-z",
     ]);
 
     const staged: string[] = [];
     const modified: string[] = [];
     const untracked: string[] = [];
 
-    for (const line of stdout.split("\n")) {
-      if (!line) continue;
-
-      const status = line.substring(0, 2);
-      const file = line.substring(3);
-
+    for (const { status, path: file } of parsePorcelainZ(stdout)) {
       // First character is staged status, second is working tree status
       const stagedStatus = status[0];
       const workingStatus = status[1];
@@ -830,13 +853,7 @@ export class WorkspaceGitService {
       "-z",
     ]);
     const oversized = new Set<string>();
-    for (const entry of changed.stdout.split("\0")) {
-      // Entries are "XY <path>"; rename records append a bare origin-path
-      // entry, which fails the lstat inside isOversized and is skipped.
-      if (entry.length < 4) {
-        continue;
-      }
-      const path = entry.substring(3);
+    for (const { path } of parsePorcelainZ(changed.stdout)) {
       if (this.isOversized(path)) {
         oversized.add(path);
       }
@@ -872,15 +889,13 @@ export class WorkspaceGitService {
       .split("\0")
       .filter((p) => p.length > 0 && this.isOversized(p));
 
-    // Batched to stay clear of OS argv limits.
-    for (let i = 0; i < stagedOversized.length; i += 100) {
-      await this.execGit([
-        "reset",
-        "-q",
-        base,
-        "--",
-        ...stagedOversized.slice(i, i + 100),
-      ]);
+    if (stagedOversized.length > 0) {
+      // Literal pathspecs via stdin, mirroring the add above: a filename
+      // containing glob characters must not unstage other matching paths.
+      await this.execGitStreaming(
+        ["reset", "-q", base, "--pathspec-from-file=-", "--pathspec-file-nul"],
+        { input: stagedOversized.map((p) => `:(literal)${p}`).join("\0") },
+      );
     }
 
     const excluded = [...new Set([...oversized, ...stagedOversized])];

@@ -1624,6 +1624,37 @@ describe("WorkspaceGitService", () => {
       expect(entry).toContain("120000");
     });
 
+    test("oversized files with special-character names stay invisible", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Quoted by default porcelain output; -z must deliver it verbatim
+      const name = "résumé archive.bin";
+      writeFileSync(join(testDir, name), bigContent());
+
+      const status = await service.getStatus();
+      expect(status.clean).toBe(true);
+
+      await service.commitChanges("Special name");
+      expect(trackedFiles()).not.toContain(name);
+    });
+
+    test("unstaging an oversized glob-like name leaves lookalike paths staged", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // "a?.bin" as a pathspec would also match "ab.bin"
+      writeFileSync(join(testDir, "a?.bin"), bigContent());
+      writeFileSync(join(testDir, "ab.bin"), "small");
+      execFileSync("git", ["add", "--", ":(literal)a?.bin"], { cwd: testDir });
+
+      await service.commitChanges("Add files");
+
+      const tracked = trackedFiles();
+      expect(tracked).toContain("ab.bin");
+      expect(tracked).not.toContain("a?.bin");
+    });
+
     test("deletion of an oversized tracked file is committed", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();
