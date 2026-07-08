@@ -515,10 +515,7 @@ function reasonToClassification(
       }
       return invalidApiKeyClassification(args.attribution);
     case "rate_limited":
-      // A managed quota response (e.g. daily_quota_exceeded) can arrive with a
-      // stamped `rate_limited` reason but no managed routing source when the
-      // call used a per-connection platform auth path, so honor the body
-      // patterns too — mirroring the legacy isManagedUsageLimitError check.
+      // Match managed usage-limit body patterns, as the legacy path does.
       if (managed || MANAGED_USAGE_LIMIT_PATTERNS.some((p) => p.test(args.message))) {
         return {
           code: "MANAGED_USAGE_LIMIT",
@@ -583,10 +580,7 @@ function reasonToClassification(
       const prefix = "This model isn't available on your current provider plan";
       const suffix =
         "Switch to a different model or upgrade your plan in Settings → Models & Services.";
-      // Ride the existing PROVIDER_API code (not a new enum value) so a
-      // version-skewed client whose ConversationErrorCode schema predates this
-      // still parses the event and shows the banner; the specific signal rides
-      // the free-form errorCategory, which is skew-safe.
+      // Skew-safe code; the specific signal rides errorCategory.
       return {
         code: "PROVIDER_API",
         userMessage: detail
