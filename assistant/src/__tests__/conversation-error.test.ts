@@ -823,7 +823,7 @@ describe("classifyConversationError", () => {
   });
 
   describe("reason-driven classification (ProviderError.reason)", () => {
-    it("classifies reason=model_restricted as PROVIDER_MODEL_RESTRICTED and surfaces provider prose", () => {
+    it("classifies reason=model_restricted on the skew-safe PROVIDER_API code with a specific errorCategory", () => {
       const err = new ProviderError(
         "Vercel AI Gateway API error (403): Model claude-opus-4 is restricted on your plan [type=no_providers_available]",
         "vercel-ai-gateway",
@@ -833,7 +833,9 @@ describe("classifyConversationError", () => {
 
       const result = classifyConversationError(err, baseCtx);
 
-      expect(result.code).toBe("PROVIDER_MODEL_RESTRICTED");
+      // Rides the existing PROVIDER_API code so version-skewed clients still
+      // parse the event; the specific signal is on the free-form errorCategory.
+      expect(result.code).toBe("PROVIDER_API");
       expect(result.errorCategory).toBe("provider_model_restricted");
       expect(result.retryable).toBe(false);
       expect(result.userMessage).toContain(
@@ -852,7 +854,8 @@ describe("classifyConversationError", () => {
 
       const result = classifyConversationError(err, baseCtx);
 
-      expect(result.code).toBe("PROVIDER_MODEL_RESTRICTED");
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_model_restricted");
       expect(result.userMessage).toContain(
         "This model isn't available on your current provider plan. Switch",
       );

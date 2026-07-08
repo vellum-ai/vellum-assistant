@@ -583,8 +583,12 @@ function reasonToClassification(
       const prefix = "This model isn't available on your current provider plan";
       const suffix =
         "Switch to a different model or upgrade your plan in Settings → Models & Services.";
+      // Ride the existing PROVIDER_API code (not a new enum value) so a
+      // version-skewed client whose ConversationErrorCode schema predates this
+      // still parses the event and shows the banner; the specific signal rides
+      // the free-form errorCategory, which is skew-safe.
       return {
-        code: "PROVIDER_MODEL_RESTRICTED",
+        code: "PROVIDER_API",
         userMessage: detail
           ? `${prefix}: ${detail} ${suffix}`
           : `${prefix}. ${suffix}`,
