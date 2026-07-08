@@ -193,6 +193,17 @@ describe("OpenRouter provider.only plumbing", () => {
       expect(extras.reasoning).toBe(undefined);
     });
 
+    test("disabled thinking with effort none leaves the opt-out to the flat reasoning_effort field", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "x-ai/grok-4.20-beta",
+      );
+      const extras = provider.probeExtras({
+        config: { thinking: { type: "disabled" }, effort: "none" },
+      });
+      expect(extras).toEqual({});
+    });
+
     test("omitting reasoning avoids 400 from reasoning-only models like DeepSeek R1", () => {
       const provider = new ProbeOpenRouterProvider(
         "fake-key",

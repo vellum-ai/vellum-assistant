@@ -95,9 +95,10 @@ const VELLUM_PROFILE_IMPLS: Record<DefaultProfileKey, DefaultProfileTemplate> =
       label: "Speed",
       description: "Fastest responses at lower cost (DeepSeek V4 Flash)",
       maxTokens: 8192,
-      // Not "low": Fireworks strips the disabled `thinking` config but would
-      // still send a non-"none" effort as `reasoning_effort`, making this
-      // profile pay for reasoning despite thinking being off.
+      // Explicit reasoning opt-out. OpenAI-compat APIs default reasoning to
+      // "medium" when the field is omitted, and effort-driven providers encode
+      // disabled thinking through this same knob (see
+      // DISABLED_THINKING_USES_EFFORT_PROVIDERS in providers/retry.ts).
       effort: "none",
       thinking: { enabled: false, streamThinking: false },
       contextWindow: {
