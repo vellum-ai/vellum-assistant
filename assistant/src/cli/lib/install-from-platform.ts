@@ -28,8 +28,6 @@ import { dirname, join, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { getPlatformBaseUrl } from "../../config/env.js";
-import { credentialKey } from "../../security/credential-key.js";
-import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getExistingDeviceId } from "../../util/device-id.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
@@ -243,13 +241,16 @@ export async function installPluginViaPlatform(
   );
 }
 
-/** Best-effort read of the assistant API key; anonymous install when absent. */
+/**
+ * Best-effort resolution of the assistant API key through the authorized
+ * platform client (the same credential path `plugins publish` uses); the
+ * install proceeds anonymously when the daemon isn't connected to the platform.
+ */
 async function resolveAssistantApiKey(): Promise<string | undefined> {
   try {
-    const key = await getSecureKeyAsync(
-      credentialKey("vellum", "assistant_api_key"),
-    );
-    return key && key.length > 0 ? key : undefined;
+    const { VellumPlatformClient } = await import("../../platform/client.js");
+    const client = await VellumPlatformClient.create();
+    return client?.assistantApiKey || undefined;
   } catch {
     return undefined;
   }
