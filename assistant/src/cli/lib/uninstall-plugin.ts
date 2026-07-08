@@ -14,7 +14,7 @@
 import { existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { runOwnerShutdown } from "../../hooks/hook-loader.js";
+import { runShutdownHook } from "../../hooks/hook-loader.js";
 import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
@@ -65,7 +65,7 @@ export interface UninstallPluginResult {
  * must not assume it shares a process with its `init`. The plugin-api shim is
  * materialized first so a hook importing `@vellumai/plugin-api` resolves even in
  * a fresh CLI process; a missing, throwing, or slow hook is best-effort
- * (time-boxed inside {@link runOwnerShutdown}) and never blocks the removal.
+ * (time-boxed inside {@link runShutdownHook}) and never blocks the removal.
  */
 export async function uninstallPlugin(
   opts: UninstallPluginOptions,
@@ -90,7 +90,7 @@ export async function uninstallPlugin(
   // this runs in a fresh CLI process that never called `loadUserPlugins()`.
   // Best-effort — a failed shim just means the hook may not resolve.
   await ensurePluginApiShim().catch(() => {});
-  await runOwnerShutdown("plugin", join(target, "hooks"), name, "uninstall");
+  await runShutdownHook("plugin", name, "uninstall");
 
   rmSync(target, { recursive: true, force: true });
   return { name, target };

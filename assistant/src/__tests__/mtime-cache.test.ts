@@ -485,8 +485,11 @@ describe("workspace hooks (<workspace>/hooks/)", () => {
     // Load-time discovery doesn't reject a plugin whose manifest name equals
     // the synthetic workspace owner. The cache key is scoped by owner kind, so
     // `plugin:__workspace__/…` and `workspace:__workspace__/…` stay distinct
-    // and both hooks run.
-    const dir = freshPluginDir("shadow");
+    // and both hooks run. The install slug (directory basename) equals the
+    // manifest name, as the installer enforces — that's what makes the plugin's
+    // hooks resolve at `<plugins>/__workspace__/hooks` while the workspace
+    // owner's resolve at `<workspace>/hooks`, distinct directories.
+    const dir = freshPluginDir("__workspace__");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "__workspace__" });
     writeHook(
       dir,

@@ -1,8 +1,12 @@
 /**
  * Tests for {@link uninstallPlugin}.
  *
- * Each test materializes a temp workspace plugins directory and points
- * `uninstallPlugin` at it via the `workspacePluginsDir` option.
+ * The `shutdown` hook is resolved from `<workspace>/plugins/<name>/hooks` (the
+ * installer-enforced layout), so tests materialize plugins under the real
+ * workspace plugins directory — the test-preload temp workspace — rather than a
+ * divergent temp dir. `workspacePluginsDir` is passed as the same directory so
+ * the rm target and the hook-resolution path stay in agreement, matching
+ * production (where the override is omitted and both fall back to it).
  */
 
 import {
@@ -19,6 +23,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { resetHookCacheForTests } from "../../../hooks/hook-loader.js";
+import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import { InvalidPluginNameError } from "../install-from-github.js";
 import {
   PluginNotInstalledError,
@@ -28,7 +34,10 @@ import {
 let pluginsDir: string;
 
 beforeEach(() => {
-  pluginsDir = mkdtempSync(join(tmpdir(), "plugins-uninstall-"));
+  pluginsDir = getWorkspacePluginsDir();
+  rmSync(pluginsDir, { recursive: true, force: true });
+  mkdirSync(pluginsDir, { recursive: true });
+  resetHookCacheForTests();
 });
 
 afterEach(() => {

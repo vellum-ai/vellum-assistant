@@ -47,7 +47,7 @@ import {
   type HookOwnerKind,
   resetHookCacheForTests,
   runInitHook,
-  runOwnerShutdown,
+  runShutdownHook,
   WORKSPACE_HOOKS_OWNER,
 } from "../hooks/hook-loader.js";
 import type { HookFunction, ShutdownReason } from "../plugin-api/types.js";
@@ -233,7 +233,7 @@ export async function getUserHookEntriesFor<TCtx = unknown>(
   await maybeReconcileFromSentinel();
   return collectUserHookEntries<TCtx>(
     hookName,
-    discoveredPluginDirs,
+    discoveredPluginDirs.values(),
     effectiveEnabledPlugins,
   );
 }
@@ -388,7 +388,7 @@ async function applySourceVersions(
       if (activeName !== undefined && !shouldBeUp) {
         const reason: ShutdownReason =
           after === undefined ? "uninstall" : "disable";
-        await deactivatePlugin(activeName, dir, reason);
+        await deactivatePlugin(activeName, reason);
         await evictPlugin(dir, activeName);
         sweepModules(before, after);
         membershipChanged = true;
@@ -412,7 +412,7 @@ async function applySourceVersions(
         // Tear the old version down first: `deactivatePlugin` runs `shutdown`,
         // then `evictHooksForOwner` drops the owner's cached resolutions so the
         // next read re-resolves fresh.
-        await deactivatePlugin(activeName, dir, "reload");
+        await deactivatePlugin(activeName, "reload");
         evictHooksForOwner("plugin", activeName);
         evictToolCacheEntries(activeName);
         sweepModules(before, after);
@@ -506,12 +506,7 @@ async function reconcileWorkspaceHooks(
     (p) => p.kind === "workspace" && p.name === WORKSPACE_HOOKS_OWNER,
   );
   if (activeIdx >= 0) {
-    await runOwnerShutdown(
-      "workspace",
-      getWorkspaceHooksDir(),
-      WORKSPACE_HOOKS_OWNER,
-      reason,
-    );
+    await runShutdownHook("workspace", WORKSPACE_HOOKS_OWNER, reason);
     activatedPlugins.splice(activeIdx, 1);
   }
   evictHooksForOwner("workspace", WORKSPACE_HOOKS_OWNER);
@@ -695,7 +690,7 @@ async function scanPlugins(): Promise<void> {
       const manifest = await parsePluginManifest(pluginDir);
       const pluginName = manifest?.name ?? entry;
       if (discoveredPluginDirs.has(pluginDir)) {
-        await deactivatePlugin(pluginName, pluginDir, "disable");
+        await deactivatePlugin(pluginName, "disable");
         await evictPlugin(pluginDir, pluginName);
       }
       if (!disabledPluginDirs.has(pluginDir)) {
@@ -728,7 +723,7 @@ async function scanPlugins(): Promise<void> {
   // Deactivate and evict cache entries for deleted plugins.
   for (const [pluginDir, pluginName] of discoveredPluginDirs) {
     if (!currentDirs.has(pluginDir)) {
-      await deactivatePlugin(pluginName, pluginDir, "uninstall");
+      await deactivatePlugin(pluginName, "uninstall");
       await evictPlugin(pluginDir, pluginName);
     }
   }
@@ -895,7 +890,7 @@ async function activatePlugin(
  * `shutdown` hook. Must run *before* `evictPlugin` / `evictHooksForOwner` clear
  * the owner's cache. Idempotent — a plugin that was never activated is a no-op.
  *
- * `disable` and `reload` keep the directory present, so {@link runOwnerShutdown}
+ * `disable` and `reload` keep the directory present, so {@link runShutdownHook}
  * resolves and runs the on-disk `shutdown` (via the same resolution the dispatch
  * path uses). `uninstall` runs nothing here: a managed uninstall runs `shutdown`
  * *before* removing the directory (see `cli/lib/uninstall-plugin.ts`), and an
@@ -903,7 +898,6 @@ async function activatePlugin(
  */
 async function deactivatePlugin(
   pluginName: string,
-  pluginDir: string,
   reason: ShutdownReason,
 ): Promise<void> {
   if (!activatedNames.has(pluginName)) {
@@ -929,12 +923,7 @@ async function deactivatePlugin(
   }
 
   if (reason !== "uninstall") {
-    await runOwnerShutdown(
-      "plugin",
-      join(pluginDir, "hooks"),
-      pluginName,
-      reason,
-    );
+    await runShutdownHook("plugin", pluginName, reason);
   }
 }
 
