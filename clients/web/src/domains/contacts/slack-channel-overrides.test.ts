@@ -58,7 +58,7 @@ describe("CAPABILITY_TIER_META", () => {
   });
 
   test("sublabels use the behavior framing, not tool inventory", () => {
-    expect(CAPABILITY_TIER_META.none.sublabel).toBe("ask before every action");
+    expect(CAPABILITY_TIER_META.none.sublabel).toBe("ask before acting");
     expect(CAPABILITY_TIER_META.low.sublabel).toBe(
       "safe actions, ask for the rest",
     );

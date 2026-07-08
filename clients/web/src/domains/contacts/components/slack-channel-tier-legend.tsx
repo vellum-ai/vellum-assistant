@@ -25,17 +25,19 @@ const TONE_DOT_COLOR: Record<TagTone, string> = {
  * Per-tier help copy, framed around behavior toward the people in the
  * channel: what the assistant does on its own when responding, and what
  * waits for the owner. Lives here rather than in `CAPABILITY_TIER_META`
- * because it interpolates the assistant's name and (for full access) links
- * out to the Privacy settings page.
+ * because it interpolates the assistant's name; the Trust Rules footnote
+ * below the grid links out to the Privacy settings page.
  *
  * Grounded in the approval-policy decision order
  * (`assistant/src/permissions/approval-policy.ts`): a channel cell replaces
- * the global threshold for this channel, deny trust rules block at every
- * threshold, and at `none` every tool call prompts (it isn't a tool ban).
- * Sensitive tools sit above the threshold entirely — for non-guardian
- * actors they always escalate to the owner without a scoped grant
- * (`assistant/src/tools/tool-approval-handler.ts`), so the full-access
- * copy keeps that caveat.
+ * the global threshold for this channel, and Trust Rules apply at every
+ * tier — deny rules block everywhere and allow rules auto-approve
+ * everywhere, which is why the precedence note is a legend-level footnote
+ * rather than per-tier copy (and why no tier promises to ask about
+ * everything). Sensitive tools sit above the threshold entirely — for
+ * non-guardian actors they always escalate to the owner without a scoped
+ * grant (`assistant/src/tools/tool-approval-handler.ts`), so the
+ * full-access copy keeps that caveat.
  */
 function tierDescription(
   tier: SlackCapabilityTier,
@@ -45,15 +47,16 @@ function tierDescription(
     case "none":
       return (
         <>
-          {assistantName} replies in this channel, but every action waits for
-          your approval first.
+          {assistantName} replies in this channel, and asks you before taking
+          actions.
         </>
       );
     case "low":
       return (
         <>
-          {assistantName} replies and runs safe, read-only tools on its own.
-          Anything that writes, sends, or spends asks first.
+          {assistantName} replies and runs low-risk actions on its own, like
+          reading files and web searches. Anything that writes, sends, or spends
+          asks first.
         </>
       );
     case "medium":
@@ -67,15 +70,7 @@ function tierDescription(
       return (
         <>
           {assistantName} runs any tool it has access to without asking.
-          Sensitive tools still come to you first, and anything you’ve
-          blocked in{" "}
-          <Link
-            to={routes.settings.privacy}
-            className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
-          >
-            Trust Rules
-          </Link>{" "}
-          stays blocked.
+          Sensitive tools still come to you first.
         </>
       );
   }
@@ -123,6 +118,23 @@ export function SlackChannelTierLegend({
           );
         })}
       </Card.Body>
+      <Card.Footer>
+        <Typography
+          as="p"
+          variant="body-small-default"
+          className="text-[color:var(--content-tertiary)]"
+        >
+          Your{" "}
+          <Link
+            to={routes.settings.privacy}
+            className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
+          >
+            Trust Rules
+          </Link>{" "}
+          apply at every level: actions you’ve allowed run without asking, and
+          actions you’ve blocked never run.
+        </Typography>
+      </Card.Footer>
     </Card.Root>
   );
 }

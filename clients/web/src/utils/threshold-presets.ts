@@ -1,4 +1,10 @@
-import { Lock, Shield, ShieldCheck, ShieldOff, type LucideIcon } from "lucide-react";
+import {
+  Lock,
+  Shield,
+  ShieldCheck,
+  ShieldOff,
+  type LucideIcon,
+} from "lucide-react";
 
 export type RiskThreshold = "none" | "low" | "medium" | "high";
 
@@ -15,14 +21,16 @@ export const THRESHOLD_PRESETS: ThresholdPreset[] = [
     id: "strict",
     label: "Strict",
     riskThreshold: "none",
-    description: "Always ask before acting. No actions are auto-approved.",
+    description:
+      "Always ask before acting. Only actions your Trust Rules allow run on their own.",
     icon: Lock,
   },
   {
     id: "conservative",
     label: "Conservative",
     riskThreshold: "low",
-    description: "Auto-approve low-risk actions like reading files and web searches.",
+    description:
+      "Auto-approve low-risk actions like reading files and web searches.",
     icon: ShieldCheck,
   },
   {
@@ -38,7 +46,7 @@ export const THRESHOLD_PRESETS: ThresholdPreset[] = [
     label: "Full access",
     riskThreshold: "high",
     description:
-      "Auto-approve all actions, including high-risk and unrecognized commands. Your assistant will never ask for permission.",
+      "Auto-approve all actions, including high-risk and unrecognized commands. Actions your Trust Rules block are still refused.",
     icon: ShieldOff,
   },
 ];
