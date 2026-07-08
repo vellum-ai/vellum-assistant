@@ -3,7 +3,10 @@
  * page-level branching, not the detail rendering:
  *
  * - the not-found guard waits for an in-flight list refetch before declaring
- *   a skill missing (a fresh skill can be absent from a stale cached list),
+ *   a skill missing (a fresh skill can be absent from a cached list),
+ * - the page forces that refetch itself even when the cached list is still
+ *   fresh under the app QueryClient's `staleTime` (the test client mirrors
+ *   the production value so this can't silently regress),
  * - the back button restores the Skills list's query string passed as
  *   router state (search/filter/category survive detail navigation).
  *
@@ -30,6 +33,23 @@ import type { SkillsGetResponse } from "@/generated/daemon/types.gen";
 
 const ASSISTANT_ID = "asst-1";
 const okResponse = { response: new Response(), error: undefined };
+
+/**
+ * Mirrors the app QueryClient's `staleTime` (`components/providers.tsx`) so
+ * the suite exercises production mount-refetch semantics: a <10s-old cached
+ * list is fresh and would NOT refetch on mount by default — the page must
+ * force revalidation itself (`refetchOnMount: "always"`) for the not-found
+ * guard to ever see a refetch.
+ */
+const PRODUCTION_STALE_TIME_MS = 10_000;
+
+function makeQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0, staleTime: PRODUCTION_STALE_TIME_MS },
+    },
+  });
+}
 
 // Per-test holder: each `skillsGet` call resolves with the current payload,
 // gated on `listGate` when set (lets a case hold a refetch in flight).
@@ -117,9 +137,7 @@ function SkillsListLanding() {
 function renderDetail({
   skillId,
   listSearch,
-  client = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  }),
+  client = makeQueryClient(),
 }: {
   skillId: string;
   listSearch?: string;
@@ -154,8 +172,8 @@ afterEach(() => {
 });
 
 describe("SkillDetailPage stale-list guard", () => {
-  test("shows loading (not 'Skill not found') while a stale cached list refetches", async () => {
-    // Seed a stale cached list that predates the requested skill; hold the
+  test("shows loading (not 'Skill not found') while an outdated cached list refetches", async () => {
+    // Seed a cached list that predates the requested skill; hold the
     // mount-triggered background refetch in flight.
     let releaseGate!: (value?: unknown) => void;
     listGate = new Promise((resolve) => {
@@ -163,22 +181,42 @@ describe("SkillDetailPage stale-list guard", () => {
     });
     listSkills = [makeSkill()];
 
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 } },
-    });
+    const client = makeQueryClient();
     client.setQueryData(listQueryKey(), {
       skills: [makeSkill({ id: "older-skill", name: "Older Skill" })],
     } as SkillsGetResponse);
 
     renderDetail({ skillId: "skill-1", client });
 
-    // Stale data without the skill + refetch in flight: loading, no verdict.
+    // Cached data without the skill + refetch in flight: loading, no verdict.
     expect(screen.queryByText("Skill not found")).toBeNull();
     expect(document.querySelector(".animate-spin")).not.toBeNull();
 
     releaseGate();
 
     // The refetch lands with the fresh skill and the detail renders.
+    await waitFor(() => {
+      expect(screen.getByText("Detail: Fresh Skill")).toBeTruthy();
+    });
+    expect(screen.queryByText("Skill not found")).toBeNull();
+  });
+
+  test("resolves a skill missing from a FRESH cached list (mount revalidation defeats staleTime)", async () => {
+    // Production repro: the Skills tab was viewed seconds ago (cache fresh
+    // under the 10s staleTime), then a freshly-authored skill's in-chat card
+    // is clicked. `setQueryData` stamps the entry as just-updated, so the
+    // default mount behavior would skip the refetch entirely and the page
+    // would render a terminal "Skill not found".
+    listSkills = [makeSkill()];
+
+    const client = makeQueryClient();
+    client.setQueryData(listQueryKey(), {
+      skills: [makeSkill({ id: "older-skill", name: "Older Skill" })],
+    } as SkillsGetResponse);
+
+    renderDetail({ skillId: "skill-1", client });
+
+    // The page forces a revalidation and the fresh skill resolves.
     await waitFor(() => {
       expect(screen.getByText("Detail: Fresh Skill")).toBeTruthy();
     });

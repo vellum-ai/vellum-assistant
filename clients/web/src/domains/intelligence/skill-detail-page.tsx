@@ -51,6 +51,13 @@ export function SkillDetailPage() {
       query: { include: "catalog" },
     }),
     select: (data): SkillInfo[] => data.skills,
+    // The app QueryClient's `staleTime` (10s) would skip the mount refetch
+    // when the list was viewed moments ago — but the not-found guard below
+    // depends on that refetch, or a freshly-authored skill absent from the
+    // cached list (e.g. its in-chat card clicked right after the Skills tab)
+    // renders a terminal "Skill not found". Always revalidate on mount; the
+    // shared cache key still renders the cached list instantly meanwhile.
+    refetchOnMount: "always",
   });
 
   const handleBack = useCallback(() => {
