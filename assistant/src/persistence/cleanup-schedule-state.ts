@@ -9,10 +9,15 @@
  * `auditLog.retentionDays` respectively.
  *
  * `maybeEnqueueScheduledCleanupJobs` in jobs-worker.ts owns that decision;
- * this module owns the per-job "last enqueue" timestamps so that code paths
- * outside jobs-worker — notably ConfigWatcher.refreshConfigFromSources — can
- * reset the throttle without pulling in jobs-worker's large transitive import
- * graph.
+ * this module owns the in-memory per-job "last enqueue" timestamps so that code
+ * paths outside jobs-worker — notably ConfigWatcher.refreshConfigFromSources —
+ * can reset the throttle without pulling in jobs-worker's large transitive
+ * import graph.
+ *
+ * These timestamps are the hot-path source of truth but are not themselves
+ * durable: jobs-worker persists each enqueue to a checkpoint and seeds this map
+ * from those checkpoints at startup, so an unchanged job's cadence survives a
+ * restart instead of re-firing on every boot.
  *
  * The ConfigWatcher uses resetCleanupScheduleThrottle() to ensure that
  * retention changes made via the UI (which flow through config.json →
@@ -47,10 +52,13 @@ export function markScheduledCleanupEnqueued(
 }
 
 /**
- * Clear every job's throttle so the next `maybeEnqueueScheduledCleanupJobs`
- * call re-enqueues immediately regardless of each job's retention window. Used
- * by ConfigWatcher when retention settings change, and by tests that need
- * deterministic scheduling.
+ * Clear every job's in-memory throttle so the next
+ * `maybeEnqueueScheduledCleanupJobs` call re-enqueues immediately regardless of
+ * each job's retention window. Used by ConfigWatcher when retention settings
+ * change, and by tests that need deterministic scheduling.
+ *
+ * This clears only the in-memory timestamps; the persisted checkpoints are
+ * rewritten by the next enqueue, so they self-heal on the following tick.
  */
 export function resetCleanupScheduleThrottle(): void {
   lastScheduledCleanupEnqueueMs.conversations = 0;
