@@ -17,6 +17,7 @@
  * - `activeWorkflowRunId` — workflow detail panel
  * - `activeAcpRunId` — ACP run detail panel
  * - `activeBackgroundTaskId` — background-task detail panel
+ * - `activeSkillDetailId` — skill detail panel
  *
  * App share/deploy lifecycle lives in `domains/chat/deploy-store.ts`.
  *
@@ -42,6 +43,7 @@ type OverlayView =
   | "workflow-detail"
   | "acp-run-detail"
   | "background-task-detail"
+  | "skill-detail"
   | "channel-setup";
 
 /**
@@ -105,6 +107,7 @@ function resolveViewBefore(
     | "viewBeforeWorkflowDetail"
     | "viewBeforeAcpRunDetail"
     | "viewBeforeBackgroundTaskDetail"
+    | "viewBeforeSkillDetail"
     | "viewBeforeChannelSetup",
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
@@ -115,6 +118,7 @@ function resolveViewBefore(
     mv === "workflow-detail" ||
     mv === "acp-run-detail" ||
     mv === "background-task-detail" ||
+    mv === "skill-detail" ||
     mv === "channel-setup"
   ) {
     return state[field];
@@ -136,6 +140,7 @@ export type MainView =
   | "workflow-detail"
   | "acp-run-detail"
   | "background-task-detail"
+  | "skill-detail"
   | "channel-setup";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
@@ -277,6 +282,8 @@ export interface ViewerState {
   viewBeforeAcpRunDetail: Exclude<MainView, OverlayView>;
   activeBackgroundTaskId: string | null;
   viewBeforeBackgroundTaskDetail: Exclude<MainView, OverlayView>;
+  activeSkillDetailId: string | null;
+  viewBeforeSkillDetail: Exclude<MainView, OverlayView>;
   activeChannelSetup: ChannelSetupPayload | null;
   viewBeforeChannelSetup: Exclude<MainView, OverlayView>;
   /**
@@ -319,6 +326,10 @@ export interface ViewerActions {
   // --- Background task detail ---
   openBackgroundTaskDetail: (id: string) => void;
   closeBackgroundTaskDetail: () => void;
+
+  // --- Skill detail ---
+  openSkillDetail: (skillId: string) => void;
+  closeSkillDetail: () => void;
 
   // --- Process-detail routing facade ---
   /**
@@ -395,6 +406,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeAcpRunDetail: "chat",
   activeBackgroundTaskId: null,
   viewBeforeBackgroundTaskDetail: "chat",
+  activeSkillDetailId: null,
+  viewBeforeSkillDetail: "chat",
   activeChannelSetup: null,
   viewBeforeChannelSetup: "chat",
   ruleEditorRequestSeq: 0,
@@ -570,6 +583,23 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: get().viewBeforeBackgroundTaskDetail,
       activeBackgroundTaskId: null,
+    });
+  },
+
+  // --- Skill detail ---
+
+  openSkillDetail: (skillId) => {
+    set({
+      mainView: "skill-detail",
+      activeSkillDetailId: skillId,
+      viewBeforeSkillDetail: resolveViewBefore(get(), "viewBeforeSkillDetail"),
+    });
+  },
+
+  closeSkillDetail: () => {
+    set({
+      mainView: get().viewBeforeSkillDetail,
+      activeSkillDetailId: null,
     });
   },
 

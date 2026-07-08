@@ -29,6 +29,8 @@ export interface DetailShellProps {
   closeVariant?: "ghost" | "outlined";
   onClose: () => void;
   children: ReactNode;
+  /** Pinned action row below the scrollable body (e.g. a primary CTA). */
+  footer?: ReactNode;
 }
 
 export function DetailShell({
@@ -41,6 +43,7 @@ export function DetailShell({
   closeVariant = "ghost",
   onClose,
   children,
+  footer,
 }: DetailShellProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
@@ -76,6 +79,13 @@ export function DetailShell({
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
+
+      {/* Pinned footer */}
+      {footer && (
+        <div className="shrink-0 border-t border-[var(--border-base)] px-5 py-4">
+          {footer}
+        </div>
+      )}
     </div>
   );
 }
