@@ -9,6 +9,8 @@ import {
   filterRecords,
   str,
 } from "@/domains/chat/components/surfaces/surface-parse-helpers";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
 /**
@@ -65,11 +67,19 @@ function parseSkills(skills: unknown): SkillCardEntry[] {
  */
 export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const skills = parseSkills(surface.data.skills);
 
-  // Every row deep-links to the skill's dedicated detail page.
+  // Desktop: open the skill detail sidepanel in place, keeping the
+  // conversation visible. Mobile: side panels don't render on narrow
+  // viewports (mirroring the channel-setup hand-off in
+  // chat-content-layout.tsx), so deep-link to the dedicated detail page.
   const handleView = (skillId: string) => {
-    navigate(routes.skills.detail(skillId));
+    if (isMobile) {
+      navigate(routes.skills.detail(skillId));
+      return;
+    }
+    useViewerStore.getState().openSkillDetail(skillId);
   };
 
   if (skills.length === 0) {
