@@ -239,7 +239,6 @@ export function ChatMainPanel({
     isIdle,
     showThinking,
     isAssistantBusy,
-    hasStreamingAssistantMessage,
     isSendDisabledFromTurn,
     thinkingLabel,
     liveAssistantMessageId,
@@ -1031,7 +1030,7 @@ export function ChatMainPanel({
         scrollCoordinator.showScrollToLatest && messages.length > 0
       }
       onScrollToLatest={handleScrollToLatest}
-      isStreaming={showThinking || hasStreamingAssistantMessage}
+      showThinking={showThinking}
       refreshFeedback={refreshFeedback}
       onDismissRefreshFeedback={handleDismissRefreshFeedback}
       onRetryRefresh={handleRetryRefreshFromPill}

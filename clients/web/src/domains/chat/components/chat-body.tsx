@@ -87,7 +87,7 @@ export interface ChatBodyProps {
   onScrollToLatest: () => void;
   /** True when an assistant response is currently streaming — drives the
    *  animated dots indicator inside the "Go to Newest" pill. */
-  isStreaming?: boolean;
+  showThinking?: boolean;
 
   /** Active refresh-feedback pill, or `null` when no pill is shown. */
   refreshFeedback: RefreshFeedback | null;
@@ -182,7 +182,7 @@ export function ChatBody({
   isAttachmentDragOver,
   showScrollToLatest,
   onScrollToLatest,
-  isStreaming = false,
+  showThinking = false,
   refreshFeedback,
   onDismissRefreshFeedback,
   onRetryRefresh,
@@ -280,7 +280,7 @@ export function ChatBody({
             <div className="pointer-events-auto pb-2.5">
               <ScrollToLatestButton
                 onClick={onScrollToLatest}
-                isStreaming={isStreaming}
+                isStreaming={showThinking}
               />
             </div>
           )}

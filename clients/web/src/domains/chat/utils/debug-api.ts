@@ -153,24 +153,13 @@ export interface PendingInteractionsSnapshot {
 }
 
 /**
- * Avatar streaming-ring state block — answers "why is the spinning ring
- * around the avatar showing (or stuck) — or not showing?".
- *
- * The ring renders in {@link ChatAvatar} for custom-image avatars iff
- * `isStreaming || isProcessing` (see `chat-avatar.tsx`, and the props wired
- * in `chat-route-content.tsx`). This mirrors those two gates so a developer
- * can tell at a glance which one is keeping it lit — most usefully when the
- * ring "hangs" after a turn ends, which means one gate is still latched on.
- *
- * Distinct from the transcript "thinking…" dots described by
- * {@link ChatDebugThinkingIndicator}: the dots gate on the stricter
- * {@link shouldShowThinkingIndicator} predicate (which tolerates a stale
- * `activeConversationIsProcessing` snapshot via `hasPendingAssistantResponse`),
- * whereas the ring trusts the coarse `isStreaming`/`isProcessing` OR directly.
+ * Raw values the UI uses to decide avatar ring + thinking dots visibility.
+ * No derived wrappers — these are the exact booleans the render path reads.
  */
 export interface ChatDebugStreamingRing {
-  /** Whether the avatar ring would render this frame — `isAssistantBusy`. */
-  visible: boolean;
+  isAssistantBusy: boolean;
+  shouldShowThinkingIndicator: boolean;
+  activeConversationIsProcessing: boolean | undefined;
 }
 
 /** Result of {@link ChatDebugApi.thinkingIndicator}. */
@@ -322,9 +311,9 @@ export interface ChatDebugApi {
    */
   thinkingIndicator(): ChatDebugThinkingIndicator;
   /**
-   * Live evaluation of the avatar streaming-ring — answers "is the spinning
-   * ring around the avatar showing (or stuck), or not showing?". Returns
-   * `.visible` from {@link isAssistantBusy}.
+   * Raw values the UI uses to decide avatar ring + thinking dots visibility.
+   * Returns `isAssistantBusy`, `shouldShowThinkingIndicator`, and
+   * `activeConversationIsProcessing` directly — no derived wrappers.
    *
    * Synchronous, side-effect-free; reads the same turn-store + UI-context
    * snapshot the React render path reads.
@@ -670,7 +659,9 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     const uiContext = refs.getUIContext();
 
     return {
-      visible: isAssistantBusy(turnState.phase, uiContext),
+      isAssistantBusy: isAssistantBusy(turnState.phase, uiContext),
+      shouldShowThinkingIndicator: shouldShowThinkingIndicator(turnState.phase, turnState.activeToolCallCount, uiContext),
+      activeConversationIsProcessing: uiContext.activeConversationIsProcessing,
     };
   }
 
@@ -824,7 +815,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
-      "  .streamingRing()           why the avatar ring is showing or stuck — .visible",
+      "  .streamingRing()           raw values for avatar ring + thinking dots — .isAssistantBusy / .shouldShowThinkingIndicator / .activeConversationIsProcessing",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
       "  .serverMessages()          [experimental] fetch /v1/history and return the server snapshot response (messages + seq)",
       "                              (diff against getClientMessages() manually in the console)",

@@ -8,7 +8,7 @@ interface AnimatedAvatarProps {
   components: CharacterComponents;
   traits: CharacterTraits;
   size: number;
-  isStreaming?: boolean;
+  isAssistantBusy?: boolean;
   /**
    * Continuous idle "breathing" scale pulse. On by default; pass `false` to
    * keep the avatar still while leaving blink/twitch (and streaming morph)
@@ -102,7 +102,7 @@ function precomputeWobbledPaths(
  *   - Blink: random 3-7s eye scaleY squish, 20% double-blink
  *   - Twitch: random 8-15s body rotation wobble
  *
- * During streaming (`isStreaming`):
+ * During streaming (`isAssistantBusy`):
  *   - Morph: body path cycles through 16 wobbled variants
  *   - Scale + rotation CSS animations
  *   - Blink + twitch paused
@@ -113,7 +113,7 @@ export function AnimatedAvatar({
   components,
   traits,
   size,
-  isStreaming = false,
+  isAssistantBusy = false,
   breathe = true,
 }: AnimatedAvatarProps) {
   const reduce = useReducedMotion();
@@ -159,10 +159,10 @@ export function AnimatedAvatar({
   // only once an avatar actually streams.
   const morphPaths = useMemo(
     () =>
-      isStreaming
+      isAssistantBusy
         ? precomputeWobbledPaths(bodyShape.svgPath, 16, 0.06)
         : [bodyShape.svgPath],
-    [bodyShape.svgPath, isStreaming],
+    [bodyShape.svgPath, isAssistantBusy],
   );
 
   const [isBlinking, setIsBlinking] = useState(false);
@@ -174,12 +174,12 @@ export function AnimatedAvatar({
   useEffect(() => {
     // Force eyes open whenever blinking is disabled (reduced-motion or
     // streaming). A blink is a `setIsBlinking(true)` → 150ms → `false` pair;
-    // if `isStreaming` flips true mid-blink, this effect's cleanup cancels the
+    // if `isAssistantBusy` flips true mid-blink, this effect's cleanup cancels the
     // pending "un-blink" timeout, so without this reset `isBlinking` freezes
     // at `true` and the eyes stay squished (scaleY 0.1) until the component
     // remounts (page refresh / conversation switch). Mirrors the twitch
-    // guard (`effectiveTwitchAngle = isStreaming ? 0 : twitchAngle`).
-    if (reduce || isStreaming) {
+    // guard (`effectiveTwitchAngle = isAssistantBusy ? 0 : twitchAngle`).
+    if (reduce || isAssistantBusy) {
       setIsBlinking(false);
       return;
     }
@@ -217,14 +217,14 @@ export function AnimatedAvatar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [reduce, isStreaming]);
+  }, [reduce, isAssistantBusy]);
 
   useEffect(() => {
     // Reset the body angle when twitching is disabled so a twitch interrupted
     // mid-flight by streaming can't freeze the body rotated. (The render also
     // guards this via `effectiveTwitchAngle`, but resetting the state keeps it
     // correct after streaming ends without waiting for the next twitch cycle.)
-    if (reduce || isStreaming) {
+    if (reduce || isAssistantBusy) {
       setTwitchAngle(0);
       return;
     }
@@ -252,11 +252,11 @@ export function AnimatedAvatar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [reduce, isStreaming]);
+  }, [reduce, isAssistantBusy]);
 
   // Morph path cycling (only during streaming)
   useEffect(() => {
-    if (!isStreaming || reduce) {
+    if (!isAssistantBusy || reduce) {
       setMorphIndex(0);
       return;
     }
@@ -271,23 +271,23 @@ export function AnimatedAvatar({
       if (morphTimerRef.current) clearInterval(morphTimerRef.current);
       morphTimerRef.current = null;
     };
-  }, [isStreaming, reduce, morphPaths.length]);
+  }, [isAssistantBusy, reduce, morphPaths.length]);
 
   const bodyCenterX = size / 2;
   const bodyCenterY = size / 2;
 
   const breatheAnimation = reduce
     ? "none"
-    : isStreaming
+    : isAssistantBusy
       ? "avatar-morph-scale 2.4s ease-in-out infinite, avatar-morph-rotate 3s ease-in-out infinite"
       : breathe
         ? "avatar-breathe-kf 4s ease-in-out infinite"
         : "none";
 
-  const effectiveTwitchAngle = isStreaming ? 0 : twitchAngle;
+  const effectiveTwitchAngle = isAssistantBusy ? 0 : twitchAngle;
   // Never squish the eyes while streaming — guards the one frame between
-  // `isStreaming` flipping true and the blink effect resetting `isBlinking`.
-  const effectiveBlinking = isBlinking && !isStreaming;
+  // `isAssistantBusy` flipping true and the blink effect resetting `isBlinking`.
+  const effectiveBlinking = isBlinking && !isAssistantBusy;
   const currentBodyPath = morphPaths[morphIndex] ?? bodyShape.svgPath;
 
   return (
@@ -316,7 +316,7 @@ export function AnimatedAvatar({
           fill={color.hex}
           transform={bodyTransform}
           style={{
-            transition: isStreaming ? "d 0.3s ease-in-out" : "none",
+            transition: isAssistantBusy ? "d 0.3s ease-in-out" : "none",
           }}
         />
       </g>

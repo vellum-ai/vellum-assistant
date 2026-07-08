@@ -42,10 +42,6 @@ export interface ChatUIState {
   /** Whether the assistant is actively working (not waiting for user input).
    *  Single source of truth for the avatar spinner and stop button. */
   isAssistantBusy: boolean;
-  /** True when there is a live streaming assistant message in the transcript.
-   *  Used by the scroll-to-latest button pulse, which is a streaming signal
-   *  distinct from the busy/avatar signal. */
-  hasStreamingAssistantMessage: boolean;
   /** Whether the turn-level state blocks sending (pending secret or
    *  confirmation). Does NOT include typing-disabled conditions (loading
    *  history, maintenance, disk pressure, channel readonly) — the caller
@@ -168,7 +164,6 @@ export function useChatUIState(): ChatUIState {
     isIdle: phase === "idle",
     showThinking,
     isAssistantBusy,
-    hasStreamingAssistantMessage,
     isSendDisabledFromTurn,
     thinkingLabel,
     liveAssistantMessageId,

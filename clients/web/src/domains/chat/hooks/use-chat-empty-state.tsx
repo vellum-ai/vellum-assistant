@@ -135,7 +135,7 @@ export function useChatEmptyState({
           customImageUrl={avatarImageUrl}
           size={40}
           interactive
-          isProcessing={isAssistantBusy}
+          isAssistantBusy={isAssistantBusy}
         />
       ) : null,
     greeting: editingApp ? buildEditAppGreeting(editingApp) : emptyStateGreeting,
@@ -181,8 +181,7 @@ export function useChatEmptyState({
               customImageUrl={avatarImageUrl}
               size={56}
               interactive
-              isStreaming={isAssistantBusy}
-              isProcessing={false}
+              isAssistantBusy={isAssistantBusy}
             />
           )
         : undefined,
