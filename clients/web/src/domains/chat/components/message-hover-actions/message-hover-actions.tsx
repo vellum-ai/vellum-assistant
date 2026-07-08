@@ -9,6 +9,7 @@ import {
   useBookmarkToggle,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 type MessageHoverActionsProps = {
   /** The message whose text is copied and whose role/timestamp drive the row. */
@@ -109,6 +110,13 @@ export function MessageHoverActions({
     Boolean(conversationId) &&
     Boolean(message.id) &&
     !message.isOptimistic;
+
+  // Summarize is feature-flag gated like bookmarks: the button renders only
+  // when a caller provides the callback AND the `summarize-up-to-here` flag
+  // is on (callers also withhold the callback when the flag is off — this is
+  // the render-site half of that gate).
+  const summarizeUpToHereEnabled =
+    useClientFeatureFlagStore.use.summarizeUpToHere();
 
   // Flat plain-text body derived from the message's text blocks; this is the
   // copy payload and mirrors the daemon's `joinWithSpacing`.
@@ -212,7 +220,7 @@ export function MessageHoverActions({
         </button>
       )}
 
-      {onSummarizeUpToHere && (
+      {onSummarizeUpToHere && summarizeUpToHereEnabled && (
         <button
           type="button"
           onClick={onSummarizeUpToHere}

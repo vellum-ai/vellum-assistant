@@ -441,6 +441,14 @@
       "label": "One-time credential request links",
       "description": "Enable one-time credential-request links: the generate-link action in settings, the public credential entry page, and assistant-initiated links on channels without secure input.",
       "defaultEnabled": false
+    },
+    {
+      "id": "summarize-up-to-here",
+      "scope": "both",
+      "key": "summarize-up-to-here",
+      "label": "Summarize Up To Here",
+      "description": "Show the per-message Summarize up to here action and enable the conversation summarize endpoint",
+      "defaultEnabled": false
     }
   ]
 }

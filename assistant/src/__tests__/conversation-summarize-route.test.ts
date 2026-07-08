@@ -10,6 +10,7 @@
  *   conversation_error.
  * - Unexpected errors broadcast a retryable conversation_error.
  * - Processing is cleared and the queue drained on every outcome.
+ * - The `summarize-up-to-here` flag hides the endpoint (404) when disabled.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -25,6 +26,19 @@ mock.module("../util/logger.js", () => ({
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
+}));
+
+// The endpoint is gated behind the `summarize-up-to-here` flag (default
+// off). The suite's baseline is flag ON; the flag-off test flips this to
+// assert the endpoint hides as a 404.
+let summarizeFlagEnabled = true;
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string) =>
+    key === "summarize-up-to-here" && summarizeFlagEnabled,
+}));
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({}),
 }));
 
 const formatSummarizeUpToResultMock = mock(
@@ -209,6 +223,7 @@ async function settle() {
 }
 
 beforeEach(() => {
+  summarizeFlagEnabled = true;
   addMessageMock.mockClear();
   getConversationMock.mockClear();
   formatSummarizeUpToResultMock.mockClear();
@@ -276,6 +291,33 @@ describe("POST /v1/conversations/summarize", () => {
 
     expect(ctx.conversation.isProcessing()).toBe(false);
     expect(ctx.drainQueue).toHaveBeenCalledTimes(1);
+  });
+
+  test("feature flag off → 404 as if the endpoint does not exist", async () => {
+    summarizeFlagEnabled = false;
+    const ctx = makeConversation();
+    activeConversation = ctx.conversation;
+
+    const res = await callHandler(
+      summarizeHandler,
+      makeRequest({
+        conversationId: "conv-summarize-test",
+        beforeMessageId: "msg-42",
+      }),
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(404);
+    // Same body shape as the router's unknown-endpoint 404 — the surface is
+    // indistinguishable from a missing route.
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.message).toBe("Not found");
+    expect(ctx.setProcessing).not.toHaveBeenCalled();
+    expect(ctx.summarizeUpToMessage).not.toHaveBeenCalled();
+    expect(getConversationMock).not.toHaveBeenCalled();
   });
 
   test("busy conversation → 409 without claiming processing", async () => {
