@@ -832,12 +832,27 @@ export class WorkspaceGitService {
       if (hadLegacyDataRule || missingRules.length > 0) {
         let updated = content;
         if (missingRules.length > 0) {
+          // Negation rules must trail every Vellum rule (last matching
+          // pattern wins), so pull existing ones out and re-append them
+          // after the additions instead of leaving them mid-file.
+          const negationRules = WORKSPACE_GITIGNORE_RULES.filter((rule) =>
+            rule.startsWith("!"),
+          );
+          const negationSet = new Set(negationRules);
+          updated = updated
+            .split("\n")
+            .filter((line) => !negationSet.has(line.trim()))
+            .join("\n");
           if (!updated.endsWith("\n")) {
             updated += "\n";
           }
+          const additions = [
+            ...missingRules.filter((rule) => !rule.startsWith("!")),
+            ...negationRules,
+          ];
           updated +=
             "# Vellum runtime state (auto-added)\n" +
-            missingRules.join("\n") +
+            additions.join("\n") +
             "\n";
         }
         writeFileSync(gitignorePath, updated, "utf-8");

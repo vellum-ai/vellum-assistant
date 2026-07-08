@@ -787,6 +787,41 @@ describe("WorkspaceGitService", () => {
       expect(headFiles).toContain("notes.md");
     });
 
+    test("appending rules keeps negations last even when already present mid-file", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // Negation already present BEFORE the extension rules get appended —
+      // if it stayed there, a later *.png would win and re-ignore the avatar.
+      writeFileSync(
+        join(testDir, ".gitignore"),
+        "!data/avatar/**\nnode_modules/\n",
+      );
+      mkdirSync(join(testDir, "data", "avatar"), { recursive: true });
+      writeFileSync(join(testDir, "data", "avatar", "avatar-image.png"), "img");
+      mkdirSync(join(testDir, "pkb"), { recursive: true });
+      writeFileSync(join(testDir, "pkb", "photo.png"), "junk");
+      execFileSync("git", ["add", "-A", "-f"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const content = readFileSync(join(testDir, ".gitignore"), "utf-8");
+      expect(content.lastIndexOf("!data/avatar/**")).toBeGreaterThan(
+        content.indexOf("*.png"),
+      );
+
+      const tracked = execFileSync("git", ["ls-files"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(tracked).toContain("data/avatar/avatar-image.png");
+      expect(tracked).not.toContain("pkb/photo.png");
+    });
+
     test("untracking is limited to Vellum rules and keeps avatar/sounds state", async () => {
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
