@@ -259,17 +259,22 @@ export function classifyConversationError(
   }
 
   if (error instanceof ConnectionResolutionError) {
+    const profileName = error.profileName ?? attribution.profileName;
+    const connectionName = displayableConnectionName(error.connectionName);
     return {
       code: "PROVIDER_NOT_CONFIGURED",
-      userMessage:
-        "No compatible provider connection found for this profile. Check your provider connections in Settings → Models & Services.",
+      userMessage: connectionResolutionUserMessage(
+        error,
+        connectionName,
+        profileName,
+      ),
       retryable: true,
-      debugDetails,
+      // The reason discriminant rides in debugDetails so telemetry can
+      // distinguish the five failure classes without a new wire field.
+      debugDetails: `connection_resolution:${error.reason} — ${debugDetails}`,
       errorCategory: "provider_not_configured",
-      ...(error.connectionName ? { connectionName: error.connectionName } : {}),
-      ...(attribution.profileName
-        ? { profileName: attribution.profileName }
-        : {}),
+      ...(connectionName ? { connectionName } : {}),
+      ...(profileName ? { profileName } : {}),
     };
   }
 
@@ -279,6 +284,39 @@ export function classifyConversationError(
     ...classified,
     debugDetails,
   };
+}
+
+/**
+ * Internal throw sites use sentinel pseudo-names (`<llm.default>`,
+ * `<resolved-callsite>`) when no real connection row is involved; those must
+ * not render as literal connection names.
+ */
+function displayableConnectionName(name: string): string | undefined {
+  return name && !name.startsWith("<") ? name : undefined;
+}
+
+function connectionResolutionUserMessage(
+  error: ConnectionResolutionError,
+  connectionName: string | undefined,
+  profileName: string | undefined,
+): string {
+  const connection = connectionName
+    ? `Provider connection "${connectionName}"`
+    : "The provider connection";
+  const usedBy = profileName ? ` (used by profile "${profileName}")` : "";
+  const fixPath = "Settings → Models & Services";
+  switch (error.reason) {
+    case "lookup_failed":
+      return `${connection}${usedBy} couldn't be read from the connections database. Restart the assistant, then check ${fixPath}.`;
+    case "not_found":
+      return `${connection}${usedBy} no longer exists. Pick a provider in ${fixPath}.`;
+    case "provider_mismatch":
+      return `${connection}${usedBy} is bound to a different provider than the profile declares. Update the profile's connection in ${fixPath}.`;
+    case "missing_connection":
+      return `No provider connection is configured${usedBy}. Add an API key or log in via ${fixPath}.`;
+    case "model_incompatible":
+      return `${error.model ? `Model "${error.model}"` : "The requested model"} isn't available on ${connectionName ? `connection "${connectionName}"` : "the configured connection"}${usedBy}. Pick a different model or connection in ${fixPath}.`;
+  }
 }
 
 /**

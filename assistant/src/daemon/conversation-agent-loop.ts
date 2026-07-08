@@ -29,6 +29,7 @@ import {
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
+  resolveEffectiveProfileKey,
   resolveProfilelessModelKey,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
@@ -403,6 +404,42 @@ export async function runAgentLoopImpl(
 
   const readCurrentOverrideProfile = (): string | undefined =>
     options?.overrideProfile ?? resolveOverrideProfile(ctx);
+
+  // Best-effort attribution for error classification: names the resolved
+  // connection and profile so credential/connection errors point at the
+  // exact slot to fix instead of a generic banner. Resolution can itself
+  // throw on a broken config — attribution must never mask the real error.
+  const turnErrorAttribution = (): {
+    connectionName?: string;
+    profileName?: string;
+  } => {
+    try {
+      const overrideProfile = readCurrentOverrideProfile();
+      const resolveOpts = {
+        overrideProfile,
+        forceOverrideProfile,
+        selectionSeed: ctx.conversationId,
+      };
+      const resolved = resolveCallSiteConfig(
+        turnCallSite,
+        config.llm,
+        resolveOpts,
+      );
+      const profileName = resolveEffectiveProfileKey(
+        turnCallSite,
+        config.llm,
+        resolveOpts,
+      );
+      return {
+        ...(resolved.provider_connection
+          ? { connectionName: resolved.provider_connection }
+          : {}),
+        ...(profileName ? { profileName } : {}),
+      };
+    } catch {
+      return {};
+    }
+  };
 
   const effectiveContextWindow = resolveEffectiveContextWindow({
     llm: config.llm,
@@ -1510,7 +1547,10 @@ export async function runAgentLoopImpl(
         requestId: reqId,
       });
       rlog.error({ err }, "Conversation processing error");
-      const classified = classifyConversationError(err, errorCtx);
+      const classified = classifyConversationError(err, {
+        ...errorCtx,
+        ...turnErrorAttribution(),
+      });
       if (!turnReplied) {
         abnormalOutcome = { outcome: "failed", failureCode: classified.code };
       }
