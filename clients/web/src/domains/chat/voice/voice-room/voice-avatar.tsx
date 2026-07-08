@@ -1,21 +1,10 @@
-import { motion, useReducedMotion } from "motion/react";
+import { useReducedMotion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 
-import { AVATAR_VISUAL_SPRING } from "./voice-motion";
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
-
-/**
- * Bouncier pop for the `responding` visual — reads as a burst of energy. The
- * default per-visual spring is the shared `AVATAR_VISUAL_SPRING`.
- */
-const RESPOND_SPRING = {
-  type: "spring" as const,
-  visualDuration: 0.3,
-  bounce: 0.5,
-};
 
 const DEFAULT_SIZE = 160;
 
@@ -43,7 +32,12 @@ function isAudioReactive(visual: VoiceAvatarVisual): boolean {
  * room. Resolves the real assistant avatar (character / custom image / "V"
  * fallback) via {@link useAssistantAvatar} and expresses the session phase
  * through a continuous per-visual CSS loop (see `.voice-avatar-*` in
- * index.css) plus a motion spring on each discrete visual change.
+ * index.css).
+ *
+ * The avatar node stays mounted for the whole session: a visual change only
+ * swaps the `voice-avatar--<visual>` class, so the CSS loop cross-fades in
+ * place rather than the whole avatar re-popping. The one-time entry spring is
+ * owned by the room wrapper (see `voice-room.tsx`), not here.
  *
  * For the audio-reactive visuals a requestAnimationFrame loop polls
  * `getAmplitude()` and writes the `--voice-amp` custom property on the avatar
@@ -98,39 +92,24 @@ export function VoiceAvatar({
       cancelAnimationFrame(rafId);
       node.style.setProperty("--voice-amp", "0");
     };
-    // `visual` rebinds the loop to the freshly-keyed wrapper node on any
-    // visual change, not just when the audio-reactive boundary is crossed.
+    // Re-runs on any visual change to start/stop the loop at the audio-reactive
+    // boundary; the avatar node itself is stable, so this only (re)attaches the
+    // rAF, it never remounts the avatar.
   }, [visual, audioReactive, reduce]);
 
-  const enterTransition = reduce
-    ? { duration: 0 }
-    : visual === "responding"
-      ? RESPOND_SPRING
-      : AVATAR_VISUAL_SPRING;
-
   return (
-    <motion.div
-      // Re-key on visual so each change replays the enter spring and restarts
-      // the continuous CSS loop from a clean frame.
-      key={visual}
-      initial={reduce ? false : { scale: 0.9, opacity: 0.6 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={enterTransition}
-      style={{ width: size, height: size, transformOrigin: "center" }}
+    <div
+      className={`voice-avatar voice-avatar--${visual}`}
+      style={{ width: size, height: size }}
     >
-      <div
-        className={`voice-avatar voice-avatar--${visual}`}
-        style={{ width: size, height: size }}
-      >
-        <div ref={ampRef} className="voice-avatar__amp">
-          <ChatAvatar
-            components={components}
-            traits={traits}
-            customImageUrl={customImageUrl}
-            size={size}
-          />
-        </div>
+      <div ref={ampRef} className="voice-avatar__amp">
+        <ChatAvatar
+          components={components}
+          traits={traits}
+          customImageUrl={customImageUrl}
+          size={size}
+        />
       </div>
-    </motion.div>
+    </div>
   );
 }

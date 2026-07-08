@@ -194,64 +194,27 @@ describe("VoiceRoom — exit", () => {
   });
 });
 
-describe("VoiceRoom — push-to-talk fallback", () => {
-  test("Space releases the current turn while listening", () => {
-    startOwnedSession("listening");
-    render(<VoiceRoom />);
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: " ", code: "Space" }),
-    );
-    expect(controls.release).toHaveBeenCalledTimes(1);
-  });
-
-  test("Space on the focused exit control is left for the button to activate (not swallowed)", () => {
+describe("VoiceRoom — no push-to-talk affordance (hands-free)", () => {
+  // Sessions are hands-free (server-VAD): the user just speaks, so the room
+  // offers no push-to-talk control. Space is not intercepted and there is no
+  // tappable "Speak" orb — only Escape / ✕ are wired (see the exit suite).
+  test("Space does not release the current turn while listening", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     const event = new KeyboardEvent("keydown", {
       key: " ",
       code: "Space",
-      bubbles: true,
       cancelable: true,
     });
-    exitButton()!.dispatchEvent(event);
-    // The global shortcut steps aside: no push-to-talk release, and Space's
-    // default (native button activation) is left intact.
+    window.dispatchEvent(event);
     expect(controls.release).not.toHaveBeenCalled();
+    // The room leaves Space alone entirely — no preventDefault.
     expect(event.defaultPrevented).toBe(false);
   });
 
-  test("Space in a text field is left for the field (not swallowed as push-to-talk)", () => {
+  test("there is no tappable Speak orb", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
-    const input = document.createElement("input");
-    document.body.appendChild(input);
-    const event = new KeyboardEvent("keydown", {
-      key: " ",
-      code: "Space",
-      bubbles: true,
-      cancelable: true,
-    });
-    input.dispatchEvent(event);
-    // The editable guard applies to Space: no release, and the field's own
-    // space-to-type default is left intact.
-    expect(controls.release).not.toHaveBeenCalled();
-    expect(event.defaultPrevented).toBe(false);
-    input.remove();
-  });
-
-  test("Space is inert while the assistant is speaking", () => {
-    startOwnedSession("speaking");
-    render(<VoiceRoom />);
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: " ", code: "Space" }),
-    );
-    expect(controls.release).not.toHaveBeenCalled();
-  });
-
-  test("tapping the orb releases the current turn while listening", () => {
-    startOwnedSession("listening");
-    render(<VoiceRoom />);
-    fireEvent.click(screen.getByRole("button", { name: "Speak" }));
-    expect(controls.release).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Speak" })).toBeNull();
   });
 });
