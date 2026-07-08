@@ -1,5 +1,6 @@
 import { Slot, Slottable } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
+import { Loader2 } from "lucide-react";
 import {
   cloneElement,
   isValidElement,
@@ -21,6 +22,8 @@ import { Tooltip } from "./tooltip";
  *
  * - Pass `variant` for chrome style and `size` for dimensions.
  * - Pass `leftIcon` / `rightIcon` for text+icon layouts.
+ * - Pass `loading` to show a spinner in place of the left icon (or the icon of
+ *   an icon-only button), disable interaction, and set `aria-busy`.
  * - Pass `iconOnly` to render a square icon-only button (the icon is centered
  *   at the correct size for the chosen `size`). Without `asChild` the children
  *   are ignored; with `asChild` the caller's element (e.g. a `Link`) becomes
@@ -236,6 +239,11 @@ export interface ButtonProps
   leftIcon?: ReactNode;
   rightIcon?: ReactNode;
   iconOnly?: ReactNode;
+  /**
+   * Render a spinner and disable the button. Replaces `leftIcon` (or, for an
+   * icon-only button, the icon) with a spinner and sets `aria-busy`.
+   */
+  loading?: boolean;
   fullWidth?: boolean;
   active?: boolean;
   /**
@@ -266,6 +274,7 @@ export function Button({
   leftIcon,
   rightIcon,
   iconOnly,
+  loading = false,
   fullWidth = false,
   active = false,
   expandOnMobile = true,
@@ -283,9 +292,17 @@ export function Button({
   ...rest
 }: ButtonProps) {
   const isIconOnly = iconOnly != null && iconOnly !== false;
-  const isDisabled = disabled === true;
+  const isLoading = loading === true;
+  const isDisabled = disabled === true || isLoading;
   const isSlotDisabled = asChild && isDisabled;
   const iconPx = iconPxForSize(size);
+  const spinner = (
+    <Loader2 className="animate-spin" width={iconPx} height={iconPx} aria-hidden />
+  );
+  // When loading, the spinner stands in for the left icon (or the icon of an
+  // icon-only button); everything else keeps its normal layout.
+  const effectiveLeftIcon = isLoading && !isIconOnly ? spinner : leftIcon;
+  const effectiveIconOnly = isLoading && isIconOnly ? spinner : iconOnly;
   const iconStyle: CSSProperties = {
     width: iconPx,
     height: iconPx,
@@ -323,7 +340,8 @@ export function Button({
       {...rest}
       ref={ref}
       type={asChild ? undefined : (type ?? "button")}
-      disabled={asChild ? undefined : disabled}
+      disabled={asChild ? undefined : isDisabled}
+      aria-busy={isLoading || undefined}
       aria-disabled={isSlotDisabled ? true : rest["aria-disabled"]}
       data-disabled={isSlotDisabled ? "" : undefined}
       data-slot="button"
@@ -346,16 +364,24 @@ export function Button({
             children,
             undefined,
             <span aria-hidden="true" className={iconOnlyClass}>
-              {iconOnly}
+              {effectiveIconOnly}
             </span>,
           )
         ) : (
           <span aria-hidden="true" className={iconOnlyClass}>
-            {iconOnly}
+            {effectiveIconOnly}
           </span>
         )
-      ) : leftIcon == null && rightIcon == null ? (
-        children
+      ) : effectiveLeftIcon == null && rightIcon == null ? (
+        // Label wrapped in a stable element (non-asChild) so browser page
+        // translation mutates text nodes React does not own directly — see
+        // translate-dom-guard. `asChild` keeps its single element child intact
+        // for Slot.
+        asChild ? (
+          children
+        ) : (
+          <span data-slot="button-label">{children}</span>
+        )
       ) : (
         // When `asChild` is set, `Comp` is Radix's `Slot`, which forwards its
         // props (e.g. `type`, `disabled`) onto its single React-element child.
@@ -363,15 +389,19 @@ export function Button({
         // "Invalid prop `type` supplied to React.Fragment". `Slottable` marks
         // `children` as the prop target so Slot clones the caller's element
         // and re-parents the icons as its children. In the non-asChild path
-        // (`Comp === "button"`) Slottable is a transparent Fragment, so this
-        // is safe for both branches.
+        // (`Comp === "button"`) the label is wrapped in a stable element so
+        // page translation never re-parents a bare text sibling of the icons.
         <>
-          {leftIcon != null ? (
+          {effectiveLeftIcon != null ? (
             <span aria-hidden="true" style={iconStyle}>
-              {leftIcon}
+              {effectiveLeftIcon}
             </span>
           ) : null}
-          <Slottable>{children}</Slottable>
+          {asChild ? (
+            <Slottable>{children}</Slottable>
+          ) : children != null ? (
+            <span data-slot="button-label">{children}</span>
+          ) : null}
           {rightIcon != null ? (
             <span aria-hidden="true" style={iconStyle}>
               {rightIcon}

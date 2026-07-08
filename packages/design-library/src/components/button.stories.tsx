@@ -16,6 +16,7 @@ const meta: Meta<typeof Button> = {
       options: ["regular", "compact"],
     },
     disabled: { control: "boolean" },
+    loading: { control: "boolean" },
     fullWidth: { control: "boolean" },
     active: { control: "boolean" },
   },
@@ -64,6 +65,10 @@ export const Compact: Story = {
 
 export const Disabled: Story = {
   args: { variant: "primary", disabled: true, children: "Disabled" },
+};
+
+export const Loading: Story = {
+  args: { variant: "primary", loading: true, children: "Connecting" },
 };
 
 export const WithIcons: Story = {
