@@ -22,6 +22,7 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
+import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal";
 // ---------------------------------------------------------------------------
 // Helpers
@@ -91,11 +92,14 @@ export function ManageProvidersModal({
     enabled: isOpen,
   });
 
+  // Older assistants 404 the default-provider routes; the gate keeps the
+  // query dark and the marker UI hidden against them.
+  const supportsDefaultProvider = useSupportsDefaultProviderSettings();
   const { data: defaultProviderStatus } = useQuery({
     ...configLlmDefaultproviderGetOptions({
       path: { assistant_id: assistantId },
     }),
-    enabled: isOpen,
+    enabled: isOpen && supportsDefaultProvider,
   });
 
   const connections = useMemo(() => data?.connections ?? [], [data]);
@@ -174,8 +178,11 @@ export function ManageProvidersModal({
             loading={loading}
             isError={isError}
             assistantId={assistantId}
+            supportsDefaultProvider={supportsDefaultProvider}
             defaultConnectionName={
-              defaultProviderStatus?.resolvedConnectionName ?? null
+              supportsDefaultProvider
+                ? (defaultProviderStatus?.resolvedConnectionName ?? null)
+                : null
             }
             onDefaultChanged={handleDefaultChanged}
             onClose={onClose}
@@ -210,6 +217,8 @@ interface ManageProvidersModalInnerProps {
   loading: boolean;
   isError: boolean;
   assistantId: string;
+  /** False against assistants that predate the default-provider routes. */
+  supportsDefaultProvider: boolean;
   /** Connection the default provider resolves to, or null when unknown. */
   defaultConnectionName: string | null;
   onDefaultChanged: () => void;
@@ -224,6 +233,7 @@ function ManageProvidersModalInner({
   loading,
   isError,
   assistantId,
+  supportsDefaultProvider,
   defaultConnectionName,
   onDefaultChanged,
   onClose,
@@ -402,7 +412,7 @@ function ManageProvidersModalInner({
 
                     {/* Actions */}
                     <div className="flex shrink-0 items-center gap-2">
-                      {!isDefault && (
+                      {supportsDefaultProvider && !isDefault && (
                         <Button
                           variant="ghost"
                           size="compact"

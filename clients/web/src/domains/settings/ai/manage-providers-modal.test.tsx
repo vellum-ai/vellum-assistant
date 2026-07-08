@@ -26,6 +26,7 @@ let defaultProviderState: DefaultProviderStatus = {
   resolvedConnectionName: null,
   availability: { status: "missing_default" },
 };
+let defaultProviderGetCalls = 0;
 let putBodies: Array<{ provider: string; connectionName?: string }> = [];
 let putShouldFail = false;
 let deleteCalls: string[] = [];
@@ -37,7 +38,10 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   inferenceProviderconnectionsGet: async () => ({
     data: { connections: connectionsState },
   }),
-  configLlmDefaultproviderGet: async () => ({ data: defaultProviderState }),
+  configLlmDefaultproviderGet: async () => {
+    defaultProviderGetCalls += 1;
+    return { data: defaultProviderState };
+  },
   configLlmDefaultproviderPut: async (options?: {
     body?: { provider: string; connectionName?: string };
   }) => {
@@ -69,6 +73,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 
 const { ManageProvidersModal } =
   await import("@/domains/settings/ai/manage-providers-modal");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,12 +138,16 @@ beforeEach(() => {
     resolvedConnectionName: null,
     availability: { status: "missing_default" },
   };
+  defaultProviderGetCalls = 0;
   putBodies = [];
   putShouldFail = false;
   deleteCalls = [];
+  // The marker UI is version-gated (assistants < 0.10.8 lack the routes).
+  useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.8");
 });
 
 afterEach(() => {
+  useAssistantIdentityStore.getState().clearIdentity();
   cleanup();
 });
 
@@ -230,6 +240,22 @@ describe("default marker", () => {
       "can't run on this provider",
     );
     expect(putBodies).toEqual([]);
+  });
+
+  test("assistants without the routes get no marker UI and no query", async () => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.7");
+    connectionsState = [
+      makeConnection({ name: "openai-personal", provider: "openai" }),
+    ];
+
+    const result = renderModal();
+    await waitFor(() => {
+      expect(result.baseElement.textContent).toContain("openai-personal");
+    });
+
+    expect(result.baseElement.textContent).not.toContain("Set as default");
+    expect(result.baseElement.textContent).not.toContain("Default");
+    expect(defaultProviderGetCalls).toBe(0);
   });
 
   test("PUT failure renders the inline row error", async () => {
