@@ -16,11 +16,13 @@ import { isMarkdown } from "@/components/file-markdown";
 import { SkillLineageLink } from "@/components/skill-lineage-link";
 import {
     isAvailableSkill,
-    isRemovableSkill,
-    type SkillFileEntry,
     type SkillInfo,
 } from "@/domains/intelligence/skills/types";
-import { useSkillDetailFiles } from "@/domains/intelligence/skills/use-skill-detail-files";
+import {
+    useSkillDetailFiles,
+    type SkillFileEntry,
+} from "@/hooks/use-skill-detail-files";
+import { isRemovableSkill } from "@/utils/skills";
 import { Button, Card, Menu, SegmentControl } from "@vellumai/design-library";
 import { SkillFileContent } from "./skill-file-content";
 import { SkillIcon } from "./skill-icon";

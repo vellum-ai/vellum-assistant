@@ -15,9 +15,9 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
+import { SkillRemovalDialog } from "@/components/skill-removal-dialog";
 import { CategorySidebar } from "@/domains/intelligence/components/skills/category-sidebar";
 import { FilterBar } from "@/domains/intelligence/components/skills/skill-filters";
-import { SkillRemovalDialog } from "@/domains/intelligence/components/skills/skill-removal-dialog";
 import { SkillRow } from "@/domains/intelligence/components/skills/skill-row";
 import { SkillsErrorState } from "@/domains/intelligence/components/skills/skills-error-state";
 import { SkillsLoadingState } from "@/domains/intelligence/components/skills/skills-loading-state";
@@ -181,7 +181,7 @@ export function SkillsTab({ assistantId }: SkillsTabProps) {
         </div>
       </div>
       <SkillRemovalDialog
-        skill={skillPendingRemoval}
+        skillName={skillPendingRemoval?.name ?? null}
         onConfirm={confirmRemove}
         onCancel={cancelRemove}
       />
