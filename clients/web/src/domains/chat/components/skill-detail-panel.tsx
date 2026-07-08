@@ -140,7 +140,12 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
           </Button>
         }
       >
-        {skillQuery.isError ? (
+        {/* A failed background/window-focus revalidation sets `isError`
+            while KEEPING the cached skill. Gate the error state on the
+            RESOLVED skill being absent, not on `isError` alone: cached data
+            degrades to the cached render, while an error with nothing to
+            show surfaces the failure (matching `skill-detail-page`). */}
+        {skillQuery.isError && !skill ? (
           <Typography
             variant="body-medium-lighter"
             as="p"
