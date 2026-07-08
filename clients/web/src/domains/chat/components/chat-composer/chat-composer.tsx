@@ -43,7 +43,9 @@ import {
     useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
+import { VoiceFirstRunCard } from "@/domains/chat/voice/voice-room/voice-first-run-card";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -279,12 +281,35 @@ export function ChatComposer({
   // module-level `endLiveVoiceSession`/`releaseLiveVoiceTurn` helpers, which
   // read the store with `getState()` per STATE_MANAGEMENT.md (no subscription
   // needed for callback-only reads).
-  const handleLiveVoiceStart = useCallback(() => {
+  // First-run interception: the very first voice-mode entry opens a
+  // preferences card (see `VoiceFirstRunCard`) instead of starting the
+  // session, so the user chooses their transcript prefs before listening
+  // begins. Every subsequent entry (`firstRunSeen === true`) starts directly
+  // — the card and the engine stay decoupled. Purely additive: with the
+  // `voice-mode` flag off this path is unreachable and the app-editing variant
+  // (no voice entry point) never renders the card.
+  const [firstRunCardOpen, setFirstRunCardOpen] = useState(false);
+  const startLiveVoiceSession = useCallback(() => {
     if (!assistantId) {
       return;
     }
     useLiveVoiceStore.getState().starter?.(assistantId, conversationId ?? null);
   }, [assistantId, conversationId]);
+  const handleLiveVoiceStart = useCallback(() => {
+    if (!assistantId) {
+      return;
+    }
+    if (!useVoicePrefsStore.getState().firstRunSeen) {
+      setFirstRunCardOpen(true);
+      return;
+    }
+    startLiveVoiceSession();
+  }, [assistantId, startLiveVoiceSession]);
+  const handleFirstRunStart = useCallback(() => {
+    useVoicePrefsStore.getState().markFirstRunSeen();
+    setFirstRunCardOpen(false);
+    startLiveVoiceSession();
+  }, [startLiveVoiceSession]);
 
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   const isMobile = useIsMobile();
@@ -391,6 +416,16 @@ export function ChatComposer({
 
   return (
     <>
+      {firstRunCardOpen && (
+        // First voice-mode entry only — the card commits prefs + starts via
+        // `handleFirstRunStart`; a plain dismiss cancels without consuming the
+        // first run, so it returns on the next entry.
+        <VoiceFirstRunCard
+          assistantId={assistantId}
+          onStart={handleFirstRunStart}
+          onDismiss={() => setFirstRunCardOpen(false)}
+        />
+      )}
       {/* Composer-owned draft/attachment notices (self-sourced), above the
           orchestration banner stack. */}
       <ComposerDraftNotices />

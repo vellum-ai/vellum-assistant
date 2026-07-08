@@ -16,6 +16,7 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import { type ChatAttachment, useComposerStore } from "@/domains/chat/composer-store";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
+import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 // Pure helpers live in `chat-composer-utils` (no mocks needed), so import them
 // statically. `ChatComposer` itself is imported dynamically *after* the mocks
@@ -101,6 +102,23 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
   ),
 }));
 
+// First-run prefs card. Stubbed to a lightweight probe that exposes the two
+// wired callbacks — the real card pulls in `useAssistantAvatar` (React Query),
+// irrelevant to the composer's interception wiring, which is all these tests
+// assert. Full card behavior lives in `voice-first-run-card.test.tsx`.
+mock.module("@/domains/chat/voice/voice-room/voice-first-run-card", () => ({
+  VoiceFirstRunCard: (props: { onStart: () => void; onDismiss?: () => void }) => (
+    <div data-testid="first-run-card">
+      <button type="button" onClick={props.onStart}>
+        first-run-start
+      </button>
+      <button type="button" onClick={() => props.onDismiss?.()}>
+        first-run-dismiss
+      </button>
+    </div>
+  ),
+}));
+
 // Dictation recording phase. The composer reads `useVoiceRecordingStore`
 // (cross-domain `voice` store) to derive its `isVoiceActive` signal. Mock it
 // via `mock.module` (rather than importing the store) so the `chat` test stays
@@ -129,6 +147,15 @@ function resetLiveVoiceMocks() {
   liveControls.interrupt.mockClear();
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setStarter(liveStarterSpy);
+  // Default to the returning-user path so the entry-point mic starts a session
+  // directly. First-run interception (the prefs card) is covered by
+  // `voice-first-run-card.test.tsx`; a test that wants it opts in by setting
+  // `firstRunSeen: false`.
+  useVoicePrefsStore.setState({
+    showUserTranscript: false,
+    showAssistantTranscript: false,
+    firstRunSeen: true,
+  });
 }
 
 // Imported after the mocks so the component (and its transitive flag-store /
@@ -799,6 +826,56 @@ describe("ChatComposer — live-voice integration", () => {
     // context (the composer holds no controller of its own)
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+  });
+
+  test("first-ever entry opens the prefs card instead of starting the session", () => {
+    // GIVEN the flag is on, no session, and the user has never entered voice
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+
+    // WHEN the user clicks the entry-point mic
+    const { getByLabelText, getByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN the prefs card appears and the session has NOT started yet
+    expect(getByTestId("first-run-card")).toBeTruthy();
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+  });
+
+  test("first-run card Start persists the flag then starts the session", () => {
+    // GIVEN the first-run card is open
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+    const { getByLabelText, getByText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // WHEN the user commits via Start
+    fireEvent.click(getByText("first-run-start"));
+
+    // THEN the first run is consumed, the card closes, and the session starts
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+  });
+
+  test("dismissing the first-run card cancels without consuming the first run", () => {
+    // GIVEN the first-run card is open
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+    const { getByLabelText, getByText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // WHEN the user dismisses it
+    fireEvent.click(getByText("first-run-dismiss"));
+
+    // THEN nothing started and the first run is still available for next time
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
   });
 
   test("owned active session swaps the action row for the voice bar (mutual exclusion by absence)", () => {
