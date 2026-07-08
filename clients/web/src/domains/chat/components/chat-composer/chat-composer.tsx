@@ -374,13 +374,19 @@ export function ChatComposer({
 
   const ghostSuffix = useMemo(
     () =>
-      computeGhostSuffix({
-        pointerCoarse,
-        suggestion: suggestion ?? null,
-        input,
-        hasAttachments: attachments.length > 0,
-      }),
-    [pointerCoarse, suggestion, input, attachments],
+      // Suppressed while this composer owns a live-voice session: the streaming
+      // speech (`VoiceLiveTranscript`) renders in the same grid cell as the
+      // ghost-suffix mirror, and the draft is empty during voice so the mirror
+      // would paint the full suggestion straight over the transcript.
+      isLiveVoiceActive
+        ? null
+        : computeGhostSuffix({
+            pointerCoarse,
+            suggestion: suggestion ?? null,
+            input,
+            hasAttachments: attachments.length > 0,
+          }),
+    [isLiveVoiceActive, pointerCoarse, suggestion, input, attachments],
   );
 
   return (
