@@ -1,4 +1,3 @@
-import { DetailCard } from "@/components/detail-card";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 import { AssistantChannelsList } from "@/domains/channels/components/assistant-channels-list";
 import { GenerateInviteLinkDialog } from "@/components/generate-invite-link-dialog";
@@ -17,11 +16,12 @@ export interface ChannelsPageProps {
 /**
  * Channels settings — the Slack/Telegram/Phone master-detail surface where
  * the guardian manages how and where the assistant can be reached. Rendered
- * as its own tab in the About Assistant nav (`/assistant/channels`): a
- * page-level subtitle above the adapter list + detail panel (the nav's tab
- * already reads "Channels", so the page repeats no heading). The Contacts
- * page's assistant detail (`AssistantChannelsDetail`) shows only a
- * connect/disconnect summary of the same channels; management stays here.
+ * as its own tab in the About Assistant nav (`/assistant/channels`): the
+ * adapter list beside the selected adapter's detail panel, with no page
+ * heading or subtitle (the nav's tab already reads "Channels", matching the
+ * sibling Contacts tab). The Contacts page's assistant detail
+ * (`AssistantChannelsDetail`) shows only a connect/disconnect summary of the
+ * same channels; management stays here.
  */
 export function ChannelsPage({
   assistantId,
@@ -41,11 +41,6 @@ export function ChannelsPage({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden">
-      <DetailCard
-        showBorder={false}
-        subtitle={`Manage where ${displayName} can be reached.`}
-      />
-
       <AssistantChannelsList
         assistantId={assistantId}
         assistantName={displayName}

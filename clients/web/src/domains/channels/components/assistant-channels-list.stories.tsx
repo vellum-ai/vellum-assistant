@@ -2,7 +2,6 @@ import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useLayoutEffect } from "react";
 
-import { DetailCard } from "@/components/detail-card";
 import { useChannelAdapterSelectionStore } from "@/domains/channels/adapter-selection-store";
 import type { SetupChannelId } from "@/types/channel-types";
 
@@ -10,9 +9,9 @@ import { AssistantChannelsList } from "./assistant-channels-list";
 
 /**
  * The standalone Channels tab composition (`ChannelsPage` minus its data
- * wiring): a borderless page subtitle over the adapter master-detail — a left
- * rail of adapters beside the selected adapter's detail panel, matching the
- * sibling Contacts tab's Entries + detail shape.
+ * wiring): the adapter master-detail — a left rail of adapters beside the
+ * selected adapter's detail panel, matching the sibling Contacts tab's
+ * Entries + detail shape.
  */
 // The Slack panel owns its own queries (`SlackChannelSection`), so stories
 // need a QueryClient. Requests fail in Storybook (no daemon), so the Slack
@@ -69,10 +68,6 @@ const meta: Meta<typeof AssistantChannelsList> = {
           gap: 24,
         }}
       >
-        <DetailCard
-          showBorder={false}
-          subtitle="Manage where Example Assistant can be reached."
-        />
         <Story />
       </div>
     ),
