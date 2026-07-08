@@ -113,7 +113,7 @@ describe("completeCustomProfile", () => {
     expect(completed.provider_connection).toBeUndefined();
   });
 
-  test("always inherits the provider-agnostic vellum managed connection, even across an implied provider change", () => {
+  test("inherits the vellum managed connection across a provider change, but only onto managed-routable providers", () => {
     const managedDefault = LLMConfigBase.parse({
       ...fullDefault,
       provider_connection: VELLUM_MANAGED_CONNECTION_NAME,
@@ -127,6 +127,14 @@ describe("completeCustomProfile", () => {
       model: "gpt-5.4",
     });
     expect(explicit.provider_connection).toBe(VELLUM_MANAGED_CONNECTION_NAME);
+
+    // The vellum connection can't route a non-managed provider; baking it in
+    // would fail dispatch's mismatch path instead of auto-resolving.
+    const nonRoutable = completeCustomProfile(managedDefault, {
+      provider: "openrouter",
+      model: "minimax/minimax-m3",
+    });
+    expect(nonRoutable.provider_connection).toBeUndefined();
   });
 
   test("keeps the inherited provider for a model unknown to the catalog", () => {

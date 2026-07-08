@@ -2,7 +2,10 @@ import {
   getCatalogProviderForModel,
   isModelInCatalog,
 } from "../providers/model-catalog.js";
-import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routing.js";
+import {
+  MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_MANAGED_CONNECTION_NAME,
+} from "../providers/vellum-model-routing.js";
 import type { LLMConfigBase, ProfileEntry } from "./schemas/llm.js";
 
 /**
@@ -85,14 +88,18 @@ export function completeCustomProfile(
 
   // A provider-specific connection baked onto a different provider would pin
   // a mismatch (dispatch auto-resolves an absent connection by provider
-  // instead). The Vellum managed connection is provider-agnostic — dispatch
-  // routes it via `expectedProvider` — so it must survive a provider change
-  // or managed installs lose platform-proxy routing.
+  // instead). The Vellum managed connection must survive a provider change —
+  // dispatch routes it via `expectedProvider` — but only onto providers it
+  // can actually route; a non-managed-routable provider (openrouter, ollama)
+  // would hit the mismatch path instead of auto-resolution.
+  const vellumRoutable =
+    dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME &&
+    completed.provider !== undefined &&
+    MANAGED_ROUTABLE_PROVIDERS.has(completed.provider);
   if (
     profile.provider_connection === undefined &&
     dflt.provider_connection !== undefined &&
-    (completed.provider === dflt.provider ||
-      dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME)
+    (completed.provider === dflt.provider || vellumRoutable)
   ) {
     completed.provider_connection = dflt.provider_connection;
   }
