@@ -117,6 +117,15 @@ export class MediaStreamOutput implements CallTransport {
    */
   private textBuffer = "";
 
+  /**
+   * True once the current turn's first speakable segment has been queued
+   * for synthesis. Gates eager segmentation: each turn's opening clause
+   * flushes early so speech onset does not wait for a full sentence.
+   * Cleared when a turn completes (`last: true`) or its pending text is
+   * discarded, so the next turn's first segment is eager again.
+   */
+  private turnSegmentEnqueued = false;
+
   /** FIFO queue of playback items awaiting delivery. */
   private playbackQueue: PlaybackItem[] = [];
 
@@ -172,16 +181,19 @@ export class MediaStreamOutput implements CallTransport {
     const { segments, remainder } = extractSpeakableSegments(
       this.textBuffer,
       last,
+      { eager: !this.turnSegmentEnqueued },
     );
     this.textBuffer = remainder;
     for (const segment of segments) {
       this.enqueuePlayback({ type: "synthesize", text: segment });
+      this.turnSegmentEnqueued = true;
     }
 
     if (last) {
       // Always send an end-of-turn mark so the media-stream server
       // can detect turn boundaries.
       this.enqueuePlayback({ type: "mark", name: "end-of-turn" });
+      this.turnSegmentEnqueued = false;
     }
   }
 
@@ -213,6 +225,7 @@ export class MediaStreamOutput implements CallTransport {
    */
   discardPendingText(): void {
     this.textBuffer = "";
+    this.turnSegmentEnqueued = false;
   }
 
   /**
