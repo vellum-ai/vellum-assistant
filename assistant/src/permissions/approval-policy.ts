@@ -96,10 +96,10 @@ export interface ApprovalPolicy {
  * 5. Risk ≤ autoApproveUpTo threshold → allow
  * 6. Risk > autoApproveUpTo threshold → prompt
  *
- * Trust Rules do not appear in this flow: since trust-rules v3 they are
- * per-action risk re-classifications applied inside the gateway
- * classifiers, so their effect arrives here already folded into
- * `riskLevel` — there is no separate allow/ask/deny rule axis.
+ * Trust Rules do not appear in this flow: they are per-action risk
+ * re-classifications applied inside the gateway classifiers, so their
+ * effect arrives here already folded into `riskLevel` — there is no
+ * separate allow/ask/deny rule axis.
  */
 export class DefaultApprovalPolicy implements ApprovalPolicy {
   evaluate(context: ApprovalContext): ApprovalDecision {

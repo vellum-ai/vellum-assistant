@@ -908,6 +908,26 @@ export async function check(
     }
   }
 
+  // Inline-command ("dynamic") skill loads execute embedded shell commands
+  // at load time, so a threshold-based allow is not enough: they run
+  // without asking only when the user's own trust rule covers them (the
+  // rule re-classifies the risk inside the gateway, arriving here as
+  // matchType "user_rule"). Everything else prompts — at every threshold
+  // and in every execution context. The non-interactive guardian gate in
+  // tools/permission-checker.ts then converts the prompt into a denial
+  // when no human is present to answer it.
+  if (
+    approvalDecision.decision === "allow" &&
+    isDynamicSkillLoadInvocation(toolName, input) &&
+    getCachedAssessment(toolName, input)?.matchType !== "user_rule"
+  ) {
+    approvalDecision = {
+      decision: "prompt",
+      reason:
+        "Inline-command skill load: executes embedded commands, requires explicit approval",
+    };
+  }
+
   // Enrich the reason with the classifier's explanation when available.
   // For risk-based fallback decisions (prompt/deny from High/Medium risk),
   // incorporate the classifier reason so the user sees *why* the command
