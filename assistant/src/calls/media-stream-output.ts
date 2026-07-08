@@ -39,6 +39,7 @@ import { createPcmChunkAligner } from "../tts/pcm-chunk-aligner.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { synthesizeAndEmit } from "../tts/synthesis-stream.js";
 import { getLogger } from "../util/logger.js";
+import type { CallAudioFormat } from "./audio-store.js";
 import type { CallTransport } from "./call-transport.js";
 import {
   chunkMulawToBase64Frames,
@@ -637,7 +638,7 @@ export class MediaStreamOutput implements CallTransport {
       // returns mp3). For unknown content types, fall back to the declared
       // format (PCM on this path — the bytes were requested as raw PCM,
       // and audioBufferToFrames sniffs magic bytes as a safety net).
-      const actualFormat: "mp3" | "wav" | "opus" | "pcm" =
+      const actualFormat: CallAudioFormat =
         result.contentType.includes("wav") ||
         result.contentType.includes("x-wav")
           ? "wav"
@@ -709,7 +710,7 @@ export class MediaStreamOutput implements CallTransport {
       }
 
       const contentType = response.headers.get("content-type") ?? "audio/mpeg";
-      const format: "mp3" | "wav" | "opus" | "pcm" = contentType.includes("wav")
+      const format: CallAudioFormat = contentType.includes("wav")
         ? "wav"
         : contentType.includes("opus")
           ? "opus"
@@ -763,7 +764,7 @@ export class MediaStreamOutput implements CallTransport {
    */
   private audioBufferToFrames(
     audio: Buffer,
-    format: "mp3" | "wav" | "opus" | "pcm",
+    format: CallAudioFormat,
   ): string[] {
     // Sniff the actual bytes rather than trusting the declared format.
     // WAV files always start with the ASCII magic "RIFF" (0x52494646).
@@ -805,8 +806,9 @@ export class MediaStreamOutput implements CallTransport {
 
     // When the declared format is "wav" but the RIFF check failed, the
     // bytes might be either:
-    // (a) Raw PCM stored under audio/wav content-type (when
-    //     outputFormat: "pcm" is used with createStreamingEntry("wav"))
+    // (a) Raw PCM served under a wav content-type (declared "wav" only
+    //     arrives via content-type sniffing; some providers label raw
+    //     PCM streams audio/wav)
     // (b) Compressed audio (mp3/opus) from a provider that ignores
     //     outputFormat (e.g. Fish Audio defaults to mp3)
     //
