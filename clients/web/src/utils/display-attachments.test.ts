@@ -24,6 +24,7 @@ describe("toDisplayAttachments", () => {
         mimeType: "image/png",
         sizeBytes: expect.any(Number),
         previewUrl: "data:image/png;base64,iVBORw0KGgo=",
+        thumbnailUrl: null,
       },
     ]);
   });
@@ -44,6 +45,7 @@ describe("toDisplayAttachments", () => {
         mimeType: "application/pdf",
         sizeBytes: expect.any(Number),
         previewUrl: "data:application/pdf;base64,JVBERi0xLjQ=",
+        thumbnailUrl: null,
       },
     ]);
   });
