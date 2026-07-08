@@ -1,7 +1,10 @@
 import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-export type SlackThreadMode = "mention_only" | "mention_then_thread";
+import type { IntegrationsSlackChannelConfigGetResponse } from "@/generated/daemon/types.gen";
+
+export type SlackThreadMode =
+  IntegrationsSlackChannelConfigGetResponse["threadMode"];
 
 interface SlackThreadBehaviorProps {
   threadMode?: SlackThreadMode;

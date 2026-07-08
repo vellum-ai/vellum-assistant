@@ -2,8 +2,10 @@ import { useCallback, useMemo } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { AssistantChannelState } from "@/domains/contacts/types";
-import { isSetupChannelId } from "@/domains/contacts/types";
+import {
+  isSetupChannelId,
+  type AssistantChannelState,
+} from "@/types/channel-types";
 import {
   assistantChannelAdmissionPolicyListOptions,
   assistantChannelAdmissionPolicyListQueryKey,
@@ -98,7 +100,7 @@ export function useChannelTrustFloors(assistantId: string): ChannelTrustFloors {
   return {
     policies,
     savingKey: mutation.isPending
-      ? mutation.variables?.channelKey ?? null
+      ? (mutation.variables?.channelKey ?? null)
       : null,
     // `isPending` stays true until the first successful fetch, so callers can
     // hold the control disabled instead of flashing the default floor over a

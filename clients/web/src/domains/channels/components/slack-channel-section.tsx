@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { SlackChannelList } from "@/domains/contacts/components/slack-channel-list";
-import { useChannelPermissionOverrides } from "@/domains/contacts/hooks/use-channel-permission-overrides";
-import { memberSlackChannelsOptions } from "@/domains/contacts/slack-channels-query";
+import { SlackChannelList } from "@/domains/channels/components/slack-channel-list";
+import { useChannelPermissionOverrides } from "@/domains/channels/hooks/use-channel-permission-overrides";
+import { memberSlackChannelsOptions } from "@/domains/channels/slack-channels-query";
 import { getGlobalThresholds } from "@/lib/threshold-api";
 
 export interface SlackChannelSectionProps {

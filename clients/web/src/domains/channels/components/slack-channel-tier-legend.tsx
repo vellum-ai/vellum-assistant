@@ -8,8 +8,8 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import {
   CAPABILITY_TIER_META,
   CAPABILITY_TIER_VALUES,
-  type SlackCapabilityTier,
-} from "@/domains/contacts/slack-channel-overrides";
+} from "@/domains/channels/slack-channel-overrides";
+import type { RiskThreshold } from "@/utils/threshold-presets";
 import { routes } from "@/utils/routes";
 
 /** Dot accent per tier tone — mirrors the Tag component's icon accents. */
@@ -38,7 +38,7 @@ const TONE_DOT_COLOR: Record<TagTone, string> = {
  * copy keeps that caveat.
  */
 function tierDescription(
-  tier: SlackCapabilityTier,
+  tier: RiskThreshold,
   assistantName: string,
 ): ReactNode {
   switch (tier) {
@@ -67,8 +67,8 @@ function tierDescription(
       return (
         <>
           {assistantName} runs any tool it has access to without asking.
-          Sensitive tools still come to you first, and anything you’ve
-          blocked in{" "}
+          Sensitive tools still come to you first, and anything you’ve blocked
+          in{" "}
           <Link
             to={routes.settings.privacy}
             className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"

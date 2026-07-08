@@ -1,11 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 
-import type { SlackChannel } from "@/domains/contacts/types";
+import type { SlackChannel } from "@/domains/channels/slack-channels-query";
 
 import { SlackChannelList } from "./slack-channel-list";
 
-function makeChannel(overrides: Partial<SlackChannel> & Pick<SlackChannel, "id" | "name">): SlackChannel {
+function makeChannel(
+  overrides: Partial<SlackChannel> & Pick<SlackChannel, "id" | "name">,
+): SlackChannel {
   return {
     type: "channel",
     isPrivate: false,
@@ -26,15 +28,30 @@ const MIXED_CHANNELS: SlackChannel[] = [
   makeChannel({ id: "C002", name: "engineering", memberCount: 18 }),
   makeChannel({ id: "C003", name: "eng-releases", memberCount: 9 }),
   makeChannel({ id: "C004", name: "design", memberCount: 7 }),
-  makeChannel({ id: "C005", name: "leadership", isPrivate: true, memberCount: 4 }),
-  makeChannel({ id: "C006", name: "incident-response", isPrivate: true, memberCount: 6 }),
+  makeChannel({
+    id: "C005",
+    name: "leadership",
+    isPrivate: true,
+    memberCount: 4,
+  }),
+  makeChannel({
+    id: "C006",
+    name: "incident-response",
+    isPrivate: true,
+    memberCount: 6,
+  }),
   makeChannel({ id: "D001", name: "Alice", type: "dm" }),
   makeChannel({ id: "D002", name: "Bob", type: "dm" }),
-  makeChannel({ id: "G001", name: "Alice, Bob", type: "group", isPrivate: true }),
+  makeChannel({
+    id: "G001",
+    name: "Alice, Bob",
+    type: "group",
+    isPrivate: true,
+  }),
 ];
 
 const meta: Meta<typeof SlackChannelList> = {
-  title: "Contacts/SlackChannelList",
+  title: "Channels/SlackChannelList",
   component: SlackChannelList,
   args: {
     assistantDisplayName: "Example Assistant",
