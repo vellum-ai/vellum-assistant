@@ -296,6 +296,40 @@ describe("secure-keys", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Mock CES client — shared by the reconnection test suites below
+  // -----------------------------------------------------------------------
+
+  interface MockCesClient extends CesClient {
+    setReady: (ready: boolean) => void;
+    /** Credential writes received via `call`, in order. */
+    sets: Array<{ account: string; value: string }>;
+  }
+
+  function makeMockCesClient(initialReady = true): MockCesClient {
+    let ready = initialReady;
+    const sets: Array<{ account: string; value: string }> = [];
+    return {
+      handshake: async () => ({ accepted: true }),
+      call: async (_method: unknown, params: unknown) => {
+        const p = params as { account?: string; value?: string };
+        if (typeof p?.account === "string" && typeof p?.value === "string") {
+          sets.push({ account: p.account, value: p.value });
+        }
+        return { ok: true, found: false, value: undefined } as never;
+      },
+      isReady: () => ready,
+      close: () => {
+        ready = false;
+      },
+      updateAssistantApiKey: async () => ({ updated: true }),
+      setReady: (r: boolean) => {
+        ready = r;
+      },
+      sets,
+    } as MockCesClient;
+  }
+
+  // -----------------------------------------------------------------------
   // CES reconnection reentrancy
   // -----------------------------------------------------------------------
   //
@@ -308,26 +342,6 @@ describe("secure-keys", () => {
   // reentrant case so nested reads resolve immediately (as "unreachable")
   // and the outer reconnect makes progress.
   describe("reconnect callback reentrancy", () => {
-    interface ControllableClient extends CesClient {
-      setReady: (ready: boolean) => void;
-    }
-
-    function makeControllableClient(initialReady = true): ControllableClient {
-      let ready = initialReady;
-      return {
-        handshake: async () => ({ accepted: true }),
-        call: async () => ({ found: false, value: undefined }) as never,
-        isReady: () => ready,
-        close: () => {
-          ready = false;
-        },
-        updateAssistantApiKey: async () => ({ updated: true }),
-        setReady: (r: boolean) => {
-          ready = r;
-        },
-      } as ControllableClient;
-    }
-
     test("nested credential read inside reconnect callback does not deadlock", async () => {
       // Seed the encrypted store with a value so nested reads have something
       // to target if they were to accidentally succeed via fallback paths.
@@ -336,7 +350,7 @@ describe("secure-keys", () => {
       // Install a CES client that starts ready so the first read resolves
       // the backend to CES RPC, then flip it to unready so the NEXT read
       // triggers the reconnect path.
-      const client = makeControllableClient(true);
+      const client = makeMockCesClient(true);
       setCesClient(client);
 
       // Prime the resolver so `_resolvedBackend` points at CES RPC.
@@ -358,7 +372,7 @@ describe("secure-keys", () => {
         await Promise.resolve();
         await getSecureKeyAsync("test-key");
         nestedReadResolved = true;
-        return makeControllableClient(true);
+        return makeMockCesClient(true);
       });
 
       const start = Date.now();
@@ -373,7 +387,7 @@ describe("secure-keys", () => {
     });
 
     test("reconnect callback that throws still releases the reentrancy flag", async () => {
-      const client = makeControllableClient(true);
+      const client = makeMockCesClient(true);
       setCesClient(client);
       await getSecureKeyAsync("any-key"); // prime the resolver
       client.setReady(false);
@@ -390,12 +404,86 @@ describe("secure-keys", () => {
       let secondCallbackRan = 0;
       setCesReconnect(async () => {
         secondCallbackRan++;
-        return makeControllableClient(true);
+        return makeMockCesClient(true);
       });
       await new Promise((resolve) => setTimeout(resolve, 3_100));
 
       await getSecureKeyAsync("any-key");
       expect(secondCallbackRan).toBe(1);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Write ops bypass the reconnect cooldown
+  // -----------------------------------------------------------------------
+  //
+  // Credential writes are rare and have no fallback: a set that fails
+  // because a reconnect completed moments earlier is silently dropped by
+  // callers (e.g. the post-login platform credential push stores the
+  // assistant API key exactly once). Writes therefore force a reconnection
+  // attempt even inside the cooldown window, while reads keep respecting
+  // the cooldown to avoid restart stampedes.
+  describe("write ops bypass the reconnect cooldown", () => {
+    /**
+     * Resolve the backend to a CES client, kill it, and burn one
+     * reconnection attempt (which fails) so the cooldown window is active.
+     * Returns the number of reconnect callback runs via a counter ref.
+     */
+    async function enterCooldownWithDeadBackend(): Promise<{
+      counter: { runs: number };
+      setReconnectResult: (client: CesClient | undefined) => void;
+    }> {
+      const client = makeMockCesClient(true);
+      setCesClient(client);
+      await getSecureKeyAsync("prime-key");
+      client.setReady(false);
+
+      const counter = { runs: 0 };
+      let reconnectResult: CesClient | undefined;
+      setCesReconnect(async () => {
+        counter.runs++;
+        return reconnectResult;
+      });
+
+      // Trigger one failed reconnection attempt to stamp the cooldown.
+      await getSecureKeyAsync("prime-key");
+
+      return {
+        counter,
+        setReconnectResult: (c) => {
+          reconnectResult = c;
+        },
+      };
+    }
+
+    test("set during the cooldown reconnects and stores on the fresh client", async () => {
+      const { counter, setReconnectResult } =
+        await enterCooldownWithDeadBackend();
+      expect(counter.runs).toBe(1);
+
+      const fresh = makeMockCesClient(true);
+      setReconnectResult(fresh);
+
+      const ok = await setSecureKeyAsync("credential/vellum/api_key", "sk-1");
+
+      expect(ok).toBe(true);
+      expect(counter.runs).toBe(2);
+      expect(fresh.sets).toEqual([
+        { account: "credential/vellum/api_key", value: "sk-1" },
+      ]);
+    });
+
+    test("read during the cooldown does not trigger another reconnect", async () => {
+      const { counter, setReconnectResult } =
+        await enterCooldownWithDeadBackend();
+      expect(counter.runs).toBe(1);
+
+      setReconnectResult(makeMockCesClient(true));
+
+      const result = await getSecureKeyResultAsync("prime-key");
+
+      expect(counter.runs).toBe(1);
+      expect(result.unreachable).toBe(true);
     });
   });
 });
