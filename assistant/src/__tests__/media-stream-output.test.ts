@@ -1211,4 +1211,250 @@ describe("MediaStreamOutput", () => {
       expect(totalMulawBytes(sent)).toBe(400);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Streaming play-URL playback (processFetchUrlItem)
+  // ---------------------------------------------------------------------------
+
+  describe("sendPlayUrl streaming", () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    /** Mock global fetch to resolve with the given response for any URL. */
+    function mockFetch(response: Response): void {
+      globalThis.fetch = (async () => response) as unknown as typeof fetch;
+    }
+
+    /**
+     * A fetch response whose body is a manually driven stream, so tests
+     * control exactly when bytes arrive and when the body completes.
+     * `arrayBuffer()` throws: the streaming path must never buffer the
+     * response wholesale.
+     */
+    function fakeStreamingResponse(contentType: string): {
+      response: Response;
+      push: (bytes: Buffer) => void;
+      close: () => void;
+      cancelled: () => boolean;
+    } {
+      let controller!: ReadableStreamDefaultController<Uint8Array>;
+      let cancelled = false;
+      const stream = new ReadableStream<Uint8Array>({
+        start(c) {
+          controller = c;
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+      const response = {
+        ok: true,
+        headers: new Headers({ "content-type": contentType }),
+        body: stream,
+        arrayBuffer: () => {
+          throw new Error(
+            "arrayBuffer must not be called on the streaming path",
+          );
+        },
+      } as unknown as Response;
+      return {
+        response,
+        push: (bytes) => {
+          try {
+            controller.enqueue(new Uint8Array(bytes));
+          } catch {
+            // Stream already cancelled/closed — stale producer push.
+          }
+        },
+        close: () => {
+          try {
+            controller.close();
+          } catch {
+            // Already cancelled.
+          }
+        },
+        cancelled: () => cancelled,
+      };
+    }
+
+    test("WAV play-URL frames go out before the response stream completes", async () => {
+      // 1280 samples at 16 kHz -> 640 at 8 kHz = four whole frames.
+      const wav = makeWavBuffer(sineSamples(1280, 440, 16000), {
+        sampleRate: 16000,
+      });
+      // Header + 320 samples: exactly one 20 ms frame after 2x decimation.
+      const firstPart = wav.subarray(0, 44 + 320 * 2);
+      const rest = wav.subarray(44 + 320 * 2);
+
+      const fake = fakeStreamingResponse("audio/wav");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/test.wav");
+
+      fake.push(firstPart);
+      await drain(() => countEvents(sent, "media") >= 1);
+
+      // The first frame went out while the body is still open.
+      expect(countEvents(sent, "media")).toBe(1);
+
+      fake.push(rest);
+      fake.close();
+      await drain(() => countEvents(sent, "media") >= 4);
+
+      // Byte-identical to the whole-buffer transcode.
+      const expected = pcm16ToMulaw(decimateByTwo(wav.subarray(44)));
+      expect(concatMulawPayloads(sent).equals(expected)).toBe(true);
+    });
+
+    test("audio/pcm play-URL streams raw PCM incrementally", async () => {
+      const pcm = pcm16Buffer(sineSamples(1280, 440, 16000));
+      const fake = fakeStreamingResponse("audio/pcm");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/test.pcm");
+
+      fake.push(pcm.subarray(0, 320 * 2)); // 320 samples -> one whole frame
+      await drain(() => countEvents(sent, "media") >= 1);
+      expect(countEvents(sent, "media")).toBe(1);
+
+      fake.push(pcm.subarray(320 * 2));
+      fake.close();
+      await drain(() => countEvents(sent, "media") >= 4);
+
+      const expected = pcm16ToMulaw(decimateByTwo(pcm));
+      expect(concatMulawPayloads(sent).equals(expected)).toBe(true);
+    });
+
+    test("clearAudio mid-stream cancels the body read and sends clear", async () => {
+      const wav = makeWavBuffer(sineSamples(1280, 440, 16000), {
+        sampleRate: 16000,
+      });
+      const fake = fakeStreamingResponse("audio/wav");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/test.wav");
+
+      fake.push(wav.subarray(0, 44 + 320 * 2));
+      await drain(() => countEvents(sent, "media") >= 1);
+      const framesBefore = countEvents(sent, "media");
+      expect(framesBefore).toBeGreaterThan(0);
+
+      output.clearAudio();
+      await drain(() => fake.cancelled());
+
+      // The in-flight body read was cancelled and Twilio's buffer cleared.
+      expect(fake.cancelled()).toBe(true);
+      expect(countEvents(sent, "clear")).toBe(1);
+
+      // Bytes arriving after the abort never become frames.
+      fake.push(wav.subarray(44 + 320 * 2));
+      await drain();
+      expect(countEvents(sent, "media")).toBe(framesBefore);
+    });
+
+    test("audio/mpeg keeps the whole-buffer path (no body streaming)", async () => {
+      const mp3Bytes = Buffer.alloc(256, 0x80);
+      mp3Bytes[0] = 0xff; // MPEG sync
+      mp3Bytes[1] = 0xfb; // MPEG Layer 3
+
+      let bodyAccessed = false;
+      let arrayBufferCalled = false;
+      const response = {
+        ok: true,
+        headers: new Headers({ "content-type": "audio/mpeg" }),
+        get body(): ReadableStream<Uint8Array> {
+          bodyAccessed = true;
+          throw new Error("body must not be streamed for compressed formats");
+        },
+        arrayBuffer: async () => {
+          arrayBufferCalled = true;
+          return mp3Bytes.buffer.slice(
+            mp3Bytes.byteOffset,
+            mp3Bytes.byteOffset + mp3Bytes.byteLength,
+          );
+        },
+      } as unknown as Response;
+      mockFetch(response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/test.mp3");
+
+      await drain(() => arrayBufferCalled);
+
+      expect(arrayBufferCalled).toBe(true);
+      expect(bodyAccessed).toBe(false);
+      // mp3 cannot be transcoded in this path: silence, exactly as before.
+      expect(countEvents(sent, "media")).toBe(0);
+    });
+
+    test("non-canonical WAV (stereo) falls back to the whole-buffer path", async () => {
+      // Stereo is not streamable; the buffered path keeps the left channel.
+      const left = sineSamples(400, 440, 8000);
+      const interleaved: number[] = [];
+      for (const s of left) {
+        interleaved.push(s, -s);
+      }
+      const wav = makeWavBuffer(interleaved, { sampleRate: 8000, channels: 2 });
+
+      const fake = fakeStreamingResponse("audio/wav");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/stereo.wav");
+
+      fake.push(wav.subarray(0, 100));
+      // No frames while the fallback drains the body.
+      await drain();
+      expect(countEvents(sent, "media")).toBe(0);
+
+      fake.push(wav.subarray(100));
+      fake.close();
+      await drain(() => countEvents(sent, "media") > 0);
+
+      // Left channel of 400 pairs at 8 kHz -> 400 mu-law bytes.
+      expect(totalMulawBytes(sent)).toBe(400);
+    });
+
+    test("malformed WAV header falls back without throwing", async () => {
+      // RIFF magic but garbage after it: not streamable, and the buffered
+      // path's fixed-offset reads produce no usable frames.
+      const junk = Buffer.alloc(64, 0x42);
+      junk.write("RIFF", 0);
+
+      const fake = fakeStreamingResponse("audio/wav");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/junk.wav");
+
+      fake.push(junk);
+      fake.close();
+      await drain(() => output.getPlaybackQueueLength() === 0);
+      await drain();
+
+      // No crash; behavior matches the pre-existing buffered transcode.
+      expect(countEvents(sent, "media")).toBe(0);
+
+      // The output still works for a subsequent playable item.
+      const good = fakeStreamingResponse("audio/pcm");
+      mockFetch(good.response);
+      output.sendPlayUrl("http://127.0.0.1/audio/good.pcm");
+      good.push(pcm16Buffer(sineSamples(320, 440, 16000)));
+      good.close();
+      await drain(() => countEvents(sent, "media") > 0);
+      expect(countEvents(sent, "media")).toBe(1);
+    });
+  });
 });
