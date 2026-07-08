@@ -222,7 +222,8 @@ function isValidMessage(item: unknown): boolean {
 /**
  * Detect malformed message data in a hook's output. Read-only: a non-empty
  * result means the caller discards the hook's entire mutation and keeps the
- * previous context.
+ * previous context. Fields absent from the context are skipped — call sites
+ * (and tests) may dispatch a hook name with a partial context.
  */
 function findHookOutputIssues<TInput extends object>(
   name: HookName,
@@ -236,6 +237,9 @@ function findHookOutputIssues<TInput extends object>(
   const rec = ctx as Record<string, unknown>;
 
   for (const field of spec.messageArrays ?? []) {
+    if (!(field in rec)) {
+      continue;
+    }
     const value = rec[field];
     if (!Array.isArray(value)) {
       issues.push(`${field}: not an array`);
@@ -249,6 +253,9 @@ function findHookOutputIssues<TInput extends object>(
   }
 
   for (const field of spec.blockArrays ?? []) {
+    if (!(field in rec)) {
+      continue;
+    }
     const value = rec[field];
     if (!Array.isArray(value)) {
       issues.push(`${field}: not an array`);
@@ -262,6 +269,9 @@ function findHookOutputIssues<TInput extends object>(
   }
 
   for (const field of spec.toolResults ?? []) {
+    if (!(field in rec)) {
+      continue;
+    }
     const value = rec[field] as { type?: unknown } | null;
     // Only a client tool_result can pair back to the assistant's tool_use;
     // a server-tool web_search_tool_result replacement is rejected too.
