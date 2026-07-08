@@ -397,13 +397,10 @@ function resolveAgainstBody(
  * - Workspace precedence is identical to `getEffectiveProfile`: a
  *   user-source workspace entry shadows the default outright; a
  *   managed-source stub contributes only `label`/`status`/`topP`.
- * - A `null` defaultProvider (defensive: M5 guarantees the field post-boot)
- *   and every non-matrix name (custom profiles, `os-beta`) fall back to
- *   `CODE_DEFAULT_PROFILE_ENTRIES` — exactly `getEffectiveProfile`'s
- *   behavior.
- *
- * No runtime consumers yet: the M6 override-or-default resolver adopts this
- * as the call-site default-intent lookup.
+ * - A `null` defaultProvider (defensive: the field is always written at
+ *   hatch/backfill) and every non-matrix name (custom profiles, `os-beta`)
+ *   fall back to `CODE_DEFAULT_PROFILE_ENTRIES` — exactly
+ *   `getEffectiveProfile`'s behavior.
  */
 export function resolveDefaultProfileForProvider(
   workspaceProfiles: Record<string, ProfileEntry> | undefined,
