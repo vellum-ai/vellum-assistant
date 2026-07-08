@@ -112,4 +112,23 @@ describe("AttachmentPreviewModal content loading", () => {
     expect(screen.queryByAltText("photo.png")).toBeNull();
     expect(screen.getByText("Download")).toBeDefined();
   });
+
+  test("renders a video with a thumbnail poster and fetches content from the daemon", async () => {
+    const videoAttachment: DisplayAttachment = {
+      id: "att-video",
+      filename: "clip.mp4",
+      mimeType: "video/mp4",
+      sizeBytes: 5_000_000,
+      previewUrl: null,
+      thumbnailUrl: "data:image/jpeg;base64,AAAA",
+    };
+    renderModal(videoAttachment);
+
+    // The <video> element should appear with the thumbnail as its poster and
+    // the fetched blob URL as its src — NOT the thumbnail as src (the bug).
+    const video = await screen.findByTestId("video-preview");
+    expect(video.getAttribute("poster")).toBe("data:image/jpeg;base64,AAAA");
+    expect(video.getAttribute("src")).toBe("blob:preview-mock");
+    expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+  });
 });

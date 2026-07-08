@@ -18,6 +18,14 @@ export type AttachmentMetadata = Pick<
  *  (real UUIDs that resolve against the content endpoint) or, as a fallback,
  *  reverse-parsed from `[File attachment] …` summary lines in the message text. */
 export interface DisplayAttachment extends AttachmentMetadata {
-  /** Client-only blob URL for an in-flight/optimistic preview. */
+  /** Client-only URL for the attachment's actual content — either an inline
+   *  data URI (when the daemon sent `data`) or a blob URL lazily fetched from
+   *  the daemon's content endpoint. When null, the preview modal fetches from
+   *  the daemon. Must NOT be a thumbnail — see `thumbnailUrl`. */
   previewUrl: string | null;
+  /** Client-only URL for a JPEG thumbnail (from daemon `thumbnailData`),
+   *  used as a poster image for video attachments. Null/undefined when no
+   *  thumbnail is available. Distinct from `previewUrl` so the preview modal
+   *  can fetch the real video bytes while still showing a poster frame. */
+  thumbnailUrl?: string | null;
 }
