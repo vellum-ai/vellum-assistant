@@ -142,6 +142,10 @@ describe("hook output sanitization", () => {
             content: [
               { type: "image" },
               { type: "file", source: { type: "base64" } },
+              {
+                type: "image",
+                source: { type: "workspace_ref", attachmentId: "a1" },
+              },
               { type: "tool_result", tool_use_id: "tu-1" },
               { type: "tool_result", tool_use_id: "tu-4", content: [] },
               {
@@ -154,6 +158,15 @@ describe("hook output sanitization", () => {
               {
                 type: "image",
                 source: { type: "base64", media_type: "image/png", data: "x" },
+              },
+              {
+                type: "file",
+                source: {
+                  type: "workspace_ref",
+                  attachmentId: "a2",
+                  media_type: "application/pdf",
+                  sizeBytes: 10,
+                },
               },
               { type: "tool_result", tool_use_id: "tu-2", content: "ok" },
             ],
@@ -174,9 +187,44 @@ describe("hook output sanitization", () => {
           type: "image",
           source: { type: "base64", media_type: "image/png", data: "x" },
         },
+        {
+          type: "file",
+          source: {
+            type: "workspace_ref",
+            attachmentId: "a2",
+            media_type: "application/pdf",
+            sizeBytes: 10,
+          },
+        },
         { type: "tool_result", tool_use_id: "tu-2", content: "ok" },
       ],
     });
+  });
+
+  test("a sanitizer throw discards the hook's mutation entirely", async () => {
+    entries = [
+      {
+        owner: { kind: "plugin", id: "p" },
+        fn: (ctx: { latestMessages: unknown[] }) => {
+          // Self-referencing contentBlocks overflow the recursive validation;
+          // the throw must revert to the pre-hook context, not commit this.
+          const block: Record<string, unknown> = {
+            type: "tool_result",
+            tool_use_id: "tu-1",
+            content: "ok",
+          };
+          block.contentBlocks = [block];
+          ctx.latestMessages.push({ role: "user", content: [block] });
+        },
+      },
+    ];
+
+    const final = await runHook(
+      "user-prompt-submit",
+      userPromptCtx([validUserMessage]),
+    );
+
+    expect(final.latestMessages).toEqual([validUserMessage]);
   });
 
   test("post-model-call: drops a tool_use block missing its required fields", async () => {

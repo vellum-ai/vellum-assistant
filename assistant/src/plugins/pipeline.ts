@@ -146,7 +146,11 @@ function isMediaSource(value: unknown): boolean {
     );
   }
   if (source.type === "workspace_ref") {
-    return typeof source.attachmentId === "string";
+    return (
+      typeof source.attachmentId === "string" &&
+      typeof source.media_type === "string" &&
+      typeof source.sizeBytes === "number"
+    );
   }
   return false;
 }
@@ -264,7 +268,7 @@ function sanitizeHookOutput<TInput extends object>(
       const msg = item as { role?: unknown; content?: unknown };
       if (typeof msg.role !== "string" || !VALID_MESSAGE_ROLES.has(msg.role)) {
         issues.push(
-          `${field}: dropped a message with unsupported role ${JSON.stringify(msg.role)}`,
+          `${field}: dropped a message with unsupported role ${String(msg.role)}`,
         );
         continue;
       }
@@ -414,18 +418,17 @@ export async function runHook<TInput extends object>(
             `plugin hook '${name}' (${owner.id}) timed out after ${timeoutMs}ms`,
           )
         : await fn(draft);
-      if (result !== undefined) {
-        active = { ...draft, ...result };
-      } else {
-        active = draft;
-      }
-      const issues = sanitizeHookOutput(name, prev, active);
+      // Sanitize before committing so a sanitizer throw (e.g. on cyclic
+      // hook-built structures) discards the draft instead of activating it.
+      const candidate = result !== undefined ? { ...draft, ...result } : draft;
+      const issues = sanitizeHookOutput(name, prev, candidate);
       if (issues.length > 0) {
         log.warn(
           { hookName: name, owner, issues },
           "plugin hook produced malformed message data — repaired (fail-open)",
         );
       }
+      active = candidate;
     } catch (err) {
       log.error(
         { err, hookName: name, owner },
