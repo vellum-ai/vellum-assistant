@@ -11,7 +11,9 @@ import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
+import { resolveMediaSourceData } from "../../providers/media-resolve.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
+import type { MediaSource } from "../../providers/types.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
@@ -656,19 +658,17 @@ export function renderHistoryContent(
       const resultContent =
         typeof block.content === "string" ? block.content : "";
       const isError = block.is_error === true;
-      // Extract base64 image data from persisted contentBlocks (e.g. browser_screenshot, image generation)
+      // Extract image data from persisted contentBlocks (e.g. browser_screenshot,
+      // image generation) as base64. The source may be inline base64 or a
+      // workspace reference; resolveMediaSourceData reads either back to base64.
       const imageDataList: string[] = [];
       if (Array.isArray(block.contentBlocks)) {
         for (const cb of block.contentBlocks) {
-          if (
-            isRecord(cb) &&
-            cb.type === "image" &&
-            isRecord(cb.source) &&
-            typeof (cb.source as Record<string, unknown>).data === "string"
-          ) {
-            imageDataList.push(
-              (cb.source as Record<string, unknown>).data as string,
+          if (isRecord(cb) && cb.type === "image" && isRecord(cb.source)) {
+            const resolved = resolveMediaSourceData(
+              cb.source as unknown as MediaSource,
             );
+            if (resolved) imageDataList.push(resolved.data);
           }
         }
       }
