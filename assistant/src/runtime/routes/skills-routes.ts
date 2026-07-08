@@ -142,6 +142,12 @@ const skillDetailSchema = z.discriminatedUnion("origin", [
   z.object({
     ...slimSkillBaseWithOwner,
     origin: z.literal("assistant-memory"),
+    sourceConversationId: z
+      .string()
+      .optional()
+      .describe(
+        "Conversation whose trace the retrospective distilled this skill from. Present only when recorded in install-meta.",
+      ),
   }),
 ]);
 
