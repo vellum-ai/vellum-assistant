@@ -177,6 +177,20 @@ describe("Button rendering", () => {
     expect(html).toContain(">Link</a>");
     expect(html).not.toContain('data-slot="button-label"');
   });
+
+  test("does not wrap structured (multi-element) children, keeping them as direct flex items", () => {
+    const html = renderToStaticMarkup(
+      <Button>
+        <span data-testid="title">Title</span>
+        <span data-testid="pill">3</span>
+      </Button>,
+    );
+    // Only plain text labels are wrapped; structured content stays as direct
+    // children so `justify-between`/flex layouts are preserved.
+    expect(html).not.toContain('data-slot="button-label"');
+    expect(html).toContain('data-testid="title"');
+    expect(html).toContain('data-testid="pill"');
+  });
 });
 
 describe("Button loading state", () => {
@@ -215,6 +229,16 @@ describe("Button loading state", () => {
     );
     expect(html).toContain("animate-spin");
     expect(html).not.toContain('data-testid="left-icon"');
+  });
+
+  test("preserves a caller-provided aria-busy when not loading", () => {
+    const html = renderToStaticMarkup(<Button aria-busy>Busy</Button>);
+    expect(html).toContain('aria-busy="true"');
+  });
+
+  test("sets no aria-busy when neither loading nor caller-provided", () => {
+    const html = renderToStaticMarkup(<Button>Idle</Button>);
+    expect(html).not.toContain("aria-busy");
   });
 });
 

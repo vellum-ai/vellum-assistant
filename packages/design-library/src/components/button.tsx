@@ -303,6 +303,17 @@ export function Button({
   // icon-only button); everything else keeps its normal layout.
   const effectiveLeftIcon = isLoading && !isIconOnly ? spinner : leftIcon;
   const effectiveIconOnly = isLoading && isIconOnly ? spinner : iconOnly;
+  // Wrap only plain text labels in a stable element so browser page
+  // translation mutates a node React owns rather than a bare text sibling of
+  // the icons (see translate-dom-guard). Structured children (elements /
+  // arrays) stay as direct flex children so callers relying on the button as a
+  // flex container — e.g. `justify-between` layouts — are unaffected.
+  const label =
+    typeof children === "string" || typeof children === "number" ? (
+      <span data-slot="button-label">{children}</span>
+    ) : (
+      children
+    );
   const iconStyle: CSSProperties = {
     width: iconPx,
     height: iconPx,
@@ -341,7 +352,7 @@ export function Button({
       ref={ref}
       type={asChild ? undefined : (type ?? "button")}
       disabled={asChild ? undefined : isDisabled}
-      aria-busy={isLoading || undefined}
+      aria-busy={isLoading ? true : rest["aria-busy"]}
       aria-disabled={isSlotDisabled ? true : rest["aria-disabled"]}
       data-disabled={isSlotDisabled ? "" : undefined}
       data-slot="button"
@@ -373,35 +384,23 @@ export function Button({
           </span>
         )
       ) : effectiveLeftIcon == null && rightIcon == null ? (
-        // Label wrapped in a stable element (non-asChild) so browser page
-        // translation mutates text nodes React does not own directly — see
-        // translate-dom-guard. `asChild` keeps its single element child intact
-        // for Slot.
-        asChild ? (
-          children
-        ) : (
-          <span data-slot="button-label">{children}</span>
-        )
+        // `asChild` keeps its single element child intact for Slot; otherwise
+        // render the (translate-safe) label.
+        asChild ? children : label
       ) : (
         // When `asChild` is set, `Comp` is Radix's `Slot`, which forwards its
         // props (e.g. `type`, `disabled`) onto its single React-element child.
         // A bare Fragment can't accept those props — React 19 hard-errors with
         // "Invalid prop `type` supplied to React.Fragment". `Slottable` marks
         // `children` as the prop target so Slot clones the caller's element
-        // and re-parents the icons as its children. In the non-asChild path
-        // (`Comp === "button"`) the label is wrapped in a stable element so
-        // page translation never re-parents a bare text sibling of the icons.
+        // and re-parents the icons as its children.
         <>
           {effectiveLeftIcon != null ? (
             <span aria-hidden="true" style={iconStyle}>
               {effectiveLeftIcon}
             </span>
           ) : null}
-          {asChild ? (
-            <Slottable>{children}</Slottable>
-          ) : children != null ? (
-            <span data-slot="button-label">{children}</span>
-          ) : null}
+          {asChild ? <Slottable>{children}</Slottable> : label}
           {rightIcon != null ? (
             <span aria-hidden="true" style={iconStyle}>
               {rightIcon}
