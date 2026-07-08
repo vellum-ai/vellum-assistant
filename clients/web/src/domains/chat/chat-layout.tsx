@@ -68,6 +68,8 @@ import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overla
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
+import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
+import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -296,6 +298,28 @@ export function ChatLayout() {
     setDrawerOpen(false);
     consumeSidebarCollapse();
   }, [sidebarCollapseRequested, consumeSidebarCollapse]);
+
+  // The full-screen voice room takes over the viewport, so collapse the sidebar
+  // and blur the chat body while it is visible — then restore the user's prior
+  // collapsed state exactly on exit. Mirrors the research-onboarding
+  // sidebar-collapse pattern above, but fully reversible: the pre-room value is
+  // captured in a ref before forcing (the sentinel `null` means "room not
+  // currently forcing"), so any external session end restores it.
+  const voiceRoomVisible = useIsVoiceRoomVisible();
+  const collapsedBeforeRoomRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (voiceRoomVisible) {
+      if (collapsedBeforeRoomRef.current === null) {
+        collapsedBeforeRoomRef.current = collapsed;
+        setCollapsed(true);
+      }
+      return;
+    }
+    if (collapsedBeforeRoomRef.current !== null) {
+      setCollapsed(collapsedBeforeRoomRef.current);
+      collapsedBeforeRoomRef.current = null;
+    }
+  }, [voiceRoomVisible, collapsed]);
 
   const drawerVisible = isMobile && drawerOpen;
 
@@ -646,6 +670,13 @@ export function ChatLayout() {
     />
   );
 
+  // Blur + freeze the chat body under the voice room. The room is an opaque
+  // overlay, so this mainly matters for the header strip peeking around it and
+  // to stop stray interaction with the covered chat.
+  const mainRoomClass = voiceRoomVisible
+    ? "pointer-events-none blur-sm opacity-40 transition-[filter,opacity]"
+    : "";
+
   return (
     <>
       {!isPopout && (
@@ -687,7 +718,9 @@ export function ChatLayout() {
       ) : null}
 
       {isMobile ? (
-        <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
+        <main
+          className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
+        >
           <Outlet  />
           {/* A popout narrowed below the mobile breakpoint lands in this
               branch — still headerless, so it still needs the floating
@@ -732,7 +765,9 @@ export function ChatLayout() {
           ) : null}
         </main>
       ) : isPopout ? (
-        <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4">
+        <main
+          className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4 ${mainRoomClass}`}
+        >
           <Outlet />
           {/* Pop-outs render no header, but they DO support in-window
               conversation switching (Cmd+Up/Down) — so a live session started
@@ -751,7 +786,9 @@ export function ChatLayout() {
           >
             {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange })}
           </aside>
-          <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
+          <main
+            className={`flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
+          >
             <Outlet />
           </main>
         </div>
@@ -763,6 +800,12 @@ export function ChatLayout() {
           overlay; it never remounts the chat, so a suggestion click's
           navigate + `?prompt=` auto-send isn't raced by a remount. */}
       {isFocused ? <ResearchResultsOverlay /> : null}
+      {/* Full-screen live-voice room — a purely additive overlay mounted at
+          layout scope, next to the other full-viewport overlays. Self-gates on
+          `useIsVoiceRoomVisible()` (the exact complement of the title-bar
+          session pill); the composer's voice bar and transcript render
+          underneath, hidden by it. */}
+      <VoiceRoom />
       {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}

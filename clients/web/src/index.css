@@ -462,3 +462,60 @@ body {
     transform: none;
   }
 }
+
+/* ─── Live-voice room ambient void ───────────────────────────────────────────
+ * Backdrop for the full-screen voice room: a deep-dark radial void with a
+ * scatter of slow-drifting indigo particles. The gradient and particle glow are
+ * fixed rgba — a deliberate constant accent that stays the same regardless of
+ * app theme (the room is always its own dark space), like a data-viz series or
+ * annotation overlay rather than a themed UI surface. See
+ * voice-room-ambient-background.tsx. */
+.voice-room-void {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: radial-gradient(
+    circle at 50% 44%,
+    rgb(12, 14, 24) 0%,
+    rgb(5, 6, 11) 46%,
+    rgb(0, 0, 0) 100%
+  );
+}
+
+@keyframes voice-room-particle-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0;
+  }
+  12% {
+    opacity: var(--particle-opacity, 0.5);
+  }
+  88% {
+    opacity: var(--particle-opacity, 0.5);
+  }
+  100% {
+    transform: translate3d(var(--drift-x, 0), var(--drift-y, -60px), 0);
+    opacity: 0;
+  }
+}
+
+.voice-room-particle {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    rgba(129, 140, 248, 0.6) 0%,
+    rgba(99, 102, 241, 0) 70%
+  );
+  animation: voice-room-particle-drift var(--drift-duration, 16s) ease-in-out
+    infinite;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-room-particle {
+    animation: none;
+    opacity: 0.25;
+  }
+}
