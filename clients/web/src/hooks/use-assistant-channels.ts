@@ -9,7 +9,7 @@ import {
   type AssistantChannelState,
   type ChannelReadinessSnapshot,
   type SetupChannelId,
-} from "@/domains/channels/types";
+} from "@/types/channel-types";
 import { removeSlackWorkspaceQueries } from "@/utils/slack-workspace-cache";
 import {
   channelsReadinessGetOptions,

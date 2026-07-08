@@ -216,8 +216,7 @@ export function useChannelPermissionOverrides({
         ),
       );
     },
-    onMutate: ({ channelExternalId }) =>
-      applyOptimistic(channelExternalId, []),
+    onMutate: ({ channelExternalId }) => applyOptimistic(channelExternalId, []),
     onError: (err, _vars, context) => {
       queryClient.setQueryData(queryKey, context?.previous);
       toastOnError("Failed to reset channel settings")(err);

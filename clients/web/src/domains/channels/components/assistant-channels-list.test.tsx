@@ -8,7 +8,7 @@ import {
   AssistantChannelsList,
   type AssistantChannelsListProps,
 } from "@/domains/channels/components/assistant-channels-list";
-import type { AssistantChannelState } from "@/domains/channels/types";
+import type { AssistantChannelState } from "@/types/channel-types";
 
 const CHANNELS: AssistantChannelState[] = [
   { key: "slack", status: "ready", address: "@vex" },

@@ -12,6 +12,9 @@ import {
   slackChannelsGetOptions,
   slackChannelsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { SlackChannelsGetResponse } from "@/generated/daemon/types.gen";
+
+export type SlackChannel = SlackChannelsGetResponse["channels"][number];
 
 function memberChannelsRequestOptions(assistantId: string) {
   return {

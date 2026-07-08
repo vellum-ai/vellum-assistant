@@ -47,7 +47,10 @@ interface CapabilityTierMeta {
   tone: TagTone;
 }
 
-export const CAPABILITY_TIER_META: Record<SlackCapabilityTier, CapabilityTierMeta> = {
+export const CAPABILITY_TIER_META: Record<
+  SlackCapabilityTier,
+  CapabilityTierMeta
+> = {
   none: {
     label: presetFromThreshold("none").label,
     sublabel: "ask before every action",

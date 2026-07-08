@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SlackChannel } from "@/domains/channels/types";
+import type { SlackChannel } from "@/domains/channels/slack-channels-query";
 
 import {
   classifySlackChannelKind,
@@ -25,7 +25,11 @@ function makeChannel(
 }
 
 const general = makeChannel({ id: "C1", name: "general" });
-const leadership = makeChannel({ id: "C2", name: "leadership", isPrivate: true });
+const leadership = makeChannel({
+  id: "C2",
+  name: "leadership",
+  isPrivate: true,
+});
 const dmAlice = makeChannel({ id: "D1", name: "Alice", type: "dm" });
 const groupDm = makeChannel({
   id: "G1",
@@ -72,9 +76,10 @@ describe("filterSlackChannels", () => {
   });
 
   test("kind filter narrows to one category", () => {
-    expect(
-      filterSlackChannels(ROOMS, "", "private").map((c) => c.id),
-    ).toEqual(["G1", "C2"]);
+    expect(filterSlackChannels(ROOMS, "", "private").map((c) => c.id)).toEqual([
+      "G1",
+      "C2",
+    ]);
     expect(filterSlackChannels(ROOMS, "", "public").map((c) => c.id)).toEqual([
       "C1",
     ]);
@@ -103,17 +108,25 @@ describe("countSlackChannelKinds", () => {
   });
 
   test("empty list counts zero everywhere", () => {
-    expect(countSlackChannelKinds([])).toEqual({ public: 0, private: 0, dm: 0 });
+    expect(countSlackChannelKinds([])).toEqual({
+      public: 0,
+      private: 0,
+      dm: 0,
+    });
   });
 });
 
 describe("slackChannelMetaLabel", () => {
   test("rooms show a pluralized member count", () => {
     expect(
-      slackChannelMetaLabel(makeChannel({ id: "C9", name: "x", memberCount: 24 })),
+      slackChannelMetaLabel(
+        makeChannel({ id: "C9", name: "x", memberCount: 24 }),
+      ),
     ).toBe("24 members");
     expect(
-      slackChannelMetaLabel(makeChannel({ id: "C9", name: "x", memberCount: 1 })),
+      slackChannelMetaLabel(
+        makeChannel({ id: "C9", name: "x", memberCount: 1 }),
+      ),
     ).toBe("1 member");
   });
 

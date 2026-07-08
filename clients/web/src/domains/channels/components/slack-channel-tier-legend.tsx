@@ -67,8 +67,8 @@ function tierDescription(
       return (
         <>
           {assistantName} runs any tool it has access to without asking.
-          Sensitive tools still come to you first, and anything you’ve
-          blocked in{" "}
+          Sensitive tools still come to you first, and anything you’ve blocked
+          in{" "}
           <Link
             to={routes.settings.privacy}
             className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"

@@ -3,15 +3,6 @@ import type {
   ContactsGetResponse,
 } from "@/generated/daemon/types.gen";
 
-// Re-export shared channel types for domain consumers.
-export {
-  SETUP_CHANNEL_IDS,
-  isSetupChannelId,
-  type AssistantChannelState,
-  type ChannelStatus,
-  type SetupChannelId,
-} from "@/types/channel-types";
-
 // ---------------------------------------------------------------------------
 // Types derived from the generated daemon SDK
 // ---------------------------------------------------------------------------
@@ -29,10 +20,10 @@ export type ContactSelection =
   | { kind: "assistant" }
   | { kind: "contact"; contactId: string };
 
-export interface ContactSummary {
-  id: string;
-  displayName: string;
-  role: string;
-  contactType?: string | null;
-  channelTypes?: string[];
+export interface ContactSummary extends Pick<
+  ContactPayload,
+  "id" | "displayName" | "role"
+> {
+  contactType?: ContactPayload["contactType"] | null;
+  channelTypes?: string[]; // client-only display labels, not on the wire
 }

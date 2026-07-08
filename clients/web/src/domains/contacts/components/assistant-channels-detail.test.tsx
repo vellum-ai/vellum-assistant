@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
-import type { AssistantChannelState } from "@/domains/contacts/types";
+import type { AssistantChannelState } from "@/types/channel-types";
 
 const CHANNELS: AssistantChannelState[] = [
   { key: "slack", status: "ready", address: "@vex" },
@@ -17,9 +17,7 @@ afterEach(() => {
 
 describe("assistant channels detail (contact card)", () => {
   test("the Contacts detail view renders the identity header card and Channels card", () => {
-    render(
-      <AssistantChannelsDetail assistantName="Vex" channels={CHANNELS} />,
-    );
+    render(<AssistantChannelsDetail assistantName="Vex" channels={CHANNELS} />);
     expect(document.body.textContent).toContain("Vex (Your Assistant)");
     expect(document.body.textContent).toContain("Channels");
     expect(document.body.textContent).toContain("Slack");

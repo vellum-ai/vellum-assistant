@@ -21,13 +21,13 @@ import {
   upsertContact,
   verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
-import {
-  isSetupChannelId,
-  type ChannelInfo,
-  type ContactChannelPayload,
-  type ContactPayload,
-  type ContactSelection,
+import type {
+  ChannelInfo,
+  ContactChannelPayload,
+  ContactPayload,
+  ContactSelection,
 } from "@/domains/contacts/types";
+import { isSetupChannelId } from "@/types/channel-types";
 import {
   channelsAvailableGetOptions,
   contactsGetOptions,

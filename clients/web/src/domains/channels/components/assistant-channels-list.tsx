@@ -15,9 +15,18 @@ import { assistantDisplayName as toAssistantDisplayName } from "@/utils/assistan
 import { SlackChannelCard } from "@/domains/channels/components/slack-channel-card";
 import { SlackChannelSection } from "@/domains/channels/components/slack-channel-section";
 import { SlackConnectionCard } from "@/domains/channels/components/slack-connection-card";
-import { SlackThreadBehavior, type SlackThreadMode } from "@/domains/channels/components/slack-thread-behavior";
-import { SlackSetupWizard, type MutationStatus } from "@/components/slack-setup-wizard";
-import type { AssistantChannelState, SetupChannelId } from "@/domains/channels/types";
+import {
+  SlackThreadBehavior,
+  type SlackThreadMode,
+} from "@/domains/channels/components/slack-thread-behavior";
+import {
+  SlackSetupWizard,
+  type MutationStatus,
+} from "@/components/slack-setup-wizard";
+import type {
+  AssistantChannelState,
+  SetupChannelId,
+} from "@/types/channel-types";
 import {
   ADMISSION_POLICY_DEFAULT,
   ADMISSION_POLICY_VALUES,
@@ -38,7 +47,12 @@ type ChannelKey = SetupChannelId;
 const POLICY_CONFIRMATIONS: Partial<
   Record<
     AdmissionPolicy,
-    { title: string; message: string; confirmLabel: string; destructive?: boolean }
+    {
+      title: string;
+      message: string;
+      confirmLabel: string;
+      destructive?: boolean;
+    }
   >
 > = {
   no_one: {
@@ -81,7 +95,10 @@ export interface AssistantChannelsListProps {
   policySavingKey?: ChannelKey | null;
   policiesLoading?: boolean;
   policiesError?: boolean;
-  onChannelPolicyChange?: (channelKey: ChannelKey, policy: AdmissionPolicy) => void;
+  onChannelPolicyChange?: (
+    channelKey: ChannelKey,
+    policy: AdmissionPolicy,
+  ) => void;
   onSetup?: (channelKey: ChannelKey) => void;
   onDisconnect?: (channelKey: ChannelKey) => void;
   onSaveTelegramToken?: (botToken: string) => Promise<void>;
@@ -89,7 +106,10 @@ export interface AssistantChannelsListProps {
   slackSaveStatus?: MutationStatus;
   slackSaveError?: string | null;
   onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
-  onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
+  onSaveTwilioCredentials?: (
+    accountSid: string,
+    authToken: string,
+  ) => Promise<void>;
   /**
    * Pre-select a channel's sub-tab on mount (e.g. from a `?setup=slack`
    * deep-link) and open its manual credential form.
@@ -167,7 +187,9 @@ export function AssistantChannelsList({
   onSaveTwilioCredentials,
   initialChannel = null,
 }: AssistantChannelsListProps) {
-  const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(null);
+  const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(
+    null,
+  );
   const [activeChannel, setActiveChannel] = useState<ChannelKey>(
     () => initialChannel ?? channels[0]?.key ?? "slack",
   );
@@ -179,14 +201,19 @@ export function AssistantChannelsList({
   } | null>(null);
 
   const displayName = toAssistantDisplayName(assistantName);
-  const disconnectMeta = pendingDisconnect ? CHANNEL_META[pendingDisconnect] : null;
+  const disconnectMeta = pendingDisconnect
+    ? CHANNEL_META[pendingDisconnect]
+    : null;
   const pendingConfirmation = pendingPolicy
     ? POLICY_CONFIRMATIONS[pendingPolicy.policy]
     : null;
 
   // Floors that loosen or hard-deny access prompt a confirmation before
   // persisting; every other floor applies immediately.
-  const handlePolicyChange = (channelKey: ChannelKey, next: AdmissionPolicy) => {
+  const handlePolicyChange = (
+    channelKey: ChannelKey,
+    next: AdmissionPolicy,
+  ) => {
     if (POLICY_CONFIRMATIONS[next]) {
       setPendingPolicy({ channelKey, policy: next });
       return;
@@ -218,7 +245,9 @@ export function AssistantChannelsList({
               initialManualEntry={initialChannel === channel.key}
               onSetup={onSetup ? () => onSetup(channel.key) : undefined}
               onDisconnect={
-                onDisconnect ? () => setPendingDisconnect(channel.key) : undefined
+                onDisconnect
+                  ? () => setPendingDisconnect(channel.key)
+                  : undefined
               }
               onSaveTelegramToken={onSaveTelegramToken}
               onSaveSlackConfig={onSaveSlackConfig}
@@ -266,7 +295,10 @@ export function AssistantChannelsList({
         destructive={pendingConfirmation?.destructive ?? false}
         onConfirm={() => {
           if (pendingPolicy) {
-            onChannelPolicyChange?.(pendingPolicy.channelKey, pendingPolicy.policy);
+            onChannelPolicyChange?.(
+              pendingPolicy.channelKey,
+              pendingPolicy.policy,
+            );
           }
           setPendingPolicy(null);
         }}
@@ -302,7 +334,10 @@ interface ChannelPanelProps {
   slackThreadMode?: SlackThreadMode;
   slackThreadModePending?: boolean;
   onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
-  onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
+  onSaveTwilioCredentials?: (
+    accountSid: string,
+    authToken: string,
+  ) => Promise<void>;
   policy?: AdmissionPolicy;
   policySaving?: boolean;
   policyLoading?: boolean;
@@ -532,9 +567,9 @@ function ChannelTrustFloorSection({
           {value === "trusted_contacts" ? (
             <Notice tone="info" className="max-w-lg">
               People you haven’t verified yet — even teammates in the same
-              channel — can’t get through: {assistantDisplayName} lets them
-              know they need to be verified and notifies you. You can verify
-              people ahead of time in Contacts.
+              channel — can’t get through: {assistantDisplayName} lets them know
+              they need to be verified and notifies you. You can verify people
+              ahead of time in Contacts.
             </Notice>
           ) : null}
         </>
@@ -586,16 +621,15 @@ function TelegramCredentialEntry({ onSave }: TelegramCredentialEntryProps) {
         fullWidth
       />
       {error ? (
-        <p className="text-label-small" style={{ color: "var(--content-negative)" }}>
+        <p
+          className="text-label-small"
+          style={{ color: "var(--content-negative)" }}
+        >
           {error}
         </p>
       ) : null}
       <div>
-        <Button
-          type="button"
-          onClick={handleSave}
-          disabled={!canSave}
-        >
+        <Button type="button" onClick={handleSave} disabled={!canSave}>
           {saving ? "Saving…" : "Save"}
         </Button>
       </div>
@@ -613,7 +647,8 @@ function TwilioCredentialEntry({ onSave }: TwilioCredentialEntryProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSave = accountSid.trim().length > 0 && authToken.trim().length > 0 && !saving;
+  const canSave =
+    accountSid.trim().length > 0 && authToken.trim().length > 0 && !saving;
 
   const handleSave = async () => {
     if (!onSave || !canSave) {
@@ -653,16 +688,15 @@ function TwilioCredentialEntry({ onSave }: TwilioCredentialEntryProps) {
         fullWidth
       />
       {error ? (
-        <p className="text-label-small" style={{ color: "var(--content-negative)" }}>
+        <p
+          className="text-label-small"
+          style={{ color: "var(--content-negative)" }}
+        >
           {error}
         </p>
       ) : null}
       <div>
-        <Button
-          type="button"
-          onClick={handleSave}
-          disabled={!canSave}
-        >
+        <Button type="button" onClick={handleSave} disabled={!canSave}>
           {saving ? "Saving…" : "Save"}
         </Button>
       </div>

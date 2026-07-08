@@ -19,7 +19,7 @@ import {
   resolveChannelTier,
   type SlackCapabilityTier,
 } from "@/domains/channels/slack-channel-overrides";
-import type { SlackChannel } from "@/domains/channels/types";
+import type { SlackChannel } from "@/domains/channels/slack-channels-query";
 
 /**
  * How a channel presents in the filter chips. Mirrors the conversation-type
@@ -30,7 +30,9 @@ import type { SlackChannel } from "@/domains/channels/types";
  */
 export type SlackChannelKind = "public" | "private" | "dm";
 
-export function classifySlackChannelKind(channel: SlackChannel): SlackChannelKind {
+export function classifySlackChannelKind(
+  channel: SlackChannel,
+): SlackChannelKind {
   if (channel.type === "dm") {
     return "dm";
   }
@@ -320,7 +322,11 @@ export function SlackChannelList({
                     );
                   })}
                 </div>
-                <Button type="button" variant="outlined" onClick={toggleExpandAll}>
+                <Button
+                  type="button"
+                  variant="outlined"
+                  onClick={toggleExpandAll}
+                >
                   {multiOpen ? "Collapse all" : "Expand all"}
                 </Button>
               </div>
@@ -403,7 +409,10 @@ export function SlackChannelList({
           </Card.Footer>
         ) : null}
       </Card.Root>
-      {accessControlsSupported && !loading && !error && allChannels.length > 0 ? (
+      {accessControlsSupported &&
+      !loading &&
+      !error &&
+      allChannels.length > 0 ? (
         <SlackChannelTierLegend assistantName={assistantDisplayName} />
       ) : null}
     </>

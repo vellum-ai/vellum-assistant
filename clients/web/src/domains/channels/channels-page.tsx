@@ -55,7 +55,9 @@ export function ChannelsPage({
         />
       </DetailCard>
 
-      {a2aChannel ? <ShareConnectionLinkButton onClick={inviteDialog.open} /> : null}
+      {a2aChannel ? (
+        <ShareConnectionLinkButton onClick={inviteDialog.open} />
+      ) : null}
 
       <GenerateInviteLinkDialog
         open={inviteDialog.isOpen}

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
-import { isSetupChannelId, type SetupChannelId } from "@/domains/channels/types";
+import { isSetupChannelId, type SetupChannelId } from "@/types/channel-types";
 
 /**
  * Reads the `?setup=<channel>` deep-link param (used to pre-select a channel
@@ -18,7 +18,13 @@ export function useSetupChannelParam(): SetupChannelId | null {
     if (!setupChannel) {
       return;
     }
-    setSearchParams((prev) => { prev.delete("setup"); return prev; }, { replace: true });
+    setSearchParams(
+      (prev) => {
+        prev.delete("setup");
+        return prev;
+      },
+      { replace: true },
+    );
   }, [setupChannel, setSearchParams]);
 
   return setupChannel;

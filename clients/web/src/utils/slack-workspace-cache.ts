@@ -1,3 +1,8 @@
+import type { QueryClient } from "@tanstack/react-query";
+
+import { memberSlackChannelsQueryKey } from "@/domains/channels/slack-channels-query";
+import { slackRosterQueryKey } from "@/domains/contacts/slack-users-query";
+
 /**
  * Drop every Slack-workspace-scoped cache (member channel list + user
  * roster). Both are scoped to whichever workspace the stored credentials
@@ -6,11 +11,6 @@
  * the previous workspace's channels/members. Lives at the top level because
  * it spans the channels and contacts domains' caches.
  */
-import type { QueryClient } from "@tanstack/react-query";
-
-import { memberSlackChannelsQueryKey } from "@/domains/channels/slack-channels-query";
-import { slackRosterQueryKey } from "@/domains/contacts/slack-users-query";
-
 export function removeSlackWorkspaceQueries(
   queryClient: QueryClient,
   assistantId: string,
