@@ -1,20 +1,29 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
-    ArrowUp,
-    Download,
-    Ellipsis,
-    ExternalLink,
-    Pin,
-    PinOff,
-    Trash2,
+  ArrowUp,
+  Download,
+  Ellipsis,
+  ExternalLink,
+  Pin,
+  PinOff,
+  Trash2,
 } from "lucide-react";
 import { useCallback, useState } from "react";
-import type { FC, MouseEvent, ReactNode } from "react";
+import type { FC, KeyboardEvent, MouseEvent, ReactNode } from "react";
 
-import { BottomSheet, Button, Menu, PanelItem, toast } from "@vellumai/design-library";
+import {
+  BottomSheet,
+  Button,
+  Menu,
+  PanelItem,
+  toast,
+} from "@vellumai/design-library";
 
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import { appsByIdDeletePost, documentsByIdPdfGet } from "@/generated/daemon/sdk.gen";
+import {
+  appsByIdDeletePost,
+  documentsByIdPdfGet,
+} from "@/generated/daemon/sdk.gen";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
@@ -39,7 +48,13 @@ interface MenuShellProps {
   desktopItems: ReactNode;
 }
 
-function MenuShell({ isMobile, title, ariaLabel, children, desktopItems }: MenuShellProps) {
+function MenuShell({
+  isMobile,
+  title,
+  ariaLabel,
+  children,
+  desktopItems,
+}: MenuShellProps) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
 
@@ -51,6 +66,13 @@ function MenuShell({ isMobile, title, ariaLabel, children, desktopItems }: MenuS
       iconOnly={<Ellipsis />}
       aria-label={ariaLabel}
       onClick={(e: MouseEvent) => e.stopPropagation()}
+      // PanelItem's row handler also acts on Enter/Space — keep them local
+      // so opening the menu doesn't open the asset.
+      onKeyDown={(e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.stopPropagation();
+        }
+      }}
     />
   );
 
@@ -62,7 +84,9 @@ function MenuShell({ isMobile, title, ariaLabel, children, desktopItems }: MenuS
           <BottomSheet.Header className="sr-only">
             <BottomSheet.Title>{title}</BottomSheet.Title>
           </BottomSheet.Header>
-          <BottomSheet.Body className="pt-0">{children(close)}</BottomSheet.Body>
+          <BottomSheet.Body className="pt-0">
+            {children(close)}
+          </BottomSheet.Body>
         </BottomSheet.Content>
       </BottomSheet.Root>
     );
@@ -117,7 +141,14 @@ export function useAppDelete(assistantId: string) {
     } finally {
       setIsDeleting(false);
     }
-  }, [pendingDelete, isDeleting, assistantId, pinnedAppIds, togglePin, queryClient]);
+  }, [
+    pendingDelete,
+    isDeleting,
+    assistantId,
+    pinnedAppIds,
+    togglePin,
+    queryClient,
+  ]);
 
   const cancelDelete = useCallback(() => {
     if (!isDeleting) {
@@ -125,7 +156,13 @@ export function useAppDelete(assistantId: string) {
     }
   }, [isDeleting]);
 
-  return { pendingDelete, isDeleting, requestDelete: setPendingDelete, confirmDelete, cancelDelete };
+  return {
+    pendingDelete,
+    isDeleting,
+    requestDelete: setPendingDelete,
+    confirmDelete,
+    cancelDelete,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -175,70 +212,70 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
 
   return (
     <MenuShell
-        isMobile={isMobile}
-        title={app.name}
-        ariaLabel={`Options for ${app.name}`}
-        desktopItems={
-          <>
-            <Menu.Item
-              leftIcon={isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-              onSelect={() => togglePin(app)}
-              className="whitespace-nowrap"
-            >
-              {isPinned ? "Unpin" : "Pin"}
-            </Menu.Item>
-            <Menu.Item
-              leftIcon={<ArrowUp size={14} />}
-              onSelect={() => void handleShare()}
-              className="whitespace-nowrap"
-            >
-              Share
-            </Menu.Item>
-            <Menu.Item
-              leftIcon={<Trash2 size={14} />}
-              onSelect={() => onRequestDelete(app)}
-              className="whitespace-nowrap"
-            >
-              Delete
-            </Menu.Item>
-          </>
-        }
-      >
-        {(close) => (
-          <>
-            <PanelItem
-              icon={isPinned ? PinOff : Pin}
-              label={isPinned ? "Unpin" : "Pin"}
-              onSelect={() => {
-                close();
-                togglePin(app);
-              }}
-            />
-            <PanelItem
-              icon={ArrowUp}
-              label={
-                <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                  <span>Share</span>
-                  <span className="text-body-small-default text-[var(--content-tertiary)]">
-                    Export as .vellum file
-                  </span>
+      isMobile={isMobile}
+      title={app.name}
+      ariaLabel={`Options for ${app.name}`}
+      desktopItems={
+        <>
+          <Menu.Item
+            leftIcon={isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+            onSelect={() => togglePin(app)}
+            className="whitespace-nowrap"
+          >
+            {isPinned ? "Unpin" : "Pin"}
+          </Menu.Item>
+          <Menu.Item
+            leftIcon={<ArrowUp size={14} />}
+            onSelect={() => void handleShare()}
+            className="whitespace-nowrap"
+          >
+            Share
+          </Menu.Item>
+          <Menu.Item
+            leftIcon={<Trash2 size={14} />}
+            onSelect={() => onRequestDelete(app)}
+            className="whitespace-nowrap"
+          >
+            Delete
+          </Menu.Item>
+        </>
+      }
+    >
+      {(close) => (
+        <>
+          <PanelItem
+            icon={isPinned ? PinOff : Pin}
+            label={isPinned ? "Unpin" : "Pin"}
+            onSelect={() => {
+              close();
+              togglePin(app);
+            }}
+          />
+          <PanelItem
+            icon={ArrowUp}
+            label={
+              <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
+                <span>Share</span>
+                <span className="text-body-small-default text-[var(--content-tertiary)]">
+                  Export as .vellum file
                 </span>
-              }
-              onSelect={() => {
-                close();
-                void handleShare();
-              }}
-            />
-            <PanelItem
-              icon={Trash2}
-              label="Delete"
-              onSelect={() => {
-                close();
-                onRequestDelete(app);
-              }}
-            />
-          </>
-        )}
+              </span>
+            }
+            onSelect={() => {
+              close();
+              void handleShare();
+            }}
+          />
+          <PanelItem
+            icon={Trash2}
+            label="Delete"
+            onSelect={() => {
+              close();
+              onRequestDelete(app);
+            }}
+          />
+        </>
+      )}
     </MenuShell>
   );
 };
