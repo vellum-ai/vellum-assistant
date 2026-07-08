@@ -351,26 +351,30 @@ export async function startVoiceTurn(
   const conversation = await getOrCreateConversation(opts.conversationId);
 
   if (conversation.isProcessing()) {
-    // Voice barge-in can race with turn teardown. Wait briefly for the
-    // previous turn to finish aborting before giving up.
+    // Voice barge-in can race with turn teardown. Wait for the previous
+    // turn to finish aborting before giving up. The wait is event-driven —
+    // `waitForIdle` resolves from the `setProcessing(false)` transition —
+    // so the turn starts on the same tick the lock releases instead of
+    // paying up to a 50 ms poll interval after every barge-in.
     const config = getConfig();
     const maxWaitMs = resolveProcessingWaitMs(
       config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
       ABORT_WATCHDOG_MS,
     );
-    const pollIntervalMs = 50;
-    let waited = 0;
-    while (conversation.isProcessing() && waited < maxWaitMs) {
-      if (opts.signal?.aborted) {
-        throw new Error("Turn aborted while waiting for conversation");
-      }
-      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-      waited += pollIntervalMs;
+    let idle: boolean;
+    try {
+      idle = await conversation.waitForIdle({
+        timeoutMs: maxWaitMs,
+        signal: opts.signal,
+      });
+    } catch {
+      // waitForIdle rejects only when opts.signal aborted mid-wait.
+      throw new Error("Turn aborted while waiting for conversation");
     }
     if (opts.signal?.aborted) {
       throw new Error("Turn aborted while waiting for conversation");
     }
-    if (conversation.isProcessing()) {
+    if (!idle) {
       // Waited the full budget (see resolveProcessingWaitMs) without the lock
       // releasing, so the prior turn is genuinely wedged. The controller
       // catches this terminal error and speaks a brief non-technical
