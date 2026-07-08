@@ -487,6 +487,7 @@ export async function runAgentLoopImpl(
         resolveCallSiteConfig(turnCallSite, config.llm, {
           overrideProfile: currentOverrideProfile,
           forceOverrideProfile,
+          onResolutionFallback: logResolutionFallback,
           selectionSeed: ctx.conversationId,
         }).contextWindow,
         currentEffectiveContextWindow,

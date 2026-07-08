@@ -257,6 +257,20 @@ describe("composition", () => {
     expect(resolved.provider_connection).toBeUndefined();
   });
 
+  test("a model-only tweak keeps the provider-agnostic vellum connection for managed-routable implied providers", () => {
+    const llm = LLMSchema.parse({
+      callSites: {
+        conversationSummarization: { model: "claude-haiku-4-5-20251001" },
+      },
+      defaultProvider: { provider: "vellum" },
+    });
+    const resolved = resolveCallSiteConfig("conversationSummarization", llm);
+    expect(resolved.provider).toBe("anthropic");
+    // The vellum connection routes anthropic via expectedProvider; dropping
+    // it would leave platform installs with no resolvable connection.
+    expect(resolved.provider_connection).toBe("vellum");
+  });
+
   test("profileless call sites anchor on balanced intent through the default provider plus their tweaks", () => {
     const llm = LLMSchema.parse(anthropicDp);
     const resolved = resolveCallSiteConfig("workflowLeaf", llm);

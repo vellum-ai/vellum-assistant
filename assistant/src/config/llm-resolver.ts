@@ -4,6 +4,10 @@ import {
   getCatalogProviderForModel,
   isModelInCatalog,
 } from "../providers/model-catalog.js";
+import {
+  MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_MANAGED_CONNECTION_NAME,
+} from "../providers/vellum-model-routing.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import {
@@ -496,7 +500,19 @@ function resolveOverrideOrDefault(
     const implied = getCatalogProviderForModel(tweak.model);
     if (implied !== undefined) {
       tweak.provider = implied;
-      delete winnerFragment.provider_connection;
+      // A provider-specific connection must not pin a mismatch onto the
+      // implied provider — but the provider-agnostic Vellum managed
+      // connection routes any managed-routable upstream and must survive,
+      // or platform installs lose their only connection.
+      if (
+        !(
+          winnerFragment.provider_connection ===
+            VELLUM_MANAGED_CONNECTION_NAME &&
+          MANAGED_ROUTABLE_PROVIDERS.has(implied)
+        )
+      ) {
+        delete winnerFragment.provider_connection;
+      }
     }
   }
 
