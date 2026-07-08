@@ -30,7 +30,9 @@ import { resolveManagedProxyContext } from "../../providers/platform-proxy/conte
 import {
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_MANAGED_CONNECTION_NAME,
 } from "../../providers/vellum-model-routing.js";
+import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyResultAsync } from "../../security/secure-keys.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
@@ -72,11 +74,41 @@ async function vellumAvailability(): Promise<Availability> {
   if (ctx.enabled) {
     return { status: "ok" };
   }
+  if (!ctx.platformBaseUrl) {
+    return {
+      status: "vellum_unauthenticated",
+      message: "Not signed in to Vellum — the platform URL is not configured.",
+    };
+  }
+  // The context collapses an unreachable credential read into "no key";
+  // re-read reachability-aware so a CES outage isn't reported as logged out.
+  const key = await getSecureKeyResultAsync(
+    credentialKey("vellum", "assistant_api_key"),
+  );
+  if (key.value != null) {
+    return { status: "ok" };
+  }
+  if (key.unreachable) {
+    return {
+      status: "unknown",
+      message:
+        "The credential store is unreachable, so Vellum sign-in could not be verified. Try again shortly.",
+    };
+  }
   return {
     status: "vellum_unauthenticated",
-    message: ctx.platformBaseUrl
-      ? "Not signed in to Vellum — no assistant API key is stored. Log in to use Vellum-managed inference."
-      : "Not signed in to Vellum — the platform URL is not configured.",
+    message:
+      "Not signed in to Vellum — no assistant API key is stored. Log in to use Vellum-managed inference.",
+  };
+}
+
+function vellumManagedMismatch(
+  resolvedConnectionName: string,
+  provider: string,
+): Availability {
+  return {
+    status: "provider_mismatch",
+    message: `Connection "${resolvedConnectionName}" is the Vellum-managed connection, which cannot serve provider "${provider}". Pick a connection for "${provider}" ${SETTINGS_HINT}.`,
   };
 }
 
@@ -84,8 +116,18 @@ async function computeAvailability(
   dp: DefaultProviderConfig,
   resolvedConnectionName: string,
 ): Promise<Availability> {
-  if (dp.provider === "vellum") {
-    return vellumAvailability();
+  // Canonical managed connection (vellum convention, or an explicit pin on
+  // it): boot-seeded platform-auth row, so only platform auth needs checking.
+  // An explicit non-canonical pin — even with provider "vellum" — goes
+  // through the full row checks below instead.
+  if (resolvedConnectionName === VELLUM_MANAGED_CONNECTION_NAME) {
+    if (
+      dp.provider === "vellum" ||
+      MANAGED_ROUTABLE_PROVIDERS.has(dp.provider)
+    ) {
+      return vellumAvailability();
+    }
+    return vellumManagedMismatch(resolvedConnectionName, dp.provider);
   }
 
   let connection;
@@ -109,13 +151,13 @@ async function computeAvailability(
   // providers via platform auth; any other provider mismatch fails there, so
   // usable credentials must not read as ok.
   if (isVellumManagedConnection(connection)) {
-    if (MANAGED_ROUTABLE_PROVIDERS.has(dp.provider)) {
+    if (
+      dp.provider === "vellum" ||
+      MANAGED_ROUTABLE_PROVIDERS.has(dp.provider)
+    ) {
       return vellumAvailability();
     }
-    return {
-      status: "provider_mismatch",
-      message: `Connection "${resolvedConnectionName}" is the Vellum-managed connection, which cannot serve provider "${dp.provider}". Pick a connection for "${dp.provider}" ${SETTINGS_HINT}.`,
-    };
+    return vellumManagedMismatch(resolvedConnectionName, dp.provider);
   }
   if (connection.provider !== dp.provider) {
     return {
@@ -158,7 +200,13 @@ async function computeAvailability(
     case "platform":
       return vellumAvailability();
     case "none":
-      return { status: "ok" };
+      // Every default-provider candidate except vellum is an API-key
+      // provider; dispatch (`createAdapterFromConnection`) yields no adapter
+      // for keyless auth on them.
+      return {
+        status: "unsupported_auth",
+        message: `Connection "${resolvedConnectionName}" has no authentication configured, but provider "${dp.provider}" requires an API key. Add a key ${SETTINGS_HINT}.`,
+      };
   }
 }
 

@@ -168,8 +168,12 @@ describe("GET config/llm/default-provider", () => {
     seedConnection({
       name: "work-openai",
       provider: "openai",
-      auth: { type: "none" },
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
     });
+    secureKeyResults["credential/openai/api_key"] = {
+      value: "sk-oai",
+      unreachable: false,
+    };
     fakeConfig = {
       llm: {
         defaultProvider: { provider: "openai", connectionName: "work-openai" },
@@ -219,6 +223,62 @@ describe("GET config/llm/default-provider", () => {
     const result = await get();
     expect(availability(result).status).toBe("unknown");
     expect(availability(result).message).toContain("unreachable");
+  });
+
+  test("vellum + credential store unreachable → unknown, not logged-out", async () => {
+    fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
+    secureKeyResults["credential/vellum/assistant_api_key"] = {
+      value: undefined,
+      unreachable: true,
+    };
+    const result = await get();
+    expect(availability(result).status).toBe("unknown");
+    expect(availability(result).message).toContain("unreachable");
+  });
+
+  test("vellum with a dangling explicit connectionName → missing_connection", async () => {
+    fakeConfig = {
+      llm: {
+        defaultProvider: { provider: "vellum", connectionName: "ghost" },
+      },
+    };
+    const result = await get();
+    expect(availability(result).status).toBe("missing_connection");
+  });
+
+  test("vellum pinned to another provider's connection → provider_mismatch", async () => {
+    seedConnection({
+      name: "anthropic-personal",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+    });
+    secureKeyResults["credential/anthropic/api_key"] = {
+      value: "sk-ant",
+      unreachable: false,
+    };
+    fakeConfig = {
+      llm: {
+        defaultProvider: {
+          provider: "vellum",
+          connectionName: "anthropic-personal",
+        },
+      },
+    };
+    const result = await get();
+    expect(availability(result).status).toBe("provider_mismatch");
+  });
+
+  test("none-auth connection on a keyed provider → unsupported_auth", async () => {
+    seedConnection({
+      name: "openai-personal",
+      provider: "openai",
+      auth: { type: "none" },
+    });
+    fakeConfig = { llm: { defaultProvider: { provider: "openai" } } };
+
+    const result = await get();
+    expect(availability(result).status).toBe("unsupported_auth");
+    expect(availability(result).message).toContain("API key");
   });
 
   test("explicit connectionName for a different provider → provider_mismatch even with credentials", async () => {
@@ -319,8 +379,12 @@ describe("PUT config/llm/default-provider", () => {
     seedConnection({
       name: "openai-personal",
       provider: "openai",
-      auth: { type: "none" },
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
     });
+    secureKeyResults["credential/openai/api_key"] = {
+      value: "sk-oai",
+      unreachable: false,
+    };
 
     const result = (await put({ provider: "openai" })) as Record<
       string,
