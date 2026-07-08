@@ -377,10 +377,10 @@ function SideMenuSection({
       {...rest}
     >
       {!hideHeader && (title || actions) ? (
-        <div className="flex h-[21px] items-center justify-between">
+        <div className="flex h-[30px] items-center justify-between px-[6px]">
           {title ? (
             <Typography
-              variant="body-small-default"
+              variant="body-medium-default"
               as="span"
               className="text-[color:var(--content-tertiary)]"
             >
@@ -415,7 +415,7 @@ function SideMenuSubList({
     <ul
       ref={ref}
       data-slot="side-menu-sub-list"
-      className={cn("flex flex-col gap-[2px] list-none p-0 m-0", className)}
+      className={cn("flex flex-col gap-[4px] list-none p-0 m-0", className)}
       {...rest}
     >
       {children}
@@ -508,8 +508,8 @@ function ItemLeadingIcon({
   const iconClass = cn(
     "shrink-0",
     active
-      ? "text-[color:var(--content-emphasised)]"
-      : "text-[color:var(--content-secondary)]",
+      ? "text-[color:var(--content-default)]"
+      : "text-[color:var(--content-tertiary)]",
     collapsed ? "mx-auto" : undefined,
   );
   return <Icon size={14} aria-hidden className={iconClass} />;
@@ -567,7 +567,7 @@ function SideMenuItem({
     "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
     "cursor-pointer select-none",
     "transition-colors",
-    "gap-[8px] p-2",
+    "h-[30px] max-md:h-auto gap-[6px] p-[6px]",
     collapsed ? "justify-center" : "justify-start",
     size === "compact"
       ? "text-body-small-default max-md:text-body-large-default"
