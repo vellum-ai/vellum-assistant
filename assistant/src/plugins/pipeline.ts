@@ -314,6 +314,12 @@ function sanitizeHookOutput<TInput extends object>(
  * Time-box for a user-land hook: the try/catch contains throws but not hangs.
  * First-party default hooks are exempt — memory retrieval legitimately runs
  * long LLM calls. Override via `VELLUM_PLUGIN_HOOK_TIMEOUT_MS`.
+ *
+ * Covers async hangs only: a CPU-bound synchronous loop never yields to the
+ * event loop, so the timeout cannot fire until it returns. Preempting that
+ * needs worker-thread isolation, which the in-process hook contract (contexts
+ * carry non-cloneable capabilities like `logger`/`broadcast`) does not
+ * currently allow.
  */
 export const EXTERNAL_HOOK_TIMEOUT_MS = 30_000;
 
