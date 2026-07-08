@@ -86,18 +86,22 @@ export function LetsChatTomorrowStep({
           className="text-[2.6rem] leading-tight"
           style={{ fontFamily: "var(--font-serif)" }}
         >
-          {waitingForAssistant
-            ? "Waking up"
-            : missingCalendarScope
-              ? "Access not enabled"
-              : "Let me make this easy"}
+          <span>
+            {waitingForAssistant
+              ? "Waking up"
+              : missingCalendarScope
+                ? "Access not enabled"
+                : "Let me make this easy"}
+          </span>
         </h1>
         <p className="text-[16px]" style={{ color: tone.fgMuted }}>
-          {waitingForAssistant
-            ? "Your assistant is getting ready"
-            : missingCalendarScope
-              ? "Check the box next to the Google Calendar permission so I can book the check-in."
-              : "Connect your Google Calendar so I can find time to check in and start helping."}
+          <span>
+            {waitingForAssistant
+              ? "Your assistant is getting ready"
+              : missingCalendarScope
+                ? "Check the box next to the Google Calendar permission so I can book the check-in."
+                : "Connect your Google Calendar so I can find time to check in and start helping."}
+          </span>
         </p>
 
         <div className="mt-6 flex w-[234px] flex-col items-center gap-4">
@@ -114,17 +118,17 @@ export function LetsChatTomorrowStep({
             {waitingForAssistant ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Starting assistant…
+                <span>Starting assistant…</span>
               </>
             ) : oauthInProgress ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Waiting for authorization…
+                <span>Waiting for authorization…</span>
               </>
             ) : missingCalendarScope ? (
-              "Try again"
+              <span>Try again</span>
             ) : (
-              "Connect Calendar →"
+              <span>Connect Calendar →</span>
             )}
           </button>
           {/* Skip sits directly under the connect button. Hidden while the
