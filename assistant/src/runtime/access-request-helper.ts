@@ -435,13 +435,17 @@ export async function notifyGuardianOfAccessRequest(
  * cleared the admission floor without ever being reviewed. The conversation proceeds
  * regardless of whether — or how — the guardian decides.
  *
- * At most one nudge per (assistant, channel, actor, conversation): any prior
- * access request whose `requesterChatId` matches this conversation suppresses
- * it, in every terminal state — an admitted sender loses nothing when the
- * guardian ignores the card, so re-prompting in the same conversation is
- * noise. A prior request from a *different* conversation does not suppress
- * (a channel poster who later DMs the assistant is new context worth one more
- * nudge); the actor-level pending-dedupe, terminal-deny, and handshake-window
+ * At most one nudge per (assistant, channel, actor, external chat): any
+ * prior access request whose `requesterChatId` matches this
+ * `conversationExternalId` suppresses it, in every terminal state — an
+ * admitted sender loses nothing when the guardian ignores the card, so
+ * re-prompting in the same chat is noise. The key is the external chat id
+ * (a Slack channel or DM, a Telegram chat), deliberately coarser than the
+ * per-thread internal conversation rows: threads in one Slack channel share
+ * one nudge, so a busy channel cannot mint a card per thread. A prior
+ * request from a *different* chat does not suppress (a channel poster who
+ * later DMs the assistant is new context worth one more nudge); the
+ * actor-level pending-dedupe, terminal-deny, and handshake-window
  * suppressions inside {@link notifyGuardianOfAccessRequest} still apply, so
  * two live cards are never minted for the same actor.
  */
