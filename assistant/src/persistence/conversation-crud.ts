@@ -669,6 +669,13 @@ export function createConversation(
   titleOrOpts?:
     | string
     | {
+        /**
+         * Adopt an explicit conversation id instead of minting a new uuid.
+         * Callers that already hold a client-provided id and want the row to
+         * carry it verbatim (e.g. {@link ensureConversationExists}) pass it
+         * here; everyone else omits it and gets a fresh uuid.
+         */
+        id?: string;
         title?: string;
         /**
          * Override the `is_auto_title` column (schema default 1). Pass
@@ -696,7 +703,7 @@ export function createConversation(
     requestedConversationType ?? "standard";
   const source = opts.source ?? "user";
   const groupId = opts.groupId;
-  const id = uuid();
+  const id = opts.id ?? uuid();
   const memoryScopeId = "default";
 
   // Ensure group_id column exists for deterministic schema readiness,
@@ -762,6 +769,31 @@ export function createConversation(
   initConversationDir({ ...conversation, originChannel: null });
 
   return conversation;
+}
+
+/**
+ * Ensure a `conversations` row exists for `id`, creating one with default
+ * columns only when absent. Idempotent.
+ *
+ * The normal text-send path persists the conversation row through the
+ * conversation-key store before the first message is written, so `messages`
+ * inserts always have their FK target. Entry points that adopt a
+ * client-provided conversation id directly — notably the live-voice session,
+ * which binds to the id from its start frame — have no such guarantee: on the
+ * first turn of a brand-new chat the row does not exist yet, and persisting
+ * the user message trips `FOREIGN KEY constraint failed`. Call this before the
+ * first persist to close that gap while keeping the adopted id verbatim.
+ */
+export function ensureConversationExists(id: string): void {
+  if (getConversation(id)) return;
+  try {
+    createConversation({ id });
+  } catch (err) {
+    // A concurrent caller may have created the row between the check and the
+    // insert (UNIQUE(id) violation). That's the desired end state, so only
+    // rethrow if the row still isn't there.
+    if (!getConversation(id)) throw err;
+  }
 }
 
 export function getConversation(id: string): ConversationRow | null {

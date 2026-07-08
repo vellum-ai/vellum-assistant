@@ -10,6 +10,7 @@ import type {
   VoiceTurnHandle,
   VoiceTurnOptions,
 } from "../calls/voice-session-bridge.js";
+import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
   supportsBoundary,
@@ -1621,6 +1622,14 @@ async function defaultResolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCr
 async function defaultStartVoiceTurn(
   options: VoiceTurnOptions,
 ): Promise<VoiceTurnHandle> {
+  // On the first turn of a brand-new chat the client's conversation id has no
+  // persisted `conversations` row yet — the live-voice session adopts the id
+  // from its start frame rather than minting one through the conversation-key
+  // store the text-send path uses. Without the row, the user-message persist
+  // inside `startVoiceTurn` trips `FOREIGN KEY constraint failed`. Ensure it
+  // exists (idempotent) before persisting. Lives in the production wiring, not
+  // the session state machine, so session unit tests stay DB-free.
+  ensureConversationExists(options.conversationId);
   const { startVoiceTurn } = await import("../calls/voice-session-bridge.js");
   return startVoiceTurn(options);
 }
