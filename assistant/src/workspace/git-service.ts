@@ -856,18 +856,26 @@ export class WorkspaceGitService {
    * deletions ride along with the next commit. Best-effort: failures are
    * logged, never block init. Must be called with the mutex lock held.
    *
-   * Deliberately reads only the workspace .gitignore (not --exclude-standard):
-   * the user's global/local exclude files must not cause deletions of files
-   * they force-added on purpose.
+   * Deliberately matches against the Vellum-managed rules only — not the
+   * workspace .gitignore (which may carry user-authored rules whose matches
+   * were force-added on purpose) and not --exclude-standard (the user's
+   * global/local exclude files). The rules are passed via a temp file under
+   * .git so gitignore semantics, including negation order, are preserved.
    */
   private async untrackIgnoredFilesLocked(): Promise<void> {
+    const rulesPath = join(this.workspaceDir, ".git", "vellum-untrack-rules");
     try {
+      writeFileSync(
+        rulesPath,
+        WORKSPACE_GITIGNORE_RULES.join("\n") + "\n",
+        "utf-8",
+      );
       const { stdout } = await this.execGitStreaming([
         "ls-files",
         "-z",
         "--cached",
         "--ignored",
-        "--exclude-from=.gitignore",
+        `--exclude-from=${rulesPath}`,
       ]);
       const files = stdout.split("\0").filter(Boolean);
       if (files.length === 0) {
@@ -892,6 +900,12 @@ export class WorkspaceGitService {
       );
     } catch (err) {
       log.warn({ err }, "Failed to untrack newly ignored files");
+    } finally {
+      try {
+        unlinkSync(rulesPath);
+      } catch {
+        // Never created, or already gone.
+      }
     }
   }
 

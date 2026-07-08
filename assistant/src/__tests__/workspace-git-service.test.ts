@@ -767,7 +767,7 @@ describe("WorkspaceGitService", () => {
       expect(headFiles).toContain("notes.md");
     });
 
-    test("untracking keeps avatar/sounds state and ignores user exclude files", async () => {
+    test("untracking is limited to Vellum rules and keeps avatar/sounds state", async () => {
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
       execFileSync("git", ["config", "user.email", "user@example.com"], {
@@ -796,6 +796,10 @@ describe("WorkspaceGitService", () => {
         join(testDir, ".git", "info", "exclude"),
         "fixture-keep.md\n",
       );
+      // Force-added despite a user-authored .gitignore rule — the untrack
+      // step matches Vellum-managed rules only, so it must stay tracked.
+      writeFileSync(join(testDir, ".gitignore"), "user-secret.md\n");
+      writeFileSync(join(testDir, "user-secret.md"), "keep");
       execFileSync("git", ["add", "-A", "-f"], { cwd: testDir });
       execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
 
@@ -810,6 +814,7 @@ describe("WorkspaceGitService", () => {
       expect(tracked).toContain("data/sounds/ding.mp3");
       expect(tracked).toContain("data/apps/my-app/icon.png");
       expect(tracked).toContain("fixture-keep.md");
+      expect(tracked).toContain("user-secret.md");
       expect(tracked).not.toContain("pkb/photo.png");
       // The icon negation must not drag dist/ back in
       expect(tracked).not.toContain("data/apps/my-app/dist/bundle.png");
