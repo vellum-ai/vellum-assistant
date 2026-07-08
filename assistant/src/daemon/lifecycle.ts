@@ -56,6 +56,7 @@ import {
 } from "../work-items/work-item-store.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
+import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
 import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
@@ -457,6 +458,20 @@ export async function runDaemon(): Promise<void> {
     log.warn(
       { err },
       "Default provider ensure pass failed — continuing startup",
+    );
+  }
+
+  // Runs on every boot, after the overlay merge and profile seeding and
+  // before the first loadConfig(), so no resolution ever sees a partial
+  // custom profile. See workspace/custom-profile-ensure.ts for why this is
+  // an ensure pass rather than a workspace migration.
+  try {
+    ensureCompleteCustomProfiles(getWorkspaceDir());
+    log.info("Custom profile materialization ensure pass complete");
+  } catch (err) {
+    log.warn(
+      { err },
+      "Custom profile materialization ensure pass failed — continuing startup",
     );
   }
 
