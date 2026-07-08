@@ -303,11 +303,10 @@ export function ChatLayout() {
   // collapsed and the chat body blurs while it is visible. This override is
   // EPHEMERAL — it is OR'd into the rendered collapsed value (`sideMenuCollapsed`
   // below) rather than routed through `setCollapsed`, so it never touches the
-  // persistence effect above. That matters: forcing the persisted `collapsed`
-  // true (the old approach) let a reload / tab-close mid-session write the
-  // forced value to `localStorage` and leave the sidebar collapsed forever. On
-  // exit the room override simply drops and the sidebar returns to exactly the
-  // user's persisted value — no restore dance needed.
+  // persistence effect above. Keeping it out of the persisted `collapsed` state
+  // means a reload / tab-close while the room is open cannot write the forced
+  // value to `localStorage`: on exit the override drops and the sidebar returns
+  // to exactly the user's persisted value.
   const voiceRoomVisible = useIsVoiceRoomVisible();
   const sideMenuCollapsed = collapsed || voiceRoomVisible;
 

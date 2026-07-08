@@ -804,8 +804,8 @@ describe("ChatComposer — live-voice integration", () => {
     expect(dictation?.disabled).toBe(false);
   });
 
-  test("flag ON, idle: live-voice button present, normal row, no voice bar", () => {
-    // GIVEN the flag is on with no active session
+  test("flag ON, idle + empty: voice-mode button owns the send slot, dictation available, no voice bar", () => {
+    // GIVEN the flag is on with no active session and an empty composer
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
 
@@ -813,15 +813,32 @@ describe("ChatComposer — live-voice integration", () => {
     const { getByLabelText, queryByLabelText, queryByRole } =
       renderVoiceComposer();
 
-    // THEN both mics are available, neither is forced disabled, and the
-    // action row is the normal composer row (no voice bar)
+    // THEN the voice-mode button occupies the send slot (there is nothing to
+    // send yet), dictation is available, and the row is the normal composer
+    // row (no voice bar). The send arrow is absent until the message has
+    // content (see the swap test below).
     expect(getByLabelText("Start voice mode")).toBeTruthy();
     const dictation = queryByLabelText(
       "Start voice input",
     ) as HTMLButtonElement | null;
     expect(dictation?.disabled).toBe(false);
     expect(queryByRole("group", { name: "Voice session" })).toBeNull();
+    expect(queryByLabelText("Send message")).toBeNull();
+  });
+
+  test("typing swaps the voice-mode button for the send arrow", () => {
+    // GIVEN the flag is on, no active session, and the user has typed content
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+
+    // WHEN the composer renders with a non-empty draft
+    const { getByLabelText, queryByLabelText } = renderVoiceComposer({
+      input: "hello",
+    });
+
+    // THEN the send arrow takes the slot and the voice-mode button steps aside
     expect(getByLabelText("Send message")).toBeTruthy();
+    expect(queryByLabelText("Start voice mode")).toBeNull();
   });
 
   test("clicking the live-voice button starts a session through the store-registered starter", () => {
@@ -953,12 +970,14 @@ describe("ChatComposer — live-voice integration", () => {
     seedLiveVoiceSession("listening", "conv-other-thread");
 
     // WHEN the composer renders
-    const { container, getByLabelText, queryByRole } = renderVoiceComposer();
+    const { container, getByLabelText, queryByLabelText, queryByRole } =
+      renderVoiceComposer();
 
     // THEN no voice bar, no transcript region, and the textarea stays
-    // editable — thread B behaves like a normal composer...
+    // editable — thread B behaves like a normal composer. The empty send slot
+    // holds the voice-mode button (disabled below), so the send arrow is absent.
     expect(queryByRole("group", { name: "Voice session" })).toBeNull();
-    expect(getByLabelText("Send message")).toBeTruthy();
+    expect(queryByLabelText("Send message")).toBeNull();
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
     expect(textarea.disabled).toBe(false);
     // ...except both mic entry points are disabled: the running session owns
@@ -1035,7 +1054,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(liveControls.stop).not.toHaveBeenCalled();
   });
 
-  test("dictation active disables the live-voice button (reverse mutual exclusion)", () => {
+  test("dictation active hides the live-voice button (reverse mutual exclusion)", () => {
     // GIVEN the flag is on, no live session, but dictation is active.
     // `processing` is one of the two phases that make the composer's
     // `isVoiceActive` true (alongside `recording`); we use it because
@@ -1047,12 +1066,12 @@ describe("ChatComposer — live-voice integration", () => {
     mockVoicePhase = "processing";
 
     // WHEN the composer renders
-    const { getByLabelText } = renderVoiceComposer();
+    const { queryByLabelText } = renderVoiceComposer();
 
-    // THEN the live-voice start affordance is disabled so it can't open a
-    // second mic/voice session alongside the dictation recorder
-    const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
-    expect(liveVoice.disabled).toBe(true);
+    // THEN the send slot (which holds the voice-mode entry point while idle) is
+    // hidden entirely during dictation, so no second mic/voice session can open
+    // alongside the recorder — mutual exclusion by absence.
+    expect(queryByLabelText("Start voice mode")).toBeNull();
   });
 
   test("electron dictation uses the system overlay instead of the inline composer preview", () => {
@@ -1063,13 +1082,13 @@ describe("ChatComposer — live-voice integration", () => {
     mockVoicePhase = "processing";
 
     // WHEN the composer renders
-    const { getByLabelText, queryByLabelText } = renderVoiceComposer();
+    const { queryByLabelText } = renderVoiceComposer();
 
     // THEN the shared top-center dictation overlay owns the visual treatment,
-    // so the composer-specific preview is absent while mutual exclusion stays.
+    // so the composer-specific preview is absent; and the send slot (voice-mode
+    // entry point) stays hidden during dictation — mutual exclusion by absence.
     expect(queryByLabelText("Transcribing")).toBeNull();
-    const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
-    expect(liveVoice.disabled).toBe(true);
+    expect(queryByLabelText("Start voice mode")).toBeNull();
   });
 
   test("failed live-voice state is inactive: normal row restored, dictation re-enabled", () => {
@@ -1082,9 +1101,10 @@ describe("ChatComposer — live-voice integration", () => {
     // WHEN the composer renders (dictation idle)
     const { getByLabelText, queryByRole } = renderVoiceComposer();
 
-    // THEN the voice bar is unmounted and the normal row is back...
+    // THEN the voice bar is unmounted and the normal row is back — with an
+    // empty draft the send slot shows the voice-mode entry point again...
     expect(queryByRole("group", { name: "Voice session" })).toBeNull();
-    expect(getByLabelText("Send message")).toBeTruthy();
+    expect(getByLabelText("Start voice mode")).toBeTruthy();
     // ...with dictation treated as available again (failed = inactive)
     const dictation = getByLabelText(
       "Start voice input",
