@@ -3,12 +3,12 @@
  * user-land hooks:
  *
  *  - message-bearing output fields are validated after each hook commit:
- *    unsupported roles are dropped, bare-string content is wrapped into a
- *    text block, and unusable replacements are reverted to the pre-hook value
- *    (regression for the smb-inbox-brief incident, where a workspace plugin
- *    unshifted `{ role: "system", content: "<string>" }` into
- *    `latestMessages` and every subsequent provider call died with
- *    `content.map is not a function`);
+ *    unsupported roles (e.g. an OpenAI-style `{ role: "system",
+ *    content: "<string>" }`) are dropped, bare-string content is wrapped into
+ *    a text block, and unusable replacements are reverted to the pre-hook
+ *    value — a malformed message that reached the provider serializers would
+ *    otherwise fail every subsequent turn with
+ *    `content.map is not a function`;
  *  - external (user-land) hooks are time-boxed so a hung hook cannot block
  *    the agent turn, while first-party default hooks are exempt;
  *  - `resolveMediaReferences` (the providers' shared serialization entry)
@@ -65,10 +65,10 @@ afterEach(() => {
 });
 
 describe("hook output sanitization", () => {
-  test("drops an injected message with an unsupported role (smb-inbox-brief regression)", async () => {
+  test("drops an injected message with an unsupported role", async () => {
     entries = [
       {
-        owner: { kind: "plugin", id: "smb-inbox-brief" },
+        owner: { kind: "plugin", id: "workspace-plugin" },
         fn: (ctx: { latestMessages: unknown[] }) => {
           ctx.latestMessages.unshift({
             role: "system",
@@ -145,6 +145,39 @@ describe("hook output sanitization", () => {
       role: "assistant",
       content: [{ type: "text", text: "kept" }],
     });
+  });
+
+  test("post-model-call: drops a tool_use block missing its required fields", async () => {
+    entries = [
+      {
+        owner: { kind: "plugin", id: "p" },
+        fn: (ctx: { content: unknown[] }) => {
+          // Missing id/name/input — the loop reads `block.id.length` off every
+          // tool_use, so keeping this block would throw before execution.
+          ctx.content.push({ type: "tool_use" });
+          ctx.content.push({
+            type: "tool_use",
+            id: "",
+            name: "noop",
+            input: {},
+          });
+        },
+      },
+    ];
+
+    const final = await runHook("post-model-call", {
+      conversationId: "conv-1",
+      callSite: null,
+      content: [{ type: "text", text: "reply" }],
+      messages: [validUserMessage],
+      stopReason: "tool_use",
+      decision: "stop",
+    });
+
+    expect(final.content).toEqual([
+      { type: "text", text: "reply" },
+      { type: "tool_use", id: "", name: "noop", input: {} },
+    ]);
   });
 
   test("post-model-call: wraps a string content replacement into a text block", async () => {

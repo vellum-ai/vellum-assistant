@@ -137,12 +137,40 @@ const HOOK_MESSAGE_FIELDS: Partial<
 
 const VALID_MESSAGE_ROLES = new Set(["user", "assistant"]);
 
+/**
+ * Structural check for a hook-supplied content block. Beyond the `type`
+ * discriminant, executable/serialized block types must carry the fields the
+ * loop and provider serializers read without guards: the loop reads
+ * `block.id.length` off every `tool_use` (an empty id gets a fresh one
+ * assigned, a missing one throws), and serializers read `text` / `tool_use_id`
+ * directly. Unknown block types pass — the serializers already drop them
+ * safely.
+ */
 function isBlockish(block: unknown): block is ContentBlock {
-  return (
-    block !== null &&
-    typeof block === "object" &&
-    typeof (block as { type?: unknown }).type === "string"
-  );
+  if (
+    block === null ||
+    typeof block !== "object" ||
+    typeof (block as { type?: unknown }).type !== "string"
+  ) {
+    return false;
+  }
+  const b = block as Record<string, unknown>;
+  switch (b.type) {
+    case "text":
+      return typeof b.text === "string";
+    case "tool_use":
+      return (
+        typeof b.id === "string" &&
+        typeof b.name === "string" &&
+        typeof b.input === "object" &&
+        b.input !== null
+      );
+    case "tool_result":
+    case "web_search_tool_result":
+      return typeof b.tool_use_id === "string";
+    default:
+      return true;
+  }
 }
 
 /**
@@ -240,8 +268,7 @@ function sanitizeHookOutput<TInput extends object>(
   for (const field of spec.toolResults ?? []) {
     const value = rec[field] as { type?: unknown } | null;
     if (
-      value === null ||
-      typeof value !== "object" ||
+      !isBlockish(value) ||
       (value.type !== "tool_result" && value.type !== "web_search_tool_result")
     ) {
       issues.push(`${field}: replaced with a non-tool_result — reverted`);
