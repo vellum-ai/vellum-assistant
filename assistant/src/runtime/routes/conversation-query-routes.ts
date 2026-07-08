@@ -1242,13 +1242,20 @@ function completeChangedCustomProfiles(
     if (!parsedEntry.success) {
       continue;
     }
+    // `source: "managed"` is only meaningful on catalog-owned names. On any
+    // other name it would skip completion (and read as a locked entry), so a
+    // body claiming it is normalized to user-owned before completing.
+    const entryData =
+      parsedEntry.data.source === "managed" && !MANAGED_PROFILE_NAMES.has(name)
+        ? { ...parsedEntry.data, source: "user" as const }
+        : parsedEntry.data;
     // Spread the completed known fields over the original raw entry:
     // `safeParse` strips keys the schema doesn't know, and dropping them
     // here would delete forward-compatible fields whenever an unrelated
     // leaf of the entry is edited.
     profiles[name] = {
       ...(readPlainObject(entry) ?? {}),
-      ...completeCustomProfile(parsedDefault.data, parsedEntry.data),
+      ...completeCustomProfile(parsedDefault.data, entryData),
     };
   }
 }

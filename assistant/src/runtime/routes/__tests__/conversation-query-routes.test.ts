@@ -1252,6 +1252,17 @@ describe("custom profile write normalization (complete overrides)", () => {
     expect(saved.provider).toBe("anthropic");
   });
 
+  test("a bogus managed source on a non-catalog name is normalized and completed", async () => {
+    await replaceProfileRoute.handler({
+      pathParams: { name: "mine" },
+      body: { source: "managed", model: "claude-haiku-4-5-20251001" },
+    });
+    const saved = savedProfiles().mine;
+    expect(saved.source).toBe("user");
+    expect(saved.provider).toBe("anthropic");
+    expect(saved.maxTokens).toBe(12345);
+  });
+
   test("a managed status re-enable stays a thin stub", async () => {
     (
       rawConfigFixture.llm as { profiles: Record<string, unknown> }
