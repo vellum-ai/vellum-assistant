@@ -828,7 +828,7 @@ export class MediaStreamOutput implements CallTransport {
    * synthesized-play segments whose store entry fills only as fast as the
    * provider synthesizes. Compressed and unknown formats (and bodies the
    * incremental encoder cannot transcode exactly) buffer the whole
-   * response as before.
+   * response and use the buffered conversion path.
    */
   private async processFetchUrlItem(
     url: string,
