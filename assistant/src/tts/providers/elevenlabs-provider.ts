@@ -13,6 +13,7 @@ import type { TtsElevenLabsProviderConfig } from "../../config/schemas/tts.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
+import { resolvePcmOutputSampleRateHz } from "../pcm-sample-rates.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
 import {
   consumeSynthesisResponse,
@@ -164,43 +165,37 @@ function resolveVoiceId(
   return voiceId;
 }
 
-/** ElevenLabs PCM output formats by exact sample rate. */
-const PCM_FORMAT_BY_SAMPLE_RATE: Record<number, string> = {
-  16000: "pcm_16000",
-  22050: "pcm_22050",
-  24000: "pcm_24000",
-  44100: "pcm_44100",
-};
+/**
+ * Sample rates of the ElevenLabs `pcm_*` output formats this provider
+ * requests (`pcm_16000`…`pcm_44100`).
+ */
+const SUPPORTED_PCM_SAMPLE_RATES_HZ = [16_000, 22_050, 24_000, 44_100] as const;
+
+/** PCM rate resolver bound to the ElevenLabs-supported rate list (e.g. 48 kHz → 44.1 kHz). */
+const resolveElevenLabsPcmSampleRateHz = (request: TtsSynthesisRequest) =>
+  resolvePcmOutputSampleRateHz(request, SUPPORTED_PCM_SAMPLE_RATES_HZ);
 
 /**
  * Choose the ElevenLabs output format based on the use case and optional
  * format hint.
  *
  * When the caller requests `outputFormat: "pcm"` (e.g. the media-stream
- * transport which needs raw PCM for mu-law transcoding), we map the optional
- * `sampleRateHz` hint to an exact ElevenLabs PCM format — 16-bit signed
- * little-endian. An absent or unmatched hint defaults to `pcm_16000`, which
- * preserves the media-stream transport's behavior (its `audioBufferToFrames`
- * handles the 16 kHz -> 8 kHz downsample).
+ * transport which needs raw PCM for mu-law transcoding), we request the
+ * `pcm_*` format — 16-bit signed little-endian — at the `sampleRateHz` hint
+ * clamped to the nearest supported rate (ties prefer higher), defaulting to
+ * 16 kHz when no hint is given (the shared no-hint convention across TTS
+ * providers).
  *
  * Otherwise:
  * - Phone calls benefit from lower-latency, smaller payloads (mp3 at 22050/32).
  * - Message playback uses higher quality (mp3 at 44100/128).
  */
 function resolveOutputFormat(request: TtsSynthesisRequest): string {
-  if (request.outputFormat === "pcm") {
-    return (
-      PCM_FORMAT_BY_SAMPLE_RATE[request.sampleRateHz ?? 16000] ?? "pcm_16000"
-    );
+  const pcmSampleRateHz = resolveElevenLabsPcmSampleRateHz(request);
+  if (pcmSampleRateHz != null) {
+    return `pcm_${pcmSampleRateHz}`;
   }
   return request.useCase === "phone-call" ? "mp3_22050_32" : "mp3_44100_128";
-}
-
-/** Sample rate of a `pcm_*` output format in Hz; undefined for non-PCM formats. */
-function pcmFormatSampleRateHz(outputFormat: string): number | undefined {
-  return outputFormat.startsWith("pcm_")
-    ? Number(outputFormat.slice("pcm_".length))
-    : undefined;
 }
 
 /**
@@ -346,8 +341,7 @@ export function createElevenLabsProvider(
   return {
     id: "elevenlabs",
     capabilities,
-    resolveOutputSampleRateHz: (request) =>
-      pcmFormatSampleRateHz(resolveOutputFormat(request)),
+    resolveOutputSampleRateHz: resolveElevenLabsPcmSampleRateHz,
     synthesize: (request) => performSynthesis(request, { stream: false }),
     synthesizeStream: (request, onChunk) =>
       performSynthesis(request, { stream: true, onChunk, ...streamTimeouts }),

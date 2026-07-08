@@ -389,7 +389,7 @@ describe("ElevenLabs TTS provider adapter", () => {
     expect(capturedUrl).toContain("output_format=pcm_16000");
   });
 
-  test("pcm output with unmatched sampleRateHz falls back to pcm_16000", async () => {
+  test("pcm output clamps an unsupported sampleRateHz hint to the nearest supported rate", async () => {
     const audioPayload = new Uint8Array([0x00, 0x01]);
     let capturedUrl = "";
 
@@ -402,8 +402,12 @@ describe("ElevenLabs TTS provider adapter", () => {
     await provider.synthesize(
       makeRequest({ outputFormat: "pcm", sampleRateHz: 8000 }),
     );
-
     expect(capturedUrl).toContain("output_format=pcm_16000");
+
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 48000 }),
+    );
+    expect(capturedUrl).toContain("output_format=pcm_44100");
   });
 
   test("resolveOutputSampleRateHz reports the actual PCM rate without synthesis", () => {
@@ -418,7 +422,7 @@ describe("ElevenLabs TTS provider adapter", () => {
       provider.resolveOutputSampleRateHz!(
         makeRequest({ outputFormat: "pcm", sampleRateHz: 48000 }),
       ),
-    ).toBe(16000);
+    ).toBe(44100);
     expect(provider.resolveOutputSampleRateHz!(makeRequest())).toBeUndefined();
   });
 
