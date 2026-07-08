@@ -1,7 +1,6 @@
 /**
  * Side-drawer body shown when a tool-call step pill is clicked. Mirrors the
- * macOS "TECHNICAL DETAILS / OUTPUT" detail view and the web
- * `SubagentDetailPanel` shell (outer container, header with leading icon /
+ * web `SubagentDetailPanel` shell (outer container, header with leading icon /
  * title / risk badge / close, scrollable body with sections).
  *
  * Driven by the `ToolDetailPayload` opened into `viewer-store`. Both variants
@@ -156,30 +155,18 @@ function ThinkingDetailBody({
 }
 
 /**
- * Tool-variant detail sections — the risk-reason note, "Technical details"
- * (input `CodeBlock`), and "Output" — with no surrounding shell, header, or
- * close button. Composed by `ToolDetailPanel` inside its own `DetailShell`, and
- * reused by `SubagentDetailPanel` to show a nested tool call under the
- * subagent's own header.
+ * Tool-variant detail sections — the tool name, activity, input `CodeBlock`,
+ * and "Output" — with no surrounding shell, header, or close button. Composed
+ * by `ToolDetailPanel` inside its own `DetailShell`, and reused by
+ * `SubagentDetailPanel` to show a nested tool call under the subagent's own
+ * header.
  *
  * Subscribes to the chat-session store via `useLiveToolCall` so an open drawer
  * streams `tool_output_chunk` output while the call runs and flips to the final
  * `result` when it lands, falling back to the open-time snapshot on `detail`
  * when the call can't be resolved live (e.g. paged out).
  */
-export function ToolDetailBody({
-  detail,
-  showTechnicalDetailsLabel = true,
-}: {
-  detail: ToolDetailPayload;
-  /**
-   * Render the "Technical details" section label above the tool name + input.
-   * Defaults to true (main-chat `ToolDetailPanel`). `SubagentDetailPanel` passes
-   * false — its nested view already sits under the subagent header and a "Back
-   * to timeline" affordance, so the extra label reads as redundant there.
-   */
-  showTechnicalDetailsLabel?: boolean;
-}) {
+export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
   const liveTc = useLiveToolCall(detail.toolCallId);
   const result = liveTc?.result ?? detail.result;
   const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
@@ -193,21 +180,8 @@ export function ToolDetailBody({
 
   return (
     <>
-      {detail.riskReason && (
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="mb-4 text-[var(--content-tertiary)]"
-        >
-          {detail.riskReason}
-        </Typography>
-      )}
-
-      {/* Technical details section */}
+      {/* Tool name + activity + input */}
       <div>
-        {showTechnicalDetailsLabel && (
-          <SectionLabel>Technical details</SectionLabel>
-        )}
         <Typography
           variant="body-medium-default"
           as="div"
