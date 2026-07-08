@@ -6,6 +6,7 @@ const secureKeyValues = new Map<string, string>();
 let mockTwilioAccountSid: string | undefined;
 
 const connectedProviders = new Set<string>();
+const grantedScopesByProvider = new Map<string, string[]>();
 const managedProviders = new Set<string>();
 const platformConnectedProviders = new Set<string>();
 
@@ -35,6 +36,15 @@ mock.module("../oauth/oauth-store.js", () => ({
     connectedProviders.has(provider)
       ? { id: `conn-${provider}`, status: "active" }
       : undefined,
+  listConnections: (provider?: string) =>
+    [...connectedProviders]
+      .filter((p) => !provider || p === provider)
+      .map((p) => ({
+        id: `conn-${p}`,
+        provider: p,
+        status: "active",
+        grantedScopes: JSON.stringify(grantedScopesByProvider.get(p) ?? []),
+      })),
   getProvider: (provider: string) => {
     const managedKeys: Record<string, string> = {
       google: "google",
@@ -64,8 +74,11 @@ mock.module("../platform/client.js", () => ({
   },
 }));
 
-function setOAuthConnected(provider: string): void {
+function setOAuthConnected(provider: string, grantedScopes?: string[]): void {
   connectedProviders.add(provider);
+  if (grantedScopes) {
+    grantedScopesByProvider.set(provider, grantedScopes);
+  }
 }
 
 function setPlatformConnected(provider: string, configKey: string): void {
@@ -80,6 +93,7 @@ describe("integration-status", () => {
   beforeEach(() => {
     secureKeyValues.clear();
     connectedProviders.clear();
+    grantedScopesByProvider.clear();
     managedProviders.clear();
     platformConnectedProviders.clear();
     mockTwilioAccountSid = undefined;
@@ -90,6 +104,7 @@ describe("integration-status", () => {
       const summary = await getIntegrationSummary();
       expect(summary).toEqual([
         { name: "Gmail", category: "email", connected: false },
+        { name: "Google Calendar", category: "calendar", connected: false },
         { name: "Slack", category: "messaging", connected: false },
         { name: "Twilio", category: "telephony", connected: false },
         { name: "Telegram", category: "messaging", connected: false },
@@ -128,6 +143,7 @@ describe("integration-status", () => {
       ]);
       expect(disconnected.map((s: { name: string }) => s.name)).toEqual([
         "Gmail",
+        "Google Calendar",
         "Slack",
       ]);
     });
@@ -147,6 +163,52 @@ describe("integration-status", () => {
       );
       expect(telegram?.connected).toBe(false);
     });
+
+    test("Google Calendar disconnected when the google grant lacks calendar scopes", async () => {
+      setOAuthConnected("google", [
+        "https://www.googleapis.com/auth/gmail.readonly",
+      ]);
+
+      const summary = await getIntegrationSummary();
+      const byName = new Map(
+        summary.map((s: { name: string; connected: boolean }) => [
+          s.name,
+          s.connected,
+        ]),
+      );
+      expect(byName.get("Gmail")).toBe(true);
+      expect(byName.get("Google Calendar")).toBe(false);
+    });
+
+    test("Gmail disconnected when the google grant is calendar-only", async () => {
+      setOAuthConnected("google", [
+        "https://www.googleapis.com/auth/calendar.events",
+      ]);
+
+      const summary = await getIntegrationSummary();
+      const byName = new Map(
+        summary.map((s: { name: string; connected: boolean }) => [
+          s.name,
+          s.connected,
+        ]),
+      );
+      expect(byName.get("Gmail")).toBe(false);
+      expect(byName.get("Google Calendar")).toBe(true);
+    });
+
+    test("google connection with no scope data counts as both Gmail and Google Calendar", async () => {
+      setOAuthConnected("google");
+
+      const summary = await getIntegrationSummary();
+      const byName = new Map(
+        summary.map((s: { name: string; connected: boolean }) => [
+          s.name,
+          s.connected,
+        ]),
+      );
+      expect(byName.get("Gmail")).toBe(true);
+      expect(byName.get("Google Calendar")).toBe(true);
+    });
   });
 
   describe("formatIntegrationSummary", () => {
@@ -157,14 +219,14 @@ describe("integration-status", () => {
 
       const result = await formatIntegrationSummary();
       expect(result).toBe(
-        "Gmail \u2717 | Slack \u2717 | Twilio \u2713 | Telegram \u2713",
+        "Gmail \u2717 | Google Calendar \u2717 | Slack \u2717 | Twilio \u2713 | Telegram \u2713",
       );
     });
 
     test("all disconnected", async () => {
       const result = await formatIntegrationSummary();
       expect(result).toBe(
-        "Gmail \u2717 | Slack \u2717 | Twilio \u2717 | Telegram \u2717",
+        "Gmail \u2717 | Google Calendar \u2717 | Slack \u2717 | Twilio \u2717 | Telegram \u2717",
       );
     });
 
@@ -177,7 +239,7 @@ describe("integration-status", () => {
 
       const result = await formatIntegrationSummary();
       expect(result).toBe(
-        "Gmail \u2713 | Slack \u2713 | Twilio \u2713 | Telegram \u2713",
+        "Gmail \u2713 | Google Calendar \u2713 | Slack \u2713 | Twilio \u2713 | Telegram \u2713",
       );
     });
   });

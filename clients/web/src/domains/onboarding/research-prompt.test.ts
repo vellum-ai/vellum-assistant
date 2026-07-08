@@ -103,6 +103,58 @@ describe("buildResearchPrompt — suggestions toggle", () => {
   });
 });
 
+describe("buildResearchPrompt — calendarConnectedByFlow", () => {
+  const caps: AvailableCapability[] = [
+    { name: "marketing-expert", description: "Full-stack marketing." },
+  ];
+
+  test("is byte-for-byte unchanged when the flag is off or absent", () => {
+    const absent = buildResearchPrompt(SUBJECT, caps);
+    const explicitOff = buildResearchPrompt(SUBJECT, caps, {
+      calendarConnectedByFlow: false,
+    });
+
+    expect(explicitOff).toBe(absent);
+    // The legacy integration list (with Gmail/Calendar as connectable) stays.
+    expect(absent).toContain(
+      "an integration (GitHub, Gmail, Calendar, Slack, Linear) connected with a first action",
+    );
+    expect(absent).not.toContain("connected as part of this setup flow");
+  });
+
+  test("suppresses calendar-connect offers and assumes access when the flag is on", () => {
+    const prompt = buildResearchPrompt(SUBJECT, caps, {
+      calendarConnectedByFlow: true,
+    });
+
+    expect(prompt).toContain(
+      "the user's Google Calendar is already connected",
+    );
+    expect(prompt).toContain('NEVER produce a "Connect your calendar"-style');
+    // The user-voiced prompt must name Google Calendar so the downstream agent
+    // doesn't ask which provider to use.
+    expect(prompt).toContain("Prep my day each morning using my Google Calendar.");
+    // Google/Gmail/Calendar drop out of the connectable-integration list.
+    expect(prompt).toContain(
+      "an integration you're NOT already connected to (GitHub, Slack, Linear)",
+    );
+    expect(prompt).not.toContain(
+      "an integration (GitHub, Gmail, Calendar, Slack, Linear)",
+    );
+  });
+
+  test("has no effect when suggestions are disabled", () => {
+    const prompt = buildResearchPrompt(SUBJECT, caps, {
+      includeSuggestions: false,
+      calendarConnectedByFlow: true,
+    });
+
+    // Calendar guidance rides inside the suggestion rules, which are omitted.
+    expect(prompt).not.toContain("connected as part of this setup flow");
+    expect(prompt).not.toContain('Rules for "suggestions":');
+  });
+});
+
 describe("buildResearchPrompt — identity gate & confidence calibration", () => {
   test("states the identity gate and the honest no-match fallback", () => {
     const prompt = buildResearchPrompt(SUBJECT);

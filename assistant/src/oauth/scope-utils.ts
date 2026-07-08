@@ -9,6 +9,25 @@
  */
 
 /**
+ * Parse a stored granted-scopes value (a JSON array string, as persisted on an
+ * OAuth connection row) into a string array. Returns `[]` for null/undefined,
+ * malformed JSON, or non-array payloads.
+ */
+export function parseGrantedScopes(raw: string | null | undefined): string[] {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((s): s is string => typeof s === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Return the required scopes that are NOT present in the granted set.
  * An empty result means every required scope is granted.
  */

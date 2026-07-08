@@ -246,6 +246,12 @@ export function ResearchOnboardingRoute() {
   // entirely and go straight to the research reveal. Vellum-cloud onboarding
   // keeps them: a managed hatch implies a platform session.
   const skipCheckinSteps = adoptExistingAssistant;
+  // The calendar-connect steps run for exactly the flows that DON'T skip them,
+  // and those flows connect the user's Google Calendar one screen after the
+  // research turn fires. The research/suggestion prompt is told this so it never
+  // offers to connect a calendar that's about to be (or already) connected. A
+  // local-hosting flow skips the calendar steps, so the flag is false there.
+  const calendarConnectedByFlow = !skipCheckinSteps;
   const {
     start: startHatch,
     ready: hatchReady,
@@ -401,6 +407,7 @@ export function ResearchOnboardingRoute() {
         : {}),
       onConversationCreated: setResearchConversationId,
       includeSuggestions: !personalityEnabled,
+      calendarConnectedByFlow,
     });
   }, [
     restored,
@@ -410,6 +417,7 @@ export function ResearchOnboardingRoute() {
     startResearch,
     awaitHatchReady,
     personalityEnabled,
+    calendarConnectedByFlow,
   ]);
 
   // If we're sitting on the results step when the research turn resolves empty
@@ -461,12 +469,16 @@ export function ResearchOnboardingRoute() {
         : {
             initialMessage:
               entryPrompt ??
-              buildResearchPrompt({
-                firstName,
-                lastName,
-                occupation: role,
-                hobby: hobbies.join(", "),
-              }),
+              buildResearchPrompt(
+                {
+                  firstName,
+                  lastName,
+                  occupation: role,
+                  hobby: hobbies.join(", "),
+                },
+                [],
+                { calendarConnectedByFlow },
+              ),
             // A hidden kickoff (the "Let's chat" handoff) drives the first reply
             // without rendering a user bubble, so the chat opens as a proactive
             // greeting in the configured persona.
@@ -545,6 +557,7 @@ export function ResearchOnboardingRoute() {
       // The "Let's chat" final step replaces suggestions when personality
       // onboarding is on, so don't ask the model to generate any.
       includeSuggestions: !personalityEnabled,
+      calendarConnectedByFlow,
     });
     goForwardTo("face");
   }

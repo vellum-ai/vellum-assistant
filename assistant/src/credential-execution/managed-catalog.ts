@@ -76,6 +76,12 @@ export interface FetchManagedCatalogResult {
 export interface CachedManagedConnection {
   provider: string;
   accountInfo: string | null;
+  /**
+   * Granted OAuth scopes reported by the platform, when available. Absent or
+   * empty means the platform did not report scope data — callers treat that as
+   * unknown (assume the default service set), never as "no access".
+   */
+  scopesGranted?: string[];
 }
 
 let cachedConnections: CachedManagedConnection[] = [];
@@ -100,6 +106,7 @@ export async function refreshManagedConnectionCache(): Promise<void> {
       .map((d) => ({
         provider: d.provider,
         accountInfo: d.accountInfo,
+        scopesGranted: d.grantedScopes,
       }));
   }
 }

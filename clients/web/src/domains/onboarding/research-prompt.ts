@@ -89,12 +89,25 @@ export interface BuildResearchPromptOptions {
    * guidance. Defaults to true so the legacy suggestions flow is unchanged.
    */
   includeSuggestions?: boolean;
+  /**
+   * Whether the onboarding flow itself connects the user's Google Calendar (a
+   * dedicated connect step runs one screen after the research turn fires). When
+   * true, the suggestion rules assume Google Calendar is already connected and
+   * suppress any "connect your calendar / Google / Gmail" offers, so a
+   * calendar suggestion reads as using the calendar rather than connecting it.
+   * Only meaningful with `includeSuggestions`. Defaults to false so callers
+   * outside that flow (and snapshots) are byte-for-byte unchanged.
+   */
+  calendarConnectedByFlow?: boolean;
 }
 
 export function buildResearchPrompt(
   { firstName, lastName, occupation, hobby, timezone }: ResearchSubject,
   availableCapabilities: AvailableCapability[] = [],
-  { includeSuggestions = true }: BuildResearchPromptOptions = {},
+  {
+    includeSuggestions = true,
+    calendarConnectedByFlow = false,
+  }: BuildResearchPromptOptions = {},
 ): string {
   const fullName = [firstName.trim(), lastName.trim()]
     .filter(Boolean)
@@ -144,6 +157,18 @@ export function buildResearchPrompt(
     ? "claims and suggestions"
     : "claims";
 
+  const integrationClause = calendarConnectedByFlow
+    ? "an integration you're NOT already connected to (GitHub, Slack, Linear) connected with a first action"
+    : "an integration (GitHub, Gmail, Calendar, Slack, Linear) connected with a first action";
+  // The onboarding flow connects Google Calendar one screen after this turn
+  // fires, so by the time these cards show it is already connected. Suppress
+  // any connect-my-calendar offer and force calendar suggestions to name Google
+  // Calendar in the user-voiced prompt so the downstream agent doesn't ask which
+  // provider to use.
+  const calendarGuidance = calendarConnectedByFlow
+    ? `\nGoogle Calendar is connected as part of this setup flow, so by the time these suggestions are shown the user's Google Calendar is already connected. NEVER produce a "Connect your calendar"-style suggestion, or any suggestion asking to connect Google, Gmail, or Calendar. A calendar-based suggestion must assume Google Calendar access and be phrased as using it — e.g. suggestion "I'll prep your day each morning from your calendar", prompt "Prep my day each morning using my Google Calendar." (The user-voiced prompt must name Google Calendar explicitly so the downstream assistant never asks which calendar provider to use.)`
+    : "";
+
   const suggestionRules = includeSuggestions
     ? `Rules for "suggestions":
 
@@ -151,7 +176,7 @@ Each suggestion is an object with two fields:
 "suggestion": the offer in YOUR voice (the assistant), exactly as it appears on the clickable card — first-person "I" refers to you (whatever your name). Pattern: "I'll [verb] [specific artifact]" or "Connect me to [integration] and I'll [verb] [artifact]." Lead with the offer; no intake question in front of it — you gather the details in the follow-up conversation after the click.
 "prompt": the same offer re-voiced as the message sent on the user's behalf when they click, in the USER's first person ("I"/"my" = the user) — what they'd say to take you up on it (suggestion "I'll find you 3 papers" → prompt "Find me 3 papers worth reading"). State the request; don't echo the assistant-voiced wording and don't ask a question back.
 
-Generate EXACTLY 4 suggestions covering four DIFFERENT capabilities, each making me think "wait, you can do that?" Draw on your range — a quick researched answer, a recurring brief or monitor, a doc drafted in a live editor, an integration (GitHub, Gmail, Calendar, Slack, Linear) connected with a first action, or a hobby hook if research surfaced one — but pick what genuinely fits; don't force a fixed set.
+Generate EXACTLY 4 suggestions covering four DIFFERENT capabilities, each making me think "wait, you can do that?" Draw on your range — a quick researched answer, a recurring brief or monitor, a doc drafted in a live editor, ${integrationClause}, or a hobby hook if research surfaced one — but pick what genuinely fits; don't force a fixed set.${calendarGuidance}
 Ground every suggestion in what you actually learned about me — my real role, stack, industry, and (if given) hobby. Specific to me, not generic assistant stuff; skip bare "summarize" or "draft a post."
 CRITICAL: every suggestion must be a fast win you can deliver in the first reply, never a long-running build. NEVER suggest building an app, dashboard, tool, site, or tracker, or any multi-step "build me a ___" project — those kill the first impression. The ambitious build can come later in the conversation, never on the first card.
 Keep each SHORT and skimmable: under 10 words, ONE clause, ONE artifact, no lists of three ("X, Y, and Z"). The reader scans four cards in seconds — a long line loses them.

@@ -1,3 +1,4 @@
+import { deriveGoogleServices } from "../oauth/google-service-labels.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 
 /**
@@ -93,27 +94,6 @@ export interface NormalizedOnboarding {
   cohort?: string;
   websiteUrl?: string;
   contentSourceUrl?: string;
-}
-
-const SCOPE_SERVICE_MAP: Record<string, string> = {
-  "gmail.readonly": "Gmail",
-  "gmail.modify": "Gmail",
-  "gmail.send": "Gmail",
-  "gmail.settings.basic": "Gmail",
-  "calendar.readonly": "Calendar",
-  "calendar.events": "Calendar",
-  drive: "Drive",
-};
-
-export function deriveGoogleServices(scopes?: string[]): string[] {
-  if (!scopes?.length) return ["Gmail", "Calendar", "Drive"];
-  const services = new Set<string>();
-  for (const scope of scopes) {
-    const suffix = scope.replace("https://www.googleapis.com/auth/", "");
-    const service = SCOPE_SERVICE_MAP[suffix];
-    if (service) services.add(service);
-  }
-  return services.size > 0 ? [...services] : ["Gmail", "Calendar", "Drive"];
 }
 
 /**

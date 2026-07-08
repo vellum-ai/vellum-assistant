@@ -24,6 +24,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import { formatIntegrationSummary } from "../../schedule/integration-status.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import {
@@ -191,6 +192,13 @@ async function generateStarters(scopeId: string): Promise<GeneratedStarter[]> {
   const diff = buildNewItemsDiff(scopeId);
   const skills = buildSkillsSummary();
 
+  let integrationContext = "";
+  try {
+    integrationContext = `\n## Connected services\n${await formatIntegrationSummary()}\nFocus on what these connected services let you do right now; never suggest connecting a service that is already connected.`;
+  } catch {
+    // Best-effort — continue without integration info.
+  }
+
   const now = new Date();
   const timeContext = `Current time: ${now.toLocaleString("en-US", {
     weekday: "long",
@@ -224,6 +232,7 @@ ${
 ${rollup}
 ${diff}
 ${skills}
+${integrationContext}
 
 ## Selection
 

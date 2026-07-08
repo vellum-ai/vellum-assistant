@@ -1,10 +1,18 @@
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
 import type { Services } from "../config/schemas/services.js";
+import { getCachedManagedConnections } from "../credential-execution/managed-catalog.js";
+import {
+  GOOGLE_SERVICE_CALENDAR,
+  GOOGLE_SERVICE_GMAIL,
+  isGoogleServiceGranted,
+} from "../oauth/google-service-labels.js";
 import {
   getConnectionByProvider,
   getProvider,
   isProviderConnected,
+  listConnections,
 } from "../oauth/oauth-store.js";
+import { parseGrantedScopes } from "../oauth/scope-utils.js";
 
 /**
  * Check whether a provider has an active connection, handling both BYO
@@ -70,6 +78,35 @@ async function isProviderConnectedOnPlatform(
   }
 }
 
+/**
+ * Union of granted scopes across every active Google connection (BYO SQLite +
+ * platform-managed cache). Returns `undefined` when no scope data is available
+ * so callers apply the unknown → assume-granted rule. Best-effort: a store
+ * being unavailable contributes nothing rather than throwing.
+ */
+function collectGrantedGoogleScopes(): string[] | undefined {
+  const scopes: string[] = [];
+  try {
+    for (const row of listConnections("google")) {
+      if (row.status === "active") {
+        scopes.push(...parseGrantedScopes(row.grantedScopes));
+      }
+    }
+  } catch {
+    // BYO OAuth store unavailable — contribute no scopes.
+  }
+  try {
+    for (const mc of getCachedManagedConnections()) {
+      if (mc.provider === "google" && mc.scopesGranted?.length) {
+        scopes.push(...mc.scopesGranted);
+      }
+    }
+  } catch {
+    // Managed cache unavailable — contribute no scopes.
+  }
+  return scopes.length > 0 ? scopes : undefined;
+}
+
 interface IntegrationProbe {
   name: string;
   category: string;
@@ -81,7 +118,28 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
   {
     name: "Gmail",
     category: "email",
-    isConnected: () => isOAuthProviderConnected("google"),
+    isConnected: async () => {
+      if (!(await isOAuthProviderConnected("google"))) {
+        return false;
+      }
+      return isGoogleServiceGranted(
+        GOOGLE_SERVICE_GMAIL,
+        collectGrantedGoogleScopes(),
+      );
+    },
+  },
+  {
+    name: "Google Calendar",
+    category: "calendar",
+    isConnected: async () => {
+      if (!(await isOAuthProviderConnected("google"))) {
+        return false;
+      }
+      return isGoogleServiceGranted(
+        GOOGLE_SERVICE_CALENDAR,
+        collectGrantedGoogleScopes(),
+      );
+    },
   },
   {
     name: "Slack",

@@ -93,10 +93,12 @@ const mockOauthConnections: Array<{
   provider: string;
   status: string;
   accountInfo?: string | null;
+  grantedScopes?: string | null;
 }> = [];
 const mockManagedConnections: Array<{
   provider: string;
   accountInfo?: string | null;
+  scopesGranted?: string[];
 }> = [];
 
 mock.module("../oauth/oauth-store.js", () => ({
@@ -192,6 +194,49 @@ describe("buildSystemPrompt", () => {
     expect(staticIdx).toBeGreaterThan(-1);
     expect(dynamicIdx).toBeGreaterThan(-1);
     expect(dynamicIdx).toBeGreaterThan(staticIdx);
+  });
+
+  test("names Google service access on a managed connected-services line", () => {
+    // A managed Google connection with no reported scopes falls back to the
+    // default bundle, so the model sees that calendar access is included.
+    mockManagedConnections.push({
+      provider: "google",
+      accountInfo: "user@example.com",
+    });
+
+    const result = buildSystemPrompt();
+
+    expect(result).toContain(
+      "- **google**: Connected (user@example.com — Gmail, Calendar, Drive access)",
+    );
+  });
+
+  test("derives Google services from a BYO connection's granted scopes", () => {
+    mockOauthConnections.push({
+      provider: "google",
+      status: "active",
+      accountInfo: "byo@example.com",
+      grantedScopes: JSON.stringify([
+        "https://www.googleapis.com/auth/calendar.events",
+      ]),
+    });
+
+    const result = buildSystemPrompt();
+
+    expect(result).toContain(
+      "- **google**: Connected (byo@example.com — Calendar access)",
+    );
+  });
+
+  test("leaves non-Google connected-services lines unchanged", () => {
+    mockManagedConnections.push({
+      provider: "slack",
+      accountInfo: "team@example.com",
+    });
+
+    const result = buildSystemPrompt();
+
+    expect(result).toContain("- **slack**: Connected (team@example.com)");
   });
 
   test("side-chain prompt options still include IDENTITY.md and SOUL.md", () => {

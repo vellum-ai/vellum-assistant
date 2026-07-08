@@ -12,7 +12,7 @@ import { getConnectionAccessTokenResult } from "./credential-token-resolver.js";
 import { syncManualTokenConnection } from "./manual-token-connection.js";
 import { getActiveConnections, getProvider } from "./oauth-store.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
-import { scopeDifference } from "./scope-utils.js";
+import { parseGrantedScopes, scopeDifference } from "./scope-utils.js";
 
 const log = getLogger("connection-resolver");
 
@@ -472,19 +472,6 @@ function partitionByScopes<T>(
     eligible: [...satisfying, ...scopeUnknown],
     missingScopes: Array.from(new Set(missingPerItem.flat())),
   };
-}
-
-/** Best-effort parse of a connection row's JSON-encoded granted-scopes column. */
-function parseGrantedScopes(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((s): s is string => typeof s === "string")
-      : [];
-  } catch {
-    return [];
-  }
 }
 
 /** Actionable error shown when a connection is missing required scopes. */

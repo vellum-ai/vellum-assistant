@@ -246,6 +246,13 @@ export interface StartResearchOptions {
    * true so the legacy suggestions flow is unchanged.
    */
   includeSuggestions?: boolean;
+  /**
+   * Whether the onboarding flow connects the user's Google Calendar (a
+   * dedicated connect step runs one screen after this turn fires). Forwarded to
+   * `buildResearchPrompt` so calendar suggestions assume the connection instead
+   * of offering to make it. Defaults to false.
+   */
+  calendarConnectedByFlow?: boolean;
 }
 
 export interface UseResearchRunner extends ResearchRunnerState {
@@ -358,6 +365,7 @@ export function useResearchRunner(): UseResearchRunner {
       resumeConversationId,
       onConversationCreated,
       includeSuggestions = true,
+      calendarConnectedByFlow = false,
     }: StartResearchOptions) => {
       const subjectKey = JSON.stringify(subject);
       if (subjectKeyRef.current === subjectKey) return;
@@ -439,6 +447,7 @@ export function useResearchRunner(): UseResearchRunner {
               conversationId: cid,
               content: buildResearchPrompt(subject, capabilities, {
                 includeSuggestions,
+                calendarConnectedByFlow,
               }),
               sourceChannel: "vellum",
               // `interface` is the transport ("web"); the real OS travels in

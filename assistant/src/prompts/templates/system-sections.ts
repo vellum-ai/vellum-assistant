@@ -28,7 +28,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getCachedManagedConnections } from "../../credential-execution/managed-catalog.js";
+import { deriveGoogleServices } from "../../oauth/google-service-labels.js";
 import { listConnections } from "../../oauth/oauth-store.js";
+import { parseGrantedScopes } from "../../oauth/scope-utils.js";
 import type { OnboardingContext } from "../../types/onboarding-context.js";
 import { stripCommentLines } from "../../util/strip-comment-lines.js";
 import { normalizeOnboardingContext } from "../normalize-onboarding.js";
@@ -127,17 +129,33 @@ function renderFirstRunUserContext(onboarding: OnboardingContext): string {
  * `14-connected-services` transform gates the section off entirely.
  */
 function renderConnectedServices(): string | null {
-  const entries: { provider: string; accountInfo?: string | null }[] = [];
+  const entries: {
+    provider: string;
+    accountInfo?: string | null;
+    scopes?: string[];
+  }[] = [];
 
   try {
-    entries.push(...listConnections().filter((c) => c.status === "active"));
+    entries.push(
+      ...listConnections()
+        .filter((c) => c.status === "active")
+        .map((c) => ({
+          provider: c.provider,
+          accountInfo: c.accountInfo,
+          scopes: parseGrantedScopes(c.grantedScopes),
+        })),
+    );
   } catch {
     // OAuth DB unavailable — local connections skipped.
   }
 
   for (const mc of getCachedManagedConnections()) {
     if (!entries.some((e) => e.provider === mc.provider)) {
-      entries.push(mc);
+      entries.push({
+        provider: mc.provider,
+        accountInfo: mc.accountInfo,
+        scopes: mc.scopesGranted,
+      });
     }
   }
 
@@ -145,9 +163,15 @@ function renderConnectedServices(): string | null {
 
   const lines = ["# Connected Services", ""];
   for (const conn of entries) {
-    const state = conn.accountInfo
-      ? `Connected (${conn.accountInfo})`
-      : "Connected";
+    // Google bundles Gmail/Calendar/Drive behind one provider key, so name the
+    // granted services explicitly — otherwise the model can't tell that a
+    // "google" connection already includes calendar access.
+    const detail =
+      conn.provider === "google"
+        ? `${deriveGoogleServices(conn.scopes).join(", ")} access`
+        : null;
+    const inside = [conn.accountInfo, detail].filter(Boolean).join(" — ");
+    const state = inside ? `Connected (${inside})` : "Connected";
     lines.push(`- **${conn.provider}**: ${state}`);
   }
   return lines.join("\n");
