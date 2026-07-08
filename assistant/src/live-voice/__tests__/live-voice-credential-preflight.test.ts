@@ -3,8 +3,9 @@
  *
  * The STT streaming-transcriber resolver, secure-keys lookups, and config
  * loader are mocked so the readiness combination logic is exercised in
- * isolation (the real TTS provider catalog is used — provider ids like
- * "fish-audio" and "xai" carry their real streaming capabilities).
+ * isolation (the real TTS provider catalog is used — every catalog provider
+ * supports streaming, so the non-streaming TTS case shadows the "xai"
+ * adapter via the catalog's `_setTtsProviderForTests` override seam).
  * `mock.module` is process-global in Bun and leaks into sibling files that
  * run later in the same `bun test` invocation, so each stub delegates to
  * the real implementation unless this file's tests are active
@@ -16,6 +17,7 @@
 
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -79,6 +81,11 @@ mock.module("../../config/loader.js", () => ({
       : realConfigLoaderModule.getConfig(),
 }));
 
+import {
+  _resetTtsProviderOverridesForTests,
+  _setTtsProviderForTests,
+  getTtsProvider,
+} from "../../tts/provider-catalog.js";
 import { resolveLiveVoiceCredentialReadiness } from "../live-voice-credential-preflight.js";
 
 beforeAll(() => {
@@ -87,6 +94,10 @@ beforeAll(() => {
 
 afterAll(() => {
   preflightMocksActive = false;
+});
+
+afterEach(() => {
+  _resetTtsProviderOverridesForTests();
 });
 
 beforeEach(() => {
@@ -171,6 +182,11 @@ describe("resolveLiveVoiceCredentialReadiness", () => {
   test("non-streaming TTS provider → not-ready with a tts entry naming the provider", async () => {
     ttsProvider = "xai";
     providerKeys.xai = "test-key";
+    const realXai = getTtsProvider("xai");
+    _setTtsProviderForTests({
+      ...realXai,
+      capabilities: { ...realXai.capabilities, supportsStreaming: false },
+    });
 
     const readiness = expectNotReady(
       await resolveLiveVoiceCredentialReadiness(),

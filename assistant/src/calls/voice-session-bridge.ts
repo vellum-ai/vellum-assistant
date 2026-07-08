@@ -19,9 +19,12 @@ import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assem
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import { recordConversationPersistedSeq } from "../persistence/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -322,6 +325,14 @@ export async function startVoiceTurn(
         ? "(verification completed — transitioning into conversation)"
         : opts.content;
 
+  // Opener / verification prompts are internal scaffolding: they persist a row
+  // so the model wakes, but they are not user speech and must not render as a
+  // live user bubble. Their echo is suppressed below (parity with
+  // `isEchoSuppressedUserMessage` on the text path).
+  const isSyntheticVoicePrompt =
+    opts.content === CALL_OPENING_MARKER ||
+    opts.content === CALL_VERIFICATION_COMPLETE_MARKER;
+
   // Build the call-control protocol prompt so the model knows how to emit
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
   const isCallerGuardian = opts.trustContext?.trustClass === "guardian";
@@ -427,6 +438,29 @@ export async function startVoiceTurn(
       "Voice turn persisted-message callback threw",
     );
   }
+
+  // Broadcast the user turn to hub subscribers (web / passive devices) BEFORE
+  // the assistant reply streams, mirroring the text path
+  // (`conversation-process.ts`). Without this the web client receives the
+  // assistant deltas with no preceding user-turn boundary and folds them into
+  // the previous assistant bubble until a `/messages` reconcile splits them
+  // (JARVIS-1258). Synthetic opener/verification prompts persist a row but are
+  // not user speech, so their echo is suppressed.
+  if (!isSyntheticVoicePrompt) {
+    broadcastMessage({
+      type: "user_message_echo",
+      text: persistedContent,
+      conversationId: opts.conversationId,
+      messageId,
+      requestId,
+    });
+    // The echoed row is already durably persisted and the agent loop hasn't
+    // started, so advance the snapshot↔stream anchor to the echo's seq — else
+    // `/messages` returns the row while advertising the previous flush's anchor
+    // (under-claiming). Safe to claim here for the same reason as the text path.
+    recordConversationPersistedSeq(opts.conversationId, getCurrentSeq());
+  }
+  publishConversationMessagesChanged(opts.conversationId);
 
   // Hook into conversation to intercept confirmation_request and secret_request events.
   // Voice auto-denies/auto-allows/auto-resolves these since there's no interactive UI.

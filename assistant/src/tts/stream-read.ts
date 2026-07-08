@@ -10,10 +10,10 @@
  */
 
 /** Default timeout waiting for the first chunk of a TTS stream (ms). */
-const DEFAULT_FIRST_CHUNK_TIMEOUT_MS = 10_000;
+export const DEFAULT_FIRST_CHUNK_TIMEOUT_MS = 10_000;
 
 /** Default timeout waiting between consecutive chunks (ms). */
-const DEFAULT_IDLE_TIMEOUT_MS = 5_000;
+export const DEFAULT_IDLE_TIMEOUT_MS = 5_000;
 
 /** Stream-stall timeouts, injectable for tests. */
 export interface StreamReadTimeouts {
