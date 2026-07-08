@@ -9,13 +9,13 @@
  *   - `getIsContainerized()` — true when the daemon runs inside a container
  *     (`IS_CONTAINERIZED`), identifying where the daemon process is running.
  *
- * Deliberately NOT keyed on managed-proxy prerequisites: since the
- * managed-on-login work, any logged-in local assistant holds a platform URL
- * and `assistant_api_key` (to use the platform LLM proxy), so proxy-prereq
- * presence no longer distinguishes a managed deployment from a local one.
- * Stamping a local export as "managed" trips the importer's
- * `secrets_redacted must be true when origin.mode is 'managed'` rule and
- * breaks local→platform teleport for every logged-in local assistant.
+ * Deliberately NOT keyed on managed-proxy prerequisites: any logged-in
+ * local assistant holds a platform URL and `assistant_api_key` (to use the
+ * platform LLM proxy), so proxy-prereq presence does not distinguish a
+ * managed deployment from a local one. Stamping a local export as
+ * "managed" would trip the importer's `secrets_redacted must be true when
+ * origin.mode is 'managed'` rule and break local→platform teleport for
+ * every logged-in local assistant.
  */
 
 import {

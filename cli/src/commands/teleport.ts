@@ -408,11 +408,18 @@ async function exportFromAssistant(
     // Passing the target's runtime URL here keeps upload and download on
     // the same platform — otherwise a non-default/stale platform URL would
     // cause the import to look at an empty object.
+    //
+    // The PUT is performed by the source daemon, not this CLI. A bare-metal
+    // local daemon shares the host's network view, so the client-signed URL
+    // is reachable; a docker daemon runs inside a container and reaches the
+    // host the same way managed pods do, so its URL must be signed for the
+    // runtime-reachable storage endpoint.
     const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
       {
         operation: "upload",
         minRuntimeVersion: sourceRuntimeVersion,
         maxRuntimeVersion: null,
+        ...(cloud === "docker" ? { consumer: "runtime" as const } : {}),
       },
       platformToken,
       bundlePlatformUrl,

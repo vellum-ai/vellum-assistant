@@ -7,12 +7,12 @@
  * - Neither → "self-hosted-local".
  * - Regression: a logged-in local assistant holding managed-proxy
  *   credentials (platform URL + assistant_api_key) must NOT be classified
- *   "managed". Since the managed-on-login work every logged-in local has
- *   those credentials, and a "managed" stamp trips the importer's
- *   `secrets_redacted must be true when origin.mode is 'managed'` refine,
- *   breaking local→platform teleport. The helper therefore keys on the
- *   IS_PLATFORM deployment env only — nothing here consults the credential
- *   store, so the regression case is simply "no env flags set".
+ *   "managed" — every logged-in local has those credentials, and a
+ *   "managed" stamp trips the importer's `secrets_redacted must be true
+ *   when origin.mode is 'managed'` refine, breaking local→platform
+ *   teleport. The helper keys on the IS_PLATFORM deployment env only —
+ *   nothing here consults the credential store, so the regression case is
+ *   simply "no env flags set".
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
