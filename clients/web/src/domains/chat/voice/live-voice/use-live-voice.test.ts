@@ -1542,3 +1542,95 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
     expect(h.view.result.current.state).toBe("listening");
   });
 });
+
+// ---------------------------------------------------------------------------
+// `reconnecting` signal (JARVIS-1255): true only during a genuine retry
+// ---------------------------------------------------------------------------
+
+describe("reconnecting signal", () => {
+  const FAST_BACKOFF = [20, 40, 60];
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  test("a retryable close flips reconnecting true while connecting; ready clears it", async () => {
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startListening(h, { handsFree: true });
+    // A live, first-connect session never carries the reconnect label.
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+
+    // velay drops its tunnel → retryable 1013 → reconnect scheduled.
+    await act(async () => {
+      h.client.emit("closed", { code: 1013, reason: "tunnel disconnected" });
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(true);
+
+    // Stays true across the backoff gap and the fresh connect (still no ready).
+    await act(async () => {
+      await sleep(40);
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(true);
+
+    // The reconnected session readies → the reconnect label clears.
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+  });
+
+  test("a first connect never sets reconnecting true", async () => {
+    const h = renderController();
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+    // Initial connect: connecting, but NOT a reconnect.
+    expect(h.view.result.current.state).toBe("connecting");
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-1",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+  });
+
+  test("the fail path clears reconnecting", async () => {
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startListening(h, { handsFree: true });
+
+    // Drop the tunnel and let the reconnect connect fire so a fresh (pre-ready)
+    // session is attached while the reconnect label is still up.
+    await act(async () => {
+      h.client.emit("closed", { code: 1013, reason: "tunnel disconnected" });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(true);
+
+    // A fatal error on the reconnected session fails it (teardown → reset),
+    // which must also drop the reconnect label.
+    act(() => {
+      h.client.emit("error", { reason: "protocol-error", message: "kaboom" });
+    });
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe("kaboom");
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+  });
+});

@@ -16,6 +16,7 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import { type ChatAttachment, useComposerStore } from "@/domains/chat/composer-store";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
+import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 // Pure helpers live in `chat-composer-utils` (no mocks needed), so import them
 // statically. `ChatComposer` itself is imported dynamically *after* the mocks
@@ -36,6 +37,16 @@ mock.module("@/hooks/use-is-mobile", () => ({
 let mockIsElectron = false;
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => mockIsElectron,
+}));
+
+// Capacitor-iOS detection. The composer skips the first-run prefs card on the
+// native iOS shell (a dismissible pre-prompt before the `getUserMedia`
+// permission alert violates `docs/CAPACITOR.md` § OS permission requests) and
+// starts the session directly. Defaults to non-iOS (web) so the existing
+// first-run tests exercise the card path unchanged.
+let mockIsNativeIOS = false;
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeIOS: () => mockIsNativeIOS,
 }));
 
 // Live-voice integration. The session controller (`useLiveVoice`) lives in
@@ -101,6 +112,23 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
   ),
 }));
 
+// First-run prefs card. Stubbed to a lightweight probe that exposes the two
+// wired callbacks — the real card pulls in `useAssistantAvatar` (React Query),
+// irrelevant to the composer's interception wiring, which is all these tests
+// assert. Full card behavior lives in `voice-first-run-card.test.tsx`.
+mock.module("@/domains/chat/voice/voice-room/voice-first-run-card", () => ({
+  VoiceFirstRunCard: (props: { onStart: () => void; onDismiss?: () => void }) => (
+    <div data-testid="first-run-card">
+      <button type="button" onClick={props.onStart}>
+        first-run-start
+      </button>
+      <button type="button" onClick={() => props.onDismiss?.()}>
+        first-run-dismiss
+      </button>
+    </div>
+  ),
+}));
+
 // Dictation recording phase. The composer reads `useVoiceRecordingStore`
 // (cross-domain `voice` store) to derive its `isVoiceActive` signal. Mock it
 // via `mock.module` (rather than importing the store) so the `chat` test stays
@@ -120,6 +148,7 @@ mock.module("@/domains/chat/voice/voice-recording-store", () => ({
 
 function resetLiveVoiceMocks() {
   mockIsElectron = false;
+  mockIsNativeIOS = false;
   mockVoiceMode = false;
   mockVoicePhase = "idle";
   setAudioLevelSpy.mockClear();
@@ -129,6 +158,15 @@ function resetLiveVoiceMocks() {
   liveControls.interrupt.mockClear();
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setStarter(liveStarterSpy);
+  // Default to the returning-user path so the entry-point mic starts a session
+  // directly. First-run interception (the prefs card) is covered by
+  // `voice-first-run-card.test.tsx`; a test that wants it opts in by setting
+  // `firstRunSeen: false`.
+  useVoicePrefsStore.setState({
+    showUserTranscript: false,
+    showAssistantTranscript: false,
+    firstRunSeen: true,
+  });
 }
 
 // Imported after the mocks so the component (and its transitive flag-store /
@@ -801,6 +839,94 @@ describe("ChatComposer — live-voice integration", () => {
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
   });
 
+  test("first-ever entry opens the prefs card instead of starting the session", () => {
+    // GIVEN the flag is on, no session, and the user has never entered voice
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+
+    // WHEN the user clicks the entry-point mic
+    const { getByLabelText, getByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN the prefs card appears and the session has NOT started yet
+    expect(getByTestId("first-run-card")).toBeTruthy();
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+  });
+
+  test("first-run card Start persists the flag then starts the session", () => {
+    // GIVEN the first-run card is open
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+    const { getByLabelText, getByText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // WHEN the user commits via Start
+    fireEvent.click(getByText("first-run-start"));
+
+    // THEN the first run is consumed, the card closes, and the session starts
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+  });
+
+  test("dismissing the first-run card cancels without consuming the first run", () => {
+    // GIVEN the first-run card is open
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+    const { getByLabelText, getByText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // WHEN the user dismisses it
+    fireEvent.click(getByText("first-run-dismiss"));
+
+    // THEN nothing started and the first run is still available for next time
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
+  });
+
+  test("Capacitor iOS: first-ever entry skips the card and starts directly (permission alert reached)", () => {
+    // GIVEN the native iOS shell, the flag on, no session, and a first-ever
+    // entry — a dismissible pre-prompt here would violate CAPACITOR.md
+    // § OS permission requests, so the card must be skipped.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockIsNativeIOS = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+
+    // WHEN the user clicks the entry-point mic
+    const { getByLabelText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN no card renders and the session starts straight away so the OS
+    // getUserMedia alert is the next thing the user sees. The first-run flag
+    // is left untouched (the card, not the mic, owns marking it seen).
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+  });
+
+  test("Capacitor iOS: returning-user entry still starts directly (unchanged)", () => {
+    // GIVEN the native iOS shell with the first run already consumed
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockIsNativeIOS = true;
+    // resetLiveVoiceMocks already sets firstRunSeen: true
+
+    // WHEN the user clicks the entry-point mic
+    const { getByLabelText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN it behaves exactly like the returning-user path on any platform
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+  });
+
   test("owned active session swaps the action row for the voice bar (mutual exclusion by absence)", () => {
     // GIVEN a live-voice session owned by this composer's conversation
     useTurnStore.setState(INITIAL_TURN_STATE);
@@ -1081,9 +1207,11 @@ describe("ChatComposer — live-voice integration", () => {
 
 describe("ChatComposer — live-voice transcript area", () => {
   test("streaming speech hides the textarea and renders the transcript in its place", () => {
-    // GIVEN a listening owned session with an in-flight partial transcript
+    // GIVEN a listening owned session with an in-flight partial transcript,
+    // and the user opted in to seeing their own words
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
+    useVoicePrefsStore.setState({ showUserTranscript: true });
     seedLiveVoiceSession("listening");
     useLiveVoiceStore
       .getState()
@@ -1102,6 +1230,31 @@ describe("ChatComposer — live-voice transcript area", () => {
     expect(region.querySelector('[data-testid="voice-transcript-caret"]')).toBeTruthy();
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
     expect(textarea.className).toContain("hidden");
+    expect(textarea.disabled).toBe(true);
+  });
+
+  test("streaming speech does NOT render the transcript when the show-your-words pref is off (default)", () => {
+    // GIVEN a listening owned session streaming speech, but the user has kept
+    // "Show the words you say" OFF (the default) — the composer must not
+    // surface their spoken words
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    // `showUserTranscript` defaults to false in the per-test reset; make the
+    // intent explicit here.
+    useVoicePrefsStore.setState({ showUserTranscript: false });
+    seedLiveVoiceSession("listening");
+    useLiveVoiceStore
+      .getState()
+      .setPartialTranscript("this is a text that I am just speaking");
+
+    // WHEN the composer renders
+    const { container, queryByLabelText } = renderVoiceComposer();
+
+    // THEN no transcript region mounts and the (still-uneditable) textarea
+    // stays visible so its placeholder shows through instead
+    expect(queryByLabelText("Voice transcript")).toBeNull();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.className).not.toContain("hidden");
     expect(textarea.disabled).toBe(true);
   });
 
