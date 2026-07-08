@@ -5,8 +5,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CHANNEL_TIER_CONTACT_TYPES,
   tierOverridesFromCells,
-  type SlackCapabilityTier,
-} from "@/domains/contacts/slack-channel-overrides";
+} from "@/domains/channels/slack-channel-overrides";
+import type { RiskThreshold } from "@/utils/threshold-presets";
 import {
   assistantChannelPermissionOverridesListOptions,
   assistantChannelPermissionOverridesListQueryKey,
@@ -33,7 +33,7 @@ export interface ChannelPermissionOverridesController {
    */
   supported: boolean;
   /** Persisted tier per channel external id, or `undefined` while unsupported. */
-  tierOverrides?: Record<string, SlackCapabilityTier>;
+  tierOverrides?: Record<string, RiskThreshold>;
   /**
    * The gateway-resolved default for cell-less rooms: the winning
    * broader-scope cell's threshold, queried with the same coordinates the
@@ -41,14 +41,14 @@ export interface ChannelPermissionOverridesController {
    * type). `null` when no cell matches (the global thresholds apply);
    * `undefined` while loading or unsupported.
    */
-  defaultCellTier?: SlackCapabilityTier | null;
+  defaultCellTier?: RiskThreshold | null;
   /** Channels with a cell write/delete in flight. */
   pendingChannelIds: ReadonlySet<string>;
   /** True until the cells have loaded at least once. */
   isLoading: boolean;
   isError: boolean;
   /** Persist a tier as channel-ID cells, or `undefined` while unsupported. */
-  onTierChange?: (channelExternalId: string, tier: SlackCapabilityTier) => void;
+  onTierChange?: (channelExternalId: string, tier: RiskThreshold) => void;
   /** Delete the channel's cells so the next cascade tier up wins. */
   onTierReset?: (channelExternalId: string) => void;
 }
@@ -57,7 +57,7 @@ export interface ChannelPermissionOverridesController {
 function cellsForTier(
   adapter: string,
   channelExternalId: string,
-  tier: SlackCapabilityTier,
+  tier: RiskThreshold,
 ): WireCell[] {
   return CHANNEL_TIER_CONTACT_TYPES.map((contactType) => ({
     selector: { scope: "channel" as const, adapter, channelExternalId },
@@ -169,7 +169,7 @@ export function useChannelPermissionOverrides({
       tier,
     }: {
       channelExternalId: string;
-      tier: SlackCapabilityTier;
+      tier: RiskThreshold;
     }) => {
       await Promise.all(
         cellsForTier(adapter, channelExternalId, tier).map((cell) =>
@@ -216,8 +216,7 @@ export function useChannelPermissionOverrides({
         ),
       );
     },
-    onMutate: ({ channelExternalId }) =>
-      applyOptimistic(channelExternalId, []),
+    onMutate: ({ channelExternalId }) => applyOptimistic(channelExternalId, []),
     onError: (err, _vars, context) => {
       queryClient.setQueryData(queryKey, context?.previous);
       toastOnError("Failed to reset channel settings")(err);

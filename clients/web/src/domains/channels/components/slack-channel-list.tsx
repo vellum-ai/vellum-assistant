@@ -12,14 +12,14 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 
 import { EmptyState } from "@/components/empty-state";
-import { SlackChannelOverridePanel } from "@/domains/contacts/components/slack-channel-override-panel";
-import { SlackChannelTierLegend } from "@/domains/contacts/components/slack-channel-tier-legend";
+import { SlackChannelOverridePanel } from "@/domains/channels/components/slack-channel-override-panel";
+import { SlackChannelTierLegend } from "@/domains/channels/components/slack-channel-tier-legend";
 import {
   CAPABILITY_TIER_META,
   resolveChannelTier,
-  type SlackCapabilityTier,
-} from "@/domains/contacts/slack-channel-overrides";
-import type { SlackChannel } from "@/domains/contacts/types";
+} from "@/domains/channels/slack-channel-overrides";
+import type { RiskThreshold } from "@/utils/threshold-presets";
+import type { SlackChannel } from "@/domains/channels/slack-channels-query";
 
 /**
  * How a channel presents in the filter chips. Mirrors the conversation-type
@@ -30,7 +30,9 @@ import type { SlackChannel } from "@/domains/contacts/types";
  */
 export type SlackChannelKind = "public" | "private" | "dm";
 
-export function classifySlackChannelKind(channel: SlackChannel): SlackChannelKind {
+export function classifySlackChannelKind(
+  channel: SlackChannel,
+): SlackChannelKind {
   if (channel.type === "dm") {
     return "dm";
   }
@@ -132,14 +134,14 @@ export interface SlackChannelListProps {
    * channel-permission cells). Channels absent from the map fall through to
    * the owner's global interactive threshold ({@link defaultTier}).
    */
-  tierOverrides?: Record<string, SlackCapabilityTier>;
+  tierOverrides?: Record<string, RiskThreshold>;
   /**
    * The resolved default for cell-less rows: the gateway-resolved
    * broader-scope cell, else the owner's global interactive threshold.
    * `null` while unknown (loading/error) — rows then show a plain
    * "Default" badge rather than guessing a tier.
    */
-  defaultTier?: SlackCapabilityTier | null;
+  defaultTier?: RiskThreshold | null;
   /**
    * False when the connected assistant predates the channel-permission
    * routes: rows render without tier badges or pickers and the legend
@@ -158,7 +160,7 @@ export interface SlackChannelListProps {
   tierOverridesError?: boolean;
   /** Channels with a tier write in flight — the row shows a saving hint. */
   pendingChannelIds?: ReadonlySet<string>;
-  onTierChange?: (channelId: string, tier: SlackCapabilityTier) => void;
+  onTierChange?: (channelId: string, tier: RiskThreshold) => void;
   /** Deletes the channel's persisted cells so the default wins again. */
   onTierReset?: (channelId: string) => void;
 }
@@ -320,7 +322,11 @@ export function SlackChannelList({
                     );
                   })}
                 </div>
-                <Button type="button" variant="outlined" onClick={toggleExpandAll}>
+                <Button
+                  type="button"
+                  variant="outlined"
+                  onClick={toggleExpandAll}
+                >
                   {multiOpen ? "Collapse all" : "Expand all"}
                 </Button>
               </div>
@@ -403,7 +409,10 @@ export function SlackChannelList({
           </Card.Footer>
         ) : null}
       </Card.Root>
-      {accessControlsSupported && !loading && !error && allChannels.length > 0 ? (
+      {accessControlsSupported &&
+      !loading &&
+      !error &&
+      allChannels.length > 0 ? (
         <SlackChannelTierLegend assistantName={assistantDisplayName} />
       ) : null}
     </>
@@ -428,11 +437,11 @@ function SlackChannelRow({
   pending: boolean;
   overridesLoading: boolean;
   overridesError: boolean;
-  defaultTier: SlackCapabilityTier | null;
+  defaultTier: RiskThreshold | null;
   accessControls: boolean;
-  tierOverride: SlackCapabilityTier | undefined;
+  tierOverride: RiskThreshold | undefined;
   onToggle: () => void;
-  onTierChange: (tier: SlackCapabilityTier) => void;
+  onTierChange: (tier: RiskThreshold) => void;
   onReset: () => void;
 }) {
   const kind = classifySlackChannelKind(channel);

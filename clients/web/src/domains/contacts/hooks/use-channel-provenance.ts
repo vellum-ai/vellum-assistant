@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import type { CascadeProvenance } from "@/domains/contacts/components/provenance-pill";
-import { isSetupChannelId, type SetupChannelId } from "@/domains/contacts/types";
+import { isSetupChannelId, type SetupChannelId } from "@/types/channel-types";
 import { assistantChannelAdmissionPolicyListOptions } from "@/generated/gateway/@tanstack/react-query.gen";
 import type { AssistantChannelAdmissionPolicyListResponse } from "@/generated/gateway/types.gen";
 import {

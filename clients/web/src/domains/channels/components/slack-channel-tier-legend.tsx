@@ -8,8 +8,8 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import {
   CAPABILITY_TIER_META,
   CAPABILITY_TIER_VALUES,
-  type SlackCapabilityTier,
-} from "@/domains/contacts/slack-channel-overrides";
+} from "@/domains/channels/slack-channel-overrides";
+import type { RiskThreshold } from "@/utils/threshold-presets";
 import { routes } from "@/utils/routes";
 
 /** Dot accent per tier tone — mirrors the Tag component's icon accents. */
@@ -40,7 +40,7 @@ const TONE_DOT_COLOR: Record<TagTone, string> = {
  * full-access copy keeps that caveat.
  */
 function tierDescription(
-  tier: SlackCapabilityTier,
+  tier: RiskThreshold,
   assistantName: string,
 ): ReactNode {
   switch (tier) {

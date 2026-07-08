@@ -1,16 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
-import type { AssistantChannelsListProps } from "@/domains/contacts/components/assistant-channels-list";
-import type { SlackThreadMode } from "@/domains/contacts/components/slack-thread-behavior";
-import { useChannelTrustFloors } from "@/domains/contacts/hooks/use-channel-trust-floors";
+import type { AssistantChannelsListProps } from "@/domains/channels/components/assistant-channels-list";
+import type { SlackThreadMode } from "@/domains/channels/components/slack-thread-behavior";
+import { useChannelTrustFloors } from "@/domains/channels/hooks/use-channel-trust-floors";
 import {
   SETUP_CHANNEL_IDS,
   type AssistantChannelState,
   type ChannelReadinessSnapshot,
   type SetupChannelId,
-} from "@/domains/contacts/types";
-import { removeSlackWorkspaceQueries } from "@/domains/contacts/slack-channels-query";
+} from "@/types/channel-types";
+import { removeSlackWorkspaceQueries } from "@/utils/slack-workspace-cache";
 import {
   channelsReadinessGetOptions,
   channelsReadinessGetQueryKey,

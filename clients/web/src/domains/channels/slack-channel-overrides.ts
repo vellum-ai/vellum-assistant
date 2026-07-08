@@ -24,14 +24,8 @@ import {
   type RiskThreshold,
 } from "@/utils/threshold-presets";
 
-/**
- * A channel's Assistant Access tier — the persisted risk threshold itself,
- * not a parallel enum.
- */
-export type SlackCapabilityTier = RiskThreshold;
-
 /** Picker/legend order: the global presets' own order (Strict → Full access). */
-export const CAPABILITY_TIER_VALUES: readonly SlackCapabilityTier[] =
+export const CAPABILITY_TIER_VALUES: readonly RiskThreshold[] =
   THRESHOLD_PRESETS.map((preset) => preset.riskThreshold);
 
 interface CapabilityTierMeta {
@@ -47,10 +41,7 @@ interface CapabilityTierMeta {
   tone: TagTone;
 }
 
-export const CAPABILITY_TIER_META: Record<
-  SlackCapabilityTier,
-  CapabilityTierMeta
-> = {
+export const CAPABILITY_TIER_META: Record<RiskThreshold, CapabilityTierMeta> = {
   none: {
     label: presetFromThreshold("none").label,
     sublabel: "ask before acting",
@@ -107,8 +98,8 @@ export interface ChannelTierCell {
 export function tierOverridesFromCells(
   cells: ChannelTierCell[],
   adapter: string,
-): Record<string, SlackCapabilityTier> {
-  const overrides: Record<string, SlackCapabilityTier> = {};
+): Record<string, RiskThreshold> {
+  const overrides: Record<string, RiskThreshold> = {};
   for (const cell of cells) {
     if (
       cell.selector.scope !== "channel" ||
@@ -134,7 +125,7 @@ export interface SlackChannelTierSettings {
    * falls through to broader-scope cells and the owner's global Assistant
    * Access setting, so the UI must not present a tier as set.
    */
-  tier: SlackCapabilityTier | null;
+  tier: RiskThreshold | null;
   /**
    * True when a persisted cell backs the tier. A cell is an override by
    * existing: it pins the channel above the global auto-approve cascade
@@ -146,7 +137,7 @@ export interface SlackChannelTierSettings {
 
 /** Resolves the row's tier from a persisted cell, if any. */
 export function resolveChannelTier(
-  override: SlackCapabilityTier | undefined,
+  override: RiskThreshold | undefined,
 ): SlackChannelTierSettings {
   return {
     tier: override ?? null,

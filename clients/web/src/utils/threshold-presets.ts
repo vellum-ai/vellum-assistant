@@ -6,7 +6,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export type RiskThreshold = "none" | "low" | "medium" | "high";
+import type { AssistantPermissionsThresholdsGetResponse } from "@/generated/gateway/types.gen";
+
+// The gateway schema repeats this enum inline on every thresholds field;
+// the interactive threshold is the anchor the app derives it from.
+export type RiskThreshold =
+  AssistantPermissionsThresholdsGetResponse["interactive"];
 
 export interface ThresholdPreset {
   id: string;

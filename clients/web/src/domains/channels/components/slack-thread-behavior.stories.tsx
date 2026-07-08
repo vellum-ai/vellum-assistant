@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SlackThreadBehavior } from "./slack-thread-behavior";
 
 const meta: Meta<typeof SlackThreadBehavior> = {
-  title: "Contacts/SlackThreadBehavior",
+  title: "Channels/SlackThreadBehavior",
   component: SlackThreadBehavior,
   args: {
     threadMode: "mention_then_thread",
