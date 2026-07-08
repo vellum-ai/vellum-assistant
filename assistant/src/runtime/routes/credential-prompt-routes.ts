@@ -21,7 +21,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-const InjectionTemplateSchema = z.object({
+export const InjectionTemplateSchema = z.object({
   hostPattern: z.string().min(1),
   injectionType: z.enum(["header", "query"]),
   headerName: z.string().optional(),
@@ -54,6 +54,14 @@ export type CredentialPromptResult = {
    * and a distinct exit code rather than an error.
    */
   cancelled?: boolean;
+  /**
+   * True when no value was collected yet but a one-time collection link was
+   * minted (channel without secure input). `collectionUrl` carries the link;
+   * the value is stored by the gateway when the recipient submits it.
+   */
+  pending?: boolean;
+  collectionUrl?: string;
+  expiresAt?: number;
   error?: string;
   service?: string;
   field?: string;
@@ -78,21 +86,54 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
     purpose: validated.usageDescription,
     allowedTools: validated.allowedTools,
     allowedDomains: validated.allowedDomains,
+    injectionTemplates: validated.injectionTemplates,
     conversationId: validated.conversationId,
   });
 
   if (!result.value) {
     if (result.error === "unsupported_channel") {
+      if (result.collectionUrl) {
+        // The channel cannot render the secure prompt, but a one-time
+        // collection link was minted instead. Nothing is stored or mutated
+        // yet — the policy travels on the gateway row and is applied together
+        // with the value at redemption, so an existing credential's policy is
+        // never rewritten by an unredeemed link. `ok` stays false: the
+        // stored-success contract (CLI exit 0) means "the value is in the
+        // vault", which has not happened.
+        const expiresInMinutes = result.collectionExpiresAt
+          ? Math.max(
+              1,
+              Math.round((result.collectionExpiresAt - Date.now()) / 60_000),
+            )
+          : null;
+        return {
+          ok: false,
+          pending: true,
+          collectionUrl: result.collectionUrl,
+          expiresAt: result.collectionExpiresAt,
+          service: validated.service,
+          field: validated.field,
+          message: `This channel does not support secure input. The credential has NOT been stored yet. Share this one-time link with the user to collect it securely (single-use${expiresInMinutes ? `, expires in ${expiresInMinutes} minutes` : ""}): ${result.collectionUrl}`,
+        };
+      }
       return {
         ok: false,
-        error: "No connected client supports secure credential entry",
+        error:
+          "This conversation's channel does not support secure credential entry",
       };
     }
     // An explicit user cancel is a valid flow, not a failure. Keep it distinct
-    // from a timeout (no response in the permission window) so the CLI can exit
-    // with the user-interrupt convention instead of a generic error.
+    // from a timeout (no response in the permission window) and a supersession
+    // (a newer message auto-denied the pending prompt) so the CLI exits with
+    // the user-interrupt convention only for real cancels.
     if (result.reason === "timed_out") {
       return { ok: false, error: "The credential prompt timed out" };
+    }
+    if (result.reason === "superseded") {
+      return {
+        ok: false,
+        error: "The credential prompt was superseded by a new message",
+      };
     }
     return { ok: false, cancelled: true, error: "Cancelled by the user" };
   }
@@ -157,6 +198,9 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       ok: z.boolean(),
       cancelled: z.boolean().optional(),
+      pending: z.boolean().optional(),
+      collectionUrl: z.string().optional(),
+      expiresAt: z.number().optional(),
       error: z.string().optional(),
       service: z.string().optional(),
       field: z.string().optional(),

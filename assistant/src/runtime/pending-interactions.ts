@@ -263,10 +263,15 @@ export function removeByConversation(
       // confirmations), so removing the entry alone would leave the caller's
       // Promise — the CLI `credentials prompt` command or the in-conversation
       // SecretPrompter — hanging until its IPC client times out. Settle it
-      // with a cancelled result, matching the prompt timeout path. rpcResolve
-      // is idempotent, so any later resolveSecret/dispose call is a no-op.
+      // with a null result tagged with the resolution state so callers report
+      // a supersession honestly instead of a user cancel. rpcResolve is
+      // idempotent, so any later resolveSecret/dispose call is a no-op.
       if (interaction.kind === "secret") {
-        interaction.rpcResolve?.({ value: null, delivery: "store" });
+        interaction.rpcResolve?.({
+          value: null,
+          delivery: "store",
+          reason: state === "superseded" ? "superseded" : "cancelled",
+        });
       }
     }
   }
