@@ -158,8 +158,13 @@ export function computeLearnedEdgeGraph(
     const pab = mass / total;
     const pa = uni.get(a)! / total;
     const pb = uni.get(b)! / total;
+    // pab === 1 (a pair present in every in-window call) makes the
+    // normalizer -log(pab) hit -0 and the score NaN; NaN would sail past the
+    // floor comparison and corrupt the NPMI-desc neighbor ordering below.
     const npmi = Math.log(pab / (pa * pb)) / -Math.log(pab);
-    if (npmi <= npmiFloor) continue;
+    if (!Number.isFinite(npmi) || npmi <= npmiFloor) {
+      continue;
+    }
     addNeighbor(a, b, npmi);
     addNeighbor(b, a, npmi);
   }

@@ -78,7 +78,7 @@ import type {
   SurfaceType,
 } from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 // The compaction strip lives in the compaction layer (`context/`) so the agent
 // loop can own it; re-exported here for this module's existing consumers.

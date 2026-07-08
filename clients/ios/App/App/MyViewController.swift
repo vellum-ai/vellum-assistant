@@ -34,8 +34,8 @@ import WebKit
 ///    (iOS 16+) so highlighting assistant message text offers quote-and-reply
 ///    natively, mirroring the web floating chip. The item is gated to
 ///    assistant-message selections via a `canReply` flag the web layer pushes
-///    through the `vellumTextSelection` script-message handler on every
-///    `selectionchange`; tapping it calls back into the web bridge
+///    through the `vellumTextSelection` script-message handler on
+///    `selectstart`/`selectionchange`; tapping it calls back into the web bridge
 ///    (`window.__vellumQuoteReplyFromSelection`) which opens the reply bubble.
 ///    See `clients/web/src/domains/chat/hooks/use-native-quote-reply.ts`.
 ///
@@ -53,16 +53,10 @@ class MyViewController: CAPBridgeViewController {
 
     /// Whether the current web selection is inside an assistant message and
     /// therefore eligible for quote-and-reply. Kept in sync by the web layer
-    /// via the `vellumTextSelection` handler. Toggling it rebuilds the edit
-    /// menu so the "Reply" item appears/disappears with the selection.
-    private var canQuoteReply = false {
-        didSet {
-            guard canQuoteReply != oldValue else { return }
-            if #available(iOS 16.0, *) {
-                UIMenuSystem.main.setNeedsRebuild()
-            }
-        }
-    }
+    /// via the `vellumTextSelection` handler and read by `canPerformAction`,
+    /// which UIKit evaluates each time the edit menu is about to present, so
+    /// the "Reply" item appears only for assistant-message selections.
+    private var canQuoteReply = false
 
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(NativeAuthPlugin())
@@ -106,21 +100,45 @@ class MyViewController: CAPBridgeViewController {
 
     override open func buildMenu(with builder: UIMenuBuilder) {
         super.buildMenu(with: builder)
-        guard #available(iOS 16.0, *), canQuoteReply else { return }
-        let replyAction = UIAction(title: "Reply") { [weak self] _ in
-            self?.webView?.evaluateJavaScript(
-                "window.__vellumQuoteReplyFromSelection && window.__vellumQuoteReplyFromSelection()"
-            )
-        }
+        guard #available(iOS 16.0, *) else { return }
+        // A selector-based command (rather than a block-based `UIAction`) so
+        // UIKit consults `canPerformAction(_:withSender:)` per presentation to
+        // decide whether "Reply" is shown. This tracks the live selection
+        // without rebuilding the menu, and avoids the race where a block
+        // action is gated on a flag that the web layer has not yet posted when
+        // the menu is first built.
+        let replyCommand = UICommand(
+            title: "Reply",
+            action: #selector(vellumQuoteReply(_:))
+        )
         let replyMenu = UIMenu(
             title: "",
             identifier: Self.quoteReplyMenuIdentifier,
             options: .displayInline,
-            children: [replyAction]
+            children: [replyCommand]
         )
         // Insert before the standard Cut/Copy/Paste group so "Reply" is the
         // leading item, matching the reference selection-menu placement.
         builder.insertSibling(replyMenu, beforeMenu: .standardEdit)
+    }
+
+    override open func canPerformAction(
+        _ action: Selector,
+        withSender sender: Any?
+    ) -> Bool {
+        if action == #selector(vellumQuoteReply(_:)) {
+            return canQuoteReply
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    /// Invoked when the user taps the injected "Reply" edit-menu item. Calls
+    /// back into the web bridge, which resolves the current selection to an
+    /// assistant message and opens the reply bubble.
+    @objc private func vellumQuoteReply(_ sender: Any?) {
+        webView?.evaluateJavaScript(
+            "window.__vellumQuoteReplyFromSelection && window.__vellumQuoteReplyFromSelection()"
+        )
     }
 
     // MARK: - Rotation zoom reset

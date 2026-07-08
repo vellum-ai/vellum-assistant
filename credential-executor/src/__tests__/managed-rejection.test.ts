@@ -2,7 +2,7 @@
  * Managed-mode local_static handle rejection contract tests.
  *
  * Validates that the MANAGED_LOCAL_STATIC_REJECTION_ERROR constant used by
- * managed-main.ts contains the expected contract fragments. These tests
+ * main.ts contains the expected contract fragments. These tests
  * import the actual production constant (not a test-local copy), so they
  * will fail if the error message drifts away from the expected contract.
  */

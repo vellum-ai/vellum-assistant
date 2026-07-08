@@ -21,10 +21,8 @@
  * eviction state.
  */
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import {
-  INTERNAL_GUARDIAN_TRUST_CONTEXT,
-  type TrustContext,
-} from "./trust-context.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 /** Minimal `Conversation` surface needed to elevate pointer trust. */
 export interface GuardianElevatableConversation {

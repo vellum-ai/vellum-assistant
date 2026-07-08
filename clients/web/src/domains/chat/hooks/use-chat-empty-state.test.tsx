@@ -75,8 +75,7 @@ function baseParams(
     avatar: { components: null, traits: null, customImageUrl: null } as never,
     mainView: "chat",
     openedAppState: null,
-    isAssistantStreaming: false,
-    activeConversationIsProcessing: false,
+    isAssistantBusy: false,
     onSelectStarter: () => {},
     ...overrides,
   };

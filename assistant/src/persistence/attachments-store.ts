@@ -340,6 +340,38 @@ function scopeAttachmentToConversation(
   return row.id;
 }
 
+/**
+ * Scope a pre-uploaded attachment into a conversation WITHOUT linking it to a
+ * message, returning the scoped row's metadata. Mirrors {@link createInlineAttachment}
+ * for the already-uploaded case: it gives the persist path the final attachment
+ * id and stored MIME/size before it serializes the message content into a
+ * workspace reference. The message link is written separately once the message
+ * id exists. Returns null when the attachment row cannot be read after scoping.
+ */
+export function scopeAttachmentToMessageConversation(
+  conversationId: string,
+  conversationCreatedAt: number,
+  attachmentId: string,
+): (StoredAttachment & { filePath: string | null }) | null {
+  const scopedId = scopeAttachmentToConversation(
+    attachmentId,
+    conversationId,
+    conversationCreatedAt,
+  );
+  const row = getAttachmentRow(scopedId);
+  if (!row) return null;
+  return {
+    id: row.id,
+    originalFilename: row.originalFilename,
+    mimeType: row.mimeType,
+    sizeBytes: row.sizeBytes,
+    kind: row.kind,
+    thumbnailBase64: null,
+    createdAt: row.createdAt,
+    filePath: row.filePath ?? null,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Size and encoding limits
 // ---------------------------------------------------------------------------
@@ -813,23 +845,33 @@ export function uploadAttachment(
   };
 }
 
-export function attachInlineAttachmentToMessage(
-  messageId: string,
-  position: number,
+export interface CreateInlineAttachmentOptions {
+  sourcePath?: string;
+  skipSizeLimit?: boolean;
+  /**
+   * Store HEIF/HEIC content as a JPEG master (with the filename extension
+   * rewritten) so every client surface can render it. User-sourced ingress
+   * opts in; assistant-produced attachments are stored verbatim — if the
+   * assistant deliberately emits a HEIC, rewriting it would be wrong.
+   */
+  normalizeImage?: boolean;
+}
+
+/**
+ * Create an attachment row from inline base64, materialized into the
+ * conversation's attachments/ directory, WITHOUT linking it to a message. The
+ * caller links it separately (`insertMessageAttachmentLink`) once the message
+ * id exists — which lets the persist path create the row (and learn its id,
+ * normalized MIME type, and byte size) before it serializes the message
+ * content into a workspace reference.
+ */
+export function createInlineAttachment(
+  conversationId: string,
+  conversationCreatedAt: number,
   filename: string,
   mimeType: string,
   dataBase64: string,
-  options?: {
-    sourcePath?: string;
-    skipSizeLimit?: boolean;
-    /**
-     * Store HEIF/HEIC content as a JPEG master (with the filename extension
-     * rewritten) so every client surface can render it. User-sourced ingress
-     * opts in; assistant-produced attachments are stored verbatim — if the
-     * assistant deliberately emits a HEIC, rewriting it would be wrong.
-     */
-    normalizeImage?: boolean;
-  },
+  options?: CreateInlineAttachmentOptions,
 ): StoredAttachment & { filePath: string } {
   if (options?.normalizeImage) {
     ({ filename, mimeType, dataBase64 } = normalizeUploadedImageBase64(
@@ -842,14 +884,10 @@ export function attachInlineAttachmentToMessage(
   const sizeBytes = validateAttachmentPayload(dataBase64, {
     skipSizeLimit: options?.skipSizeLimit,
   });
-  const ctx = getMessageConversationContext(messageId);
-  if (!ctx) {
-    throw new Error(`Message not found: ${messageId}`);
-  }
 
   const attachDir = getConversationAttachmentsDirPath(
-    ctx.conversationId,
-    ctx.conversationCreatedAt,
+    conversationId,
+    conversationCreatedAt,
   );
   mkdirSync(attachDir, { recursive: true });
   const resolvedName = resolveUniqueFilename(attachDir, filename);
@@ -877,14 +915,12 @@ export function attachInlineAttachmentToMessage(
 
   if (options?.sourcePath) {
     rawRun(
-      "attachments:attachInline:sourcePath",
+      "attachments:createInline:sourcePath",
       `UPDATE attachments SET source_path = ? WHERE id = ?`,
       options.sourcePath,
       id,
     );
   }
-
-  insertMessageAttachmentLink(messageId, id, position);
 
   return {
     id,
@@ -896,6 +932,31 @@ export function attachInlineAttachmentToMessage(
     createdAt: now,
     filePath: targetPath,
   };
+}
+
+export function attachInlineAttachmentToMessage(
+  messageId: string,
+  position: number,
+  filename: string,
+  mimeType: string,
+  dataBase64: string,
+  options?: CreateInlineAttachmentOptions,
+): StoredAttachment & { filePath: string } {
+  const ctx = getMessageConversationContext(messageId);
+  if (!ctx) {
+    throw new Error(`Message not found: ${messageId}`);
+  }
+
+  const stored = createInlineAttachment(
+    ctx.conversationId,
+    ctx.conversationCreatedAt,
+    filename,
+    mimeType,
+    dataBase64,
+    options,
+  );
+  insertMessageAttachmentLink(messageId, stored.id, position);
+  return stored;
 }
 
 export function attachFileBackedAttachmentToMessage(

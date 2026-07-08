@@ -225,10 +225,40 @@ let mockAttachmentIdCounter = 0;
 mock.module("../persistence/attachments-store.js", () => ({
   AttachmentUploadError: class AttachmentUploadError extends Error {},
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
+  attachmentExists: () => false,
+  validateAttachmentUpload: () => ({ ok: true }),
+  scopeAttachmentToMessageConversation: () => null,
+  getAttachmentContent: () => null,
   linkAttachmentToMessage: () => {
     if (linkAttachmentShouldThrow) {
       throw new Error("Simulated linkAttachmentToMessage failure");
     }
+  },
+  createInlineAttachment: (
+    _conversationId: string,
+    _conversationCreatedAt: number,
+    filename: string,
+    mimeType: string,
+    dataBase64: string,
+  ) => {
+    if (linkAttachmentShouldThrow) {
+      throw new Error("Simulated createInlineAttachment failure");
+    }
+
+    return {
+      id: `att-inline-${++mockAttachmentIdCounter}`,
+      originalFilename: filename,
+      mimeType,
+      sizeBytes: Buffer.from(dataBase64, "base64").byteLength,
+      kind: mimeType.startsWith("image/")
+        ? "image"
+        : mimeType.startsWith("video/")
+          ? "video"
+          : "file",
+      thumbnailBase64: null,
+      createdAt: Date.now(),
+      filePath: `/tmp/${filename}`,
+    };
   },
   attachInlineAttachmentToMessage: (
     _messageId: string,

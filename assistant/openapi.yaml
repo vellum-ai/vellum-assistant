@@ -4506,6 +4506,60 @@ paths:
                   - domains
                   - callSites
                 additionalProperties: false
+  /v1/config/llm/default-provider:
+    get:
+      operationId: config_llm_defaultprovider_get
+      summary: Get the default provider and its availability
+      description:
+        Returns `llm.defaultProvider`, the connection name it resolves to, and whether that connection is currently
+        usable (connection exists, credential stored, Vellum authenticated). Availability is informational — a broken
+        default is a valid persisted state that surfaces explainable errors at resolution time.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DefaultProviderStatus"
+    put:
+      operationId: config_llm_defaultprovider_put
+      summary: Set the default provider
+      description:
+        Replaces `llm.defaultProvider`. Strict-validates the body (unlike the generic config write paths, which
+        silently drop invalid values). Does not require the referenced connection to exist — a dangling name is allowed
+        by design and reported via the availability status.
+      tags:
+        - config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  enum:
+                    - anthropic
+                    - openai
+                    - gemini
+                    - fireworks
+                    - openrouter
+                    - vellum
+                connectionName:
+                  type: string
+                  minLength: 1
+              required:
+                - provider
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DefaultProviderStatus"
   /v1/config/llm/profiles:
     get:
       operationId: config_llm_profiles_get
@@ -9373,6 +9427,54 @@ paths:
                   - invoked
                   - producedToolCalls
                 additionalProperties: false
+  /v1/credential-requests:
+    post:
+      operationId: credentialrequests_post
+      summary: Mint a one-time credential-collection link
+      description:
+        Create a single-use tokenized URL that collects one credential value via the public credential-entry page.
+        Link state lives in the gateway; the value is stored via the credential vault on submission.
+      tags:
+        - credentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  type: string
+                  minLength: 1
+                field:
+                  type: string
+                  minLength: 1
+                label:
+                  type: string
+              required:
+                - service
+                - field
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  url:
+                    type: string
+                  token:
+                    type: string
+                  expiresAt:
+                    type: number
+                  error:
+                    type: string
+                required:
+                  - ok
+                additionalProperties: false
   /v1/credentials/delete:
     post:
       operationId: credentials_delete_post
@@ -9576,6 +9678,12 @@ paths:
                     type: boolean
                   cancelled:
                     type: boolean
+                  pending:
+                    type: boolean
+                  collectionUrl:
+                    type: string
+                  expiresAt:
+                    type: number
                   error:
                     type: string
                   service:
@@ -9658,6 +9766,34 @@ paths:
                   type: array
                   items:
                     type: string
+                allowedDomains:
+                  description: Domains the credential may be sent to
+                  type: array
+                  items:
+                    type: string
+                injectionTemplates:
+                  description: How the credential is injected into requests
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      hostPattern:
+                        type: string
+                        minLength: 1
+                      injectionType:
+                        type: string
+                        enum:
+                          - header
+                          - query
+                      headerName:
+                        type: string
+                      valuePrefix:
+                        type: string
+                      queryParamName:
+                        type: string
+                    required:
+                      - hostPattern
+                      - injectionType
               required:
                 - service
                 - field
@@ -16072,6 +16208,113 @@ paths:
                 format: binary
         "500":
           description: Failed to create archive
+  /v1/memory-graph:
+    get:
+      operationId: memorygraph_get
+      summary: Get the memory graph
+      description:
+        Return the assistant's memory as a backend-agnostic graph of nodes (concepts, skills, capabilities) and
+        edges (authored links and learned associations). Returns supported=false when the active backend exposes no
+        graph.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backend:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  supported:
+                    type: boolean
+                  nodes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        label:
+                          type: string
+                        summary:
+                          type: string
+                        kind:
+                          type: string
+                        weight:
+                          type: number
+                        updatedAtMs:
+                          type: number
+                      required:
+                        - id
+                        - label
+                      additionalProperties: false
+                  edges:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        source:
+                          type: string
+                        target:
+                          type: string
+                        kind:
+                          type: string
+                        weight:
+                          type: number
+                        description:
+                          type: string
+                        directed:
+                          type: boolean
+                      required:
+                        - source
+                        - target
+                      additionalProperties: false
+                  truncated:
+                    type: boolean
+                required:
+                  - backend
+                  - supported
+                  - nodes
+                  - edges
+                additionalProperties: false
+  /v1/memory-graph-node:
+    get:
+      operationId: memorygraphnode_get
+      summary: Get a memory graph node's content
+      description:
+        "Return the rendered markdown content of a single concept node by id, for the graph's node-detail view.
+        `found: false` when the node has no readable page."
+      tags:
+        - memory
+      parameters:
+        - name: id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Node id from the graph payload (memory-v3: the concept-page slug)."
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  found:
+                    type: boolean
+                  title:
+                    type: string
+                  content:
+                    type: string
+                required:
+                  - found
+                additionalProperties: false
   /v1/memory-items:
     get:
       operationId: memoryitems_get
@@ -24637,6 +24880,29 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        conversations:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              title:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                              exists:
+                                type: boolean
+                              archivedAt:
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
+                            required:
+                              - id
+                              - title
+                              - exists
+                              - archivedAt
+                            additionalProperties: false
                         estimatedCostUsd:
                           type: number
                         createdAt:
@@ -24653,6 +24919,7 @@ paths:
                         - conversationId
                         - conversationExists
                         - conversationArchivedAt
+                        - conversations
                         - estimatedCostUsd
                         - createdAt
                       additionalProperties: false
@@ -31928,6 +32195,24 @@ components:
                 provider_connection:
                   type: string
               additionalProperties: false
+            defaultProvider:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  enum:
+                    - anthropic
+                    - openai
+                    - gemini
+                    - fireworks
+                    - openrouter
+                    - vellum
+                connectionName:
+                  type: string
+                  minLength: 1
+              required:
+                - provider
+              additionalProperties: false
             profiles:
               type: object
               propertyNames:
@@ -32282,6 +32567,50 @@ components:
         invariant:
           type: boolean
       additionalProperties: {}
+    DefaultProviderStatus:
+      type: object
+      properties:
+        provider:
+          anyOf:
+            - type: string
+              enum:
+                - anthropic
+                - openai
+                - gemini
+                - fireworks
+                - openrouter
+                - vellum
+            - type: "null"
+        connectionName:
+          type: string
+        resolvedConnectionName:
+          anyOf:
+            - type: string
+            - type: "null"
+        availability:
+          type: object
+          properties:
+            status:
+              type: string
+              enum:
+                - ok
+                - missing_default
+                - missing_connection
+                - missing_credential
+                - provider_mismatch
+                - unsupported_auth
+                - vellum_unauthenticated
+                - unknown
+            message:
+              type: string
+          required:
+            - status
+          additionalProperties: false
+      required:
+        - provider
+        - resolvedConnectionName
+        - availability
+      additionalProperties: false
     ProviderConnection:
       type: object
       properties:

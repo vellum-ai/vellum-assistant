@@ -29,6 +29,7 @@ import {
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
+  resolveEffectiveProfileKey,
   resolveProfilelessModelKey,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
@@ -64,6 +65,10 @@ import { enqueueAutoAnalysisOnCompaction } from "../runtime/services/auto-analys
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
+import {
+  emitToolProfilingSummary,
+  startToolProfilingRequest,
+} from "../tools/tool-profiler.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
@@ -113,7 +118,7 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
 import { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
@@ -400,6 +405,42 @@ export async function runAgentLoopImpl(
   const readCurrentOverrideProfile = (): string | undefined =>
     options?.overrideProfile ?? resolveOverrideProfile(ctx);
 
+  // Best-effort attribution for error classification: names the resolved
+  // connection and profile so credential/connection errors point at the
+  // exact slot to fix instead of a generic banner. Resolution can itself
+  // throw on a broken config — attribution must never mask the real error.
+  const turnErrorAttribution = (): {
+    connectionName?: string;
+    profileName?: string;
+  } => {
+    try {
+      const overrideProfile = readCurrentOverrideProfile();
+      const resolveOpts = {
+        overrideProfile,
+        forceOverrideProfile,
+        selectionSeed: ctx.conversationId,
+      };
+      const resolved = resolveCallSiteConfig(
+        turnCallSite,
+        config.llm,
+        resolveOpts,
+      );
+      const profileName = resolveEffectiveProfileKey(
+        turnCallSite,
+        config.llm,
+        resolveOpts,
+      );
+      return {
+        ...(resolved.provider_connection
+          ? { connectionName: resolved.provider_connection }
+          : {}),
+        ...(profileName ? { profileName } : {}),
+      };
+    } catch {
+      return {};
+    }
+  };
+
   const effectiveContextWindow = resolveEffectiveContextWindow({
     llm: config.llm,
     callSite: turnCallSite,
@@ -562,7 +603,7 @@ export async function runAgentLoopImpl(
   ctx.lastAssistantAttachments = [];
   ctx.lastAttachmentWarnings = [];
 
-  ctx.profiler.startRequest();
+  startToolProfilingRequest(ctx.conversationId);
   let turnStarted = false;
   const state = createEventHandlerState();
   let persistedErrorAssistantMessage = false;
@@ -1506,7 +1547,10 @@ export async function runAgentLoopImpl(
         requestId: reqId,
       });
       rlog.error({ err }, "Conversation processing error");
-      const classified = classifyConversationError(err, errorCtx);
+      const classified = classifyConversationError(err, {
+        ...errorCtx,
+        ...turnErrorAttribution(),
+      });
       if (!turnReplied) {
         abnormalOutcome = { outcome: "failed", failureCode: classified.code };
       }
@@ -1554,7 +1598,7 @@ export async function runAgentLoopImpl(
       void writeRelationshipState().catch(() => {});
     }
 
-    ctx.profiler.emitSummary(reqId);
+    emitToolProfilingSummary(ctx.conversationId, reqId);
 
     // Tear down this turn's per-turn state. Abort reliably drives the loop to
     // this `finally` within a bounded time — cooperative signal propagation

@@ -9,8 +9,10 @@ import {
   type DefaultProfileProvider,
   OS_BETA_PROFILE_KEY,
 } from "./default-profile-names.js";
+import { resolveDefaultConnectionName } from "./default-provider-resolution.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+  type DefaultProviderConfig,
   type ProfileEntry,
 } from "./schemas/llm.js";
 
@@ -340,8 +342,23 @@ export function getEffectiveProfile(
     Record<string, ProfileEntry>
   > = CODE_DEFAULT_PROFILE_ENTRIES,
 ): ProfileEntry | undefined {
-  const workspace = workspaceProfiles?.[name];
-  const body = catalogEntries[name];
+  return resolveAgainstBody(
+    workspaceProfiles?.[name],
+    name,
+    catalogEntries[name],
+  );
+}
+
+/**
+ * The shared workspace-overlay step of effective-profile resolution: given
+ * the workspace entry for a name and the code-owned body that name resolves
+ * to, apply the precedence documented on `getEffectiveProfile`.
+ */
+function resolveAgainstBody(
+  workspace: ProfileEntry | undefined,
+  name: string,
+  body: ProfileEntry | undefined,
+): ProfileEntry | undefined {
   if (body == null) {
     return workspace;
   }
@@ -358,6 +375,56 @@ export function getEffectiveProfile(
     }
   }
   return merged;
+}
+
+/**
+ * Like `getEffectiveProfile`, but a default profile key's code-owned body
+ * comes from the default provider's column of the intent × provider matrix
+ * instead of always the `vellum` column. A `null` defaultProvider and every
+ * non-matrix name fall back to `getEffectiveProfile`'s behavior.
+ *
+ * Non-obvious rules:
+ *
+ * - For the `vellum` column the stamped provider stays the column's
+ *   underlying provider (e.g. `fireworks` for `balanced`) — `vellum` is a
+ *   routing identity, not a dispatch provider.
+ * - The resolved body carries `source: "managed"` regardless of column:
+ *   default profile content is code-owned whichever provider implements it.
+ *   The BYOK templates' `source: "user"` is hatch-time state for
+ *   materialized `custom-*` copies, not an ownership claim on the body.
+ */
+export function resolveDefaultProfileForProvider(
+  workspaceProfiles: Record<string, ProfileEntry> | undefined,
+  name: string,
+  defaultProvider: DefaultProviderConfig | null,
+): ProfileEntry | undefined {
+  return resolveAgainstBody(
+    workspaceProfiles?.[name],
+    name,
+    defaultProfileBodyForProvider(name, defaultProvider),
+  );
+}
+
+function isDefaultProfileKey(name: string): name is DefaultProfileKey {
+  return (DEFAULT_PROFILE_KEYS as readonly string[]).includes(name);
+}
+
+function defaultProfileBodyForProvider(
+  name: string,
+  defaultProvider: DefaultProviderConfig | null,
+): ProfileEntry | undefined {
+  if (defaultProvider == null || !isDefaultProfileKey(name)) {
+    return CODE_DEFAULT_PROFILE_ENTRIES[name];
+  }
+  const impl = PROFILE_IMPLS[name][defaultProvider.provider];
+  return {
+    ...materializeProfile(
+      impl,
+      impl.provider,
+      resolveDefaultConnectionName(defaultProvider),
+    ),
+    source: "managed",
+  };
 }
 
 /**

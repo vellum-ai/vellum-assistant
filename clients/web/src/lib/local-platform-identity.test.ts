@@ -30,6 +30,8 @@ let statusBody: unknown;
 let ensureRegistrationBody: unknown;
 let reprovisionApiKeyBody: unknown;
 let requests: RecordedRequest[] = [];
+let secretsUnavailable = false;
+let storedSecrets: string[] = [];
 
 const buildVellumMutatingHeadersMock = mock(
   async (
@@ -92,6 +94,7 @@ mock.module("@/stores/organization-store", () => ({
 const {
   bootstrapLocalAssistantPlatformIdentity,
   resetLocalPlatformIdentityCacheForTesting,
+  setBootstrapRetryDelaysForTesting,
   resolveLocalAssistantPlatformIdentity,
 } = await import("@/lib/local-platform-identity");
 
@@ -147,11 +150,15 @@ beforeEach(() => {
     provisioning: { assistant_api_key: "reprovisioned-key" },
   };
   requests = [];
+  secretsUnavailable = false;
+  storedSecrets = [];
   buildVellumMutatingHeadersMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   fetchOrganizationsMock.mockClear();
   updateLockfileAssistantMock.mockClear();
   resetLocalPlatformIdentityCacheForTesting();
+  // Single attempt by default — retry tests opt into a schedule.
+  setBootstrapRetryDelaysForTesting([]);
 
   globalThis.fetch = mock(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -183,6 +190,15 @@ beforeEach(() => {
         return jsonResponse(reprovisionApiKeyBody);
       }
       if (url.pathname.endsWith("/v1/secrets")) {
+        if (secretsUnavailable) {
+          return new Response("Failed to reach assistant runtime", {
+            status: 502,
+          });
+        }
+        const name = (parseRequestBody(init) as { name?: unknown })?.name;
+        if (typeof name === "string") {
+          storedSecrets.push(name);
+        }
         return jsonResponse({ ok: true });
       }
       return new Response("not found", { status: 404 });
@@ -193,6 +209,7 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.fetch = originalFetch;
   resetLocalPlatformIdentityCacheForTesting();
+  setBootstrapRetryDelaysForTesting(null);
 });
 
 describe("resolveLocalAssistantPlatformIdentity", () => {
@@ -366,5 +383,88 @@ describe("bootstrapLocalAssistantPlatformIdentity", () => {
 
     expect(primeLocalGatewayConnectionWithRepairMock).not.toHaveBeenCalled();
     expect(requestNames()).toEqual([]);
+  });
+
+  // The assistant has no stored API key (so the bootstrap must register and
+  // inject credentials rather than early-returning on the status probe) and
+  // the daemon is mid-restart (the gateway 502s /v1/secrets).
+  function simulateDaemonRestartWithMissingApiKey(): void {
+    statusBody = {
+      ...(statusBody as Record<string, unknown>),
+      has_assistant_api_key: false,
+    };
+    secretsUnavailable = true;
+  }
+
+  test("stores the API key sentinel only after the other credentials have landed", async () => {
+    simulateDaemonRestartWithMissingApiKey();
+    secretsUnavailable = false;
+
+    bootstrapLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+    await flushAsyncWork();
+
+    // The status probe reports has_assistant_api_key based on the API key
+    // alone, and the bootstrap early-returns on it — so a partial write
+    // must never leave the key stored without the rest.
+    expect(storedSecrets.at(-1)).toBe("vellum:assistant_api_key");
+    expect(storedSecrets).toContain("vellum:platform_base_url");
+    expect(storedSecrets).toContain("vellum:platform_organization_id");
+  });
+
+  test("retries after the daemon-unreachable window and stores the credentials", async () => {
+    simulateDaemonRestartWithMissingApiKey();
+    setBootstrapRetryDelaysForTesting([20]);
+    const onError = mock((_error: unknown) => {});
+
+    bootstrapLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID, { onError });
+    await flushAsyncWork();
+    expect(
+      requests.filter((r) => r.pathname.endsWith("/v1/secrets")).length,
+    ).toBeGreaterThan(0);
+
+    // Daemon comes back before the retry fires.
+    secretsUnavailable = false;
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(requestNames().filter((name) => name === "status")).toHaveLength(2);
+    expect(storedSecrets).toContain("vellum:assistant_api_key");
+  });
+
+  test("invokes onError only after the retry schedule is exhausted", async () => {
+    simulateDaemonRestartWithMissingApiKey();
+    setBootstrapRetryDelaysForTesting([1, 1]);
+    const onError = mock((_error: unknown) => {});
+
+    bootstrapLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID, { onError });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    // Initial attempt + two retries, each re-running the full flow.
+    expect(requestNames().filter((name) => name === "status")).toHaveLength(3);
+  });
+
+  test("a second trigger while a retry loop is active does not start a parallel flow", async () => {
+    simulateDaemonRestartWithMissingApiKey();
+    setBootstrapRetryDelaysForTesting([30]);
+
+    bootstrapLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+    await flushAsyncWork();
+    const statusProbes = requestNames().filter(
+      (name) => name === "status",
+    ).length;
+
+    // Re-trigger while the loop is waiting out the backoff delay.
+    bootstrapLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+    await flushAsyncWork();
+
+    expect(requestNames().filter((name) => name === "status")).toHaveLength(
+      statusProbes,
+    );
+
+    // Let the pending retry drain before afterEach restores the real fetch,
+    // so the loop's last attempt doesn't hit the network.
+    secretsUnavailable = false;
+    await new Promise((resolve) => setTimeout(resolve, 60));
   });
 });

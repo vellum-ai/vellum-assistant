@@ -468,10 +468,6 @@ function makeCtx(
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,

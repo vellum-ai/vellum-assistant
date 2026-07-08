@@ -15,7 +15,7 @@ import type {
   SetupResolved,
 } from "../calls/call-setup-router.js";
 import type { MediaStreamOutput } from "../calls/media-stream-output.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { TrustClass } from "../runtime/trust-class.js";
 
 // ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ function createFakeTransport() {
     endSession: (reason) => {
       endReasons.push(reason);
     },
-    requiresWavAudio: true,
+    requiresPcmAudio: true,
   };
   return { transport, spokenTokens, endReasons };
 }

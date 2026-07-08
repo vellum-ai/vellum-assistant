@@ -88,6 +88,7 @@ async function emitScheduleNotifySignal(payload: {
   message: string;
   routingIntent: RoutingIntent;
   routingHints: Record<string, unknown>;
+  deepLinkConversationId?: string;
 }): Promise<void> {
   await emitNotificationSignal({
     sourceEventName: "schedule.notify",
@@ -103,6 +104,9 @@ async function emitScheduleNotifySignal(payload: {
       scheduleId: payload.id,
       label: payload.label,
       message: payload.message,
+      ...(payload.deepLinkConversationId
+        ? { deepLinkConversationId: payload.deepLinkConversationId }
+        : {}),
     },
     routingIntent: payload.routingIntent,
     routingHints: payload.routingHints,
@@ -436,6 +440,9 @@ export async function runDueSchedulesOnce(
           message: job.message,
           routingIntent: job.routingIntent,
           routingHints: job.routingHints,
+          ...(job.createdFromConversationId
+            ? { deepLinkConversationId: job.createdFromConversationId }
+            : {}),
         });
         if (isOneShot) {
           const successRunId = await createScheduleRun(

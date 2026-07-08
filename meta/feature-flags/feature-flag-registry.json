@@ -355,6 +355,14 @@
       "defaultEnabled": true
     },
     {
+      "id": "memory-concept-graph",
+      "scope": "assistant",
+      "key": "memory-concept-graph",
+      "label": "Memory concept graph",
+      "description": "Gates the Obsidian-style memory concept graph on the assistant identity page and the backend-agnostic /memory-graph + /memory-graph-node routes that feed it. When off, the identity page shows the skills constellation instead. Only produces a graph on memory-v3 backends. Default off.",
+      "defaultEnabled": false
+    },
+    {
       "id": "self-intro-greeting",
       "scope": "both",
       "key": "self-intro-greeting",
@@ -416,6 +424,22 @@
       "key": "account-mfa",
       "label": "Account MFA",
       "description": "Surface the Security settings page where users enroll and manage TOTP two-factor authentication for their Vellum (WorkOS) account. Applies to email/password sign-in only.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "credentials-settings",
+      "scope": "assistant",
+      "key": "credentials-settings",
+      "label": "Credentials settings page",
+      "description": "Show the Credentials page in web settings for listing, adding, and deleting stored credentials.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "credential-requests",
+      "scope": "assistant",
+      "key": "credential-requests",
+      "label": "One-time credential request links",
+      "description": "Enable one-time credential-request links: the generate-link action in settings, the public credential entry page, and assistant-initiated links on channels without secure input.",
       "defaultEnabled": false
     }
   ]

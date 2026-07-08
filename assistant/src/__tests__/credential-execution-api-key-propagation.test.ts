@@ -22,11 +22,11 @@
  * isAlive/close) so the mock is trivial and cannot diverge from real
  * behaviour.
  *
- * The **server-side** lazy `ApiKeyRef` pattern used in `managed-main.ts`
+ * The **server-side** lazy `ApiKeyRef` pattern used in `main.ts`
  * is tested directly in
  * `credential-executor/src/__tests__/managed-lazy-getters.test.ts`
  * against the production `buildLazyGetters` function. A structural guard
- * below verifies that `managed-main.ts` imports `buildLazyGetters` from
+ * below verifies that `main.ts` imports `buildLazyGetters` from
  * `managed-lazy-getters.ts`, so these two test files stay coupled to
  * production code.
  *
@@ -277,12 +277,12 @@ describe("CesClient.updateAssistantApiKey()", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Structural guard: managed-main.ts uses production buildLazyGetters
+// Structural guard: main.ts uses production buildLazyGetters
 // ---------------------------------------------------------------------------
 
-describe("structural guard: managed-main.ts uses production buildLazyGetters", () => {
-  test("managed-main.ts imports buildLazyGetters from managed-lazy-getters", async () => {
-    // This guard ensures that managed-main.ts exercises the production
+describe("structural guard: main.ts uses production buildLazyGetters", () => {
+  test("main.ts imports buildLazyGetters from managed-lazy-getters", async () => {
+    // This guard ensures that main.ts exercises the production
     // buildLazyGetters function (tested in managed-lazy-getters.test.ts),
     // not a local reimplementation. If the import is removed or the source
     // module changes, this test will fail and signal that the companion
@@ -296,7 +296,7 @@ describe("structural guard: managed-main.ts uses production buildLazyGetters", (
       repoRoot,
       "credential-executor",
       "src",
-      "managed-main.ts",
+      "main.ts",
     );
 
     const source = readFileSync(managedMainPath, "utf-8");

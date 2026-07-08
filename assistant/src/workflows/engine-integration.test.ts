@@ -171,7 +171,7 @@ mock.module("../providers/provider-send-message.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { WorkflowsConfigSchema } from "../config/schemas/workflows.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { registerTool } from "../tools/registry.js";

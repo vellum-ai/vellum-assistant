@@ -16,7 +16,7 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../contacts/guardian-delivery-reader.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import {
@@ -69,9 +69,7 @@ export async function healGuardianBindingDrift(
   // identity (channel + address) but not the local channel UUID write target,
   // so resolve that locally by the guardian's vellum-channel address.
   const localContact = findContactByAddress("vellum", guardian.address);
-  const localChannel = localContact?.channels.find(
-    (c) => c.type === "vellum",
-  );
+  const localChannel = localContact?.channels.find((c) => c.type === "vellum");
   if (!localContact || !localChannel) return false;
 
   const updated = repairChannelAddress(localChannel.id, incomingPrincipalId);

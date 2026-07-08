@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
+  resolveEffectiveProfileKey,
 } from "../config/llm-resolver.js";
 import { type LLMCallSite, LLMSchema } from "../config/schemas/llm.js";
 
@@ -1451,6 +1452,73 @@ describe("resolveDefaultProfileKey", () => {
       activeProfile: "ab",
     });
     expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
+  });
+});
+
+describe("resolveEffectiveProfileKey", () => {
+  const llm = LLMSchema.parse({
+    default: fullDefault,
+    profiles: {
+      balanced: { provider: "anthropic", model: "claude-sonnet-4-7" },
+      "cost-optimized": { provider: "openai", model: "gpt-5-mini" },
+      pinned: { provider: "gemini", model: "gemini-2.5-pro" },
+    },
+    activeProfile: "balanced",
+  });
+
+  test("mainAgent: override wins over active", () => {
+    expect(
+      resolveEffectiveProfileKey("mainAgent", llm, {
+        overrideProfile: "pinned",
+      }),
+    ).toBe("pinned");
+  });
+
+  test("mainAgent: active wins when no override", () => {
+    expect(resolveEffectiveProfileKey("mainAgent", llm)).toBe("balanced");
+  });
+
+  // Codex P2: a pinned override on a bare non-mainAgent site must attribute to
+  // the override — `effectiveDefault` strips the catalog default when an
+  // override is present, so the override is the profile that supplies the config.
+  test("non-mainAgent: pinned override wins over stripped catalog default", () => {
+    expect(
+      resolveEffectiveProfileKey("filingAgent", llm, {
+        overrideProfile: "pinned",
+      }),
+    ).toBe("pinned");
+  });
+
+  test("non-mainAgent: catalog default when no override", () => {
+    // filingAgent's CALL_SITE_DEFAULTS profile is `cost-optimized`.
+    expect(resolveEffectiveProfileKey("filingAgent", llm)).toBe(
+      "cost-optimized",
+    );
+  });
+
+  test("non-mainAgent: explicit call-site profile is authoritative over override", () => {
+    const withSite = LLMSchema.parse({
+      ...llm,
+      callSites: { filingAgent: { profile: "cost-optimized" } },
+    });
+    expect(
+      resolveEffectiveProfileKey("filingAgent", withSite, {
+        overrideProfile: "pinned",
+      }),
+    ).toBe("cost-optimized");
+  });
+
+  test("non-mainAgent: forced override floats above the call-site profile", () => {
+    const withSite = LLMSchema.parse({
+      ...llm,
+      callSites: { filingAgent: { profile: "cost-optimized" } },
+    });
+    expect(
+      resolveEffectiveProfileKey("filingAgent", withSite, {
+        overrideProfile: "pinned",
+        forceOverrideProfile: true,
+      }),
+    ).toBe("pinned");
   });
 });
 

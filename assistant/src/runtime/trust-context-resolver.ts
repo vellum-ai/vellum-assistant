@@ -10,7 +10,7 @@
  * `trustContextFromVerdict` in `trust-verdict-consumer.ts` instead.
  */
 import type { ChannelId } from "../channels/types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   resolveActorTrust,
   type ResolveActorTrustInput,

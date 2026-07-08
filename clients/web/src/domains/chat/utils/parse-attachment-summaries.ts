@@ -82,6 +82,7 @@ export function parseAttachmentSummariesFromContent(content: string): {
       mimeType: mimeType!,
       sizeBytes: sizeStr ? parseHumanReadableSize(sizeStr) : 0,
       previewUrl: null,
+      thumbnailUrl: null,
     });
   }
 

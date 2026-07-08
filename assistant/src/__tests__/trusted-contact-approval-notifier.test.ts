@@ -135,7 +135,7 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../contacts/guardian-delivery-reader.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { resolveGuardianName } from "../prompts/user-reference.js";
 
 // We need to test the private functions by importing the module.

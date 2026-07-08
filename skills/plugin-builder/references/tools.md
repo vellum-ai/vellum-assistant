@@ -40,7 +40,6 @@ These are the fields a tool definition can set. Names and types come from `ToolD
 | `assistantId`                   | `string?`                                  | Logical assistant scope for multi-assistant routing.                                                                          |
 | `taskRunId`                     | `string?`                                  | Set when the execution is part of a task run; used to retrieve ephemeral permission rules.                                    |
 | `skillId`                       | `string?`                                  | Id of the skill whose `skill_execute` dispatch triggered this invocation. Absent for direct (non-skill) tool calls.           |
-| `onToolLifecycleEvent`          | `ToolLifecycleEventHandler?`               | Callback for tool lifecycle events (start, prompt, deny, execute, error).                                                     |
 | `proxyToolResolver`             | `ProxyToolResolver?`                       | Resolver for proxy tools; delegates execution to an external client.                                                          |
 | `allowedToolNames`              | `Set<string>?`                             | When set, only tools in this set may execute; others are blocked with an error.                                               |
 | `diskPressureCleanupModeActive` | `boolean?`                                 | True when the turn is restricted to storage cleanup-safe tools.                                                               |

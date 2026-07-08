@@ -22,6 +22,7 @@ import { SidebarTree, type SidebarItem } from "@/components/sidebar-tree";
  */
 export function SettingsLayout() {
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const credentialsSettingsEnabled = useAssistantFeatureFlagStore.use.credentialsSettings();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
   const bookmarksEnabled = useClientFeatureFlagStore.use.bookmarks();
   const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
@@ -57,6 +58,9 @@ export function SettingsLayout() {
         if (item.id === "bookmarks" && !bookmarksEnabled) {
           return false;
         }
+        if (item.id === "credentials" && !credentialsSettingsEnabled) {
+          return false;
+        }
         if (item.id === "devices" && platformGate === "gated") {
           return false;
         }
@@ -77,6 +81,7 @@ export function SettingsLayout() {
       accountGate,
       bookmarksEnabled,
       accountMfaEnabled,
+      credentialsSettingsEnabled,
     ],
   );
 
@@ -105,12 +110,12 @@ export function SettingsLayout() {
   }, [settingsDeveloperNav, hasPlatformSession, navigate, login]);
 
   const pageTitle = useMemo(() => {
-    if (pathname === routes.settings.root) return "Settings";
+    if (pathname === routes.settings.root) {return "Settings";}
     const match = SETTINGS_SIDEBAR.find(
       (item) =>
         pathname === item.href || pathname.startsWith(item.href + "/"),
     );
-    if (match) return match.label;
+    if (match) {return match.label;}
     return "Settings";
   }, [pathname]);
 

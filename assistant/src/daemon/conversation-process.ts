@@ -568,8 +568,8 @@ async function drainSingleMessage(
       // The in-memory userMessage (sent to the LLM) still uses the stripped content.
       const contentToPersist = serializePersistedUserMessageContent(
         next.content,
-        next.attachments,
         next.displayContent,
+        next.attachments,
       );
       await addMessage(conversation.conversationId, "user", contentToPersist, {
         metadata: drainChannelMeta,
@@ -664,8 +664,8 @@ async function drainSingleMessage(
         "user",
         serializePersistedUserMessageContent(
           next.content,
-          next.attachments,
           next.displayContent,
+          next.attachments,
         ),
         { metadata: drainChannelMeta },
       );
@@ -750,8 +750,8 @@ async function drainSingleMessage(
         "user",
         serializePersistedUserMessageContent(
           next.content,
-          next.attachments,
           next.displayContent,
+          next.attachments,
         ),
         { metadata: drainChannelMeta },
       );
@@ -1545,8 +1545,8 @@ export async function processMessage(
         "user",
         serializePersistedUserMessageContent(
           content,
-          attachments,
           displayContent,
+          attachments,
         ),
         { metadata: routerChannelMeta },
       );
@@ -1634,8 +1634,8 @@ export async function processMessage(
     // The in-memory userMessage (sent to the LLM) still uses the stripped content.
     const contentToPersist = serializePersistedUserMessageContent(
       content,
-      attachments,
       displayContent,
+      attachments,
     );
     const persisted = await addMessage(
       conversation.conversationId,
@@ -1717,8 +1717,8 @@ export async function processMessage(
         "user",
         serializePersistedUserMessageContent(
           content,
-          attachments,
           displayContent,
+          attachments,
         ),
         { metadata: pmChannelMeta },
       );
@@ -1794,8 +1794,8 @@ export async function processMessage(
         "user",
         serializePersistedUserMessageContent(
           content,
-          attachments,
           displayContent,
+          attachments,
         ),
         { metadata: pmChannelMeta },
       );

@@ -1,8 +1,8 @@
 /**
  * Tests for `ensureDefaultProvider` in `workspace/default-provider-ensure.ts`.
  *
- * `hasManagedProxyPrereqs` is mocked at module scope; `bun:test` isolates
- * `mock.module` per test file.
+ * `hasManagedProxyPrereqs` and `getProviderKeyAsync` are mocked at module
+ * scope; `bun:test` isolates `mock.module` per test file.
  */
 import {
   existsSync,
@@ -16,9 +16,15 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const proxyState = { prereqs: false };
+const keyState = { anthropicKey: undefined as string | undefined };
 
 mock.module("../providers/platform-proxy/context.js", () => ({
   hasManagedProxyPrereqs: async () => proxyState.prereqs,
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getProviderKeyAsync: async (provider: string) =>
+    provider === "anthropic" ? keyState.anthropicKey : undefined,
 }));
 
 const { ensureDefaultProvider } =
@@ -56,6 +62,7 @@ beforeEach(() => {
   originalIsPlatform = process.env.IS_PLATFORM;
   delete process.env.IS_PLATFORM;
   proxyState.prereqs = false;
+  keyState.anthropicKey = undefined;
 });
 
 afterEach(() => {
@@ -261,5 +268,76 @@ describe("ensureDefaultProvider", () => {
 
     writeFileSync(join(workspaceDir, "config.json"), JSON.stringify([1, 2]));
     await expect(ensureDefaultProvider(workspaceDir)).resolves.toBeUndefined();
+  });
+
+  describe("legacy anthropic schema-default echo", () => {
+    test("key present honors anthropic regardless of login state", async () => {
+      keyState.anthropicKey = "sk-ant-test";
+      proxyState.prereqs = true;
+      writeConfig({ llm: { default: { provider: "anthropic" } } });
+
+      await ensureDefaultProvider(workspaceDir);
+
+      expect(llm().defaultProvider).toEqual({ provider: "anthropic" });
+    });
+
+    test("no key + logged in falls through to the vellum login fallback", async () => {
+      proxyState.prereqs = true;
+      writeConfig({ llm: { default: { provider: "anthropic" } } });
+
+      await ensureDefaultProvider(workspaceDir);
+
+      expect(llm().defaultProvider).toEqual({ provider: "vellum" });
+    });
+
+    test("no key + not logged in falls through to the anthropic login fallback", async () => {
+      proxyState.prereqs = false;
+      writeConfig({ llm: { default: { provider: "anthropic" } } });
+
+      await ensureDefaultProvider(workspaceDir);
+
+      // Same value as honoring the echo, but reached via the login fallback
+      // — assert the field is still written.
+      expect(llm().defaultProvider).toEqual({ provider: "anthropic" });
+    });
+
+    test("no key + custom profile reaches the profile step", async () => {
+      writeConfig({
+        llm: {
+          default: { provider: "anthropic" },
+          profiles: {
+            "custom-balanced": { source: "user", provider: "openai" },
+          },
+        },
+      });
+
+      await ensureDefaultProvider(workspaceDir);
+
+      expect(llm().defaultProvider).toEqual({ provider: "openai" });
+    });
+
+    test("IS_PLATFORM outranks the anthropic evidence check", async () => {
+      process.env.IS_PLATFORM = "true";
+      keyState.anthropicKey = "sk-ant-test";
+      writeConfig({ llm: { default: { provider: "anthropic" } } });
+
+      await ensureDefaultProvider(workspaceDir);
+
+      expect(llm().defaultProvider).toEqual({ provider: "vellum" });
+    });
+
+    test("a valid existing defaultProvider is never overwritten by the echo path", async () => {
+      keyState.anthropicKey = "sk-ant-test";
+      writeConfig({
+        llm: {
+          default: { provider: "anthropic" },
+          defaultProvider: { provider: "openai" },
+        },
+      });
+
+      await ensureDefaultProvider(workspaceDir);
+
+      expect(llm().defaultProvider).toEqual({ provider: "openai" });
+    });
   });
 });

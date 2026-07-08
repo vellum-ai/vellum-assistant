@@ -257,6 +257,36 @@ describe("renderHistoryContent", () => {
     ]);
   });
 
+  test("resolves a workspace_ref tool-result image back to base64", () => {
+    // "aGVsbG8=" = "hello" — a stand-in for screenshot bytes.
+    const stored = uploadAttachment("shot.png", "image/png", "aGVsbG8=");
+    const output = renderHistoryContent([
+      { type: "tool_use", id: "tu_1", name: "browser_screenshot", input: {} },
+      {
+        type: "tool_result",
+        tool_use_id: "tu_1",
+        content: "captured",
+        is_error: false,
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "workspace_ref",
+              media_type: "image/png",
+              attachmentId: stored.id,
+              sizeBytes: 5,
+            },
+          },
+        ],
+      },
+    ]);
+
+    // The persisted reference is resolved to base64 so the wire contract
+    // (imageDataList base64) is unchanged for the client.
+    expect(output.toolCalls[0].imageDataList).toEqual(["aGVsbG8="]);
+    expect(output.toolCalls[0].imageData).toBe("aGVsbG8=");
+  });
+
   test("marks error tool results", () => {
     const output = renderHistoryContent([
       { type: "tool_use", id: "tu_1", name: "bash", input: { command: "bad" } },
