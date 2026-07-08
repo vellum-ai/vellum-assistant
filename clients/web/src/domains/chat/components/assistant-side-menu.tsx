@@ -195,7 +195,9 @@ export function AssistantSideMenu({
   ) => {
     const hasAnyAction =
       onMarkAllReadInGroup || onArchiveAllInGroup || options?.onRename || options?.onDelete;
-    if (!hasAnyAction) return undefined;
+    if (!hasAnyAction) {
+      return undefined;
+    }
 
     return renderGroupMenuItems({
       Primitive: ContextMenu,
@@ -253,6 +255,7 @@ export function AssistantSideMenu({
       aria-label="New conversation"
       tooltip="New conversation"
       tooltipSide="right"
+      className="text-[var(--content-tertiary)]"
       onClick={() => {
         onStartNewConversation();
         onClose?.();
@@ -287,8 +290,25 @@ export function AssistantSideMenu({
               <div className="flex items-center gap-2">{headerActions}</div>
             </div>
           ) : null}
-          {/* 2px row gap to match the conversation list. */}
-          <div className="flex flex-col gap-[2px]">
+          {/* Pinned apps sit above the built-in nav, separated by a divider. */}
+          {pinnedApps.length > 0 ? (
+            <>
+              <div className="flex flex-col gap-[4px]">
+                {pinnedApps.map((app) => (
+                  <PinnedAppNavItem
+                    key={app.appId}
+                    app={app}
+                    collapsed={collapsed}
+                    active={activeAppId === app.appId}
+                    onOpen={onOpenApp ? (appId) => { onOpenApp(appId); onClose?.(); } : undefined}
+                  />
+                ))}
+              </div>
+              <SideMenu.Separator />
+            </>
+          ) : null}
+          {/* 4px row gap to match the conversation list. */}
+          <div className="flex flex-col gap-[4px]">
             <SideMenu.Item
               icon={Brain}
               label={assistantName || "Your Assistant"}
@@ -322,22 +342,13 @@ export function AssistantSideMenu({
                 onSelect={onOpenHome ? () => { onOpenHome(); onClose?.(); } : undefined}
               />
             ) : null}
-            {pinnedApps.map((app) => (
-              <PinnedAppNavItem
-                key={app.appId}
-                app={app}
-                collapsed={collapsed}
-                active={activeAppId === app.appId}
-                onOpen={onOpenApp ? (appId) => { onOpenApp(appId); onClose?.(); } : undefined}
-              />
-            ))}
           </div>
           <SideMenu.Separator />
         </SideMenu.Header>
 
-        <SideMenu.Body className="gap-1 pt-3 max-md:pt-4">
+        <SideMenu.Body className="gap-4 pt-3 max-md:pt-4">
           {collapsed && variant === "rail" ? (
-            <div className="flex flex-col items-center gap-1">
+            <div className="flex flex-col items-center gap-2">
               {headerActions}
               {sidebar.pinned.length > 0 ? (
                 <CollapsedGroupIcon
@@ -389,7 +400,7 @@ export function AssistantSideMenu({
           ) : (
             <>
               {sidebar.pinned.length > 0 ? (
-                <SideMenu.Section title="Pinned">
+                <SideMenu.Section title="Pinned" className="gap-1">
                   <ConversationRowList items={sidebar.pinned} dragSection="pinned" />
                 </SideMenu.Section>
               ) : null}
@@ -477,7 +488,8 @@ export function AssistantSideMenu({
 
         {footerAction ? (
           <SideMenu.Footer>
-            <SideMenu.Separator />
+            {/* The collapsed rail drops the footer divider (per design). */}
+            {collapsed && variant === "rail" ? null : <SideMenu.Separator />}
             {footerAction}
           </SideMenu.Footer>
         ) : null}
