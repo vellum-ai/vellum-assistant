@@ -40,7 +40,10 @@ export function SkillDetailPage() {
   });
 
   const handleBack = useCallback(() => {
-    navigate(routes.skills.root);
+    // Replace (rather than push) so browser Back doesn't bounce the user
+    // back to the detail entry — which may be a not-found page after the
+    // skill was removed via `onRemoved`.
+    navigate(routes.skills.root, { replace: true });
   }, [navigate]);
 
   const {
