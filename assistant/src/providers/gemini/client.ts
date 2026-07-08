@@ -214,9 +214,13 @@ export function detectGeminiContextOverflow(
   return extractOverflowTokensFromMessage(message);
 }
 
-/** 403/PERMISSION_DENIED bodies that signal a model/plan restriction, not a bad key. */
+/**
+ * 403/PERMISSION_DENIED bodies that signal a model/plan restriction, not a bad
+ * key. Requires explicit restriction prose — a bare "model" mention would also
+ * match IAM permission failures on a `.../models/...` resource.
+ */
 const GEMINI_MODEL_RESTRICTED_PATTERNS =
-  /\bmodel\b|not (?:supported|available|enabled|accessible|allowed)|does not have access|billing|not enabled|\bplan\b|\btier\b/i;
+  /not (?:supported|available|enabled|accessible|allowed)|does not have access|billing|not enabled|\bplan\b|\btier\b/i;
 
 /** 5xx/UNAVAILABLE bodies that indicate transient overload rather than a generic server error. */
 const GEMINI_OVERLOAD_PATTERNS = /overload/i;

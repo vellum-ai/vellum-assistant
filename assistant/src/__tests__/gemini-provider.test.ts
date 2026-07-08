@@ -1436,6 +1436,15 @@ describe("GeminiProvider", () => {
     ).toBe("invalid_credentials");
   });
 
+  test("maps an IAM 403 on a models/* resource to invalid_credentials, not model_restricted", async () => {
+    expect(
+      await reasonForApiError(
+        403,
+        "PERMISSION_DENIED: Permission 'generativelanguage.models.generateContent' denied on resource //generativelanguage.googleapis.com/models/gemini-2.5-pro",
+      ),
+    ).toBe("invalid_credentials");
+  });
+
   test("maps 404 / NOT_FOUND to model_not_found", async () => {
     expect(
       await reasonForApiError(404, "NOT_FOUND: model does not exist"),
