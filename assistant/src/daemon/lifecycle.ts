@@ -4,7 +4,11 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
-import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
+import {
+  hasPendingDefaultWorkspaceConfig,
+  loadConfig,
+  mergeDefaultWorkspaceConfig,
+} from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
@@ -152,15 +156,22 @@ export async function runDaemon(): Promise<void> {
   // are gated on DB readiness, not on the config-shaping steps further down,
   // so a fast-reconnecting client could otherwise resolve a turn against a
   // partial profile in the window between readiness and the post-overlay
-  // ensure call below. Sync, DB-free, and idempotent — the second call after
-  // the overlay merge covers entries that boot itself writes.
-  try {
-    ensureCompleteCustomProfiles(getWorkspaceDir());
-  } catch (err) {
-    log.warn(
-      { err },
-      "Pre-transport custom profile materialization failed — continuing startup",
-    );
+  // ensure call below. Sync, DB-free, and idempotent. Skipped when an
+  // unconsumed onboarding overlay is pending: the overlay can rewrite
+  // llm.default later this boot, and baking against the pre-overlay default
+  // would pin the wrong baseline — on that single boot (a fresh hatch, with
+  // no established clients to race the window) the post-overlay pass owns
+  // materialization; the overlay file is consumed on merge, so every
+  // subsequent boot takes this early pass.
+  if (!hasPendingDefaultWorkspaceConfig()) {
+    try {
+      ensureCompleteCustomProfiles(getWorkspaceDir());
+    } catch (err) {
+      log.warn(
+        { err },
+        "Pre-transport custom profile materialization failed — continuing startup",
+      );
+    }
   }
 
   // Start the runtime HTTP server early so /healthz answers ASAP. A bind
