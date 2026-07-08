@@ -1235,6 +1235,23 @@ describe("custom profile write normalization (complete overrides)", () => {
     });
   });
 
+  test("unknown profile keys survive completion of a touched entry", async () => {
+    (
+      rawConfigFixture.llm as { profiles: Record<string, unknown> }
+    ).profiles.partial = {
+      source: "user",
+      model: "claude-haiku-4-5-20251001",
+      futureField: "keep-me",
+    };
+    await configSetRoute.handler({
+      body: { path: "llm.profiles.partial.maxTokens", value: 999 },
+    });
+    const saved = savedProfiles().partial;
+    expect(saved.futureField).toBe("keep-me");
+    expect(saved.maxTokens).toBe(999);
+    expect(saved.provider).toBe("anthropic");
+  });
+
   test("a managed status re-enable stays a thin stub", async () => {
     (
       rawConfigFixture.llm as { profiles: Record<string, unknown> }

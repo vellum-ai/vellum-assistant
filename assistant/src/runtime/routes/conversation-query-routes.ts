@@ -1242,10 +1242,14 @@ function completeChangedCustomProfiles(
     if (!parsedEntry.success) {
       continue;
     }
-    profiles[name] = completeCustomProfile(
-      parsedDefault.data,
-      parsedEntry.data,
-    );
+    // Spread the completed known fields over the original raw entry:
+    // `safeParse` strips keys the schema doesn't know, and dropping them
+    // here would delete forward-compatible fields whenever an unrelated
+    // leaf of the entry is edited.
+    profiles[name] = {
+      ...(readPlainObject(entry) ?? {}),
+      ...completeCustomProfile(parsedDefault.data, parsedEntry.data),
+    };
   }
 }
 
