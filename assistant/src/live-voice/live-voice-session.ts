@@ -1705,16 +1705,22 @@ export function createLiveVoiceSession(
 ): LiveVoiceSession {
   // Workspace-tunable server-VAD thresholds. The `liveVoice.vad` schema
   // defaults match the code defaults (800 energy / 800 ms silence / 30 s max
-  // turn), so an unset config leaves behavior unchanged.
-  const vadConfig = getConfig().liveVoice.vad;
+  // turn), so an unset config leaves behavior unchanged. Optional-chained
+  // because hand-built test configs may predate the liveVoice namespace;
+  // absent config falls through to the in-code defaults.
+  const vadConfig = getConfig().liveVoice?.vad;
   return new LiveVoiceSession(context, {
     ...options,
-    turnDetectorConfig: options.turnDetectorConfig ?? {
-      silenceThresholdMs: vadConfig.silenceThresholdMs,
-      maxTurnDurationMs: vadConfig.maxTurnDurationMs,
-    },
+    turnDetectorConfig:
+      options.turnDetectorConfig ??
+      (vadConfig
+        ? {
+            silenceThresholdMs: vadConfig.silenceThresholdMs,
+            maxTurnDurationMs: vadConfig.maxTurnDurationMs,
+          }
+        : {}),
     speechEnergyThreshold:
-      options.speechEnergyThreshold ?? vadConfig.speechEnergyThreshold,
+      options.speechEnergyThreshold ?? vadConfig?.speechEnergyThreshold,
     resolveCredentialReadiness:
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness
