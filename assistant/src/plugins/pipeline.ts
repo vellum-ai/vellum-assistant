@@ -205,103 +205,68 @@ function isBlockish(block: unknown): block is ContentBlock {
   }
 }
 
-/**
- * Coerce hook-supplied `content` into `ContentBlock[]`: a bare string (the
- * OpenAI-style shape) is wrapped into a text block, arrays keep only valid
- * blocks, anything else returns `null`.
- */
-function coerceContentBlocks(
-  content: unknown,
-  field: string,
-  issues: string[],
-): ContentBlock[] | null {
-  if (typeof content === "string") {
-    issues.push(`${field}: wrapped string content into a text block`);
-    return [{ type: "text", text: content }];
+/** A message whose shape the loop and serializers can consume safely. */
+function isValidMessage(item: unknown): boolean {
+  if (item === null || typeof item !== "object") {
+    return false;
   }
-  if (!Array.isArray(content)) {
-    return null;
-  }
-  // Runs per hook per turn over the full history — the clean path must not
-  // allocate.
-  if (content.every(isBlockish)) {
-    return content;
-  }
-  const blocks = content.filter(isBlockish);
-  issues.push(
-    `${field}: dropped ${content.length - blocks.length} malformed content block(s)`,
+  const msg = item as { role?: unknown; content?: unknown };
+  return (
+    typeof msg.role === "string" &&
+    VALID_MESSAGE_ROLES.has(msg.role) &&
+    Array.isArray(msg.content) &&
+    msg.content.every(isBlockish)
   );
-  return blocks;
 }
 
 /**
- * Validate hook-mutated message fields on `next` in place, reverting to the
- * pre-hook value from `prev` when a mutation is unusable. Returns the repairs
- * made.
+ * Detect malformed message data in a hook's output. Read-only: a non-empty
+ * result means the caller discards the hook's entire mutation and keeps the
+ * previous context.
  */
-function sanitizeHookOutput<TInput extends object>(
+function findHookOutputIssues<TInput extends object>(
   name: HookName,
-  prev: TInput,
-  next: TInput,
+  ctx: TInput,
 ): string[] {
   const spec = HOOK_MESSAGE_FIELDS[name];
   if (!spec) {
     return [];
   }
   const issues: string[] = [];
-  const prevRec = prev as Record<string, unknown>;
-  const rec = next as Record<string, unknown>;
+  const rec = ctx as Record<string, unknown>;
 
   for (const field of spec.messageArrays ?? []) {
     const value = rec[field];
     if (!Array.isArray(value)) {
-      issues.push(`${field}: replaced with a non-array — reverted`);
-      rec[field] = prevRec[field];
+      issues.push(`${field}: not an array`);
       continue;
     }
-    const kept: unknown[] = [];
-    for (const item of value) {
-      if (item === null || typeof item !== "object") {
-        issues.push(`${field}: dropped a non-object message`);
-        continue;
+    for (let i = 0; i < value.length; i++) {
+      if (!isValidMessage(value[i])) {
+        issues.push(`${field}[${i}]: malformed message`);
       }
-      const msg = item as { role?: unknown; content?: unknown };
-      if (typeof msg.role !== "string" || !VALID_MESSAGE_ROLES.has(msg.role)) {
-        issues.push(
-          `${field}: dropped a message with unsupported role ${String(msg.role)}`,
-        );
-        continue;
-      }
-      const blocks = coerceContentBlocks(msg.content, field, issues);
-      if (blocks === null) {
-        issues.push(`${field}: dropped a message with unusable content`);
-        continue;
-      }
-      msg.content = blocks;
-      kept.push(item);
-    }
-    if (kept.length !== value.length) {
-      rec[field] = kept;
     }
   }
 
   for (const field of spec.blockArrays ?? []) {
-    const blocks = coerceContentBlocks(rec[field], field, issues);
-    if (blocks === null) {
-      issues.push(`${field}: replaced with a non-array — reverted`);
-      rec[field] = prevRec[field];
-    } else {
-      rec[field] = blocks;
+    const value = rec[field];
+    if (!Array.isArray(value)) {
+      issues.push(`${field}: not an array`);
+      continue;
+    }
+    for (let i = 0; i < value.length; i++) {
+      if (!isBlockish(value[i])) {
+        issues.push(`${field}[${i}]: malformed content block`);
+      }
     }
   }
 
   for (const field of spec.toolResults ?? []) {
     const value = rec[field] as { type?: unknown } | null;
     // Only a client tool_result can pair back to the assistant's tool_use;
-    // a server-tool web_search_tool_result replacement is reverted too.
+    // a server-tool web_search_tool_result replacement is rejected too.
     if (!isBlockish(value) || value.type !== "tool_result") {
-      issues.push(`${field}: replaced with a non-tool_result — reverted`);
-      rec[field] = prevRec[field];
+      issues.push(`${field}: not a tool_result`);
     }
   }
 
@@ -311,9 +276,8 @@ function sanitizeHookOutput<TInput extends object>(
 // ─── Hook execution timeout ──────────────────────────────────────────────────
 
 /**
- * Time-box for a user-land hook: the try/catch contains throws but not hangs.
- * First-party default hooks are exempt — memory retrieval legitimately runs
- * long LLM calls. Override via `VELLUM_PLUGIN_HOOK_TIMEOUT_MS`.
+ * Time-box for a single hook invocation: the try/catch contains throws but
+ * not hangs.
  *
  * Covers async hangs only: a CPU-bound synchronous loop never yields to the
  * event loop, so the timeout cannot fire until it returns. Preempting that
@@ -321,14 +285,9 @@ function sanitizeHookOutput<TInput extends object>(
  * carry non-cloneable capabilities like `logger`/`broadcast`) does not
  * currently allow.
  */
-export const EXTERNAL_HOOK_TIMEOUT_MS = 30_000;
+export const HOOK_TIMEOUT_MS = 30_000;
 
-function externalHookTimeoutMs(): number {
-  const raw = Number(process.env.VELLUM_PLUGIN_HOOK_TIMEOUT_MS);
-  return Number.isFinite(raw) && raw > 0 ? raw : EXTERNAL_HOOK_TIMEOUT_MS;
-}
-
-async function callWithTimeout<T>(
+export async function callWithTimeout<T>(
   run: () => Promise<T> | T,
   timeoutMs: number,
   timeoutMessage: string,
@@ -359,9 +318,9 @@ async function callWithTimeout<T>(
  * successfully committed context. The final context after the chain settles is
  * returned.
  *
- * Fail-open guards: {@link sanitizeHookOutput} validates message-bearing
- * output after each hook commit, and user-land hooks are time-boxed so a hung
- * hook cannot block the turn.
+ * Fail-open guards: a hook whose output carries malformed message data
+ * ({@link findHookOutputIssues}) has its entire mutation discarded, and every
+ * hook is time-boxed so a hung hook cannot block the turn.
  *
  * When `initialCtx` carries a `conversationId`, it is passed to
  * {@link getHookEntriesFor}, which resolves the conversation's per-chat plugin
@@ -403,8 +362,7 @@ export async function runHook<TInput extends object>(
   }
 
   let active: TInput = initialCtx;
-  for (const { fn, owner, external } of entries) {
-    const prev = active;
+  for (const { fn, owner } of entries) {
     const draft = {
       ...cloneHookValue(active),
       logger: makeHookLogger({
@@ -416,25 +374,21 @@ export async function runHook<TInput extends object>(
       broadcast: makeHookBroadcast({ conversationId, hookName: name, owner }),
     };
     try {
-      const timeoutMs = externalHookTimeoutMs();
-      const result = external
-        ? await callWithTimeout(
-            () => fn(draft),
-            timeoutMs,
-            `plugin hook '${name}' (${owner.id}) timed out after ${timeoutMs}ms`,
-          )
-        : await fn(draft);
-      // Sanitize before committing so a sanitizer throw (e.g. on cyclic
-      // hook-built structures) discards the draft instead of activating it.
+      const result = await callWithTimeout(
+        () => fn(draft),
+        HOOK_TIMEOUT_MS,
+        `plugin hook '${name}' (${owner.id}) timed out after ${HOOK_TIMEOUT_MS}ms`,
+      );
       const candidate = result !== undefined ? { ...draft, ...result } : draft;
-      const issues = sanitizeHookOutput(name, prev, candidate);
+      const issues = findHookOutputIssues(name, candidate);
       if (issues.length > 0) {
-        log.warn(
+        log.error(
           { hookName: name, owner, issues },
-          "plugin hook produced malformed message data — repaired (fail-open)",
+          "plugin hook produced malformed message data — skipping this hook",
         );
+      } else {
+        active = candidate;
       }
-      active = candidate;
     } catch (err) {
       log.error(
         { err, hookName: name, owner },

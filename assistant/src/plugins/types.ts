@@ -380,11 +380,6 @@ export type PluginHooks = Record<string, HookFunction<any>>;
 export interface HookEntry<TCtx = unknown> {
   readonly fn: HookFunction<TCtx>;
   readonly owner: HookEventOwner;
-  /**
-   * True for user-land hooks. Only these get the pipeline's execution
-   * timeout — first-party hooks legitimately run long-lived LLM calls.
-   */
-  readonly external?: boolean;
 }
 
 /**

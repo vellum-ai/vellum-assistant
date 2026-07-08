@@ -146,10 +146,7 @@ export async function getHookEntriesFor<TCtx = unknown>(
     effectiveEnabledPlugins,
   );
 
-  return [
-    ...defaultEntries,
-    ...userEntries.map((entry) => ({ ...entry, external: true })),
-  ];
+  return [...defaultEntries, ...userEntries];
 }
 
 /**
