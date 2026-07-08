@@ -34,16 +34,6 @@ import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
 import { resolveCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
-import { EventBus } from "../events/bus.js";
-import type { AssistantDomainEvents } from "../events/domain-events.js";
-import { createToolAuditListener } from "../events/tool-audit-listener.js";
-import { createToolDomainEventPublisher } from "../events/tool-domain-event-publisher.js";
-import { registerToolMetricsLoggingListener } from "../events/tool-metrics-listener.js";
-import { registerToolPermissionTelemetryListener } from "../events/tool-permission-telemetry-listener.js";
-import {
-  registerToolProfilingListener,
-  ToolProfiler,
-} from "../events/tool-profiling-listener.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -99,7 +89,6 @@ import {
 } from "../telemetry/activation-funnel.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions, getTool } from "../tools/registry.js";
-import type { ToolLifecycleEvent } from "../tools/types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -282,9 +271,7 @@ export class Conversation {
   /** @internal */ prompter: PermissionPrompter;
   /** @internal */ secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
-  /** @internal */ profiler: ToolProfiler;
   /** @internal */ sendToClient: (msg: ServerMessage) => void;
-  /** @internal */ eventBus = new EventBus<AssistantDomainEvents>();
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
   /**
@@ -696,20 +683,11 @@ export class Conversation {
     // Register call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);
 
-    // Tool infrastructure
+    // Tool infrastructure. The executor writes audit rows, permission
+    // telemetry, and profiler timings directly to their module-level terminals
+    // (tools/executor.ts → telemetry/tool-audit.ts + tools/tool-profiler.ts),
+    // keyed by conversation id — nothing tool-side is threaded through here.
     this.executor = new ToolExecutor(this.prompter);
-    this.profiler = new ToolProfiler();
-    registerToolMetricsLoggingListener(this.eventBus);
-    registerToolProfilingListener(this.eventBus, this.profiler);
-    registerToolPermissionTelemetryListener(this.eventBus);
-    const auditToolLifecycleEvent = createToolAuditListener();
-    const publishToolDomainEvent = createToolDomainEventPublisher(
-      this.eventBus,
-    );
-    const handleToolLifecycleEvent = (event: ToolLifecycleEvent) => {
-      auditToolLifecycleEvent(event);
-      return publishToolDomainEvent(event);
-    };
 
     const toolDefs = getAllToolDefinitions();
     this.coreToolNames = new Set(toolDefs.map((d) => d.name));
@@ -718,7 +696,6 @@ export class Conversation {
       this.prompter,
       this.secretPrompter,
       this as ToolSetupContext,
-      handleToolLifecycleEvent,
     );
 
     const config = getConfig();
@@ -1426,7 +1403,9 @@ export class Conversation {
    * edge would put runtime-assembly's importers on that cycle).
    */
   getSubagentChildren(): SubagentState[] | null {
-    if (this.isSubagent) return null;
+    if (this.isSubagent) {
+      return null;
+    }
     return getSubagentManager().getChildrenOf(this.conversationId);
   }
 

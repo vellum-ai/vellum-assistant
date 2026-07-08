@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   shouldShowThinkingIndicator,
-  canStopGeneration,
+  isAssistantBusy,
   isSendDisabled,
   type UIContext,
 } from "@/domains/chat/turn-selectors";
@@ -1516,17 +1516,17 @@ describe("isSendDisabled", () => {
   });
 });
 
-describe("canStopGeneration", () => {
+describe("isAssistantBusy", () => {
   test("visible for a web-originated active turn", () => {
     const thinking = turnReducer(INITIAL_TURN_STATE, {
       type: "USER_SEND_REQUESTED",
     });
-    expect(canStopGeneration(thinking.phase, defaultCtx)).toBe(true);
+    expect(isAssistantBusy(thinking.phase, defaultCtx)).toBe(true);
   });
 
   test("visible for an externally-originated streaming assistant message", () => {
     expect(
-      canStopGeneration(INITIAL_TURN_STATE.phase, {
+      isAssistantBusy(INITIAL_TURN_STATE.phase, {
         ...defaultCtx,
         hasStreamingAssistantMessage: true,
       }),
@@ -1535,7 +1535,7 @@ describe("canStopGeneration", () => {
 
   test("visible after switching back to a processing conversation", () => {
     expect(
-      canStopGeneration(INITIAL_TURN_STATE.phase, {
+      isAssistantBusy(INITIAL_TURN_STATE.phase, {
         ...defaultCtx,
         activeConversationIsProcessing: true,
       }),
@@ -1548,7 +1548,7 @@ describe("canStopGeneration", () => {
       { type: "CONFIRMATION_REQUEST" },
     ]);
     expect(
-      canStopGeneration(awaiting.phase, {
+      isAssistantBusy(awaiting.phase, {
         ...defaultCtx,
         hasPendingConfirmation: true,
       }),

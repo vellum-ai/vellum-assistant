@@ -111,7 +111,7 @@ describe("ToolDetailPanel", () => {
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
-    // Activity renders in both the header title and the technical-details body.
+    // Activity renders in both the header title and the body.
     expect(
       getAllByText("Spawning subagent to research Toronto's location").length,
     ).toBeGreaterThan(0);
@@ -121,6 +121,20 @@ describe("ToolDetailPanel", () => {
     const text = container.textContent ?? "";
     expect(text).toContain('"toronto-location"');
     expect(text).toContain("Toronto is in Ontario, Canada.");
+  });
+
+  test("omits the Technical details label and the risk-reason line", () => {
+    const { queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ riskReason: "File edit (default)" })}
+        onClose={noop}
+      />,
+    );
+
+    // The section label and the classifier's rule-match string are internal
+    // jargon — neither should render in the drawer body.
+    expect(queryByText("Technical details")).toBeNull();
+    expect(queryByText("File edit (default)")).toBeNull();
   });
 
   test("hides the Output section when result is empty", () => {

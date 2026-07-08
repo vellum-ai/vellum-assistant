@@ -12,8 +12,7 @@ export interface ChatAvatarProps {
   size?: number;
   className?: string;
   interactive?: boolean;
-  isStreaming?: boolean;
-  isProcessing?: boolean;
+  isAssistantBusy?: boolean;
 }
 
 /** Ring geometry. Thickness is a fixed 1px hairline; gap scales with size. */
@@ -63,7 +62,7 @@ function AvatarStreamingRing({ size }: { size: number }) {
  *   - When `interactive`, click triggers a spring bounce.
  *   - `prefers-reduced-motion` short-circuits both.
  *   - For custom uploaded-image avatars, a spinning semicircular ring traces
- *     just outside the avatar's edge while `isStreaming`/`isProcessing` is on
+ *     just outside the avatar's edge while `isAssistantBusy` is on
  *     (character avatars already signal streaming via their morph animation).
  */
 function ChatAvatarComponent({
@@ -73,8 +72,7 @@ function ChatAvatarComponent({
   size = 28,
   className,
   interactive = false,
-  isStreaming = false,
-  isProcessing = false,
+  isAssistantBusy = false,
 }: ChatAvatarProps) {
   const reduce = useReducedMotion();
   const [isPoking, setIsPoking] = useState(false);
@@ -135,7 +133,7 @@ function ChatAvatarComponent({
           components={components}
           traits={effectiveTraits}
           size={size}
-          isStreaming={isStreaming}
+          isAssistantBusy={isAssistantBusy}
         />
       </motion.div>
     );
@@ -165,7 +163,7 @@ function ChatAvatarComponent({
           className={`rounded-full object-cover ${className ?? ""}`}
           style={{ width: size, height: size, flexShrink: 0 }}
         />
-        {(isStreaming || isProcessing) && <AvatarStreamingRing size={size} />}
+        {isAssistantBusy && <AvatarStreamingRing size={size} />}
       </motion.div>
     );
   }

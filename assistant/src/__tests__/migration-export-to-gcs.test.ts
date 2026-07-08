@@ -285,6 +285,66 @@ describe("handleMigrationExportToGcs — happy path", () => {
       await fixture.close();
     }
   }, 15_000);
+
+  test("managed origin skips credential collection and redacts secrets", async () => {
+    // The secure-keys mock reports the store unreachable, which normally
+    // forces `secrets_redacted: false` (we can't prove the bundle is clean).
+    // In managed mode the handler must skip collection entirely — the
+    // manifest schema refuses managed bundles carrying secrets — so the
+    // manifest claims a truthful `secrets_redacted: true` regardless of
+    // credential-store state, and the bundle passes validation with
+    // `origin.mode: "managed"`.
+    const originalIsPlatform = process.env.IS_PLATFORM;
+    process.env.IS_PLATFORM = "true";
+
+    let capturedBody: Buffer | undefined;
+    const fixture = await startFixtureServer(async (req, res) => {
+      if (req.method !== "PUT") {
+        res.writeHead(405);
+        res.end();
+        return;
+      }
+      capturedBody = await collectBody(req);
+      res.writeHead(200);
+      res.end();
+    });
+
+    try {
+      const req = new Request("http://localhost/v1/migrations/export-to-gcs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          upload_url: makeFakeSignedUploadUrl(fixture.port),
+          description: "managed export",
+        }),
+      });
+
+      const res = await callHandler(
+        handleMigrationExportToGcs,
+        req,
+        undefined,
+        202,
+      );
+      const body = (await res.json()) as AcceptedResponse;
+      const terminal = await waitForJobTerminal(body.job_id);
+      expect(terminal.status).toBe("complete");
+
+      const result = terminal.result as { credentialsIncluded: number };
+      expect(result.credentialsIncluded).toBe(0);
+
+      const validation = validateVBundle(new Uint8Array(capturedBody!));
+      expect(validation.is_valid).toBe(true);
+      expect(validation.manifest?.origin.mode).toBe("managed");
+      expect(validation.manifest?.secrets_redacted).toBe(true);
+    } finally {
+      if (originalIsPlatform === undefined) {
+        delete process.env.IS_PLATFORM;
+      } else {
+        process.env.IS_PLATFORM = originalIsPlatform;
+      }
+      await fixture.close();
+    }
+  }, 15_000);
 });
 
 describe("handleMigrationExportToGcs — concurrency", () => {

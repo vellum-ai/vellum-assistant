@@ -31,14 +31,15 @@ export interface CallTransport {
   endSession(reason?: string): void;
 
   /**
-   * When true, the transport requires WAV (PCM) audio for playback.
+   * When true, the transport synthesizes speech itself and requires raw
+   * PCM audio for playback.
    *
    * The media-stream transport sets this because its mu-law transcoder
-   * can only decode WAV (raw PCM) — compressed formats (mp3, opus)
-   * produce garbled audio. The call controller uses this to request
-   * WAV from TTS providers and the audio store.
+   * needs raw PCM — compressed formats (mp3, opus) produce garbled
+   * audio. The call controller uses this to request PCM from TTS
+   * providers and the audio store.
    */
-  readonly requiresWavAudio?: boolean;
+  readonly requiresPcmAudio?: boolean;
 
   /**
    * Arm a one-shot callback invoked when the transport sends the first

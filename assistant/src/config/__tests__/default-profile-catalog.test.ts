@@ -1,13 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
+import { resolveModelIntent } from "../../providers/model-intents.js";
 import { CALL_SITE_DEFAULTS } from "../call-site-defaults.js";
 import {
   CODE_DEFAULT_PROFILE_ENTRIES,
   getEffectiveProfile,
   getEffectiveProfiles,
+  resolveDefaultProfileForProvider,
 } from "../default-profile-catalog.js";
 import {
   DEFAULT_PROFILE_KEYS,
+  DEFAULT_PROFILE_PROVIDERS,
   OS_BETA_PROFILE_KEY,
 } from "../default-profile-names.js";
 import {
@@ -143,7 +146,9 @@ describe("resolver integration", () => {
   test("an empty workspace resolves every call-site default from the catalog", () => {
     const llm = LLMSchema.parse({ activeProfile: "balanced" });
     for (const [callSite, dflt] of Object.entries(CALL_SITE_DEFAULTS)) {
-      if (dflt.profile == null) continue;
+      if (dflt.profile == null) {
+        continue;
+      }
       const expected = CODE_DEFAULT_PROFILE_ENTRIES[dflt.profile];
       const resolved = resolveCallSiteConfig(callSite as LLMCallSite, llm);
       expect(resolved.model).toBe(expected.model as string);
@@ -213,5 +218,157 @@ describe("schema validation", () => {
     expect(() =>
       LLMSchema.parse({ callSites: { mainAgent: { profile: "no-such" } } }),
     ).toThrow();
+  });
+});
+
+describe("resolveDefaultProfileForProvider", () => {
+  const dp = (
+    provider: (typeof DEFAULT_PROFILE_PROVIDERS)[number],
+    connectionName?: string,
+  ) => ({ provider, ...(connectionName ? { connectionName } : {}) });
+
+  test("every matrix column materializes every default profile key", () => {
+    for (const provider of DEFAULT_PROFILE_PROVIDERS) {
+      for (const key of DEFAULT_PROFILE_KEYS) {
+        const entry = resolveDefaultProfileForProvider(
+          undefined,
+          key,
+          dp(provider),
+        );
+        expect(entry).toBeDefined();
+        expect(typeof entry?.model).toBe("string");
+        expect(entry?.provider).toBeDefined();
+        expect(entry?.provider_connection).toBeDefined();
+        expect(entry?.source).toBe("managed");
+      }
+    }
+  });
+
+  test("BYOK columns resolve the intent to a provider-specific model and personal connection", () => {
+    const entry = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      dp("anthropic"),
+    );
+    expect(entry?.provider).toBe("anthropic");
+    expect(entry?.provider_connection).toBe("anthropic-personal");
+    expect(entry?.model).toBe(resolveModelIntent("anthropic", "balanced"));
+  });
+
+  test("the vellum column keeps its underlying dispatch provider and managed connection", () => {
+    const entry = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      dp("vellum"),
+    );
+    // `vellum` is a routing identity: balanced dispatches through fireworks.
+    expect(entry?.provider).toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES.balanced.provider,
+    );
+    expect(entry?.provider_connection).toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES.balanced.provider_connection,
+    );
+    expect(entry?.model).toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
+    );
+  });
+
+  test("an explicit connectionName wins over the convention", () => {
+    const entry = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      dp("openai", "work-openai"),
+    );
+    expect(entry?.provider).toBe("openai");
+    expect(entry?.provider_connection).toBe("work-openai");
+  });
+
+  test("a user-source workspace entry shadows the provider-resolved default", () => {
+    const workspace: Record<string, ProfileEntry> = {
+      balanced: { source: "user", provider: "openai", model: "gpt-5.5" },
+    };
+    const entry = resolveDefaultProfileForProvider(
+      workspace,
+      "balanced",
+      dp("anthropic"),
+    );
+    expect(entry).toBe(workspace.balanced);
+  });
+
+  test("a managed-source stub contributes only label/status/topP over the provider-resolved body", () => {
+    const workspace: Record<string, ProfileEntry> = {
+      balanced: {
+        source: "managed",
+        label: "Balanced (BYOK)",
+        status: "disabled",
+        topP: 0.7,
+        model: "stale-model-should-be-ignored",
+      },
+    };
+    const entry = resolveDefaultProfileForProvider(
+      workspace,
+      "balanced",
+      dp("gemini"),
+    );
+    expect(entry?.label).toBe("Balanced (BYOK)");
+    expect(entry?.status).toBe("disabled");
+    expect(entry?.topP).toBe(0.7);
+    expect(entry?.provider).toBe("gemini");
+    expect(entry?.model).toBe(resolveModelIntent("gemini", "balanced"));
+    expect(entry?.provider_connection).toBe("gemini-personal");
+  });
+
+  test("a null defaultProvider falls back to the vellum code bodies", () => {
+    for (const key of DEFAULT_PROFILE_KEYS) {
+      expect(resolveDefaultProfileForProvider(undefined, key, null)).toEqual(
+        getEffectiveProfile(undefined, key) as ProfileEntry,
+      );
+    }
+  });
+
+  test("non-matrix names pass through like getEffectiveProfile", () => {
+    const workspace: Record<string, ProfileEntry> = {
+      "custom-mine": { source: "user", provider: "openai", model: "gpt-5.4" },
+    };
+    expect(
+      resolveDefaultProfileForProvider(
+        workspace,
+        "custom-mine",
+        dp("anthropic"),
+      ),
+    ).toBe(workspace["custom-mine"]);
+    expect(
+      resolveDefaultProfileForProvider(workspace, "no-such", dp("anthropic")),
+    ).toBeUndefined();
+  });
+
+  test("os-beta stays flag-gated and provider-independent", () => {
+    expect(
+      resolveDefaultProfileForProvider(
+        undefined,
+        OS_BETA_PROFILE_KEY,
+        dp("anthropic"),
+      ),
+    ).toBeUndefined();
+    const workspace: Record<string, ProfileEntry> = {
+      [OS_BETA_PROFILE_KEY]: { source: "managed" },
+    };
+    const entry = resolveDefaultProfileForProvider(
+      workspace,
+      OS_BETA_PROFILE_KEY,
+      dp("anthropic"),
+    );
+    // The os-beta body never varies with the default provider.
+    expect(entry?.provider).toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES[OS_BETA_PROFILE_KEY].provider,
+    );
+  });
+
+  test("agrees with getEffectiveProfile for the vellum default provider", () => {
+    for (const key of DEFAULT_PROFILE_KEYS) {
+      expect(
+        resolveDefaultProfileForProvider(undefined, key, dp("vellum")),
+      ).toEqual(getEffectiveProfile(undefined, key) as ProfileEntry);
+    }
   });
 });

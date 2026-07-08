@@ -112,13 +112,11 @@ export interface ChatComposerProps {
 
   onStopGenerating: () => void;
   /**
-   * Whether the active assistant turn can be cancelled. Computed by the
-   * parent from {@link canStopGeneration} which accounts for server-side
-   * processing state (survives page refresh), external-channel streaming,
-   * and the local turn phase. The composer must not derive this locally
-   * because the turn store resets to idle on refresh.
+   * Whether the assistant is actively working (not waiting for user input).
+   * Single source of truth shared with the avatar spinner. The composer must
+   * not derive this locally because the turn store resets to idle on refresh.
    */
-  canStopGenerating: boolean;
+  isAssistantBusy: boolean;
 
   // assistant id used by AttachFileButton's disabled guard
   assistantId: string | null;
@@ -178,7 +176,7 @@ export function ChatComposer({
   onVoiceError,
   onVoiceBeforeStart,
   onStopGenerating,
-  canStopGenerating,
+  isAssistantBusy,
   assistantId,
   conversationId,
   thresholdPickerSlot,
@@ -731,7 +729,7 @@ export function ChatComposer({
                   {contextWindowIndicatorSlot}
                 </div>
                 <div className="flex items-center gap-1">
-                  {canStopGenerating ? (
+                  {isAssistantBusy ? (
                     <>
                       {/* Desktop: always show stop. Mobile: show stop only when there is no sendable content. */}
                       {(!isMobile || !canSendMessageContent) && (

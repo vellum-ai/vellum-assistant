@@ -1399,6 +1399,8 @@ export async function startLocalDaemon(
         "VELLUM_DEV",
         "VELLUM_DESKTOP_APP",
         "VELLUM_DISABLE_PLATFORM",
+        "VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS",
+        "VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS",
         "VELLUM_WORKSPACE_DIR",
       ]) {
         if (process.env[key]) {

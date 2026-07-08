@@ -67,6 +67,7 @@ import {
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
+import type { ConversationCreateType } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,
@@ -458,8 +459,6 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
   metadata: "metadata",
   clientMessageId: "clientMessageId",
 });
-
-export type ConversationCreateType = "standard" | "background" | "scheduled";
 
 /**
  * Monotonic timestamp source for message ordering. Two messages saved within

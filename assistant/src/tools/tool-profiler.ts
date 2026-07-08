@@ -1,6 +1,4 @@
 import { getLogger } from "../util/logger.js";
-import type { EventBus, Subscription } from "./bus.js";
-import type { AssistantDomainEvents } from "./domain-events.js";
 
 const log = getLogger("tool-profiler");
 
@@ -21,8 +19,10 @@ export interface ToolProfilingSummary {
 }
 
 /**
- * Accumulates per-tool timing and resource stats across a request.
- * Call `startRequest()` at the beginning and `emitSummary()` at the end.
+ * Accumulates per-tool timing and resource stats across a request. The
+ * executor records each tool completion directly via `recordToolCompletion`;
+ * the conversation agent loop calls `startRequest()` at the beginning of a turn
+ * and `emitSummary()` at the end.
  */
 export class ToolProfiler {
   private tools = new Map<string, ToolStats>();
@@ -50,11 +50,17 @@ export class ToolProfiler {
     }
     stats.count++;
     stats.totalMs += durationMs;
-    if (durationMs > stats.maxMs) stats.maxMs = durationMs;
-    if (isError) stats.errors++;
+    if (durationMs > stats.maxMs) {
+      stats.maxMs = durationMs;
+    }
+    if (isError) {
+      stats.errors++;
+    }
 
     const currentRss = process.memoryUsage().rss;
-    if (currentRss > this.peakRssBytes) this.peakRssBytes = currentRss;
+    if (currentRss > this.peakRssBytes) {
+      this.peakRssBytes = currentRss;
+    }
   }
 
   getSummary(): ToolProfilingSummary {
@@ -94,7 +100,9 @@ export class ToolProfiler {
 
   emitSummary(requestId?: string): void {
     const summary = this.getSummary();
-    if (summary.toolCount === 0) return;
+    if (summary.toolCount === 0) {
+      return;
+    }
 
     // Find the slowest individual tool invocation
     let slowestTool = "";
@@ -123,28 +131,52 @@ export class ToolProfiler {
   }
 }
 
-export function registerToolProfilingListener(
-  eventBus: EventBus<AssistantDomainEvents>,
-  profiler: ToolProfiler,
-): Subscription {
-  return eventBus.onAny((event) => {
-    switch (event.type) {
-      case "tool.execution.finished":
-        profiler.recordToolCompletion(
-          event.payload.toolName,
-          event.payload.durationMs,
-          event.payload.isError,
-        );
-        return;
-      case "tool.execution.failed":
-        profiler.recordToolCompletion(
-          event.payload.toolName,
-          event.payload.durationMs,
-          true,
-        );
-        return;
-      default:
-        return;
-    }
-  });
+// ---------------------------------------------------------------------------
+// Conversation-keyed registry
+//
+// The profiler is per-conversation in-memory state, but its recording surface
+// is a terminal like the audit/telemetry sinks: the executor imports
+// `recordToolCompletion` directly and passes the conversation id, rather than
+// receiving a profiler instance threaded through `ToolContext`. Turns within a
+// conversation are serialized, so a single profiler per conversation is safe.
+// ---------------------------------------------------------------------------
+
+const profilersByConversation = new Map<string, ToolProfiler>();
+
+/** Begin a fresh per-turn profiling window for a conversation. */
+export function startToolProfilingRequest(conversationId: string): void {
+  let profiler = profilersByConversation.get(conversationId);
+  if (!profiler) {
+    profiler = new ToolProfiler();
+    profilersByConversation.set(conversationId, profiler);
+  }
+  profiler.startRequest();
+}
+
+/**
+ * Record a completed tool invocation into the conversation's profiler.
+ * A no-op when no profiling window is active (e.g. standalone tool runs).
+ */
+export function recordToolCompletion(
+  conversationId: string,
+  toolName: string,
+  durationMs: number,
+  isError: boolean,
+): void {
+  profilersByConversation
+    .get(conversationId)
+    ?.recordToolCompletion(toolName, durationMs, isError);
+}
+
+/** Emit the end-of-turn profiling summary log for a conversation. */
+export function emitToolProfilingSummary(
+  conversationId: string,
+  requestId?: string,
+): void {
+  profilersByConversation.get(conversationId)?.emitSummary(requestId);
+}
+
+/** Drop a conversation's profiler. Called on conversation teardown. */
+export function disposeToolProfiler(conversationId: string): void {
+  profilersByConversation.delete(conversationId);
 }
