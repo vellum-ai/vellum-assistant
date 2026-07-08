@@ -102,3 +102,69 @@ describe("buildResearchPrompt — suggestions toggle", () => {
     expect(prompt).not.toContain("broadly useful suggestions");
   });
 });
+
+describe("buildResearchPrompt — identity gate & confidence calibration", () => {
+  test("states the identity gate and the honest no-match fallback", () => {
+    const prompt = buildResearchPrompt(SUBJECT);
+
+    expect(prompt).toContain("IDENTITY GATE");
+    expect(prompt).toContain(
+      "a name match alone is NEVER enough to attribute a page to me",
+    );
+    expect(prompt).toContain('each labeled "guessing" with "sources": []');
+  });
+
+  test("skips research entirely on placeholder or joke input", () => {
+    const prompt = buildResearchPrompt(SUBJECT);
+
+    expect(prompt).toContain("placeholder or joke input");
+    expect(prompt).toContain(
+      "skip the web search and return an empty claims array",
+    );
+  });
+
+  test("ties confidence tiers to evidence instead of demanding a spread", () => {
+    const prompt = buildResearchPrompt(SUBJECT);
+
+    // The old instruction manufactured false confidence for people with no
+    // public footprint — it must not come back.
+    expect(prompt).not.toContain("Aim for at least one");
+    expect(prompt).toContain(
+      '"confident" needs 2+ independent gate-passing sources',
+    );
+    expect(prompt).toContain('must be "guessing"');
+  });
+
+  test("bans aggregator sources and synthesized specifics", () => {
+    const prompt = buildResearchPrompt(SUBJECT);
+
+    expect(prompt).toContain(
+      "Never fetch or cite people-search or background-check aggregators",
+    );
+    expect(prompt).toContain("never synthesize or embellish specifics");
+  });
+
+  test("renders the timezone line only when a timezone is given", () => {
+    const withTz = buildResearchPrompt({
+      ...SUBJECT,
+      timezone: "America/Denver",
+    });
+
+    expect(withTz).toContain("My timezone is America/Denver.");
+    expect(buildResearchPrompt(SUBJECT)).not.toContain("My timezone is");
+  });
+
+  test("an empty form still yields the get-to-know-me fallback, not a bare timezone", () => {
+    const prompt = buildResearchPrompt({
+      firstName: "",
+      lastName: "",
+      occupation: "",
+      timezone: "America/Denver",
+    });
+
+    expect(prompt).toContain(
+      "I'd like you to get to know me before we start working together.",
+    );
+    expect(prompt).not.toContain("My timezone is");
+  });
+});

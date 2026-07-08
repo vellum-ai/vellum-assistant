@@ -84,6 +84,7 @@ import {
   OnboardingStageSizeProvider,
   useElementSize,
 } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
+import { getBrowserTimezone } from "@/utils/browser-timezone";
 
 /** Build the research subject from the collected form values. */
 function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject {
@@ -92,6 +93,7 @@ function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject 
     lastName: values.lastName,
     occupation: values.role,
     hobby: values.hobbies.join(", "),
+    timezone: getBrowserTimezone(),
   };
 }
 
