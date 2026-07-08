@@ -293,7 +293,8 @@ function sanitizeHookOutput<TInput extends object>(
 
   for (const field of spec.toolResults ?? []) {
     const value = rec[field] as { type?: unknown } | null;
-    // Only a client tool_result can pair back to the assistant's tool_use.
+    // Only a client tool_result can pair back to the assistant's tool_use;
+    // a server-tool web_search_tool_result replacement is reverted too.
     if (!isBlockish(value) || value.type !== "tool_result") {
       issues.push(`${field}: replaced with a non-tool_result — reverted`);
       rec[field] = prevRec[field];
