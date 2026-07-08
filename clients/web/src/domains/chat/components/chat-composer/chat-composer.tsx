@@ -28,6 +28,7 @@ import { StreamingWaveform } from "@/domains/chat/components/chat-composer/strea
 import { VoiceComposerBar } from "@/domains/chat/components/chat-composer/voice-composer-bar";
 import { VoiceLiveTranscript } from "@/domains/chat/components/chat-composer/voice-live-transcript";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
     VoiceInputButton,
     type VoiceInputButtonHandle,
@@ -411,6 +412,14 @@ export function ChatComposer({
     useQuoteReplyStore.use.stagedQuotes().length > 0;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
+  // Voice mode occupies the send slot while there is nothing to send: the
+  // send arrow only earns that spot once the message has content. Eligibility
+  // mirrors `LiveVoiceButton`'s own gate (voice-enabled composer + a bound
+  // assistant + the `voice-mode` flag) so the slot falls back to the disabled
+  // send arrow — byte-identical to before — whenever voice mode is unavailable.
+  const voiceMode = useAssistantFeatureFlagStore.use.voiceMode();
+  const showVoiceModeInSendSlot =
+    showVoiceInput && Boolean(assistantId) && voiceMode && !canSendMessageContent;
 
   const ghostSuffix = useMemo(
     () =>
@@ -788,52 +797,48 @@ export function ChatComposer({
                           }}
                         />
                       )}
-                      {showVoiceInput && assistantId && (
-                        // Self-gates on the `voice-mode` flag (renders null when
-                        // off — no layout shift). Purely the session entry
-                        // point: once a session starts, this row (button
-                        // included) is swapped for `VoiceComposerBar`, whose ✕
-                        // owns stopping.
-                        //
-                        // Mutual exclusion (reverse direction): while dictation
-                        // is active (`isVoiceActive`) — or a live-voice session
-                        // already runs in another thread — starting a session
-                        // here is disabled so a second mic/voice session can't
-                        // open alongside the running one.
-                        <LiveVoiceButton
-                          onStart={handleLiveVoiceStart}
-                          disabled={
-                            typingDisabled ||
-                            isVoiceActive ||
-                            isLiveVoiceSessionLive
-                          }
-                        />
-                      )}
                       {/* macOS parity: the send button is hidden during recording
                       and while transcription is being processed. Only the voice
-                      button (mic / stop / spinner) is shown. */}
-                      {!isVoiceActive && (
-                        <Button
-                          variant="primary"
-                          iconOnly={
-                            <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
-                          }
-                          type="submit"
-                          disabled={
-                            sendDisabled ||
-                            attachmentsUploadingCount > 0 ||
-                            !canSendMessageContent
-                          }
-                          title={
-                            sendDisabled || !canSendMessageContent
-                              ? "Type a message to send"
-                              : attachmentsUploadingCount > 0
-                                ? "Uploading attachments…"
-                                : "Send message"
-                          }
-                          aria-label="Send message"
-                        />
-                      )}
+                      button (mic / stop / spinner) is shown. Otherwise the send
+                      slot holds voice mode until there is something to send, at
+                      which point the send arrow takes over. */}
+                      {!isVoiceActive &&
+                        (showVoiceModeInSendSlot ? (
+                          // Session entry point: once a session starts, this row
+                          // (button included) swaps for `VoiceComposerBar`, whose
+                          // ✕ owns stopping. Disabled while dictation is active or
+                          // a live-voice session already runs elsewhere, so a
+                          // second mic/voice capture can't open alongside it.
+                          <LiveVoiceButton
+                            onStart={handleLiveVoiceStart}
+                            disabled={
+                              typingDisabled ||
+                              isVoiceActive ||
+                              isLiveVoiceSessionLive
+                            }
+                          />
+                        ) : (
+                          <Button
+                            variant="primary"
+                            iconOnly={
+                              <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+                            }
+                            type="submit"
+                            disabled={
+                              sendDisabled ||
+                              attachmentsUploadingCount > 0 ||
+                              !canSendMessageContent
+                            }
+                            title={
+                              sendDisabled || !canSendMessageContent
+                                ? "Type a message to send"
+                                : attachmentsUploadingCount > 0
+                                  ? "Uploading attachments…"
+                                  : "Send message"
+                            }
+                            aria-label="Send message"
+                          />
+                        ))}
                     </>
                   )}
                 </div>
