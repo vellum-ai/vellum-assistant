@@ -25,6 +25,7 @@ export function toDisplayAttachments(
       att.mimeType,
       att.data,
       att.thumbnailData,
+      att.id != null,
     );
     return {
       id: att.id ?? att.filename,

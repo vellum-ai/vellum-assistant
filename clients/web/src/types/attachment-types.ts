@@ -23,11 +23,14 @@ export interface DisplayAttachment extends AttachmentMetadata {
    *  the daemon's content endpoint. When null, the preview modal fetches from
    *  the daemon. Must NOT be a thumbnail — see `thumbnailUrl`.
    *
-   *  For video attachments, this is always null: the daemon may send inline
-   *  data for small videos, but the Electron CSP `media-src` directive
-   *  allows `blob:` not `data:`, so a `data:video/…` URI would be
-   *  CSP-blocked. Setting it null forces the preview modal's lazy-fetch
-   *  path, which retrieves the bytes as a CSP-safe blob URL. */
+   *  For video attachments with a storage id, this is always null: the
+   *  daemon may send inline data for small videos, but the Electron CSP
+   *  `media-src` directive allows `blob:` not `data:`, so a
+   *  `data:video/…` URI would be CSP-blocked. Setting it null forces the
+   *  preview modal's lazy-fetch path, which retrieves the bytes as a
+   *  CSP-safe blob URL. For videos without a storage id (in-memory
+   *  drafts with no stored row), the inline data is kept as the only
+   *  playable source. */
   previewUrl: string | null;
   /** Client-only URL for a JPEG thumbnail (from daemon `thumbnailData`),
    *  used as a poster image for video attachments. Null/undefined when no

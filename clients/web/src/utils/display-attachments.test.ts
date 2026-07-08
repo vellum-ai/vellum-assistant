@@ -110,4 +110,28 @@ describe("toDisplayAttachments", () => {
     ]);
     expect(result?.[0]?.id).toBe("noId.txt");
   });
+
+  test("inline-only video without storage id keeps data as previewUrl", () => {
+    // When a streamed video has inline data but no storage id (in-memory
+    // draft), the lazy-fetch has nothing to resolve. The inline data must
+    // be kept as previewUrl so the video can still play.
+    const result = toDisplayAttachments([
+      {
+        filename: "draft.mp4",
+        mimeType: "video/mp4",
+        data: "AAAAIGZ0cg==",
+        thumbnailData: "thumb789",
+      },
+    ]);
+    expect(result).toEqual([
+      {
+        id: "draft.mp4",
+        filename: "draft.mp4",
+        mimeType: "video/mp4",
+        sizeBytes: expect.any(Number),
+        previewUrl: "data:video/mp4;base64,AAAAIGZ0cg==",
+        thumbnailUrl: "data:image/jpeg;base64,thumb789",
+      },
+    ]);
+  });
 });

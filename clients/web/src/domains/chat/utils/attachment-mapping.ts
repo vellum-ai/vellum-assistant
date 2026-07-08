@@ -20,6 +20,7 @@ export function runtimeAttachmentsToDisplay(
       a.mimeType,
       a.data,
       a.thumbnailData,
+      true,
     );
     return {
       id: a.id,
