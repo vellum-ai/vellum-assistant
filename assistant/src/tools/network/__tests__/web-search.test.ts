@@ -9,6 +9,7 @@ let mockBraveSecureKey: string | undefined;
 let mockPerplexitySecureKey: string | undefined;
 let mockTavilySecureKey: string | undefined;
 let mockFirecrawlSecureKey: string | undefined;
+let mockKeenableSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
 let mockManagedSearchProxyCalls: Array<{
   provider: string;
@@ -33,6 +34,7 @@ mock.module("../../../security/secure-keys.js", () => ({
     if (provider === "perplexity") return mockPerplexitySecureKey;
     if (provider === "tavily") return mockTavilySecureKey;
     if (provider === "firecrawl") return mockFirecrawlSecureKey;
+    if (provider === "keenable") return mockKeenableSecureKey;
     return undefined;
   },
 }));
@@ -75,6 +77,7 @@ describe("web_search tool", () => {
     mockPerplexitySecureKey = undefined;
     mockTavilySecureKey = undefined;
     mockFirecrawlSecureKey = undefined;
+    mockKeenableSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
     mockManagedSearchProxyResult = {
       ok: true,
@@ -679,6 +682,100 @@ describe("web_search tool", () => {
     // Post-retry rate limits surface the friendly recoverable copy (ATL-727).
     expect(result.content).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
     expect(callCount).toBe(4);
+  });
+
+  // ---- Keenable provider (keyless by default) -----------------------------
+
+  test("executes Keenable search keyless (no key configured)", async () => {
+    mockWebSearchProvider = "keenable";
+    // No key set — keyless must still run instead of erroring on a missing key.
+    let capturedUrl = "";
+    let capturedHeaders: any = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedHeaders = new Headers(init?.headers);
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: "Keenable Result 1",
+              url: "https://example.com/keenable-1",
+              description: "First Keenable result",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "what is RAG" });
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toContain("api.keenable.ai/v1/search/public");
+    expect(capturedHeaders.get("x-api-key")).toBeNull();
+    expect(capturedHeaders.get("x-keenable-title")).toBe("Vellum Assistant");
+    expect(result.content).toContain("Keenable Result 1");
+    expect(result.content).toContain("https://example.com/keenable-1");
+  });
+
+  test("Keenable uses the authenticated endpoint when a key is set", async () => {
+    mockWebSearchProvider = "keenable";
+    mockKeenableSecureKey = "keen_test";
+    let capturedUrl = "";
+    let capturedBody: any = null;
+    let capturedHeaders: any = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse(init?.body as string);
+      capturedHeaders = new Headers(init?.headers);
+      return new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    await execute({ query: "test query", count: 3, freshness: "pm" });
+    expect(capturedUrl).toContain("api.keenable.ai/v1/search");
+    expect(capturedUrl).not.toContain("/search/public");
+    expect(capturedHeaders.get("x-api-key")).toBe("keen_test");
+    expect(capturedBody.query).toBe("test query");
+    expect(capturedBody.mode).toBe("pro");
+    expect(typeof capturedBody.published_after).toBe("string");
+  });
+
+  test("Keenable trims results to the requested count", async () => {
+    mockWebSearchProvider = "keenable";
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          results: [
+            { title: "A", url: "https://a.com", description: "a" },
+            { title: "B", url: "https://b.com", description: "b" },
+            { title: "C", url: "https://c.com", description: "c" },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "test", count: 2 });
+    expect(result.content).toContain("A");
+    expect(result.content).toContain("B");
+    expect(result.content).not.toContain("https://c.com");
+  });
+
+  test.each([401, 403])("Keenable handles %d auth error", async (status) => {
+    mockWebSearchProvider = "keenable";
+    mockKeenableSecureKey = "bad-key";
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({ message: "unauthorized" }), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Invalid or expired Keenable API key");
   });
 
   // ---- Firecrawl provider -------------------------------------------------

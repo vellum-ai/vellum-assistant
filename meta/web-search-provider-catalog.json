@@ -46,6 +46,16 @@
       "secretKey": "firecrawl",
       "fallbackOrder": 4,
       "privacyPolicyUrl": "https://www.firecrawl.dev/privacy-policy"
+    },
+    {
+      "id": "keenable",
+      "displayName": "Keenable",
+      "kind": "byok",
+      "apiKeyPrefix": "keen_... (optional)",
+      "envVar": "KEENABLE_API_KEY",
+      "secretKey": "keenable",
+      "fallbackOrder": 5,
+      "privacyPolicyUrl": "https://keenable.ai/privacy"
     }
   ]
 }

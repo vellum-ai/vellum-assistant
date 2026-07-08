@@ -54,6 +54,13 @@ export interface SearchProviderCatalogEntry {
    * `byok` providers require a user-supplied key in Your Own mode.
    */
   readonly kind: SearchProviderKind;
+  /**
+   * BYOK provider that also works without a user-supplied key (keyless by
+   * default; a key is optional and only lifts rate limits). The daemon adapter
+   * runs it even when no key is stored, and the missing-key fallback/error path
+   * does not treat it as fatal.
+   */
+  readonly keyless?: boolean;
   /** Placeholder shown in the API-key input. BYOK providers only. */
   readonly apiKeyPrefix?: string;
   /** Environment variable name carrying the API key. BYOK providers only. */
@@ -114,6 +121,17 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
     secretKey: "firecrawl",
     fallbackOrder: 4,
     privacyPolicyUrl: "https://www.firecrawl.dev/privacy-policy",
+  },
+  {
+    id: "keenable",
+    displayName: "Keenable",
+    kind: "byok",
+    keyless: true,
+    apiKeyPrefix: "keen_... (optional)",
+    envVar: "KEENABLE_API_KEY",
+    secretKey: "keenable",
+    fallbackOrder: 5,
+    privacyPolicyUrl: "https://keenable.ai/privacy",
   },
 ];
 

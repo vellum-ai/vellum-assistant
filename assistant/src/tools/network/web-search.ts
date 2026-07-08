@@ -35,8 +35,18 @@ const BRAVE_API_URL = `https://api.search.brave.com${BRAVE_SEARCH_PATH}`;
 const PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions";
 const TAVILY_API_URL = "https://api.tavily.com/search";
 const FIRECRAWL_API_URL = "https://api.firecrawl.dev/v2/search";
+// Keenable is keyless by default: the public path needs no key (rate-limited);
+// a key switches to the authenticated path and lifts the cap.
+const KEENABLE_API_BASE_URL = "https://api.keenable.ai";
+const KEENABLE_PUBLIC_SEARCH_PATH = "/v1/search/public";
+const KEENABLE_KEYED_SEARCH_PATH = "/v1/search";
 
-type WebSearchProvider = "perplexity" | "brave" | "tavily" | "firecrawl";
+type WebSearchProvider =
+  | "perplexity"
+  | "brave"
+  | "tavily"
+  | "firecrawl"
+  | "keenable";
 type WebSearchMode = "managed" | "your-own";
 
 /**
@@ -68,6 +78,12 @@ interface WebSearchAdapter {
    * configured provider has no key and we try other BYOK providers.
    */
   readonly fallbackOrder: number;
+  /**
+   * Provider that runs without a stored key (keyless by default; an optional
+   * key only lifts rate limits). When true, the dispatcher executes it even
+   * with an empty API key instead of erroring on a missing key.
+   */
+  readonly keyless?: boolean;
   /** Execute one search against the provider's API. */
   execute(args: WebSearchAdapterArgs): Promise<ToolExecutionResult>;
 }
@@ -128,6 +144,19 @@ interface FirecrawlSearchResponse {
     images?: unknown[];
   };
   warning?: string | null;
+}
+
+interface KeenableSearchResult {
+  title?: string;
+  url?: string;
+  description?: string;
+  published_at?: string;
+  acquired_at?: string;
+}
+
+interface KeenableSearchResponse {
+  query?: string;
+  results?: KeenableSearchResult[];
 }
 
 function getWebSearchProvider(): WebSearchProvider {
@@ -462,6 +491,79 @@ function firecrawlTbsForFreshness(
     default:
       return undefined;
   }
+}
+
+function formatKeenableResults(
+  data: KeenableSearchResponse,
+  query: string,
+): string {
+  const results = data.results ?? [];
+  if (results.length === 0) {
+    return `No results found for "${query}".`;
+  }
+
+  const lines: string[] = [`Web search results for "${query}":\n`];
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const title = r.title?.trim() || r.url?.trim() || "Untitled result";
+    lines.push(`${i + 1}. ${title}`);
+    if (r.url) {
+      lines.push(`   URL: ${r.url}`);
+    }
+    if (r.description) {
+      lines.push(`   ${r.description}`);
+    }
+    if (r.published_at) {
+      lines.push(`   Published: ${r.published_at}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+function buildKeenableMetadata(
+  data: KeenableSearchResponse,
+  query: string,
+  durationMs: number,
+): WebSearchMetadata {
+  const results = data.results ?? [];
+  const items: WebSearchResultItem[] = results.map((r, i) => {
+    const url = r.url ?? "";
+    const domain = extractDomain(url);
+    return {
+      rank: i + 1,
+      title: r.title?.trim() || url.trim() || "Untitled result",
+      url,
+      domain,
+      faviconUrl: faviconUrlForDomain(domain),
+      snippet: r.description,
+    };
+  });
+  return {
+    query,
+    provider: "keenable",
+    resultCount: items.length,
+    durationMs,
+    results: items,
+  };
+}
+
+/**
+ * Map the tool's `freshness` window onto a Keenable `published_after` date
+ * (YYYY-MM-DD). Keenable filters by absolute publication date rather than a
+ * relative window, so we subtract the window from `now`. Returns `undefined`
+ * for an unrecognized value so the request omits the filter.
+ */
+function keenablePublishedAfterForFreshness(
+  freshness: string | undefined,
+): string | undefined {
+  const days: Record<string, number> = { pd: 1, pw: 7, pm: 30, py: 365 };
+  const window = freshness ? days[freshness] : undefined;
+  if (window === undefined) {
+    return undefined;
+  }
+  const since = new Date(Date.now() - window * 24 * 60 * 60 * 1000);
+  return since.toISOString().slice(0, 10);
 }
 
 function errorResult(
@@ -1061,6 +1163,115 @@ async function executeFirecrawlSearch(
   );
 }
 
+async function executeKeenableSearch(
+  query: string,
+  count: number,
+  freshness: string | undefined,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  // Keyless by default; a configured key switches to the authenticated path.
+  const trimmedKey = apiKey.trim();
+  const path = trimmedKey
+    ? KEENABLE_KEYED_SEARCH_PATH
+    : KEENABLE_PUBLIC_SEARCH_PATH;
+  const url = `${KEENABLE_API_BASE_URL}${path}`;
+
+  const body: Record<string, unknown> = { query, mode: "pro" };
+  const publishedAfter = keenablePublishedAfterForFreshness(freshness);
+  if (publishedAfter) {
+    body.published_after = publishedAfter;
+  }
+
+  const startedAt = Date.now();
+
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Keenable-Title": "Vellum Assistant",
+      };
+      if (trimmedKey) {
+        headers["X-API-Key"] = trimmedKey;
+      }
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch (err) {
+      return networkFailureResult(query, "keenable", startedAt, err, signal);
+    }
+
+    if (response.ok) {
+      const data = (await response.json()) as KeenableSearchResponse;
+      // Honor the requested result count client-side (the API returns a fixed set).
+      if (data.results && data.results.length > count) {
+        data.results = data.results.slice(0, count);
+      }
+      const durationMs = Date.now() - startedAt;
+      return {
+        content:
+          wrapUntrustedContent(formatKeenableResults(data, query), {
+            source: "search",
+            sourceDetail: "keenable",
+          }) + CITATION_INSTRUCTION,
+        isError: false,
+        activityMetadata: {
+          webSearch: buildKeenableMetadata(data, query, durationMs),
+        },
+      };
+    }
+
+    const bodyText = await response.text();
+
+    if (response.status === 401 || response.status === 403) {
+      return errorResult(
+        query,
+        "keenable",
+        startedAt,
+        "Invalid or expired Keenable API key",
+      );
+    }
+
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
+      log.warn(
+        { attempt: attempt + 1, delayMs },
+        "Keenable Search rate limited, retrying",
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    log.warn({ status: response.status }, "Keenable Search API error");
+    return backendFailureResult(
+      query,
+      "keenable",
+      startedAt,
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
+      response.status === 429
+        ? "Keenable Search rate limit exceeded after retries. Try again shortly."
+        : `Keenable Search API returned status ${response.status}`,
+    );
+  }
+
+  return backendFailureResult(
+    query,
+    "keenable",
+    startedAt,
+    { statusCode: 429 },
+    "Keenable Search rate limit exceeded after retries. Try again shortly.",
+  );
+}
+
 // ----------------------------------------------------------------------------
 // Adapter registry
 //
@@ -1110,6 +1321,15 @@ const firecrawlSearchAdapter: WebSearchAdapter = {
     executeFirecrawlSearch(query, count, freshness, apiKey, signal),
 };
 
+const keenableSearchAdapter: WebSearchAdapter = {
+  id: "keenable",
+  providerKeyName: "keenable",
+  fallbackOrder: 5,
+  keyless: true,
+  execute: ({ query, count, freshness, apiKey, signal }) =>
+    executeKeenableSearch(query, count, freshness, apiKey, signal),
+};
+
 /**
  * All built-in web-search adapters keyed by provider id. The
  * `Record<WebSearchProvider, ...>` shape forces TypeScript to flag any
@@ -1120,6 +1340,7 @@ const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
   brave: braveSearchAdapter,
   tavily: tavilySearchAdapter,
   firecrawl: firecrawlSearchAdapter,
+  keenable: keenableSearchAdapter,
 };
 
 /**
@@ -1151,7 +1372,7 @@ export const webSearchTool = {
       count: {
         type: "number",
         description:
-          "Number of results to return (1-20, default 10). Used with Brave, Tavily, and Firecrawl providers.",
+          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, and Keenable providers.",
       },
       offset: {
         type: "number",
@@ -1161,7 +1382,7 @@ export const webSearchTool = {
       freshness: {
         type: "string",
         description:
-          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, and Firecrawl providers.',
+          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, and Keenable providers.',
       },
     },
     required: ["query"],
@@ -1219,11 +1440,13 @@ export const webSearchTool = {
     let provider = getWebSearchProvider();
     let apiKey = await getApiKey(provider);
 
-    // Fallback: if the configured provider has no key, try other BYOK search
+    // A keyless provider (e.g. Keenable) runs without a stored key, so skip the
+    // missing-key fallback/error entirely and execute it as configured.
+    // Fallback: if a key-based provider has no key, try other BYOK search
     // providers in a stable order. This preserves existing installs that only
     // configured one search-provider key while still allowing new providers to
     // be selected explicitly.
-    if (!apiKey) {
+    if (!apiKey && !WEB_SEARCH_ADAPTERS[provider].keyless) {
       for (const fallback of fallbackProvidersFor(provider)) {
         const fallbackKey = await getApiKey(fallback);
         if (!fallbackKey) continue;
@@ -1241,7 +1464,7 @@ export const webSearchTool = {
           query,
           provider,
           startedAt,
-          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, or `keys set firecrawl <key>`, or configure it from the Settings page under API Keys.",
+          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, or `keys set firecrawl <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key.",
         );
       }
     }
@@ -1254,7 +1477,7 @@ export const webSearchTool = {
         count,
         offset,
         freshness,
-        apiKey,
+        apiKey: apiKey ?? "",
         signal: context.signal,
       });
     } catch (err) {
