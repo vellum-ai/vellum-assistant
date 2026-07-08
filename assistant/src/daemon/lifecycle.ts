@@ -4,7 +4,11 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
-import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
+import {
+  hasPendingDefaultWorkspaceConfig,
+  loadConfig,
+  mergeDefaultWorkspaceConfig,
+} from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
@@ -56,6 +60,7 @@ import {
 } from "../work-items/work-item-store.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
+import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
 import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
@@ -146,6 +151,28 @@ export async function runDaemon(): Promise<void> {
   initAuthSigningKey(signingKey);
 
   setDbMigrating();
+
+  // Materialize partial custom profiles BEFORE any transport binds: routes
+  // are gated on DB readiness, not on the config-shaping steps further down,
+  // so a fast-reconnecting client could otherwise resolve a turn against a
+  // partial profile in the window between readiness and the post-overlay
+  // ensure call below. Sync, DB-free, and idempotent. Skipped when an
+  // unconsumed onboarding overlay is pending: the overlay can rewrite
+  // llm.default later this boot, and baking against the pre-overlay default
+  // would pin the wrong baseline — on that single boot (a fresh hatch, with
+  // no established clients to race the window) the post-overlay pass owns
+  // materialization; the overlay file is consumed on merge, so every
+  // subsequent boot takes this early pass.
+  if (!hasPendingDefaultWorkspaceConfig()) {
+    try {
+      ensureCompleteCustomProfiles(getWorkspaceDir());
+    } catch (err) {
+      log.warn(
+        { err },
+        "Pre-transport custom profile materialization failed — continuing startup",
+      );
+    }
+  }
 
   // Start the runtime HTTP server early so /healthz answers ASAP. A bind
   // failure is non-fatal — the daemon falls back to IPC-only operation.
@@ -457,6 +484,20 @@ export async function runDaemon(): Promise<void> {
     log.warn(
       { err },
       "Default provider ensure pass failed — continuing startup",
+    );
+  }
+
+  // Runs on every boot, after the overlay merge and profile seeding and
+  // before the first loadConfig(), so no resolution ever sees a partial
+  // custom profile. See workspace/custom-profile-ensure.ts for why this is
+  // an ensure pass rather than a workspace migration.
+  try {
+    ensureCompleteCustomProfiles(getWorkspaceDir());
+    log.info("Custom profile materialization ensure pass complete");
+  } catch (err) {
+    log.warn(
+      { err },
+      "Custom profile materialization ensure pass failed — continuing startup",
     );
   }
 
