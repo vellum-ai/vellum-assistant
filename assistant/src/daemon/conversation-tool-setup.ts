@@ -49,7 +49,6 @@ import {
   isDiskPressureCleanupToolName,
   type ToolContext,
   type ToolExecutionResult,
-  type ToolLifecycleEventHandler,
 } from "../tools/types.js";
 import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import {
@@ -155,7 +154,9 @@ export function resolveConversationAttribution(
 export function getEffectiveEnabledPluginSet(conv: {
   enabledPlugins?: string[] | null;
 }): Set<string> | null {
-  if (conv.enabledPlugins == null) return null;
+  if (conv.enabledPlugins == null) {
+    return null;
+  }
   // Rule 1: the conversation's explicit selections always apply.
   const effective = new Set(conv.enabledPlugins);
   // Rules 2 + 3: add a default the conversation did not already decide, unless
@@ -181,7 +182,6 @@ export function createToolExecutor(
   prompter: PermissionPrompter,
   secretPrompter: SecretPrompter,
   ctx: ToolSetupContext,
-  handleToolLifecycleEvent: ToolLifecycleEventHandler,
 ): (
   name: string,
   input: Record<string, unknown>,
@@ -319,7 +319,6 @@ export function createToolExecutor(
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
       attribution: resolveConversationAttribution(ctx),
       enabledPluginSet: effectiveEnabledPluginSet,
-      onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
         // signature, but at runtime these are always ServerMessage instances.

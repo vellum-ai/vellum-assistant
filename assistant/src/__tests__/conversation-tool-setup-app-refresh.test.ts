@@ -128,7 +128,6 @@ const noopPrompter = {
 const noopSecretPrompter = {
   prompt: mock(async () => ({ cancelled: true })),
 } as unknown as SecretPrompter;
-const noopLifecycleHandler = mock(() => {});
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -156,7 +155,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_refresh", { app_id: "app-1" });
@@ -175,7 +173,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_refresh", { app_id: "app-42" });
@@ -193,7 +190,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_refresh", { app_id: "app-publish" });
@@ -218,7 +214,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_refresh", { app_id: "app-err" });
@@ -237,7 +232,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_refresh", {});
@@ -262,7 +256,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_update", { app_id: "app-7" });
@@ -288,7 +281,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_update", { app_id: "app-err" });
@@ -307,7 +299,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_update", {});
@@ -332,7 +323,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_create", { name: "My App", html: "<h1>hi</h1>" });
@@ -357,7 +347,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("skill_execute", {
@@ -386,7 +375,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("skill_execute", {
@@ -421,7 +409,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("skill_execute", {
@@ -444,7 +431,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_create", { name: "Bad", html: "" });
@@ -474,7 +460,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_create", { name: "Busted", html: "" });
@@ -502,7 +487,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_delete", { app_id: "del-app-1" });
@@ -520,7 +504,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       await toolFn("app_delete", { app_id: "del-err" });
@@ -545,7 +528,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       // Simulate calling app_refresh by name (as the agent loop does)
@@ -579,7 +561,6 @@ describe("session-tool-setup app refresh side effects", () => {
         noopPrompter,
         noopSecretPrompter,
         ctx,
-        noopLifecycleHandler,
       );
 
       for (const toolName of [
