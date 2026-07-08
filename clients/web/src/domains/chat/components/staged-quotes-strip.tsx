@@ -8,6 +8,7 @@
  */
 
 import { MessageSquareQuote, X } from "lucide-react";
+import { useEffect, useRef } from "react";
 import {
   Button,
   Card,
@@ -80,13 +81,26 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
 
 export function StagedQuotesStrip() {
   const stagedQuotes = useQuoteReplyStore.use.stagedQuotes();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const prevCountRef = useRef(stagedQuotes.length);
+
+  // When a quote is appended, bring the newest chip into view — otherwise a
+  // new reply lands below the 120px cap and the strip silently stays scrolled
+  // to the top. Only scroll on growth so removing a chip doesn't yank the view.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && stagedQuotes.length > prevCountRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+    prevCountRef.current = stagedQuotes.length;
+  }, [stagedQuotes.length]);
 
   if (stagedQuotes.length === 0) {
     return null;
   }
 
   return (
-    <div className="mb-2 max-h-[120px] overflow-y-auto">
+    <div ref={scrollRef} className="mb-2 max-h-[120px] overflow-y-auto">
       <div className="flex flex-col gap-1.5">
         {stagedQuotes.map((quote) => (
           <StagedQuoteChip key={quote.id} quote={quote} />
