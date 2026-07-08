@@ -114,13 +114,18 @@ export function StagedQuotesStrip() {
       const el = scrollRef.current;
       if (el) {
         let frames = 0;
+        let rafId = 0;
         const pin = () => {
           el.scrollTop = el.scrollHeight;
           if (frames++ < 20) {
-            requestAnimationFrame(pin);
+            rafId = requestAnimationFrame(pin);
           }
         };
-        requestAnimationFrame(pin);
+        rafId = requestAnimationFrame(pin);
+        prevCountRef.current = stagedQuotes.length;
+        // Cancel on unmount / re-trigger so the chain never writes to a
+        // detached element or overlaps a second run for rapid additions.
+        return () => cancelAnimationFrame(rafId);
       }
     }
     prevCountRef.current = stagedQuotes.length;

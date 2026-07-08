@@ -53,6 +53,7 @@ export function ScrollShadow({
   ref,
 }: ScrollShadowProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const [edges, setEdges] = useState<EdgeState>({ start: false, end: false });
 
   const setRefs = useCallback(
@@ -99,7 +100,14 @@ export function ScrollShadow({
     el.addEventListener("scroll", recompute, { passive: true });
     const observer =
       typeof ResizeObserver !== "undefined" ? new ResizeObserver(recompute) : null;
+    // Observe the container (its box changes on viewport resize) AND the inner
+    // content (its box changes when rows are added/removed or a child grows) —
+    // a max-height-capped container never resizes when its content overflows,
+    // so watching only the container would miss content-size changes.
     observer?.observe(el);
+    if (contentRef.current) {
+      observer?.observe(contentRef.current);
+    }
     return () => {
       el.removeEventListener("scroll", recompute);
       observer?.disconnect();
@@ -123,7 +131,9 @@ export function ScrollShadow({
         maskImage ? { maskImage, WebkitMaskImage: maskImage } : undefined
       }
     >
-      {children}
+      <div ref={contentRef} className={orientation === "horizontal" ? "w-max" : undefined}>
+        {children}
+      </div>
     </div>
   );
 }
