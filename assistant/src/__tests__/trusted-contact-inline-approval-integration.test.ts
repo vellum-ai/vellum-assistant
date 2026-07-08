@@ -505,7 +505,6 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -1033,7 +1032,6 @@ describe("cross-milestone integration checks", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );

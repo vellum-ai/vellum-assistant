@@ -22,7 +22,6 @@ import {
   manifestGrantsSideEffects,
 } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
-import { resolveExecutionTarget } from "./execution-target.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
 import { PermissionChecker } from "./permission-checker.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
@@ -89,21 +88,13 @@ export class ToolExecutor {
     // tools in the same turn): the `permission_decided` telemetry must reflect
     // a prompt for this specific call, not any prompt earlier in the turn.
     let wasPromptedThisInvocation = false;
-    // The dispatcher stamps `executionTarget` from the tool as presented to the
-    // model this turn (see conversation-tool-setup), so routing can't drift if
-    // the registry entry for this name is swapped mid-turn. The
-    // `resolveExecutionTarget` fallback covers callers with no snapshot (e.g.
-    // standalone runs).
-    const executionTarget =
-      context.executionTarget ?? resolveExecutionTarget({ name });
-
     // Run pre-execution approval gates (abort, guardian policy,
-    // allowed-tool-set, task-run preflight, tool registry lookup).
+    // allowed-tool-set, task-run preflight, tool registry lookup). The gate
+    // resolves the tool's sandbox/host target internally.
     const gateResult = await this.approvalHandler.checkPreExecutionGates(
       name,
       input,
       context,
-      executionTarget,
       riskLevel,
       startTime,
     );
@@ -218,7 +209,6 @@ export class ToolExecutor {
           input,
           tool,
           context,
-          executionTarget,
           startTime,
           computePreviewDiff,
         );

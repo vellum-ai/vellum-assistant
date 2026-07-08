@@ -10,7 +10,6 @@ import type { TrustClass } from "../runtime/trust-class.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 import type {
   DiffInfo,
-  ExecutionTarget,
   ProxyApprovalCallback,
   SensitiveOutputBinding,
 } from "./tool-types.js";
@@ -173,15 +172,6 @@ export interface ToolContext {
   workingDir: string;
   /** Per-turn request id for cross-component log correlation. */
   requestId?: string;
-  /**
-   * Sandbox vs. host target of the tool that was presented to the model and is
-   * being executed, captured from the resolved tool at wire-definition time.
-   * The dispatcher stamps it from that per-turn snapshot so execution routing
-   * cannot drift if the registry entry for this name is swapped mid-turn (hot
-   * reload, workspace override). Absent only when the resolver had no snapshot
-   * (e.g. standalone runs); the executor falls back to `resolveExecutionTarget`.
-   */
-  executionTarget?: ExecutionTarget;
   /** Cooperative cancellation signal for long-running tools. Tools should check `signal.aborted` periodically (or forward `signal` to fetch / child-process options). */
   signal?: AbortSignal;
   /** Optional incremental-output callback for streaming tools. Streaming tools should fall back to returning the full result in `content` when this is absent. */

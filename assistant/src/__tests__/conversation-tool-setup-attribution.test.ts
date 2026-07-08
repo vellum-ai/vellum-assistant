@@ -96,26 +96,6 @@ mock.module("../persistence/external-conversation-store.js", () => ({
   },
 }));
 
-// Spread the real registry (transparent to the file's other tests) but add a
-// host-target skill tool whose name lacks the `host_` prefix, so the dispatcher
-// must carry its manifest target rather than derive "sandbox" from the name.
-const realRegistry = { ...(await import("../tools/registry.js")) };
-mock.module("../tools/registry.js", () => ({
-  ...realRegistry,
-  getTool: (name: string) =>
-    name === "doc_open_host"
-      ? {
-          name,
-          description: "host-target skill tool without a host_ name",
-          category: "skill",
-          defaultRiskLevel: "low",
-          executionTarget: "host" as const,
-          input_schema: {},
-          execute: async () => ({ content: "ok", isError: false }),
-        }
-      : realRegistry.getTool(name),
-}));
-
 // ---------------------------------------------------------------------------
 // Imports after mocks are in place
 // ---------------------------------------------------------------------------
@@ -335,25 +315,6 @@ describe("createToolExecutor attribution threading", () => {
       appliedProfile: "active",
       profileSource: "active",
     });
-  });
-
-  test("carries a host skill tool's manifest execution target into skill_execute dispatches", async () => {
-    // `doc_open_host` is a host-target skill tool without a `host_` name, so the
-    // name heuristic alone would (wrongly) route it to the sandbox. The
-    // dispatcher must stamp the registered tool's manifest target instead, or
-    // isSensitiveTool auditing/approval would treat a host execution as sandbox.
-    const { executor, calls } = makeCapturingExecutor();
-    const toolFn = makeToolFn(executor, makeCtx());
-
-    await toolFn("skill_execute", {
-      tool: "doc_open_host",
-      input: {},
-      activity: "testing",
-    });
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0].name).toBe("doc_open_host");
-    expect(calls[0].context.executionTarget).toBe("host");
   });
 
   test("attribution resolution failure yields null and does not break tool execution", async () => {

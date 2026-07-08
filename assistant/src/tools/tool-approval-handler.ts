@@ -20,6 +20,7 @@ import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { recordToolDenied, recordToolError } from "../telemetry/tool-audit.js";
 import { getLogger } from "../util/logger.js";
+import { resolveExecutionTarget } from "./execution-target.js";
 import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
@@ -385,7 +386,6 @@ export class ToolApprovalHandler {
     name: string,
     input: Record<string, unknown>,
     context: ToolContext,
-    executionTarget: ExecutionTarget,
     riskLevel: string,
     startTime: number,
   ): Promise<PreExecutionGateResult> {
@@ -447,6 +447,14 @@ export class ToolApprovalHandler {
       };
     }
 
+    // Resolve the tool once, up front. Its manifest execution target
+    // (sandbox/host) gates the sensitive-tool check below; its absence is the
+    // "unknown tool" gate further down. Looking it up here also means the
+    // sandbox/host routing reflects the tool actually registered under this
+    // name at execution time.
+    const tool = getTool(name);
+    const executionTarget = resolveExecutionTarget(tool ?? { name });
+
     // Determine whether this invocation requires a scoped grant. Capture
     // the consume params now but defer the actual atomic consumption until
     // after all downstream policy gates (allowedToolNames, task-run
@@ -496,10 +504,9 @@ export class ToolApprovalHandler {
       return { allowed: false, result: { content: msg, isError: true } };
     }
 
-    // Look up the tool before the allowedToolNames gate so a name no skill
-    // provides surfaces as "Unknown tool" (with the real list) instead of
-    // the misleading "load the skill" hint.
-    const tool = getTool(name);
+    // Reject a name no tool provides before the allowedToolNames gate, so it
+    // surfaces as "Unknown tool" (with the real list) instead of the
+    // misleading "load the skill" hint. (`tool` was resolved up front.)
     if (!tool) {
       const allowedToolNames = context.allowedToolNames;
       // List every registered tool. Tools that need an external resolver

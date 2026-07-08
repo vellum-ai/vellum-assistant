@@ -196,7 +196,6 @@ describe("disk pressure cleanup tool restrictions", () => {
         allowedToolNames: new Set(["file_write"]),
         diskPressureCleanupModeActive: true,
       },
-      "sandbox",
       "low",
       Date.now(),
     );
@@ -222,7 +221,6 @@ describe("disk pressure cleanup tool restrictions", () => {
         allowedToolNames: new Set(["skill_load"]),
         diskPressureCleanupModeActive: true,
       },
-      "sandbox",
       "low",
       Date.now(),
     );

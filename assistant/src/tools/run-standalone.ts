@@ -19,7 +19,6 @@ import { v4 as uuid } from "uuid";
 
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { getWorkspaceDir } from "../util/platform.js";
-import { resolveExecutionTarget } from "./execution-target.js";
 import { ToolExecutor } from "./executor.js";
 import {
   areCoreToolsInitialized,
@@ -83,10 +82,6 @@ export async function runToolStandalone(
     conversationId: `cli-tools-run-${uuid()}`,
     workingDir,
     requestId: uuid(),
-    // Standalone runs have no per-turn resolver snapshot, so stamp the target
-    // from the resolved tool directly (honors the manifest over the name
-    // heuristic) rather than leaving the executor to guess from the name.
-    executionTarget: resolveExecutionTarget(tool),
     isInteractive: false,
     trustClass: "unknown",
     signal: opts?.signal,

@@ -206,7 +206,6 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
       "bash",
       { command: "ls -la" },
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -248,7 +247,6 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -688,7 +686,6 @@ describe("inline wait-and-resume", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );

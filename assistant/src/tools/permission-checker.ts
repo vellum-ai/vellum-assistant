@@ -24,9 +24,9 @@ import {
   recordToolPermissionPrompted,
 } from "../telemetry/tool-audit.js";
 import { getLogger } from "../util/logger.js";
+import { resolveExecutionTarget } from "./execution-target.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
-import type { ExecutionTarget } from "./tool-types.js";
 import type { Tool, ToolContext } from "./types.js";
 
 const log = getLogger("permission-checker");
@@ -99,7 +99,6 @@ export class PermissionChecker {
     input: Record<string, unknown>,
     tool: Tool,
     context: ToolContext,
-    executionTarget: ExecutionTarget,
     startTime: number,
     computePreviewDiff: (
       toolName: string,
@@ -114,6 +113,8 @@ export class PermissionChecker {
         }
       | undefined,
   ): Promise<PermissionDecision> {
+    // Sandbox/host routing for the prompt comes from the tool's manifest.
+    const executionTarget = resolveExecutionTarget(tool);
     const { level: risk, reason: riskReason } = await classifyRisk(
       name,
       input,

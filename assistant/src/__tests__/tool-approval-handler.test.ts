@@ -146,7 +146,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -165,7 +164,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -199,7 +197,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -216,7 +213,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -248,7 +244,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -259,7 +254,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -285,7 +279,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       invokeInput,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -313,7 +306,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -331,7 +323,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -349,7 +340,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -376,7 +366,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -407,7 +396,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -430,7 +418,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -471,7 +458,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -502,7 +488,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
     );
@@ -531,7 +516,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       "bash",
       { command: "echo hello" },
       makeContext({ trustClass: "trusted_contact" }),
-      "sandbox",
       "high",
       Date.now(),
     );
@@ -635,7 +619,6 @@ describe("ToolApprovalHandler / unparseable tool args gate", () => {
       "bash",
       { _raw: '{"command": "ls -' },
       makeContext({ trustClass: "guardian" }),
-      "sandbox",
       "low",
       Date.now(),
     );
@@ -659,7 +642,6 @@ describe("ToolApprovalHandler / unparseable tool args gate", () => {
       "bash",
       { _raw: raw },
       makeContext({ trustClass: "guardian" }),
-      "sandbox",
       "low",
       Date.now(),
     );
@@ -677,7 +659,6 @@ describe("ToolApprovalHandler / unparseable tool args gate", () => {
       "bash",
       { _raw: "something", command: "ls" },
       makeContext({ trustClass: "guardian" }),
-      "sandbox",
       "low",
       Date.now(),
     );
@@ -690,7 +671,6 @@ describe("ToolApprovalHandler / unparseable tool args gate", () => {
       "bash",
       { _raw: 42 },
       makeContext({ trustClass: "guardian" }),
-      "sandbox",
       "low",
       Date.now(),
     );
