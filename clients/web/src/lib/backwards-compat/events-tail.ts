@@ -36,7 +36,7 @@
  */
 import { assistantSupports } from "@/lib/backwards-compat/utils";
 
-const MIN_VERSION = "0.10.7-dev.202607071257.f3dae96";
+const MIN_VERSION = "0.10.7-dev.202607081242.ce9b576";
 
 /** Whether the active assistant serves `GET /events/tail`. */
 export function supportsEventsTail(): boolean {
