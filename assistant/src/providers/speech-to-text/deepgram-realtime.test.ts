@@ -89,6 +89,7 @@ function resultsFrame(
   options: {
     is_final?: boolean;
     speech_final?: boolean;
+    from_finalize?: boolean;
     words?: { word: string; speaker?: number }[];
   } = {},
 ): string {
@@ -99,6 +100,9 @@ function resultsFrame(
     start: 0,
     is_final: options.is_final ?? false,
     speech_final: options.speech_final ?? false,
+    ...(options.from_finalize !== undefined
+      ? { from_finalize: options.from_finalize }
+      : {}),
     channel: {
       alternatives: [
         {
@@ -595,7 +599,9 @@ describe("DeepgramRealtimeTranscriber", () => {
     test("UtteranceEnd flushes withheld segments as a single final", async () => {
       const { events } = await startSession({ utteranceBoundaryFinals: true });
 
-      mockWs.simulateMessage(resultsFrame("trailing words", { is_final: true }));
+      mockWs.simulateMessage(
+        resultsFrame("trailing words", { is_final: true }),
+      );
       mockWs.simulateMessage(utteranceEndFrame());
 
       const finals = events.filter((e) => e.type === "final");
@@ -652,6 +658,150 @@ describe("DeepgramRealtimeTranscriber", () => {
         "first part done",
         "second utterance",
       ]);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // finalizeUtterance (mid-stream flush)
+  // ─────────────────────────────────────────────────────────────────
+
+  describe("finalizeUtterance", () => {
+    test("sends the Finalize control frame on an open socket", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+
+      const textMessages = mockWs.sentData.filter((d) => typeof d === "string");
+      expect(textMessages).toHaveLength(1);
+      expect(JSON.parse(textMessages[0] as string)).toEqual({
+        type: "Finalize",
+      });
+      // No finalized event until the provider's from_finalize flush arrives.
+      expect(events).toHaveLength(0);
+    });
+
+    test("from_finalize results message emits final then finalized", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("buffered tail", { is_final: true, from_finalize: true }),
+      );
+
+      expect(events).toEqual([
+        { type: "final", text: "buffered tail", confidence: 0.95 },
+        { type: "finalized" },
+      ]);
+    });
+
+    test("empty-transcript flush emits only finalized", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("", { is_final: true, from_finalize: true }),
+      );
+
+      expect(events).toEqual([{ type: "finalized" }]);
+    });
+
+    test("stream stays usable after finalized (audio still transcribes)", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("first utterance", {
+          is_final: true,
+          from_finalize: true,
+        }),
+      );
+      expect(events.at(-1)).toEqual({ type: "finalized" });
+
+      // The socket stays open — audio still flows and transcribes.
+      transcriber.sendAudio(Buffer.from("more-pcm"), "audio/pcm");
+      const binaryFrames = mockWs.sentData.filter(
+        (d) => d instanceof Uint8Array,
+      );
+      expect(binaryFrames).toHaveLength(1);
+      expect(mockWs.closeCalled).toBe(false);
+
+      mockWs.simulateMessage(
+        resultsFrame("second utterance", { is_final: true }),
+      );
+      expect(events.at(-1)).toEqual({
+        type: "final",
+        text: "second utterance",
+        confidence: 0.95,
+      });
+    });
+
+    test("emits finalized synchronously when the socket is not open", async () => {
+      const { transcriber, events } = await startSession();
+
+      // Socket dropped underneath us; the close event has not yet fired.
+      mockWs.readyState = 3; // CLOSED
+
+      transcriber.finalizeUtterance();
+
+      expect(events).toEqual([{ type: "finalized" }]);
+      // Nothing was sent on the dead socket.
+      expect(mockWs.sentData).toHaveLength(0);
+    });
+
+    test("emits finalized at most once per finalize request", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("flush one", { is_final: true, from_finalize: true }),
+      );
+      // A stray second from_finalize frame must not emit another finalized.
+      mockWs.simulateMessage(
+        resultsFrame("flush two", { is_final: true, from_finalize: true }),
+      );
+
+      const finalized = events.filter((e) => e.type === "finalized");
+      expect(finalized).toHaveLength(1);
+      expect(events.at(-1)).toEqual({
+        type: "final",
+        text: "flush two",
+        confidence: 0.95,
+      });
+    });
+
+    test("flushes withheld segments before finalized in utteranceBoundaryFinals mode", async () => {
+      const { transcriber, events } = await startSession({
+        utteranceBoundaryFinals: true,
+      });
+
+      mockWs.simulateMessage(resultsFrame("first part", { is_final: true }));
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("tail", { is_final: true, from_finalize: true }),
+      );
+
+      expect(events).toEqual([
+        { type: "final", text: "first part tail" },
+        { type: "finalized" },
+      ]);
+    });
+
+    test("stop() teardown path is unchanged after a finalize cycle", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("", { is_final: true, from_finalize: true }),
+      );
+
+      transcriber.stop();
+      const textMessages = mockWs.sentData.filter((d) => typeof d === "string");
+      expect(JSON.parse(textMessages.at(-1) as string)).toEqual({
+        type: "CloseStream",
+      });
+      mockWs.simulateClose(1000, "normal");
+
+      expect(events.filter((e) => e.type === "closed")).toHaveLength(1);
     });
   });
 
