@@ -267,7 +267,9 @@ async function downloadInstallArchive(
 ): Promise<{ body: Buffer; meta: InstallResponseMeta }> {
   const url = buildInstallUrl(deps.platformBaseUrl, name, opts);
   const headers: Record<string, string> = {
-    Accept: "application/gzip",
+    // The platform (Django) 406s a specific `application/gzip` Accept, so ask
+    // for anything and sniff the body ourselves (see extractPluginTarball).
+    Accept: "*/*",
     "User-Agent": "vellum-assistant-cli",
   };
   if (deps.apiKey) {
@@ -421,26 +423,38 @@ interface TarFileEntry {
   readonly data: Buffer;
 }
 
+/** gzip streams begin with the magic bytes `0x1f 0x8b`. */
+function isGzip(buf: Buffer): boolean {
+  return buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b;
+}
+
 /**
- * Gunzip and extract a plugin `.tgz` into `destDir`, returning the number of
- * regular files written. Entries are already plugin-root-relative (the endpoint
- * re-roots the tarball), so they are extracted as-is — but archive paths are
- * never trusted: any entry that resolves outside `destDir` aborts the extract
- * with {@link PluginArchiveError}.
+ * Extract a plugin archive into `destDir`, returning the number of regular
+ * files written. The archive is gunzipped when it carries the gzip magic bytes
+ * and treated as a plain (uncompressed) POSIX tar otherwise — the platform
+ * advertises `application/gzip` but may serve either, so the body is sniffed
+ * rather than trusted by content-type. Entries are already plugin-root-relative
+ * (the endpoint re-roots the tarball), so they are extracted as-is — but archive
+ * paths are never trusted: any entry that resolves outside `destDir` aborts the
+ * extract with {@link PluginArchiveError}.
  */
 export function extractPluginTarball(
   name: string,
-  gzip: Buffer,
+  archive: Buffer,
   destDir: string,
 ): number {
   let tar: Buffer;
-  try {
-    tar = gunzipSync(gzip);
-  } catch (err) {
-    throw new PluginArchiveError(
-      name,
-      `not a valid gzip stream (${err instanceof Error ? err.message : String(err)})`,
-    );
+  if (isGzip(archive)) {
+    try {
+      tar = gunzipSync(archive);
+    } catch (err) {
+      throw new PluginArchiveError(
+        name,
+        `not a valid gzip stream (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+  } else {
+    tar = archive;
   }
 
   const resolvedRoot = resolve(destDir);

@@ -82,6 +82,12 @@ interface FetchFixtureOpts {
   sourcePath?: string;
   /** Non-2xx status to serve instead of the archive. */
   status?: number;
+  /**
+   * Serve an uncompressed POSIX tar body while still advertising
+   * `Content-Type: application/gzip` (what the platform actually does).
+   * Defaults to serving a real gzip stream.
+   */
+  plainTar?: boolean;
   /** Header capture: called with the request headers on each fetch. */
   onRequest?: (url: string, headers: Headers) => void;
 }
@@ -99,10 +105,10 @@ function makeInstallFetch(opts: FetchFixtureOpts): FetchLike {
       });
     }
 
-    const gzip = gzipSync(makeTar(opts.entries ?? []));
-    const body = Buffer.from(gzip);
+    const tar = makeTar(opts.entries ?? []);
+    const body = opts.plainTar ? tar : Buffer.from(gzipSync(tar));
     const etag = opts.etag ?? `"sha256:${sha256Hex(body)}"`;
-    return new Response(body, {
+    return new Response(new Uint8Array(body), {
       status: 200,
       headers: {
         "Content-Type": "application/gzip",
@@ -226,6 +232,53 @@ describe("installPluginFromPlatform — success", () => {
     expect(seenUrl).toContain("installation_id=device-1");
     expect(seenUrl).toContain("conversation_id=conv-9");
     expect(seenUrl).toContain("assistant_version=1.2.3");
+  });
+
+  test("requests Accept: */* (platform 406s a specific gzip Accept)", async () => {
+    const captured: { accept: string | null } = { accept: null };
+    const fetchFn = makeInstallFetch({
+      entries: [{ name: "plugin.json", content: "{}" }],
+      onRequest: (_url, headers) => {
+        captured.accept = headers.get("accept");
+      },
+    });
+
+    await installPluginFromPlatform(
+      { name: "reading-pal" },
+      {
+        fetch: fetchFn,
+        platformBaseUrl: PLATFORM,
+        workspacePluginsDir: pluginsDir,
+      },
+    );
+
+    expect(captured.accept).toBe("*/*");
+  });
+
+  test("extracts an uncompressed tar body served as application/gzip", async () => {
+    const fetchFn = makeInstallFetch({
+      entries: [
+        { name: "plugin.json", content: '{"name":"reading-pal"}' },
+        { name: "skills/read/SKILL.md", content: "skill body" },
+      ],
+      plainTar: true,
+    });
+
+    const result = await installPluginFromPlatform(
+      { name: "reading-pal" },
+      {
+        fetch: fetchFn,
+        platformBaseUrl: PLATFORM,
+        workspacePluginsDir: pluginsDir,
+      },
+    );
+
+    const target = join(pluginsDir, "reading-pal");
+    expect(result.fileCount).toBe(2);
+    expect(readFileSync(join(target, "plugin.json"), "utf-8")).toContain(
+      "reading-pal",
+    );
+    expect(existsSync(join(target, "skills", "read", "SKILL.md"))).toBe(true);
   });
 });
 
