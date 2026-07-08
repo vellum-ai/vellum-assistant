@@ -148,6 +148,21 @@ export async function runDaemon(): Promise<void> {
 
   setDbMigrating();
 
+  // Materialize partial custom profiles BEFORE any transport binds: routes
+  // are gated on DB readiness, not on the config-shaping steps further down,
+  // so a fast-reconnecting client could otherwise resolve a turn against a
+  // partial profile in the window between readiness and the post-overlay
+  // ensure call below. Sync, DB-free, and idempotent — the second call after
+  // the overlay merge covers entries that boot itself writes.
+  try {
+    ensureCompleteCustomProfiles(getWorkspaceDir());
+  } catch (err) {
+    log.warn(
+      { err },
+      "Pre-transport custom profile materialization failed — continuing startup",
+    );
+  }
+
   // Start the runtime HTTP server early so /healthz answers ASAP. A bind
   // failure is non-fatal — the daemon falls back to IPC-only operation.
   await startRuntimeHttpServer();
