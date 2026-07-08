@@ -168,6 +168,13 @@ export interface EventHandlerState {
   readonly exchangeRawResponses: unknown[];
   model: string;
   providerErrorUserMessage: string | null;
+  /**
+   * Stable classified code of the most recent provider error
+   * (`classifyConversationError(...).code`). Carried into the turn's
+   * telemetry outcome stamp when the loop terminates on the provider-error
+   * path.
+   */
+  providerErrorCode: string | null;
   persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
   /**
@@ -382,6 +389,7 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeRawResponses: [],
     model: "",
     providerErrorUserMessage: null,
+    providerErrorCode: null,
     persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -1850,6 +1858,7 @@ function handleError(
     buildConversationErrorMessage(deps.ctx.conversationId, classified),
   );
   state.providerErrorUserMessage = classified.userMessage;
+  state.providerErrorCode = classified.code;
   state.persistProviderErrorAsAssistantMessage =
     shouldPersistProviderErrorAsAssistantMessage(classified);
 }

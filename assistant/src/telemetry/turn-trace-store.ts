@@ -291,9 +291,11 @@ function queryTurnToolCalls(
  * before producing a response) traces user-only, which is faithful: its window
  * genuinely has no response. A coalesced batch's shared response lives on the
  * batch's FINAL turn's window — exactly where the daemon already attributes it
- * (via `lastUserMessageId` / `llm_usage` / `turn_index`). There is no durable
- * batch signal in the stored messages to distinguish a real batch from a
- * failed/cancelled turn, so no batch inference is attempted.
+ * (via `lastUserMessageId` / `llm_usage` / `turn_index`). Which case an empty
+ * window is (batched vs failed vs cancelled) is recorded durably on the user
+ * message row (`messages.metadata.turnOutcome`, written by `stampTurnOutcome`)
+ * and rides the turn event's `outcome` field — the trace itself stays the
+ * plain window and attempts no inference.
  *
  * Read-only; touches only existing tables (`messages`, `tool_invocations`), so
  * no migration is involved. Caller is responsible for the consent gate and the

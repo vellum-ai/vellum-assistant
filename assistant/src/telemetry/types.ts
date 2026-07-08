@@ -279,6 +279,38 @@ export interface TurnTelemetryEvent extends TelemetryEventBase {
    */
   client: TurnTelemetryClientInfo | null;
   /**
+   * Explicit abnormal turn outcome, stamped by the daemon at turn end:
+   *
+   * - `"batched"` — the user message was coalesced into a later turn's
+   *   shared response (`drainBatch`); its own window holds no assistant
+   *   message by design. `batched_into` identifies the turn that replied.
+   * - `"failed"` — the agent loop terminated in a non-cancellation error.
+   *   Includes turns whose only assistant output is the synthetic
+   *   provider-error message, so failure analytics don't need to
+   *   text-match error copy.
+   * - `"cancelled"` — the user cancelled the turn (stop / barge-in).
+   *
+   * Omitted when the turn replied normally, when the daemon predates
+   * outcome stamping, or when the process died mid-turn before a stamp
+   * could land — so `absent + no assistant message in trace` isolates the
+   * genuinely anomalous (crashed/unknown) turns.
+   */
+  outcome?: "batched" | "failed" | "cancelled";
+  /**
+   * For `outcome: "batched"` turns: the `daemon_event_id` of the
+   * batch-final turn whose window carries the shared response. Omitted
+   * otherwise.
+   */
+  batched_into?: string;
+  /**
+   * For `outcome: "failed"` turns: the stable classified error code
+   * (`classifyConversationError(...).code`, a `ConversationErrorCode`
+   * value like `"PROVIDER_RATE_LIMIT"` or `"MANAGED_USAGE_LIMIT"`). Never
+   * free-form error text. Omitted otherwise or when the failure had no
+   * classification.
+   */
+  failure_code?: string;
+  /**
    * Full per-turn transcript (user message + assistant responses + tool
    * calls/results). Present ONLY when trace collection is enabled — the daemon
    * composes the gate itself from the `trace-collection` feature flag (delivered
