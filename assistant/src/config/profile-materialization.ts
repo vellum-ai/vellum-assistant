@@ -2,6 +2,7 @@ import {
   getCatalogProviderForModel,
   isModelInCatalog,
 } from "../providers/model-catalog.js";
+import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routing.js";
 import type { LLMConfigBase, ProfileEntry } from "./schemas/llm.js";
 
 /**
@@ -27,10 +28,14 @@ import type { LLMConfigBase, ProfileEntry } from "./schemas/llm.js";
  * - A model-only profile gets the provider `withImpliedProviders` would
  *   stamp: the inherited default provider when it serves the model, else the
  *   model's catalog owner.
- * - The default's `provider_connection` is inherited only when the completed
- *   provider is still the default's provider; a profile that resolves to a
- *   different provider (explicitly or via model implication) gets no baked
- *   connection, and dispatch auto-resolves by provider as it does today.
+ * - The default's `provider_connection` is inherited when the completed
+ *   provider is still the default's provider, and always when it is the
+ *   provider-agnostic Vellum managed connection (which routes any managed
+ *   provider via `expectedProvider`). A provider-SPECIFIC connection is not
+ *   baked onto a profile that resolved to a different provider (explicitly
+ *   or via model implication) — that would pin a mismatch; dispatch
+ *   auto-resolves an absent connection by provider, exactly as it does for
+ *   the partial profile today.
  *
  * Mix profiles (no config fields, schema-enforced) and managed profiles
  * (bodies owned by the code catalog) pass through untouched.
@@ -43,16 +48,30 @@ export function completeCustomProfile(
   dflt: LLMConfigBase,
   profile: ProfileEntry,
 ): ProfileEntry {
-  if (profile.mix != null || profile.source === "managed") return profile;
+  if (profile.mix != null || profile.source === "managed") {
+    return profile;
+  }
 
   const completed: ProfileEntry = { ...profile };
 
-  if (profile.provider === undefined) completed.provider = dflt.provider;
-  if (profile.model === undefined) completed.model = dflt.model;
-  if (profile.maxTokens === undefined) completed.maxTokens = dflt.maxTokens;
-  if (profile.effort === undefined) completed.effort = dflt.effort;
-  if (profile.speed === undefined) completed.speed = dflt.speed;
-  if (profile.verbosity === undefined) completed.verbosity = dflt.verbosity;
+  if (profile.provider === undefined) {
+    completed.provider = dflt.provider;
+  }
+  if (profile.model === undefined) {
+    completed.model = dflt.model;
+  }
+  if (profile.maxTokens === undefined) {
+    completed.maxTokens = dflt.maxTokens;
+  }
+  if (profile.effort === undefined) {
+    completed.effort = dflt.effort;
+  }
+  if (profile.speed === undefined) {
+    completed.speed = dflt.speed;
+  }
+  if (profile.verbosity === undefined) {
+    completed.verbosity = dflt.verbosity;
+  }
   if (profile.disableCache === undefined && dflt.disableCache !== undefined) {
     completed.disableCache = dflt.disableCache;
   }
@@ -78,16 +97,20 @@ export function completeCustomProfile(
     }
   }
 
-  // The default's connection is inherited only when the completed provider
-  // is still the default's provider — a connection row belongs to one
-  // provider, and stamping it onto a profile that resolved to a different
-  // provider (explicitly or via model implication) would bake in a mismatch.
+  // A provider-specific connection row belongs to one provider: inheriting
+  // it onto a profile that resolved to a different provider (explicitly or
+  // via model implication) would bake in a mismatch, so it is inherited only
+  // when the completed provider is still the default's. The Vellum managed
+  // connection is the exception — it is provider-agnostic (dispatch routes
+  // it with `expectedProvider` set to the profile's provider), so dropping
+  // it would cut managed installs off from platform-proxy routing.
   // Dispatch auto-resolves an absent connection by provider, exactly as it
   // does for the partial profile today.
   if (
     profile.provider_connection === undefined &&
     dflt.provider_connection !== undefined &&
-    completed.provider === dflt.provider
+    (completed.provider === dflt.provider ||
+      dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME)
   ) {
     completed.provider_connection = dflt.provider_connection;
   }
@@ -118,11 +141,17 @@ function isPlainObject(value: unknown): value is PlainObject {
  * rationale.)
  */
 function mergeNestedFragment<T>(base: T, fragment: unknown): T {
-  if (fragment === undefined) return base;
-  if (!isPlainObject(base) || !isPlainObject(fragment)) return fragment as T;
+  if (fragment === undefined) {
+    return base;
+  }
+  if (!isPlainObject(base) || !isPlainObject(fragment)) {
+    return fragment as T;
+  }
   const out: PlainObject = { ...base };
   for (const [key, value] of Object.entries(fragment)) {
-    if (value === undefined) continue;
+    if (value === undefined) {
+      continue;
+    }
     const existing = out[key];
     out[key] =
       isPlainObject(value) && isPlainObject(existing)

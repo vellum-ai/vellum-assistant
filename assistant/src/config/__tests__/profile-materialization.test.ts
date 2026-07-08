@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { VELLUM_MANAGED_CONNECTION_NAME } from "../../providers/vellum-model-routing.js";
 import { resolveCallSiteConfig } from "../llm-resolver.js";
 import { completeCustomProfile } from "../profile-materialization.js";
 import { LLMConfigBase, LLMSchema, ProfileEntry } from "../schemas/llm.js";
@@ -105,6 +106,25 @@ describe("completeCustomProfile", () => {
     });
     expect(completed.provider).toBe("openai");
     expect(completed.provider_connection).toBeUndefined();
+  });
+
+  test("always inherits the provider-agnostic vellum managed connection, even across an implied provider change", () => {
+    const managedDefault = LLMConfigBase.parse({
+      ...fullDefault,
+      provider_connection: VELLUM_MANAGED_CONNECTION_NAME,
+    });
+    // Model implication flips the provider, but the vellum connection routes
+    // any managed provider via `expectedProvider` — dropping it would cut the
+    // profile off from platform-proxy routing.
+    const implied = completeCustomProfile(managedDefault, { model: "gpt-5.5" });
+    expect(implied.provider).toBe("openai");
+    expect(implied.provider_connection).toBe(VELLUM_MANAGED_CONNECTION_NAME);
+
+    const explicit = completeCustomProfile(managedDefault, {
+      provider: "openai",
+      model: "gpt-5.4",
+    });
+    expect(explicit.provider_connection).toBe(VELLUM_MANAGED_CONNECTION_NAME);
   });
 
   test("keeps the inherited provider for a model unknown to the catalog", () => {
