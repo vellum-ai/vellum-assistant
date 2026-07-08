@@ -120,15 +120,6 @@ export function discoverManagedCes():
 // ---------------------------------------------------------------------------
 
 /**
- * Whether the assistant should connect to a CLI-launched CES sibling process
- * instead of spawning CES itself. Now always true for non-containerized
- * (bare-metal) homes — the sibling model is the default topology.
- */
-export function isCesSiblingOptIn(): boolean {
-  return !getIsContainerized();
-}
-
-/**
  * Discover a CLI-launched local CES sibling via its Unix socket. The CLI sets
  * `CES_LOCAL_SOCKET` on both the sibling and the daemon so they agree on the
  * path. Does not open a connection — that happens in `CesProcessManager.start()`.
@@ -183,7 +174,7 @@ const MANAGED_DISCOVERY_INTERVAL_MS = 100;
  *
  * The managed CES sidecar re-binds its bootstrap socket after each assistant
  * session ends — it outlives any single assistant and accepts the next
- * connection (see `credential-executor/src/managed-main.ts`). A reconnecting
+ * connection (see `credential-executor/src/main.ts`). A reconnecting
  * assistant (e.g. after a container restart) can therefore probe during the
  * brief window before the socket is re-bound. A single existence check would
  * race that window and incorrectly report the sidecar as unavailable; polling

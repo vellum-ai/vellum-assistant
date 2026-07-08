@@ -49,7 +49,6 @@ export const SAFE_ENV_VARS = [
   "VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS",
   "CES_CREDENTIAL_URL",
   "CES_MANAGED_MODE",
-  "CES_STANDALONE",
   "CES_LOCAL_SOCKET",
   "IS_CONTAINERIZED",
   "IS_PLATFORM",
@@ -171,7 +170,7 @@ export function buildSanitizedEnv(): Record<string, string> {
   // arrows, etc.) survive piping through tools like pbcopy without corruption.
   // macOS (Darwin) does not provide C.UTF-8, so use en_US.UTF-8 there.
   const utf8Locale = process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8";
-  if (!env.LANG) env.LANG = utf8Locale;
-  if (!env.LC_ALL) env.LC_ALL = utf8Locale;
+  if (!env.LANG) {env.LANG = utf8Locale;}
+  if (!env.LC_ALL) {env.LC_ALL = utf8Locale;}
   return env;
 }

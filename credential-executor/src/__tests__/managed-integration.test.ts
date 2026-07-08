@@ -116,7 +116,7 @@ function buildMinimalHandlers(dataDir: string): RpcHandlerRegistry {
  * Build an RPC handler registry with credential CRUD handlers backed by
  * a real SecureKeyBackend using a temp directory for credential storage.
  *
- * Mirrors the handler registration in managed-main.ts.
+ * Mirrors the handler registration in main.ts.
  */
 function buildCredentialHandlers(vellumRoot: string): RpcHandlerRegistry {
   const secureKeyBackend = createLocalSecureKeyBackend(vellumRoot);
@@ -149,7 +149,7 @@ function buildCredentialHandlers(vellumRoot: string): RpcHandlerRegistry {
  * Accept a single connection on a Unix socket and return
  * readable/writable streams plus cleanup helpers.
  *
- * Replicates the same accept-one-connection pattern from managed-main.ts
+ * Replicates the same accept-one-connection pattern from main.ts
  * but in a test-friendly form.
  */
 function acceptOneConnection(socketPath: string, signal: AbortSignal): Promise<{
@@ -367,7 +367,7 @@ describe("managed CES integration (real Unix socket)", () => {
 
     // -- Start health server ---------------------------------------------------
     // NOTE: This uses a local Bun.serve mock rather than the production
-    // `startHealthServer()` from managed-main.ts. The production function is
+    // `startHealthServer()` from main.ts. The production function is
     // not exported and depends on module-level mutable state (the
     // `rpcConnected` flag) that cannot be controlled from tests.
     //
@@ -377,7 +377,7 @@ describe("managed CES integration (real Unix socket)", () => {
     //   - End-to-end socket + RPC + health plumbing in one integration flow.
     //
     // What this does NOT cover:
-    //   - The actual `startHealthServer()` implementation in managed-main.ts,
+    //   - The actual `startHealthServer()` implementation in main.ts,
     //     including the `rpcConnected` field in the /readyz response. If the
     //     production health handler drifts (changes routes, status codes, or
     //     response shape), this test will not catch it. To close that gap,

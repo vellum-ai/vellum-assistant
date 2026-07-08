@@ -12,7 +12,7 @@
  *
  * 3. local_static handle rejection: managed mode returns clear errors
  *    when local_static credential handles are used (the core managed-mode
- *    behavioral contract per managed-main.ts lines 161-221).
+ *    behavioral contract per main.ts managed-mode handler builder).
  *
  * 4. RPC schema compatibility: managed-specific schemas
  *    (UpdateManagedCredential, MakeAuthenticatedRequest) validate expected
@@ -139,7 +139,7 @@ describe("local_static handle rejection in managed mode", () => {
   test("HandleType enum has exactly the three expected types", () => {
     // Managed mode explicitly switches on handle type. If a new type is
     // added without a managed-mode handler, the default case in
-    // managed-main.ts will return an error. This test catches new types
+    // main.ts will return an error. This test catches new types
     // that need managed-mode consideration.
     const types = Object.values(HandleType);
     expect(types).toContain("local_static");
