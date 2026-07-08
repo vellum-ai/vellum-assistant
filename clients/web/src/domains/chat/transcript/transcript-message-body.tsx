@@ -314,7 +314,11 @@ export function TranscriptMessageBody({
               );
             }
             return (
-              <div key={`inline-text-${si}`} className={segmentClass}>
+              <div
+                key={`inline-text-${si}`}
+                data-message-text=""
+                className={segmentClass}
+              >
                 <ChatMarkdownMessage
                   content={seg.content}
                   hardLineBreaks
@@ -327,7 +331,7 @@ export function TranscriptMessageBody({
       );
     }
     return (
-      <div key={key} className={segmentClass}>
+      <div key={key} data-message-text="" className={segmentClass}>
         <ChatMarkdownMessage
           content={text}
           hardLineBreaks

@@ -36,14 +36,26 @@ describe("ownsHorizontalTextDrag", () => {
     editor.remove();
   });
 
-  test("is true inside selectable transcript message text", () => {
-    const message = document.createElement("div");
-    message.setAttribute("data-message-id", "msg-1");
+  test("is true inside a selectable transcript message text block", () => {
+    const textBlock = document.createElement("div");
+    textBlock.setAttribute("data-message-text", "");
     const child = document.createElement("span");
-    message.appendChild(child);
-    document.body.appendChild(message);
+    textBlock.appendChild(child);
+    document.body.appendChild(textBlock);
     expect(ownsHorizontalTextDrag(child)).toBe(true);
-    message.remove();
+    textBlock.remove();
+  });
+
+  test("is false over a message row outside its text block", () => {
+    // The whole row wrapper carries data-message-id, but the forgiving swipe
+    // band must still arm over its gaps/attachments/action areas.
+    const row = document.createElement("div");
+    row.setAttribute("data-message-id", "msg-1");
+    const attachment = document.createElement("div");
+    row.appendChild(attachment);
+    document.body.appendChild(row);
+    expect(ownsHorizontalTextDrag(attachment)).toBe(false);
+    row.remove();
   });
 
   test("is false for non-editable content and explicit contenteditable=false", () => {

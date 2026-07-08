@@ -73,10 +73,12 @@ export function activationZonePx(viewportWidth: number): number {
  * Whether the touched element is (or sits inside) a surface that owns
  * horizontal drags for its own text interaction: a text field or
  * contenteditable region (caret placement, e.g. the rich-text document
- * editor), or selectable transcript message text (text selection, marked by
- * `data-message-id`). A widened-band swipe beginning here would otherwise
- * hijack the caret / selection and navigate away, so over these surfaces the
- * gesture stays edge-only.
+ * editor), or a selectable transcript message text block (text selection,
+ * marked by `data-message-text`). A widened-band swipe beginning here would
+ * otherwise hijack the caret / selection and navigate away, so over these
+ * surfaces the gesture stays edge-only. The marker sits on the rendered text
+ * block only, not the whole message row, so the forgiving band still arms over
+ * a row's gaps, attachments, and action affordances.
  */
 export function ownsHorizontalTextDrag(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) {
@@ -84,7 +86,7 @@ export function ownsHorizontalTextDrag(target: EventTarget | null): boolean {
   }
   return (
     target.closest(
-      'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-message-id]',
+      'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-message-text]',
     ) !== null
   );
 }
