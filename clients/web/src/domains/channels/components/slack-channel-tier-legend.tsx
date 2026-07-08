@@ -36,12 +36,17 @@ const TONE_DOT_COLOR: Record<TagTone, string> = {
  * every action prompts; Trust Rules move an action between levels (changing
  * when it asks) but cannot bypass Strict or hard-block at Full access,
  * which is why the footnote describes them as tuning, not overriding.
- * Workspace file writes classify low, so they auto-run from Conservative
- * up (`gateway/src/risk/file-risk-classifier.ts`); host-side file changes
- * are medium. Sensitive tools sit above the threshold entirely — for
- * non-guardian actors they always escalate to the owner without a scoped
- * grant (`assistant/src/tools/tool-approval-handler.ts`), so the
- * full-access copy keeps that caveat.
+ *
+ * Channel actors are non-guardians, so the sensitive-tool floor applies on
+ * top of the tier: every side-effect tool (file writes, bash, sends —
+ * `assistant/src/tools/side-effects.ts`) and all host execution escalates
+ * to the owner without a scoped grant, at every tier
+ * (`assistant/src/tools/tool-approval-handler.ts`). That's why the
+ * examples here are read-only — the tier moves the line for what the
+ * assistant looks up on its own, while actions keep coming to the owner —
+ * and why this copy is intentionally narrower than the global preset
+ * descriptions in `threshold-presets.ts`, which describe the guardian's
+ * own conversations where the floor self-approves.
  */
 function tierDescription(
   tier: RiskThreshold,
@@ -58,23 +63,25 @@ function tierDescription(
     case "low":
       return (
         <>
-          {assistantName} replies and runs low-risk actions on its own, like web
-          searches and reading and writing files in its own workspace. Riskier
-          actions ask first.
+          {assistantName} replies and runs safe, read-only actions on its own,
+          like web searches and reading files in its workspace. Anything that
+          writes, sends, or spends asks you first.
         </>
       );
     case "medium":
       return (
         <>
-          {assistantName} also runs medium-risk actions, like changing files
-          outside its own workspace. High-risk actions still ask first.
+          {assistantName} also handles medium-risk requests on its own, like
+          network requests that use your connected accounts. Anything that
+          writes, sends, or spends still asks you first.
         </>
       );
     case "high":
       return (
         <>
-          {assistantName} runs any tool it has access to without asking.
-          Sensitive tools still come to you first.
+          {assistantName} answers any request on its own without asking. Tools
+          that take action — writing, sending, spending — still come to you
+          first.
         </>
       );
   }
