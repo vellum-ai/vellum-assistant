@@ -78,6 +78,10 @@ export function useMessageReconciliation({
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelReconciliation = useCallback(() => {
+    // Below-floor only. The poll loop is the sole thing that arms a timer,
+    // and it runs only below the events-tail floor. At/above the floor
+    // there is no loop, so the cancel is fully off.
+    if (supportsEventsTail()) return;
     if (reconcileTimerRef.current) {
       clearTimeout(reconcileTimerRef.current);
       reconcileTimerRef.current = null;
@@ -384,30 +388,17 @@ export function useMessageReconciliation({
 
   const startReconciliationLoop = useCallback(
     (epoch: number) => {
+      // Below-floor only. At/above the events-tail floor there is no poll
+      // loop: recovery is driven entirely by the event-triggered
+      // `reconcileActiveConversation()` calls (reopen / seq-gap /
+      // sync-tag), which pair the snapshot with the `/events/tail`
+      // catch-up. So the loop-invoking method is fully off above the floor
+      // and the callers' invocations become no-ops there. Below the floor
+      // the daemon doesn't serve the endpoint, so the poll-until-stable
+      // loop is retained to wait out the partial-persist debounce.
+      if (supportsEventsTail()) return;
+
       cancelReconciliation();
-
-      // Tail-capable daemons (at/above the events-tail floor): a single
-      // snapshot+tail reconcile is complete by construction — the
-      // `/events/tail` pairing fills whatever the snapshot's persisted
-      // anchor lags behind the live stream — so recovery needs no polling.
-      // Fire one reconcile for the active conversation and return. This is
-      // the retirement of the reconciliation loop: the multi-tick
-      // poll-until-stable path below survives only to wait out the
-      // partial-persist debounce on daemons BELOW the floor, and is deleted
-      // with them once the endpoint's build is the minimum supported
-      // version. `reconcileActiveConversation` captures the current
-      // `streamEpoch` (== `epoch`, just bumped by the reopen) for its own
-      // stale-epoch guard, so the passed `epoch` is only diagnostic here.
-      if (supportsEventsTail()) {
-        recordDiagnostic("reconciliation_single_pass", { epoch });
-        void reconcileActiveConversation().catch(() => {
-          // Fire-and-forget: the fetch's own failure diagnostic already
-          // fired inside reconcileActiveConversation. Recovery falls back
-          // to the next event-driven trigger (reopen / seq-gap / sync-tag).
-        });
-        return;
-      }
-
       recordDiagnostic("reconciliation_loop_start", { epoch });
 
       const startTime = Date.now();
@@ -509,7 +500,7 @@ export function useMessageReconciliation({
 
       reconcileTimerRef.current = setTimeout(tick, RECONCILE_DELAY_MS);
     },
-    [cancelReconciliation, reconcileActiveConversation, reconcileFetchedMessages],
+    [cancelReconciliation, reconcileFetchedMessages],
   );
 
   return {

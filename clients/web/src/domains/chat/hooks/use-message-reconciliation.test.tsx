@@ -204,8 +204,8 @@ describe("useMessageReconciliation — server event-tail catch-up", () => {
   });
 });
 
-describe("startReconciliationLoop — single pass vs legacy poll loop", () => {
-  test("tail-capable daemon: fires one immediate reconcile, no polling", async () => {
+describe("startReconciliationLoop — off above the floor, poll loop below", () => {
+  test("tail-capable daemon: fully off — no fetch, no loop", async () => {
     // GIVEN a daemon at/above the events-tail floor
     useAssistantIdentityStore.getState().setIdentity("Ada", TAIL_CAPABLE_VERSION);
     seedSnapshotProcessing(true);
@@ -213,23 +213,31 @@ describe("startReconciliationLoop — single pass vs legacy poll loop", () => {
     const { result } = renderReconciliation();
     fetchSpy.mockClear();
 
-    // WHEN the "loop" is started
+    // WHEN the loop-invoking method is called
     result.current.startReconciliationLoop(
       useStreamStore.getState().streamEpoch,
     );
-    // Flush the microtasks of the single reconcile pass.
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
-    // THEN exactly one reconcile fetch fired synchronously (no 5s timer),
-    // and it paired the snapshot with the event tail — this is the loop's
-    // retirement: a single tail-complete pass, no poll-until-stable.
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(reconcileTrace.some((t) => t.step === "ingest-tail")).toBe(true);
+    // THEN it is a no-op: no fetch, no timer. Recovery above the floor is
+    // driven entirely by the event-triggered reconcileActiveConversation()
+    // calls (reopen / seq-gap / sync-tag), not by this method.
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  test("sub-floor daemon: defers to the legacy poll loop (no immediate fetch)", async () => {
+  test("tail-capable daemon: cancelReconciliation is fully off", () => {
+    // GIVEN a daemon at/above the events-tail floor
+    useAssistantIdentityStore.getState().setIdentity("Ada", TAIL_CAPABLE_VERSION);
+    const { result } = renderReconciliation();
+
+    // WHEN cancel is invoked (as the stream handlers do on live events)
+    // THEN it does not throw and there is nothing to cancel — no loop runs.
+    expect(() => result.current.cancelReconciliation()).not.toThrow();
+  });
+
+  test("sub-floor daemon: runs the legacy poll loop (deferred first fetch)", async () => {
     // GIVEN a daemon below the events-tail floor
     useAssistantIdentityStore.getState().setIdentity("Ada", SUB_FLOOR_VERSION);
     seedSnapshotProcessing(true);
