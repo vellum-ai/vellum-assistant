@@ -10,7 +10,11 @@ import { isImageDimensionsTooLargeError } from "../plugins/defaults/image-recove
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";
-import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
+import {
+  ProviderError,
+  type ProviderErrorReason,
+  ProviderNotConfiguredError,
+} from "../util/errors.js";
 
 /**
  * Classified conversation error ready for client emission.
@@ -297,6 +301,18 @@ function classifyCore(
 ): Omit<ClassifiedConversationError, "debugDetails"> {
   // ProviderError with statusCode — deterministic classification
   if (error instanceof ProviderError && error.statusCode !== undefined) {
+    // Prefer the semantic reason stamped by the provider layer. Reasons that
+    // map cleanly to a classification win here; `bad_request`/`unknown` (and a
+    // reason-less error) fall through to the status switch + regex battery
+    // below, keeping the legacy behavior unchanged.
+    if (error.reason) {
+      const c = reasonToClassification(error.reason, {
+        routingSource: getProviderRoutingSource(error.provider),
+        attribution,
+        message,
+      });
+      if (c) return c;
+    }
     if (error.statusCode === 413) {
       return {
         code: "CONTEXT_TOO_LARGE",
@@ -454,6 +470,130 @@ function classifyCore(
 
   // Regex fallback for non-ProviderError or ProviderError without statusCode
   return classifyByMessage(error, message);
+}
+
+/**
+ * Strip the `API error (NNN): ` prefix and a trailing `[type=…]` bracket from a
+ * provider error message, returning the human-readable detail (truncated to
+ * ~200 chars) or `undefined` when nothing meaningful remains.
+ */
+function extractProviderDetail(message: string): string | undefined {
+  let detail = message.replace(/^.*?API error \(\d+\):\s*/i, "");
+  detail = detail.replace(/\s*\[[^\]]*\]\s*$/, "").trim();
+  if (!detail || detail === message.trim()) {
+    // No recognizable prefix — only surface prose that isn't the whole raw line.
+    if (/API error \(\d+\)/i.test(message)) return undefined;
+  }
+  if (!detail) return undefined;
+  return detail.length > 200 ? `${detail.slice(0, 200)}…` : detail;
+}
+
+/**
+ * Map a provider-stamped {@link ProviderErrorReason} to a classification,
+ * applying the managed-proxy-vs-user-key routing overlay inline. Returns `null`
+ * for reasons that should defer to the legacy status/regex fallback
+ * (`bad_request`, `unknown`).
+ */
+function reasonToClassification(
+  reason: ProviderErrorReason,
+  args: {
+    routingSource?: string;
+    attribution?: ConversationErrorAttribution;
+    message: string;
+  },
+): Omit<ClassifiedConversationError, "debugDetails"> | null {
+  const managed = args.routingSource === "managed-proxy";
+  switch (reason) {
+    case "invalid_credentials":
+      if (managed) {
+        return {
+          code: "MANAGED_KEY_INVALID",
+          userMessage: "Couldn't refresh assistant credentials.",
+          retryable: false,
+          errorCategory: "managed_key_invalid",
+        };
+      }
+      return invalidApiKeyClassification(args.attribution);
+    case "rate_limited":
+      // Match managed usage-limit body patterns, as the legacy path does.
+      if (managed || MANAGED_USAGE_LIMIT_PATTERNS.some((p) => p.test(args.message))) {
+        return {
+          code: "MANAGED_USAGE_LIMIT",
+          userMessage:
+            "Vellum managed inference is rate limited. This is a Vellum-side usage limit, not an AI provider outage.",
+          retryable: true,
+          errorCategory: "managed_usage_limit",
+        };
+      }
+      return {
+        code: "PROVIDER_RATE_LIMIT",
+        userMessage:
+          "You are being rate limited by the AI provider. Please try again in a moment.",
+        retryable: true,
+        errorCategory: "rate_limit",
+      };
+    case "insufficient_credits":
+      return managed
+        ? managedBalanceClassification()
+        : providerBillingClassification();
+    case "overloaded":
+      return {
+        code: "PROVIDER_OVERLOADED",
+        userMessage:
+          "The AI provider is temporarily overloaded. Please try again in a moment.",
+        retryable: true,
+        errorCategory: "provider_overloaded",
+      };
+    case "server_error":
+      return {
+        code: "PROVIDER_API",
+        userMessage: "The AI provider returned a server error.",
+        retryable: true,
+        errorCategory: "provider_server_error",
+      };
+    case "context_overflow":
+      return {
+        code: "CONTEXT_TOO_LARGE",
+        userMessage:
+          "This conversation is too long. Please start a new conversation.",
+        retryable: false,
+        errorCategory: "context_too_large",
+      };
+    case "vision_unsupported":
+      return {
+        code: "PROVIDER_API",
+        userMessage:
+          "This model doesn't support image input. Remove the image or switch to a vision-capable model.",
+        retryable: false,
+        errorCategory: "vision_not_supported",
+      };
+    case "model_not_found":
+      return {
+        code: "PROVIDER_API",
+        userMessage:
+          "The selected model wasn't found by the provider. Switch models in Settings → Models & Services.",
+        retryable: false,
+        errorCategory: "provider_model_not_found",
+      };
+    case "model_restricted": {
+      const detail = extractProviderDetail(args.message);
+      const prefix = "This model isn't available on your current provider plan";
+      const suffix =
+        "Switch to a different model or upgrade your plan in Settings → Models & Services.";
+      // Skew-safe code; the specific signal rides errorCategory.
+      return {
+        code: "PROVIDER_API",
+        userMessage: detail
+          ? `${prefix}: ${detail} ${suffix}`
+          : `${prefix}. ${suffix}`,
+        retryable: false,
+        errorCategory: "provider_model_restricted",
+      };
+    }
+    case "bad_request":
+    case "unknown":
+      return null;
+  }
 }
 
 /** Check whether an error message indicates a context-too-large failure. */

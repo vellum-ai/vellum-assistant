@@ -2,7 +2,7 @@ import type { ToolDefinition } from "../tools/tool-types.js";
 export type { ToolDefinition };
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { ProviderError } from "../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
 
 export interface TextContent {
   type: "text";
@@ -365,6 +365,8 @@ export interface ContextOverflowErrorOptions {
   statusCode?: number;
   /** Underlying error to preserve the cause chain (standard Error.cause). */
   cause?: unknown;
+  /** Semantic reason override; defaults to `context_overflow`. */
+  reason?: ProviderErrorReason;
 }
 
 /**
@@ -392,12 +394,10 @@ export class ContextOverflowError extends ProviderError {
     provider: string,
     options: ContextOverflowErrorOptions = {},
   ) {
-    super(
-      message,
-      provider,
-      options.statusCode ?? 400,
-      options.cause !== undefined ? { cause: options.cause } : undefined,
-    );
+    super(message, provider, options.statusCode ?? 400, {
+      reason: options.reason ?? "context_overflow",
+      ...(options.cause !== undefined ? { cause: options.cause } : {}),
+    });
     this.name = "ContextOverflowError";
     this.actualTokens = options.actualTokens;
     this.maxTokens = options.maxTokens;
