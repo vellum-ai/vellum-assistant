@@ -233,7 +233,7 @@ describe("127-backfill-default-provider", () => {
       ).toBeUndefined();
     });
 
-    test("legacy anthropic falls through to a custom profile provider", () => {
+    test("legacy anthropic defers entirely even with a custom profile", () => {
       writeConfig({
         llm: {
           default: { provider: "anthropic" },
@@ -245,7 +245,12 @@ describe("127-backfill-default-provider", () => {
 
       backfillDefaultProviderMigration.run(workspaceDir);
 
-      expect(defaultProvider()).toEqual({ provider: "openai" });
+      // The migration must not fall through to profiles when legacy is
+      // anthropic — it defers the entire resolution to the ensure pass,
+      // which checks the vault first.
+      expect(
+        (readConfig().llm as Record<string, unknown>).defaultProvider,
+      ).toBeUndefined();
     });
 
     test("legacy openai is honored unchanged", () => {

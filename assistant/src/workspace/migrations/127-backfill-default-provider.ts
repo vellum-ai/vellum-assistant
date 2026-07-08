@@ -18,9 +18,12 @@ import type { WorkspaceMigration } from "./types.js";
 //
 // The same schema-default echo affects the off-platform legacy read:
 // `LLMConfigBase.provider` defaults to "anthropic" and the first-launch
-// seed persists it, so a bare "anthropic" is treated as no-signal here and
-// skipped. Disambiguating it requires an async vault read that this sync
-// migration cannot perform, so the ensure pass owns that case instead.
+// seed persists it, so a bare "anthropic" is ambiguous. Disambiguating it
+// requires an async vault read that this sync migration cannot perform, so
+// the entire resolution is deferred to the ensure pass (which checks the
+// vault before profiles). The migration must not fall through to profiles
+// on its own in this case — that would preempt the vault check and pin a
+// real-BYOK user to the profile's provider.
 //
 // The remaining login-dependent fallback requires an async secure-vault
 // read that a sync migration cannot perform, so that step lives in the
@@ -122,17 +125,21 @@ function resolveProviderSignal(
   llm: Record<string, unknown>,
 ): string | undefined {
   const legacyProvider = readObject(llm.default)?.provider;
-  // A bare "anthropic" is the schema default (`LLMConfigBase.provider`) that
-  // the first-launch seed persists, so it is ambiguous here. Disambiguating
-  // it needs an async vault read this sync migration can't perform, so it is
-  // treated as no-signal and deferred to the ensure pass. Other providers
-  // can't be schema echoes.
-  if (
-    typeof legacyProvider === "string" &&
-    legacyProvider !== "anthropic" &&
-    isDefaultProfileProvider(legacyProvider)
-  ) {
-    return legacyProvider;
+  if (typeof legacyProvider === "string") {
+    // A bare "anthropic" is the schema default (`LLMConfigBase.provider`)
+    // that the first-launch seed persists, so it is ambiguous: it may be a
+    // real BYOK choice or an echo with no user intent. Disambiguating
+    // requires an async vault read this sync migration can't perform, so
+    // defer the entire resolution to the ensure pass (which checks the
+    // vault before profiles). Falling through to profiles here would
+    // preempt the vault check and pin a real-BYOK user to the profile's
+    // provider. Other providers can't be schema echoes.
+    if (legacyProvider === "anthropic") {
+      return undefined;
+    }
+    if (isDefaultProfileProvider(legacyProvider)) {
+      return legacyProvider;
+    }
   }
 
   const profiles = readObject(llm.profiles);
