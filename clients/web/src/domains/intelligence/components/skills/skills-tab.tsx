@@ -12,8 +12,8 @@ import {
     X,
     Zap,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { CategorySidebar } from "@/domains/intelligence/components/skills/category-sidebar";
 import { FilterBar } from "@/domains/intelligence/components/skills/skill-filters";
@@ -22,6 +22,11 @@ import { SkillRow } from "@/domains/intelligence/components/skills/skill-row";
 import { SkillsErrorState } from "@/domains/intelligence/components/skills/skills-error-state";
 import { SkillsLoadingState } from "@/domains/intelligence/components/skills/skills-loading-state";
 import { SkillsStateCard } from "@/domains/intelligence/components/skills/skills-state-card";
+import {
+  type SkillsSearchParamsUpdate,
+  buildSkillsSearchParams,
+  readSkillsUrlState,
+} from "@/domains/intelligence/skills/skills-url-state";
 import {
     type SkillFilter,
     type SkillInfo,
@@ -44,11 +49,46 @@ const TIP_STORAGE_KEY = "vellum:skills:tipDismissed";
 
 export function SkillsTab({ assistantId }: SkillsTabProps) {
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const [searchValue, setSearchValue] = useState("");
+  // Search/filter/category live in the URL (`?q=&filter=&category=`) so the
+  // filtered view survives navigating to a skill detail page and back.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { q, filter, category } = useMemo(
+    () => readSkillsUrlState(searchParams),
+    [searchParams],
+  );
+
+  const updateUrlState = useCallback(
+    (update: SkillsSearchParamsUpdate) => {
+      // Replace rather than push so filter tweaks and typing don't pile up
+      // history entries (same pattern as the usage tab's URL state).
+      setSearchParams((prev) => buildSkillsSearchParams(prev, update), {
+        replace: true,
+      });
+    },
+    [setSearchParams],
+  );
+
+  // The search input stays in local state for responsive typing; the settled
+  // (debounced) value is reflected into `?q=` below and drives the query.
+  const [searchValue, setSearchValue] = useState(q);
   const debouncedSearch = useDebouncedValue(searchValue.trim(), SEARCH_DEBOUNCE_MS);
-  const [filter, setFilter] = useState<SkillFilter>("all");
-  const [category, setCategory] = useState<string | null>(null);
+  useEffect(() => {
+    if (debouncedSearch !== q) {
+      updateUrlState({ q: debouncedSearch });
+    }
+  }, [debouncedSearch, q, updateUrlState]);
+
+  const handleFilterChange = useCallback(
+    (next: SkillFilter) => updateUrlState({ filter: next }),
+    [updateUrlState],
+  );
+  const handleCategoryChange = useCallback(
+    (next: string | null) => updateUrlState({ category: next }),
+    [updateUrlState],
+  );
+
   const [tipDismissed, setTipDismissed] = useState(() =>
     getLocalBool(TIP_STORAGE_KEY, false),
   );
@@ -133,11 +173,11 @@ export function SkillsTab({ assistantId }: SkillsTabProps) {
         search={searchValue}
         onSearchChange={setSearchValue}
         filter={filter}
-        onFilterChange={setFilter}
+        onFilterChange={handleFilterChange}
         isSearching={isSearching}
         categories={categories}
         category={category}
-        onCategoryChange={setCategory}
+        onCategoryChange={handleCategoryChange}
         counts={counts}
         totalCount={totalCount}
         showCounts={!isSearching}
@@ -147,7 +187,7 @@ export function SkillsTab({ assistantId }: SkillsTabProps) {
         <aside className="hidden w-56 shrink-0 overflow-y-auto sm:block">
           <CategorySidebar
             selected={category}
-            onSelect={setCategory}
+            onSelect={handleCategoryChange}
             counts={counts}
             totalCount={totalCount}
             showCounts={!isSearching}
@@ -168,7 +208,13 @@ export function SkillsTab({ assistantId }: SkillsTabProps) {
                 <li key={skill.id}>
                   <SkillRow
                     skill={skill}
-                    onSelect={() => navigate(routes.skills.detail(skill.id))}
+                    onSelect={() =>
+                      // Pass the current query string so the detail page's
+                      // back button can restore this filtered view.
+                      navigate(routes.skills.detail(skill.id), {
+                        state: { listSearch: location.search },
+                      })
+                    }
                     onInstall={() => handleInstall(skill)}
                     onRemove={() => handleRemove(skill)}
                     isInstalling={isInstallingSkill(skill)}

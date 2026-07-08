@@ -1,0 +1,232 @@
+/**
+ * Tests for the skill detail route (`/assistant/skills/:skillId`) — the
+ * page-level branching, not the detail rendering:
+ *
+ * - the not-found guard waits for an in-flight list refetch before declaring
+ *   a skill missing (a fresh skill can be absent from a stale cached list),
+ * - the back button restores the Skills list's query string passed as
+ *   router state (search/filter/category survive detail navigation).
+ *
+ * The generated SDK's `skillsGet` is mocked with a per-test deferred so a
+ * case can hold the list refetch pending; the heavy `SkillDetail` /
+ * `SkillDetailMobile` views are stubbed with light stand-ins exposing the
+ * `onBack` wiring. Mounted via `@testing-library/react` (happy-dom — see
+ * `clients/web/test-setup.ts`).
+ */
+
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+
+import type { SkillInfo } from "@/domains/intelligence/skills/types";
+import type { SkillsGetResponse } from "@/generated/daemon/types.gen";
+
+const ASSISTANT_ID = "asst-1";
+const okResponse = { response: new Response(), error: undefined };
+
+// Per-test holder: each `skillsGet` call resolves with the current payload,
+// gated on `listGate` when set (lets a case hold a refetch in flight).
+let listSkills: SkillInfo[];
+let listGate: Promise<unknown> | null = null;
+
+mock.module("@/assistant/use-active-assistant-id", () => ({
+  useActiveAssistantId: () => ASSISTANT_ID,
+}));
+
+const sdkActual = await import("@/generated/daemon/sdk.gen");
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...sdkActual,
+  skillsGet: mock(async () => {
+    if (listGate) {
+      await listGate;
+    }
+    return {
+      data: { skills: listSkills } as SkillsGetResponse,
+      ...okResponse,
+    };
+  }),
+}));
+
+// Stub the heavy detail views — this suite targets the page's branching, not
+// the file browser. The stand-ins expose the `onBack` wiring under test.
+mock.module("@/domains/intelligence/components/skills/skill-detail", () => ({
+  SkillDetail: ({
+    skill,
+    onBack,
+  }: {
+    skill: SkillInfo;
+    onBack: () => void;
+  }) => (
+    <div>
+      <span>Detail: {skill.name}</span>
+      <button type="button" onClick={onBack}>
+        Back to skills
+      </button>
+    </div>
+  ),
+}));
+mock.module(
+  "@/domains/intelligence/components/skills/skill-detail-mobile",
+  () => ({
+    SkillDetailMobile: () => <div>Mobile detail</div>,
+  }),
+);
+
+const { SkillDetailPage } = await import(
+  "@/domains/intelligence/skill-detail-page"
+);
+const { skillsGetOptions } = await import(
+  "@/generated/daemon/@tanstack/react-query.gen"
+);
+
+function makeSkill(overrides: Partial<SkillInfo> = {}): SkillInfo {
+  return {
+    id: "skill-1",
+    name: "Fresh Skill",
+    description: "A skill used in detail page tests",
+    kind: "installed",
+    status: "enabled",
+    origin: "custom",
+    category: "general",
+    ...overrides,
+  };
+}
+
+/** The exact list query key the page (and the Skills tab) resolves from. */
+function listQueryKey() {
+  return skillsGetOptions({
+    path: { assistant_id: ASSISTANT_ID },
+    query: { include: "catalog" },
+  }).queryKey;
+}
+
+// Sentinel at the list route so tests can prove which query string the back
+// navigation landed on.
+function SkillsListLanding() {
+  const location = useLocation();
+  return <div>Skills list at: [{location.search}]</div>;
+}
+
+function renderDetail({
+  skillId,
+  listSearch,
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  }),
+}: {
+  skillId: string;
+  listSearch?: string;
+  client?: QueryClient;
+}): void {
+  const entry = {
+    pathname: `/assistant/skills/${skillId}`,
+    state: listSearch === undefined ? null : { listSearch },
+  };
+  render(
+    <MemoryRouter initialEntries={[entry]}>
+      <QueryClientProvider client={client}>
+        <Routes>
+          <Route
+            path="/assistant/skills/:skillId"
+            element={<SkillDetailPage />}
+          />
+          <Route path="/assistant/skills" element={<SkillsListLanding />} />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+}
+
+beforeEach(() => {
+  listSkills = [makeSkill()];
+  listGate = null;
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+describe("SkillDetailPage stale-list guard", () => {
+  test("shows loading (not 'Skill not found') while a stale cached list refetches", async () => {
+    // Seed a stale cached list that predates the requested skill; hold the
+    // mount-triggered background refetch in flight.
+    let releaseGate!: (value?: unknown) => void;
+    listGate = new Promise((resolve) => {
+      releaseGate = resolve;
+    });
+    listSkills = [makeSkill()];
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    client.setQueryData(listQueryKey(), {
+      skills: [makeSkill({ id: "older-skill", name: "Older Skill" })],
+    } as SkillsGetResponse);
+
+    renderDetail({ skillId: "skill-1", client });
+
+    // Stale data without the skill + refetch in flight: loading, no verdict.
+    expect(screen.queryByText("Skill not found")).toBeNull();
+    expect(document.querySelector(".animate-spin")).not.toBeNull();
+
+    releaseGate();
+
+    // The refetch lands with the fresh skill and the detail renders.
+    await waitFor(() => {
+      expect(screen.getByText("Detail: Fresh Skill")).toBeTruthy();
+    });
+    expect(screen.queryByText("Skill not found")).toBeNull();
+  });
+
+  test("declares not-found once the list has settled without the skill", async () => {
+    listSkills = [];
+
+    renderDetail({ skillId: "missing-skill" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Skill not found")).toBeTruthy();
+    });
+  });
+});
+
+describe("SkillDetailPage back navigation", () => {
+  test("back restores the list query string passed as router state", async () => {
+    renderDetail({
+      skillId: "skill-1",
+      listSearch: "?filter=installed&category=email",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Detail: Fresh Skill")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Back to skills"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Skills list at: [?filter=installed&category=email]"),
+      ).toBeTruthy();
+    });
+  });
+
+  test("back falls back to the plain list without router state", async () => {
+    renderDetail({ skillId: "skill-1" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Detail: Fresh Skill")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Back to skills"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Skills list at: []")).toBeTruthy();
+    });
+  });
+});
