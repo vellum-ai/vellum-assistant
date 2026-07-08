@@ -6,10 +6,8 @@
  */
 
 import type { AssistantOutboundAttachment } from "@vellumai/assistant-api";
-import {
-  type DisplayAttachment,
-  deriveDisplayUrls,
-} from "@/types/attachment-types";
+import type { DisplayAttachment } from "@/types/attachment-types";
+import { deriveDisplayUrls } from "@/utils/attachment-urls";
 
 /**
  * Convert `AssistantOutboundAttachment` objects into `DisplayAttachment`

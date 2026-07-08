@@ -1,7 +1,5 @@
-import {
-  type DisplayAttachment,
-  deriveDisplayUrls,
-} from "@/types/attachment-types";
+import type { DisplayAttachment } from "@/types/attachment-types";
+import { deriveDisplayUrls } from "@/utils/attachment-urls";
 import type { ConversationMessageAttachment } from "@vellumai/assistant-api";
 
 /**
