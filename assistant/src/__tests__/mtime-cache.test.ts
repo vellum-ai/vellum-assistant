@@ -829,7 +829,7 @@ describe("live reload (sentinel-driven redeploy)", () => {
     expect(await dispatchFirst("transitive-reload")).toBe("a:b2");
   });
 
-  test("a reload runs the new init; the old shutdown is best-effort and skipped when uncached", async () => {
+  test("a reload runs the plugin's shutdown (reason: reload) and the new init", async () => {
     const dir = freshPluginDir("lifecycle-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "lifecycle-plugin" });
     const helperPath = writeLibFile(
@@ -852,38 +852,9 @@ describe("live reload (sentinel-driven redeploy)", () => {
     expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
     expect(existsSync(shutdownMarker)).toBe(false);
 
-    writeFileSync(helperPath, `export const value = 2;`);
-    touchFile(helperPath, sentinelTouchSeq + 2);
-    await publishAndDispatch();
-
-    // The edit is a redeploy: the new version comes up through the same init
-    // path as boot. `shutdown` was never dispatched during the plugin's life,
-    // so nothing is cached and the best-effort old-shutdown doesn't fire.
-    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(2);
-    expect(existsSync(shutdownMarker)).toBe(false);
-  });
-
-  test("a reload runs the old shutdown when it was already resolved", async () => {
-    const dir = freshPluginDir("cached-shutdown-plugin");
-    writePackageJson(dir, { ...SIMPLE_PKG, name: "cached-shutdown-plugin" });
-    const helperPath = writeLibFile(
-      dir,
-      join("lib", "helper.ts"),
-      `export const value = 1;`,
-    );
-    const shutdownMarker = join(ROOT, "cached-shutdown.log");
-    rmSync(shutdownMarker, { force: true });
-    writeHook(
-      dir,
-      "shutdown",
-      `import { appendFileSync } from "node:fs";\nexport default (ctx: { reason: string }) => { appendFileSync(${JSON.stringify(shutdownMarker)}, ctx.reason + "\\n"); };`,
-    );
-
-    await populateCacheAtBoot();
-    // Resolve `shutdown` while the old version is live, so it's cached — the
-    // best-effort reload teardown then has an old version to run.
-    expect(await getUserHooksFor("shutdown")).toHaveLength(1);
-
+    // Edit a helper (not shutdown.ts) so the reload resolves the unchanged
+    // shutdown from disk and runs it, then brings the new version up through
+    // the same init path as boot.
     writeFileSync(helperPath, `export const value = 2;`);
     touchFile(helperPath, sentinelTouchSeq + 2);
     await publishAndDispatch();
@@ -891,6 +862,7 @@ describe("live reload (sentinel-driven redeploy)", () => {
     expect(readFileSync(shutdownMarker, "utf8").trim().split("\n")).toEqual([
       "reload",
     ]);
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(2);
   });
 
   test("boot adopts a pre-existing sentinel without spurious redeploys", async () => {

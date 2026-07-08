@@ -135,10 +135,10 @@ export interface ModelProfileInfo {
  * - `disable` — the plugin was disabled at runtime (e.g. a `.disabled`
  *   sentinel was added, or a feature flag turned it off).
  * - `reload` — a source file inside the plugin directory changed and the
- *   plugin is being redeployed in place. Best-effort: the new version is
- *   already on disk by the time the change is detected, so the old version's
- *   `shutdown` runs only if it was still resident from an earlier resolution;
- *   don't rely on it firing.
+ *   plugin is being redeployed in place; `shutdown` runs before the new version
+ *   is imported and its `init` fires. Note the `shutdown` that runs is the one
+ *   currently on disk, which is the previous version *unless* the edit was to
+ *   `shutdown` itself.
  */
 export type ShutdownReason = "shutdown" | "uninstall" | "disable" | "reload";
 

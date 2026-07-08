@@ -29,11 +29,9 @@
  *   {@link collectUserHookEntries}, which resolves that one hook name across the
  *   discovered owners; repeat reads are pure map lookups.
  * - **Lifecycle hooks** run once per activation / teardown. {@link runInitHook}
- *   resolves `init` (to run) and `shutdown` (to cache) while the owner's
- *   directory is present; {@link runShutdownHook} then reads that cached
- *   `shutdown`. Because the reconcile always tears an owner down *before*
- *   evicting it, the cached `shutdown` is still resident at teardown even when
- *   an uninstall has already removed the directory.
+ *   resolves and runs `init`; {@link runOwnerShutdown} resolves and runs one
+ *   owner's `shutdown` for a targeted teardown (uninstall, disable, reload).
+ *   Both go through the same resolution, so nothing is pre-warmed.
  *
  * Source changes reach the cache through the source-versions reconcile in
  * `../plugins/mtime-cache.ts`: it evicts the owner ({@link evictHooksForOwner}
@@ -137,7 +135,7 @@ function ownerHooksDir(pluginDir: string | null): string {
  * negative cache entry so an absent hook is looked up once, not every dispatch.
  * This is the single point where hook code enters the process, shared by
  * dispatch reads ({@link collectUserHookEntries}) and lifecycle runs
- * ({@link runInitHook} / {@link runShutdownHook}).
+ * ({@link runInitHook} / {@link runOwnerShutdown}).
  */
 function resolveHook(
   kind: HookOwnerKind,
@@ -331,96 +329,68 @@ export async function runInitHook(
   }
 }
 
+/** How long a single teardown `shutdown` invocation may run before we move on. */
+const SHUTDOWN_TIMEOUT_MS = 5_000;
+
 /**
- * Run one owner's `shutdown` from the cache if it's already resolved — the
- * best-effort teardown used on **reload**, where disk already holds the *new*
- * version so the old one can only come from a prior resolution. When it isn't
- * cached, this is a no-op: under the no-cross-invocation-state contract (see
- * {@link ShutdownContext}) the new `init` reconstructs from the filesystem, so a
- * missed old-`shutdown` is benign. For teardown where the current on-disk
- * version is the right one to run (uninstall, disable), use
- * {@link runShutdownHookFromDisk} instead. Best-effort: a thrown shutdown is
- * logged and swallowed; `reason` is threaded into the log for attribution only.
+ * Run one owner's `shutdown` — the targeted single-owner teardown for a managed
+ * uninstall, disable, or reload (the whole-chain `runHook(HOOKS.SHUTDOWN)` at
+ * process exit runs *every* owner's; this runs exactly one). Resolves it through
+ * the same {@link resolveHook} the dispatch path uses — cache or disk, so it
+ * needs nothing pre-warmed and works in any process (a `shutdown` hook must not
+ * assume it shares a process with its `init`; see {@link ShutdownContext}) —
+ * then invokes it under a bounded timeout so a hook that hangs can't block
+ * teardown (e.g. the `rmSync` a managed uninstall runs next). No-op when the
+ * owner defines no `shutdown`. Best-effort: a thrown, timed-out, or malformed
+ * shutdown is logged and swallowed.
  */
-export async function runShutdownHook(
+export async function runOwnerShutdown(
   kind: HookOwnerKind,
-  ownerName: string,
-  context: ShutdownContext,
-  reason: string,
-): Promise<void> {
-  const entry = hookCache.get(hookKey(kind, ownerName, HOOKS.SHUTDOWN));
-  if (entry === undefined) {
-    return;
-  }
-  const shutdown = await entry;
-  if (shutdown === null) {
-    return;
-  }
-
-  await invokeShutdown(shutdown, context, ownerName, reason);
-}
-
-/**
- * Resolve an owner's `shutdown` fresh from `hooksDir` and run it — the targeted
- * single-owner teardown for a **managed uninstall** (run before the directory is
- * removed) or a **disable** (directory still present). Resolves from disk rather
- * than the cache so it doesn't depend on the daemon having warmed anything, and
- * so it works in any process — the CLI's uninstall and the daemon's route both
- * call it (a `shutdown` hook must not assume it runs in the same process as its
- * `init`; see {@link ShutdownContext}). No-op when the owner defines no
- * `shutdown`. Best-effort: a thrown or malformed shutdown is logged and
- * swallowed.
- */
-export async function runShutdownHookFromDisk(
   hooksDir: string,
   ownerName: string,
   reason: ShutdownContext["reason"],
 ): Promise<void> {
-  const file = listSurfaceDir(hooksDir).find((f) => f.name === HOOKS.SHUTDOWN);
-  if (file === undefined) {
+  const shutdown = await resolveHook(kind, hooksDir, ownerName, HOOKS.SHUTDOWN);
+  if (shutdown === null) {
     return;
   }
-  evictModule(file.path);
-  let shutdown: HookFunction | undefined;
+  const context: ShutdownContext = { assistantVersion: APP_VERSION, reason };
   try {
-    shutdown = await importWithTimeout<HookFunction>(file.path);
-  } catch (err) {
-    log.warn(
-      { err, plugin: ownerName, path: file.path },
-      "failed to import shutdown hook for teardown (continuing)",
+    await withTimeout(
+      Promise.resolve(shutdown(context)),
+      SHUTDOWN_TIMEOUT_MS,
+      `shutdown hook for ${ownerName} exceeded ${SHUTDOWN_TIMEOUT_MS}ms`,
     );
-    return;
-  }
-  if (typeof shutdown !== "function") {
-    log.error(
-      { plugin: ownerName, path: file.path },
-      `shutdown default export must be a function (got ${typeof shutdown}) — skipping`,
-    );
-    return;
-  }
-  await invokeShutdown(
-    shutdown,
-    { assistantVersion: APP_VERSION, reason },
-    ownerName,
-    reason,
-  );
-}
-
-/** Run a resolved shutdown function, logging and swallowing any throw. */
-async function invokeShutdown(
-  shutdown: HookFunction,
-  context: ShutdownContext,
-  ownerName: string,
-  reason: string,
-): Promise<void> {
-  try {
-    await shutdown(context);
   } catch (err) {
     log.warn(
       { err, plugin: ownerName, reason },
-      "user hooks shutdown failed (continuing)",
+      "user hooks shutdown failed or timed out (continuing)",
     );
   }
+}
+
+/**
+ * Reject after `ms` if `p` hasn't settled. The losing promise is abandoned, not
+ * cancelled — the caller must treat a timeout as best-effort.
+ */
+function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    p.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
 
 /**

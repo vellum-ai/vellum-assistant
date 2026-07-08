@@ -14,7 +14,8 @@
 import { existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { runShutdownHookFromDisk } from "../../hooks/hook-loader.js";
+import { runOwnerShutdown } from "../../hooks/hook-loader.js";
+import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   InvalidPluginNameError,
@@ -58,11 +59,13 @@ export interface UninstallPluginResult {
  * depth.
  *
  * Before removing the directory, the plugin's `shutdown` hook (reason
- * `uninstall`) is run from disk while its files are still present, so it can
- * clean up. It resolves and runs in whatever process performs the uninstall —
- * both the CLI command and the daemon's `DELETE` route call this — because a
- * `shutdown` hook must not assume it shares a process with its `init`. A missing
- * or throwing hook is best-effort and never blocks the removal.
+ * `uninstall`) is resolved and run while its files are still present, so it can
+ * clean up. It runs in whatever process performs the uninstall — both the CLI
+ * command and the daemon's `DELETE` route call this — because a `shutdown` hook
+ * must not assume it shares a process with its `init`. The plugin-api shim is
+ * materialized first so a hook importing `@vellumai/plugin-api` resolves even in
+ * a fresh CLI process; a missing, throwing, or slow hook is best-effort
+ * (time-boxed inside {@link runOwnerShutdown}) and never blocks the removal.
  */
 export async function uninstallPlugin(
   opts: UninstallPluginOptions,
@@ -83,7 +86,11 @@ export async function uninstallPlugin(
     throw new PluginNotInstalledError(name, target);
   }
 
-  await runShutdownHookFromDisk(join(target, "hooks"), name, "uninstall");
+  // Make `@vellumai/plugin-api` resolvable for the shutdown import even when
+  // this runs in a fresh CLI process that never called `loadUserPlugins()`.
+  // Best-effort — a failed shim just means the hook may not resolve.
+  await ensurePluginApiShim().catch(() => {});
+  await runOwnerShutdown("plugin", join(target, "hooks"), name, "uninstall");
 
   rmSync(target, { recursive: true, force: true });
   return { name, target };
