@@ -1846,6 +1846,56 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[2].role).toBe("user");
   });
 
+  test("assistant message carrying only a skill_card ui_surface block is stripped without breaking role alternation", async () => {
+    // Contract-shaped block persisted by the memory retrospective's
+    // skill-card insertion (memory-retrospective-skill-card.ts): the message
+    // content is ONLY the ui_surface block, so the provider must drop the
+    // block and keep the assistant turn alive via a placeholder.
+    const skillCardBlock = {
+      type: "ui_surface",
+      surfaceId: "skill-card-run-conv-1",
+      surfaceType: "skill_card",
+      title: "New skill learned",
+      display: "inline",
+      data: {
+        skills: [
+          {
+            skillId: "skill-1",
+            name: "Example skill",
+            description: "Does a thing",
+            emoji: null,
+          },
+        ],
+      },
+    } as unknown as ContentBlock;
+    const messages: Message[] = [
+      userMsg("Start"),
+      { role: "assistant", content: [skillCardBlock] },
+      userMsg("Continue"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    // No ui_surface block (or any of its payload) reaches the wire; the
+    // assistant turn survives as a placeholder so alternation holds.
+    expect(sent).toHaveLength(3);
+    expect(
+      sent.flatMap((m) => m.content).every((b) => b.type !== "ui_surface"),
+    ).toBe(true);
+    expect(JSON.stringify(sent)).not.toContain("skill_card");
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content).toEqual([
+      { type: "text", text: PLACEHOLDER_BLOCKS_OMITTED },
+    ]);
+    for (let i = 1; i < sent.length; i++) {
+      expect(sent[i].role).not.toBe(sent[i - 1].role);
+    }
+  });
+
   test("assistant message with mix of known and unknown blocks keeps known blocks", async () => {
     const messages: Message[] = [
       userMsg("Start"),
