@@ -1,12 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
-import {
-  skillsGetQueryKey,
-  useSkillsByIdDeleteMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-import { type Options } from "@/generated/daemon/sdk.gen";
-import type { SkillsGetData } from "@/generated/daemon/types.gen";
+import { useSkillsByIdDeleteMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { invalidateSkillsList } from "@/utils/skills";
 
 import { installSkill } from "./install";
 import { type SkillInfo } from "./types";
@@ -47,11 +43,7 @@ export function useSkillActions(
     useState<SkillInfo | null>(null);
 
   const invalidateSkills = useCallback(() => {
-    void queryClient.invalidateQueries({
-      queryKey: skillsGetQueryKey({
-        path: { assistant_id: assistantId },
-      } as Options<SkillsGetData>),
-    });
+    invalidateSkillsList(queryClient, assistantId);
   }, [assistantId, queryClient]);
 
   const installMutation = useMutation({

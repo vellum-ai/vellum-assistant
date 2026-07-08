@@ -4,9 +4,9 @@ import { useCallback, useMemo, useRef } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { SkillRemovalDialog } from "@/components/skill-removal-dialog";
 import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
 import { SkillDetailMobile } from "@/domains/intelligence/components/skills/skill-detail-mobile";
-import { SkillRemovalDialog } from "@/domains/intelligence/components/skills/skill-removal-dialog";
 import { SkillsErrorState } from "@/domains/intelligence/components/skills/skills-error-state";
 import { SkillsLoadingState } from "@/domains/intelligence/components/skills/skills-loading-state";
 import { SkillsStateCard } from "@/domains/intelligence/components/skills/skills-state-card";
@@ -166,7 +166,7 @@ export function SkillDetailPage() {
         <SkillDetail {...detailProps} />
       )}
       <SkillRemovalDialog
-        skill={skillPendingRemoval}
+        skillName={skillPendingRemoval?.name ?? null}
         onConfirm={confirmRemove}
         onCancel={cancelRemove}
       />

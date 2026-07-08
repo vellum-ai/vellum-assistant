@@ -5,6 +5,10 @@
  * Removal (installed skills only) lives behind a header overflow menu with a
  * confirmation dialog; on success the panel closes.
  *
+ * SKILL.md resolution (files list → SKILL.md entry → content) comes from the
+ * shared `useSkillDetailFiles` hook — the same chain the intelligence
+ * skill-detail views use, so the caches are shared.
+ *
  * Driven by `activeSkillDetailId` in `viewer-store` (see `openSkillDetail`).
  * Rendered inside the shared chat `AnimatedRightDrawer` by
  * `chat-content-layout`, matching its sibling `ToolDetailPanel`.
@@ -15,25 +19,21 @@ import { Brain, Loader2, MoreHorizontal, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
-import {
-  Button,
-  ConfirmDialog,
-  Menu,
-  Typography,
-} from "@vellumai/design-library";
+import { Button, Menu, Typography } from "@vellumai/design-library";
 
 import { FileMarkdown } from "@/components/file-markdown";
 import { SkillLineageLink } from "@/components/skill-lineage-link";
+import { SkillRemovalDialog } from "@/components/skill-removal-dialog";
 import { DetailShell } from "@/domains/chat/components/detail-shell";
 import {
-  skillsByIdFilesContentGetOptions,
-  skillsByIdFilesGetOptions,
   skillsByIdGetOptions,
   useSkillsByIdDeleteMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useSkillDetailFiles } from "@/hooks/use-skill-detail-files";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
+import { invalidateSkillsList, isRemovableSkill } from "@/utils/skills";
 
 interface SkillDetailPanelProps {
   skillId: string;
@@ -55,29 +55,18 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
   });
   const skill = skillQuery.data;
 
-  // SKILL.md is resolved the way the intelligence skill-detail views do:
-  // list the skill's files, find the SKILL.md entry by name, fetch its
-  // content. (Duplicated from `domains/intelligence` rather than imported —
-  // cross-domain imports are disallowed.)
-  const filesQuery = useQuery({
-    ...skillsByIdFilesGetOptions({
-      path: { assistant_id: assistantId ?? "", id: skillId },
-    }),
-    enabled: Boolean(assistantId),
-  });
-  const skillMdPath =
-    filesQuery.data?.files.find((f) => f.name === "SKILL.md")?.path ?? null;
-  const contentQuery = useQuery({
-    ...skillsByIdFilesContentGetOptions({
-      path: { assistant_id: assistantId ?? "", id: skillId },
-      query: { path: skillMdPath ?? "" },
-    }),
-    enabled: Boolean(assistantId && skillMdPath),
-  });
+  const {
+    skillMd,
+    fileContent: skillMdContent,
+    isFilesPending,
+    isContentPending,
+  } = useSkillDetailFiles(assistantId, skillId);
 
   const removeMutation = useSkillsByIdDeleteMutation({
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: [{ _id: "skillsGet" }] });
+      if (assistantId) {
+        invalidateSkillsList(queryClient, assistantId);
+      }
       onClose();
     },
     onError: (error) => {
@@ -96,16 +85,13 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
   // `isPending` (no data yet) rather than `isLoading` (actively fetching) so
   // the disabled-query window while `assistantId` resolves also shows the
   // spinner instead of a flash of empty body. The content query only counts
-  // once a SKILL.md path exists — a skill without one isn't "loading".
+  // once a SKILL.md entry exists — a skill without one isn't "loading".
   const isLoading =
     skillQuery.isPending ||
-    filesQuery.isPending ||
-    (skillMdPath != null && contentQuery.isPending);
-  const skillMdContent = contentQuery.data?.content ?? null;
+    isFilesPending ||
+    (skillMd != null && isContentPending);
 
-  // Bundled skills ship with the assistant and can't be removed; the daemon
-  // rejects deletes for anything but installed skills.
-  const removable = skill?.kind === "installed";
+  const removable = skill != null && isRemovableSkill(skill);
 
   return (
     <>
@@ -189,12 +175,8 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
         )}
       </DetailShell>
 
-      <ConfirmDialog
-        open={confirmingRemoval}
-        title="Remove skill"
-        message={skill ? `Remove "${skill.name}" from this assistant?` : ""}
-        confirmLabel="Remove"
-        destructive
+      <SkillRemovalDialog
+        skillName={confirmingRemoval && skill ? skill.name : null}
         onConfirm={confirmRemove}
         onCancel={() => setConfirmingRemoval(false)}
       />
