@@ -244,6 +244,18 @@
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/coffee-aficionado",
       "license": "MIT"
+    },
+    {
+      "name": "plant-doctor",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/plant-doctor",
+        "ref": "ccb5058589e589de019602776aac728c6adcda1b"
+      },
+      "description": "Diagnose plants from photos. Identifies the species, assesses health with visible evidence, and returns a care plan. Named plants get a persistent checkup history so you can track whether they are improving.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/plant-doctor",
+      "license": "MIT"
     }
   ]
 }
