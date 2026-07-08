@@ -63,8 +63,9 @@ function normalizeToolResultImage(imageData: string): {
 /**
  * Derive a human-friendly filename prefix from the tool name that produced the
  * image. Mirrors the daemon's `toolNameToFilePrefix` in
- * `assistant/src/daemon/assistant-attachments.ts` so a mid-turn image carries
- * the same name the server assigns once the turn completes.
+ * `assistant/src/daemon/assistant-attachments.ts` so mid-turn names share the
+ * server's `<tool-prefix>` base (see {@link buildToolResultAttachments} for
+ * where the client intentionally adds a multi-image index suffix).
  */
 function toolNameToFilePrefix(toolName?: string): string {
   if (!toolName) {
