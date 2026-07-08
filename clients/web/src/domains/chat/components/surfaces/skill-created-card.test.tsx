@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 
@@ -14,13 +14,21 @@ mock.module("@/hooks/use-is-mobile", () => ({
 import { SkillCreatedCard } from "@/domains/chat/components/surfaces/skill-created-card";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type { Surface } from "@/domains/chat/types/types";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
+
+// `skill-creation-card` defaults off; every rendering test below exercises
+// the flag-on path. The dedicated kill-switch test flips it back off.
+beforeEach(() => {
+  useClientFeatureFlagStore.setState({ skillCreationCard: true });
+});
 
 afterEach(() => {
   cleanup();
   isMobileRef.value = false;
   // Clicks mutate the real viewer store; restore it for the next test.
   useViewerStore.getState().reset();
+  useClientFeatureFlagStore.setState({ skillCreationCard: false });
 });
 
 function makeSurface(overrides: Partial<Surface> = {}): Surface {
@@ -142,6 +150,35 @@ describe("SkillCreatedCard", () => {
     // The panel path is not taken on mobile.
     expect(useViewerStore.getState().mainView).toBe("chat");
     expect(useViewerStore.getState().activeSkillDetailId).toBeNull();
+  });
+
+  test("clicking the row body (skill name) opens the skill detail — the whole row is the control, not just the View chip", () => {
+    const { getByText } = renderCard(
+      makeSurface({
+        data: {
+          skills: [
+            { skillId: "skill-1", name: "Skill one" },
+            { skillId: "skill-2", name: "Skill two" },
+          ],
+        },
+      }),
+    );
+
+    fireEvent.click(getByText("Skill two"));
+
+    expect(useViewerStore.getState().mainView).toBe("skill-detail");
+    expect(useViewerStore.getState().activeSkillDetailId).toBe("skill-2");
+  });
+
+  test("skill-creation-card flag gates rendering (kill-switch for already-persisted cards)", () => {
+    useClientFeatureFlagStore.setState({ skillCreationCard: false });
+    const flagOff = renderCard(makeSurface());
+    expect(flagOff.queryByText("New skill learned")).toBeNull();
+    flagOff.unmount();
+
+    useClientFeatureFlagStore.setState({ skillCreationCard: true });
+    const flagOn = renderCard(makeSurface());
+    expect(flagOn.getByText("New skill learned")).toBeTruthy();
   });
 
   test("falls back to the Brain icon when a skill has no emoji", () => {

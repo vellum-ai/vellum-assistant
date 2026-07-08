@@ -1,7 +1,6 @@
 import { Brain } from "lucide-react";
 import { useNavigate } from "react-router";
 
-import { Button } from "@vellumai/design-library";
 import type { Surface } from "@/domains/chat/types/types";
 
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
@@ -10,6 +9,7 @@ import {
   str,
 } from "@/domains/chat/components/surfaces/surface-parse-helpers";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
@@ -68,6 +68,11 @@ function parseSkills(skills: unknown): SkillCardEntry[] {
 export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  // Client-side half of the `skill-creation-card` flag (scope "both"): the
+  // assistant side gates card *insertion*, this gates *rendering*, so
+  // flipping the flag off also hides cards already persisted in transcripts
+  // (a true kill-switch).
+  const skillCardEnabled = useClientFeatureFlagStore.use.skillCreationCard();
   const skills = parseSkills(surface.data.skills);
 
   // Desktop: open the skill detail sidepanel in place, keeping the
@@ -82,7 +87,7 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
     useViewerStore.getState().openSkillDetail(skillId);
   };
 
-  if (skills.length === 0) {
+  if (!skillCardEnabled || skills.length === 0) {
     return null;
   }
 
@@ -96,10 +101,18 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
       </p>
 
       <div className="mt-3 divide-y divide-[var(--border-base)]">
+        {/* The whole row is one native button (name, description, and the
+            "View" chip all open the skill) — matching the clickable-row
+            pattern in home-schedule-row.tsx. The chip is purely visual, so
+            no nested interactive elements and no stopPropagation dance;
+            `aria-label` keeps the accessible name unique per skill. */}
         {skills.map((skill) => (
-          <div
+          <button
             key={skill.skillId}
-            className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0"
+            type="button"
+            aria-label={`View ${skill.name}`}
+            onClick={() => handleView(skill.skillId)}
+            className="flex w-full cursor-pointer items-center gap-3 rounded-md py-2.5 text-left transition-colors first:pt-0 last:pb-0 hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
           >
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--tag-bg-neutral)] text-body-large-default">
               {skill.emoji ?? (
@@ -116,15 +129,13 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
                 </p>
               )}
             </div>
-            <Button
-              variant="outlined"
-              size="compact"
-              aria-label={`View ${skill.name}`}
-              onClick={() => handleView(skill.skillId)}
+            <span
+              aria-hidden="true"
+              className="flex h-6 shrink-0 items-center rounded-md border border-[var(--border-element)] px-2 text-label-medium-default text-[var(--primary-base)]"
             >
               View
-            </Button>
-          </div>
+            </span>
+          </button>
         ))}
       </div>
     </SurfaceContainer>

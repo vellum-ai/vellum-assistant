@@ -222,6 +222,20 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     navigate(`${routes.channels}?setup=${channel}`);
   }, [isMobile, mainView, activeChannelSetup, navigate]);
 
+  // Same hand-off for the skill detail panel: narrowing the viewport with the
+  // panel open (resize/rotation) would otherwise strand the viewer store in
+  // "skill-detail" with nothing rendered — the right panel is desktop-only,
+  // MobileChatOverlays has no skill-detail entry, and mobile Escape is
+  // disabled. Redirect to the dedicated skill detail page instead (the same
+  // destination the in-chat card uses on mobile). Unlike channel setup, no
+  // hand-off notification is needed — the detail page is self-contained.
+  useEffect(() => {
+    if (!isMobile) return;
+    if (mainView !== "skill-detail" || !activeSkillDetailId) return;
+    useViewerStore.getState().closeSkillDetail();
+    navigate(routes.skills.detail(activeSkillDetailId));
+  }, [isMobile, mainView, activeSkillDetailId, navigate]);
+
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
   // thought process, subagent detail, workflow detail, acp run detail,
