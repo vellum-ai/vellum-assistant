@@ -16,6 +16,12 @@ import type { WorkspaceMigration } from "./types.js";
 // value). This mirrors the hatch precedence, where platform outranks the
 // BYOK provider signal.
 //
+// The same schema-default echo affects the off-platform legacy read:
+// `LLMConfigBase.provider` defaults to "anthropic" and the first-launch
+// seed persists it, so a bare "anthropic" is treated as no-signal here and
+// skipped. Disambiguating it requires an async vault read that this sync
+// migration cannot perform, so the ensure pass owns that case instead.
+//
 // The remaining login-dependent fallback requires an async secure-vault
 // read that a sync migration cannot perform, so that step lives in the
 // post-boot ensure pass instead (workspace/default-provider-ensure.ts,
@@ -116,8 +122,14 @@ function resolveProviderSignal(
   llm: Record<string, unknown>,
 ): string | undefined {
   const legacyProvider = readObject(llm.default)?.provider;
+  // A bare "anthropic" is the schema default (`LLMConfigBase.provider`) that
+  // the first-launch seed persists, so it is ambiguous here. Disambiguating
+  // it needs an async vault read this sync migration can't perform, so it is
+  // treated as no-signal and deferred to the ensure pass. Other providers
+  // can't be schema echoes.
   if (
     typeof legacyProvider === "string" &&
+    legacyProvider !== "anthropic" &&
     isDefaultProfileProvider(legacyProvider)
   ) {
     return legacyProvider;

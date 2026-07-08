@@ -221,4 +221,52 @@ describe("127-backfill-default-provider", () => {
       backfillDefaultProviderMigration.run(workspaceDir),
     ).not.toThrow();
   });
+
+  describe("legacy anthropic schema-default echo", () => {
+    test("legacy anthropic alone produces no write", () => {
+      writeConfig({ llm: { default: { provider: "anthropic" } } });
+
+      backfillDefaultProviderMigration.run(workspaceDir);
+
+      expect(
+        (readConfig().llm as Record<string, unknown>).defaultProvider,
+      ).toBeUndefined();
+    });
+
+    test("legacy anthropic falls through to a custom profile provider", () => {
+      writeConfig({
+        llm: {
+          default: { provider: "anthropic" },
+          profiles: {
+            "custom-balanced": { source: "user", provider: "openai" },
+          },
+        },
+      });
+
+      backfillDefaultProviderMigration.run(workspaceDir);
+
+      expect(defaultProvider()).toEqual({ provider: "openai" });
+    });
+
+    test("legacy openai is honored unchanged", () => {
+      writeConfig({ llm: { default: { provider: "openai" } } });
+
+      backfillDefaultProviderMigration.run(workspaceDir);
+
+      expect(defaultProvider()).toEqual({ provider: "openai" });
+    });
+
+    test("a valid existing defaultProvider is never overwritten by the echo path", () => {
+      writeConfig({
+        llm: {
+          default: { provider: "anthropic" },
+          defaultProvider: { provider: "openai" },
+        },
+      });
+
+      backfillDefaultProviderMigration.run(workspaceDir);
+
+      expect(defaultProvider()).toEqual({ provider: "openai" });
+    });
+  });
 });
