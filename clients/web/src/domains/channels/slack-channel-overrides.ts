@@ -49,12 +49,12 @@ export const CAPABILITY_TIER_META: Record<RiskThreshold, CapabilityTierMeta> = {
   },
   low: {
     label: presetFromThreshold("low").label,
-    sublabel: "safe actions, ask for the rest",
+    sublabel: "low-risk actions, ask for the rest",
     tone: "warning",
   },
   medium: {
     label: presetFromThreshold("medium").label,
-    sublabel: "workspace actions too",
+    sublabel: "beyond its workspace too",
     tone: "info",
   },
   high: {

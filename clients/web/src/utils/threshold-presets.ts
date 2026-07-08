@@ -34,7 +34,7 @@ export const THRESHOLD_PRESETS: ThresholdPreset[] = [
     label: "Conservative",
     riskThreshold: "low",
     description:
-      "Auto-approve low-risk actions like reading files and web searches.",
+      "Auto-approve low-risk actions, like web searches and reading and writing files in its own workspace.",
     icon: ShieldCheck,
   },
   {
@@ -42,7 +42,7 @@ export const THRESHOLD_PRESETS: ThresholdPreset[] = [
     label: "Relaxed",
     riskThreshold: "medium",
     description:
-      "Auto-approve low and medium-risk actions like writing files in your workspace.",
+      "Auto-approve low and medium-risk actions, like changing files outside its own workspace.",
     icon: Shield,
   },
   {
