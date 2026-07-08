@@ -22,8 +22,6 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
 
-import { isEditableTarget } from "@/hooks/use-edge-swipe";
-
 import {
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
@@ -80,6 +78,25 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
       'button, a[href], [role="button"], [role="link"], select, [tabindex]:not([tabindex="-1"])',
     ) !== null
   );
+}
+
+/**
+ * Whether the event target is a text-editable control (input / textarea /
+ * select / contentEditable) that should keep Space for typing.
+ *
+ * Local copy of the canonical helper (kept in sync with
+ * `use-push-to-talk.ts`); the previously-shared `use-edge-swipe` export was
+ * removed on main, so this is colocated here rather than imported.
+ */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
 export function VoiceRoom() {
