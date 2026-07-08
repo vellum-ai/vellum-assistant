@@ -41,7 +41,9 @@ describe("ensureConversationExists", () => {
     // the row exists tripped `FOREIGN KEY constraint failed`.
     const conversationId = "brand-new-live-voice-conversation";
 
-    ensureConversationExists(conversationId);
+    // Reports that it inserted the row so callers can emit a one-time
+    // conversations-list invalidation.
+    expect(ensureConversationExists(conversationId)).toBe(true);
 
     const row = getConversation(conversationId);
     expect(row?.id).toBe(conversationId);
@@ -61,12 +63,30 @@ describe("ensureConversationExists", () => {
   test("is idempotent and never clobbers an existing conversation", () => {
     const created = createConversation({ title: "already here" });
 
-    // Two extra ensures must be no-ops — no throw, no title/row change.
-    ensureConversationExists(created.id);
-    ensureConversationExists(created.id);
+    // Two extra ensures must be no-ops — return false (did not create), no
+    // throw, no title/row change.
+    expect(ensureConversationExists(created.id)).toBe(false);
+    expect(ensureConversationExists(created.id)).toBe(false);
 
     const row = getConversation(created.id);
     expect(row?.id).toBe(created.id);
     expect(row?.title).toBe("already here");
+  });
+
+  test("rejects an unsafe adopted id instead of writing outside the conversations dir", () => {
+    // The id becomes a path component of the on-disk conversation dir, so a
+    // traversal value from an untrusted live-voice start frame must be refused
+    // before createConversation() touches disk.
+    for (const unsafe of ["../../tmp/x", "a/b", "..", "with space", ""]) {
+      expect(() => ensureConversationExists(unsafe)).toThrow(
+        /unsafe conversation id/,
+      );
+      expect(getConversation(unsafe)).toBeNull();
+    }
+
+    // A plain uuid-shaped id is still accepted.
+    expect(
+      ensureConversationExists("0f9c1e2a-3b4d-5e6f-7a8b-9c0d1e2f3a4b"),
+    ).toBe(true);
   });
 });

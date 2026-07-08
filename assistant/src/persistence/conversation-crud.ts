@@ -772,8 +772,19 @@ export function createConversation(
 }
 
 /**
+ * A conversation id adopted verbatim from an untrusted source must be safe to
+ * embed as a single path component of the on-disk conversation dir
+ * (`<timestamp>_<id>/meta.json`). This pattern admits server uuids and the
+ * web client's `crypto.randomUUID()` / `draft-<ts>-<hex>` drafts while
+ * rejecting anything with path separators, `..`, or other traversal vectors.
+ */
+const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+/**
  * Ensure a `conversations` row exists for `id`, creating one with default
- * columns only when absent. Idempotent.
+ * columns only when absent. Idempotent. Returns `true` iff this call inserted
+ * the row (so callers can emit a one-time creation side effect, e.g. a
+ * conversations-list invalidation).
  *
  * The normal text-send path persists the conversation row through the
  * conversation-key store before the first message is written, so `messages`
@@ -783,16 +794,32 @@ export function createConversation(
  * first turn of a brand-new chat the row does not exist yet, and persisting
  * the user message trips `FOREIGN KEY constraint failed`. Call this before the
  * first persist to close that gap while keeping the adopted id verbatim.
+ *
+ * Because the id is adopted verbatim and reaches the filesystem via
+ * `createConversation` → `initConversationDir`, an id from an external client
+ * is validated first — a value like `../../tmp/x` would otherwise write
+ * `meta.json` outside the conversations directory.
  */
-export function ensureConversationExists(id: string): void {
-  if (getConversation(id)) return;
+export function ensureConversationExists(id: string): boolean {
+  if (getConversation(id)) {
+    return false;
+  }
+  if (!ADOPTABLE_CONVERSATION_ID_RE.test(id)) {
+    throw new Error(
+      `Refusing to adopt unsafe conversation id: ${JSON.stringify(id)}`,
+    );
+  }
   try {
     createConversation({ id });
+    return true;
   } catch (err) {
     // A concurrent caller may have created the row between the check and the
     // insert (UNIQUE(id) violation). That's the desired end state, so only
     // rethrow if the row still isn't there.
-    if (!getConversation(id)) throw err;
+    if (!getConversation(id)) {
+      throw err;
+    }
+    return false;
   }
 }
 
