@@ -192,6 +192,8 @@ describe("uploadAttachment", () => {
     expect(() => uploadAttachment("ok.txt", "text/plain", "AAA")).not.toThrow();
   });
 
+  // Inserting the 100 MB payload into SQLite can take several seconds on
+  // slow CI runners, so this test needs more than the default 5s timeout.
   test("accepts payload exactly at MAX_UPLOAD_BYTES", () => {
     // MAX_UPLOAD_BYTES (100 MB) is divisible by 3, so (MAX/3)*4 base64 chars
     // decodes to exactly MAX bytes with no padding.
@@ -201,7 +203,7 @@ describe("uploadAttachment", () => {
     expect(() =>
       uploadAttachment("exact.bin", "application/octet-stream", exactData),
     ).not.toThrow();
-  });
+  }, 30_000);
 });
 
 // ---------------------------------------------------------------------------
