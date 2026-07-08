@@ -37,7 +37,7 @@ describe("completeCustomProfile", () => {
     expect(completed.verbosity).toBe("medium");
   });
 
-  test("never inherits temperature, topP, or logitBias", () => {
+  test("inherits non-null default sampling; never inherits logitBias or null sampling", () => {
     const dflt = LLMConfigBase.parse({
       ...fullDefault,
       temperature: 0.7,
@@ -45,13 +45,24 @@ describe("completeCustomProfile", () => {
       logitBias: "suppress-cjk",
     });
     const completed = completeCustomProfile(dflt, { model: "claude-fable-5" });
-    expect(completed.temperature).toBeUndefined();
-    expect(completed.topP).toBeUndefined();
+    // The resolver leaves llm.default's base sampling standing when no
+    // profile opts in, so non-null defaults must be baked in.
+    expect(completed.temperature).toBe(0.7);
+    expect(completed.topP).toBe(0.9);
+    // logitBias is deleted post-merge unless the winning profile set it.
     expect(completed.logitBias).toBeUndefined();
-    // The profile's own sampling values are preserved untouched.
+    // The profile's own sampling wins over the default's.
     const own = completeCustomProfile(dflt, { temperature: 0.2 });
     expect(own.temperature).toBe(0.2);
-    expect(own.topP).toBeUndefined();
+    expect(own.topP).toBe(0.9);
+    // A null schema-default is skipped, not baked in as an explicit null.
+    const nullDefaults = completeCustomProfile(fullDefault, {});
+    expect(nullDefaults.temperature).toBeUndefined();
+    expect(nullDefaults.topP).toBeUndefined();
+    // A profile's explicit null is preserved (it clears the default's value
+    // in the resolver, and must keep doing so standalone).
+    const explicitNull = completeCustomProfile(dflt, { temperature: null });
+    expect(explicitNull.temperature).toBeNull();
   });
 
   test("merges partial nested thinking leaf-by-leaf", () => {
@@ -219,6 +230,7 @@ describe("completeCustomProfile — resolver equivalence", () => {
     "model only, served by default provider": { model: "claude-fable-5" },
     "model only, implies another provider": { model: "gpt-5.5" },
     "sampling only": { temperature: 0.3 },
+    "explicit null sampling": { temperature: null },
     "nested thinking fragment": { thinking: { enabled: false } },
     "tokens and effort": { maxTokens: 1234, effort: "low" },
     "explicit cross-provider without connection": {
@@ -242,9 +254,22 @@ describe("completeCustomProfile — resolver equivalence", () => {
     },
   };
 
-  const resolveWith = (profile: ProfileEntry) => {
+  // Run the whole matrix against two defaults: the schema-typical null
+  // sampling, and a default with non-null temperature/topP — the latter is
+  // what catches sampling-inheritance regressions (null defaults make those
+  // cases pass vacuously).
+  const DEFAULTS: Record<string, LLMConfigBase> = {
+    "null sampling": fullDefault,
+    "non-null sampling": LLMConfigBase.parse({
+      ...fullDefault,
+      temperature: 0.7,
+      topP: 0.9,
+    }),
+  };
+
+  const resolveWith = (dflt: LLMConfigBase, profile: ProfileEntry) => {
     const llm = LLMSchema.parse({
-      default: fullDefault,
+      default: dflt,
       profiles: { "custom-x": { source: "user", ...profile } },
     });
     return resolveCallSiteConfig("vision", llm, {
@@ -252,13 +277,17 @@ describe("completeCustomProfile — resolver equivalence", () => {
     });
   };
 
-  for (const [name, partial] of Object.entries(PARTIALS)) {
-    test(`partial and completed resolve identically: ${name}`, () => {
-      const completed = completeCustomProfile(fullDefault, {
-        source: "user",
-        ...partial,
+  for (const [defaultName, dflt] of Object.entries(DEFAULTS)) {
+    for (const [name, partial] of Object.entries(PARTIALS)) {
+      test(`partial and completed resolve identically (${defaultName} default): ${name}`, () => {
+        const completed = completeCustomProfile(dflt, {
+          source: "user",
+          ...partial,
+        });
+        expect(resolveWith(dflt, completed)).toEqual(
+          resolveWith(dflt, partial),
+        );
       });
-      expect(resolveWith(completed)).toEqual(resolveWith(partial));
-    });
+    }
   }
 });

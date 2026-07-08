@@ -18,10 +18,14 @@ import type { LLMConfigBase, ProfileEntry } from "./schemas/llm.js";
  *
  * Deliberate parity quirks with the current resolver:
  *
- * - `temperature`, `topP`, and `logitBias` are NEVER inherited. They are
- *   winning-profile-scoped in `resolveCallSiteConfig` (a profile that omits
- *   them resolves without them regardless of `llm.default`), so baking them
- *   in would change behavior.
+ * - Non-null `temperature`/`topP` on the default ARE inherited: the
+ *   resolver's winning-profile scoping only blocks one PROFILE's sampling
+ *   from leaking under another, while `llm.default`'s base sampling stands
+ *   whenever no profile opts in. A null default (the schema default) is
+ *   skipped — baking an explicit `null` would be noise with the same
+ *   resolved result. `logitBias` is NEVER inherited: the resolver deletes
+ *   any non-profile value post-merge, so only a profile that opted in
+ *   carries it.
  * - Nested `thinking`/`contextWindow`/`openrouter` fragments merge
  *   leaf-by-leaf into the default's full object, mirroring the resolver's
  *   `deepMerge`.
@@ -74,6 +78,12 @@ export function completeCustomProfile(
   }
   if (profile.disableCache === undefined && dflt.disableCache !== undefined) {
     completed.disableCache = dflt.disableCache;
+  }
+  if (profile.temperature === undefined && dflt.temperature != null) {
+    completed.temperature = dflt.temperature;
+  }
+  if (profile.topP === undefined && dflt.topP != null) {
+    completed.topP = dflt.topP;
   }
 
   completed.thinking = mergeNestedFragment(dflt.thinking, profile.thinking);
