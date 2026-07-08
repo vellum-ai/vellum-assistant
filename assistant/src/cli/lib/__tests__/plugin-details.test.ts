@@ -10,6 +10,7 @@
  *   - raw file downloads (a listing entry's `download_url`).
  */
 
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -92,6 +93,25 @@ function splitOnce(s: string, sep: string): [string, string] {
   const i = s.indexOf(sep);
   if (i === -1) return [s, ""];
   return [s.slice(0, i), s.slice(i + sep.length)];
+}
+
+const PNG_SIGNATURE = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+
+/** Build a minimal, well-formed PNG with a valid signature and IHDR dimensions. */
+function makePng(width: number, height: number): Buffer {
+  const buf = Buffer.alloc(24);
+  PNG_SIGNATURE.copy(buf, 0);
+  buf.writeUInt32BE(13, 8); // IHDR chunk length
+  buf.write("IHDR", 12, "ascii"); // IHDR chunk type
+  buf.writeUInt32BE(width, 16);
+  buf.writeUInt32BE(height, 20);
+  return buf;
+}
+
+function sha16(buf: Buffer): string {
+  return createHash("sha256").update(buf).digest("hex").slice(0, 16);
 }
 
 let workspace: string;
@@ -305,6 +325,122 @@ describe("getPluginDetails", () => {
     expect(details.version).toBe("2.0.0");
     expect(details.license).toBe("Apache-2.0");
     expect(details.description).toBe("manifest description");
+    // AND a package.json without vellum.icon surfaces icon as null
+    expect(details.icon).toBeNull();
+  });
+
+  test("surfaces the installed copy's vellum.icon", async () => {
+    // GIVEN an installed copy whose package.json declares vellum.icon
+    const target = join(workspace, "caveman");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({ version: "2.0.0", vellum: { icon: "🦴" } }),
+    );
+
+    const fetch = makeFetch({
+      marketplace: {
+        name: "vellum",
+        plugins: [{ name: "caveman", description: "d" }],
+      },
+      listings: {},
+      raw: {},
+    });
+
+    const details = await getPluginDetails(
+      { name: "caveman" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the author emoji is surfaced from the installed package.json
+    expect(details.installed).toBe(true);
+    expect(details.icon).toBe("🦴");
+  });
+
+  test("surfaces hasIcon + iconVersion from the installed copy's icon.png", async () => {
+    // GIVEN an installed copy that ships a valid bundled icon.png
+    const target = join(workspace, "caveman");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({ version: "2.0.0" }),
+    );
+    const png = makePng(64, 64);
+    writeFileSync(join(target, "icon.png"), png);
+
+    const fetch = makeFetch({
+      marketplace: {
+        name: "vellum",
+        plugins: [{ name: "caveman", description: "d" }],
+      },
+    });
+
+    // WHEN we resolve the detail view
+    const details = await getPluginDetails(
+      { name: "caveman" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the validated icon presence + content-hash version are surfaced
+    expect(details.installed).toBe(true);
+    expect(details.hasIcon).toBe(true);
+    expect(details.iconVersion).toBe(sha16(png));
+  });
+
+  test("reports hasIcon false + null iconVersion when no bundled icon.png", async () => {
+    // GIVEN an installed copy with no icon.png
+    const target = join(workspace, "caveman");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({ version: "2.0.0" }),
+    );
+
+    const fetch = makeFetch({
+      marketplace: {
+        name: "vellum",
+        plugins: [{ name: "caveman", description: "d" }],
+      },
+    });
+
+    const details = await getPluginDetails(
+      { name: "caveman" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN no icon is surfaced (fail-closed) — a client offers no bundled image
+    expect(details.hasIcon).toBe(false);
+    expect(details.iconVersion).toBeNull();
+  });
+
+  test("reports hasIcon false + null iconVersion for an uninstalled plugin", async () => {
+    // GIVEN a marketplace-only plugin with no installed copy
+    const fetch = makeFetch({
+      marketplace: {
+        name: "vellum",
+        plugins: [
+          {
+            name: "simple-memory",
+            source: {
+              source: "github",
+              repo: "example-org/simple-memory",
+              ref: "9999999999999999999999999999999999999999",
+            },
+          },
+        ],
+      },
+      listings: { "example-org/simple-memory": [] },
+    });
+
+    const details = await getPluginDetails(
+      { name: "simple-memory" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN a not-installed plugin has no bundled icon to validate
+    expect(details.installed).toBe(false);
+    expect(details.hasIcon).toBe(false);
+    expect(details.iconVersion).toBeNull();
   });
 
   test("throws PluginDetailsNotFoundError when nothing claims the name", async () => {

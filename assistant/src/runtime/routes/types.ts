@@ -72,7 +72,8 @@ export type RouteResponseContentType =
   | "application/octet-stream"
   | "application/gzip"
   | "application/pdf"
-  | "application/zip";
+  | "application/zip"
+  | "image/png";
 
 /**
  * A route's success response body. Either:

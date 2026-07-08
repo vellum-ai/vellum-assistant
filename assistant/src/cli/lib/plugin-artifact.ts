@@ -101,3 +101,33 @@ export function parsePluginArtifact(
     ...(label ? { label } : {}),
   };
 }
+
+/** Upper bound on `vellum.icon`, in Unicode code points. */
+const MAX_ICON_CODE_POINTS = 16;
+
+/**
+ * Read `vellum.icon` from an already-parsed `package.json` value and return
+ * it only when it is a short, non-empty glyph (an emoji or similar). The
+ * value is trimmed and bounded to {@link MAX_ICON_CODE_POINTS} code points so
+ * it can never carry markup or a URL. Any other shape — missing block, wrong
+ * type, empty, or too long — yields `undefined` rather than throwing.
+ */
+export function parsePluginIcon(packageJson: unknown): string | undefined {
+  if (
+    typeof packageJson !== "object" ||
+    packageJson === null ||
+    Array.isArray(packageJson)
+  ) {
+    return undefined;
+  }
+  const vellum = (packageJson as Record<string, unknown>).vellum;
+  if (typeof vellum !== "object" || vellum === null || Array.isArray(vellum)) {
+    return undefined;
+  }
+  const icon = (vellum as Record<string, unknown>).icon;
+  if (typeof icon !== "string") return undefined;
+  const trimmed = icon.trim();
+  const codePoints = [...trimmed].length;
+  if (codePoints < 1 || codePoints > MAX_ICON_CODE_POINTS) return undefined;
+  return trimmed;
+}

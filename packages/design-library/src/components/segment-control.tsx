@@ -14,7 +14,11 @@ export interface SegmentControlItem<T extends string> {
 
 export interface SegmentControlProps<T extends string> {
   items: SegmentControlItem<T>[];
-  value: T;
+  /**
+   * The selected value, or `null` for an unset control: no segment renders
+   * active and the first enabled segment takes the roving tab stop.
+   */
+  value: T | null;
   onChange: (next: T) => void;
   ariaLabel?: string;
   /**
@@ -32,7 +36,7 @@ export interface SegmentControlProps<T extends string> {
  */
 export function resolveSegmentSelection<T extends string>(
   items: SegmentControlItem<T>[],
-  currentValue: T,
+  currentValue: T | null,
   clickedValue: T,
 ): T | null {
   const item = items.find((candidate) => candidate.value === clickedValue);
@@ -72,8 +76,9 @@ export function SegmentControl<T extends string>({
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
+      // Unset control: arrow navigation starts from before the first item,
+      // so ArrowRight/Down lands on the first enabled segment.
       const currentIndex = items.findIndex((item) => item.value === value);
-      if (currentIndex === -1) return;
 
       let nextIndex: number | null = null;
 
@@ -84,7 +89,12 @@ export function SegmentControl<T extends string>({
           break;
         case "ArrowLeft":
         case "ArrowUp":
-          nextIndex = findEnabledIndex(items, currentIndex, -1);
+          // From the unset state, wrap to the last enabled segment.
+          nextIndex = findEnabledIndex(
+            items,
+            currentIndex === -1 ? 0 : currentIndex,
+            -1,
+          );
           break;
         case "Home":
           nextIndex = findEnabledIndex(items, items.length - 1, 1);
@@ -112,6 +122,14 @@ export function SegmentControl<T extends string>({
     [items, value, onChange],
   );
 
+  // Roving tab stop: the active segment, or — for an unset control — the
+  // first enabled segment, so the group stays keyboard-reachable.
+  const activeIndex = items.findIndex((item) => item.value === value);
+  const tabStopIndex =
+    activeIndex === -1
+      ? items.findIndex((item) => !item.disabled)
+      : activeIndex;
+
   return (
     <div
       ref={groupRef}
@@ -126,7 +144,7 @@ export function SegmentControl<T extends string>({
         className,
       )}
     >
-      {items.map((item) => {
+      {items.map((item, index) => {
         const isActive = item.value === value;
         const isDisabled = Boolean(item.disabled);
         return (
@@ -138,7 +156,7 @@ export function SegmentControl<T extends string>({
             aria-label={iconOnly ? item.label : undefined}
             tooltip={iconOnly ? item.label : undefined}
             disabled={isDisabled}
-            tabIndex={isActive ? 0 : -1}
+            tabIndex={index === tabStopIndex ? 0 : -1}
             onClick={() => {
               const next = resolveSegmentSelection(items, value, item.value);
               if (next !== null) {

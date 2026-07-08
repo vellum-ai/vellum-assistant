@@ -97,7 +97,7 @@ function resolveEntryVision(
   const model = entry.model ?? llm.default?.model;
 
   // Infer provider from model when missing (mirrors the resolver's
-  // withImpliedProviderForKnownModel).
+  // withImpliedProviders).
   const effectiveProvider =
     provider ??
     (typeof model === "string" ? getCatalogProviderForModel(model) : undefined);

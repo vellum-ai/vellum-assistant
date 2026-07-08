@@ -16,6 +16,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
+import { parsePluginIcon } from "./plugin-artifact.js";
+import { readValidatedPluginIcon } from "./plugin-icon-file.js";
 
 /**
  * Directory containing first-party default plugin packages. Each subdirectory
@@ -38,6 +40,8 @@ export interface PluginPackageMetadata {
   readonly version?: string;
   readonly description?: string;
   readonly peerDependencies?: Record<string, string>;
+  /** Author-supplied short glyph (emoji) from `vellum.icon`, when present. */
+  readonly icon?: string;
 }
 
 /** One installed plugin entry. */
@@ -53,6 +57,10 @@ export interface InstalledPluginInfo {
    * JSON, unexpected type, etc.). Empty when the entry parses cleanly.
    */
   readonly issues: readonly string[];
+  /** Whether a valid author-bundled `icon.png` was found in the plugin dir. */
+  readonly hasIcon: boolean;
+  /** Content-hash version of the validated `icon.png`, when {@link hasIcon}. */
+  readonly iconVersion?: string;
 }
 
 /** Where the plugin comes from. */
@@ -129,9 +137,13 @@ function readPluginEntry(
   const pkgJsonPath = join(target, "package.json");
   const issues: string[] = [];
 
+  // Icon validation is independent of package.json parsing, so resolve it
+  // once and attach to every return below (including error paths).
+  const iconFields = pluginIconFields(target);
+
   if (!existsSync(pkgJsonPath)) {
     issues.push("missing package.json");
-    return { name, target, packageJson: null, issues };
+    return { name, target, packageJson: null, issues, ...iconFields };
   }
 
   let raw: string;
@@ -141,7 +153,7 @@ function readPluginEntry(
     issues.push(
       `package.json unreadable: ${err instanceof Error ? err.message : String(err)}`,
     );
-    return { name, target, packageJson: null, issues };
+    return { name, target, packageJson: null, issues, ...iconFields };
   }
 
   let parsed: unknown;
@@ -151,15 +163,16 @@ function readPluginEntry(
     issues.push(
       `package.json invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
     );
-    return { name, target, packageJson: null, issues };
+    return { name, target, packageJson: null, issues, ...iconFields };
   }
 
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     issues.push("package.json is not an object");
-    return { name, target, packageJson: null, issues };
+    return { name, target, packageJson: null, issues, ...iconFields };
   }
 
   const meta = parsed as Record<string, unknown>;
+  const icon = parsePluginIcon(meta);
   const packageJson: PluginPackageMetadata = {
     name: typeof meta.name === "string" ? meta.name : undefined,
     version: typeof meta.version === "string" ? meta.version : undefined,
@@ -171,9 +184,24 @@ function readPluginEntry(
       !Array.isArray(meta.peerDependencies)
         ? (meta.peerDependencies as Record<string, string>)
         : undefined,
+    ...(icon ? { icon } : {}),
   };
 
-  return { name, target, packageJson, issues };
+  return { name, target, packageJson, issues, ...iconFields };
+}
+
+/**
+ * Validate `<dir>/icon.png` and shape the result into the two fields surfaced
+ * on {@link InstalledPluginInfo}. `iconVersion` is omitted when no valid icon
+ * is present.
+ */
+function pluginIconFields(
+  dir: string,
+): Pick<InstalledPluginInfo, "hasIcon" | "iconVersion"> {
+  const icon = readValidatedPluginIcon(dir);
+  return icon.hasIcon
+    ? { hasIcon: true, iconVersion: icon.iconVersion }
+    : { hasIcon: false };
 }
 
 /**
@@ -236,6 +264,12 @@ export function listAllPlugins(
         issues: [],
         source: "default" as const,
         disabled,
+        // Read icon fields from the workspace copy — the same source the plugin
+        // detail + icon-serving routes use — so every surface agrees: a default
+        // plugin reports no bundled icon (its workspace dir is a `.disabled`
+        // stub), keeping list/detail/serve consistent rather than advertising a
+        // source-tree icon the HTTP routes can't serve.
+        ...pluginIconFields(target),
       };
     },
   );

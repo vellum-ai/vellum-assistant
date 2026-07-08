@@ -39,6 +39,24 @@ describe("model intents", () => {
     );
   });
 
+  test("resolves intents for vercel-ai-gateway", () => {
+    expect(resolveModelIntent("vercel-ai-gateway", "balanced")).toBe(
+      "anthropic/claude-sonnet-4.6",
+    );
+    expect(resolveModelIntent("vercel-ai-gateway", "latency-optimized")).toBe(
+      "anthropic/claude-haiku-4.5",
+    );
+    expect(resolveModelIntent("vercel-ai-gateway", "quality-optimized")).toBe(
+      "anthropic/claude-fable-5",
+    );
+    expect(resolveModelIntent("vercel-ai-gateway", "vision-optimized")).toBe(
+      "anthropic/claude-opus-4.6",
+    );
+    expect(getProviderDefaultModel("vercel-ai-gateway")).toBe(
+      "anthropic/claude-sonnet-4.6",
+    );
+  });
+
   test("uses GPT-5.5 as the OpenAI provider default", () => {
     expect(getProviderDefaultModel("openai")).toBe("gpt-5.5");
   });

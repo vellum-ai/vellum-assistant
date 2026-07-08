@@ -38,6 +38,8 @@ export interface ContactSummary {
   role: string;
   contactType?: string | null;
   channelTypes?: string[];
+  /** Any usable channel is verified (or a connected A2A peer). */
+  verified?: boolean;
 }
 
 export type ChannelStatus = "ready" | "incomplete" | "not_configured";

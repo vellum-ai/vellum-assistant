@@ -11,9 +11,9 @@ import {
 } from "./slack-channel-overrides";
 
 describe("resolveChannelTier", () => {
-  test("no cell resolves the presentation default, not an override", () => {
+  test("no cell resolves to an unset tier — the global setting applies, not a hardcoded default", () => {
     expect(resolveChannelTier(undefined)).toEqual({
-      tier: "high",
+      tier: null,
       overridden: false,
     });
   });

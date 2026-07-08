@@ -25,6 +25,7 @@ export const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "fireworks",
   "together",
   "openrouter",
+  "vercel-ai-gateway",
   "minimax",
   "atlascloud",
   "openai-compatible",
