@@ -6,7 +6,7 @@ import {
   CHANNEL_TIER_CONTACT_TYPES,
   tierOverridesFromCells,
   type SlackCapabilityTier,
-} from "@/domains/contacts/slack-channel-overrides";
+} from "@/domains/channels/slack-channel-overrides";
 import {
   assistantChannelPermissionOverridesListOptions,
   assistantChannelPermissionOverridesListQueryKey,

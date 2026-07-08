@@ -8,9 +8,6 @@
  * the cache via {@link memberSlackChannelsQueryKey} to avoid showing the
  * previous workspace's channels while a refetch runs.
  */
-import type { QueryClient } from "@tanstack/react-query";
-
-import { slackRosterQueryKey } from "@/domains/contacts/slack-users-query";
 import {
   slackChannelsGetOptions,
   slackChannelsGetQueryKey,
@@ -30,21 +27,4 @@ export function memberSlackChannelsOptions(assistantId: string) {
 
 export function memberSlackChannelsQueryKey(assistantId: string) {
   return slackChannelsGetQueryKey(memberChannelsRequestOptions(assistantId));
-}
-
-/**
- * Drop every Slack-workspace-scoped cache (member channel list + user
- * roster). Both are scoped to whichever workspace the stored credentials
- * point at, so every path that changes those credentials (save, disconnect)
- * must call this — serving either cache across a reconnect would misreport
- * the previous workspace's channels/members.
- */
-export function removeSlackWorkspaceQueries(
-  queryClient: QueryClient,
-  assistantId: string,
-): void {
-  queryClient.removeQueries({
-    queryKey: memberSlackChannelsQueryKey(assistantId),
-  });
-  queryClient.removeQueries({ queryKey: slackRosterQueryKey(assistantId) });
 }

@@ -1,11 +1,11 @@
 import { DetailCard } from "@/components/detail-card";
-import { assistantDisplayName } from "@/domains/contacts/assistant-display-name";
-import { AssistantChannelsList } from "@/domains/contacts/components/assistant-channels-list";
-import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog";
-import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
-import { useAssistantChannels } from "@/domains/contacts/hooks/use-assistant-channels";
-import { useInviteLinkDialog } from "@/domains/contacts/hooks/use-invite-link-dialog";
-import { useSetupChannelParam } from "@/domains/contacts/hooks/use-setup-channel-param";
+import { assistantDisplayName } from "@/utils/assistant-display-name";
+import { AssistantChannelsList } from "@/domains/channels/components/assistant-channels-list";
+import { GenerateInviteLinkDialog } from "@/components/generate-invite-link-dialog";
+import { ShareConnectionLinkButton } from "@/components/share-connection-link-button";
+import { useAssistantChannels } from "@/hooks/use-assistant-channels";
+import { useInviteLinkDialog } from "@/hooks/use-invite-link-dialog";
+import { useSetupChannelParam } from "@/domains/channels/hooks/use-setup-channel-param";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 

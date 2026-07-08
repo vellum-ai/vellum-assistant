@@ -11,13 +11,13 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { EmptyState } from "@/components/empty-state";
-import { assistantDisplayName as toAssistantDisplayName } from "@/domains/contacts/assistant-display-name";
-import { SlackChannelCard } from "@/domains/contacts/components/slack-channel-card";
-import { SlackChannelSection } from "@/domains/contacts/components/slack-channel-section";
-import { SlackConnectionCard } from "@/domains/contacts/components/slack-connection-card";
-import { SlackThreadBehavior, type SlackThreadMode } from "@/domains/contacts/components/slack-thread-behavior";
+import { assistantDisplayName as toAssistantDisplayName } from "@/utils/assistant-display-name";
+import { SlackChannelCard } from "@/domains/channels/components/slack-channel-card";
+import { SlackChannelSection } from "@/domains/channels/components/slack-channel-section";
+import { SlackConnectionCard } from "@/domains/channels/components/slack-connection-card";
+import { SlackThreadBehavior, type SlackThreadMode } from "@/domains/channels/components/slack-thread-behavior";
 import { SlackSetupWizard, type MutationStatus } from "@/components/slack-setup-wizard";
-import type { AssistantChannelState, SetupChannelId } from "@/domains/contacts/types";
+import type { AssistantChannelState, SetupChannelId } from "@/domains/channels/types";
 import {
   ADMISSION_POLICY_DEFAULT,
   ADMISSION_POLICY_VALUES,

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
-import { isSetupChannelId, type SetupChannelId } from "@/domains/contacts/types";
+import { isSetupChannelId, type SetupChannelId } from "@/domains/channels/types";
 
 /**
  * Reads the `?setup=<channel>` deep-link param (used to pre-select a channel

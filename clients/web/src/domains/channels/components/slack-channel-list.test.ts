@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SlackChannel } from "@/domains/contacts/types";
+import type { SlackChannel } from "@/domains/channels/types";
 
 import {
   classifySlackChannelKind,

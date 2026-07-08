@@ -2,8 +2,8 @@ import { useCallback, useMemo } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { AssistantChannelState } from "@/domains/contacts/types";
-import { isSetupChannelId } from "@/domains/contacts/types";
+import type { AssistantChannelState } from "@/domains/channels/types";
+import { isSetupChannelId } from "@/domains/channels/types";
 import {
   assistantChannelAdmissionPolicyListOptions,
   assistantChannelAdmissionPolicyListQueryKey,

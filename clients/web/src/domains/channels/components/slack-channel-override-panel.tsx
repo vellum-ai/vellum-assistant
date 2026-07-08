@@ -9,7 +9,7 @@ import {
   CAPABILITY_TIER_VALUES,
   type SlackCapabilityTier,
   type SlackChannelTierSettings,
-} from "@/domains/contacts/slack-channel-overrides";
+} from "@/domains/channels/slack-channel-overrides";
 
 export interface SlackChannelOverridePanelProps {
   /** Row's channel name, for accessible control labels. */

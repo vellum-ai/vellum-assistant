@@ -26,7 +26,7 @@ const withQueryClient: Decorator = (Story) => (
 );
 
 const meta: Meta<typeof AssistantChannelsList> = {
-  title: "Contacts/AssistantChannelsList",
+  title: "Channels/AssistantChannelsList",
   component: AssistantChannelsList,
   args: {
     assistantId: "assistant-1",

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 
-import type { SlackChannel } from "@/domains/contacts/types";
+import type { SlackChannel } from "@/domains/channels/types";
 
 import { SlackChannelList } from "./slack-channel-list";
 
@@ -34,7 +34,7 @@ const MIXED_CHANNELS: SlackChannel[] = [
 ];
 
 const meta: Meta<typeof SlackChannelList> = {
-  title: "Contacts/SlackChannelList",
+  title: "Channels/SlackChannelList",
   component: SlackChannelList,
   args: {
     assistantDisplayName: "Example Assistant",

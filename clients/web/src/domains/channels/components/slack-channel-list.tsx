@@ -12,14 +12,14 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 
 import { EmptyState } from "@/components/empty-state";
-import { SlackChannelOverridePanel } from "@/domains/contacts/components/slack-channel-override-panel";
-import { SlackChannelTierLegend } from "@/domains/contacts/components/slack-channel-tier-legend";
+import { SlackChannelOverridePanel } from "@/domains/channels/components/slack-channel-override-panel";
+import { SlackChannelTierLegend } from "@/domains/channels/components/slack-channel-tier-legend";
 import {
   CAPABILITY_TIER_META,
   resolveChannelTier,
   type SlackCapabilityTier,
-} from "@/domains/contacts/slack-channel-overrides";
-import type { SlackChannel } from "@/domains/contacts/types";
+} from "@/domains/channels/slack-channel-overrides";
+import type { SlackChannel } from "@/domains/channels/types";
 
 /**
  * How a channel presents in the filter chips. Mirrors the conversation-type

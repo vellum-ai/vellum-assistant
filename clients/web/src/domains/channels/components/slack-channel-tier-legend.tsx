@@ -9,7 +9,7 @@ import {
   CAPABILITY_TIER_META,
   CAPABILITY_TIER_VALUES,
   type SlackCapabilityTier,
-} from "@/domains/contacts/slack-channel-overrides";
+} from "@/domains/channels/slack-channel-overrides";
 import { routes } from "@/utils/routes";
 
 /** Dot accent per tier tone — mirrors the Tag component's icon accents. */
