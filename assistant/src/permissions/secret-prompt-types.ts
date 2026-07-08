@@ -15,9 +15,20 @@ export interface SecretPromptResult {
   /**
    * Why `value` is null. `"cancelled"` = the user explicitly dismissed the
    * prompt (a valid flow, not a failure); `"timed_out"` = no response within
-   * the permission-timeout window. Only meaningful when `value` is null and
-   * `error` is unset. Lets callers distinguish a deliberate cancel from a
-   * genuine failure instead of treating both as an error.
+   * the permission-timeout window; `"superseded"` = a newer message in the
+   * conversation auto-denied the pending prompt before anyone answered it.
+   * Only meaningful when `value` is null and `error` is unset. Lets callers
+   * distinguish a deliberate cancel from a genuine failure instead of
+   * treating both as an error.
    */
-  reason?: "cancelled" | "timed_out";
+  reason?: "cancelled" | "timed_out" | "superseded";
+  /**
+   * One-time collection URL minted when the channel cannot render the secure
+   * prompt. Set together with `error: "unsupported_channel"` — the caller
+   * relays the link so the user can supply the value out of band; the gateway
+   * stores the submitted value via the credential vault.
+   */
+  collectionUrl?: string;
+  /** Expiry (epoch ms) of {@link SecretPromptResult.collectionUrl}. */
+  collectionExpiresAt?: number;
 }

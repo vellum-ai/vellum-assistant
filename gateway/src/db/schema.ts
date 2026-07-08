@@ -498,3 +498,46 @@ export const channelDenialReplyLog = sqliteTable(
     index("idx_channel_denial_sent").on(table.sentAt),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Credential requests (one-time credential-collection links)
+// ---------------------------------------------------------------------------
+
+export const credentialRequests = sqliteTable(
+  "credential_requests",
+  {
+    id: text("id").primaryKey(),
+    // SHA-256 hash of the one-time link token; the plaintext token is never stored.
+    tokenHash: text("token_hash").notNull(),
+    // "standalone" = minted from settings/CLI; "prompt" = bound to a pending
+    // daemon secret prompt that the submit resolves.
+    purpose: text("purpose").notNull().default("standalone"),
+    service: text("service").notNull(),
+    field: text("field").notNull(),
+    label: text("label"),
+    // Daemon-side correlation ID for the pending secret prompt (the requestId
+    // in the secret_request SSE / POST /v1/secret contract); not a FK.
+    secretPromptId: text("secret_prompt_id"),
+    // JSON-encoded credential policy forwarded to the daemon on submit.
+    policyJson: text("policy_json"),
+    maxUses: integer("max_uses").notNull().default(1),
+    useCount: integer("use_count").notNull().default(0),
+    expiresAt: integer("expires_at").notNull(),
+    // active | redeeming | redeemed | failed | revoked. "redeeming" is a
+    // short-lived claim held while the value is forwarded to the daemon; a
+    // forward error is terminal ("failed") because the daemon may have
+    // partially written before erroring — reopening the link would create a
+    // second-write window on a single-use token.
+    status: text("status").notNull().default("active"),
+    redeemedAt: integer("redeemed_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_credential_requests_token_hash").on(table.tokenHash),
+    index("idx_credential_requests_status_expiry").on(
+      table.status,
+      table.expiresAt,
+    ),
+  ],
+);

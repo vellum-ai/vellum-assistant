@@ -22,7 +22,7 @@ import {
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
-import type { TrustContext } from "../../../daemon/trust-context.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
   linkMessage,
   storeReplyMessageId,

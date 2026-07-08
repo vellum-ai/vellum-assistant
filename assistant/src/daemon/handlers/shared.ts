@@ -9,17 +9,21 @@ import type {
 import { ConfirmationDecisionSchema } from "../../api/responses/conversation-message.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
+import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { unwrapExternalContentForDisplay } from "../../security/untrusted-content.js";
+import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import { getLogger } from "../../util/logger.js";
 import { joinWithSpacing } from "../../util/text-spacing.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
+import { conversationSupportsDynamicUi } from "../channel-ui-capability.js";
+import { findConversation } from "../conversation-registry.js";
 import type { ConversationTransportMetadata } from "../message-protocol.js";
-import type { TrustContext } from "../trust-context.js";
+import type { TrustContext } from "../trust-context-types.js";
 
 const log = getLogger("handlers");
 
@@ -182,14 +186,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function formatBytes(sizeBytes: number): string {
-  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
   const kb = sizeBytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  if (kb < 1024) {
+    return `${kb.toFixed(1)} KB`;
+  }
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
 function clampAttachmentText(text: string): string {
-  if (text.length <= HISTORY_ATTACHMENT_TEXT_LIMIT) return text;
+  if (text.length <= HISTORY_ATTACHMENT_TEXT_LIMIT) {
+    return text;
+  }
   return `${text.slice(0, HISTORY_ATTACHMENT_TEXT_LIMIT)}<truncated />`;
 }
 
@@ -260,10 +270,14 @@ function fileBlockToAttachmentRef(
 export function collectAttachmentRefs(
   content: unknown,
 ): HistoryAttachmentRef[] {
-  if (!Array.isArray(content)) return [];
+  if (!Array.isArray(content)) {
+    return [];
+  }
   const refs: HistoryAttachmentRef[] = [];
   for (const block of content) {
-    if (!isRecord(block) || block.type !== "file") continue;
+    if (!isRecord(block) || block.type !== "file") {
+      continue;
+    }
     refs.push(fileBlockToAttachmentRef(block, extractFileBlockMetadata(block)));
   }
   return refs;
@@ -277,8 +291,9 @@ function renderFileBlockForHistory(
     `[File attachment] ${meta.filename}`,
     `type=${meta.mediaType}`,
   ];
-  if (meta.sizeBytes > 0)
+  if (meta.sizeBytes > 0) {
     summaryParts.push(`size=${formatBytes(meta.sizeBytes)}`);
+  }
 
   const extractedText =
     typeof block.extracted_text === "string" ? block.extracted_text.trim() : "";
@@ -385,7 +400,9 @@ export function renderHistoryContent(
   }
 
   for (const block of content) {
-    if (!isRecord(block) || typeof block.type !== "string") continue;
+    if (!isRecord(block) || typeof block.type !== "string") {
+      continue;
+    }
 
     // Collect ui_surface blocks for inclusion in history
     if (block.type === "ui_surface") {
@@ -423,10 +440,12 @@ export function renderHistoryContent(
         ConversationContentBlock,
         { type: "thinking" }
       > = { type: "thinking", thinking: block.thinking };
-      if (typeof block._startedAt === "number")
+      if (typeof block._startedAt === "number") {
         thinkingBlock.startedAt = block._startedAt;
-      if (typeof block._completedAt === "number")
+      }
+      if (typeof block._completedAt === "number") {
         thinkingBlock.completedAt = block._completedAt;
+      }
       contentBlocks.push(thinkingBlock);
       continue;
     }
@@ -438,12 +457,16 @@ export function renderHistoryContent(
       // here produces a contentOrder that differs from the live streaming
       // path — e.g. empty segments between consecutive tool_use blocks that
       // break tool-call grouping in the UI.
-      if (displayText.trim().length === 0) continue;
+      if (displayText.trim().length === 0) {
+        continue;
+      }
       // Drop Anthropic provider placeholder sentinels. These are injected
       // into outbound API requests to preserve role alternation and must
       // never be rendered to users. Belt-and-suspenders with the persist-
       // time filter in cleanAssistantContent and migration 222.
-      if (isPlaceholderSentinelText(displayText)) continue;
+      if (isPlaceholderSentinelText(displayText)) {
+        continue;
+      }
       textParts.push(displayText);
       // A ui_surface card's plain-text fallback (flagged `_surfaceFallback` by
       // the approval-card builder) is represented by the adjacent surface for
@@ -451,7 +474,9 @@ export function renderHistoryContent(
       // search, channel replies, non-surface clients) but don't emit it as a
       // text segment or content block, or those clients would render the card
       // AND its fallback text.
-      if (block._surfaceFallback === true) continue;
+      if (block._surfaceFallback === true) {
+        continue;
+      }
       ensureSegment();
       currentSegmentParts.push(displayText);
       seenText = true;
@@ -484,63 +509,84 @@ export function renderHistoryContent(
         : {};
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
-      if (id) entry.id = id;
+      if (id) {
+        entry.id = id;
+      }
       // Extract persisted timing/confirmation metadata
-      if (typeof block._startedAt === "number")
+      if (typeof block._startedAt === "number") {
         entry.startedAt = block._startedAt;
-      if (typeof block._previewStartedAt === "number")
+      }
+      if (typeof block._previewStartedAt === "number") {
         entry.previewStartedAt = block._previewStartedAt;
-      if (typeof block._completedAt === "number")
+      }
+      if (typeof block._completedAt === "number") {
         entry.completedAt = block._completedAt;
+      }
       const confirmationDecision = ConfirmationDecisionSchema.safeParse(
         block._confirmationDecision,
       );
       if (confirmationDecision.success) {
         entry.confirmationDecision = confirmationDecision.data;
       }
-      if (typeof block._confirmationLabel === "string")
+      if (typeof block._confirmationLabel === "string") {
         entry.confirmationLabel = block._confirmationLabel;
-      if (typeof block._riskLevel === "string")
+      }
+      if (typeof block._riskLevel === "string") {
         entry.riskLevel = block._riskLevel;
-      if (typeof block._riskReason === "string")
+      }
+      if (typeof block._riskReason === "string") {
         entry.riskReason = block._riskReason;
-      if (typeof block._matchedTrustRuleId === "string")
+      }
+      if (typeof block._matchedTrustRuleId === "string") {
         entry.matchedTrustRuleId = block._matchedTrustRuleId;
-      if (typeof block._autoApproved === "boolean")
+      }
+      if (typeof block._autoApproved === "boolean") {
         entry.autoApproved = block._autoApproved;
-      if (typeof block._approvalMode === "string")
+      }
+      if (typeof block._approvalMode === "string") {
         entry.approvalMode = block._approvalMode;
-      if (typeof block._approvalReason === "string")
+      }
+      if (typeof block._approvalReason === "string") {
         entry.approvalReason = block._approvalReason;
-      if (typeof block._riskThreshold === "string")
+      }
+      if (typeof block._riskThreshold === "string") {
         entry.riskThreshold = block._riskThreshold;
+      }
       // Read back the 3 risk-option arrays persisted by
       // `annotatePersistedAssistantMessage`. Validate the array shape only
       // — element shapes are best-effort (we trust our own writer).
-      if (Array.isArray(block._riskScopeOptions))
+      if (Array.isArray(block._riskScopeOptions)) {
         entry.riskScopeOptions =
           block._riskScopeOptions as HistoryToolCall["riskScopeOptions"];
-      if (Array.isArray(block._riskAllowlistOptions))
+      }
+      if (Array.isArray(block._riskAllowlistOptions)) {
         entry.riskAllowlistOptions =
           block._riskAllowlistOptions as HistoryToolCall["riskAllowlistOptions"];
-      if (Array.isArray(block._riskDirectoryScopeOptions))
+      }
+      if (Array.isArray(block._riskDirectoryScopeOptions)) {
         entry.riskDirectoryScopeOptions =
           block._riskDirectoryScopeOptions as HistoryToolCall["riskDirectoryScopeOptions"];
+      }
       // Read back tool activity (web_search / web_fetch) persisted by
       // `annotatePersistedAssistantMessage` so the activity card survives a
       // history reopen instead of degrading to the plain result text.
-      if (isRecord(block._activityMetadata))
+      if (isRecord(block._activityMetadata)) {
         entry.activityMetadata =
           block._activityMetadata as HistoryToolCall["activityMetadata"];
+      }
       toolCalls.push(entry);
-      if (id) pendingToolUses.set(id, entry);
+      if (id) {
+        pendingToolUses.set(id, entry);
+      }
       contentOrder.push(`tool:${toolCalls.length - 1}`);
       // Same `entry` reference the block carries: a later tool_result pairs its
       // output onto `entry`, so the content block reflects it automatically.
       contentBlocks.push({ type: "tool_use", toolCall: entry });
       if (!seenToolUse) {
         seenToolUse = true;
-        if (!seenText) toolCallsBeforeText = true;
+        if (!seenText) {
+          toolCallsBeforeText = true;
+        }
       }
       continue;
     }
@@ -552,19 +598,26 @@ export function renderHistoryContent(
         : {};
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
-      if (id) entry.id = id;
+      if (id) {
+        entry.id = id;
+      }
       // Native server tools (Anthropic web_search) persist their activity on
       // the server_tool_use block, so read it back here too.
-      if (isRecord(block._activityMetadata))
+      if (isRecord(block._activityMetadata)) {
         entry.activityMetadata =
           block._activityMetadata as HistoryToolCall["activityMetadata"];
+      }
       toolCalls.push(entry);
-      if (id) pendingToolUses.set(id, entry);
+      if (id) {
+        pendingToolUses.set(id, entry);
+      }
       contentOrder.push(`tool:${toolCalls.length - 1}`);
       contentBlocks.push({ type: "tool_use", toolCall: entry });
       if (!seenToolUse) {
         seenToolUse = true;
-        if (!seenText) toolCallsBeforeText = true;
+        if (!seenText) {
+          toolCallsBeforeText = true;
+        }
       }
       continue;
     }
@@ -696,6 +749,66 @@ export function renderHistoryContent(
   };
 }
 
+/** Parameters shared by the standalone secret prompt and its link fallback. */
+interface StandaloneSecretParams {
+  service: string;
+  field: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
+  purpose?: string;
+  allowedTools?: string[];
+  allowedDomains?: string[];
+  injectionTemplates?: CredentialInjectionTemplate[];
+  conversationId?: string;
+}
+
+/**
+ * Fallback for channels without secure input: mint a one-time collection link
+ * via the gateway (flag-gated there) and return it on the result so the
+ * caller can relay it. The credential policy travels on the gateway row
+ * (`policyJson`) and is applied together with the value at redemption —
+ * nothing is stored or mutated until the recipient submits. When minting is
+ * unavailable (flag off, no public ingress URL, gateway unreachable) the
+ * plain `unsupported_channel` failure stands.
+ */
+async function mintCollectionLinkFallback(
+  params: StandaloneSecretParams,
+): Promise<SecretPromptResult> {
+  const policy = {
+    usageDescription: params.purpose,
+    allowedTools: params.allowedTools,
+    allowedDomains: params.allowedDomains,
+    injectionTemplates: params.injectionTemplates,
+  };
+  const hasPolicy = Object.values(policy).some((v) => v !== undefined);
+
+  const result = (await gatewayIpcCall("create_credential_request", {
+    service: params.service,
+    field: params.field,
+    label: params.label,
+    ...(hasPolicy ? { policyJson: JSON.stringify(policy) } : {}),
+  })) as
+    | { ok: true; url: string; expiresAt: number }
+    | { ok: false; error: string }
+    | undefined;
+
+  if (result?.ok) {
+    log.info(
+      { service: params.service, field: params.field },
+      "Secret prompt unsupported on channel — minted a one-time collection link",
+    );
+    return {
+      value: null,
+      delivery: "store",
+      error: "unsupported_channel",
+      collectionUrl: result.url,
+      collectionExpiresAt: result.expiresAt,
+    };
+  }
+  return { value: null, delivery: "store", error: "unsupported_channel" };
+}
+
 /**
  * Send a `secret_request` to the client and wait for the response, outside of a
  * conversation context (e.g. from IPC routes like credentials/prompt).
@@ -705,19 +818,18 @@ export function renderHistoryContent(
  * resolves the prompt generically. When a `conversationId` is supplied (the CLI
  * `credentials prompt` command forwards `__CONVERSATION_ID`), the broadcast is
  * scoped to that conversation so clients deliver it; otherwise it is
- * conversation-less.
+ * conversation-less. When that conversation's channel cannot render dynamic UI
+ * (e.g. slack, telegram), resolves immediately with `unsupported_channel` —
+ * carrying a one-time collection link when the gateway can mint one — instead
+ * of broadcasting a request that can only time out.
  */
-export function requestSecretStandalone(params: {
-  service: string;
-  field: string;
-  label: string;
-  description?: string;
-  placeholder?: string;
-  purpose?: string;
-  allowedTools?: string[];
-  allowedDomains?: string[];
-  conversationId?: string;
-}): Promise<SecretPromptResult> {
+export function requestSecretStandalone(
+  params: StandaloneSecretParams,
+): Promise<SecretPromptResult> {
+  const conversation = findConversation(params.conversationId);
+  if (conversation && !conversationSupportsDynamicUi(conversation)) {
+    return mintCollectionLinkFallback(params);
+  }
   const requestId = uuid();
   const config = getConfig();
   return new Promise((resolve) => {
@@ -755,13 +867,17 @@ export function ensureSkillEntry(
   raw: Record<string, unknown>,
   name: string,
 ): Record<string, unknown> {
-  if (!isRecord(raw.skills) || Array.isArray(raw.skills)) raw.skills = {};
+  if (!isRecord(raw.skills) || Array.isArray(raw.skills)) {
+    raw.skills = {};
+  }
   const skills = raw.skills as Record<string, unknown>;
-  if (!isRecord(skills.entries) || Array.isArray(skills.entries))
+  if (!isRecord(skills.entries) || Array.isArray(skills.entries)) {
     skills.entries = {};
+  }
   const entries = skills.entries as Record<string, unknown>;
-  if (!isRecord(entries[name]) || Array.isArray(entries[name]))
+  if (!isRecord(entries[name]) || Array.isArray(entries[name])) {
     entries[name] = {};
+  }
   return entries[name] as Record<string, unknown>;
 }
 
@@ -796,18 +912,26 @@ function comparePreRelease(a: string, b: string): number {
   const pb = b.split(".");
   const len = Math.max(pa.length, pb.length);
   for (let i = 0; i < len; i++) {
-    if (i >= pa.length) return -1; // a has fewer fields → a < b
-    if (i >= pb.length) return 1;
+    if (i >= pa.length) {
+      return -1;
+    } // a has fewer fields → a < b
+    if (i >= pb.length) {
+      return 1;
+    }
     const aIsNum = /^\d+$/.test(pa[i]);
     const bIsNum = /^\d+$/.test(pb[i]);
     if (aIsNum && bIsNum) {
       const diff = Number(pa[i]) - Number(pb[i]);
-      if (diff !== 0) return diff;
+      if (diff !== 0) {
+        return diff;
+      }
     } else if (aIsNum !== bIsNum) {
       return aIsNum ? -1 : 1; // numeric < non-numeric per §11.4.4
     } else {
       const cmp = (pa[i] ?? "").localeCompare(pb[i] ?? "");
-      if (cmp !== 0) return cmp;
+      if (cmp !== 0) {
+        return cmp;
+      }
     }
   }
   return 0;
@@ -825,11 +949,19 @@ export function compareSemver(a: string, b: string): number {
   const pb = parseSemverParts(b);
   for (let i = 0; i < 3; i++) {
     const diff = pa.nums[i] - pb.nums[i];
-    if (diff !== 0) return diff;
+    if (diff !== 0) {
+      return diff;
+    }
   }
   // Same major.minor.patch — compare pre-release
-  if (pa.pre === null && pb.pre === null) return 0;
-  if (pa.pre !== null && pb.pre === null) return -1; // pre-release < release
-  if (pa.pre === null && pb.pre !== null) return 1;
+  if (pa.pre === null && pb.pre === null) {
+    return 0;
+  }
+  if (pa.pre !== null && pb.pre === null) {
+    return -1;
+  } // pre-release < release
+  if (pa.pre === null && pb.pre !== null) {
+    return 1;
+  }
   return comparePreRelease(pa.pre!, pb.pre!);
 }

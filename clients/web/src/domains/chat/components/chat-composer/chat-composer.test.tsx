@@ -1154,4 +1154,29 @@ describe("ChatComposer — live-voice transcript area", () => {
     expect(textarea.className).not.toContain("hidden");
     expect(textarea.disabled).toBe(false);
   });
+
+  // The ghost-suffix mirror and the live transcript share the same grid cell,
+  // so a suggestion painted during a session would overlay the streaming
+  // speech. The composer suppresses the ghost while it owns the session.
+  test("ghost suffix renders normally with no active session (baseline)", () => {
+    // GIVEN an empty draft and a pending autocomplete suggestion, no session
+    const html = renderComposer({ input: "", suggestion: "ghost completion text" });
+
+    // THEN the ghost suffix paints into the composer's mirror cell
+    expect(html).toContain("ghost completion text");
+  });
+
+  test("owned live-voice session suppresses the ghost suffix (no overlay on the transcript)", () => {
+    // GIVEN a listening session this composer owns and a pending suggestion
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    seedLiveVoiceSession("listening");
+
+    // WHEN the composer renders with the suggestion present
+    const { container } = renderVoiceComposer({ suggestion: "ghost completion text" });
+
+    // THEN the ghost is gone — the shared grid cell is left for the streaming
+    // transcript, not the suggestion overlay
+    expect(container.textContent).not.toContain("ghost completion text");
+  });
 });

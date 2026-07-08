@@ -13,7 +13,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { TrustContext } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 
 // ── Module mocks ─────────────────────────────────────────────────────
 

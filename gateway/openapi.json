@@ -1275,6 +1275,138 @@
         }
       }
     },
+    "/v1/credential-requests/peek": {
+      "post": {
+        "operationId": "credential_requests_peek",
+        "summary": "Validate a credential-request token without consuming it",
+        "tags": ["credential-requests"],
+        "description": "Returns the service/field/label the link collects. The token travels in the body so it never appears in URLs or access logs.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": { "type": "string", "minLength": 20 }
+                },
+                "required": ["token"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "service": { "type": "string" },
+                        "field": { "type": "string" },
+                        "label": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "expiresAt": { "type": "number" }
+                      },
+                      "required": ["service", "field", "label", "expiresAt"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": ["INVALID", "EXPIRED", "USED"]
+                            },
+                            "message": { "type": "string" }
+                          },
+                          "required": ["code", "message"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["error"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/credential-requests/submit": {
+      "post": {
+        "operationId": "credential_requests_submit",
+        "summary": "Consume a credential-request token and store the value",
+        "tags": ["credential-requests"],
+        "description": "Single-use: atomically claims the link, forwards the value to the assistant's credential store, and marks the link redeemed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": { "type": "string", "minLength": 20 },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32768
+                  }
+                },
+                "required": ["token", "value"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": { "ok": { "type": "boolean" } },
+                      "required": ["ok"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "enum": ["INVALID", "EXPIRED", "USED"]
+                            },
+                            "message": { "type": "string" }
+                          },
+                          "required": ["code", "message"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["error"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/feature-flags": {
       "get": {
         "operationId": "featureFlagsGet",

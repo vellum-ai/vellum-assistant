@@ -21,7 +21,7 @@ import type {
   ContactRole,
   ContactWithChannels,
 } from "../contacts/types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { ActorTrustContext } from "./actor-trust-resolver.js";
 import { toTrustContext } from "./actor-trust-resolver.js";
 

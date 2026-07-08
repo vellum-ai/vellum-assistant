@@ -12,7 +12,7 @@ import type {
   SetupOutcome,
   SetupResolved,
 } from "../calls/call-setup-router.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures

@@ -7,7 +7,7 @@
  * the owning server should continue the call once setup completes.
  */
 
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 
 // ── Transport surface ────────────────────────────────────────────────
 
