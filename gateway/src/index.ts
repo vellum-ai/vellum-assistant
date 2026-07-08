@@ -85,6 +85,7 @@ import {
   handleRevokeDevice,
 } from "./http/routes/devices.js";
 import { handlePair } from "./http/routes/pair.js";
+import { handleCredentialEntryPage } from "./http/routes/credential-entry-page.js";
 import {
   handleCredentialRequestPeek,
   handleCredentialRequestSubmit,
@@ -923,6 +924,15 @@ async function main() {
     // ── Credential requests (one-time credential-collection links) ──
     // Unauthenticated by design: the single-use token in the request BODY is
     // the credential to act. Invalid tokens count as auth failures.
+    // The entry page is a static self-contained HTML shell (no token
+    // server-side — it rides the URL fragment); Velay-tunneled deployments
+    // have no SPA server behind the tunnel, so the gateway serves it.
+    {
+      path: "/assistant/credentials/enter",
+      method: "GET",
+      auth: "none",
+      handler: (req) => handleCredentialEntryPage(req),
+    },
     {
       path: "/v1/credential-requests/peek",
       method: "POST",

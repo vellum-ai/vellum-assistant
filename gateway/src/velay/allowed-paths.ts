@@ -22,6 +22,12 @@
  *   - `^/v1/live-voice` — exact match for the browser live-voice WebSocket
  *     (the Twilio media-stream WebSocket rides `^/webhooks/`).
  *   - `^/v1/stt/stream` — exact match for the public STT streaming WebSocket.
+ *   - `^/assistant/credentials/enter$` — the gateway-served one-time
+ *     credential entry page (self-contained HTML; the single-use token rides
+ *     the URL fragment, which never reaches Velay or the gateway logs).
+ *   - `^/v1/credential-requests/(peek|submit)$` — the entry page's
+ *     unauthenticated API calls; the single-use token travels in the POST
+ *     body and is validated by the gateway handlers.
  *
  * If you add a new public route to `gateway/src/index.ts` that must be
  * reachable through the Velay tunnel (i.e. anything an external provider
@@ -34,6 +40,8 @@ export const VELAY_ALLOWED_PATHS: readonly string[] = Object.freeze([
   "^/v1/audio/",
   "^/v1/live-voice$",
   "^/v1/stt/stream$",
+  "^/assistant/credentials/enter$",
+  "^/v1/credential-requests/(peek|submit)$",
 ]);
 
 /**
@@ -48,6 +56,5 @@ export const VELAY_ALLOWED_PATHS_HEADER = "X-Vellum-Velay-Allowed-Paths";
  * module load — the allowlist is static for the lifetime of the gateway
  * process.
  */
-export const VELAY_ALLOWED_PATHS_HEADER_VALUE = JSON.stringify(
-  VELAY_ALLOWED_PATHS,
-);
+export const VELAY_ALLOWED_PATHS_HEADER_VALUE =
+  JSON.stringify(VELAY_ALLOWED_PATHS);

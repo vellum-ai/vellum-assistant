@@ -2473,6 +2473,18 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/assistant/credentials/enter": {
+        get: {
+          summary: "One-time credential entry page",
+          description:
+            "Self-contained static HTML page for redeeming a one-time credential link. The single-use token rides the URL fragment (never sent over HTTP); the page calls the credential-requests peek/submit routes with the token in POST bodies.",
+          operationId: "credentialEntryPage",
+          responses: {
+            "200": { description: "HTML entry page" },
+            "405": { description: "Method not allowed" },
+          },
+        },
+      },
       "/v1/credential-requests/peek": {
         post: {
           summary: "Validate a credential-request token without consuming it",
