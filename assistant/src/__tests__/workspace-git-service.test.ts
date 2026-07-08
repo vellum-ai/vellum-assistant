@@ -767,6 +767,26 @@ describe("WorkspaceGitService", () => {
       expect(headFiles).toContain("notes.md");
     });
 
+    test("partial init with staged now-ignored files drops them from the initial commit", async () => {
+      // Interrupted previous init: `.git` exists with staged files, no commit
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      mkdirSync(join(testDir, "embedding-models"), { recursive: true });
+      writeFileSync(join(testDir, "embedding-models", "model.bin"), "weights");
+      writeFileSync(join(testDir, "notes.md"), "keep me");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const headFiles = execFileSync(
+        "git",
+        ["ls-tree", "-r", "--name-only", "HEAD"],
+        { cwd: testDir, encoding: "utf-8" },
+      );
+      expect(headFiles).not.toContain("embedding-models/model.bin");
+      expect(headFiles).toContain("notes.md");
+    });
+
     test("untracking is limited to Vellum rules and keeps avatar/sounds state", async () => {
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
       execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });

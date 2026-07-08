@@ -507,6 +507,9 @@ export class WorkspaceGitService {
           // in the corruption-recovery path we fall through here after
           // removing .git, so branch enforcement is still useful.
           this.ensureGitignoreRulesLocked();
+          // A partial init (`.git` exists, no commit) can carry staged
+          // now-ignored paths from an interrupted `git add -A`.
+          await this.untrackIgnoredFilesLocked();
           this.ensureBranchGuardHookLocked();
           await this.ensureCommitIdentityLocked();
           await this.ensureBranchGuardConfigLocked();
@@ -849,16 +852,16 @@ export class WorkspaceGitService {
   }
 
   /**
-   * Drop tracked files that are now matched by ignore rules from the index
-   * (working tree untouched). Ignore rules only affect untracked paths, so a
-   * workspace that committed runtime state (e.g. embedding-models/) before a
-   * rule existed would otherwise keep committing it forever. The staged
-   * deletions ride along with the next commit. Best-effort: failures are
-   * logged, never block init. Must be called with the mutex lock held.
+   * Drop tracked files matched by the Vellum-managed ignore rules from the
+   * index (working tree untouched). Ignore rules only affect untracked
+   * paths, so committed runtime state (e.g. embedding-models/) stays in the
+   * index — and churns every commit — until explicitly removed here. The
+   * staged deletions ride along with the next commit. Best-effort: failures
+   * are logged, never block init. Must be called with the mutex lock held.
    *
    * Deliberately matches against the Vellum-managed rules only — not the
    * workspace .gitignore (which may carry user-authored rules whose matches
-   * were force-added on purpose) and not --exclude-standard (the user's
+   * are force-added on purpose) and not --exclude-standard (the user's
    * global/local exclude files). The rules are passed via a temp file under
    * .git so gitignore semantics, including negation order, are preserved.
    */
