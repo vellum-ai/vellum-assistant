@@ -234,21 +234,28 @@ export function deriveGeminiReason(error: ApiError): ProviderErrorReason {
   const upper = message.toUpperCase();
   const hasName = (name: string) => upper.includes(name);
 
-  if (status === 401 || hasName("UNAUTHENTICATED"))
+  if (status === 401 || hasName("UNAUTHENTICATED")) {
     return "invalid_credentials";
+  }
   if (status === 403 || hasName("PERMISSION_DENIED")) {
     return GEMINI_MODEL_RESTRICTED_PATTERNS.test(message)
       ? "model_restricted"
       : "invalid_credentials";
   }
-  if (status === 404 || hasName("NOT_FOUND")) return "model_not_found";
-  if (status === 429 || hasName("RESOURCE_EXHAUSTED")) return "rate_limited";
+  if (status === 404 || hasName("NOT_FOUND")) {
+    return "model_not_found";
+  }
+  if (status === 429 || hasName("RESOURCE_EXHAUSTED")) {
+    return "rate_limited";
+  }
   if (status >= 500 || hasName("UNAVAILABLE")) {
     return GEMINI_OVERLOAD_PATTERNS.test(message)
       ? "overloaded"
       : "server_error";
   }
-  if (status >= 400) return "bad_request";
+  if (status >= 400) {
+    return "bad_request";
+  }
   return "unknown";
 }
 
