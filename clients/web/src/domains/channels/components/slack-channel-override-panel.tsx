@@ -7,9 +7,9 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import {
   CAPABILITY_TIER_META,
   CAPABILITY_TIER_VALUES,
-  type SlackCapabilityTier,
   type SlackChannelTierSettings,
 } from "@/domains/channels/slack-channel-overrides";
+import type { RiskThreshold } from "@/utils/threshold-presets";
 
 export interface SlackChannelOverridePanelProps {
   /** Row's channel name, for accessible control labels. */
@@ -20,7 +20,7 @@ export interface SlackChannelOverridePanelProps {
    * persisted — shown selected in the picker with "default" status.
    * `null` while unknown; the picker then renders unset.
    */
-  defaultTier: SlackCapabilityTier | null;
+  defaultTier: RiskThreshold | null;
   /**
    * True until persisted overrides have loaded — the picker holds disabled
    * so a stored tier can't be misread (and overwritten) as the default.
@@ -28,7 +28,7 @@ export interface SlackChannelOverridePanelProps {
   loading?: boolean;
   /** True when overrides failed to load; the picker stays disabled. */
   error?: boolean;
-  onTierChange: (tier: SlackCapabilityTier) => void;
+  onTierChange: (tier: RiskThreshold) => void;
   onReset: () => void;
 }
 
@@ -116,7 +116,7 @@ export function SlackChannelOverridePanel({
           </Typography>
         )}
       </div>
-      <SegmentControl<SlackCapabilityTier>
+      <SegmentControl<RiskThreshold>
         items={tierItems}
         value={settings.tier ?? defaultTier}
         onChange={onTierChange}
