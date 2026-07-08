@@ -35,6 +35,7 @@
 
 import type { ServerWebSocket } from "bun";
 
+import { createPcmChunkAligner } from "../tts/pcm-chunk-aligner.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { synthesizeAndEmit } from "../tts/synthesis-stream.js";
 import { getLogger } from "../util/logger.js";
@@ -193,7 +194,9 @@ export class MediaStreamOutput implements CallTransport {
    * PCM, and re-encode as mu-law frames for Twilio.
    */
   sendPlayUrl(url: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.enqueuePlayback({ type: "fetch-url", url });
   }
 
@@ -231,7 +234,9 @@ export class MediaStreamOutput implements CallTransport {
    * closes.
    */
   endSession(reason?: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.state = "closed";
 
     // Cancel any in-flight playback
@@ -258,7 +263,9 @@ export class MediaStreamOutput implements CallTransport {
    * Send a base64-encoded audio frame to Twilio for playback.
    */
   sendAudioPayload(base64Payload: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     const command: MediaStreamSendMediaCommand = {
       event: "media",
@@ -283,7 +290,9 @@ export class MediaStreamOutput implements CallTransport {
    * back a `mark` event when the caller reaches this point in playback.
    */
   sendMark(name: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     const command: MediaStreamSendMarkCommand = {
       event: "mark",
@@ -317,7 +326,9 @@ export class MediaStreamOutput implements CallTransport {
    * when it actually aborts the turn.
    */
   clearAudio(): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     // Flush our internal playback queue and abort in-flight work.
     this.flushPlaybackQueue();
@@ -337,7 +348,9 @@ export class MediaStreamOutput implements CallTransport {
    * (initial greeting, setup handoff prompt) survives to play after.
    */
   clearBufferedAudio(): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.sendClearCommand();
   }
 
@@ -431,7 +444,9 @@ export class MediaStreamOutput implements CallTransport {
    * before sending.
    */
   private async drainPlaybackQueue(): Promise<void> {
-    if (this.draining) return;
+    if (this.draining) {
+      return;
+    }
     this.draining = true;
 
     try {
@@ -459,7 +474,9 @@ export class MediaStreamOutput implements CallTransport {
 
         // If the playback version changed (clearAudio was called), stop
         // processing stale items.
-        if (version !== this.playbackVersion) break;
+        if (version !== this.playbackVersion) {
+          break;
+        }
       }
     } finally {
       this.draining = false;
@@ -477,7 +494,9 @@ export class MediaStreamOutput implements CallTransport {
    * the one-shot audio-start signal before the first frame goes out.
    */
   private sendFrames(frames: string[]): void {
-    if (frames.length === 0) return;
+    if (frames.length === 0) {
+      return;
+    }
     const audioStartCallback = this.audioStartCallback;
     if (audioStartCallback) {
       this.audioStartCallback = null;
@@ -534,7 +553,8 @@ export class MediaStreamOutput implements CallTransport {
       // Chunk boundaries can split a 16-bit sample or a decimation pair;
       // the unprocessable tail (< 4 bytes) carries into the next chunk so
       // sample alignment and decimation phase stay stable across chunks.
-      let pcmCarry: Buffer | undefined;
+      // 4 bytes = two 16 kHz samples = one 8 kHz output sample.
+      const pcmAligner = createPcmChunkAligner(4);
       // Mu-law bytes short of a whole 20 ms frame, carried likewise.
       let mulawCarry: Buffer = Buffer.alloc(0);
 
@@ -575,20 +595,12 @@ export class MediaStreamOutput implements CallTransport {
           if (!isCurrent()) {
             return;
           }
-          const combined = pcmCarry
-            ? Buffer.concat([pcmCarry, chunk.audio])
-            : chunk.audio;
-          // 4 bytes = two 16 kHz samples = one 8 kHz output sample.
-          const usableBytes = combined.length & ~3;
-          pcmCarry =
-            usableBytes < combined.length
-              ? combined.subarray(usableBytes)
-              : undefined;
-          if (usableBytes === 0) {
+          const aligned = pcmAligner.align(chunk.audio);
+          if (aligned.byteLength === 0) {
             return;
           }
           const pcm8k = this.pcm16ToTelephonyRate(
-            combined.subarray(0, usableBytes),
+            aligned,
             STREAMING_PCM_SAMPLE_RATE_HZ,
           );
           sendMulaw(pcm16ToMulaw(pcm8k), false);
@@ -600,11 +612,11 @@ export class MediaStreamOutput implements CallTransport {
       }
 
       if (streamsPcm) {
-        if (pcmCarry) {
+        if (pcmAligner.carryLength() > 0) {
           // A sub-sample tail is malformed provider output; decimation
           // would drop it anyway.
           log.debug(
-            { streamSid: this.streamSid, carryBytes: pcmCarry.length },
+            { streamSid: this.streamSid, carryBytes: pcmAligner.carryLength() },
             "Dropping sub-sample tail from PCM16 TTS stream",
           );
         }
@@ -685,10 +697,14 @@ export class MediaStreamOutput implements CallTransport {
         return;
       }
 
-      if (version !== this.playbackVersion || this.isClosed()) return;
+      if (version !== this.playbackVersion || this.isClosed()) {
+        return;
+      }
 
       const buffer = Buffer.from(await response.arrayBuffer());
-      if (version !== this.playbackVersion || this.isClosed()) return;
+      if (version !== this.playbackVersion || this.isClosed()) {
+        return;
+      }
 
       const contentType = response.headers.get("content-type") ?? "audio/mpeg";
       const format: "mp3" | "wav" | "opus" | "pcm" = contentType.includes("wav")
@@ -700,7 +716,9 @@ export class MediaStreamOutput implements CallTransport {
             : "mp3";
 
       const frames = this.audioBufferToFrames(buffer, format);
-      if (version !== this.playbackVersion || this.isClosed()) return;
+      if (version !== this.playbackVersion || this.isClosed()) {
+        return;
+      }
 
       this.sendFrames(frames);
     } catch (err) {
@@ -762,7 +780,9 @@ export class MediaStreamOutput implements CallTransport {
       const sampleRate = audio.readUInt32LE(24);
       const bitsPerSample = audio.readUInt16LE(34);
       let pcmData: Buffer = audio.subarray(44);
-      if (pcmData.length < 2) return [];
+      if (pcmData.length < 2) {
+        return [];
+      }
 
       if (bitsPerSample !== 16 || channels > 2 || channels === 0) {
         // Limitation: only 16-bit mono/stereo PCM is decoded here.
@@ -827,7 +847,9 @@ export class MediaStreamOutput implements CallTransport {
     // ElevenLabs pcm_16000 produces 16-bit signed LE at 16 kHz. Twilio
     // needs 8 kHz mu-law, so we downsample by taking every other sample.
     if (format === "pcm" || format === "wav") {
-      if (audio.length < 2) return [];
+      if (audio.length < 2) {
+        return [];
+      }
       // Headerless PCM carries no declared rate; assume the 16 kHz that
       // ElevenLabs pcm_16000 produces and downsample to 8 kHz.
       const downsampled = decimatePcm16(audio, 2);
@@ -876,7 +898,9 @@ export class MediaStreamOutput implements CallTransport {
    * assumption with a warning.
    */
   private pcm16ToTelephonyRate(pcm: Buffer, sampleRate: number): Buffer {
-    if (sampleRate === TELEPHONY_SAMPLE_RATE_HZ) return pcm;
+    if (sampleRate === TELEPHONY_SAMPLE_RATE_HZ) {
+      return pcm;
+    }
     if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
       log.warn(
         { streamSid: this.streamSid, sampleRate },
