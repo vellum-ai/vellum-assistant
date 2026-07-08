@@ -45,6 +45,7 @@ import { completeCustomProfile } from "../../config/profile-materialization.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
+  DefaultProviderSchema,
   LLMConfigBase,
   LLMConfigFragment,
   ProfileEntry,
@@ -657,6 +658,7 @@ const ConfigGetResponseSchema = z
         default: LLMConfigFragment.extend({
           provider_connection: z.string().optional(),
         }).optional(),
+        defaultProvider: DefaultProviderSchema.optional(),
         profiles: z.record(z.string(), WireProfileEntry).optional(),
         profileOrder: z.array(z.string()).optional(),
         activeProfile: z.string().optional(),

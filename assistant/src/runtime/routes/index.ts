@@ -57,6 +57,7 @@ import { ROUTES as CREDENTIAL_REQUEST_ROUTES } from "./credential-request-routes
 import { ROUTES as CREDENTIAL_ROUTES } from "./credential-routes.js";
 import { ROUTES as DEBUG_BASH_ROUTES } from "./debug-bash-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
+import { ROUTES as DEFAULT_PROVIDER_ROUTES } from "./default-provider-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DISK_PRESSURE_ROUTES } from "./disk-pressure-routes.js";
@@ -198,6 +199,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_STARTER_ROUTES,
   ...DEBUG_BASH_ROUTES,
   ...DEBUG_ROUTES,
+  ...DEFAULT_PROVIDER_ROUTES,
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,
   ...DOMAIN_ROUTES,
