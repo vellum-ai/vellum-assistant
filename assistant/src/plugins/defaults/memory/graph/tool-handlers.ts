@@ -342,6 +342,19 @@ export function handleUpdateMemory(
   }
 
   const target = candidates[0]!;
+
+  const newContentNorm = newContent.toLowerCase();
+  const duplicate = nodes.find(
+    (n) =>
+      n.id !== target.id && n.content.trim().toLowerCase() === newContentNorm,
+  );
+  if (duplicate) {
+    return {
+      success: false,
+      message: `A memory with that content already exists: "${duplicate.content.slice(0, SNIPPET_LENGTH)}"`,
+    };
+  }
+
   recordNodeEdit({
     nodeId: target.id,
     previousContent: target.content,
@@ -398,12 +411,13 @@ export function handleListMemory(
   const limit = Math.min(Math.max(1, input.limit ?? 50), 200);
   const search = input.search?.trim().toLowerCase();
 
-  // Fetch with a generous cap when searching (we filter after); otherwise use limit directly.
-  const fetchLimit = search ? 500 : limit;
+  // When searching, fetch all active nodes (no limit) so content filtering is
+  // exhaustive regardless of graph size. Without a limit the DB still orders by
+  // significance DESC, so the most relevant matches surface first after slicing.
   const allNodes = queryNodes({
     scopeId: MEMORY_SCOPE_DEFAULT,
     fidelityNot: ["gone"],
-    limit: fetchLimit,
+    ...(search ? {} : { limit }),
   });
 
   const filtered = search

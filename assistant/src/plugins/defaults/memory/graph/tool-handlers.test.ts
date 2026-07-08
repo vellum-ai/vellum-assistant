@@ -226,6 +226,24 @@ describe("handleUpdateMemory", () => {
     expect(result.message).toMatch(/Multiple memories match/);
     expect(mockUpdateNode).not.toHaveBeenCalled();
   });
+
+  test("returns error when new_content already exists on another node", () => {
+    mockNodes = [
+      node("1", "User prefers TypeScript"),
+      node("2", "User prefers Rust"),
+    ];
+    const result = handleUpdateMemory(
+      {
+        old_content: "User prefers TypeScript",
+        new_content: "User prefers Rust",
+      },
+      "cli",
+      configV2On,
+    );
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/already exists/);
+    expect(mockUpdateNode).not.toHaveBeenCalled();
+  });
 });
 
 describe("handleListMemory", () => {
@@ -279,6 +297,20 @@ describe("handleListMemory", () => {
     const result = handleListMemory({ limit: 3 }, configV2On);
     expect(result.nodes).toHaveLength(3);
     expect(result.total).toBe(3);
+  });
+
+  test("search is exhaustive — finds matches beyond position 500 in the full set", () => {
+    // Simulate 502 nodes where the matching one is at position 501 (would be
+    // missed if we capped the DB fetch at 500 before filtering in memory).
+    const bulk = Array.from({ length: 501 }, (_, i) =>
+      node(String(i), `Bulk memory ${i}`),
+    );
+    const late = node("late", "User speaks Kinyarwanda");
+    mockNodes = [...bulk, late];
+    const result = handleListMemory({ search: "kinyarwanda" }, configV2On);
+    expect(result.success).toBe(true);
+    expect(result.nodes).toHaveLength(1);
+    expect(result.nodes[0]!.id).toBe("late");
   });
 
   test("includes required fields on each node", () => {
