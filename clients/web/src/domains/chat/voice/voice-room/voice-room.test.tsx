@@ -149,6 +149,20 @@ describe("VoiceRoom — exit", () => {
     expect(controls.stop).toHaveBeenCalledTimes(1);
   });
 
+  test("Escape ends the session even when an editable element holds focus (global exit)", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    // The room can open while the composer textarea still owns focus; Escape is
+    // a global exit and must fire regardless of the editable target guard.
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    expect(controls.stop).toHaveBeenCalledTimes(1);
+    input.remove();
+  });
+
   test("the exit control renders even with no assistant resolved", () => {
     startOwnedSession("listening");
     useLiveVoiceStore.setState({ assistantId: null });
@@ -190,6 +204,25 @@ describe("VoiceRoom — push-to-talk fallback", () => {
     // default (native button activation) is left intact.
     expect(controls.release).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  test("Space in a text field is left for the field (not swallowed as push-to-talk)", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    const event = new KeyboardEvent("keydown", {
+      key: " ",
+      code: "Space",
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(event);
+    // The editable guard applies to Space: no release, and the field's own
+    // space-to-type default is left intact.
+    expect(controls.release).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+    input.remove();
   });
 
   test("Space is inert while the assistant is speaking", () => {

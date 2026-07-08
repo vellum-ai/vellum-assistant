@@ -122,19 +122,20 @@ function VoiceRoomOverlay() {
   // Global exit / push-to-talk keys, live only while the room is mounted.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (isEditableTarget(event.target)) {
-        return;
-      }
+      // Escape is a global exit — it must fire even when the composer textarea
+      // (or any other editable/focused element) still holds focus as the room
+      // opens, so it is handled before any target guard.
       if (event.key === "Escape") {
         event.preventDefault();
         endLiveVoiceSession();
         return;
       }
       if (event.key === " " || event.code === "Space") {
-        // Let a focused interactive control (e.g. the exit ✕) handle Space as
-        // its own activation instead of swallowing it as push-to-talk. The orb
-        // is itself a button, so Space over it still releases via its onClick.
-        if (isInteractiveTarget(event.target)) {
+        // Space is push-to-talk; never steal it from a text field or a focused
+        // interactive control (e.g. the exit ✕), which handle Space as their own
+        // input/activation. The orb is itself a button, so Space over it still
+        // releases via its onClick.
+        if (isEditableTarget(event.target) || isInteractiveTarget(event.target)) {
           return;
         }
         if (canReleaseTurn(useLiveVoiceStore.getState().state)) {
