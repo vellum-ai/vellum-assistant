@@ -147,6 +147,48 @@ describe("hook output sanitization", () => {
     });
   });
 
+  test("drops known block types missing the fields serializers dereference", async () => {
+    entries = [
+      {
+        owner: { kind: "plugin", id: "p" },
+        fn: (ctx: { latestMessages: unknown[] }) => {
+          ctx.latestMessages.push({
+            role: "user",
+            content: [
+              // Media resolution reads `source.type` off these unguarded.
+              { type: "image" },
+              { type: "file", source: { type: "base64" } },
+              // Serializers read `content` off tool results.
+              { type: "tool_result", tool_use_id: "tu-1" },
+              // Valid siblings survive.
+              {
+                type: "image",
+                source: { type: "base64", media_type: "image/png", data: "x" },
+              },
+              { type: "tool_result", tool_use_id: "tu-2", content: "ok" },
+            ],
+          });
+        },
+      },
+    ];
+
+    const final = await runHook(
+      "user-prompt-submit",
+      userPromptCtx([validUserMessage]),
+    );
+
+    expect(final.latestMessages[1]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: "x" },
+        },
+        { type: "tool_result", tool_use_id: "tu-2", content: "ok" },
+      ],
+    });
+  });
+
   test("post-model-call: drops a tool_use block missing its required fields", async () => {
     entries = [
       {

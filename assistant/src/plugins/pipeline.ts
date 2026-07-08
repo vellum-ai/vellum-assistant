@@ -138,13 +138,35 @@ const HOOK_MESSAGE_FIELDS: Partial<
 const VALID_MESSAGE_ROLES = new Set(["user", "assistant"]);
 
 /**
+ * Structural check for a media block's `source`, matching what the resolution
+ * and serialization layers dereference: `contentHasReference` reads
+ * `source.type`, `base64Source` reads `data`/`media_type`, and the
+ * workspace-ref resolver reads `attachmentId`.
+ */
+function isMediaSource(value: unknown): boolean {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  const source = value as Record<string, unknown>;
+  if (source.type === "base64") {
+    return (
+      typeof source.data === "string" && typeof source.media_type === "string"
+    );
+  }
+  if (source.type === "workspace_ref") {
+    return typeof source.attachmentId === "string";
+  }
+  return false;
+}
+
+/**
  * Structural check for a hook-supplied content block. Beyond the `type`
- * discriminant, executable/serialized block types must carry the fields the
- * loop and provider serializers read without guards: the loop reads
- * `block.id.length` off every `tool_use` (an empty id gets a fresh one
- * assigned, a missing one throws), and serializers read `text` / `tool_use_id`
- * directly. Unknown block types pass — the serializers already drop them
- * safely.
+ * discriminant, every known block type must carry the fields the loop and
+ * provider serializers read without guards: the loop reads `block.id.length`
+ * off every `tool_use` (an empty id gets a fresh one assigned, a missing one
+ * throws), media resolution reads `source.type` off image/file blocks, and
+ * serializers read `text` / `thinking` / `tool_use_id` / `content` directly.
+ * Unknown block types pass — the serializers already drop them safely.
  */
 function isBlockish(block: unknown): block is ContentBlock {
   if (
@@ -158,7 +180,12 @@ function isBlockish(block: unknown): block is ContentBlock {
   switch (b.type) {
     case "text":
       return typeof b.text === "string";
+    case "thinking":
+      return typeof b.thinking === "string" && typeof b.signature === "string";
+    case "redacted_thinking":
+      return typeof b.data === "string";
     case "tool_use":
+    case "server_tool_use":
       return (
         typeof b.id === "string" &&
         typeof b.name === "string" &&
@@ -166,8 +193,18 @@ function isBlockish(block: unknown): block is ContentBlock {
         b.input !== null
       );
     case "tool_result":
+      return (
+        typeof b.tool_use_id === "string" &&
+        (typeof b.content === "string" || Array.isArray(b.content)) &&
+        (b.contentBlocks === undefined || Array.isArray(b.contentBlocks))
+      );
     case "web_search_tool_result":
+      // `content` is deliberately unchecked — it is an opaque,
+      // provider-specific payload.
       return typeof b.tool_use_id === "string";
+    case "image":
+    case "file":
+      return isMediaSource(b.source);
     default:
       return true;
   }
