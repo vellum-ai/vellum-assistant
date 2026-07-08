@@ -21,7 +21,8 @@ import { makeHookBroadcast } from "../hooks/hook-broadcast.js";
 import { makeHookLogger } from "../hooks/hook-logger.js";
 import { getHookEntriesFor } from "../hooks/registry.js";
 import type { BaseHookContext } from "../hooks/types.js";
-import type { HookName } from "../plugin-api/constants.js";
+import { type HookName, HOOKS } from "../plugin-api/constants.js";
+import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import type { HookEntry } from "./types.js";
 
@@ -109,6 +110,188 @@ function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
   return copy as T;
 }
 
+// ─── Hook output sanitization ────────────────────────────────────────────────
+
+/**
+ * Message-bearing context fields the loop folds back into the turn after each
+ * hook chain, keyed by hook name. Anything listed here is validated after
+ * every hook commit: an invalid mutation is repaired or discarded (fail-open)
+ * instead of flowing into the provider serializers, which reject non-array
+ * `content` with an opaque `content.map is not a function` that kills every
+ * subsequent turn of the conversation.
+ */
+const HOOK_MESSAGE_FIELDS: Partial<
+  Record<
+    HookName,
+    { messageArrays?: string[]; blockArrays?: string[]; toolResults?: string[] }
+  >
+> = {
+  [HOOKS.USER_PROMPT_SUBMIT]: { messageArrays: ["latestMessages"] },
+  [HOOKS.POST_COMPACT]: { messageArrays: ["history"] },
+  [HOOKS.POST_MODEL_CALL]: {
+    messageArrays: ["messages"],
+    blockArrays: ["content"],
+  },
+  [HOOKS.POST_TOOL_USE]: { toolResults: ["toolResponse"] },
+};
+
+const VALID_MESSAGE_ROLES = new Set(["user", "assistant"]);
+
+function isBlockish(block: unknown): block is ContentBlock {
+  return (
+    block !== null &&
+    typeof block === "object" &&
+    typeof (block as { type?: unknown }).type === "string"
+  );
+}
+
+/**
+ * Coerce a message's `content` into a `ContentBlock[]`: a bare string (the
+ * OpenAI-style shape plugin authors reach for) is wrapped into a single text
+ * block; an array keeps only block-shaped entries. Returns `null` when the
+ * value is unusable, with `issues` describing every repair made.
+ */
+function coerceContentBlocks(
+  content: unknown,
+  field: string,
+  issues: string[],
+): ContentBlock[] | null {
+  if (typeof content === "string") {
+    issues.push(`${field}: wrapped string content into a text block`);
+    return [{ type: "text", text: content }];
+  }
+  if (!Array.isArray(content)) {
+    return null;
+  }
+  // Return the original array untouched when every block is valid — this runs
+  // per hook per turn over the full history, so the clean path must not
+  // allocate.
+  if (content.every(isBlockish)) {
+    return content;
+  }
+  const blocks = content.filter(isBlockish);
+  issues.push(
+    `${field}: dropped ${content.length - blocks.length} malformed content block(s)`,
+  );
+  return blocks;
+}
+
+/**
+ * Validate the hook-mutated message fields on `next` in place, reverting a
+ * field to its pre-hook value from `prev` when the mutation is unusable.
+ * Returns a human-readable list of repairs (empty when the output was clean).
+ */
+function sanitizeHookOutput<TInput extends object>(
+  name: HookName,
+  prev: TInput,
+  next: TInput,
+): string[] {
+  const spec = HOOK_MESSAGE_FIELDS[name];
+  if (!spec) {
+    return [];
+  }
+  const issues: string[] = [];
+  const prevRec = prev as Record<string, unknown>;
+  const rec = next as Record<string, unknown>;
+
+  for (const field of spec.messageArrays ?? []) {
+    const value = rec[field];
+    if (!Array.isArray(value)) {
+      issues.push(`${field}: replaced with a non-array — reverted`);
+      rec[field] = prevRec[field];
+      continue;
+    }
+    const kept: unknown[] = [];
+    for (const item of value) {
+      if (item === null || typeof item !== "object") {
+        issues.push(`${field}: dropped a non-object message`);
+        continue;
+      }
+      const msg = item as { role?: unknown; content?: unknown };
+      if (typeof msg.role !== "string" || !VALID_MESSAGE_ROLES.has(msg.role)) {
+        issues.push(
+          `${field}: dropped a message with unsupported role ${JSON.stringify(msg.role)}`,
+        );
+        continue;
+      }
+      const blocks = coerceContentBlocks(msg.content, field, issues);
+      if (blocks === null) {
+        issues.push(`${field}: dropped a message with unusable content`);
+        continue;
+      }
+      msg.content = blocks;
+      kept.push(item);
+    }
+    if (kept.length !== value.length) {
+      rec[field] = kept;
+    }
+  }
+
+  for (const field of spec.blockArrays ?? []) {
+    const blocks = coerceContentBlocks(rec[field], field, issues);
+    if (blocks === null) {
+      issues.push(`${field}: replaced with a non-array — reverted`);
+      rec[field] = prevRec[field];
+    } else {
+      rec[field] = blocks;
+    }
+  }
+
+  for (const field of spec.toolResults ?? []) {
+    const value = rec[field] as { type?: unknown } | null;
+    if (
+      value === null ||
+      typeof value !== "object" ||
+      value.type !== "tool_result"
+    ) {
+      issues.push(`${field}: replaced with a non-tool_result — reverted`);
+      rec[field] = prevRec[field];
+    }
+  }
+
+  return issues;
+}
+
+// ─── Hook execution timeout ──────────────────────────────────────────────────
+
+/**
+ * Wall-clock budget for a single user-land hook invocation. Without it a hook
+ * that never resolves blocks the agent turn indefinitely — the pipeline's
+ * try/catch contains throws but not hangs. First-party default hooks are
+ * exempt: they legitimately run long operations (memory retrieval is an LLM
+ * call with retries) under their own deadlines. Overridable via
+ * `VELLUM_PLUGIN_HOOK_TIMEOUT_MS`.
+ */
+export const EXTERNAL_HOOK_TIMEOUT_MS = 30_000;
+
+function externalHookTimeoutMs(): number {
+  const raw = Number(process.env.VELLUM_PLUGIN_HOOK_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : EXTERNAL_HOOK_TIMEOUT_MS;
+}
+
+async function callWithTimeout<T>(
+  run: () => Promise<T> | T,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const work = Promise.resolve().then(run);
+    // If the timeout wins the race, the abandoned hook keeps running and may
+    // still reject later; absorb it so it can't surface as an unhandled
+    // rejection.
+    work.catch(() => {});
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Execute a hook chain: walk every registered plugin's hook for `name` in
  * registration order, threading `initialCtx` through each. Hooks may either
@@ -118,6 +301,12 @@ function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
  * throws, its draft is discarded and the next hook receives the last
  * successfully committed context. The final context after the chain settles is
  * returned.
+ *
+ * Two fail-open guards protect the agent turn from a misbehaving hook:
+ * message-bearing output fields are validated after each hook commit
+ * ({@link sanitizeHookOutput} — invalid mutations are repaired or reverted and
+ * logged with the owning plugin), and user-land hooks are time-boxed to
+ * {@link EXTERNAL_HOOK_TIMEOUT_MS} so a hung hook cannot block the turn.
  *
  * When `initialCtx` carries a `conversationId`, it is passed to
  * {@link getHookEntriesFor}, which resolves the conversation's per-chat plugin
@@ -159,7 +348,8 @@ export async function runHook<TInput extends object>(
   }
 
   let active: TInput = initialCtx;
-  for (const { fn, owner } of entries) {
+  for (const { fn, owner, external } of entries) {
+    const prev = active;
     const draft = {
       ...cloneHookValue(active),
       logger: makeHookLogger({
@@ -171,11 +361,25 @@ export async function runHook<TInput extends object>(
       broadcast: makeHookBroadcast({ conversationId, hookName: name, owner }),
     };
     try {
-      const result = await fn(draft);
+      const timeoutMs = externalHookTimeoutMs();
+      const result = external
+        ? await callWithTimeout(
+            () => fn(draft),
+            timeoutMs,
+            `plugin hook '${name}' (${owner.id}) timed out after ${timeoutMs}ms`,
+          )
+        : await fn(draft);
       if (result !== undefined) {
         active = { ...draft, ...result };
       } else {
         active = draft;
+      }
+      const issues = sanitizeHookOutput(name, prev, active);
+      if (issues.length > 0) {
+        log.warn(
+          { hookName: name, owner, issues },
+          "plugin hook produced malformed message data — repaired (fail-open)",
+        );
       }
     } catch (err) {
       log.error(

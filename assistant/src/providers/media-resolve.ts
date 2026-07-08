@@ -184,9 +184,27 @@ function contentHasReference(content: ContentBlock[]): boolean {
  * resolved to inline base64. Messages with no references are returned unchanged
  * (same object reference) so the common all-base64 live turn does no allocation
  * or disk I/O.
+ *
+ * Also the providers' shared belt against non-array `content`: this runs as
+ * the first content touch inside both the Anthropic and chat-completions
+ * serializers, so a message that reached the send path with a bare-string
+ * `content` (e.g. injected by a misbehaving plugin hook) is normalized into a
+ * text block here instead of failing the request with an opaque
+ * `content.map is not a function`. Mirrors `loadFromDb`'s normalization of
+ * legacy string rows.
  */
 export function resolveMediaReferences(messages: Message[]): Message[] {
   return messages.map((message) => {
+    if (!Array.isArray(message.content)) {
+      const raw: unknown = message.content;
+      log.warn(
+        { role: message.role, contentType: typeof raw },
+        "Message with non-array content reached the provider serializer; wrapping into a text block",
+      );
+      const text =
+        typeof raw === "string" ? raw : (JSON.stringify(raw) ?? String(raw));
+      return { ...message, content: [{ type: "text", text }] };
+    }
     if (!contentHasReference(message.content)) return message;
     return { ...message, content: message.content.map(resolveBlock) };
   });
