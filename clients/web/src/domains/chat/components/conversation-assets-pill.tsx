@@ -16,6 +16,10 @@ import {
     documentsGetOptions,
     documentsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+    AppAssetActions,
+    DocumentAssetActions,
+} from "@/domains/chat/components/conversation-asset-actions";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
@@ -26,6 +30,8 @@ interface ConversationAsset {
   type: "app" | "document";
   appId?: string;
   surfaceId?: string;
+  app?: AppSummary;
+  doc?: DocumentSummary;
 }
 
 export interface ConversationAssetsPillProps {
@@ -48,6 +54,7 @@ function toAssets(
       title: app.name,
       type: "app",
       appId: app.id,
+      app,
     });
   }
   for (const doc of docs) {
@@ -56,6 +63,7 @@ function toAssets(
       title: doc.title,
       type: "document",
       surfaceId: doc.surfaceId,
+      doc,
     });
   }
   return assets;
@@ -127,6 +135,22 @@ export function ConversationAssetsPill({
       icon={asset.type === "app" ? AppWindow : FileText}
       label={asset.title}
       onSelect={() => handleSelect(asset)}
+      trailingAction={
+        asset.type === "app" && asset.app ? (
+          <AppAssetActions
+            assistantId={assistantId}
+            app={asset.app}
+            isMobile={isMobile}
+          />
+        ) : asset.type === "document" && asset.doc ? (
+          <DocumentAssetActions
+            assistantId={assistantId}
+            doc={asset.doc}
+            isMobile={isMobile}
+            onOpen={() => handleSelect(asset)}
+          />
+        ) : undefined
+      }
     />
   ));
 

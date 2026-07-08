@@ -203,6 +203,8 @@ const TRAILING_ACTION_CLASSES = [
   "group-focus-within:opacity-100",
   "has-[[aria-expanded=true]]:opacity-100",
   "group-aria-[current=page]:opacity-100",
+  // Touch devices have no hover to reveal the action — keep it visible.
+  "touch-mobile:opacity-100",
 ].join(" ");
 
 // ---------------------------------------------------------------------------
