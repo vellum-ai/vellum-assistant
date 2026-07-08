@@ -79,9 +79,15 @@ mock.module("../config/loader.js", () => ({
         "cost-optimized": { source: "managed", status: "disabled" },
       },
       callSites: {
-        // Resolves a SMALLER window than mainAgent (which inherits
-        // llm.default's 100000) — exercised by the maybeCompact gate-sizing
-        // tests below.
+        // This file's blanket assistant-feature-flags mock forces the
+        // override-or-default resolution flag ON, so the windows the
+        // gate-sizing tests depend on live in call-site tweaks (which apply
+        // under both resolution semantics) rather than llm.default.
+        mainAgent: {
+          contextWindow: { maxInputTokens: 100000 },
+        },
+        // Resolves a SMALLER window than mainAgent — exercised by the
+        // maybeCompact gate-sizing tests below.
         memoryRetrospective: {
           contextWindow: { maxInputTokens: 50000 },
         },
