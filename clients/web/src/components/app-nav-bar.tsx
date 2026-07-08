@@ -1,10 +1,10 @@
 import {
-  ArrowUp,
   ChevronUp,
   Globe,
   Loader2,
   Maximize2,
   Pencil,
+  Share,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -106,7 +106,7 @@ export function AppNavBar({
               <Button
                 variant="outlined"
                 iconOnly={
-                  isSharing ? <Loader2 className="animate-spin" /> : <ArrowUp />
+                  isSharing ? <Loader2 className="animate-spin" /> : <Share />
                 }
                 onClick={onShare}
                 disabled={isSharing}
@@ -168,7 +168,7 @@ function ShareDeployMenuTrigger({
   const triggerIcon = isBusy ? (
     <Loader2 className="animate-spin" />
   ) : (
-    <ArrowUp />
+    <Share />
   );
   const triggerTooltip = isSharing
     ? "Sharing…"
@@ -193,7 +193,7 @@ function ShareDeployMenuTrigger({
           </BottomSheet.Header>
           <BottomSheet.Body className="pt-0">
             <PanelItem
-              icon={ArrowUp}
+              icon={Share}
               label={
                 <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
                   <span>Share</span>
@@ -240,7 +240,7 @@ function ShareDeployMenuTrigger({
       </Menu.Trigger>
       <Menu.Content align="end" sideOffset={4}>
         <Menu.Item
-          leftIcon={<ArrowUp size={14} />}
+          leftIcon={<Share size={14} />}
           onSelect={() => onShare()}
           className="whitespace-nowrap"
         >
