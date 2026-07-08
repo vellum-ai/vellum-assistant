@@ -19,7 +19,14 @@ export interface DetailShellProps {
   Glyph?: LucideIcon;
   /** Pre-rendered icon element (e.g. an <img>). Takes precedence over `Glyph`. */
   icon?: ReactNode;
-  title: string;
+  title?: string;
+  /**
+   * Pre-composed title cluster rendered in place of the default truncating
+   * `title` Typography — for headers whose title mixes several inline pieces
+   * (e.g. the activity-steps panel's "Thinking · 6 steps"). Takes precedence
+   * over `title`.
+   */
+  titleNode?: ReactNode;
   /** Inline slot next to the title (e.g. a status badge), before the spacer. */
   headerTrailing?: ReactNode;
   /** Right-aligned action cluster after the spacer, before close (e.g. a Stop button). */
@@ -35,6 +42,7 @@ export function DetailShell({
   Glyph,
   icon,
   title,
+  titleNode,
   headerTrailing,
   headerActions,
   closeLabel = "Close panel",
@@ -52,15 +60,17 @@ export function DetailShell({
             aria-hidden
           />
         ) : null)}
-        <Typography
-          variant="title-medium"
-          // `title-medium` ships a tight line-height; combined with `truncate`
-          // (overflow:hidden) it clips descenders (e.g. the "p" in "process").
-          // Bump leading + small vertical padding so glyphs get breathing room.
-          className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
-        >
-          {title}
-        </Typography>
+        {titleNode ?? (
+          <Typography
+            variant="title-medium"
+            // `title-medium` ships a tight line-height; combined with `truncate`
+            // (overflow:hidden) it clips descenders (e.g. the "p" in "process").
+            // Bump leading + small vertical padding so glyphs get breathing room.
+            className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
+          >
+            {title}
+          </Typography>
+        )}
         {headerTrailing}
         <span className="flex-1" />
         {headerActions}

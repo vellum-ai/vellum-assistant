@@ -19,13 +19,14 @@
  * paged out, or identity-less callers like stories).
  */
 
-import { Brain, ChevronLeft, ListTodo } from "lucide-react";
+import { Brain, ChevronLeft } from "lucide-react";
 import { useState } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { DetailShell } from "@/domains/chat/components/detail-shell";
+import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import {
   activityRunSummaryLabel,
   countStepOutcomes,
@@ -82,28 +83,53 @@ export function ActivityStepsPanel({
 
   const outcomes = countStepOutcomes(cardData.steps);
   const summaryState = deriveSummaryState(cardData.state, cardData.steps);
-  const title = activityRunSummaryLabel(
+  const isRunning = summaryState === "loading";
+  const summary = activityRunSummaryLabel(
     summaryState,
     cardData.totalDurationLabel ?? "",
     outcomes.failed,
   );
+  // Matches Figma `6405-121431`: while the run streams, the header shows the
+  // LIVE step title ("Thinking", "Searching the web", …) through the
+  // avatar-tinted shimmer; once terminal it settles on the duration summary
+  // ("Worked for 28s"). Title-less steps (e.g. bash) fall back to the
+  // summary's "Working…" label.
+  const title = isRunning ? cardData.currentStepTitle || summary : summary;
 
   // The pill's click handler reads the raw call to build the detail payload.
   const toolCallById = new Map(toolCalls.map((tc) => [tc.id, tc]));
 
   return (
     <DetailShell
-      Glyph={ListTodo}
-      title={title}
-      headerTrailing={
-        cardData.stepCount ? (
+      // Title cluster per Figma: title · N steps — inline at the same size,
+      // separated by a 3px midline dot, count in the secondary tone.
+      titleNode={
+        <span className="flex min-w-0 items-center gap-1.5 py-0.5">
           <Typography
-            variant="body-medium-default"
-            className="shrink-0 whitespace-nowrap text-[var(--content-tertiary)]"
+            variant="title-medium"
+            className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
           >
-            {cardData.stepCount}
+            {isRunning ? (
+              <StreamingShimmerText>{title}</StreamingShimmerText>
+            ) : (
+              title
+            )}
           </Typography>
-        ) : undefined
+          {cardData.stepCount ? (
+            <>
+              <span
+                aria-hidden
+                className="size-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
+              />
+              <Typography
+                variant="title-medium"
+                className="shrink-0 whitespace-nowrap leading-snug text-[var(--content-secondary)]"
+              >
+                {cardData.stepCount}
+              </Typography>
+            </>
+          ) : null}
+        </span>
       }
       closeLabel="Close steps"
       onClose={onClose}
