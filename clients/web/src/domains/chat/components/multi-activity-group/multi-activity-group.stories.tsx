@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useEffect, type ReactNode } from "react";
 
+import { ActivityStepsPanel } from "@/domains/chat/components/activity-steps-panel";
+import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
 
@@ -50,6 +53,34 @@ function toolCallsFromItems(items: ToolCallCardItem[]): ChatMessageToolCall[] {
     .map((i) => i.toolCall);
 }
 
+/**
+ * Story harness standing in for the chat layout's right drawer: renders the
+ * group on the left and, when clicking its header opens the activity-steps
+ * view in the viewer store, mounts the real `ActivityStepsPanel` beside it —
+ * so the full header → side panel → drill-in flow works inside Storybook.
+ * Resets the store on mount so every story starts with the panel closed.
+ */
+function WithActivityStepsDrawer({ children }: { children: ReactNode }) {
+  const mainView = useViewerStore.use.mainView();
+  const payload = useViewerStore.use.activeActivitySteps();
+  const closeActivitySteps = useViewerStore.use.closeActivitySteps();
+
+  useEffect(() => {
+    useViewerStore.getState().closeActivitySteps();
+  }, []);
+
+  return (
+    <div className="flex items-start gap-8">
+      <div className="w-[420px] shrink-0">{children}</div>
+      {mainView === "activity-steps" && payload ? (
+        <div className="h-[640px] w-[480px] shrink-0">
+          <ActivityStepsPanel payload={payload} onClose={closeActivitySteps} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 const meta: Meta<typeof MultiActivityGroup> = {
   title: "Chat/MultiActivityGroup",
   component: MultiActivityGroup,
@@ -58,9 +89,9 @@ const meta: Meta<typeof MultiActivityGroup> = {
   },
   decorators: [
     (Story) => (
-      <div className="w-[420px]">
+      <WithActivityStepsDrawer>
         <Story />
-      </div>
+      </WithActivityStepsDrawer>
     ),
   ],
 };

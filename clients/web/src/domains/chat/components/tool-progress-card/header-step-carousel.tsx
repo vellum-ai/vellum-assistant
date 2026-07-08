@@ -90,7 +90,9 @@ function useThrottledValue<T>(
     }
     const elapsed = nowMs - lastChangeAt.current;
     const wait = Math.max(0, minDwellMs - elapsed);
-    if (timer.current) clearTimeout(timer.current);
+    if (timer.current) {
+      clearTimeout(timer.current);
+    }
     timer.current = setTimeout(() => {
       // Land on whatever the latest pending value is — newer updates that
       // arrived while we were waiting will have overwritten it.
@@ -232,15 +234,15 @@ export function HeaderStepCarousel({
         {hasInfo ? (
           <>
             {hasTitle ? (
-              // `max-md:text-[17px]`: the pipe divider reads too small
-              // next to the labels on mobile. Bumping the glyph's font size
-              // grows it there; desktop and electron keep the inherited size.
+              // Vertical rule divider between title and info. A real 14px
+              // rule (not a `|` glyph) so its height matches the labels'
+              // cap height regardless of font metrics. `ml-1` mirrors the
+              // info's own `ml-1` so the divider sits an even 8px
+              // (row `gap-1` + 4px margin) from BOTH labels.
               <span
                 aria-hidden="true"
-                className="shrink-0 text-[var(--border-element)] max-md:text-[17px] max-md:leading-none"
-              >
-                |
-              </span>
+                className="ml-1 h-3.5 w-px shrink-0 bg-[var(--border-element)]"
+              />
             ) : null}
             {isTextInfo ? (
               <Typography
