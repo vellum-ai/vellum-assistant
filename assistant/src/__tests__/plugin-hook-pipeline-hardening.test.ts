@@ -146,6 +146,33 @@ describe("hook output validation", () => {
     expect(final.latestMessages).toEqual([validUserMessage]);
   });
 
+  test("rejects a field replaced with an explicit undefined", async () => {
+    entries = [
+      {
+        owner: { kind: "plugin", id: "p" },
+        fn: () => ({ toolResponse: undefined }),
+      },
+    ];
+    const toolResponse = {
+      type: "tool_result",
+      tool_use_id: "tu-1",
+      content: "ok",
+    };
+
+    const final = await runHook("post-tool-use", {
+      conversationId: "conv-1",
+      toolResponse,
+      messages: [validUserMessage],
+      additionalContext: null,
+      model: "m",
+      callSite: null,
+      supportsDynamicUi: true,
+      maxInputTokens: 100_000,
+    });
+
+    expect(final.toolResponse).toEqual(toolResponse);
+  });
+
   test("post-model-call: rejects a string content replacement", async () => {
     entries = [
       {

@@ -17,12 +17,13 @@
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
+import { z } from "zod";
+
 import { makeHookBroadcast } from "../hooks/hook-broadcast.js";
 import { makeHookLogger } from "../hooks/hook-logger.js";
 import { getHookEntriesFor } from "../hooks/registry.js";
 import type { BaseHookContext } from "../hooks/types.js";
 import { type HookName, HOOKS } from "../plugin-api/constants.js";
-import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import type { HookEntry } from "./types.js";
 
@@ -113,173 +114,140 @@ function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
 // ─── Hook output sanitization ────────────────────────────────────────────────
 
 /**
- * Hook-output fields the loop folds back into the turn verbatim — a malformed
- * message here fails every subsequent provider call, so each is validated
- * after every hook commit.
+ * Schemas for the message shapes hooks may hand back. They require exactly
+ * the fields the loop and serializers read without guards (e.g.
+ * `block.id.length` on every tool_use, `source.media_type` on media blocks);
+ * unknown block types pass — serializers already drop them safely.
  */
-const HOOK_MESSAGE_FIELDS: Partial<
-  Record<
-    HookName,
-    { messageArrays?: string[]; blockArrays?: string[]; toolResults?: string[] }
-  >
-> = {
-  [HOOKS.USER_PROMPT_SUBMIT]: { messageArrays: ["latestMessages"] },
-  [HOOKS.POST_COMPACT]: { messageArrays: ["history"] },
-  [HOOKS.POST_MODEL_CALL]: {
-    messageArrays: ["messages"],
-    blockArrays: ["content"],
-  },
-  [HOOKS.POST_TOOL_USE]: { toolResults: ["toolResponse"] },
-};
+const MediaSourceSchema = z.discriminatedUnion("type", [
+  z.looseObject({
+    type: z.literal("base64"),
+    data: z.string(),
+    media_type: z.string(),
+  }),
+  z.looseObject({
+    type: z.literal("workspace_ref"),
+    attachmentId: z.string(),
+    media_type: z.string(),
+    sizeBytes: z.number(),
+  }),
+]);
 
-const VALID_MESSAGE_ROLES = new Set(["user", "assistant"]);
+const KNOWN_BLOCK_TYPES = new Set([
+  "text",
+  "thinking",
+  "redacted_thinking",
+  "tool_use",
+  "server_tool_use",
+  "tool_result",
+  "web_search_tool_result",
+  "image",
+  "file",
+]);
 
-/** Requires the `source` fields media resolution dereferences unguarded. */
-function isMediaSource(value: unknown): boolean {
-  if (value === null || typeof value !== "object") {
-    return false;
-  }
-  const source = value as Record<string, unknown>;
-  if (source.type === "base64") {
-    return (
-      typeof source.data === "string" && typeof source.media_type === "string"
-    );
-  }
-  if (source.type === "workspace_ref") {
-    return (
-      typeof source.attachmentId === "string" &&
-      typeof source.media_type === "string" &&
-      typeof source.sizeBytes === "number"
-    );
-  }
-  return false;
-}
+// tool_result `content` must be a string (serializers concatenate it); rich
+// content lives in `contentBlocks`, validated recursively because media
+// resolution recurses into it.
+const ToolResultSchema = z.looseObject({
+  type: z.literal("tool_result"),
+  tool_use_id: z.string(),
+  content: z.string(),
+  contentBlocks: z.lazy(() => z.array(ContentBlockSchema).optional()),
+});
+
+const ContentBlockSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.looseObject({ type: z.literal("text"), text: z.string() }),
+    z.looseObject({
+      type: z.literal("thinking"),
+      thinking: z.string(),
+      signature: z.string(),
+    }),
+    z.looseObject({ type: z.literal("redacted_thinking"), data: z.string() }),
+    z.looseObject({
+      type: z.enum(["tool_use", "server_tool_use"]),
+      id: z.string(),
+      name: z.string(),
+      input: z.record(z.string(), z.unknown()),
+    }),
+    ToolResultSchema,
+    // `content` is an opaque provider-specific payload — unchecked.
+    z.looseObject({
+      type: z.literal("web_search_tool_result"),
+      tool_use_id: z.string(),
+    }),
+    z.looseObject({
+      type: z.enum(["image", "file"]),
+      source: MediaSourceSchema,
+    }),
+    z
+      .looseObject({ type: z.string() })
+      .refine((block) => !KNOWN_BLOCK_TYPES.has(block.type)),
+  ]),
+);
+
+const MessageSchema = z.looseObject({
+  role: z.enum(["user", "assistant"]),
+  content: z.array(ContentBlockSchema),
+});
 
 /**
- * Requires the fields the loop and serializers read off each known block type
- * without guards (e.g. `block.id.length` on every tool_use). Unknown block
- * types pass — serializers already drop them safely.
+ * Per-hook schemas for the context fields the loop folds back into the turn
+ * verbatim — a malformed message there fails every subsequent provider call.
+ * Loose + optional: unknown context keys pass, and absent fields are skipped
+ * (call sites and tests may dispatch a hook name with a partial context).
  */
-function isBlockish(block: unknown): block is ContentBlock {
-  if (
-    block === null ||
-    typeof block !== "object" ||
-    typeof (block as { type?: unknown }).type !== "string"
-  ) {
-    return false;
-  }
-  const b = block as Record<string, unknown>;
-  switch (b.type) {
-    case "text":
-      return typeof b.text === "string";
-    case "thinking":
-      return typeof b.thinking === "string" && typeof b.signature === "string";
-    case "redacted_thinking":
-      return typeof b.data === "string";
-    case "tool_use":
-    case "server_tool_use":
-      return (
-        typeof b.id === "string" &&
-        typeof b.name === "string" &&
-        typeof b.input === "object" &&
-        b.input !== null
-      );
-    case "tool_result":
-      // String content only (serializers concatenate it); rich content lives
-      // in contentBlocks, validated recursively because media resolution
-      // recurses into it.
-      return (
-        typeof b.tool_use_id === "string" &&
-        typeof b.content === "string" &&
-        (b.contentBlocks === undefined ||
-          (Array.isArray(b.contentBlocks) && b.contentBlocks.every(isBlockish)))
-      );
-    case "web_search_tool_result":
-      // `content` is an opaque provider-specific payload — unchecked.
-      return typeof b.tool_use_id === "string";
-    case "image":
-    case "file":
-      return isMediaSource(b.source);
-    default:
-      return true;
-  }
-}
-
-/** A message whose shape the loop and serializers can consume safely. */
-function isValidMessage(item: unknown): boolean {
-  if (item === null || typeof item !== "object") {
-    return false;
-  }
-  const msg = item as { role?: unknown; content?: unknown };
-  return (
-    typeof msg.role === "string" &&
-    VALID_MESSAGE_ROLES.has(msg.role) &&
-    Array.isArray(msg.content) &&
-    msg.content.every(isBlockish)
-  );
-}
+const HOOK_OUTPUT_SCHEMAS: Partial<
+  Record<HookName, z.ZodObject<z.ZodRawShape>>
+> = {
+  [HOOKS.USER_PROMPT_SUBMIT]: z.looseObject({
+    latestMessages: z.array(MessageSchema).optional(),
+  }),
+  [HOOKS.POST_COMPACT]: z.looseObject({
+    history: z.array(MessageSchema).optional(),
+  }),
+  [HOOKS.POST_MODEL_CALL]: z.looseObject({
+    messages: z.array(MessageSchema).optional(),
+    content: z.array(ContentBlockSchema).optional(),
+  }),
+  // Strictly a client tool_result: only it can pair back to the assistant's
+  // tool_use — a server-tool web_search_tool_result replacement is rejected.
+  [HOOKS.POST_TOOL_USE]: z.looseObject({
+    toolResponse: ToolResultSchema.optional(),
+  }),
+};
 
 /**
  * Detect malformed message data in a hook's output. Read-only: a non-empty
  * result means the caller discards the hook's entire mutation and keeps the
- * previous context. Fields absent from the context are skipped — call sites
- * (and tests) may dispatch a hook name with a partial context.
+ * previous context.
  */
 function findHookOutputIssues<TInput extends object>(
   name: HookName,
   ctx: TInput,
 ): string[] {
-  const spec = HOOK_MESSAGE_FIELDS[name];
-  if (!spec) {
+  const schema = HOOK_OUTPUT_SCHEMAS[name];
+  if (!schema) {
     return [];
   }
   const issues: string[] = [];
+  // `.optional()` lets an absent field skip validation, but it also lets a
+  // hook REPLACE a required field with an explicit `undefined` — which the
+  // loop would then fold back and dereference. Reject present-but-undefined.
   const rec = ctx as Record<string, unknown>;
-
-  for (const field of spec.messageArrays ?? []) {
-    if (!(field in rec)) {
-      continue;
-    }
-    const value = rec[field];
-    if (!Array.isArray(value)) {
-      issues.push(`${field}: not an array`);
-      continue;
-    }
-    for (let i = 0; i < value.length; i++) {
-      if (!isValidMessage(value[i])) {
-        issues.push(`${field}[${i}]: malformed message`);
-      }
+  for (const key of Object.keys(schema.shape)) {
+    if (key in rec && rec[key] === undefined) {
+      issues.push(`${key}: replaced with undefined`);
     }
   }
-
-  for (const field of spec.blockArrays ?? []) {
-    if (!(field in rec)) {
-      continue;
-    }
-    const value = rec[field];
-    if (!Array.isArray(value)) {
-      issues.push(`${field}: not an array`);
-      continue;
-    }
-    for (let i = 0; i < value.length; i++) {
-      if (!isBlockish(value[i])) {
-        issues.push(`${field}[${i}]: malformed content block`);
-      }
-    }
+  const parsed = schema.safeParse(ctx);
+  if (!parsed.success) {
+    issues.push(
+      ...parsed.error.issues.map(
+        (issue) => `${issue.path.join(".")}: ${issue.message}`,
+      ),
+    );
   }
-
-  for (const field of spec.toolResults ?? []) {
-    if (!(field in rec)) {
-      continue;
-    }
-    const value = rec[field] as { type?: unknown } | null;
-    // Only a client tool_result can pair back to the assistant's tool_use;
-    // a server-tool web_search_tool_result replacement is rejected too.
-    if (!isBlockish(value) || value.type !== "tool_result") {
-      issues.push(`${field}: not a tool_result`);
-    }
-  }
-
   return issues;
 }
 
