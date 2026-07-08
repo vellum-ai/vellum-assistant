@@ -7,7 +7,7 @@ import {
 } from "../../config/schemas/llm.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
-import { ProviderError } from "../../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
@@ -212,6 +212,44 @@ export function detectGeminiContextOverflow(
     GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS.test(message);
   if (!matches) return null;
   return extractOverflowTokensFromMessage(message);
+}
+
+/** 403/PERMISSION_DENIED bodies that signal a model/plan restriction, not a bad key. */
+const GEMINI_MODEL_RESTRICTED_PATTERNS =
+  /\bmodel\b|not (?:supported|available|enabled|accessible|allowed)|does not have access|billing|not enabled|\bplan\b|\btier\b/i;
+
+/** 5xx/UNAVAILABLE bodies that indicate transient overload rather than a generic server error. */
+const GEMINI_OVERLOAD_PATTERNS = /overload/i;
+
+/**
+ * Map a Gemini `ApiError`'s HTTP status / status-name to a semantic
+ * {@link ProviderErrorReason}. The SDK's `ApiError` exposes only `status` and
+ * `message`, and the canonical status-name (e.g. `PERMISSION_DENIED`) rides the
+ * message body, so we match on both. Context-overflow is handled separately by
+ * {@link detectGeminiContextOverflow}; a plain 429 here is a rate limit.
+ */
+export function deriveGeminiReason(error: ApiError): ProviderErrorReason {
+  const status = error.status;
+  const message = error.message ?? "";
+  const upper = message.toUpperCase();
+  const hasName = (name: string) => upper.includes(name);
+
+  if (status === 401 || hasName("UNAUTHENTICATED"))
+    return "invalid_credentials";
+  if (status === 403 || hasName("PERMISSION_DENIED")) {
+    return GEMINI_MODEL_RESTRICTED_PATTERNS.test(message)
+      ? "model_restricted"
+      : "invalid_credentials";
+  }
+  if (status === 404 || hasName("NOT_FOUND")) return "model_not_found";
+  if (status === 429 || hasName("RESOURCE_EXHAUSTED")) return "rate_limited";
+  if (status >= 500 || hasName("UNAVAILABLE")) {
+    return GEMINI_OVERLOAD_PATTERNS.test(message)
+      ? "overloaded"
+      : "server_error";
+  }
+  if (status >= 400) return "bad_request";
+  return "unknown";
 }
 
 const log = getLogger("gemini-client");
@@ -506,7 +544,10 @@ export class GeminiProvider implements Provider {
           `Gemini API error (${error.status}): ${error.message}`,
           "gemini",
           error.status,
-          abortReason ? { abortReason } : undefined,
+          {
+            reason: deriveGeminiReason(error),
+            ...(abortReason ? { abortReason } : {}),
+          },
         );
       }
       throw new ProviderError(

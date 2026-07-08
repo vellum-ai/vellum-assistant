@@ -6,8 +6,9 @@ import type {
   ProviderEvent,
   ToolDefinition,
 } from "../providers/types.js";
+import { ContextOverflowError } from "../providers/types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
-import { ProviderError } from "../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
 
 // ---------------------------------------------------------------------------
 // Mock @google/genai module — must be before importing the provider
@@ -1386,6 +1387,123 @@ describe("GeminiProvider", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(ProviderError);
       expect((error as ProviderError).abortReason).toBeUndefined();
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // Error reason mapping
+  // -----------------------------------------------------------------------
+  async function reasonForApiError(
+    status: number,
+    message: string,
+  ): Promise<ProviderErrorReason | undefined> {
+    shouldThrow = new FakeApiError(status, message);
+    try {
+      await provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      return (error as ProviderError).reason;
+    }
+  }
+
+  test("maps 401 / UNAUTHENTICATED to invalid_credentials", async () => {
+    expect(await reasonForApiError(401, "API key not valid")).toBe(
+      "invalid_credentials",
+    );
+    expect(await reasonForApiError(0, "UNAUTHENTICATED: bad key")).toBe(
+      "invalid_credentials",
+    );
+  });
+
+  test("maps a plan/model-restricted 403 to model_restricted", async () => {
+    expect(
+      await reasonForApiError(
+        403,
+        "PERMISSION_DENIED: Gemini API model gemini-3-pro is not available on your billing plan",
+      ),
+    ).toBe("model_restricted");
+  });
+
+  test("maps a generic 403 with no model signal to invalid_credentials", async () => {
+    expect(
+      await reasonForApiError(
+        403,
+        "PERMISSION_DENIED: The caller does not have permission",
+      ),
+    ).toBe("invalid_credentials");
+  });
+
+  test("maps 404 / NOT_FOUND to model_not_found", async () => {
+    expect(
+      await reasonForApiError(404, "NOT_FOUND: model does not exist"),
+    ).toBe("model_not_found");
+  });
+
+  test("maps a plain 429 (no token signal) to rate_limited, not context overflow", async () => {
+    shouldThrow = new FakeApiError(
+      429,
+      "RESOURCE_EXHAUSTED: Quota exceeded for requests per minute",
+    );
+    try {
+      await provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect(error).not.toBeInstanceOf(ContextOverflowError);
+      expect((error as ProviderError).reason).toBe("rate_limited");
+    }
+  });
+
+  test("maps 5xx to server_error, or overloaded when the body says so", async () => {
+    expect(await reasonForApiError(500, "Internal error")).toBe("server_error");
+    expect(
+      await reasonForApiError(
+        503,
+        "UNAVAILABLE: The model is overloaded. Please try again later.",
+      ),
+    ).toBe("overloaded");
+  });
+
+  test("maps other 4xx to bad_request", async () => {
+    expect(await reasonForApiError(400, "INVALID_ARGUMENT: bad field")).toBe(
+      "bad_request",
+    );
+  });
+
+  test("a genuine token-limit 429 still yields ContextOverflowError / context_overflow", async () => {
+    shouldThrow = new FakeApiError(
+      429,
+      "RESOURCE_EXHAUSTED: The input token count (2000000) exceeds the maximum number of tokens allowed (1048576).",
+    );
+    try {
+      await provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ContextOverflowError);
+      expect((error as ProviderError).reason).toBe("context_overflow");
+    }
+  });
+
+  test("a token-limit 400 still yields ContextOverflowError / context_overflow", async () => {
+    shouldThrow = new FakeApiError(
+      400,
+      "INVALID_ARGUMENT: The prompt is too long; token count exceeds the model's context length.",
+    );
+    try {
+      await provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]);
+      throw new Error("expected sendMessage to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ContextOverflowError);
+      expect((error as ProviderError).reason).toBe("context_overflow");
     }
   });
 
