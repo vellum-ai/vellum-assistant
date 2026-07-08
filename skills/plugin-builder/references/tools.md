@@ -4,6 +4,8 @@ Add new actions the model can call. A plugin tool lands in the same catalog as t
 
 A tool is a default-exported object from `tools/<name>.ts`. The loader derives the model-visible tool name from the file basename, so `tools/example.ts` becomes the `example` tool. Plugin tools register in the same catalog as built-in tools and are offered to the model through the standard tool-calling interface.
 
+**Always-on cost — prefer skill-scoped tools.** A `tools/<name>.ts` tool is offered to the model on every turn of every conversation, whether or not the plugin is relevant, so each one adds permanent prompt weight for every user of the plugin. When a tool only matters while one of the plugin's skills is active, declare it in that skill's `TOOLS.json` instead — it registers only while the skill is loaded and costs nothing the rest of the time. See "Skill-scoped tools" in [skills.md](skills.md). Reserve `tools/` for actions the model must be able to reach without any skill in play.
+
 ## What a tool is
 
 A tool is something the model chooses to call. You describe what it does and what arguments it takes, and the model decides when to invoke it. When it does, the Assistant runs your `execute` function and feeds the result back into the turn.
