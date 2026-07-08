@@ -32,8 +32,6 @@
  * subsequent statement) — see {@link REPORT_COOLDOWN_MS}.
  */
 
-import * as Sentry from "@sentry/node";
-
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("sqlite-corruption-watchdog");
@@ -83,8 +81,8 @@ export function isSqliteCorruptionError(err: unknown): boolean {
 }
 
 /**
- * Report a corruption detection: debounce per database, capture to Sentry, and
- * emit the `sqlite_corrupted` telemetry event directly (opt-out gated inside
+ * Report a corruption detection: debounce per database and emit the
+ * `sqlite_corrupted` telemetry event directly (opt-out gated inside
  * {@link emitWatchdogEventDirect}). The direct emit is lazy-imported so the
  * platform/telemetry stack only loads on the rare corruption path — and so this
  * module never pulls `db-connection` into its static import graph. Fire-and-
@@ -109,17 +107,6 @@ function reportCorruption(
     .catch(() => {
       // Best-effort; never let a telemetry failure escape the query path.
     });
-
-  try {
-    Sentry.withScope((scope) => {
-      scope.setLevel("error");
-      scope.setTag("sqlite_corruption_database", detail.database);
-      scope.setContext("sqlite_corruption", detail);
-      Sentry.captureMessage(SQLITE_CORRUPTED_CHECK_NAME);
-    });
-  } catch {
-    // Never let a Sentry failure escape into the calling query path.
-  }
 }
 
 /** Context handed to {@link observeSqliteStatementError} for a failed execution. */

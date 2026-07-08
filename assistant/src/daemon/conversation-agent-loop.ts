@@ -36,10 +36,6 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import type { UserPromptSubmitInputContext } from "../hooks/types.js";
 import {
-  clearSentryConversationContext,
-  setSentryConversationContext,
-} from "../instrument.js";
-import {
   addMessage,
   deleteMessageById,
   getConversation,
@@ -63,7 +59,6 @@ import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memo
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import { enqueueAutoAnalysisOnCompaction } from "../runtime/services/auto-analysis-enqueue.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -594,18 +589,6 @@ export async function runAgentLoopImpl(
       publishConversationMessagesChanged(ctx.conversationId);
     }
   };
-
-  // Populate Sentry scope with conversation-specific tags so any exception
-  // captured during this turn (e.g. inside agent/loop.ts) can be
-  // filtered by conversation, assistant, or user in the dashboard.
-  setSentryConversationContext({
-    assistantId: ctx.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-    conversationId: ctx.conversationId,
-    messageCount: ctx.messages.length,
-    userIdentifier:
-      ctx.trustContext?.guardianPrincipalId ??
-      ctx.trustContext?.requesterExternalUserId,
-  });
 
   try {
     if (diskPressureDecision.action === "block") {
@@ -1622,10 +1605,6 @@ export async function runAgentLoopImpl(
     // consolidates when it summarizes old messages (cache miss is expected).
 
     ctx.drainQueue(yieldedForHandoff ? "checkpoint_handoff" : "loop_complete");
-
-    // Clear conversation tags so they don't leak into unrelated error captures
-    // (e.g. unhandledRejection from a different async chain).
-    clearSentryConversationContext();
   }
 }
 
