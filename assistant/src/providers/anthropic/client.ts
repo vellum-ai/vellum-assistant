@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
-import { ProviderError } from "../../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
@@ -64,6 +64,71 @@ export function detectAnthropicContextOverflow(
   if (!/prompt.?is.?too.?long|prompt_too_long/i.test(combined)) return null;
   // Prefer the clean inner message over the JSON-stringified top-level string.
   return extractOverflowTokensFromMessage(innerMessage || topLevelMessage);
+}
+
+/**
+ * Read Anthropic's inner error type from an `APIError`. The body is shaped
+ * `{ type: "error", error: { type: <real>, message } }`, so the real type
+ * lives nested under `error.error.type`; some proxies flatten it to the top.
+ */
+function readAnthropicErrorType(
+  error: InstanceType<typeof Anthropic.APIError>,
+): string | undefined {
+  const body = error.error as
+    { type?: string; error?: { type?: string; code?: string } } | undefined;
+  return body?.error?.type ?? body?.type;
+}
+
+function readAnthropicErrorCode(
+  error: InstanceType<typeof Anthropic.APIError>,
+): string | undefined {
+  const body = error.error as { error?: { code?: string } } | undefined;
+  const code = body?.error?.code;
+  return typeof code === "string" && code.length > 0 ? code : undefined;
+}
+
+/**
+ * Map an Anthropic `APIError` to a semantic {@link ProviderErrorReason} from
+ * its error type and/or status. Order matters: billing precedes credentials,
+ * and the 403 branch disambiguates a model/plan restriction from generic auth.
+ * Context-overflow is handled separately (see {@link detectAnthropicContextOverflow}).
+ */
+export function deriveAnthropicReason(
+  error: InstanceType<typeof Anthropic.APIError>,
+): ProviderErrorReason {
+  const apiType = readAnthropicErrorType(error);
+  const status = error.status;
+  const haystack = `${apiType ?? ""} ${error.message ?? ""}`;
+
+  if (
+    status === 402 ||
+    /credit balance is too low/i.test(haystack) ||
+    /insufficient.*credits?/i.test(haystack) ||
+    /\bbilling\b/i.test(haystack)
+  ) {
+    return "insufficient_credits";
+  }
+  if (apiType === "authentication_error" || status === 401) {
+    return "invalid_credentials";
+  }
+  if (apiType === "permission_error" || status === 403) {
+    return /model|plan|not\s+(?:allowed|permitted|enabled)|access/i.test(
+      haystack,
+    )
+      ? "model_restricted"
+      : "invalid_credentials";
+  }
+  if (apiType === "not_found_error" || status === 404) return "model_not_found";
+  if (apiType === "rate_limit_error" || status === 429) return "rate_limited";
+  if (apiType === "overloaded_error" || status === 529) return "overloaded";
+  if (status !== undefined && status >= 500) return "server_error";
+  if (
+    apiType === "invalid_request_error" ||
+    (status !== undefined && status >= 400)
+  ) {
+    return "bad_request";
+  }
+  return "unknown";
 }
 
 /** Rate-limit the orphaned-surrogate warning so a single bad stream can't flood logs. */
@@ -800,8 +865,7 @@ export class AnthropicProvider implements Provider {
     const { tools, systemPrompt, config, onEvent, signal } = options ?? {};
     const cacheTtl: "5m" | "1h" =
       ((config as Record<string, unknown> | undefined)?.cacheTtl as
-        | "5m"
-        | "1h") ?? "1h";
+        "5m" | "1h") ?? "1h";
     // Opt-out for callers (e.g. the memory router) that send a single
     // user message per call with content that changes every time. The
     // turn-start cache breakpoint below is only useful when the same
@@ -1510,6 +1574,7 @@ export class AnthropicProvider implements Provider {
               actualTokens: overflow.actualTokens,
               maxTokens: overflow.maxTokens,
               statusCode: error.status,
+              reason: "context_overflow",
               cause: error,
             },
           );
@@ -1519,10 +1584,23 @@ export class AnthropicProvider implements Provider {
           retryAfterMs?: number;
           abortReason?: unknown;
           cause?: unknown;
+          reason?: ProviderErrorReason;
+          apiErrorType?: string;
+          apiErrorCode?: string;
         } = {};
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
+        // Stamp the semantic reason + structured type/code so downstream
+        // classification/retry can switch on intent. Skip on caller-abort:
+        // abortReason already short-circuits and carries the intent.
+        if (!abortReason) {
+          errorOptions.reason = deriveAnthropicReason(error);
+          const apiErrorType = readAnthropicErrorType(error);
+          if (apiErrorType) errorOptions.apiErrorType = apiErrorType;
+          const apiErrorCode = readAnthropicErrorCode(error);
+          if (apiErrorCode) errorOptions.apiErrorCode = apiErrorCode;
+        }
         // Only preserve the original error as `cause` for transport aborts
         // without a daemon-tagged reason — it's the diagnostic signal the
         // retry layer and log reader rely on. Don't leak it through the
