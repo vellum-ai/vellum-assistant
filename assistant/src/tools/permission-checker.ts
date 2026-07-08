@@ -19,11 +19,15 @@ import type {
 } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import {
+  recordToolDenied,
+  recordToolPermissionPrompted,
+} from "../telemetry/tool-audit.js";
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
 import type { ExecutionTarget } from "./tool-types.js";
-import type { Tool, ToolContext, ToolLifecycleEvent } from "./types.js";
+import type { Tool, ToolContext } from "./types.js";
 
 const log = getLogger("permission-checker");
 
@@ -96,7 +100,6 @@ export class PermissionChecker {
     tool: Tool,
     context: ToolContext,
     executionTarget: ExecutionTarget,
-    emitLifecycleEvent: (event: ToolLifecycleEvent) => void,
     startTime: number,
     computePreviewDiff: (
       toolName: string,
@@ -203,20 +206,15 @@ export class PermissionChecker {
       }
 
       if (result.decision === "deny") {
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent({
-          type: "permission_denied",
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
+        recordToolDenied({
           conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          riskReason,
-          decision: "deny",
+          toolName: name,
+          input,
           reason: result.reason,
-          durationMs,
+          riskLevel,
+          matchedTrustRuleId,
+          durationMs: Date.now() - startTime,
+          wasPrompted: false,
         });
         const provenance = mapApprovalProvenance("denied", {});
         return {
@@ -323,24 +321,19 @@ export class PermissionChecker {
         // Non-interactive sessions have no client to respond to prompts -
         // deny immediately instead of blocking for the full permission timeout.
         if (context.isInteractive === false) {
-          const durationMs = Date.now() - startTime;
           log.info(
             { toolName: name, riskLevel },
             "Auto-denying prompt for non-interactive session",
           );
-          emitLifecycleEvent({
-            type: "permission_denied",
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
+          recordToolDenied({
             conversationId: context.conversationId,
-            requestId: context.requestId,
-            riskLevel,
-            riskReason,
-            decision: "deny",
+            toolName: name,
+            input,
             reason: "Non-interactive session: no client to approve prompt",
-            durationMs,
+            riskLevel,
+            matchedTrustRuleId,
+            durationMs: Date.now() - startTime,
+            wasPrompted: false,
           });
           return {
             allowed: false,
@@ -364,22 +357,7 @@ export class PermissionChecker {
           persistentDecisionsAllowed: !context.requireFreshApproval,
         };
 
-        emitLifecycleEvent({
-          type: "permission_prompt",
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          riskReason,
-          reason: result.reason,
-          allowlistOptions: promptOptions.allowlistOptions,
-          scopeOptions: promptOptions.scopeOptions,
-          diff: previewDiff,
-          persistentDecisionsAllowed: promptOptions.persistentDecisionsAllowed,
-        });
+        recordToolPermissionPrompted(name);
 
         const response = await this.prompter.prompt(
           name,
@@ -413,20 +391,15 @@ export class PermissionChecker {
             contextualDenial.length > 0
               ? `Permission denied (${name}): contextual policy`
               : "Permission denied by user";
-          const durationMs = Date.now() - startTime;
-          emitLifecycleEvent({
-            type: "permission_denied",
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
+          recordToolDenied({
             conversationId: context.conversationId,
-            requestId: context.requestId,
-            riskLevel,
-            riskReason,
-            decision: "deny",
+            toolName: name,
+            input,
             reason: denialReason,
-            durationMs,
+            riskLevel,
+            matchedTrustRuleId,
+            durationMs: Date.now() - startTime,
+            wasPrompted: true,
           });
           return {
             allowed: false,

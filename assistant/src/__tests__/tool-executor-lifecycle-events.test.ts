@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  ToolExecutionResult,
-  ToolLifecycleEvent,
-} from "../tools/types.js";
+import type { ToolExecutionResult } from "../tools/types.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 
 const mockConfig = {
@@ -43,6 +40,74 @@ let promptDecision: "allow" | "deny" = "allow";
 let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
 let toolThrow: Error | null = null;
 
+// ── audit-terminal captures ───────────────────────────────
+// The executor and its permission/approval collaborators no longer emit
+// lifecycle events through a context callback; they call direct terminal
+// functions in `../telemetry/tool-audit.js`. Mock those terminals here
+// (declared before importing the ToolExecutor so the mock intercepts the
+// executor's static import) and capture each call into an array. Every test
+// below asserts against these captures instead of an emitted-event stream.
+
+interface ExecutedCapture {
+  conversationId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  resultContent: string;
+  resultBytes: number;
+  decision: string;
+  riskLevel: string;
+  matchedTrustRuleId?: string;
+  durationMs: number;
+  attribution: UsageAttributionSnapshot | null;
+  wasPrompted: boolean;
+}
+
+interface ErrorCapture {
+  conversationId: string;
+  requestId?: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  errorMessage: string;
+  isExpected: boolean;
+  errorName?: string;
+  errorStack?: string;
+  riskLevel: string;
+  matchedTrustRuleId?: string;
+  durationMs: number;
+  attribution: UsageAttributionSnapshot | null;
+}
+
+interface DeniedCapture {
+  conversationId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  reason: string;
+  riskLevel: string;
+  matchedTrustRuleId?: string;
+  durationMs: number;
+  wasPrompted: boolean;
+}
+
+const executedCaptures: ExecutedCapture[] = [];
+const errorCaptures: ErrorCapture[] = [];
+const deniedCaptures: DeniedCapture[] = [];
+const promptedCaptures: string[] = [];
+
+mock.module("../telemetry/tool-audit.js", () => ({
+  recordToolExecuted: (entry: ExecutedCapture) => {
+    executedCaptures.push(entry);
+  },
+  recordToolError: (entry: ErrorCapture) => {
+    errorCaptures.push(entry);
+  },
+  recordToolDenied: (entry: DeniedCapture) => {
+    deniedCaptures.push(entry);
+  },
+  recordToolPermissionPrompted: (toolName: string) => {
+    promptedCaptures.push(toolName);
+  },
+}));
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
@@ -53,8 +118,8 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-// Analytics consent is granted so the audit listener populates the telemetry
-// columns; the end-to-end listener tests below assert the opted-in sizing.
+// Analytics consent is granted so any consent-gated telemetry path the audit
+// terminals consult sees the opted-in state.
 mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => true,
 }));
@@ -200,19 +265,14 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
 
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { ToolExecutor } from "../tools/executor.js";
+import { ToolProfiler } from "../tools/tool-profiler.js";
 import { ToolError } from "../util/errors.js";
 
-function makeContext(
-  events: ToolLifecycleEvent[],
-  extra: Record<string, unknown> = {},
-) {
+function makeContext(extra: Record<string, unknown> = {}) {
   return {
     workingDir: "/tmp/project",
     conversationId: "conversation-1",
     trustClass: "guardian" as const,
-    onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
-      events.push(event);
-    },
     ...extra,
   };
 }
@@ -231,7 +291,7 @@ function makePrompter(
   } as unknown as PermissionPrompter;
 }
 
-describe("ToolExecutor lifecycle events", () => {
+describe("ToolExecutor audit terminals", () => {
   beforeEach(() => {
     checkerDecision = "allow";
     checkerReason = "allowed";
@@ -239,81 +299,66 @@ describe("ToolExecutor lifecycle events", () => {
     promptDecision = "allow";
     fakeToolResult = { content: "ok", isError: false };
     toolThrow = null;
+    executedCaptures.length = 0;
+    errorCaptures.length = 0;
+    deniedCaptures.length = 0;
+    promptedCaptures.length = 0;
   });
 
-  test("emits start then executed for allowed execution", async () => {
-    const events: ToolLifecycleEvent[] = [];
+  test("records executed terminal for allowed execution", async () => {
+    const profiler = new ToolProfiler();
     const executor = new ToolExecutor(makePrompter());
 
     const result = await executor.execute(
       "file_read",
       { path: "README.md" },
-      makeContext(events),
+      makeContext({ profiler }),
     );
 
     expect(result).toMatchObject({ content: "ok", isError: false });
-    expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
-    expect(events[0]).toMatchObject({
-      type: "start",
-      toolName: "file_read",
-      executionTarget: "sandbox",
-      conversationId: "conversation-1",
-      workingDir: "/tmp/project",
-    });
-    const executed = events[1];
-    if (executed.type !== "executed") {
-      throw new Error("Expected executed event");
-    }
-    expect(executed.executionTarget).toBe("sandbox");
+    expect(executedCaptures).toHaveLength(1);
+    expect(errorCaptures).toHaveLength(0);
+    const executed = executedCaptures[0];
+    expect(executed.toolName).toBe("file_read");
+    expect(executed.decision).toBe("allow");
     expect(executed.riskLevel).toBe("low");
-    expect(executed.result).toMatchObject({ content: "ok", isError: false });
+    expect(executed.resultContent).toBe("ok");
+    expect(executed.resultBytes).toBe(Buffer.byteLength("ok", "utf8"));
+    expect(executed.wasPrompted).toBe(false);
     expect(executed.durationMs).toBeGreaterThanOrEqual(0);
+
+    // The executor records the completion on the profiler at the same terminal.
+    const summary = profiler.getSummary();
+    expect(summary.tools.file_read?.count).toBe(1);
+    expect(summary.tools.file_read?.errors).toBe(0);
   });
 
-  test("emits permission_prompt then permission_denied when user denies prompt", async () => {
+  test("records denied terminal when user denies prompt", async () => {
     checkerDecision = "prompt";
     checkerReason = "medium risk: requires approval";
     checkerRisk = "medium";
     promptDecision = "deny";
 
-    const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
     const result = await executor.execute(
       "bash",
       { command: "ls -la" },
-      makeContext(events, { forcePromptSideEffects: true }),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Permission denied");
-    expect(events.map((event) => event.type)).toEqual([
-      "start",
-      "permission_prompt",
-      "permission_denied",
-    ]);
 
-    const promptEvent = events[1];
-    if (promptEvent.type !== "permission_prompt") {
-      throw new Error("Expected permission_prompt event");
-    }
-    expect(promptEvent.executionTarget).toBe("sandbox");
-    expect(promptEvent.riskLevel).toBe("medium");
-    expect(promptEvent.reason).toBe("medium risk: requires approval");
-    expect(promptEvent.allowlistOptions).toEqual([
-      { label: "exact", description: "exact", pattern: "exact" },
-    ]);
-    expect(promptEvent.scopeOptions).toEqual([
-      { label: "/tmp", scope: "/tmp" },
-    ]);
-
-    const deniedEvent = events[2];
-    if (deniedEvent.type !== "permission_denied") {
-      throw new Error("Expected permission_denied event");
-    }
-    expect(deniedEvent.executionTarget).toBe("sandbox");
-    expect(deniedEvent.decision).toBe("deny");
-    expect(deniedEvent.reason).toBe("Permission denied by user");
+    // A prompt was surfaced, then the user's denial recorded a denied terminal.
+    expect(promptedCaptures).toEqual(["bash"]);
+    expect(executedCaptures).toHaveLength(0);
+    expect(deniedCaptures).toHaveLength(1);
+    const denied = deniedCaptures[0];
+    expect(denied.toolName).toBe("bash");
+    expect(denied.riskLevel).toBe("medium");
+    expect(denied.reason).toBe("Permission denied by user");
+    expect(denied.wasPrompted).toBe(true);
   });
 
   test("uses contextual deny messaging when provided by prompter", async () => {
@@ -321,7 +366,6 @@ describe("ToolExecutor lifecycle events", () => {
     checkerReason = "guardrail prompt";
     checkerRisk = "high";
 
-    const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(
       makePrompter(async () => ({
         decision: "deny",
@@ -333,53 +377,40 @@ describe("ToolExecutor lifecycle events", () => {
     const result = await executor.execute(
       "bash",
       { command: "echo hi" },
-      makeContext(events, { forcePromptSideEffects: true }),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("requires guardian setup");
     expect(result.content).not.toContain("Permission denied by user");
 
-    const deniedEvent = events.find(
-      (event) => event.type === "permission_denied",
-    );
-    if (!deniedEvent || deniedEvent.type !== "permission_denied") {
-      throw new Error("Expected permission_denied event");
-    }
-    expect(deniedEvent.reason).toBe(
+    expect(deniedCaptures).toHaveLength(1);
+    expect(deniedCaptures[0].reason).toBe(
       "Permission denied (bash): contextual policy",
     );
+    expect(deniedCaptures[0].wasPrompted).toBe(true);
   });
 
-  test("emits host executionTarget for host tools", async () => {
-    const events: ToolLifecycleEvent[] = [];
+  // executionTarget is no longer carried on any audit-terminal payload, so
+  // routing can only be observed as "the host tool ran to completion".
+  test("records executed terminal for host tools", async () => {
     const executor = new ToolExecutor(makePrompter());
 
     const result = await executor.execute(
       "host_file_read",
       { path: "/tmp/file.txt" },
-      makeContext(events),
+      makeContext(),
     );
 
     expect(result).toMatchObject({ content: "ok", isError: false });
-    expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
-    const startEvent = events[0];
-    if (startEvent.type !== "start") {
-      throw new Error("Expected start event");
-    }
-    expect(startEvent.executionTarget).toBe("host");
-    const executed = events[1];
-    if (executed.type !== "executed") {
-      throw new Error("Expected executed event");
-    }
-    expect(executed.executionTarget).toBe("host");
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].toolName).toBe("host_file_read");
   });
 
-  test("emits permission_denied when blocked by deny rule", async () => {
+  test("records denied terminal when blocked by deny rule", async () => {
     checkerDecision = "deny";
     checkerReason = "Blocked by deny rule: rm *";
 
-    const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(
       makePrompter(async () => {
         throw new Error("prompter should not be called");
@@ -389,179 +420,129 @@ describe("ToolExecutor lifecycle events", () => {
     const result = await executor.execute(
       "bash",
       { command: "rm -rf /tmp" },
-      makeContext(events, { forcePromptSideEffects: true }),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result).toMatchObject({
       content: "Blocked by deny rule: rm *",
       isError: true,
     });
-    expect(events.map((event) => event.type)).toEqual([
-      "start",
-      "permission_denied",
-    ]);
-    const deniedEvent = events[1];
-    if (deniedEvent.type !== "permission_denied") {
-      throw new Error("Expected permission_denied event");
-    }
-    expect(deniedEvent.reason).toBe("Blocked by deny rule: rm *");
+    // A deterministic deny rule blocks without prompting.
+    expect(promptedCaptures).toHaveLength(0);
+    expect(deniedCaptures).toHaveLength(1);
+    expect(deniedCaptures[0].reason).toBe("Blocked by deny rule: rm *");
+    expect(deniedCaptures[0].wasPrompted).toBe(false);
   });
 
-  test("emits error when tool execution throws", async () => {
+  test("records error terminal when tool execution throws", async () => {
     toolThrow = new Error("boom");
 
-    const events: ToolLifecycleEvent[] = [];
+    const profiler = new ToolProfiler();
     const executor = new ToolExecutor(makePrompter());
 
-    const result = await executor.execute("file_read", {}, makeContext(events));
+    const result = await executor.execute(
+      "file_read",
+      {},
+      makeContext({ profiler }),
+    );
 
     expect(result.content).toContain("boom");
     expect(result.isError).toBe(true);
-    expect(events.map((event) => event.type)).toEqual(["start", "error"]);
-    const errorEvent = events[1];
-    if (errorEvent.type !== "error") {
-      throw new Error("Expected error event");
-    }
-    expect(errorEvent.errorMessage).toBe("boom");
-    expect(errorEvent.isExpected).toBe(false);
-    expect(errorEvent.errorName).toBe("Error");
-    expect(errorEvent.errorStack).toContain("Error: boom");
+    expect(executedCaptures).toHaveLength(0);
+    expect(errorCaptures).toHaveLength(1);
+    const error = errorCaptures[0];
+    expect(error.errorMessage).toBe("boom");
+    expect(error.isExpected).toBe(false);
+    expect(error.errorName).toBe("Error");
+    expect(error.errorStack).toContain("Error: boom");
+
+    const summary = profiler.getSummary();
+    expect(summary.tools.file_read?.count).toBe(1);
+    expect(summary.tools.file_read?.errors).toBe(1);
   });
 
   test("marks ToolError failures as expected", async () => {
     toolThrow = new ToolError("tool failed", "file_read");
 
-    const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
-    const result = await executor.execute("file_read", {}, makeContext(events));
+    const result = await executor.execute("file_read", {}, makeContext());
 
     expect(result).toEqual({ content: "tool failed", isError: true });
-    expect(events.map((event) => event.type)).toEqual(["start", "error"]);
-    const errorEvent = events[1];
-    if (errorEvent.type !== "error") {
-      throw new Error("Expected error event");
-    }
-    expect(errorEvent.isExpected).toBe(true);
-    expect(errorEvent.errorName).toBe("ToolError");
+    expect(errorCaptures).toHaveLength(1);
+    expect(errorCaptures[0].isExpected).toBe(true);
+    expect(errorCaptures[0].errorName).toBe("ToolError");
   });
 
-  test("emits start and error for unknown tools", async () => {
-    const events: ToolLifecycleEvent[] = [];
+  test("records error terminal for unknown tools", async () => {
     const executor = new ToolExecutor(makePrompter());
 
     const result = await executor.execute(
       "unknown_tool",
       { test: true },
-      makeContext(events),
+      makeContext(),
     );
 
     expect(result).toEqual({
       content: expect.stringContaining("Unknown tool: unknown_tool"),
       isError: true,
     });
-    expect(events.map((event) => event.type)).toEqual(["start", "error"]);
-    const errorEvent = events[1];
-    if (errorEvent.type !== "error") {
-      throw new Error("Expected error event");
-    }
-    expect(errorEvent.errorMessage).toContain("Unknown tool: unknown_tool");
-    expect(errorEvent.decision).toBe("error");
-    expect(errorEvent.isExpected).toBe(true);
+    expect(errorCaptures).toHaveLength(1);
+    expect(errorCaptures[0].errorMessage).toContain(
+      "Unknown tool: unknown_tool",
+    );
+    expect(errorCaptures[0].isExpected).toBe(true);
   });
 
-  test("bash tool resolves to sandbox executionTarget", async () => {
-    const events: ToolLifecycleEvent[] = [];
+  // The following tests previously verified the resolved `executionTarget` on
+  // the emitted lifecycle event. That field is gone from the audit terminals,
+  // so they now verify the routed tool still runs to an executed terminal.
+  test("bash tool executes to an executed terminal", async () => {
     const executor = new ToolExecutor(makePrompter());
 
-    await executor.execute(
-      "bash",
-      { command: "echo hello" },
-      makeContext(events),
-    );
+    await executor.execute("bash", { command: "echo hello" }, makeContext());
 
-    const startEvent = events[0];
-    if (startEvent.type !== "start") {
-      throw new Error("Expected start event");
-    }
-    expect(startEvent.executionTarget).toBe("sandbox");
-    const executedEvent = events.find(
-      (e) => e.type === "executed" || e.type === "error",
-    );
-    expect(executedEvent?.executionTarget).toBe("sandbox");
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].toolName).toBe("bash");
   });
 
-  test("host_bash tool resolves to host executionTarget", async () => {
-    const events: ToolLifecycleEvent[] = [];
+  test("host_bash tool executes to an executed terminal", async () => {
     const executor = new ToolExecutor(makePrompter());
 
     await executor.execute(
       "host_bash",
       { command: "echo hello" },
-      makeContext(events),
+      makeContext(),
     );
 
-    const startEvent = events[0];
-    if (startEvent.type !== "start") {
-      throw new Error("Expected start event");
-    }
-    expect(startEvent.executionTarget).toBe("host");
-    const executedEvent = events.find(
-      (e) => e.type === "executed" || e.type === "error",
-    );
-    expect(executedEvent?.executionTarget).toBe("host");
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].toolName).toBe("host_bash");
   });
 
-  test("forwards a host context.executionTarget into lifecycle events", async () => {
-    // The resolver stamps executionTarget from the tool presented to the model
-    // (e.g. a skill tool whose manifest declares "host"); the executor routes
-    // and emits by that context value, not a registry re-lookup.
-    const events: ToolLifecycleEvent[] = [];
+  test("executes a skill tool whose context.executionTarget is host", async () => {
     const executor = new ToolExecutor(makePrompter());
 
     await executor.execute(
       "skill_host_tool",
       { query: "test" },
-      makeContext(events, { executionTarget: "host" }),
+      makeContext({ executionTarget: "host" }),
     );
 
-    expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
-    const startEvent = events[0];
-    if (startEvent.type !== "start") {
-      throw new Error("Expected start event");
-    }
-    expect(startEvent.executionTarget).toBe("host");
-    const executed = events[1];
-    if (executed.type !== "executed") {
-      throw new Error("Expected executed event");
-    }
-    expect(executed.executionTarget).toBe("host");
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].toolName).toBe("skill_host_tool");
   });
 
-  test("forwards a sandbox context.executionTarget even for a host_ name", async () => {
-    // A tool whose manifest declares "sandbox" despite a host_ prefix: the
-    // resolver captures "sandbox" (resolveExecutionTarget honors the manifest),
-    // and the executor forwards it verbatim rather than re-deriving from name.
-    const events: ToolLifecycleEvent[] = [];
+  test("executes a host_-named tool whose context.executionTarget is sandbox", async () => {
     const executor = new ToolExecutor(makePrompter());
 
     await executor.execute(
       "host_skill_sandboxed",
       { query: "test" },
-      makeContext(events, { executionTarget: "sandbox" }),
+      makeContext({ executionTarget: "sandbox" }),
     );
 
-    expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
-    const startEvent = events[0];
-    if (startEvent.type !== "start") {
-      throw new Error("Expected start event");
-    }
-    expect(startEvent.executionTarget).toBe("sandbox");
-    const executed = events[1];
-    if (executed.type !== "executed") {
-      throw new Error("Expected executed event");
-    }
-    expect(executed.executionTarget).toBe("sandbox");
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].toolName).toBe("host_skill_sandboxed");
   });
 
   // ── attribution forwarding tests ──────────────────────────
@@ -581,115 +562,92 @@ describe("ToolExecutor lifecycle events", () => {
     resolvedMixArm: null,
   };
 
-  test("forwards context.attribution into the executed lifecycle event", async () => {
-    const events: ToolLifecycleEvent[] = [];
+  test("forwards context.attribution into the executed terminal", async () => {
     const executor = new ToolExecutor(makePrompter());
 
     await executor.execute(
       "file_read",
       { path: "README.md" },
-      makeContext(events, { attribution: testAttribution }),
+      makeContext({ attribution: testAttribution }),
     );
 
-    const executed = events.find((event) => event.type === "executed");
-    if (executed?.type !== "executed") {
-      throw new Error("Expected executed event");
-    }
-    expect(executed.attribution).toEqual(testAttribution);
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].attribution).toEqual(testAttribution);
   });
 
-  test("forwards context.attribution into the error lifecycle event", async () => {
+  test("forwards context.attribution into the error terminal", async () => {
     toolThrow = new Error("boom");
 
-    const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
     await executor.execute(
       "file_read",
       {},
-      makeContext(events, { attribution: testAttribution }),
+      makeContext({ attribution: testAttribution }),
     );
 
-    const errorEvent = events.find((event) => event.type === "error");
-    if (errorEvent?.type !== "error") {
-      throw new Error("Expected error event");
-    }
-    expect(errorEvent.attribution).toEqual(testAttribution);
+    expect(errorCaptures).toHaveLength(1);
+    expect(errorCaptures[0].attribution).toEqual(testAttribution);
   });
 
-  test("missing context.attribution yields null on the executed event without throwing", async () => {
-    const events: ToolLifecycleEvent[] = [];
+  test("missing context.attribution yields null on the executed terminal without throwing", async () => {
     const executor = new ToolExecutor(makePrompter());
 
     const result = await executor.execute(
       "file_read",
       { path: "README.md" },
-      makeContext(events),
+      makeContext(),
     );
 
     expect(result).toMatchObject({ content: "ok", isError: false });
-    const executed = events.find((event) => event.type === "executed");
-    if (executed?.type !== "executed") {
-      throw new Error("Expected executed event");
-    }
-    expect(executed.attribution).toBeNull();
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].attribution).toBeNull();
   });
 
-  test("missing context.attribution yields null on the error event without throwing", async () => {
+  test("missing context.attribution yields null on the error terminal without throwing", async () => {
     toolThrow = new Error("boom");
 
-    const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
-    const result = await executor.execute("file_read", {}, makeContext(events));
+    const result = await executor.execute("file_read", {}, makeContext());
 
     expect(result.isError).toBe(true);
-    const errorEvent = events.find((event) => event.type === "error");
-    if (errorEvent?.type !== "error") {
-      throw new Error("Expected error event");
-    }
-    expect(errorEvent.attribution).toBeNull();
+    expect(errorCaptures).toHaveLength(1);
+    expect(errorCaptures[0].attribution).toBeNull();
   });
 
-  test("stamps attribution on pre-execution gate error events (unknown tool)", async () => {
-    const events: ToolLifecycleEvent[] = [];
+  test("stamps attribution on pre-execution gate error terminals (unknown tool)", async () => {
     const executor = new ToolExecutor(makePrompter());
 
     const result = await executor.execute(
       "unknown_tool",
       { test: true },
-      makeContext(events, { attribution: testAttribution }),
+      makeContext({ attribution: testAttribution }),
     );
 
     expect(result.isError).toBe(true);
-    const errorEvent = events.find((event) => event.type === "error");
-    if (errorEvent?.type !== "error") {
-      throw new Error("Expected error event");
-    }
-    expect(errorEvent.errorMessage).toContain("Unknown tool: unknown_tool");
-    expect(errorEvent.attribution).toEqual(testAttribution);
+    expect(errorCaptures).toHaveLength(1);
+    expect(errorCaptures[0].errorMessage).toContain(
+      "Unknown tool: unknown_tool",
+    );
+    expect(errorCaptures[0].attribution).toEqual(testAttribution);
   });
 
-  test("missing attribution yields null on pre-execution gate error events", async () => {
-    const events: ToolLifecycleEvent[] = [];
+  test("missing attribution yields null on pre-execution gate error terminals", async () => {
     const executor = new ToolExecutor(makePrompter());
 
     const result = await executor.execute(
       "unknown_tool",
       { test: true },
-      makeContext(events),
+      makeContext(),
     );
 
     expect(result.isError).toBe(true);
-    const errorEvent = events.find((event) => event.type === "error");
-    if (errorEvent?.type !== "error") {
-      throw new Error("Expected error event");
-    }
-    expect(errorEvent.attribution).toBeNull();
+    expect(errorCaptures).toHaveLength(1);
+    expect(errorCaptures[0].attribution).toBeNull();
   });
 
-  test("stamps attribution on the aborted pre-execution gate error event", async () => {
-    const events: ToolLifecycleEvent[] = [];
+  test("stamps attribution on the aborted pre-execution gate error terminal", async () => {
     const executor = new ToolExecutor(makePrompter());
     const controller = new AbortController();
     controller.abort();
@@ -697,265 +655,144 @@ describe("ToolExecutor lifecycle events", () => {
     const result = await executor.execute(
       "file_read",
       { path: "README.md" },
-      makeContext(events, {
+      makeContext({
         attribution: testAttribution,
         signal: controller.signal,
       }),
     );
 
     expect(result).toEqual({ content: "Cancelled", isError: true });
-    const errorEvent = events.find((event) => event.type === "error");
-    if (errorEvent?.type !== "error") {
-      throw new Error("Expected error event");
-    }
-    expect(errorEvent.errorMessage).toBe("Cancelled");
-    expect(errorEvent.attribution).toEqual(testAttribution);
+    expect(errorCaptures).toHaveLength(1);
+    expect(errorCaptures[0].errorMessage).toBe("Cancelled");
+    expect(errorCaptures[0].attribution).toEqual(testAttribution);
   });
 
-  // ── raw input byte sizing tests ───────────────────────────
+  // ── raw payload forwarding tests ──────────────────────────
+  // The executor hands the RAW (pre-redaction, pre-sanitization) input and the
+  // RAW result byte size to the audit terminal; redaction and arg sizing happen
+  // downstream inside tool-audit. These assert the executor does not shrink or
+  // pre-redact the payload before the terminal.
 
-  test("stamps inputBytes from the raw input even when sanitization redacts fields", async () => {
-    const events: ToolLifecycleEvent[] = [];
+  test("forwards the raw input to the executed terminal even when it holds redactable fields", async () => {
     const executor = new ToolExecutor(makePrompter());
 
     const rawInput = { path: "README.md", token: "t-1" };
-    const rawSize = Buffer.byteLength(JSON.stringify(rawInput), "utf8");
 
-    await executor.execute("file_read", rawInput, makeContext(events));
+    await executor.execute("file_read", rawInput, makeContext());
 
-    const executed = events.find((event) => event.type === "executed");
-    if (executed?.type !== "executed") {
-      throw new Error("Expected executed event");
-    }
-    // The event input is sanitized, but the size reflects the raw payload.
-    expect(executed.input.token).toBe("<redacted />");
-    expect(executed.inputBytes).toBe(rawSize);
-    expect(executed.inputBytes).not.toBe(
-      Buffer.byteLength(JSON.stringify(executed.input), "utf8"),
-    );
+    expect(executedCaptures).toHaveLength(1);
+    // The terminal receives the raw input verbatim; redaction is tool-audit's job.
+    expect(executedCaptures[0].input).toEqual(rawInput);
   });
 
-  test("stamps inputBytes from the raw input on error events", async () => {
+  test("forwards the raw input to the error terminal", async () => {
     toolThrow = new Error("boom");
 
-    const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
     const rawInput = { path: "README.md", api_key: "k-1" };
 
-    await executor.execute("file_read", rawInput, makeContext(events));
+    await executor.execute("file_read", rawInput, makeContext());
 
-    const errorEvent = events.find((event) => event.type === "error");
-    if (errorEvent?.type !== "error") {
-      throw new Error("Expected error event");
-    }
-    expect(errorEvent.input.api_key).toBe("<redacted />");
-    expect(errorEvent.inputBytes).toBe(
-      Buffer.byteLength(JSON.stringify(rawInput), "utf8"),
-    );
+    expect(errorCaptures).toHaveLength(1);
+    expect(errorCaptures[0].input).toEqual(rawInput);
   });
 
   test("stamps resultBytes from the raw content before sensitive-output sanitization", async () => {
     // Directive stripping + placeholder substitution shrink the content the
-    // lifecycle event carries; the stamped size must reflect the raw output.
+    // executed terminal carries; the stamped size must reflect the raw output.
     const rawContent =
       'Your invite: <vellum-sensitive-output kind="invite_code" value="SECRET-CODE-123" /> use SECRET-CODE-123';
     fakeToolResult = { content: rawContent, isError: false };
 
-    const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
-    await executor.execute("file_read", { path: "a" }, makeContext(events));
+    await executor.execute("file_read", { path: "a" }, makeContext());
 
-    const executed = events.find((event) => event.type === "executed");
-    if (executed?.type !== "executed") {
-      throw new Error("Expected executed event");
-    }
-    // The event carries the sanitized content...
-    expect(executed.result.content).not.toContain("SECRET-CODE-123");
+    expect(executedCaptures).toHaveLength(1);
+    const executed = executedCaptures[0];
+    // The terminal carries the sanitized content...
+    expect(executed.resultContent).not.toContain("SECRET-CODE-123");
     // ...but the stamped size is the raw pre-sanitization byte length.
     expect(executed.resultBytes).toBe(Buffer.byteLength(rawContent, "utf8"));
     expect(executed.resultBytes).not.toBe(
-      Buffer.byteLength(executed.result.content, "utf8"),
+      Buffer.byteLength(executed.resultContent, "utf8"),
     );
   });
 
   test("stamps resultBytes for non-sensitive results too (raw equals emitted content)", async () => {
-    const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
-    await executor.execute("file_read", { path: "a" }, makeContext(events));
+    await executor.execute("file_read", { path: "a" }, makeContext());
 
-    const executed = events.find((event) => event.type === "executed");
-    if (executed?.type !== "executed") {
-      throw new Error("Expected executed event");
-    }
-    expect(executed.result.content).toBe("ok");
-    expect(executed.resultBytes).toBe(Buffer.byteLength("ok", "utf8"));
-  });
-
-  test("audit listener records result_bytes from the raw pre-sanitization output", async () => {
-    const { createToolAuditListener } =
-      await import("../events/tool-audit-listener.js");
-    const records: Array<{ resultBytes?: number | null; result: string }> = [];
-    const executor = new ToolExecutor(makePrompter());
-
-    const rawContent =
-      'Code: <vellum-sensitive-output kind="invite_code" value="SECRET-CODE-456" />SECRET-CODE-456';
-    fakeToolResult = { content: rawContent, isError: false };
-
-    await executor.execute(
-      "file_read",
-      { path: "a" },
-      {
-        workingDir: "/tmp/project",
-        conversationId: "conversation-1",
-        trustClass: "guardian" as const,
-        onToolLifecycleEvent: createToolAuditListener((record) =>
-          records.push(record),
-        ),
-      },
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].resultContent).toBe("ok");
+    expect(executedCaptures[0].resultBytes).toBe(
+      Buffer.byteLength("ok", "utf8"),
     );
-
-    expect(records).toHaveLength(1);
-    expect(records[0].resultBytes).toBe(Buffer.byteLength(rawContent, "utf8"));
-    // The stored result column is still the sanitized payload.
-    expect(records[0].result).not.toContain("SECRET-CODE-456");
   });
 
-  test("audit listener records arg_bytes equal to the raw serialized input size", async () => {
-    // End-to-end: executor sanitization must not shrink the recorded
-    // arg_bytes — the audit row sizes the raw pre-redaction input.
-    const { createToolAuditListener } =
-      await import("../events/tool-audit-listener.js");
-    const records: Array<{ argBytes?: number | null; input: string }> = [];
-    const executor = new ToolExecutor(makePrompter());
-
-    const rawInput = { path: "README.md", token: "t-1" };
-
-    await executor.execute("file_read", rawInput, {
-      workingDir: "/tmp/project",
-      conversationId: "conversation-1",
-      trustClass: "guardian" as const,
-      onToolLifecycleEvent: createToolAuditListener((record) =>
-        records.push(record),
-      ),
-    });
-
-    expect(records).toHaveLength(1);
-    expect(records[0].argBytes).toBe(
-      Buffer.byteLength(JSON.stringify(rawInput), "utf8"),
-    );
-    // The stored input column is still the redacted payload.
-    expect(records[0].input).not.toContain("t-1");
-  });
-
-  test("skill tool with sandbox execution_target resolves to sandbox executionTarget", async () => {
-    const events: ToolLifecycleEvent[] = [];
+  test("executes a skill tool whose manifest declares a sandbox target", async () => {
     const executor = new ToolExecutor(makePrompter());
 
     await executor.execute(
       "skill_sandbox_tool",
       { query: "test" },
-      makeContext(events),
+      makeContext(),
     );
 
-    expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
-    const startEvent = events[0];
-    if (startEvent.type !== "start") {
-      throw new Error("Expected start event");
-    }
-    expect(startEvent.executionTarget).toBe("sandbox");
-    const executed = events[1];
-    if (executed.type !== "executed") {
-      throw new Error("Expected executed event");
-    }
-    expect(executed.executionTarget).toBe("sandbox");
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].toolName).toBe("skill_sandbox_tool");
   });
 
-  test("does not block tool execution on unresolved lifecycle callbacks", async () => {
-    const executor = new ToolExecutor(makePrompter());
-    const timeoutMs = 100;
+  // The removed lifecycle machinery had an async `onToolLifecycleEvent`
+  // callback the executor deliberately did not await; the audit terminals are
+  // now synchronous direct calls, so there is no async callback left to block
+  // on. The previous "does not block on unresolved lifecycle callbacks" test
+  // covered a contract that no longer exists and has been removed.
 
-    const resultPromise = executor.execute(
-      "file_read",
-      {},
-      {
-        workingDir: "/tmp/project",
-        conversationId: "conversation-1",
-        trustClass: "guardian",
-        onToolLifecycleEvent: () => new Promise<void>(() => {}),
-      },
-    );
+  // ── forcePromptSideEffects terminal tests ─────────────────
 
-    const raced = Promise.race([
-      resultPromise,
-      new Promise<ToolExecutionResult>((_, reject) => {
-        setTimeout(() => reject(new Error("execute timed out")), timeoutMs);
-      }),
-    ]);
-
-    await expect(raced).resolves.toMatchObject({
-      content: "ok",
-      isError: false,
-    });
-  });
-
-  // ── forcePromptSideEffects lifecycle event tests ──────────
-
-  test("permission_prompt reason reflects side-effect policy for bash under forcePromptSideEffects", async () => {
+  test("prompts for bash under forcePromptSideEffects (side-effect tool)", async () => {
     checkerDecision = "allow";
     checkerReason = "Matched trust rule";
     checkerRisk = "low";
     promptDecision = "allow";
 
-    const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
     await executor.execute(
       "bash",
       { command: "npm install" },
-      {
-        ...makeContext(events),
-        forcePromptSideEffects: true,
-      },
+      makeContext({ forcePromptSideEffects: true }),
     );
 
-    const promptEvent = events.find((e) => e.type === "permission_prompt");
-    expect(promptEvent).toBeDefined();
-    if (promptEvent?.type !== "permission_prompt") {
-      throw new Error("Expected permission_prompt event");
-    }
-    expect(promptEvent.toolName).toBe("bash");
-    expect(promptEvent.reason).toBe(
-      "Side-effect tool requires explicit approval",
-    );
+    // forcePromptSideEffects promotes the auto-allow to an interactive prompt.
+    expect(promptedCaptures).toEqual(["bash"]);
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].toolName).toBe("bash");
   });
 
-  test("no permission_prompt event for read-only tool even with forcePromptSideEffects", async () => {
+  test("no prompt for read-only tool even with forcePromptSideEffects", async () => {
     checkerDecision = "allow";
     checkerReason = "allowed";
     checkerRisk = "low";
 
-    const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
     await executor.execute(
       "file_read",
       { path: "/tmp/project/README.md" },
-      {
-        ...makeContext(events),
-        forcePromptSideEffects: true,
-      },
+      makeContext({ forcePromptSideEffects: true }),
     );
 
-    // file_read is not a side-effect tool, so no prompt event should appear
-    const promptEvent = events.find((e) => e.type === "permission_prompt");
-    expect(promptEvent).toBeUndefined();
-    expect(events.map((e) => e.type)).toEqual(["start", "executed"]);
+    // file_read is not a side-effect tool, so no prompt terminal should fire.
+    expect(promptedCaptures).toHaveLength(0);
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].toolName).toBe("file_read");
   });
 
-  test("file_edit to guardian persona emits permission_prompt under forcePromptSideEffects", async () => {
+  test("file_edit to guardian persona prompts under forcePromptSideEffects", async () => {
     // Security invariant: forced side-effect prompting must prompt even when a
     // trust rule would auto-allow.
     checkerDecision = "allow";
@@ -963,7 +800,6 @@ describe("ToolExecutor lifecycle events", () => {
     checkerRisk = "low";
     promptDecision = "allow";
 
-    const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
     const result = await executor.execute(
@@ -973,22 +809,12 @@ describe("ToolExecutor lifecycle events", () => {
         old_string: "old",
         new_string: "new",
       },
-      {
-        ...makeContext(events),
-        forcePromptSideEffects: true,
-      },
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result).toMatchObject({ content: "ok", isError: false });
-
-    const promptEvent = events.find((e) => e.type === "permission_prompt");
-    expect(promptEvent).toBeDefined();
-    if (promptEvent?.type !== "permission_prompt") {
-      throw new Error("Expected permission_prompt event");
-    }
-    expect(promptEvent.toolName).toBe("file_edit");
-    expect(promptEvent.reason).toBe(
-      "Side-effect tool requires explicit approval",
-    );
+    expect(promptedCaptures).toEqual(["file_edit"]);
+    expect(executedCaptures).toHaveLength(1);
+    expect(executedCaptures[0].toolName).toBe("file_edit");
   });
 });

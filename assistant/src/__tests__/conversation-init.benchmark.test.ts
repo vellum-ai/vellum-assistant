@@ -262,7 +262,9 @@ describe("Conversation initialization benchmark", () => {
       const start = performance.now();
       const definitions = getAllToolDefinitions();
       timings.push(performance.now() - start);
-      if (i === 0) expect(definitions.length).toBeGreaterThan(0);
+      if (i === 0) {
+        expect(definitions.length).toBeGreaterThan(0);
+      }
     }
 
     timings.sort((a, b) => a - b);
@@ -466,7 +468,9 @@ describe("End-to-end session creation benchmark", () => {
       timings.push(performance.now() - start);
 
       if (i === 0) {
-        expect(session.eventBus.anyListenerCount()).toBeGreaterThan(0);
+        // Tool infrastructure is wired (the executor records audit/telemetry
+        // directly; the per-turn profiler is constructed on the conversation).
+        expect(session.profiler).toBeDefined();
       }
       session.dispose();
     }

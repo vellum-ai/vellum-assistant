@@ -185,7 +185,7 @@ import {
   ToolApprovalHandler,
   waitForInlineGrant,
 } from "../tools/tool-approval-handler.js";
-import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 
 await initializeDb();
@@ -238,11 +238,6 @@ function makeTrustedContactTrustContext(): TrustContext {
   };
 }
 
-const events: ToolLifecycleEvent[] = [];
-const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
-  events.push(event);
-};
-
 // ===========================================================================
 // a. Target flow: trusted contact -> guardian-gated tool -> approve -> execute
 // ===========================================================================
@@ -250,7 +245,6 @@ const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
 describe("(a) target flow: trusted-contact inline guardian approval end-to-end", () => {
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
     mockGuardianBinding = {
@@ -424,7 +418,6 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
 describe("(c) no-binding flow: trusted contact fails fast without guardian binding", () => {
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
     mockGuardianBinding = null; // No guardian binding
@@ -486,7 +479,6 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
 
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
     mockGuardianBinding = {
       id: "binding-1",
@@ -516,12 +508,13 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
       "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
     const elapsed = Date.now() - start;
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
 
     // Unknown actors get the verified-identity message
     expect(result.result.content).toContain("verified channel identity");
@@ -682,7 +675,6 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
 
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
     mockGuardianBinding = {
@@ -943,7 +935,6 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
 describe("cross-milestone integration checks", () => {
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
     mockGuardianBinding = {
@@ -1045,13 +1036,14 @@ describe("cross-milestone integration checks", () => {
       "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     // Guardian + no grant check = allowed without grantConsumed
     // (guardians use the interactive prompt, not the grant system)
     expect(result.allowed).toBe(true);
-    if (!result.allowed) return;
+    if (!result.allowed) {
+      return;
+    }
     expect(result.grantConsumed).toBeUndefined();
   });
 
