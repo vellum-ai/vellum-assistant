@@ -46,7 +46,6 @@ export interface StandaloneToolResult {
   riskLevel?: string;
   approvalMode?: string;
   approvalReason?: string;
-  matchedTrustRuleId?: string;
 }
 
 /**
@@ -96,6 +95,5 @@ export async function runToolStandalone(
     riskLevel: result.riskLevel,
     approvalMode: result.approvalMode,
     approvalReason: result.approvalReason,
-    matchedTrustRuleId: result.matchedTrustRuleId,
   };
 }

@@ -25,12 +25,6 @@ describe("mapApprovalProvenance", () => {
     expect(r.approvalReason).toBe("sandbox_auto_approve");
   });
 
-  test("allow + trust rule → auto / trust_rule_allowed", () => {
-    const r = mapApprovalProvenance("allow", { matchedTrustRuleId: "rule-abc" });
-    expect(r.approvalMode).toBe("auto");
-    expect(r.approvalReason).toBe("trust_rule_allowed");
-  });
-
   test("allow (no trust rule, no sandbox) → auto / within_threshold", () => {
     const r = mapApprovalProvenance("allow", {});
     expect(r.approvalMode).toBe("auto");
@@ -62,14 +56,11 @@ describe("mapApprovalProvenance", () => {
   });
 
   test("wasSystemCancel takes priority over wasTimeout", () => {
-    const r = mapApprovalProvenance("deny", { wasSystemCancel: true, wasTimeout: true });
+    const r = mapApprovalProvenance("deny", {
+      wasSystemCancel: true,
+      wasTimeout: true,
+    });
     expect(r.approvalReason).toBe("system_cancelled");
-  });
-
-  test("denied + matchedTrustRuleId → blocked / trust_rule_denied", () => {
-    const r = mapApprovalProvenance("denied", { matchedTrustRuleId: "rule-abc" });
-    expect(r.approvalMode).toBe("blocked");
-    expect(r.approvalReason).toBe("trust_rule_denied");
   });
 
   test("denied (no matchedTrustRuleId) → blocked / no_interactive_client", () => {
@@ -82,14 +73,6 @@ describe("mapApprovalProvenance", () => {
     const r = mapApprovalProvenance("something_unexpected", {});
     expect(r.approvalMode).toBe("unknown");
     expect(r.approvalReason).toBe("unknown");
-  });
-
-  test("sandbox takes priority over trust rule when both present", () => {
-    const r = mapApprovalProvenance("allow", {
-      hasSandboxAutoApprove: true,
-      matchedTrustRuleId: "rule-xyz",
-    });
-    expect(r.approvalReason).toBe("sandbox_auto_approve");
   });
 
   test("wasPrompted takes priority over sandbox when both set", () => {

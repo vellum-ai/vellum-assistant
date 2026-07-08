@@ -13,7 +13,6 @@ export interface ToolInvocationRecord {
   result: string;
   decision: string;
   riskLevel: string;
-  matchedTrustRuleId?: string;
   durationMs: number;
   /** Serialized input size in bytes, computed before any redaction. */
   argBytes?: number | null;
@@ -36,7 +35,6 @@ export function recordToolInvocation(record: ToolInvocationRecord): void {
       result: record.result,
       decision: record.decision,
       riskLevel: record.riskLevel,
-      matchedTrustRuleId: record.matchedTrustRuleId,
       durationMs: record.durationMs,
       createdAt: Date.now(),
       argBytes: record.argBytes,

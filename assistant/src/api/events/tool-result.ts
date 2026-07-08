@@ -121,7 +121,6 @@ export const ToolResultEventSchema = z.object({
   messageId: z.string().optional(),
   riskLevel: z.string().optional(),
   riskReason: z.string().optional(),
-  matchedTrustRuleId: z.string().optional(),
   isContainerized: z.boolean().optional(),
   riskScopeOptions: z.array(RiskScopeOptionSchema).optional(),
   riskAllowlistOptions: z.array(AllowlistOptionSchema).optional(),

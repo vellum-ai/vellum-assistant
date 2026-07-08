@@ -89,8 +89,6 @@ export interface ToolExecutionResult {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
   /** How the decision was reached: prompted, auto, blocked, or unknown (legacy). */
   approvalMode?: string;
   /** Why the decision was reached (stable enum for client display). */
@@ -183,8 +181,6 @@ export interface ToolExecutedEvent extends ExecutorTelemetryStamp {
   requestId?: string;
   executionTarget?: ExecutionTarget;
   riskLevel: string;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
   /** How the approval decision was reached. Copied from PermissionDecision for analytics consumers. */
   approvalMode?: string;
   /** Why the approval decision was reached (stable enum). Copied from PermissionDecision for analytics consumers. */

@@ -33,8 +33,6 @@ export type PermissionDecision =
       decision: string;
       riskLevel: string;
       wasPrompted?: boolean;
-      /** ID of the trust rule that matched this invocation (if any). Always set when a rule matched, even for non-classifier tools where riskMeta is absent. */
-      matchedTrustRuleId?: string;
       /** Risk metadata from the classifier assessment cache (when available). */
       riskMeta?: {
         riskLevel: string;
@@ -57,8 +55,6 @@ export type PermissionDecision =
       decision: string;
       riskLevel: string;
       content: string;
-      /** ID of the trust rule that matched this invocation (if any). Always set when a rule matched, even for non-classifier tools where riskMeta is absent. */
-      matchedTrustRuleId?: string;
       /** Risk metadata from the classifier assessment cache (when available). */
       riskMeta?: {
         riskLevel: string;

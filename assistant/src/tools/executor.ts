@@ -80,7 +80,6 @@ export class ToolExecutor {
           isContainerized?: boolean;
         }
       | undefined;
-    let permMatchedTrustRuleId: string | undefined;
     let permApprovalMode: string | undefined;
     let permApprovalReason: string | undefined;
     let permRiskThreshold: string | undefined;
@@ -232,7 +231,6 @@ export class ToolExecutor {
         riskLevel = permResult.riskLevel;
         decision = permResult.decision;
         permRiskMeta = permResult.riskMeta;
-        permMatchedTrustRuleId = permResult.matchedTrustRuleId;
         permApprovalMode = permResult.approvalMode;
         permApprovalReason = permResult.approvalReason;
         permRiskThreshold = permResult.riskThreshold;
@@ -247,7 +245,6 @@ export class ToolExecutor {
             riskAllowlistOptions: permRiskMeta?.riskAllowlistOptions,
             riskDirectoryScopeOptions: permRiskMeta?.riskDirectoryScopeOptions,
             isContainerized: permRiskMeta?.isContainerized,
-            matchedTrustRuleId: permMatchedTrustRuleId,
             approvalMode: permApprovalMode,
             approvalReason: permApprovalReason,
             riskThreshold: permRiskThreshold,
@@ -294,7 +291,6 @@ export class ToolExecutor {
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
-          matchedTrustRuleId: permMatchedTrustRuleId,
           decision: "error",
           durationMs,
           errorMessage: msg,
@@ -353,7 +349,6 @@ export class ToolExecutor {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
-            matchedTrustRuleId: permMatchedTrustRuleId,
             decision: "deny",
             reason: denialReason,
             durationMs,
@@ -372,7 +367,6 @@ export class ToolExecutor {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
-            matchedTrustRuleId: permMatchedTrustRuleId,
             decision: "error",
             durationMs,
             errorMessage: errorMsg,
@@ -417,7 +411,6 @@ export class ToolExecutor {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
-        matchedTrustRuleId: permMatchedTrustRuleId,
         approvalMode: permApprovalMode,
         approvalReason: permApprovalReason,
         decision,
@@ -438,12 +431,6 @@ export class ToolExecutor {
           riskAllowlistOptions: permRiskMeta.riskAllowlistOptions,
           riskDirectoryScopeOptions: permRiskMeta.riskDirectoryScopeOptions,
           isContainerized: permRiskMeta.isContainerized,
-        };
-      }
-      if (permMatchedTrustRuleId) {
-        execResult = {
-          ...execResult,
-          matchedTrustRuleId: permMatchedTrustRuleId,
         };
       }
       if (permApprovalMode) {
@@ -509,7 +496,6 @@ export class ToolExecutor {
         conversationId: context.conversationId,
         requestId: context.requestId,
         riskLevel,
-        matchedTrustRuleId: permMatchedTrustRuleId,
         decision: "error",
         durationMs,
         errorMessage: msg,

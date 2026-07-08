@@ -247,7 +247,6 @@ export interface EventHandlerState {
       riskLevel: string;
       riskReason?: string;
       autoApproved: boolean;
-      matchedTrustRuleId?: string;
       approvalMode?: string;
       approvalReason?: string;
       riskThreshold?: string;
@@ -1445,7 +1444,6 @@ export async function handleToolResult(
       riskLevel: event.riskLevel,
       riskReason: event.riskReason,
       autoApproved: !state.toolConfirmationOutcomes.has(event.toolUseId),
-      matchedTrustRuleId: event.matchedTrustRuleId,
       approvalMode: event.approvalMode,
       approvalReason: event.approvalReason,
       riskThreshold: event.riskThreshold,
@@ -1538,7 +1536,6 @@ export async function handleToolResult(
     toolUseId: event.toolUseId,
     riskLevel: event.riskLevel,
     riskReason: event.riskReason,
-    matchedTrustRuleId: event.matchedTrustRuleId,
     isContainerized: event.isContainerized,
     riskScopeOptions: event.riskScopeOptions,
     riskAllowlistOptions: event.riskAllowlistOptions,
@@ -1744,9 +1741,6 @@ function annotatePersistedAssistantMessage(
           rec._riskReason = risk.riskReason;
         }
         rec._autoApproved = risk.autoApproved;
-        if (risk.matchedTrustRuleId) {
-          rec._matchedTrustRuleId = risk.matchedTrustRuleId;
-        }
         if (risk.approvalMode) {
           rec._approvalMode = risk.approvalMode;
         }

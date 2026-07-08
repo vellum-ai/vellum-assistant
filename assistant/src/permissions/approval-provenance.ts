@@ -16,7 +16,6 @@ export function mapApprovalProvenance(
   decision: string,
   opts: {
     hasSandboxAutoApprove?: boolean;
-    matchedTrustRuleId?: string;
     wasPrompted?: boolean;
     wasTimeout?: boolean;
     wasSystemCancel?: boolean;
@@ -38,9 +37,6 @@ export function mapApprovalProvenance(
     if (opts.hasSandboxAutoApprove) {
       return { approvalMode: "auto", approvalReason: "sandbox_auto_approve" };
     }
-    if (opts.matchedTrustRuleId) {
-      return { approvalMode: "auto", approvalReason: "trust_rule_allowed" };
-    }
     return { approvalMode: "auto", approvalReason: "within_threshold" };
   }
 
@@ -60,9 +56,6 @@ export function mapApprovalProvenance(
 
   // "denied" — system denied without user interaction
   if (decision === "denied") {
-    if (opts.matchedTrustRuleId) {
-      return { approvalMode: "blocked", approvalReason: "trust_rule_denied" };
-    }
     return { approvalMode: "blocked", approvalReason: "no_interactive_client" };
   }
 

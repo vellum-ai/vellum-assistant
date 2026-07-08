@@ -91,8 +91,6 @@ export interface ToolPermissionSimulateResponse {
   };
   /** Resolved execution target for the tool. */
   executionTarget?: "host" | "sandbox";
-  /** ID of the trust rule that matched (if any). */
-  matchedTrustRuleId?: string;
   /** Error message when success is false. */
   error?: string;
 }

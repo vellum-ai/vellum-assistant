@@ -58,7 +58,6 @@ function toInvocationRecord(
         ),
         decision: event.decision,
         riskLevel: event.riskLevel,
-        matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
         // Prefer the executor-stamped raw pre-sanitization size: by the
         // time listeners run, sensitive-output extraction has already
@@ -82,7 +81,6 @@ function toInvocationRecord(
         result,
         decision: "error",
         riskLevel: event.riskLevel,
-        matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
         // The error result string is built right here and never goes
         // through sensitive-output sanitization, so sizing it directly is
@@ -100,7 +98,6 @@ function toInvocationRecord(
         result: formatDeniedResult(event.reason),
         decision: "denied",
         riskLevel: event.riskLevel,
-        matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
       };
     case "start":

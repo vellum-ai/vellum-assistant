@@ -168,7 +168,6 @@ describe("annotatePersistedAssistantMessage — risk-option arrays (Phase B)", (
       isError: false,
       riskLevel: "high",
       riskReason: "Modifies state",
-      matchedTrustRuleId: "rule_42",
       riskScopeOptions: scopeOptions,
       riskAllowlistOptions: allowlistOptions,
       riskDirectoryScopeOptions: directoryScopeOptions,
@@ -182,7 +181,6 @@ describe("annotatePersistedAssistantMessage — risk-option arrays (Phase B)", (
     // Existing scalars still flow through.
     expect(block._riskLevel).toBe("high");
     expect(block._riskReason).toBe("Modifies state");
-    expect(block._matchedTrustRuleId).toBe("rule_42");
     expect(block._approvalMode).toBe("prompted");
     expect(block._approvalReason).toBe("user_approved");
     expect(block._riskThreshold).toBe("relaxed");
