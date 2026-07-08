@@ -352,6 +352,18 @@
       "category": "marketing",
       "homepage": "https://github.com/ZeebBoyBlue/influencer",
       "license": "MIT"
+    },
+    {
+      "name": "youtube-manager",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/youtube-manager",
+        "ref": "0edc6e2fdf4a1c6e3c3e71120199b3e3bb018a23"
+      },
+      "description": "YouTube manager for your assistant: search, video and channel analytics, comment mining, trending research, and a persistent channel watchlist with digests. Auths through the managed Google OAuth connection (youtube.readonly) with API-key fallback.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/ZeebBoyBlue/youtube-manager",
+      "license": "MIT"
     }
   ]
 }
