@@ -1207,9 +1207,11 @@ describe("ChatComposer — live-voice integration", () => {
 
 describe("ChatComposer — live-voice transcript area", () => {
   test("streaming speech hides the textarea and renders the transcript in its place", () => {
-    // GIVEN a listening owned session with an in-flight partial transcript
+    // GIVEN a listening owned session with an in-flight partial transcript,
+    // and the user opted in to seeing their own words
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
+    useVoicePrefsStore.setState({ showUserTranscript: true });
     seedLiveVoiceSession("listening");
     useLiveVoiceStore
       .getState()
@@ -1228,6 +1230,31 @@ describe("ChatComposer — live-voice transcript area", () => {
     expect(region.querySelector('[data-testid="voice-transcript-caret"]')).toBeTruthy();
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
     expect(textarea.className).toContain("hidden");
+    expect(textarea.disabled).toBe(true);
+  });
+
+  test("streaming speech does NOT render the transcript when the show-your-words pref is off (default)", () => {
+    // GIVEN a listening owned session streaming speech, but the user has kept
+    // "Show the words you say" OFF (the default) — the composer must not
+    // surface their spoken words
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    // `showUserTranscript` defaults to false in the per-test reset; make the
+    // intent explicit here.
+    useVoicePrefsStore.setState({ showUserTranscript: false });
+    seedLiveVoiceSession("listening");
+    useLiveVoiceStore
+      .getState()
+      .setPartialTranscript("this is a text that I am just speaking");
+
+    // WHEN the composer renders
+    const { container, queryByLabelText } = renderVoiceComposer();
+
+    // THEN no transcript region mounts and the (still-uneditable) textarea
+    // stays visible so its placeholder shows through instead
+    expect(queryByLabelText("Voice transcript")).toBeNull();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.className).not.toContain("hidden");
     expect(textarea.disabled).toBe(true);
   });
 

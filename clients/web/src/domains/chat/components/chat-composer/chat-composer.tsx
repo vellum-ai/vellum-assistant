@@ -271,11 +271,19 @@ export function ChatComposer({
   const hasLiveVoiceTranscript = useLiveVoiceStore(
     (s) => Boolean(s.partialTranscript || s.finalTranscript),
   );
+  // The in-composer transcript shows the *user's* own speech, so it must
+  // honor the "Show the words you say" voice preference (default OFF). When
+  // the pref is off we never swap in the transcript — the disabled textarea
+  // and its placeholder stay visible instead. This gate is scoped to the
+  // transcript rendering only; `isLiveVoiceActive` still drives the voice-bar
+  // row swap, ghost-suffix suppression, and textarea disabled state.
+  const showUserTranscriptPref = useVoicePrefsStore.use.showUserTranscript();
   // While speech is streaming, the disabled textarea is visually hidden and
   // the display-only transcript renders in its grid cell (Light 55). With no
-  // transcript yet, the textarea stays visible so its placeholder shows
-  // through (Light 53 baseline).
-  const showLiveVoiceTranscript = isLiveVoiceActive && hasLiveVoiceTranscript;
+  // transcript yet (or the pref off) the textarea stays visible so its
+  // placeholder shows through (Light 53 baseline).
+  const showLiveVoiceTranscript =
+    isLiveVoiceActive && hasLiveVoiceTranscript && showUserTranscriptPref;
   // Session verbs go through the store seams registered by the layout-owned
   // controller: `starter` (registered for the controller's whole mount) to
   // start, per-session `controls` to stop/release — the latter via the shared
@@ -661,12 +669,14 @@ export function ChatComposer({
                 }`}
                 style={{ maxHeight: `${textareaMaxHeightPx}px` }}
               />
-              {isLiveVoiceActive && (
+              {showLiveVoiceTranscript && (
                 // Live speech streams display-only into the textarea's grid
-                // cell (Light 55); renders nothing until there is text, so
-                // the placeholder above stays visible. The shared cell keeps
-                // the grid's auto-grow/max-height behavior identical to the
-                // textarea it visually replaces.
+                // cell (Light 55); gated on `showLiveVoiceTranscript` so it
+                // only mounts once there is text *and* the user opted in via
+                // the "Show the words you say" pref — otherwise the disabled
+                // textarea and its placeholder stay visible. The shared cell
+                // keeps the grid's auto-grow/max-height behavior identical to
+                // the textarea it visually replaces.
                 <VoiceLiveTranscript
                   className="col-start-1 row-start-1"
                   maxHeightPx={textareaMaxHeightPx}
