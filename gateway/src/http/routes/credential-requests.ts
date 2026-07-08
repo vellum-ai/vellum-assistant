@@ -91,7 +91,11 @@ function lookupToken(token: string): TokenLookup {
   if (!row || row.status === "revoked") {
     return { outcome: "invalid" };
   }
-  if (row.status === "redeemed" || row.status === "redeeming") {
+  if (
+    row.status === "redeemed" ||
+    row.status === "redeeming" ||
+    row.status === "failed"
+  ) {
     return { outcome: "used" };
   }
   if (row.expiresAt <= Date.now()) {
@@ -220,7 +224,12 @@ export async function handleCredentialRequestSubmit(
       },
     });
   } catch (err) {
-    store.releaseClaim(lookup.row.id);
+    // Fail closed: the daemon's credentials_set writes the secret before its
+    // later side effects, so any error after delivery is ambiguous — the
+    // value may already be stored. Reopening the claim would let the same
+    // single-use link overwrite that write, so the link is burned instead
+    // and the submitter mints a new one.
+    store.markFailed(lookup.row.id);
     const message = err instanceof Error ? err.message : String(err);
     log.warn(
       {
@@ -230,11 +239,11 @@ export async function handleCredentialRequestSubmit(
         error: message,
         handlerStatus: err instanceof IpcHandlerError ? err.statusCode : null,
       },
-      "Credential-request submit failed to store via the daemon",
+      "Credential-request submit failed via the daemon — link burned",
     );
     return jsonError(
       "STORE_FAILED",
-      "the assistant could not store the credential — try again",
+      "the assistant could not store the credential — this link is no longer valid, request a new one",
       502,
     );
   }

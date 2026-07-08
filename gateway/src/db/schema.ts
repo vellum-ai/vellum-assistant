@@ -523,10 +523,11 @@ export const credentialRequests = sqliteTable(
     maxUses: integer("max_uses").notNull().default(1),
     useCount: integer("use_count").notNull().default(0),
     expiresAt: integer("expires_at").notNull(),
-    // active | redeeming | redeemed | revoked. "redeeming" is a short-lived
-    // claim held while the value is forwarded to the daemon; released back to
-    // "active" if the forward fails so the link is not burned by a transient
-    // daemon error.
+    // active | redeeming | redeemed | failed | revoked. "redeeming" is a
+    // short-lived claim held while the value is forwarded to the daemon; a
+    // forward error is terminal ("failed") because the daemon may have
+    // partially written before erroring — reopening the link would create a
+    // second-write window on a single-use token.
     status: text("status").notNull().default("active"),
     redeemedAt: integer("redeemed_at"),
     createdAt: integer("created_at").notNull(),

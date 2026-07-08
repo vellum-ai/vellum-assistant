@@ -216,7 +216,13 @@ describe("credential-request submit", () => {
     expect(ipcCalls).toHaveLength(1);
   });
 
-  test("releases the claim when the daemon forward fails", async () => {
+  test("burns the link when the daemon forward fails", async () => {
+    /**
+     * credentials_set writes the secret before its later side effects, so a
+     * post-delivery error is ambiguous — the value may already be stored.
+     * The link must NOT reopen (a reopened single-use link could overwrite
+     * the earlier write); it fails terminally and the user mints a new one.
+     */
     const { token, row } = mintRow();
     ipcFailure = new Error("daemon offline");
 
@@ -225,15 +231,18 @@ describe("credential-request submit", () => {
     );
     expect(res.status).toBe(502);
 
-    // The link survives the transient failure and can be retried.
     const fresh = new CredentialRequestStore().findByTokenHash(row.tokenHash);
-    expect(fresh!.status).toBe("active");
+    expect(fresh!.status).toBe("failed");
 
+    // A retry — even after the daemon recovers — sees a consumed link.
     ipcFailure = null;
     const retry = await handleCredentialRequestSubmit(
       postJson({ token, value: "sekret" }),
     );
-    expect(retry.status).toBe(200);
+    expect(retry.status).toBe(404);
+    const parsed = (await retry.json()) as { error: { code: string } };
+    expect(parsed.error.code).toBe("USED");
+    expect(ipcCalls).toHaveLength(1);
   });
 
   test("applies the mint-time policy together with the value", async () => {

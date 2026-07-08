@@ -5,9 +5,12 @@
  * only at submit time).
  *
  * Lifecycle: active → redeeming (claimed while the value is forwarded to the
- * daemon) → redeemed, with redeeming → active on forward failure so a
- * transient daemon error does not burn the link. Claims are status-gated
- * `UPDATE … RETURNING` so only the first of two racing submitters wins.
+ * daemon) → redeemed, or redeeming → failed when the forward errors. A failed
+ * forward is terminal — the daemon may have partially written before the
+ * error, so reopening the link would create a second-write window on a
+ * single-use token; the submitter is told to mint a new link instead. Claims
+ * are status-gated `UPDATE … RETURNING` so only the first of two racing
+ * submitters wins.
  */
 
 import { and, eq, gt, sql } from "drizzle-orm";
@@ -133,11 +136,15 @@ export class CredentialRequestStore {
       .run();
   }
 
-  /** Release a claim after a transient forward failure so the link stays usable. */
-  releaseClaim(id: string): void {
+  /**
+   * Terminally fail a claimed submission. The daemon may have stored the
+   * value before erroring, so the link must not return to "active" — a
+   * reopened single-use link could overwrite the already-written credential.
+   */
+  markFailed(id: string): void {
     this.db
       .update(credentialRequests)
-      .set({ status: "active", updatedAt: Date.now() })
+      .set({ status: "failed", updatedAt: Date.now() })
       .where(
         and(
           eq(credentialRequests.id, id),
