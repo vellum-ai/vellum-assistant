@@ -137,7 +137,13 @@ export function StagedQuotesStrip() {
       className="mb-2 max-h-[140px]"
     >
       <div className="flex flex-col gap-1.5">
-        <AnimatePresence initial={false}>
+        {/*
+         * `initial` is left at its default (true) so the first chip animates in
+         * too: this subtree unmounts whenever the strip is empty and remounts
+         * on the 0→1 transition, so that first chip is present at mount and
+         * would otherwise be skipped by `initial={false}`.
+         */}
+        <AnimatePresence>
           {stagedQuotes.map((quote) => (
             <motion.div
               key={quote.id}
