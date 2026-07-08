@@ -176,6 +176,30 @@ export async function resolveCallTtsProvider(
 }
 
 /**
+ * Decode a resolved call audio format into the provider request format
+ * and the audio-store format.
+ *
+ * Transport-forced PCM and user-configured WAV both request raw PCM from
+ * the provider so the audio bytes match the store's content-type —
+ * without this, providers like Fish Audio still return mp3 and the
+ * downstream mu-law transcoder fails on the format mismatch. The store
+ * format follows the request: when raw PCM is requested the entry's
+ * content-type must be audio/pcm, otherwise the store would say
+ * "audio/wav" while the bytes have no RIFF header and
+ * audioBufferToFrames falls through to the wrong decode path.
+ */
+export function resolveSynthesisFormats(
+  format: "mp3" | "wav" | "opus" | "pcm",
+): {
+  outputFormat: "pcm" | undefined;
+  storeFormat: "mp3" | "wav" | "opus" | "pcm";
+} {
+  const outputFormat =
+    format === "pcm" || format === "wav" ? ("pcm" as const) : undefined;
+  return { outputFormat, storeFormat: outputFormat ?? format };
+}
+
+/**
  * Find a catalog provider that can produce playable media-stream audio
  * with resolvable credentials.
  *
