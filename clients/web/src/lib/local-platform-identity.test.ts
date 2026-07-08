@@ -396,6 +396,21 @@ describe("bootstrapLocalAssistantPlatformIdentity", () => {
     secretsUnavailable = true;
   }
 
+  test("stores the API key sentinel only after the other credentials have landed", async () => {
+    simulateDaemonRestartWithMissingApiKey();
+    secretsUnavailable = false;
+
+    bootstrapLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+    await flushAsyncWork();
+
+    // The status probe reports has_assistant_api_key based on the API key
+    // alone, and the bootstrap early-returns on it — so a partial write
+    // must never leave the key stored without the rest.
+    expect(storedSecrets.at(-1)).toBe("vellum:assistant_api_key");
+    expect(storedSecrets).toContain("vellum:platform_base_url");
+    expect(storedSecrets).toContain("vellum:platform_organization_id");
+  });
+
   test("retries after the daemon-unreachable window and stores the credentials", async () => {
     simulateDaemonRestartWithMissingApiKey();
     setBootstrapRetryDelaysForTesting([20]);

@@ -494,7 +494,6 @@ async function injectPlatformCredentials(
   },
 ): Promise<void> {
   const entries: Array<[string, string | null]> = [
-    ["vellum:assistant_api_key", params.assistantApiKey],
     ["vellum:platform_assistant_id", params.platformAssistantId],
     ["vellum:platform_base_url", params.platformBaseUrl],
     ["vellum:platform_organization_id", params.organizationId],
@@ -506,6 +505,19 @@ async function injectPlatformCredentials(
       .filter((entry): entry is [string, string] => Boolean(entry[1]))
       .map(([name, value]) => injectCredential(gateway, name, value)),
   );
+
+  // The API key is the sentinel the status probe reports as
+  // has_assistant_api_key, and the bootstrap early-returns when it is
+  // present. Store it only after every other credential has landed, so a
+  // partial write can never look "healthy" to a later retry and suppress
+  // the re-injection of the missing credentials.
+  if (params.assistantApiKey) {
+    await injectCredential(
+      gateway,
+      "vellum:assistant_api_key",
+      params.assistantApiKey,
+    );
+  }
 }
 
 async function injectCredential(
