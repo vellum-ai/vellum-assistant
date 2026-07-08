@@ -165,15 +165,30 @@ function resolveVoiceId(
   return voiceId;
 }
 
-/**
- * Sample rates of the ElevenLabs `pcm_*` output formats this provider
- * requests (`pcm_16000`…`pcm_44100`).
- */
-const SUPPORTED_PCM_SAMPLE_RATES_HZ = [16_000, 22_050, 24_000, 44_100] as const;
+/** ElevenLabs `pcm_*` rates available on every subscription tier. */
+const UNRESTRICTED_PCM_SAMPLE_RATES_HZ = [16_000, 22_050, 24_000] as const;
 
-/** PCM rate resolver bound to the ElevenLabs-supported rate list (e.g. 48 kHz → 44.1 kHz). */
-const resolveElevenLabsPcmSampleRateHz = (request: TtsSynthesisRequest) =>
-  resolvePcmOutputSampleRateHz(request, SUPPORTED_PCM_SAMPLE_RATES_HZ);
+/** `pcm_44100` requires Pro tier or above upstream. */
+const PRO_TIER_PCM_SAMPLE_RATE_HZ = 44_100;
+
+/**
+ * PCM rate resolver for ElevenLabs. pcm_44100 is Pro-tier-gated upstream, so
+ * it is only used on an exact 44.1 kHz hint (explicit opt-in), never as a
+ * clamp target; all other hints clamp to the tier-unrestricted rates
+ * (e.g. 48 kHz → 24 kHz).
+ */
+const resolveElevenLabsPcmSampleRateHz = (request: TtsSynthesisRequest) => {
+  if (
+    request.outputFormat === "pcm" &&
+    request.sampleRateHz === PRO_TIER_PCM_SAMPLE_RATE_HZ
+  ) {
+    return PRO_TIER_PCM_SAMPLE_RATE_HZ;
+  }
+  return resolvePcmOutputSampleRateHz(
+    request,
+    UNRESTRICTED_PCM_SAMPLE_RATES_HZ,
+  );
+};
 
 /**
  * Choose the ElevenLabs output format based on the use case and optional
@@ -181,10 +196,9 @@ const resolveElevenLabsPcmSampleRateHz = (request: TtsSynthesisRequest) =>
  *
  * When the caller requests `outputFormat: "pcm"` (e.g. the media-stream
  * transport which needs raw PCM for mu-law transcoding), we request the
- * `pcm_*` format — 16-bit signed little-endian — at the `sampleRateHz` hint
- * clamped to the nearest supported rate (ties prefer higher), defaulting to
- * 16 kHz when no hint is given (the shared no-hint convention across TTS
- * providers).
+ * `pcm_*` format — 16-bit signed little-endian — at the rate chosen by
+ * {@link resolveElevenLabsPcmSampleRateHz}, defaulting to 16 kHz when no
+ * hint is given (the shared no-hint convention across TTS providers).
  *
  * Otherwise:
  * - Phone calls benefit from lower-latency, smaller payloads (mp3 at 22050/32).
