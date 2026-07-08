@@ -10,6 +10,7 @@ import type {
   VoiceTurnHandle,
   VoiceTurnOptions,
 } from "../calls/voice-session-bridge.js";
+import { getConfig } from "../config/loader.js";
 import { ensureConversationExists } from "../persistence/conversation-crud.js";
 import {
   listProviderIds,
@@ -113,8 +114,18 @@ export interface LiveVoiceSessionOptions {
   emitMetrics?: boolean;
   metricsClock?: LiveVoiceMetricsClock;
   createTurnId?: () => string;
-  /** Overrides the server-VAD turn detector thresholds (tests). */
+  /**
+   * Overrides the server-VAD turn detector thresholds. The production
+   * factory seeds these from `liveVoice.vad` config when unset.
+   */
   turnDetectorConfig?: TurnDetectorConfig;
+  /**
+   * Overrides the mean-amplitude energy gate that classifies a server-VAD
+   * audio chunk as speech. The production factory seeds this from
+   * `liveVoice.vad.speechEnergyThreshold` config when unset; defaults to
+   * `DEFAULT_SPEECH_ENERGY_THRESHOLD`.
+   */
+  speechEnergyThreshold?: number;
 }
 
 type LiveVoiceUtterancePhase =
@@ -203,6 +214,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private sessionEndMetricsEmitted = false;
   // Non-null iff the start frame requested turnDetection "server_vad".
   private readonly turnDetector: MediaTurnDetector | null;
+  // Energy gate for server-VAD speech classification; undefined defers to
+  // DEFAULT_SPEECH_ENERGY_THRESHOLD.
+  private readonly speechEnergyThreshold: number | undefined;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -240,6 +254,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       conversationId: this.conversationId,
       ...(options.metricsClock ? { clock: options.metricsClock } : {}),
     });
+    this.speechEnergyThreshold = options.speechEnergyThreshold;
     this.turnDetector =
       context.startFrame.turnDetection === "server_vad"
         ? new MediaTurnDetector(options.turnDetectorConfig ?? {}, {
@@ -522,7 +537,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    const hasSpeech = detectPcm16SpeechActivity(chunk);
+    const hasSpeech = detectPcm16SpeechActivity(
+      chunk,
+      this.speechEnergyThreshold,
+    );
     detector.onMediaChunk(hasSpeech);
 
     // Idle mic: hold silent chunks in the bounded pre-roll instead of
@@ -1685,8 +1703,18 @@ export function createLiveVoiceSession(
   context: LiveVoiceSessionFactoryContext,
   options: LiveVoiceSessionOptions = {},
 ): LiveVoiceSession {
+  // Workspace-tunable server-VAD thresholds. The `liveVoice.vad` schema
+  // defaults match the code defaults (800 energy / 800 ms silence / 30 s max
+  // turn), so an unset config leaves behavior unchanged.
+  const vadConfig = getConfig().liveVoice.vad;
   return new LiveVoiceSession(context, {
     ...options,
+    turnDetectorConfig: options.turnDetectorConfig ?? {
+      silenceThresholdMs: vadConfig.silenceThresholdMs,
+      maxTurnDurationMs: vadConfig.maxTurnDurationMs,
+    },
+    speechEnergyThreshold:
+      options.speechEnergyThreshold ?? vadConfig.speechEnergyThreshold,
     resolveCredentialReadiness:
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness
