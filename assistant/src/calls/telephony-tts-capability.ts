@@ -103,7 +103,7 @@ export async function evaluateTelephonyTtsPlayability(
   }
 
   for (const secret of entry.secretRequirements) {
-    if (!(await secretResolves(secret.credentialStoreKey))) {
+    if (!(await ttsSecretResolves(secret.credentialStoreKey))) {
       return {
         status: "not-playable",
         providerId: entry.id,
@@ -159,18 +159,18 @@ export function fishAudioReferenceIdConfigured(): boolean {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
 /**
- * Check whether a catalog `credentialStoreKey` resolves to a value.
+ * Check whether a TTS catalog `credentialStoreKey` resolves to a value.
  *
  * API keys (`credential/{service}/api_key` or a bare service name) go
  * through `getProviderKeyAsync` so env-var-only setups are honoured;
- * other namespaced fields are looked up verbatim.
+ * other namespaced fields are looked up verbatim. Shared by
+ * {@link evaluateTelephonyTtsPlayability} and the live-voice credential
+ * preflight.
  */
-async function secretResolves(credentialStoreKey: string): Promise<boolean> {
+export async function ttsSecretResolves(
+  credentialStoreKey: string,
+): Promise<boolean> {
   const parts = credentialStoreKey.split("/");
   if (parts.length === 1) {
     return Boolean(await getProviderKeyAsync(credentialStoreKey));

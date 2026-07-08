@@ -282,3 +282,92 @@ export function buildIntroductionActions(
   }
   return [{ id: "trust", label: "Trust", emphasis: "primary" }, ...tail];
 }
+
+// ---------------------------------------------------------------------------
+// Introduction mode (what prompted the card)
+// ---------------------------------------------------------------------------
+
+/**
+ * What prompted the introduction card. `denied` — the sender was refused
+ * (ACL or admission floor) and the guardian decides whether to let them in.
+ * `admitted` — the sender cleared the admission floor unclassified and the
+ * guardian is nudged to set their trust level while the conversation
+ * proceeds.
+ */
+export type AccessRequestTrigger = "denied" | "admitted";
+
+/**
+ * Per-mode policy for everything that differs between a deny-path access
+ * request and an admitted-mode introduction nudge. Single source of truth:
+ * copy, urgency, and the requester-facing lifecycle notice gates all read
+ * from this table, so adding a mode means adding one entry — not another
+ * branch per surface. Guardian-side decision semantics (the four actions,
+ * ACL writes, dedup/suppression) never vary by mode.
+ */
+export interface IntroductionModePolicy {
+  /** Attention-hint urgency for the guardian notification. */
+  urgency: "medium" | "high";
+  /** Card/notification title shared by every render surface. */
+  cardTitle: string;
+  /** Card subtitle (also the Slack card's no-preview body label). */
+  cardSubtitle: string;
+  /** questionText persisted on the canonical request row. */
+  questionText: (senderIdentifier: string) => string;
+  /** Contract-text identity line, given the assembled identity fragment. */
+  identityLine: (identity: string) => string;
+  /**
+   * Requester-facing lifecycle notice gates. An admitted sender made no
+   * request, so approved/denied/expired texts would misinform them.
+   * `verify_code` delivery is intentionally NOT gated here — the guardian
+   * explicitly chose a handshake, so the code must always reach the
+   * requester.
+   */
+  notifyRequesterOnTrust: boolean;
+  notifyRequesterOnDeny: boolean;
+  notifyRequesterOnExpiry: boolean;
+  /** Guardian confirmation for Leave unverified (desktop inline reply). */
+  leaveUnverifiedGuardianReply: (requesterLabel: string) => string;
+}
+
+const INTRODUCTION_MODES: Record<AccessRequestTrigger, IntroductionModePolicy> =
+  {
+    denied: {
+      urgency: "high",
+      cardTitle: "Access Request",
+      cardSubtitle: "Requesting access to the assistant",
+      questionText: (senderIdentifier) =>
+        `${senderIdentifier} is requesting access to the assistant`,
+      identityLine: (identity) =>
+        `${identity} is requesting access to the assistant.`,
+      notifyRequesterOnTrust: true,
+      notifyRequesterOnDeny: true,
+      notifyRequesterOnExpiry: true,
+      leaveUnverifiedGuardianReply: (requesterLabel) =>
+        `${requesterLabel} will stay unverified. They won't be able to message the assistant.`,
+    },
+    admitted: {
+      urgency: "medium",
+      cardTitle: "New Contact",
+      cardSubtitle: "Messaged your assistant — set their trust level",
+      questionText: (senderIdentifier) =>
+        `${senderIdentifier} messaged the assistant and was admitted — set their trust level`,
+      identityLine: (identity) =>
+        `${identity} messaged the assistant and was admitted under the channel's access setting — decide how much to trust them.`,
+      notifyRequesterOnTrust: false,
+      notifyRequesterOnDeny: false,
+      notifyRequesterOnExpiry: false,
+      leaveUnverifiedGuardianReply: (requesterLabel) =>
+        `${requesterLabel} will stay unverified.`,
+    },
+  };
+
+/**
+ * Resolve the mode policy from a payload or persisted trigger value.
+ * Anything other than `"admitted"` (including NULL rows that predate the
+ * trigger column) resolves to `denied` — the pre-existing behavior.
+ */
+export function introductionMode(
+  trigger: string | null | undefined,
+): IntroductionModePolicy {
+  return INTRODUCTION_MODES[trigger === "admitted" ? "admitted" : "denied"];
+}
