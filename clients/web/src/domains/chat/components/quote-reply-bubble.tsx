@@ -107,6 +107,7 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
         side="top"
         align="center"
         sideOffset={8}
+        collisionPadding={12}
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
         className="w-[360px] rounded-xl bg-transparent p-0 shadow-none touch-mobile:w-[calc(100vw-24px)]"
