@@ -16,7 +16,10 @@
  *     WHATWG URL normalizes `:443` to an empty port string for HTTPS).
  *   - The URL carries a signature query param — either `X-Goog-Signature`
  *     (V4 signing) or `Signature` (V2 signing). If neither is present
- *     the URL is not a signed URL and we refuse it.
+ *     the URL is not a signed URL and we refuse it. Skipped for a
+ *     non-default allowlist: those hosts (local/minikube platform serving
+ *     bundles over plain http) don't issue GCS-style signatures at all,
+ *     and the host allowlist itself is the trust anchor there.
  *   - The pathname does not contain `..` segments (traversal guard).
  *
  * On success we return the hostname and pathname for logging/telemetry.
@@ -34,9 +37,11 @@ const DEFAULT_ALLOWED_HOSTS: readonly string[] = [EXPECTED_HOST];
 export interface ValidateGcsSignedUrlOptions {
   /**
    * Allowlisted hosts. Defaults to `["storage.googleapis.com"]` — the only
-   * production value. Test-only callers can widen this to point at a local
-   * HTTP fixture (the `scheme` check also relaxes to accept `http:` for
-   * non-default hosts). Production code MUST NOT pass a wider list.
+   * production value. A non-default list (local/minikube via
+   * `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS`, or tests pointing at a local
+   * HTTP fixture) relaxes the `scheme` check to accept `http:`, skips the
+   * explicit-port check, and skips the signature-param requirement for the
+   * listed hosts. Production code MUST NOT pass a wider list.
    */
   allowedHosts?: readonly string[];
 }
@@ -87,10 +92,18 @@ export function validateGcsSignedUrl(
     return { ok: false, reason: "port" };
   }
 
-  const hasV4 = parsed.searchParams.has("X-Goog-Signature");
-  const hasV2 = parsed.searchParams.has("Signature");
-  if (!hasV4 && !hasV2) {
-    return { ok: false, reason: "missing_signature" };
+  // A non-default allowlist names hosts that don't issue GCS-style signed
+  // URLs (the local/minikube platform serves bundles over plain http), so
+  // requiring a signature there would reject every legitimate URL. The
+  // explicit allowlist is the trust anchor for those hosts — same rationale
+  // as the scheme/port relaxations above. The production default (GCS only)
+  // still requires a signature.
+  if (isDefaultHostList) {
+    const hasV4 = parsed.searchParams.has("X-Goog-Signature");
+    const hasV2 = parsed.searchParams.has("Signature");
+    if (!hasV4 && !hasV2) {
+      return { ok: false, reason: "missing_signature" };
+    }
   }
 
   // Defense-in-depth: reject any `..` path segment. The WHATWG URL

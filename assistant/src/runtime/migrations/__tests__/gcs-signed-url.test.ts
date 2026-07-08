@@ -8,7 +8,8 @@
  * - `http://` is rejected with reason `scheme`.
  * - A non-GCS host is rejected with reason `host`.
  * - A GCS URL with no signature query param is rejected with reason
- *   `missing_signature`.
+ *   `missing_signature`; an unsigned URL on a non-default allowlist is
+ *   accepted (allowlisted hosts don't issue GCS-style signatures).
  * - A GCS URL with a non-default explicit port (e.g. `:1234`, `:80`) is
  *   rejected with reason `port`. A URL with `:443` is accepted because
  *   WHATWG URL normalizes the default HTTPS port to an empty port
@@ -109,6 +110,31 @@ describe("validateGcsSignedUrl", () => {
 
     const result = validateGcsSignedUrl(url);
     expect(result).toEqual({ ok: false, reason: "missing_signature" });
+  });
+
+  test("accepts an unsigned URL for a host on a non-default allowlist", () => {
+    // The local/minikube platform serves bundles over plain http with no
+    // GCS-style signature params — the explicit allowlist is the trust
+    // anchor there, so the signature requirement is skipped.
+    const url = "http://host.docker.internal:8000/bucket/object.tgz";
+
+    const result = validateGcsSignedUrl(url, {
+      allowedHosts: ["host.docker.internal"],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.host).toBe("host.docker.internal");
+      expect(result.path).toBe("/bucket/object.tgz");
+    }
+  });
+
+  test("still rejects traversal in an unsigned allowlisted URL", () => {
+    const url = "http://host.docker.internal:8000/bucket/../secret";
+
+    const result = validateGcsSignedUrl(url, {
+      allowedHosts: ["host.docker.internal"],
+    });
+    expect(result).toEqual({ ok: false, reason: "path_traversal" });
   });
 
   test("rejects a GCS URL with a non-default port (1234)", () => {

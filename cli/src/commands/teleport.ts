@@ -510,6 +510,9 @@ async function exportFromAssistant(
         operation: "upload",
         minRuntimeVersion: sourceRuntimeVersion,
         maxRuntimeVersion: null,
+        // The managed pod PUTs the bundle, not this CLI — the URL must be
+        // signed against the runtime-reachable storage endpoint.
+        consumer: "runtime",
       },
       platformToken,
       bundlePlatformUrl,
