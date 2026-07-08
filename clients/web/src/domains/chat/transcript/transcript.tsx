@@ -47,6 +47,8 @@ export interface TranscriptProps {
   ) => void;
   /** Callback for "Fork from here" from a message's hover actions. */
   onForkConversation?: (messageId: string) => void;
+  /** Callback for "Summarize up to here" from a message's hover actions. */
+  onSummarizeUpToHere?: (messageId: string) => void;
   /** Callback for "Inspect" from a message's hover actions. */
   onInspectMessage?: (messageId: string) => void;
 
@@ -239,6 +241,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       conversationId,
       onSurfaceAction: rest.onSurfaceAction,
       onForkConversation: rest.onForkConversation,
+      onSummarizeUpToHere: rest.onSummarizeUpToHere,
       onInspectMessage: rest.onInspectMessage,
       renderOnboardingChoice: rest.renderOnboardingChoice,
       assistantDisplayName: rest.assistantDisplayName,

@@ -78,6 +78,7 @@ export function TranscriptMessageBody({
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
+  onSummarizeUpToHere,
   onInspectMessage,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
@@ -116,6 +117,10 @@ export function TranscriptMessageBody({
   const forkMessageId = message.id;
   const forkHandler = forkMessageId && onForkConversation
     ? () => onForkConversation(forkMessageId)
+    : undefined;
+  const summarizeMessageId = message.id;
+  const summarizeHandler = summarizeMessageId && onSummarizeUpToHere
+    ? () => onSummarizeUpToHere(summarizeMessageId)
     : undefined;
   const inspectMessageId = message.id;
   const inspectHandler = inspectMessageId && onInspectMessage
@@ -655,6 +660,7 @@ export function TranscriptMessageBody({
           conversationId={conversationId}
           openInSlackUrl={slackMessageUrl}
           onFork={forkHandler}
+          onSummarizeUpToHere={summarizeHandler}
           onInspect={inspectHandler}
         />
       </div>

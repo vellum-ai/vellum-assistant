@@ -131,6 +131,8 @@ export interface ChatMainPanelProps {
 
   // Conversation secondary actions (orchestration dependency)
   handleForkConversation: (throughMessageId: string) => Promise<void>;
+  /** Opens the "Summarize up to here" confirm dialog for a message. */
+  onSummarizeUpToHere?: (messageId: string) => void;
   handleInspectMessage?: (messageId: string) => void;
 
   // History pagination (from useConversationLoader in ActiveChatView)
@@ -211,6 +213,7 @@ export function ChatMainPanel({
   handleSteerMessage,
   handleEditQueueTail,
   handleForkConversation,
+  onSummarizeUpToHere,
   handleInspectMessage,
   historyPagination,
   diskPressure,
@@ -889,6 +892,7 @@ export function ChatMainPanel({
     onConfirmationSubmit: handleConfirmationSubmit,
     onAllowAndCreateRule: handleAllowAndCreateRule,
     onForkConversation: handleForkConversationCallback,
+    onSummarizeUpToHere,
     onInspectMessage: handleInspectMessage,
     renderAvatar,
     onPullRefresh: handlePullRefresh,

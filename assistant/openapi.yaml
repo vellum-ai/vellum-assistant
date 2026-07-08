@@ -9303,6 +9303,48 @@ paths:
                   - ok
                   - updated
                 additionalProperties: false
+  /v1/conversations/summarize:
+    post:
+      operationId: conversations_summarize_post
+      summary: Summarize a conversation up to a message
+      description:
+        Replace the conversation's context before the given message with a generated summary. The boundary snaps to
+        the start of the turn containing beforeMessageId; that turn and everything after stay verbatim. Messages are
+        never deleted.
+      tags:
+        - conversations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                beforeMessageId:
+                  type: string
+                  description: Summarize all messages before this one
+              required:
+                - conversationId
+                - beforeMessageId
+      responses:
+        "202":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                    const: true
+                  conversationId:
+                    type: string
+                required:
+                  - accepted
+                  - conversationId
+                additionalProperties: false
   /v1/conversations/switch:
     post:
       operationId: conversations_switch_post
