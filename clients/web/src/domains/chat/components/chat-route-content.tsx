@@ -927,7 +927,7 @@ export function ChatMainPanel({
       onVoiceError={setVoiceError}
       onVoiceBeforeStart={handleVoiceBeforeStart}
       onStopGenerating={handleStopGenerating}
-      canStopGenerating={isAssistantBusy}
+      isAssistantBusy={isAssistantBusy}
       assistantId={assistantId}
       // Routing-truth id (NOT `activeConversation?.conversationId`, which is
       // transiently undefined until the row loads and always undefined for
