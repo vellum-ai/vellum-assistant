@@ -1211,6 +1211,30 @@ function assertInvariantProfilesPreserved(
 }
 
 /**
+ * `{...raw, ...completed}` recursively: completed (schema-known) values win,
+ * raw keys the schema stripped survive at every depth.
+ */
+function mergePreservingUnknownKeys(
+  raw: Record<string, unknown>,
+  completed: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...raw, ...completed };
+  for (const [key, value] of Object.entries(completed)) {
+    const rawValue = raw[key];
+    if (
+      readPlainObject(value) !== undefined &&
+      readPlainObject(rawValue) !== undefined
+    ) {
+      out[key] = mergePreservingUnknownKeys(
+        rawValue as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+    }
+  }
+  return out;
+}
+
+/**
  * Custom profiles persist as complete overrides: any user-source, non-mix
  * profile entry this write creates or changes is completed against
  * `llm.default` (`completeCustomProfile`) before it lands on disk, so no
@@ -1249,14 +1273,17 @@ function completeChangedCustomProfiles(
       parsedEntry.data.source === "managed" && !MANAGED_PROFILE_NAMES.has(name)
         ? { ...parsedEntry.data, source: "user" as const }
         : parsedEntry.data;
-    // Spread the completed known fields over the original raw entry:
-    // `safeParse` strips keys the schema doesn't know, and dropping them
-    // here would delete forward-compatible fields whenever an unrelated
-    // leaf of the entry is edited.
-    profiles[name] = {
-      ...(readPlainObject(entry) ?? {}),
-      ...completeCustomProfile(parsedDefault.data, entryData),
-    };
+    // Merge the completed known fields over the original raw entry at every
+    // depth: `safeParse` strips keys the schema doesn't know (top-level and
+    // inside nested objects like `contextWindow`), and dropping them here
+    // would delete forward-compatible fields whenever the entry is edited.
+    profiles[name] = mergePreservingUnknownKeys(
+      readPlainObject(entry) ?? {},
+      completeCustomProfile(parsedDefault.data, entryData) as Record<
+        string,
+        unknown
+      >,
+    );
   }
 }
 
