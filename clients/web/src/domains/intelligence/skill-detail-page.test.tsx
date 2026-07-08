@@ -7,8 +7,10 @@
  * - the page forces that refetch itself even when the cached list is still
  *   fresh under the app QueryClient's `staleTime` (the test client mirrors
  *   the production value so this can't silently regress),
- * - a failed mount revalidation degrades to the cached render — the
- *   full-page error state is reserved for a failure with no cached list,
+ * - a failed mount revalidation degrades to the cached render only when the
+ *   cached list resolves the skill — with the skill unresolved (no cached
+ *   list, or a cached list that lacks it) the full-page error state renders
+ *   instead of a false "Skill not found",
  * - the back button restores the Skills list's query string passed as
  *   router state (search/filter/category survive detail navigation).
  *
@@ -266,6 +268,28 @@ describe("SkillDetailPage revalidation failure", () => {
     });
     expect(screen.getByText("Detail: Fresh Skill")).toBeTruthy();
     expect(screen.queryByText("Failed to load skills")).toBeNull();
+  });
+
+  test("shows the error state (not 'Skill not found') when the cached list lacks the skill and the revalidation fails", async () => {
+    // Residual gap behind an `isError && !skills` guard: a cached list that
+    // predates the requested skill keeps `skills` truthy, so a failed forced
+    // refetch would skip the error branch and settle into a terminal "Skill
+    // not found" for a skill that may exist on the daemon. The guard must
+    // key on the resolved skill, not on cached data existing.
+    listError = new Error("daemon unavailable");
+
+    const client = makeQueryClient();
+    client.setQueryData(listQueryKey(), {
+      skills: [makeSkill({ id: "older-skill", name: "Older Skill" })],
+    } as SkillsGetResponse);
+
+    renderDetail({ skillId: "skill-1", client });
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to load skills")).toBeTruthy();
+    });
+    expect(screen.queryByText("Skill not found")).toBeNull();
+    expect(screen.queryByText("Detail: Fresh Skill")).toBeNull();
   });
 
   test("shows the error state when the list fails with no cached data", async () => {
