@@ -22,7 +22,10 @@
 import { type RefObject, useEffect } from "react";
 
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
-import { resolveAssistantSelection } from "@/domains/chat/resolve-assistant-selection";
+import {
+  isAssistantMessageNode,
+  resolveAssistantSelection,
+} from "@/domains/chat/resolve-assistant-selection";
 import { isNativePlatform } from "@/runtime/native-auth";
 
 const NATIVE_SELECTION_HANDLER = "vellumTextSelection";
@@ -85,25 +88,35 @@ export function useNativeQuoteReply(
       window.getSelection()?.removeAllRanges();
     };
 
-    const postCanReply = () => {
+    const postCanReply = (canReply: boolean) => {
       const handler = window.webkit?.messageHandlers?.[NATIVE_SELECTION_HANDLER];
       if (!handler) {
         return;
       }
-      handler.postMessage({
-        canReply: resolveAssistantSelection(containerRef.current) !== null,
-      });
+      handler.postMessage({ canReply });
+    };
+
+    // `selectstart` fires as the gesture begins — before iOS builds the edit
+    // menu — but the new selection range is not yet associated, so eligibility
+    // is derived from the gesture's target node rather than the (still empty)
+    // window selection. This primes native's `canReply` flag ahead of the
+    // first menu presentation.
+    const handleSelectStart = (event: Event) => {
+      const target = event.target instanceof Node ? event.target : null;
+      postCanReply(isAssistantMessageNode(target, containerRef.current));
+    };
+
+    // `selectionchange` keeps the flag in sync once a real selection exists.
+    const handleSelectionChange = () => {
+      postCanReply(resolveAssistantSelection(containerRef.current) !== null);
     };
 
     window.__vellumQuoteReplyFromSelection = openFromSelection;
-    // `selectstart` fires as the selection gesture begins — before iOS builds
-    // the edit menu — so native's `canReply` flag is current when the menu is
-    // evaluated. `selectionchange` keeps it in sync as the selection changes.
-    document.addEventListener("selectstart", postCanReply);
-    document.addEventListener("selectionchange", postCanReply);
+    document.addEventListener("selectstart", handleSelectStart);
+    document.addEventListener("selectionchange", handleSelectionChange);
     return () => {
-      document.removeEventListener("selectstart", postCanReply);
-      document.removeEventListener("selectionchange", postCanReply);
+      document.removeEventListener("selectstart", handleSelectStart);
+      document.removeEventListener("selectionchange", handleSelectionChange);
       if (window.__vellumQuoteReplyFromSelection === openFromSelection) {
         delete window.__vellumQuoteReplyFromSelection;
       }
