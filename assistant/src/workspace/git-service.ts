@@ -131,8 +131,10 @@ const WORKSPACE_GITIGNORE_RULES = [
   "*.pth",
   // Canonical user state re-included despite the media rules above.
   // Must stay after the extension rules: last matching pattern wins.
+  // (Not a broad !data/apps/** — that would also re-include dist/.)
   "!data/avatar/**",
   "!data/sounds/**",
+  "!data/apps/*/icon.png",
 ];
 
 const NULL_GIT_OID = "0000000000000000000000000000000000000000";

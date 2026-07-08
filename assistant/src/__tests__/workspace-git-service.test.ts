@@ -778,6 +778,14 @@ describe("WorkspaceGitService", () => {
       writeFileSync(join(testDir, "data", "avatar", "avatar-image.png"), "img");
       mkdirSync(join(testDir, "data", "sounds"), { recursive: true });
       writeFileSync(join(testDir, "data", "sounds", "ding.mp3"), "snd");
+      mkdirSync(join(testDir, "data", "apps", "my-app", "dist"), {
+        recursive: true,
+      });
+      writeFileSync(join(testDir, "data", "apps", "my-app", "icon.png"), "ic");
+      writeFileSync(
+        join(testDir, "data", "apps", "my-app", "dist", "bundle.png"),
+        "junk",
+      );
       // Media junk elsewhere that should be untracked
       mkdirSync(join(testDir, "pkb"), { recursive: true });
       writeFileSync(join(testDir, "pkb", "photo.png"), "junk");
@@ -800,8 +808,11 @@ describe("WorkspaceGitService", () => {
       });
       expect(tracked).toContain("data/avatar/avatar-image.png");
       expect(tracked).toContain("data/sounds/ding.mp3");
+      expect(tracked).toContain("data/apps/my-app/icon.png");
       expect(tracked).toContain("fixture-keep.md");
       expect(tracked).not.toContain("pkb/photo.png");
+      // The icon negation must not drag dist/ back in
+      expect(tracked).not.toContain("data/apps/my-app/dist/bundle.png");
     });
 
     test("existing repo with old data/ rule gets it replaced with selective rules", async () => {
@@ -911,7 +922,7 @@ describe("WorkspaceGitService", () => {
         cwd: testDir,
       });
       const gitignoreContent =
-        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\n/embedding-models/\n/external/\n/bin/\n/plugins-data/\nnode_modules/\n__pycache__/\n.venv/\nlogs/\n*.log\n*.sock\n*.pid\ndaemon-startup.lock\nsession-token\n*.sqlite*\n*.db\n*.db-*\n.DS_Store\n*.zip\n*.tar\n*.gz\n*.tgz\n*.bz2\n*.xz\n*.7z\n*.rar\n*.dmg\n*.iso\n*.png\n*.jpg\n*.jpeg\n*.gif\n*.webp\n*.heic\n*.bmp\n*.tiff\n*.mp3\n*.wav\n*.m4a\n*.flac\n*.ogg\n*.mp4\n*.mov\n*.avi\n*.mkv\n*.webm\n*.pdf\n*.gguf\n*.onnx\n*.safetensors\n*.pt\n*.pth\n!data/avatar/**\n!data/sounds/**\n";
+        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\n/embedding-models/\n/external/\n/bin/\n/plugins-data/\nnode_modules/\n__pycache__/\n.venv/\nlogs/\n*.log\n*.sock\n*.pid\ndaemon-startup.lock\nsession-token\n*.sqlite*\n*.db\n*.db-*\n.DS_Store\n*.zip\n*.tar\n*.gz\n*.tgz\n*.bz2\n*.xz\n*.7z\n*.rar\n*.dmg\n*.iso\n*.png\n*.jpg\n*.jpeg\n*.gif\n*.webp\n*.heic\n*.bmp\n*.tiff\n*.mp3\n*.wav\n*.m4a\n*.flac\n*.ogg\n*.mp4\n*.mov\n*.avi\n*.mkv\n*.webm\n*.pdf\n*.gguf\n*.onnx\n*.safetensors\n*.pt\n*.pth\n!data/avatar/**\n!data/sounds/**\n!data/apps/*/icon.png\n";
       writeFileSync(join(testDir, ".gitignore"), gitignoreContent);
       writeFileSync(join(testDir, "file.txt"), "content");
       execFileSync("git", ["add", "-A"], { cwd: testDir });
