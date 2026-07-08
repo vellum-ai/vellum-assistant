@@ -72,6 +72,11 @@ export const RESEARCH_ONBOARDING_FUNNEL_STEPS = {
   // don't emit for it — the flow's completion is recorded on `suggestions` — but
   // it's a `ResearchStep`, so the exhaustive record needs an entry.
   finishing: { stepName: "research_finishing", stepIndex: 11 },
+  // Established-assistant guard — an off-ramp branch after the form, not a
+  // sequential stage, so it takes the next free index rather than renumbering
+  // the funnel. Outcome: "completed" = kept the assistant (left for chat),
+  // "skipped" = declined the off-ramp and redid onboarding anyway.
+  existing: { stepName: "research_existing_assistant", stepIndex: 12 },
 } as const satisfies Record<ResearchStep, OnboardingFunnelStepDescriptor>;
 
 export type ResearchOnboardingFunnelStep =
