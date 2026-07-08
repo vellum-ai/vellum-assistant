@@ -374,7 +374,8 @@ export class NotificationBroadcaster {
             : pairing;
         const deepLinkConversationId =
           deepLinkPairing.conversationId ??
-          resolveSourceConversationId(signal.sourceContextId);
+          resolveSourceConversationId(signal.sourceContextId) ??
+          resolveDeepLinkConversationId(signal.contextPayload);
         if (deepLinkConversationId) {
           deepLinkTarget = {
             ...deepLinkTarget,
@@ -592,6 +593,28 @@ function resolveSourceConversationId(
   }
   try {
     return getConversation(sourceContextId) ? sourceContextId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve a deep-link conversation id from the signal's context payload.
+ * Signal producers that do not pair a conversation (e.g. `schedule.notify`
+ * in notify mode) can set `deepLinkConversationId` in the context payload so
+ * push notification taps navigate to a relevant existing conversation rather
+ * than the app's default landing. Validates that the id points at a real
+ * conversation row before returning it.
+ */
+function resolveDeepLinkConversationId(
+  contextPayload: Record<string, unknown> | undefined,
+): string | undefined {
+  const raw = contextPayload?.deepLinkConversationId;
+  if (typeof raw !== "string" || raw.length === 0) {
+    return undefined;
+  }
+  try {
+    return getConversation(raw) ? raw : undefined;
   } catch {
     return undefined;
   }
