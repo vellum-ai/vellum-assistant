@@ -113,7 +113,6 @@ import {
   isConversationProcessing,
   isHiddenMessageMetadata,
   type MessageRow,
-  provenanceFromTrustContext,
   recordConversationPersistedSeq,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
