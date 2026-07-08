@@ -91,13 +91,44 @@ const WORKSPACE_GITIGNORE_RULES = [
   "*.db-*",
   // OS junk
   ".DS_Store",
-  // Large binary blobs
+  // Archives and disk images
   "*.zip",
   "*.tar",
   "*.gz",
   "*.tgz",
+  "*.bz2",
+  "*.xz",
+  "*.7z",
+  "*.rar",
   "*.dmg",
   "*.iso",
+  // Images (svg is text-based and stays tracked)
+  "*.png",
+  "*.jpg",
+  "*.jpeg",
+  "*.gif",
+  "*.webp",
+  "*.heic",
+  "*.bmp",
+  "*.tiff",
+  // Audio and video
+  "*.mp3",
+  "*.wav",
+  "*.m4a",
+  "*.flac",
+  "*.ogg",
+  "*.mp4",
+  "*.mov",
+  "*.avi",
+  "*.mkv",
+  "*.webm",
+  // Documents and model weights
+  "*.pdf",
+  "*.gguf",
+  "*.onnx",
+  "*.safetensors",
+  "*.pt",
+  "*.pth",
 ];
 
 const NULL_GIT_OID = "0000000000000000000000000000000000000000";
