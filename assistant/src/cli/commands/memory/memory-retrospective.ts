@@ -13,11 +13,7 @@
 
 import type { Command } from "commander";
 
-import { getConfig } from "../../../config/loader.js";
-import {
-  type MemoryRetrospectiveOutcome,
-  runForkBasedRetrospective,
-} from "../../../plugins/defaults/memory/memory-retrospective-job.js";
+import type { MemoryRetrospectiveOutcome } from "../../../plugins/defaults/memory/memory-retrospective-job.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -63,6 +59,12 @@ Examples:
             opts: { json?: boolean },
             cmd: Command,
           ) => {
+            // Deferred: loads the config loader and retrospective job graph.
+            const [{ getConfig }, { runForkBasedRetrospective }] =
+              await Promise.all([
+                import("../../../config/loader.js"),
+                import("../../../plugins/defaults/memory/memory-retrospective-job.js"),
+              ]);
             const config = getConfig();
             let outcome: MemoryRetrospectiveOutcome;
             try {
