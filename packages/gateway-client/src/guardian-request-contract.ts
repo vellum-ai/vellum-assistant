@@ -161,6 +161,8 @@ export const GUARDIAN_REQUESTS_IPC_METHODS = {
   listPendingByDestination: "guardian_requests_list_pending_by_destination",
   listPendingByScope: "guardian_requests_list_pending_by_scope",
   inScope: "guardian_requests_in_scope",
+  getByCallSession: "guardian_requests_get_by_call_session",
+  getByPendingQuestion: "guardian_requests_get_by_pending_question",
 } as const;
 
 export type GuardianRequestsIpcMethod =
@@ -597,4 +599,28 @@ export const GuardianRequestInScopeIpcResponseSchema = z.object({
 
 export type GuardianRequestInScopeIpcResponse = z.infer<
   typeof GuardianRequestInScopeIpcResponseSchema
+>;
+
+/**
+ * Request for `guardian_requests_get_by_call_session`: latest pending request
+ * for a live voice call session (mid-call guardian wait polling).
+ */
+export const GetGuardianRequestByCallSessionIpcParamsSchema = z.object({
+  callSessionId: z.string().min(1),
+});
+
+export type GetGuardianRequestByCallSessionIpcParams = z.infer<
+  typeof GetGuardianRequestByCallSessionIpcParamsSchema
+>;
+
+/**
+ * Request for `guardian_requests_get_by_pending_question`: the request that
+ * carries a specific voice pending-question id.
+ */
+export const GetGuardianRequestByPendingQuestionIpcParamsSchema = z.object({
+  pendingQuestionId: z.string().min(1),
+});
+
+export type GetGuardianRequestByPendingQuestionIpcParams = z.infer<
+  typeof GetGuardianRequestByPendingQuestionIpcParamsSchema
 >;

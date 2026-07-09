@@ -14,7 +14,9 @@ import {
   DecideGuardianRequestIpcResponseSchema,
   ExpireGuardianRequestIpcParamsSchema,
   ExpireInteractionBoundIpcResponseSchema,
+  GetGuardianRequestByCallSessionIpcParamsSchema,
   GetGuardianRequestByDestinationMessageIpcParamsSchema,
+  GetGuardianRequestByPendingQuestionIpcParamsSchema,
   GUARDIAN_REQUESTS_IPC_METHODS,
   GuardianRequestAclOutcomeSchema,
   GuardianRequestDeliverySchema,
@@ -35,10 +37,10 @@ import {
 } from "../guardian-request-contract.js";
 
 describe("IPC method names", () => {
-  test("exposes 17 unique methods under the guardian_requests_ prefix", () => {
+  test("exposes 19 unique methods under the guardian_requests_ prefix", () => {
     const methods = Object.values(GUARDIAN_REQUESTS_IPC_METHODS);
-    expect(methods).toHaveLength(17);
-    expect(new Set(methods).size).toBe(17);
+    expect(methods).toHaveLength(19);
+    expect(new Set(methods).size).toBe(19);
     for (const method of methods) {
       expect(method).toMatch(/^guardian_requests_[a-z_]+$/);
     }
@@ -445,5 +447,27 @@ describe("delivery + destination IPC schemas", () => {
     expect(
       GuardianRequestInScopeIpcResponseSchema.parse({ inScope: true }),
     ).toEqual({ inScope: true });
+  });
+
+  test("call-session lookups round-trip and reject empty ids", () => {
+    expect(
+      GetGuardianRequestByCallSessionIpcParamsSchema.parse({
+        callSessionId: "call-1",
+      }),
+    ).toEqual({ callSessionId: "call-1" });
+    expect(() =>
+      GetGuardianRequestByCallSessionIpcParamsSchema.parse({
+        callSessionId: "",
+      }),
+    ).toThrow();
+
+    expect(
+      GetGuardianRequestByPendingQuestionIpcParamsSchema.parse({
+        pendingQuestionId: "pq-1",
+      }),
+    ).toEqual({ pendingQuestionId: "pq-1" });
+    expect(() =>
+      GetGuardianRequestByPendingQuestionIpcParamsSchema.parse({}),
+    ).toThrow();
   });
 });
