@@ -192,8 +192,11 @@ export async function loadPluginCatalog(
 /**
  * Project a marketplace entry onto the catalog match shape, building a
  * `github:owner/repo[/path]@ref` locator for display.
+ *
+ * Shared by the platform fetcher and bundled reader so all catalog sources
+ * project entries identically.
  */
-function marketplaceMatch(entry: MarketplaceEntry): PluginSearchMatch {
+export function marketplaceMatch(entry: MarketplaceEntry): PluginSearchMatch {
   const { repo, path, ref } = entry.source;
   const locator = `github:${repo}${path ? `/${path}` : ""}@${ref}`;
   return {
