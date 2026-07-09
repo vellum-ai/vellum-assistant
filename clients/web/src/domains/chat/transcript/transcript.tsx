@@ -177,6 +177,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
 
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
+    const latestHistoryMessageIndex = partition.anchorMessage
+      ? -1
+      : partition.historyItems.findLastIndex(
+          (item) => item.kind === "message",
+        );
 
     useImperativeHandle(
       ref,
@@ -274,20 +279,19 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
         <div ref={contentRef} className="flex w-full flex-col">
           {/* History items in chronological order — oldest at top. In the
            *  no-anchor mode (assistant-only history, e.g. recovered
-           *  conversation) the avatar renders directly below the last history
-           *  item, so that item is the "latest message" and collapses its
-           *  hover-actions row; with an anchor present the latest turn owns
-           *  the flag instead (see `LatestTurnRow`). */}
+           *  conversation) the avatar renders directly below the history
+           *  list, so its last message-kind item is the "latest message" and
+           *  collapses its hover-actions row — trailing non-message rows
+           *  (thinking slot, pending prompts, ephemeral meta) carry no
+           *  trailer, so the flag skips past them. With an anchor present
+           *  the latest turn owns the flag instead (see `LatestTurnRow`). */}
           {partition.historyItems.map((item, i) => (
             <Fragment key={item.key}>
               <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
                 <TranscriptRow
                   item={item}
                   {...rowProps}
-                  isLatestMessage={
-                    !partition.anchorMessage &&
-                    i === partition.historyItems.length - 1
-                  }
+                  isLatestMessage={i === latestHistoryMessageIndex}
                 />
               </div>
             </Fragment>
