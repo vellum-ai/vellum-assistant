@@ -662,26 +662,38 @@ body {
 }
 
 /* Palette: accent = tinted from the assistant's avatar color. Falls back to the
- * aurora indigo when no avatar accent is set. */
+ * aurora indigo when no avatar accent is set.
+ *
+ * Each rule declares an aurora rgba() first, then the color-mix() tint: engines
+ * without color-mix() (Safari/iOS < 16.2 — the iOS shell still targets 15.0)
+ * drop the invalid color-mix declaration and keep the rgba, so the waves stay
+ * visible (in aurora colors) rather than falling back to SVG's default black
+ * fill on the dark room. */
 .voice-listening-waves--accent {
   --wave-accent: var(--avatar-accent, #6366f1);
 }
 .voice-listening-waves--accent.voice-listening-waves--fill .voice-wave--back path {
+  fill: rgba(99, 102, 241, 0.16);
   fill: color-mix(in srgb, var(--wave-accent) 16%, transparent);
 }
 .voice-listening-waves--accent.voice-listening-waves--fill .voice-wave--mid path {
+  fill: rgba(79, 140, 255, 0.2);
   fill: color-mix(in srgb, var(--wave-accent) 24%, transparent);
 }
 .voice-listening-waves--accent.voice-listening-waves--fill .voice-wave--front path {
+  fill: rgba(34, 211, 238, 0.26);
   fill: color-mix(in srgb, var(--wave-accent) 34%, transparent);
 }
 .voice-listening-waves--accent.voice-listening-waves--line .voice-wave--back path {
+  stroke: rgba(99, 102, 241, 0.5);
   stroke: color-mix(in srgb, var(--wave-accent) 50%, transparent);
 }
 .voice-listening-waves--accent.voice-listening-waves--line .voice-wave--mid path {
+  stroke: rgba(79, 140, 255, 0.62);
   stroke: color-mix(in srgb, var(--wave-accent) 66%, transparent);
 }
 .voice-listening-waves--accent.voice-listening-waves--line .voice-wave--front path {
+  stroke: rgba(34, 211, 238, 0.78);
   stroke: color-mix(in srgb, var(--wave-accent) 82%, transparent);
 }
 
