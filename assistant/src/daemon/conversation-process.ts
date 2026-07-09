@@ -40,6 +40,7 @@ import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
 import {
+  CONVERSATION_BUSY_MESSAGE,
   persistQueuedMessageBody,
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";
@@ -841,6 +842,23 @@ async function drainSingleMessage(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // runAgentLoop never ran, so its finally block won't clear this
+    conversation.preactivatedSkillIds = undefined;
+    if (message === CONVERSATION_BUSY_MESSAGE) {
+      // Another turn (e.g. a barged-in voice turn woken by the idle
+      // transition) took the lock between this drain's dequeue and its
+      // persist. The message is still valid — requeue it at the front and
+      // stop; the lock holder's own finally re-drains the queue.
+      log.info(
+        {
+          conversationId: conversation.conversationId,
+          requestId: next.requestId,
+        },
+        "Requeueing drained message: processing lock was retaken",
+      );
+      conversation.queue.unshift(next);
+      return;
+    }
     log.error(
       {
         err,
@@ -854,8 +872,6 @@ async function drainSingleMessage(
       conversationId: conversation.conversationId,
       message,
     });
-    // runAgentLoop never ran, so its finally block won't clear this
-    conversation.preactivatedSkillIds = undefined;
     // Continue draining — don't strand remaining messages
     await drainQueue(conversation);
     return;
@@ -1192,6 +1208,25 @@ async function drainBatch(
       persistedMessageIds.push(batchPersistResult.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (i === 0 && message === CONVERSATION_BUSY_MESSAGE) {
+        // The head hit lock contention before any batch state was set:
+        // another turn took the lock between dequeue and persist. The
+        // whole batch is still valid — requeue it at the front in order
+        // and stop; the lock holder's finally re-drains the queue.
+        log.info(
+          {
+            conversationId: conversation.conversationId,
+            requestId: qm.requestId,
+            batchSize: batch.length,
+          },
+          "Requeueing drained batch: processing lock was retaken",
+        );
+        conversation.preactivatedSkillIds = undefined;
+        for (let j = batch.length - 1; j >= 0; j -= 1) {
+          conversation.queue.unshift(batch[j]);
+        }
+        return;
+      }
       log.error(
         {
           err,
