@@ -43,7 +43,12 @@ export function useSmoothStreamText(target: string | null): string | null {
   const revealedRef = useRef(0);
   const hasTarget = target !== null && !reducedMotion;
 
-  targetRef.current = target ?? "";
+  // Synced via effect (not during render — lint forbids render-phase ref
+  // writes); must be defined before the loop effect so a fresh stream's
+  // first frame sees the current target.
+  useEffect(() => {
+    targetRef.current = target ?? "";
+  }, [target]);
 
   useEffect(() => {
     if (!hasTarget) return;
