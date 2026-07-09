@@ -71,10 +71,12 @@ export function inferMimeType(filename: string): string {
  * Explicit filenames (`<vellum-attachment filename="..." />` attributes)
  * are an authoring contract and always used verbatim. Link display text
  * (`[label](vellum://...)`) is cosmetic: it is only honored as the filename
- * when it carries a recognized extension. Bare labels
- * (e.g. `[desktop](vellum://.../shot.png)`) would otherwise produce
- * extensionless downloads with an `application/octet-stream` MIME type,
- * which macOS opens as raw text. In that case the real path basename wins.
+ * when it carries a recognized extension. A bare label
+ * (e.g. `[desktop](vellum://.../shot.png)`) would otherwise produce an
+ * extensionless download with an `application/octet-stream` MIME type,
+ * which macOS opens as raw text. In that case the label keeps the path's
+ * extension (`desktop.png`), staying unique per link even when several
+ * links share a basename; the raw basename is the last resort.
  *
  * The basename fallback splits on both `/` and `\\` so it handles POSIX
  * sandbox paths, `vellum://` URL paths, and Windows host paths alike.
@@ -97,6 +99,14 @@ export function resolveAttachmentFilename(
   }
   if (inferMimeType(preferred) !== "application/octet-stream") {
     return preferred;
+  }
+  // Bare label: keep the label as a per-link disambiguator (two links to
+  // different files sharing a basename must not collide, because the
+  // transcript resolves clicks by filename) and append the path's
+  // extension so the stored name carries the correct type.
+  const dot = fallback.lastIndexOf(".");
+  if (dot > 0 && dot < fallback.length - 1) {
+    return `${preferred}.${fallback.slice(dot + 1)}`;
   }
   return fallback;
 }

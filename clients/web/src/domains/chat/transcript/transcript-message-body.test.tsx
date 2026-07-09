@@ -1085,6 +1085,42 @@ describe("TranscriptMessageBody", () => {
     ).toMatchObject({ id: "att-enc" });
   });
 
+  test("bare-label links to files sharing a basename resolve independently", () => {
+    downloadAttachmentMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-dup",
+          role: "assistant",
+          contentBlocks: [textBlock("two results")],
+          attachments: [
+            {
+              id: "att-first",
+              filename: "first.png",
+              mimeType: "image/png",
+              sizeBytes: 1,
+              previewUrl: null,
+            },
+            {
+              id: "att-second",
+              filename: "second.png",
+              mimeType: "image/png",
+              sizeBytes: 2,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    lastVellumLinkClick?.("vellum://workspace/b/result.png", "second");
+    expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
+    expect(
+      (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
+    ).toMatchObject({ id: "att-second" });
+  });
+
   test("bare label cannot be shadowed by an unrelated attachment with that name", () => {
     downloadAttachmentMock.mockClear();
     render(
@@ -1104,9 +1140,9 @@ describe("TranscriptMessageBody", () => {
             },
             {
               // The attachment the daemon materialized for the clicked link
-              // (bare label, so stored under the path basename).
+              // (bare label, so stored as label + path extension).
               id: "att-real",
-              filename: "qa-delete-desktop-dialog.png",
+              filename: "desktop.png",
               mimeType: "image/png",
               sizeBytes: 2,
               previewUrl: null,

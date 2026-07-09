@@ -30,20 +30,35 @@ describe("resolveAttachmentFilename", () => {
     ).toBe("nice-name.png");
   });
 
-  test("falls back to the POSIX path basename for bare labels", () => {
+  test("keeps bare labels and appends the POSIX path extension", () => {
     expect(resolveAttachmentFilename("desktop", "/tmp/shot.png", "label")).toBe(
-      "shot.png",
+      "desktop.png",
     );
   });
 
-  test("falls back to the Windows path basename for bare labels", () => {
+  test("keeps bare labels and appends the Windows path extension", () => {
     expect(
       resolveAttachmentFilename(
         "desktop",
         "C:\\Users\\jason\\Pictures\\shot.png",
         "label",
       ),
-    ).toBe("shot.png");
+    ).toBe("desktop.png");
+  });
+
+  test("bare labels to files sharing a basename resolve to unique names", () => {
+    expect(
+      resolveAttachmentFilename("first", "/workspace/a/result.png", "label"),
+    ).toBe("first.png");
+    expect(
+      resolveAttachmentFilename("second", "/workspace/b/result.png", "label"),
+    ).toBe("second.png");
+  });
+
+  test("falls back to the basename when the path has no extension", () => {
+    expect(resolveAttachmentFilename("label", "/tmp/rawfile", "label")).toBe(
+      "rawfile",
+    );
   });
 
   test("uses the basename when no preferred name is given", () => {

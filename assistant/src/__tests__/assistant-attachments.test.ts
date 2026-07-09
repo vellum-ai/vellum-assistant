@@ -136,20 +136,36 @@ describe("resolveAttachmentFilename", () => {
     ).toBe("report.pdf");
   });
 
-  test("falls back to path basename for an extensionless label", () => {
+  test("keeps an extensionless label and appends the path extension", () => {
     expect(
       resolveAttachmentFilename(
         "desktop",
         "/workspace/qa-delete-desktop-dialog.png",
         "label",
       ),
-    ).toBe("qa-delete-desktop-dialog.png");
+    ).toBe("desktop.png");
   });
 
-  test("falls back to path basename for a label with unrecognized extension", () => {
+  test("appends the path extension to a label with an unrecognized one", () => {
     expect(
       resolveAttachmentFilename("notes.xyz", "/workspace/notes.txt", "label"),
-    ).toBe("notes.txt");
+    ).toBe("notes.xyz.txt");
+  });
+
+  test("bare labels to distinct files sharing a basename stay unique", () => {
+    const first = resolveAttachmentFilename(
+      "first",
+      "/workspace/a/result.png",
+      "label",
+    );
+    const second = resolveAttachmentFilename(
+      "second",
+      "/workspace/b/result.png",
+      "label",
+    );
+    expect(first).toBe("first.png");
+    expect(second).toBe("second.png");
+    expect(first).not.toBe(second);
   });
 
   test("falls back to path basename when preferred is undefined", () => {
