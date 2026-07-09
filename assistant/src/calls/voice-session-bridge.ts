@@ -549,22 +549,34 @@ export async function startVoiceTurn(
    * restores the prior owner's values via `restoreTurnState` for the
    * duration of its wait, then re-installs before retrying.
    */
+  // The exact values this turn installs, computed once: `restoreTurnState`
+  // recognizes by identity whether a field still holds THIS turn's value —
+  // a field a concurrent winner overwrote is the winner's to keep.
+  const voiceTurnValues = {
+    assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+    callSessionId: voiceSessionId,
+    trustContext: opts.trustContext ?? null,
+    turnChannelContext,
+    turnInterfaceContext,
+    channelCapabilities: resolveChannelCapabilities(
+      turnChannelContext.userMessageChannel,
+      turnInterfaceContext.userMessageInterface,
+    ),
+    voiceCallControlPrompt,
+  };
   const installVoiceTurnState = () => {
-    conversation.setAssistantId(
-      opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-    );
-    conversation.callSessionId = voiceSessionId;
-    conversation.setTrustContext(opts.trustContext ?? null);
+    conversation.setAssistantId(voiceTurnValues.assistantId);
+    conversation.callSessionId = voiceTurnValues.callSessionId;
+    conversation.setTrustContext(voiceTurnValues.trustContext);
     conversation.setCommandIntent(null);
-    conversation.setTurnChannelContext(turnChannelContext);
-    conversation.setTurnInterfaceContext?.(turnInterfaceContext);
-    conversation.setChannelCapabilities(
-      resolveChannelCapabilities(
-        turnChannelContext.userMessageChannel,
-        turnInterfaceContext.userMessageInterface,
-      ),
+    conversation.setTurnChannelContext(voiceTurnValues.turnChannelContext);
+    conversation.setTurnInterfaceContext?.(
+      voiceTurnValues.turnInterfaceContext,
     );
-    conversation.setVoiceCallControlPrompt(voiceCallControlPrompt);
+    conversation.setChannelCapabilities(voiceTurnValues.channelCapabilities);
+    conversation.setVoiceCallControlPrompt(
+      voiceTurnValues.voiceCallControlPrompt,
+    );
   };
   /**
    * Capture every conversation value `installVoiceTurnState` overwrites
@@ -593,14 +605,62 @@ export async function startVoiceTurn(
    * prompt).
    */
   const restoreTurnState = (snap: ReturnType<typeof snapshotTurnState>) => {
-    conversation.setChannelCapabilities(snap.channelCapabilities ?? null);
-    conversation.setTrustContext(snap.trustContext ?? null);
-    conversation.setCommandIntent(snap.commandIntent ?? null);
-    conversation.setAssistantId(snap.assistantId ?? null);
-    conversation.setTurnChannelContext(snap.turnChannelContext);
-    conversation.setTurnInterfaceContext?.(snap.turnInterfaceContext);
-    conversation.setVoiceCallControlPrompt(snap.voiceCallControlPrompt ?? null);
-    conversation.callSessionId = snap.callSessionId;
+    // Per-field compare-and-restore: `persistUserMessage` awaits actor-scoped
+    // history BEFORE its busy check, so a concurrent winner can install its
+    // own values between this turn's install and the busy throw. Revert a
+    // field only while it still holds this turn's value (identity match
+    // against `voiceTurnValues`) — anything the winner overwrote stays.
+    // Reads are normalized with `?? null` on both sides: setters store null
+    // vs undefined inconsistently for cleared values, and a normalization
+    // miss here would either skip a restore (leaking this turn's value) or
+    // clobber a winner.
+    if (
+      (conversation.channelCapabilities ?? null) ===
+      (voiceTurnValues.channelCapabilities ?? null)
+    ) {
+      conversation.setChannelCapabilities(snap.channelCapabilities ?? null);
+    }
+    if (
+      (conversation.trustContext ?? null) ===
+      (voiceTurnValues.trustContext ?? null)
+    ) {
+      conversation.setTrustContext(snap.trustContext ?? null);
+    }
+    if ((conversation.commandIntent ?? null) === null) {
+      conversation.setCommandIntent(snap.commandIntent ?? null);
+    }
+    if (
+      (conversation.assistantId ?? null) ===
+      (voiceTurnValues.assistantId ?? null)
+    ) {
+      conversation.setAssistantId(snap.assistantId ?? null);
+    }
+    if (
+      (conversation.getTurnChannelContext?.() ?? null) ===
+      voiceTurnValues.turnChannelContext
+    ) {
+      conversation.setTurnChannelContext(snap.turnChannelContext);
+    }
+    if (
+      (conversation.getTurnInterfaceContext?.() ?? null) ===
+      voiceTurnValues.turnInterfaceContext
+    ) {
+      conversation.setTurnInterfaceContext?.(snap.turnInterfaceContext);
+    }
+    if (
+      (conversation.voiceCallControlPrompt ?? null) ===
+      (voiceTurnValues.voiceCallControlPrompt ?? null)
+    ) {
+      conversation.setVoiceCallControlPrompt(
+        snap.voiceCallControlPrompt ?? null,
+      );
+    }
+    if (
+      (conversation.callSessionId ?? null) ===
+      (voiceTurnValues.callSessionId ?? null)
+    ) {
+      conversation.callSessionId = snap.callSessionId;
+    }
     conversation.forcePromptSideEffects = snap.forcePromptSideEffects;
   };
   let messageId: string;
@@ -623,17 +683,17 @@ export async function startVoiceTurn(
     // microtasks after the idle transition that released this turn.
     // Within the remaining budget, wait the drained turn out and retry
     // the persist once instead of failing the barge-in.
-    if (
-      !(err instanceof Error) ||
-      err.message !== CONVERSATION_BUSY_MESSAGE ||
-      remainingWaitMs <= 0
-    ) {
+    if (!(err instanceof Error) || err.message !== CONVERSATION_BUSY_MESSAGE) {
       // Non-busy persist failure: no concurrent turn took the lock, so
       // this turn still owns the state it installed. Release it to
       // defaults, matching the agent-loop finally of a turn that ran.
       cleanup();
       throw err;
     }
+    // A busy failure ALWAYS means a live winner holds the lock — even with
+    // the wait budget exhausted, its state must be restored rather than
+    // reset to defaults; `waitOutProcessingLock` throws the byte-identical
+    // busy error immediately when nothing remains of the budget.
     // The busy error means a concurrent turn won the lock race and is
     // running. It must not run with this turn's phone prompt, caller
     // trust, or turn channel/interface contexts, so the winner's values

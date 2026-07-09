@@ -11,7 +11,7 @@
  * strings, so those are pinned here too. `waitForIdle`'s own semantics are
  * covered by `src/__tests__/conversation-wait-for-idle.test.ts`.
  */
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, setSystemTime, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before importing voice-session-bridge
@@ -538,11 +538,22 @@ describe("startVoiceTurn queued-message drain race", () => {
     });
     // Record install/uninstall markers for the state the drained turn must
     // never see: the phone control prompt and the caller trust context.
-    fake.conversation.setVoiceCallControlPrompt = (prompt) => {
+    // The markers also store the value: the bridge's per-field
+    // compare-and-restore only reverts a field that still holds the value
+    // this turn installed.
+    const conv = fake.conversation as unknown as {
+      voiceCallControlPrompt?: string;
+      trustContext?: unknown;
+      setVoiceCallControlPrompt: (prompt: string | null) => void;
+      setTrustContext: (ctx: unknown) => void;
+    };
+    conv.setVoiceCallControlPrompt = (prompt) => {
+      conv.voiceCallControlPrompt = prompt ?? undefined;
       events.push(prompt === null ? "prompt:clear" : "prompt:install");
     };
-    fake.conversation.setTrustContext = (ctx) => {
-      events.push(ctx === null ? "trust:clear" : "trust:install");
+    conv.setTrustContext = (ctx) => {
+      conv.trustContext = ctx ?? undefined;
+      events.push(ctx === null || ctx === undefined ? "trust:clear" : "trust:install");
     };
     fakeConversation = fake.conversation;
 
@@ -780,5 +791,99 @@ describe("startVoiceTurn race-loss state restore", () => {
       "Turn aborted while waiting for conversation",
     );
     expect(readState()).toEqual(winnerState);
+  });
+
+  test("a busy persist with the wait budget already exhausted still restores the winner", async () => {
+    // The wait loop can consume the entire budget before the persist's busy
+    // throw; the busy failure must still route to restore (a live winner
+    // holds the lock), not to cleanup's reset-to-defaults.
+    const winnerState = makeWinnerState();
+    const fake = makeFakeConversation({
+      processing: true,
+      waitForIdle: async () => {
+        // The lock releases, but only after the full wait budget elapsed.
+        setSystemTime(new Date(Date.now() + 100 + ABORT_WATCHDOG_MS + 1001));
+        fake.setProcessingFlag(false);
+        return true;
+      },
+      onPersist: () => {
+        fake.setProcessingFlag(true);
+        throw new Error("Conversation is already processing a message");
+      },
+    });
+    const readState = wireTurnState(fake.conversation, winnerState);
+    fakeConversation = fake.conversation;
+
+    try {
+      await expect(
+        startVoiceTurn({
+          ...makeTurnOptions(undefined, "conv-race-zero-budget-restore"),
+          trustContext: { sourceChannel: "phone", trustClass: "guardian" },
+        }),
+      ).rejects.toThrow("Conversation is already processing a message");
+    } finally {
+      setSystemTime();
+    }
+    expect(fake.persistCount()).toBe(1);
+    expect(readState()).toEqual(winnerState);
+  });
+
+  test("fields the winner overwrote mid-persist are left with the winner's values", async () => {
+    // persistUserMessage yields before its busy check, so the winner can
+    // install its own values AFTER this turn's install. The restore must be
+    // per-field: revert only fields still holding this turn's values.
+    const winnerState = makeWinnerState();
+    const overwrittenTrust = {
+      sourceChannel: "web",
+      trustClass: "owner-overwrite",
+    };
+    const overwrittenChannelContext = {
+      userMessageChannel: "vellum",
+      assistantMessageChannel: "vellum",
+    };
+    const statesDuringWait: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: async () => {
+        statesDuringWait.push(readState());
+        fake.setProcessingFlag(false);
+        return true;
+      },
+      onPersist: (attempt) => {
+        if (attempt === 1) {
+          // The winner installs its own trust + turn channel context during
+          // the persist await, then the busy throw lands here.
+          const conv = fake.conversation as unknown as {
+            setTrustContext: (ctx: unknown) => void;
+            setTurnChannelContext: (ctx: unknown) => void;
+          };
+          conv.setTrustContext(overwrittenTrust);
+          conv.setTurnChannelContext(overwrittenChannelContext);
+          fake.setProcessingFlag(true);
+          throw new Error("Conversation is already processing a message");
+        }
+      },
+    });
+    const readState = wireTurnState(fake.conversation, winnerState);
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-race-partial-overwrite"),
+      callSessionId: "session-voice-loser",
+      trustContext: { sourceChannel: "phone", trustClass: "guardian" },
+    });
+
+    // During the wait: fields the winner overwrote keep the WINNER's values;
+    // fields only this turn touched are restored to the pre-install state.
+    expect(statesDuringWait.length).toBe(1);
+    const waited = statesDuringWait[0]!;
+    expect(waited.trustContext).toBe(overwrittenTrust);
+    expect(waited.turnChannelContext).toBe(overwrittenChannelContext);
+    expect(waited.voiceCallControlPrompt).toBe(
+      winnerState.voiceCallControlPrompt,
+    );
+    expect(waited.channelCapabilities).toBe(winnerState.channelCapabilities);
+    expect(waited.callSessionId).toBe(winnerState.callSessionId);
+    expect(waited.assistantId).toBe(winnerState.assistantId);
   });
 });
