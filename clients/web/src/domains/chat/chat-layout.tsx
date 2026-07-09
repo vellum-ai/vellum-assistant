@@ -657,6 +657,7 @@ export function ChatLayout() {
           assistantId={assistantId}
           assistantVersion={assistantVersion}
           activeConversationId={activeConversationId}
+          triggerVariant={args.variant === "overlay" ? "pill" : "item"}
         />
       }
       onClose={args.onClose}

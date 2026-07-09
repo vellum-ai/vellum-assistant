@@ -14,6 +14,7 @@ import { useNavigate } from "react-router";
 
 import {
     BottomSheet,
+    Button,
     PanelItem,
     Popover,
     SideMenu,
@@ -53,12 +54,18 @@ export interface PreferencesMenuProps {
   assistantId?: string | null;
   assistantVersion?: string | null;
   activeConversationId?: string | null;
+  /**
+   * Trigger presentation. `item` is the labeled side-menu footer row (rail);
+   * `pill` is a floating rounded button for the mobile overlay's action row.
+   */
+  triggerVariant?: "item" | "pill";
 }
 
 export function PreferencesMenu({
   assistantId,
   assistantVersion,
   activeConversationId,
+  triggerVariant = "item",
 }: PreferencesMenuProps) {
   const isAuthenticated = useIsAuthenticated();
   const isMobile = useIsMobile();
@@ -72,14 +79,25 @@ export function PreferencesMenu({
 
   const closeMenu = () => setIsOpen(false);
 
-  const trigger = (
-    <SideMenu.Item
-      icon={SlidersHorizontal}
-      label="Preferences"
-      trailingIcon={isOpen ? ChevronDown : ChevronUp}
-      active={isOpen}
-    />
-  );
+  const trigger =
+    triggerVariant === "pill" ? (
+      /* Solid surface + shadow: the pill floats over the scrolling
+         conversation list, so it can't be transparent like `ghost`. */
+      <Button
+        variant="ghost"
+        leftIcon={<SlidersHorizontal />}
+        className="h-10 rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 shadow-[var(--shadow-lg)]"
+      >
+        Preferences
+      </Button>
+    ) : (
+      <SideMenu.Item
+        icon={SlidersHorizontal}
+        label="Preferences"
+        trailingIcon={isOpen ? ChevronDown : ChevronUp}
+        active={isOpen}
+      />
+    );
 
   const content = (
     <PreferencesMenuContent
