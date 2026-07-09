@@ -393,3 +393,79 @@ describe("flag-on / flag-off parity on materialized workspaces", () => {
     expect(flagOn).toEqual(flagOff);
   });
 });
+
+describe("explicit default-profile references resolve through the default provider", () => {
+  // Regression: a conversation/schedule pin, activeProfile, or callSites
+  // reference to a default key resolved the vellum catalog column regardless
+  // of llm.defaultProvider, dispatching vellum model ids to BYOK connections.
+  const managedStubs = {
+    balanced: { source: "managed" as const },
+    "cost-optimized": { source: "managed" as const },
+  };
+
+  test("an override pin to a default key matches the intent-rung resolution", () => {
+    const llm = LLMSchema.parse({ profiles: managedStubs, ...anthropicDp });
+    const pinned = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "cost-optimized",
+    });
+    // conversationSummarization's call-site default is the same intent.
+    const viaIntent = resolveCallSiteConfig("conversationSummarization", llm);
+    expect(pinned.provider).toBe("anthropic");
+    expect(pinned.model).toBe(viaIntent.model);
+    expect(pinned.provider_connection).toBe(viaIntent.provider_connection);
+    expect(pinned.model).not.toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES["cost-optimized"].model as string,
+    );
+  });
+
+  test("activeProfile set to a default key resolves the default provider's column", () => {
+    const llm = LLMSchema.parse({
+      profiles: managedStubs,
+      activeProfile: "balanced",
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.provider_connection).toBe("anthropic-personal");
+    expect(resolved.model).not.toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
+    );
+  });
+
+  test("a vellum default provider keeps the vellum bodies", () => {
+    const llm = LLMSchema.parse({
+      profiles: managedStubs,
+      defaultProvider: { provider: "vellum" },
+    });
+    const pinned = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "cost-optimized",
+    });
+    const vellumBody = CODE_DEFAULT_PROFILE_ENTRIES["cost-optimized"];
+    expect(pinned.model).toBe(vellumBody.model as string);
+    expect(pinned.provider_connection).toBe(vellumBody.provider_connection);
+  });
+
+  test("a mix arm naming a default key expands through the default provider", () => {
+    const llm = LLMSchema.parse({
+      profiles: {
+        ...managedStubs,
+        blend: {
+          source: "user" as const,
+          mix: [
+            { profile: "cost-optimized", weight: 1 },
+            { profile: "cost-optimized", weight: 1 },
+          ],
+        },
+      },
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "blend",
+      selectionSeed: "seed",
+    });
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).not.toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES["cost-optimized"].model as string,
+    );
+  });
+});

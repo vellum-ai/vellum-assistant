@@ -373,6 +373,25 @@ export function selectWinningProfile(
 }
 
 /**
+ * Dereference a profile name for the override-or-default rungs. A
+ * default-profile key resolves through the default provider's column of the
+ * intent × provider matrix — an explicit reference (pin, `activeProfile`,
+ * `callSites` profile) must yield the same body the call-site intent rung
+ * would, never the vellum column regardless of `llm.defaultProvider`. Custom
+ * names resolve to their workspace entry either way.
+ */
+function providerAwareEntry(
+  llm: z.infer<typeof LLMSchema>,
+  name: string,
+): ProfileEntry | undefined {
+  return resolveDefaultProfileForProvider(
+    llm.profiles,
+    name,
+    llm.defaultProvider ?? null,
+  );
+}
+
+/**
  * Dereference a named rung: the effective entry must exist, be enabled,
  * expand (for a mix) to an enabled arm, and carry its own provider+model.
  */
@@ -385,7 +404,7 @@ function usableEntry(
   if (name == null) {
     return undefined;
   }
-  const named = getEffectiveProfile(llm.profiles, name);
+  const named = providerAwareEntry(llm, name);
   if (named == null) {
     report(name, "missing");
     return undefined;
@@ -396,7 +415,11 @@ function usableEntry(
   }
   // Mixes expand via the shared seeded pick (fires `onMixSelected`).
   const entry =
-    named.mix == null ? named : resolveProfileFragment(name, llm, opts);
+    named.mix == null
+      ? named
+      : resolveProfileFragment(name, llm, opts, (n) =>
+          providerAwareEntry(llm, n),
+        );
   if (entry == null) {
     report(name, "missing");
     return undefined;
@@ -434,7 +457,9 @@ function usableDefaultIntent(
     defaultProvider,
   );
   if (entry?.mix != null) {
-    entry = resolveProfileFragment(intent, llm, opts);
+    entry = resolveProfileFragment(intent, llm, opts, (n) =>
+      providerAwareEntry(llm, n),
+    );
   }
   if (
     entry != null &&
@@ -615,9 +640,11 @@ function resolveProfileFragment(
   name: string | undefined,
   llm: z.infer<typeof LLMSchema>,
   opts: ResolveCallSiteOpts,
+  lookupEntry: (name: string) => ProfileEntry | undefined = (n) =>
+    getEffectiveProfile(llm.profiles, n),
 ): ProfileEntry | undefined {
   if (name == null) return undefined;
-  const entry = getEffectiveProfile(llm.profiles, name);
+  const entry = lookupEntry(name);
   if (entry?.mix == null) return entry;
 
   // Mix: pick one constituent. Seed by per-conversation seed + the mix's own
@@ -631,7 +658,7 @@ function resolveProfileFragment(
   opts.onMixSelected?.({ mixProfile: name, chosenProfile: chosen.profile });
 
   // The chosen arm must be a standard profile (enforced by superRefine).
-  return getEffectiveProfile(llm.profiles, chosen.profile);
+  return lookupEntry(chosen.profile);
 }
 
 /**
