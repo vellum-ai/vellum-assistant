@@ -58,6 +58,7 @@ import {
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
+import { GUARDIAN_LABEL_IPC_METHODS } from "./routes/guardian-label-ipc-routes.js";
 import { INVITE_IPC_METHODS } from "./routes/invite-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
@@ -224,6 +225,16 @@ export class AssistantIpcServer {
     // gateway-owned ACL write. No HTTP surface; never in ROUTES.
     for (const [operationId, handler] of Object.entries(
       CONTACTS_MIRROR_IPC_METHODS,
+    )) {
+      this.methods.set(operationId, handler);
+    }
+
+    // IPC-only guardian-label method (see ipc/routes/guardian-label-ipc-routes.ts).
+    // The gateway calls this to resolve the guardian's display label (persona
+    // preferred name) for its native contact reads. No HTTP surface; never in
+    // ROUTES.
+    for (const [operationId, handler] of Object.entries(
+      GUARDIAN_LABEL_IPC_METHODS,
     )) {
       this.methods.set(operationId, handler);
     }
