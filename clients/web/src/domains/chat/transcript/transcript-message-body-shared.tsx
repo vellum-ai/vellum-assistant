@@ -83,6 +83,15 @@ export interface TranscriptMessageBodyProps {
    * of the turn. Collapses back to the compact default once the turn ends.
    */
   isStreaming?: boolean;
+  /**
+   * True only for the final item of the latest turn — the message that sits
+   * directly above the parked assistant avatar. Collapses the hover-actions
+   * row to zero height so the avatar hugs the message, then animates it open
+   * on hover/focus/tap-reveal (the avatar slides down to make room). History
+   * rows leave it `false` and keep the always-reserved row height so hovering
+   * mid-transcript never shifts layout.
+   */
+  isLatestMessage?: boolean;
 }
 
 /**

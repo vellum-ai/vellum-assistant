@@ -95,6 +95,7 @@ export function TranscriptMessageBody({
   onWorkflowClick,
   onStopWorkflow,
   isStreaming = false,
+  isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
@@ -693,13 +694,21 @@ export function TranscriptMessageBody({
   // truncates inside the card instead of overflowing the message column.
   const columnClass = `flex w-full min-w-0 flex-col gap-2 ${isUser ? "items-end" : "items-start"}`;
 
+  // See `TranscriptMessageBodyProps.isLatestMessage` for why only the latest
+  // message collapses this row instead of reserving its height.
+  const trailerHeightClass = isLatestMessage
+    ? "h-0 overflow-hidden group-hover/msg:h-6 has-[:focus-visible]:h-6 group-data-[revealed=true]/msg:h-6"
+    : "h-6 overflow-hidden";
+
   const trailer = (
     <>
       <SlackMessageAttribution
         message={message}
         assistantDisplayName={assistantDisplayName}
       />
-      <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
+      <div
+        className={`${trailerHeightClass} opacity-0 transition-[height,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
+      >
         <MessageHoverActions
           message={message}
           conversationId={conversationId}

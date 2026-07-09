@@ -95,6 +95,12 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   const phase = useTurnStore.use.phase();
   const isStreaming =
     phase === "queued" || phase === "thinking" || phase === "streaming";
+  // Only the trailing item of the cluster sits directly above the parked
+  // avatar, so only it collapses its hover-actions row (see
+  // `TranscriptRowProps.isLatestMessage`). While the turn is in flight the
+  // trailing item is the thinking row, so no message collapses until the
+  // turn settles.
+  const lastItem = responseItems.at(-1);
   return (
     <div className="flex flex-col" data-latest-turn="true">
       <TranscriptRow
@@ -118,6 +124,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         onStopSubagent={onStopSubagent}
         onWorkflowClick={onWorkflowClick}
         onStopWorkflow={onStopWorkflow}
+        isLatestMessage={!lastItem}
       />
       {responseItems.map((response) => (
         <Fragment key={response.key}>
@@ -143,6 +150,7 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             onWorkflowClick={onWorkflowClick}
             onStopWorkflow={onStopWorkflow}
             isStreaming={isStreaming}
+            isLatestMessage={response === lastItem}
           />
         </Fragment>
       ))}

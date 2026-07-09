@@ -76,6 +76,10 @@ export interface TranscriptRowProps {
    *  `TranscriptMessageBody` so the streaming message's last tool-call group
    *  defaults open. History rows leave it `false`. */
   isStreaming?: boolean;
+  /** True for the final item of the latest turn. Forwarded to
+   *  `TranscriptMessageBody` so the message directly above the parked avatar
+   *  collapses its hover-actions row and animates it open on hover. */
+  isLatestMessage?: boolean;
 }
 
 export const TranscriptRow = memo(function TranscriptRow({
@@ -100,6 +104,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   onWorkflowClick,
   onStopWorkflow,
   isStreaming,
+  isLatestMessage,
 }: TranscriptRowProps) {
   switch (item.kind) {
     case "message": {
@@ -125,6 +130,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           onWorkflowClick={onWorkflowClick}
           onStopWorkflow={onStopWorkflow}
           isStreaming={isStreaming}
+          isLatestMessage={isLatestMessage}
         />
       );
     }
