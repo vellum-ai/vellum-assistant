@@ -676,6 +676,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
           text,
           ...(speakerLabel !== undefined ? { speakerLabel } : {}),
           ...(confidence !== undefined ? { confidence } : {}),
+          // Mark the finalize flush so consumers can attribute it to the
+          // utterance that requested the flush rather than new speech.
+          ...(fromFinalize ? { fromFinalize: true } : {}),
         });
       }
     } else if (this.interimResults) {

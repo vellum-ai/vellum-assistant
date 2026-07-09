@@ -264,6 +264,13 @@ export interface SttStreamServerFinalEvent {
    * provider does not surface confidence on this chunk.
    */
   readonly confidence?: number;
+  /**
+   * True when this final is the flush response to
+   * {@link StreamingTranscriber.finalizeUtterance} — i.e. it commits audio
+   * that was buffered before the finalize request, not new speech.
+   * Undefined on ordinary finals and on providers without finalize.
+   */
+  readonly fromFinalize?: boolean;
 }
 
 /**

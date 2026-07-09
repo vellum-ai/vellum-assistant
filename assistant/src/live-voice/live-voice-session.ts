@@ -1022,7 +1022,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     switch (event.type) {
       case "partial": {
-        const target = this.finalizingUtterance ?? this.currentUtterance;
+        // A finalizing cycle owns the stream only until its turn
+        // dispatches (grace timeout); after that, partials belong to the
+        // user's next utterance on the current cycle.
+        const finalizing = this.finalizingUtterance;
+        const target =
+          finalizing && !finalizing.assistantTurnStarted
+            ? finalizing
+            : this.currentUtterance;
         if (!target || target.assistantTurnStarted || target.completed) {
           return;
         }
@@ -1031,7 +1038,34 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       case "final": {
-        const target = this.finalizingUtterance ?? this.currentUtterance;
+        const finalizing = this.finalizingUtterance;
+        if (event.fromFinalize) {
+          // A finalize flush commits audio buffered before the finalize
+          // request — it belongs to the finalizing cycle, never to new
+          // speech. After a grace-timeout dispatch the transcript is
+          // sealed, so a late flush is dropped rather than mutating a
+          // dispatched turn or polluting the next cycle.
+          if (
+            finalizing &&
+            !finalizing.assistantTurnStarted &&
+            !finalizing.completed
+          ) {
+            await this.recordFinalTranscript(finalizing, event.text);
+          } else {
+            log.warn(
+              "Dropping a late finalize flush segment: its assistant turn already dispatched",
+            );
+          }
+          return;
+        }
+        // Ordinary finals: the finalizing cycle owns the stream until its
+        // turn dispatches; afterwards new speech belongs to the current
+        // cycle (the finalize flush is flagged, so it can never be
+        // mistaken for new speech).
+        const target =
+          finalizing && !finalizing.assistantTurnStarted && !finalizing.completed
+            ? finalizing
+            : this.currentUtterance;
         if (!target || target.assistantTurnStarted || target.completed) {
           log.warn(
             "Dropping a late final transcript segment: its assistant turn already dispatched",

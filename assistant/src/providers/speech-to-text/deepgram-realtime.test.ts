@@ -689,7 +689,12 @@ describe("DeepgramRealtimeTranscriber", () => {
       );
 
       expect(events).toEqual([
-        { type: "final", text: "buffered tail", confidence: 0.95 },
+        {
+          type: "final",
+          text: "buffered tail",
+          confidence: 0.95,
+          fromFinalize: true,
+        },
         { type: "finalized" },
       ]);
     });
@@ -801,6 +806,7 @@ describe("DeepgramRealtimeTranscriber", () => {
         type: "final",
         text: "flush two",
         confidence: 0.95,
+        fromFinalize: true,
       });
     });
 

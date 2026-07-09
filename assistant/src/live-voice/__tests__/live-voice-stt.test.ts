@@ -91,7 +91,11 @@ class FinalizingMockStreamingTranscriber extends MockStreamingTranscriber {
     if (!this.respondToFinalize) {
       return;
     }
-    this.emit({ type: "final", text: `utterance ${this.finalizeCalls}` });
+    this.emit({
+      type: "final",
+      text: `utterance ${this.finalizeCalls}`,
+      fromFinalize: true,
+    });
     this.emit({ type: "finalized" });
   }
 }
@@ -672,7 +676,7 @@ describe("LiveVoiceSession STT", () => {
 
     // A flush landing after the grace-timeout fallback must not mutate the
     // dispatched transcript.
-    transcriber.emit({ type: "final", text: "late flush" });
+    transcriber.emit({ type: "final", text: "late flush", fromFinalize: true });
     transcriber.emit({ type: "finalized" });
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -682,6 +686,48 @@ describe("LiveVoiceSession STT", () => {
         frame.type === "stt_final" ? [frame.text] : [],
       ),
     ).toEqual(["collected before release"]);
+  });
+
+  test("speech after a grace-timeout dispatch routes to the next cycle, not the timed-out one", async () => {
+    const transcriber = new FinalizingMockStreamingTranscriber();
+    transcriber.respondToFinalize = false;
+    const startVoiceTurn = completingVoiceTurnStarter();
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      finalizeGraceMs: 25,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(loudPcmChunk());
+    transcriber.emit({ type: "final", text: "first utterance" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 1,
+    );
+
+    // The user speaks again while the timed-out cycle's finalize slot is
+    // still pending (the provider never flushed). The new speech must
+    // reach the new cycle — not be dropped against the dead one.
+    await session.handleBinaryAudio(loudPcmChunk());
+    transcriber.emit({ type: "final", text: "second utterance" });
+    // The stale flush pair finally arrives: the flagged flush is dropped,
+    // the finalized signal clears the slot.
+    transcriber.emit({ type: "final", text: "stale tail", fromFinalize: true });
+    transcriber.emit({ type: "finalized" });
+
+    transcriber.respondToFinalize = true;
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 2,
+    );
+
+    expect(startVoiceTurn).toHaveBeenCalledTimes(2);
+    const secondContent = startVoiceTurn.mock.calls[1]?.[0]?.content ?? "";
+    expect(secondContent).toContain("second utterance");
+    expect(secondContent).not.toContain("stale tail");
+    expect(secondContent).not.toContain("first utterance");
   });
 
   test("falls back to a fresh transcriber when the shared stream closes unexpectedly", async () => {
