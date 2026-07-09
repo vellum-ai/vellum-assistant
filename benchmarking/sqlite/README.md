@@ -5,13 +5,16 @@ table's B-tree**, not on the total size of the database.
 
 ## What it does
 
-1. Builds two databases and fills each to `TARGET_BYTES` (default **5 GiB**)
-   with variable-size random rows (**5–50 KiB** each):
+1. Builds two `messages` tables and fills each to `TARGET_BYTES` (default
+   **5 GiB**). Both store `content` as JSON text in the same shape as the real
+   `messages.content` column — a stringified array of content blocks
+   (`[{ "type": "text", "text": ... }]`), sized **5–50 KiB** per row. They
+   differ only in the primary key:
 
-   | File            | Schema                                              | Insert pattern |
-   |-----------------|-----------------------------------------------------|----------------|
-   | `sequential.db` | `INTEGER PRIMARY KEY` rowid table                   | New rows sort to the rightmost leaf — inserts **append** to one hot page. |
-   | `random.db`     | 16-byte `BLOB PRIMARY KEY`, `WITHOUT ROWID`         | New rows sort to random positions — inserts **scatter** across the tree (page splits, cache misses). Models a UUIDv4 primary key. |
+   | File            | Schema                                                       | Insert pattern |
+   |-----------------|--------------------------------------------------------------|----------------|
+   | `sequential.db` | `id INTEGER PRIMARY KEY` (monotonic rowid)                   | New rows sort to the rightmost leaf — inserts **append** to one hot page. |
+   | `random.db`     | `id TEXT PRIMARY KEY` (UUID), `WITHOUT ROWID`                | The UUID clusters the table, so new rows sort to random positions — inserts **scatter** across the tree (page splits, cache misses). Mirrors the real UUID-keyed `messages` table. |
 
 2. Reopens each DB with default cache size and realistic durability pragmas
    (`journal_mode=WAL`, `synchronous=NORMAL`), then times **`BATCH_COUNT` (10)**
@@ -36,9 +39,11 @@ OUT_DIR=/tmp/sqlite-bench TARGET_BYTES=$((200*1024*1024)) \
 ## In CI
 
 The benchmark runs via the `Benchmark - SQLite insert scaling` GitHub Actions
-workflow on `workflow_dispatch` (with tunable inputs) and on PRs that touch
-these files. Databases are written to `/mnt/sqlite-bench` (the runner's large
-ephemeral volume) and results are posted to the job summary.
+workflow on `workflow_dispatch` (run it from the Actions UI; all knobs are
+exposed as inputs) and on PRs that touch these files. It uses the smallest
+GitHub-hosted runner (`ubuntu-latest`); databases are written to whichever
+scratch volume has the most free space (checked up front), and results are
+posted to the job summary.
 
 > **Activation step:** the workflow YAML is staged in this directory as
 > `benchmark-sqlite-insert.yaml` because the automation that opened the PR
@@ -57,8 +62,8 @@ ephemeral volume) and results are posted to the job summary.
 |----------|---------|-------------|
 | `OUT_DIR` | cwd | Directory for the `.db` files |
 | `TARGET_BYTES` | `5368709120` (5 GiB) | Fill size per DB |
-| `MIN_ROW_BYTES` | `5120` (5 KiB) | Smallest row payload |
-| `MAX_ROW_BYTES` | `51200` (50 KiB) | Largest row payload |
+| `MIN_ROW_BYTES` | `5120` (5 KiB) | Smallest content payload |
+| `MAX_ROW_BYTES` | `51200` (50 KiB) | Largest content payload |
 | `BATCH_ROWS` | `50` | Rows per measured batch |
 | `BATCH_COUNT` | `10` | Measured batches per DB |
 | `FILL_TX_ROWS` | `500` | Rows per fill transaction |
