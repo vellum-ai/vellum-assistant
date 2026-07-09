@@ -104,6 +104,33 @@ export const MODELS_BY_PROVIDER = {
   ],
   openai: [
     {
+      id: "gpt-5.6-sol",
+      displayName: "GPT-5.6 Sol",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "gpt-5.6-terra",
+      displayName: "GPT-5.6 Terra",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "gpt-5.6-luna",
+      displayName: "GPT-5.6 Luna",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
       id: "gpt-5.5",
       displayName: "GPT-5.5",
       contextWindowTokens: 1_050_000,
