@@ -3,6 +3,7 @@ import { beforeEach, describe, it, expect } from "bun:test";
 import {
   isAppNotFoundError,
   useViewerStore,
+  type ActivityStepsPayload,
   type ToolDetailPayload,
 } from "@/stores/viewer-store";
 
@@ -698,6 +699,64 @@ describe("closeToolDetail", () => {
     const state = getState();
     expect(state.mainView).toBe("chat");
     expect(state.activeToolDetail).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Activity steps panel
+// ---------------------------------------------------------------------------
+
+const SAMPLE_STEPS: ActivityStepsPayload = {
+  messageId: "m1",
+  groupIndex: 0,
+  items: [],
+  toolCalls: [],
+};
+
+describe("openActivitySteps / toggleActivitySteps / closeActivitySteps", () => {
+  it("opens the panel with the payload and records the prior view", () => {
+    getState().openActivitySteps(SAMPLE_STEPS);
+    const state = getState();
+    expect(state.mainView).toBe("activity-steps");
+    expect(state.activeActivitySteps).toBe(SAMPLE_STEPS);
+    expect(state.viewBeforeActivitySteps).toBe("chat");
+  });
+
+  it("toggle closes the panel when targeting the SAME (message, group)", () => {
+    getState().openActivitySteps(SAMPLE_STEPS);
+    getState().toggleActivitySteps({ ...SAMPLE_STEPS });
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeActivitySteps).toBeNull();
+  });
+
+  it("toggle switches to a DIFFERENT group instead of closing", () => {
+    getState().openActivitySteps(SAMPLE_STEPS);
+    getState().toggleActivitySteps({ ...SAMPLE_STEPS, groupIndex: 2 });
+    const state = getState();
+    expect(state.mainView).toBe("activity-steps");
+    expect(state.activeActivitySteps?.groupIndex).toBe(2);
+  });
+
+  it("identity-less payloads match on the first tool-call id", () => {
+    const a: ActivityStepsPayload = {
+      items: [],
+      toolCalls: [{ id: "tc-1", name: "bash", input: {} }],
+    };
+    getState().openActivitySteps(a);
+    getState().toggleActivitySteps({
+      items: [],
+      toolCalls: [{ id: "tc-1", name: "bash", input: {} }],
+    });
+    expect(getState().mainView).toBe("chat");
+  });
+
+  it("close restores a non-chat prior view", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openActivitySteps(SAMPLE_STEPS);
+    expect(getState().viewBeforeActivitySteps).toBe("app");
+    getState().closeActivitySteps();
+    expect(getState().mainView).toBe("app");
   });
 });
 

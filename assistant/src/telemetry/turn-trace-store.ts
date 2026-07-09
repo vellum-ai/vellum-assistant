@@ -3,11 +3,13 @@ import { and, asc, eq, gt, lt, lte, or, sql } from "drizzle-orm";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { getDb } from "../persistence/db-connection.js";
 import { messages, toolInvocations } from "../persistence/schema/index.js";
+import { getTool } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import type {
   TurnTrace,
   TurnTraceMessage,
   TurnTraceToolCall,
+  TurnTraceToolDefinition,
 } from "./types.js";
 
 const log = getLogger("turn-trace-store");
@@ -291,9 +293,11 @@ function queryTurnToolCalls(
  * before producing a response) traces user-only, which is faithful: its window
  * genuinely has no response. A coalesced batch's shared response lives on the
  * batch's FINAL turn's window — exactly where the daemon already attributes it
- * (via `lastUserMessageId` / `llm_usage` / `turn_index`). There is no durable
- * batch signal in the stored messages to distinguish a real batch from a
- * failed/cancelled turn, so no batch inference is attempted.
+ * (via `lastUserMessageId` / `llm_usage` / `turn_index`). Which case an empty
+ * window is (batched vs failed vs cancelled) is recorded durably on the user
+ * message row (`messages.metadata.turnOutcome`, written by `stampTurnOutcome`)
+ * and rides the turn event's `outcome` field — the trace itself stays the
+ * plain window and attempts no inference.
  *
  * Read-only; touches only existing tables (`messages`, `tool_invocations`), so
  * no migration is involved. Caller is responsible for the consent gate and the
@@ -302,10 +306,36 @@ function queryTurnToolCalls(
  */
 export function assembleTurnTrace(boundary: TurnTraceBoundary): TurnTrace {
   const nextTurn = nextRealUserTurn(boundary);
+  const conversation = findConversation(boundary.conversationId);
+
+  // System prompt and tool definitions are read from the live conversation's
+  // cached state — the same values the agent loop used for this turn. When the
+  // conversation has been evicted (e.g. after a daemon restart), these fall
+  // back to null / empty, which is faithful: we no longer have the values.
+  const systemPrompt = conversation?.getCurrentSystemPrompt() ?? null;
+
+  const toolDefinitions: TurnTraceToolDefinition[] = conversation
+    ? Array.from(conversation.getRegisteredToolNames())
+        .sort((a, b) => a.localeCompare(b))
+        .map((name) => {
+          const tool = getTool(name);
+          return {
+            name,
+            description: tool?.description ?? "",
+            input_schema: (tool?.input_schema ?? {}) as Record<
+              string,
+              unknown
+            >,
+          };
+        })
+    : [];
+
   return {
-    schema_version: 1,
+    schema_version: 2,
     messages: queryTurnMessages(boundary, nextTurn),
     tool_calls: queryTurnToolCalls(boundary, nextTurn),
+    system_prompt: systemPrompt,
+    tool_definitions: toolDefinitions,
   };
 }
 

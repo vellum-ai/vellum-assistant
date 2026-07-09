@@ -8,9 +8,13 @@
 import { v4 as uuid } from "uuid";
 
 import {
+  type AttachmentReferenceInput,
+  attachmentsToContentBlocks,
+  attachmentsToReferenceBlocks,
   enrichMessageWithSourcePaths,
   type MessageAttachmentInput,
 } from "../agent/attachments.js";
+import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import { createUserMessage } from "../agent/message-types.js";
 import type {
   TurnChannelContext,
@@ -21,6 +25,7 @@ import {
   parseClientOs,
   parseInterfaceId,
 } from "../channels/types.js";
+import { parseImageDimensions } from "../context/image-dimensions.js";
 import {
   buildSlackTimezoneMetadata,
   type SlackMessageMetadata,
@@ -28,11 +33,13 @@ import {
 } from "../messaging/providers/slack/message-metadata.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import {
-  attachInlineAttachmentToMessage,
   attachmentExists,
   AttachmentUploadError,
+  createInlineAttachment,
+  getAttachmentContent,
   getFilePathForAttachment,
   linkAttachmentToMessage,
+  scopeAttachmentToMessageConversation,
   validateAttachmentUpload,
 } from "../persistence/attachments-store.js";
 import {
@@ -43,13 +50,14 @@ import {
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
+  updateMessageContent,
   updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../persistence/conversation-disk-view.js";
-import type { Message } from "../providers/types.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
@@ -59,7 +67,7 @@ import type {
   UserMessageAttachment,
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 const log = getLogger("conversation-messaging");
 
@@ -216,17 +224,226 @@ export interface MessagingConversationContext {
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
 
+/**
+ * Serialize a user message for `messages.content`: the message text (preferring
+ * `displayContent`) followed by the given attachment content blocks. The upload
+ * path builds `workspace_ref` (or inline-fallback) blocks and serializes them
+ * here; {@link serializePersistedUserMessageContent} is the base64 entry point.
+ */
+function serializeUserContentBlocks(
+  content: string,
+  displayContent: string | undefined,
+  attachmentBlocks: ContentBlock[],
+): string {
+  const text = displayContent !== undefined ? displayContent : content;
+  const blocks: ContentBlock[] = [];
+  if (text.trim().length > 0) {
+    blocks.push({ type: "text", text });
+  }
+  blocks.push(...attachmentBlocks);
+  return JSON.stringify(blocks);
+}
+
+/**
+ * Serialize the user message as PERSISTED into `messages.content` for callers
+ * that hold raw attachments (slash-command branches): the message text followed
+ * by the attachments as inline base64 blocks. The regular upload path persists
+ * `workspace_ref` blocks instead (see `persistQueuedMessageBody`).
+ */
 export function serializePersistedUserMessageContent(
   content: string,
-  attachments: MessageAttachmentInput[],
   displayContent: string | undefined,
+  attachments: MessageAttachmentInput[],
 ): string {
-  return JSON.stringify(
-    createUserMessage(
-      displayContent !== undefined ? displayContent : content,
-      attachments,
-    ).content,
+  return serializeUserContentBlocks(
+    content,
+    displayContent,
+    attachmentsToContentBlocks(attachments),
   );
+}
+
+/**
+ * Pixel dimensions to record on an image reference. The model receives the
+ * transport-optimized image (`resolveMediaReferences` applies the same
+ * optimization at send time), so we hint the optimized dimensions rather than
+ * the stored original — keeping the per-turn token estimate accurate without a
+ * disk read on the hot path.
+ */
+function computeReferenceImageDimensions(
+  attachmentId: string,
+  mediaType: string,
+): { width: number; height: number } | null {
+  const bytes = getAttachmentContent(attachmentId);
+  if (!bytes) return null;
+  const optimized = optimizeImageForTransport(
+    bytes.toString("base64"),
+    mediaType,
+  );
+  return parseImageDimensions(optimized.data, optimized.mediaType);
+}
+
+interface PreparedUserAttachment {
+  position: number;
+  /** The content block persisted for this attachment (a reference or, on a
+   * materialization failure, an inline base64 fallback). */
+  block: ContentBlock;
+  /** Present only for a materialized reference block that still needs its
+   * `message_attachments` GC link written once the message id exists. */
+  link?: { attachmentId: string };
+}
+
+/**
+ * Outcome of trying to materialize one attachment:
+ * - `stored` — written to the attachment store; persist a reference.
+ * - `rejected` — refused by validation or an upload-limit/format error; the
+ *   attachment must NOT reach `messages.content` or the model turn.
+ * - `transient` — a recoverable store-write failure (disk/DB); fall back to
+ *   inline base64 so the upload survives even though the row could not be
+ *   written.
+ */
+type MaterializeOutcome =
+  | {
+      kind: "stored";
+      stored: { id: string; mimeType: string; sizeBytes: number };
+    }
+  | { kind: "rejected" }
+  | { kind: "transient" };
+
+/**
+ * Materialize a single attachment into an attachment-store row. Validation and
+ * upload-limit/format failures are `rejected` (dropped, matching the upload
+ * endpoint's own rejection); only a recoverable store-write failure is
+ * `transient` (inline fallback).
+ */
+function materializeUserAttachment(
+  conversationId: string,
+  conversationCreatedAt: number,
+  a: MessageAttachmentInput,
+): MaterializeOutcome {
+  try {
+    if (a.id && attachmentExists(a.id)) {
+      const stored = scopeAttachmentToMessageConversation(
+        conversationId,
+        conversationCreatedAt,
+        a.id,
+      );
+      return stored ? { kind: "stored", stored } : { kind: "transient" };
+    }
+    if (!a.data) return { kind: "rejected" };
+    const validation = validateAttachmentUpload(a.filename, a.mimeType);
+    if (!validation.ok) {
+      log.warn(
+        { filename: a.filename, error: validation.error },
+        "Rejecting user attachment: failed validation",
+      );
+      return { kind: "rejected" };
+    }
+    return {
+      kind: "stored",
+      stored: createInlineAttachment(
+        conversationId,
+        conversationCreatedAt,
+        a.filename,
+        a.mimeType,
+        a.data,
+        { sourcePath: a.filePath, normalizeImage: true },
+      ),
+    };
+  } catch (err) {
+    if (err instanceof AttachmentUploadError) {
+      // Invalid base64, over the size limit, unsupported format: the same
+      // conditions the upload endpoint rejects. Drop rather than inline.
+      log.warn(
+        { filename: a.filename, error: err.message },
+        "Rejecting user attachment: upload validation error",
+      );
+      return { kind: "rejected" };
+    }
+    log.error(
+      { filename: a.filename, err },
+      "Failed to store user attachment; persisting inline",
+    );
+    return { kind: "transient" };
+  }
+}
+
+/** Build the `workspace_ref` content block for a materialized attachment. */
+function referenceBlockForAttachment(
+  a: MessageAttachmentInput,
+  stored: { id: string; mimeType: string; sizeBytes: number },
+): ContentBlock {
+  const ref: AttachmentReferenceInput = {
+    attachmentId: stored.id,
+    filename: a.filename,
+    mimeType: stored.mimeType,
+    sizeBytes: stored.sizeBytes,
+    extractedText: a.extractedText,
+  };
+  if (stored.mimeType.toLowerCase().startsWith("image/")) {
+    const dims = computeReferenceImageDimensions(stored.id, stored.mimeType);
+    if (dims) {
+      ref.width = dims.width;
+      ref.height = dims.height;
+    }
+  }
+  return attachmentsToReferenceBlocks([ref])[0]!;
+}
+
+/** Inline base64 fallback block for an attachment that could not be stored as
+ * a reference, so the upload survives a reload. Null when there are no bytes. */
+function inlineBlockForAttachment(
+  a: MessageAttachmentInput,
+): ContentBlock | null {
+  if (!a.data) return null;
+  return attachmentsToContentBlocks([a])[0] ?? null;
+}
+
+/**
+ * Materialize each user attachment into an attachment-store row BEFORE the
+ * message content is serialized, so the content can reference it by id instead
+ * of inlining base64. Pre-uploaded attachments are scoped into the
+ * conversation; inline uploads create a new row now (rather than after
+ * `addMessage`). Returns, per attachment, the persisted content block plus the
+ * link info needed to write the `message_attachments` row once the message
+ * exists. A recoverable store failure falls back to inline base64 so the upload
+ * survives; a validation/upload rejection is dropped (never reaches content or
+ * the model).
+ */
+function prepareUserAttachmentReferences(
+  conversationId: string,
+  conversationCreatedAt: number,
+  attachments: MessageAttachmentInput[],
+): PreparedUserAttachment[] {
+  const prepared: PreparedUserAttachment[] = [];
+  for (let i = 0; i < attachments.length; i++) {
+    const a = attachments[i];
+    const outcome = materializeUserAttachment(
+      conversationId,
+      conversationCreatedAt,
+      a,
+    );
+    if (outcome.kind === "stored") {
+      prepared.push({
+        position: i,
+        block: referenceBlockForAttachment(a, outcome.stored),
+        link: { attachmentId: outcome.stored.id },
+      });
+      continue;
+    }
+    if (outcome.kind === "rejected") continue;
+    // transient: keep the upload by inlining its bytes (dropped only when the
+    // recoverable failure left us with no bytes to inline).
+    const inline = inlineBlockForAttachment(a);
+    if (inline) {
+      prepared.push({ position: i, block: inline });
+    } else {
+      log.warn(
+        { filename: a.filename },
+        "Dropping user attachment: store write failed and no inline bytes",
+      );
+    }
+  }
+  return prepared;
 }
 
 function extractTurnChannelContext(
@@ -563,14 +780,26 @@ export async function persistQueuedMessageBody(
       ...(slackMeta ? { slackMeta } : {}),
     };
 
+    // Materialize each attachment into an attachment-store row up front so the
+    // persisted content can reference it by id instead of inlining base64. The
+    // message link (message_attachments) is written after addMessage below,
+    // once the message id exists.
+    const conversationCreatedAt =
+      getConversation(ctx.conversationId)?.createdAt ?? Date.now();
+    const preparedAttachments = prepareUserAttachmentReferences(
+      ctx.conversationId,
+      conversationCreatedAt,
+      attachmentInputs,
+    );
+
     // When displayContent is provided (e.g. original text before recording
     // intent stripping), persist that to DB so users see the full message
     // after restart. The in-memory userMessage (sent to the LLM) still uses
     // the stripped content.
-    const contentToPersist = serializePersistedUserMessageContent(
+    const contentToPersist = serializeUserContentBlocks(
       content,
-      attachmentInputs,
       displayContent,
+      preparedAttachments.map((p) => p.block),
     );
     const persistedUserMessage = await addMessage(
       ctx.conversationId,
@@ -608,61 +837,44 @@ export async function persistQueuedMessageBody(
       throw new Error("Failed to persist user message");
     }
 
-    // Index user attachments in the attachments table for later retrieval,
-    // capturing the resolved stored path of each linked attachment. Name
-    // collisions in the conversation's attachments/ dir get a -2/-3 suffix,
-    // so the stored path — not the original filename — is the only reliable
-    // on-disk handle for the file.
-    for (let i = 0; i < attachments.length; i++) {
-      const a = attachments[i];
+    // Link each materialized reference to the persisted message. The link row
+    // is the GC anchor (an attachment with no link is collectible), and it
+    // resolves the canonical stored path — name collisions in the conversation's
+    // attachments/ dir get a -2/-3 suffix, so the stored path (not the original
+    // filename) is the only reliable on-disk handle for the file.
+    //
+    // If a link fails, the persisted content still holds a `workspace_ref`
+    // pointing at an unlinked (GC-eligible) row — a broken reference. Repair it
+    // by rewriting that block to inline base64 so the upload survives even
+    // though the store anchor was lost, then persist the corrected content.
+    let repairedBlocks: ContentBlock[] | null = null;
+    preparedAttachments.forEach((p, idx) => {
+      if (!p.link) return;
       try {
-        // If the attachment already exists in the store (e.g. file-backed
-        // attachments uploaded separately), link it directly without
-        // re-uploading. This handles the case where data is empty because
-        // the attachment content lives on disk.
-        if (a.id && attachmentExists(a.id)) {
-          const scopedAttachmentId = linkAttachmentToMessage(
-            persistedUserMessage.id,
-            a.id,
-            i,
-          );
-          attachmentInputs[i].storedPath =
-            getFilePathForAttachment(scopedAttachmentId) ?? undefined;
-          continue;
-        }
-
-        if (!a.data) continue;
-
-        const validation = validateAttachmentUpload(a.filename, a.mimeType);
-        if (!validation.ok) {
-          log.warn(
-            { filename: a.filename, error: validation.error },
-            "Skipping user attachment indexing: validation failed",
-          );
-          continue;
-        }
-        const stored = attachInlineAttachmentToMessage(
+        const scopedAttachmentId = linkAttachmentToMessage(
           persistedUserMessage.id,
-          i,
-          a.filename,
-          a.mimeType,
-          a.data,
-          { sourcePath: a.filePath, normalizeImage: true },
+          p.link.attachmentId,
+          p.position,
         );
-        attachmentInputs[i].storedPath = stored.filePath;
+        attachmentInputs[p.position].storedPath =
+          getFilePathForAttachment(scopedAttachmentId) ?? undefined;
       } catch (err) {
-        if (err instanceof AttachmentUploadError) {
-          log.warn(
-            { filename: a.filename, error: err.message },
-            "Skipping user attachment indexing",
-          );
-        } else {
-          log.error(
-            { filename: a.filename, err },
-            "Failed to index user attachment",
-          );
+        const inline = inlineBlockForAttachment(attachmentInputs[p.position]);
+        log.error(
+          { attachmentId: p.link.attachmentId, err, repaired: inline != null },
+          "Failed to link user attachment; repairing persisted content to inline",
+        );
+        if (inline) {
+          repairedBlocks ??= preparedAttachments.map((pp) => pp.block);
+          repairedBlocks[idx] = inline;
         }
       }
+    });
+    if (repairedBlocks) {
+      updateMessageContent(
+        persistedUserMessage.id,
+        serializeUserContentBlocks(content, displayContent, repairedBlocks),
+      );
     }
 
     // Persist the resolved paths so history reloads can rebuild the same

@@ -29,6 +29,7 @@ mock.module("../../../util/logger.js", () => ({
 
 // ── Real imports (after mocks) ────────────────────────────────────────────────
 
+import { LLMSchema } from "../../../config/schemas/llm.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import { providerConnections } from "../../../persistence/schema/inference.js";
@@ -89,7 +90,7 @@ function seedConnection(opts: {
 
 beforeEach(() => {
   clearConnections();
-  fakeConfig = {};
+  fakeConfig = { llm: {} };
 });
 
 // ── GET list ─────────────────────────────────────────────────────────────────
@@ -464,6 +465,223 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictError);
     expect((err as ConflictError).message).toContain("llm.default");
+  });
+});
+
+// ── llm.defaultProvider guard ─────────────────────────────────────────────────
+
+describe("DELETE guards the llm.defaultProvider reference", () => {
+  test("throws 409 deleting the default's resolved connection (convention name)", async () => {
+    seedConnection({
+      name: "anthropic-personal",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+
+    const err = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-personal" } },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).message).toContain("llm.defaultProvider");
+    expect((err as ConflictError).details).toEqual({
+      referencedBy: ["llm.defaultProvider"],
+    });
+  });
+
+  test("throws 409 deleting the default's explicit connectionName", async () => {
+    seedConnection({
+      name: "my-conn",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    fakeConfig = {
+      llm: {
+        defaultProvider: { provider: "openai", connectionName: "my-conn" },
+      },
+    };
+
+    await expect(
+      call(findHandler("inference_provider_connections_delete"), {
+        pathParams: { name: "my-conn" },
+      }),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  test("throws 409 deleting the last connection for the default provider when the convention name is dangling", async () => {
+    // dp resolves to "anthropic-personal", which has no matching row — but
+    // "anthropic-work" is the only connection for that provider, so deleting
+    // it would strand the default with zero usable connections.
+    seedConnection({
+      name: "anthropic-work",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+
+    const err = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-work" } },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).details).toEqual({
+      referencedBy: ["llm.defaultProvider"],
+    });
+  });
+
+  test("succeeds deleting an unrelated last same-provider connection when the default pins an explicit connectionName", async () => {
+    // The explicit pin is what the default references; "anthropic-work" is
+    // unrelated even though it is the only anthropic row.
+    seedConnection({
+      name: "anthropic-work",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    fakeConfig = {
+      llm: {
+        defaultProvider: {
+          provider: "anthropic",
+          connectionName: "anthropic-personal",
+        },
+      },
+    };
+
+    const result = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-work" } },
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  test("throws 409 deleting the last visible connection when a hidden legacy row shares the provider", async () => {
+    // "anthropic-managed" is filtered from the list route and must not count
+    // as a remaining connection for the default provider.
+    seedConnection({
+      name: "anthropic-work",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    seedConnection({
+      name: "anthropic-managed",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+
+    const err = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-work" } },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).details).toEqual({
+      referencedBy: ["llm.defaultProvider"],
+    });
+  });
+
+  test("succeeds deleting a non-last connection for the default provider", async () => {
+    seedConnection({
+      name: "anthropic-personal",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    seedConnection({
+      name: "anthropic-other",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-other" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+  });
+
+  test("succeeds deleting a connection for a non-default provider", async () => {
+    seedConnection({
+      name: "openai-conn",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "openai-conn" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+  });
+
+  test("succeeds deleting another provider's connection when the default provider has zero connections", async () => {
+    seedConnection({
+      name: "openai-conn",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    // No "anthropic" rows exist at all — an already-dangling default is a
+    // legal state; the guard must no-op rather than crash on an empty list.
+    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "openai-conn" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+  });
+
+  test("succeeds when defaultProvider is absent", async () => {
+    seedConnection({
+      name: "some-conn",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    fakeConfig = { llm: {} };
+
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "some-conn" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+  });
+
+  test("succeeds when defaultProvider is malformed (dropped by the schema catch)", async () => {
+    seedConnection({
+      name: "some-conn",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    const parsed = LLMSchema.parse({
+      defaultProvider: { provider: "not-a-provider" },
+    });
+    expect(parsed.defaultProvider).toBeUndefined();
+    fakeConfig = { llm: parsed };
+
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "some-conn" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+  });
+
+  test("managed-connection rejection still takes precedence over the defaultProvider guard", async () => {
+    seedConnection({
+      name: "vellum",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    fakeConfig = { llm: { defaultProvider: { provider: "vellum" } } };
+
+    const err = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "vellum" } },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestError);
   });
 });
 

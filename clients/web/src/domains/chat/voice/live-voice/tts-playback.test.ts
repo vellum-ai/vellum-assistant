@@ -27,7 +27,14 @@ interface MockSource {
 class MockAudioContext {
   currentTime = 0;
   closed = false;
+  state: AudioContextState = "suspended";
+  resumeCount = 0;
   readonly sources: MockSource[] = [];
+
+  async resume(): Promise<void> {
+    this.resumeCount++;
+    this.state = "running";
+  }
 
   /** ArrayBuffers passed to decodeAudioData, in call order. */
   readonly decodedInputs: ArrayBuffer[] = [];
@@ -189,6 +196,23 @@ describe("LiveVoiceAudioPlayer", () => {
 
   beforeEach(() => {
     ({ player, ctx } = makePlayer());
+  });
+
+  test("prewarm resumes a suspended context up front", () => {
+    // A fresh context starts suspended (browser autoplay policy); if it's only
+    // created lazily on the first frame it never plays, dropping the first turn.
+    expect(ctx.state).toBe("suspended");
+
+    player.prewarm();
+
+    expect(ctx.resumeCount).toBe(1);
+    expect(ctx.state).toBe("running");
+  });
+
+  test("prewarm is idempotent once the context is running", () => {
+    player.prewarm();
+    player.prewarm();
+    expect(ctx.resumeCount).toBe(1);
   });
 
   test("schedules chunks in order, gaplessly, at the frame sample rate", () => {

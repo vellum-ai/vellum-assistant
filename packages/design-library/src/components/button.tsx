@@ -21,10 +21,11 @@ import { Tooltip } from "./tooltip";
  *
  * - Pass `variant` for chrome style and `size` for dimensions.
  * - Pass `leftIcon` / `rightIcon` for text+icon layouts.
- * - Pass `iconOnly` to render a square icon-only button (the icon is centered
- *   at the correct size for the chosen `size`). Without `asChild` the children
- *   are ignored; with `asChild` the caller's element (e.g. a `Link`) becomes
- *   the root and the icon is re-parented into it.
+ * - Pass the icon element as `iconOnly` (e.g. `iconOnly={<X />}`) to render a
+ *   square icon-only button (the icon is centered at the correct size for the
+ *   chosen `size`). Without `asChild` the children are ignored; with `asChild`
+ *   the caller's element (e.g. a `Link`) becomes the root and the icon is
+ *   re-parented into it.
  * - Use `asChild` to render as a child element (e.g. a `Link`) while keeping
  *   button styling and accessibility semantics. Uses Radix's `Slot`.
  * - Pass `expandOnMobile={false}` to opt an icon-only button out of the larger
@@ -235,7 +236,13 @@ export interface ButtonProps
   size?: ButtonSize;
   leftIcon?: ReactNode;
   rightIcon?: ReactNode;
-  iconOnly?: ReactNode;
+  /**
+   * The icon element itself, not a flag. `true` is excluded from the type
+   * because a bare `iconOnly` attribute would put the icon-only chrome on a
+   * button with no visible content (`leftIcon`/`rightIcon`/`children` are
+   * ignored in icon-only mode). `false` stays allowed for `cond && <Icon />`.
+   */
+  iconOnly?: Exclude<ReactNode, boolean> | false;
   fullWidth?: boolean;
   active?: boolean;
   /**

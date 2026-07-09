@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import { removeSlackWorkspaceQueries } from "@/domains/contacts/slack-channels-query";
+import { removeSlackWorkspaceQueries } from "@/utils/slack-workspace-cache";
 import { channelsReadinessGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { integrationsSlackChannelConfigPost } from "@/generated/daemon/sdk.gen";
 

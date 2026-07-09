@@ -34,6 +34,7 @@ import { TextSelectionPopover } from "@/domains/chat/components/text-selection-p
 import { useNativeQuoteReply } from "@/domains/chat/hooks/use-native-quote-reply";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
@@ -130,6 +131,8 @@ export interface ChatMainPanelProps {
 
   // Conversation secondary actions (orchestration dependency)
   handleForkConversation: (throughMessageId: string) => Promise<void>;
+  /** Opens the "Summarize up to here" confirm dialog for a message. */
+  onSummarizeUpToHere?: (messageId: string) => void;
   handleInspectMessage?: (messageId: string) => void;
 
   // History pagination (from useConversationLoader in ActiveChatView)
@@ -210,6 +213,7 @@ export function ChatMainPanel({
   handleSteerMessage,
   handleEditQueueTail,
   handleForkConversation,
+  onSummarizeUpToHere,
   handleInspectMessage,
   historyPagination,
   diskPressure,
@@ -226,7 +230,7 @@ export function ChatMainPanel({
 }: ChatMainPanelProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const statusBannerVisible = !location.search.includes("popout=1");
+  const statusBannerVisible = !isPopoutWindow(location.search);
 
   // -------------------------------------------------------------------------
   // Derived UI state (provides assistantId, activeConversationId,
@@ -237,8 +241,7 @@ export function ChatMainPanel({
     uiContext,
     isIdle,
     showThinking,
-    isAssistantStreaming,
-    canStopGenerating,
+    isAssistantBusy,
     isSendDisabledFromTurn,
     thinkingLabel,
     liveAssistantMessageId,
@@ -289,6 +292,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
+  const isAppMinimized = useViewerStore.use.isAppMinimized();
 
   // Conversation count (for nudges — TanStack Query deduped)
   const { conversations } = useConversationListQuery(assistantId, true);
@@ -552,7 +556,7 @@ export function ChatMainPanel({
     // streaming reply materializes (notably across the onboarding draft→real
     // conversation switch, which resets the snapshot mid-turn).
     !activeConversationIsProcessing &&
-    !isAssistantStreaming &&
+    !isAssistantBusy &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
 
   const showDoctorAction =
@@ -843,8 +847,7 @@ export function ChatMainPanel({
     avatar,
     mainView,
     openedAppState,
-    isAssistantStreaming,
-    activeConversationIsProcessing,
+    isAssistantBusy,
     onSelectStarter: handleSelectStarter,
     onSelectSuggestion: newThreadSuggestionsEnabled
       ? setSelectedSuggestion
@@ -889,6 +892,7 @@ export function ChatMainPanel({
     onConfirmationSubmit: handleConfirmationSubmit,
     onAllowAndCreateRule: handleAllowAndCreateRule,
     onForkConversation: handleForkConversationCallback,
+    onSummarizeUpToHere,
     onInspectMessage: handleInspectMessage,
     renderAvatar,
     onPullRefresh: handlePullRefresh,
@@ -927,9 +931,14 @@ export function ChatMainPanel({
       onVoiceError={setVoiceError}
       onVoiceBeforeStart={handleVoiceBeforeStart}
       onStopGenerating={handleStopGenerating}
-      canStopGenerating={canStopGenerating}
+      isAssistantBusy={isAssistantBusy}
       assistantId={assistantId}
-      conversationId={activeConversation?.conversationId}
+      // Routing-truth id (NOT `activeConversation?.conversationId`, which is
+      // transiently undefined until the row loads and always undefined for
+      // drafts): live-voice session ownership compares against this, and the
+      // session should attach to the thread the user is looking at — draft
+      // ids included (the runtime accepts client-generated conversation ids).
+      conversationId={activeConversationId}
       onRecallLastMessage={isIdle && isNativeConversation ? handleRecallLastMessage : undefined}
       onCancelEdit={isEditing ? handleCancelEdit : undefined}
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
@@ -1011,9 +1020,22 @@ export function ChatMainPanel({
   const isSidePanel = mainView === "app-editing" && !!openedAppState && !!editingConversationId;
   const variant = isSidePanel ? "side-panel" : "main";
 
+  // Mobile-only: while the app overlay is minimized to its bottom strip, the
+  // strip covers the bottom of the chat. Reserve its height so the composer
+  // sits above it. The guard mirrors the strip's mount condition — the strip
+  // renders only while `mainView === "app"`, and navigation can leave
+  // `isAppMinimized`/`openedAppState` set after it unmounts. The strip peeks
+  // `--app-strip-h` above the safe area, and the chat shell already pads for
+  // the safe area itself, so only the strip height needs reserving.
+  const appStripBottomInset =
+    isMobile && mainView === "app" && isAppMinimized && openedAppState
+      ? "var(--app-strip-h, 64px)"
+      : undefined;
+
   const chatBody = (
     <ChatBody
       variant={variant}
+      bottomInset={appStripBottomInset}
       scrollAreaProps={{
         ...chatBodyScrollAreaPropsBase,
         showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
@@ -1026,7 +1048,7 @@ export function ChatMainPanel({
         scrollCoordinator.showScrollToLatest && messages.length > 0
       }
       onScrollToLatest={handleScrollToLatest}
-      isStreaming={isAssistantStreaming}
+      isAssistantBusy={isAssistantBusy}
       refreshFeedback={refreshFeedback}
       onDismissRefreshFeedback={handleDismissRefreshFeedback}
       onRetryRefresh={handleRetryRefreshFromPill}

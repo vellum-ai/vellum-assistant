@@ -213,16 +213,52 @@ mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
+const mockStampTurnOutcome = mock(() => {});
+
+mock.module("../telemetry/turn-outcome.js", () => ({
+  stampTurnOutcome: mockStampTurnOutcome,
+}));
+
 let linkAttachmentShouldThrow = false;
 let mockAttachmentIdCounter = 0;
 
 mock.module("../persistence/attachments-store.js", () => ({
   AttachmentUploadError: class AttachmentUploadError extends Error {},
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
+  attachmentExists: () => false,
+  validateAttachmentUpload: () => ({ ok: true }),
+  scopeAttachmentToMessageConversation: () => null,
+  getAttachmentContent: () => null,
   linkAttachmentToMessage: () => {
     if (linkAttachmentShouldThrow) {
       throw new Error("Simulated linkAttachmentToMessage failure");
     }
+  },
+  createInlineAttachment: (
+    _conversationId: string,
+    _conversationCreatedAt: number,
+    filename: string,
+    mimeType: string,
+    dataBase64: string,
+  ) => {
+    if (linkAttachmentShouldThrow) {
+      throw new Error("Simulated createInlineAttachment failure");
+    }
+
+    return {
+      id: `att-inline-${++mockAttachmentIdCounter}`,
+      originalFilename: filename,
+      mimeType,
+      sizeBytes: Buffer.from(dataBase64, "base64").byteLength,
+      kind: mimeType.startsWith("image/")
+        ? "image"
+        : mimeType.startsWith("video/")
+          ? "video"
+          : "file",
+      thumbnailBase64: null,
+      createdAt: Date.now(),
+      filePath: `/tmp/${filename}`,
+    };
   },
   attachInlineAttachmentToMessage: (
     _messageId: string,
@@ -974,6 +1010,61 @@ describe("Conversation message queue", () => {
 describe("Batched drain", () => {
   beforeEach(() => {
     pendingRuns = [];
+  });
+
+  test("stamps coalesced heads `batched` pointing at the batch-final turn", async () => {
+    mockStampTurnOutcome.mockClear();
+    const addMessagesBefore = capturedAddMessages.length;
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    // Start an in-flight turn so the next two messages queue behind it.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+    });
+
+    // Resolve msg-1 → the queued pair drains as one coalesced batch.
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    const batchUserIds = capturedAddMessages
+      .slice(addMessagesBefore)
+      .filter(
+        (m) =>
+          m.role === "user" &&
+          (m.content.includes("msg-2") || m.content.includes("msg-3")),
+      )
+      .map((m) => m.id);
+    expect(batchUserIds).toHaveLength(2);
+
+    // Exactly the head is stamped, pointing at the batch-final member. The
+    // final member (whose window carries the shared response) is unstamped,
+    // and the earlier single-message turn (msg-1) is never stamped.
+    expect(mockStampTurnOutcome).toHaveBeenCalledTimes(1);
+    expect(mockStampTurnOutcome).toHaveBeenCalledWith(
+      batchUserIds[0],
+      "batched",
+      { batchedInto: batchUserIds[1] },
+    );
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(mockStampTurnOutcome).toHaveBeenCalledTimes(1);
   });
 
   test("mixed-interface queue splits into multiple batches at each interface boundary", async () => {

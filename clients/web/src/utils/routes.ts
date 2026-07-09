@@ -48,6 +48,14 @@ export const routes = {
    */
   bundleConfirm: r("/assistant/bundle/confirm"),
   remotePair: r("/assistant/pair"),
+  /**
+   * Public one-time credential entry page, opened from a single-use
+   * credential-request link (`?token=` carries the secret-request token).
+   * Same standalone pattern as `remotePair`: lives under `/assistant/*` for
+   * the Vite SPA fallback but is declared OUTSIDE the auth-protected tree in
+   * `routes.tsx` — the person opening the link may have no Vellum session.
+   */
+  credentialEntry: r("/assistant/credentials/enter"),
   quickInput: r("/assistant/quick-input"),
   conversations: r("/assistant/conversations"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
@@ -168,6 +176,7 @@ export const routes = {
     general: r("/assistant/settings/general"),
     ai: r("/assistant/settings/ai"),
     integrations: r("/assistant/settings/integrations"),
+    credentials: r("/assistant/settings/credentials"),
     notifications: r("/assistant/settings/notifications"),
     keyboardShortcuts: r("/assistant/settings/keyboard-shortcuts"),
     sounds: r("/assistant/settings/sounds"),
@@ -224,6 +233,46 @@ export function isAboutAssistantPath(pathname: string): boolean {
   return ABOUT_ASSISTANT_PATHS.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );
+}
+
+/**
+ * Whether `pathname` falls inside the conversation *area* — the `/assistant`
+ * index (draft conversation) or anything under `/assistant/conversations/`,
+ * including subroutes like the inspector
+ * (`/assistant/conversations/:id/inspect`). Use for "is the user working in
+ * the context of a conversation" semantics (e.g. the sidebar's active-row
+ * highlight). For "is the chat composer on screen" semantics use
+ * {@link isConversationChatPath} — the inspector has no composer.
+ */
+export function isConversationPath(pathname: string): boolean {
+  return (
+    pathname === routes.assistant ||
+    pathname === `${routes.assistant}/` ||
+    pathname.startsWith(`${routes.conversations}/`)
+  );
+}
+
+/**
+ * Whether `pathname` mounts the conversation chat surface — the `/assistant`
+ * index (draft conversation, via `ConversationRedirect`) or exactly
+ * `/assistant/conversations/:id` — i.e. a route where `ChatPage` renders the
+ * active conversation's composer. Stricter than {@link isConversationPath}:
+ * conversation subroutes such as the inspector
+ * (`/assistant/conversations/:id/inspect`) are excluded because `InspectPage`
+ * replaces `ChatPage` and has no composer.
+ */
+export function isConversationChatPath(pathname: string): boolean {
+  if (pathname === routes.assistant || pathname === `${routes.assistant}/`) {
+    return true;
+  }
+  const prefix = `${routes.conversations}/`;
+  if (!pathname.startsWith(prefix)) {
+    return false;
+  }
+  // Exactly one path segment after the prefix (a bare conversation id,
+  // tolerating a trailing slash) — deeper segments are other pages.
+  const rest = pathname.slice(prefix.length).replace(/\/+$/, "");
+  return rest.length > 0 && !rest.includes("/");
 }
 
 const WWW_DOMAIN = "vellum.ai";

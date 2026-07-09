@@ -82,7 +82,7 @@ class FakeWebSocket {
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onerror: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { code: number; reason: string }) => void) | null = null;
 
   constructor(url: string) {
     this.url = url;
@@ -116,8 +116,8 @@ class FakeWebSocket {
   emitError(): void {
     this.onerror?.();
   }
-  emitClose(): void {
-    this.onclose?.();
+  emitClose(code = 1000, reason = ""): void {
+    this.onclose?.({ code, reason });
   }
 
   get sentText(): string[] {
@@ -728,5 +728,57 @@ describe("teardown", () => {
 
     expect(errors).toHaveLength(1);
     expect(errors[0]!.reason).toBe("connection-failed");
+  });
+
+  test("a retryable close before ready forwards the code instead of failing", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+
+    const errors: unknown[] = [];
+    const closes: { code: number | null; reason: string }[] = [];
+    client.on("error", (e) => errors.push(e));
+    client.on("closed", (info) => closes.push(info));
+
+    // velay closes a reconnect's socket before `ready` because its tunnel is
+    // still re-registering — retryable, so the controller must see the code
+    // (and keep its reconnect budget), not a connection-failed error.
+    ws.emitClose(1013, "assistant tunnel disconnected");
+
+    expect(errors).toHaveLength(0);
+    expect(closes).toEqual([
+      { code: 1013, reason: "assistant tunnel disconnected" },
+    ]);
+  });
+
+  test("forwards the far-side close code on the closed event", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+    ws.receive({ type: "ready", seq: 1, sessionId: "s", conversationId: "c" });
+
+    const closes: { code: number | null; reason: string }[] = [];
+    client.on("closed", (info) => closes.push(info));
+
+    // velay drops its tunnel to the assistant → retryable 1013 close.
+    ws.emitClose(1013, "assistant tunnel disconnected");
+
+    expect(closes).toEqual([
+      { code: 1013, reason: "assistant tunnel disconnected" },
+    ]);
+  });
+
+  test("a locally-initiated close reports a null code", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+    ws.receive({ type: "ready", seq: 1, sessionId: "s", conversationId: "c" });
+
+    const closes: { code: number | null; reason: string }[] = [];
+    client.on("closed", (info) => closes.push(info));
+
+    client.close();
+
+    expect(closes).toEqual([{ code: null, reason: "client closed" }]);
   });
 });

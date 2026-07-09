@@ -83,7 +83,7 @@ import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
-import type { TrustContext } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import {
   writeOnboardingSidecar,
@@ -105,7 +105,6 @@ import {
 } from "../../persistence/attachments-store.js";
 import {
   addMessage,
-  extractImageSourcePaths,
   getConversation,
   getConversationPersistedSeq,
   getMessages,
@@ -114,7 +113,6 @@ import {
   isConversationProcessing,
   isHiddenMessageMetadata,
   type MessageRow,
-  provenanceFromTrustContext,
   recordConversationPersistedSeq,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
@@ -166,6 +164,11 @@ import {
 } from "../sync/resource-sync-events.js";
 import { withSourceChannel } from "../trust-context-resolver.js";
 import {
+  emitCannedMessageComplete,
+  persistCannedAssistantCard,
+} from "./canned-message-complete.js";
+import { buildChannelMetadata } from "./channel-metadata.js";
+import {
   BadRequestError,
   InternalError,
   NotFoundError,
@@ -207,11 +210,12 @@ interface AlignedAttachments {
 
 /**
  * Align DB-hydrated attachment rows with the file-block refs `renderHistoryContent`
- * captured. When a file block was persisted with `_attachmentId` (user-message
- * uploads) we join on that id to position the chip inline; DB rows without a
- * matching ref go to the tail as orphan chips, and unmatched refs drop their
- * `attachment:N` entry. Assistant-authored file blocks carry no `_attachmentId`,
- * so when no ids match we fall back to positional alignment if the ref and row
+ * captured. When a file block carries an attachment id (user-message uploads —
+ * on `source.attachmentId` for reference blocks, or the legacy top-level
+ * `_attachmentId`) we join on that id to position the chip inline; DB rows
+ * without a matching ref go to the tail as orphan chips, and unmatched refs drop
+ * their `attachment:N` entry. Assistant-authored file blocks carry no id, so
+ * when no ids match we fall back to positional alignment if the ref and row
  * counts agree; otherwise we strip the markers and let chips fall to the tail.
  */
 function alignAttachments(
@@ -319,34 +323,6 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
     typeof value === "string" &&
     VALID_RISK_THRESHOLDS.includes(value as RiskThreshold)
   );
-}
-
-// ---------------------------------------------------------------------------
-// Temporary fix — remove when #31994 lands
-// ---------------------------------------------------------------------------
-//
-// The canned-response paths in this file (canned greeting, inline approval
-// reply, slash command, /compact, /clean) bypass the agent loop and so don't
-// pick up the per-turn anchor id allocated in conversation-agent-loop.ts.
-// Their `message_complete` events therefore went out without `messageId`,
-// and the macOS client filter at ChatActionHandler.swift:507 dropped those
-// events when they raced past the 50 ms streaming-buffer flush — leaving
-// `isSending` stuck for the full 60 s watchdog window.
-//
-// Centralized so the patch surface is one helper + N one-line callers rather
-// than N duplicated literals. When #31994 lands and stamps these sites with
-// `state.assistantTurnId` directly, grep for `emitCannedMessageComplete` to
-// find every call site and inline-then-delete.
-function emitCannedMessageComplete(
-  send: (msg: ServerMessage) => void,
-  conversationId: string,
-  persistedAssistantId: string,
-): void {
-  send({
-    type: "message_complete",
-    conversationId,
-    messageId: persistedAssistantId,
-  });
 }
 
 /**
@@ -2328,7 +2304,6 @@ export async function handleSendMessage(
     // forceCompact() makes an LLM call that can exceed the client's
     // HTTP timeout on large contexts, causing a false "Failed to send".
     (async () => {
-      let assistantMessagePersisted = false;
       try {
         broadcastMessage({
           type: "user_message_echo",
@@ -2340,35 +2315,14 @@ export async function handleSendMessage(
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.emitActivityState("thinking", "context_compacting");
         const result = await conversation.forceCompact();
-        const responseText = formatCompactResult(result);
-
-        const assistantMsg = createAssistantMessage(responseText);
-        const persistedAssistant = await addMessage(
+        await persistCannedAssistantCard({
+          conversation,
           conversationId,
-          "assistant",
-          JSON.stringify(assistantMsg.content),
-          { metadata: channelMeta },
-        );
-        assistantMessagePersisted = true;
-        conversation.getMessages().push(assistantMsg);
-
-        broadcastMessage({
-          type: "assistant_text_delta",
-          text: responseText,
-          conversationId,
+          text: formatCompactResult(result),
+          metadata: channelMeta,
+          originClientId,
         });
-        emitCannedMessageComplete(
-          broadcastMessage,
-          conversationId,
-          persistedAssistant.id,
-        );
-        // Same anchor advance as the canned-greeting path above.
-        recordConversationPersistedSeq(conversationId, getCurrentSeq());
-        publishConversationMessagesChanged(conversationId, originClientId);
       } catch (err) {
-        if (assistantMessagePersisted) {
-          publishConversationMessagesChanged(conversationId, originClientId);
-        }
         log.error({ err, conversationId }, "Compact command failed");
         broadcastMessage({
           type: "conversation_error",
@@ -2425,7 +2379,6 @@ export async function handleSendMessage(
       const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
         trustContext: conversation.trustContext,
       });
-      let assistantMessagePersisted = false;
       try {
         broadcastMessage({
           type: "user_message_echo",
@@ -2437,35 +2390,14 @@ export async function handleSendMessage(
         publishConversationMessagesChanged(conversationId, originClientId);
 
         const result = await conversation.forceClean();
-        const responseText = formatCleanResult(result);
-
-        const assistantMsg = createAssistantMessage(responseText);
-        const persistedAssistant = await addMessage(
+        await persistCannedAssistantCard({
+          conversation,
           conversationId,
-          "assistant",
-          JSON.stringify(assistantMsg.content),
-          { metadata: channelMeta },
-        );
-        assistantMessagePersisted = true;
-        conversation.getMessages().push(assistantMsg);
-
-        broadcastMessage({
-          type: "assistant_text_delta",
-          text: responseText,
-          conversationId,
+          text: formatCleanResult(result),
+          metadata: channelMeta,
+          originClientId,
         });
-        emitCannedMessageComplete(
-          broadcastMessage,
-          conversationId,
-          persistedAssistant.id,
-        );
-        // Same anchor advance as the canned-greeting path above.
-        recordConversationPersistedSeq(conversationId, getCurrentSeq());
-        publishConversationMessagesChanged(conversationId, originClientId);
       } catch (err) {
-        if (assistantMessagePersisted) {
-          publishConversationMessagesChanged(conversationId, originClientId);
-        }
         log.error({ err, conversationId }, "Clean command failed");
         broadcastMessage({
           type: "conversation_error",
@@ -2845,47 +2777,6 @@ async function handleSearchConversations({
   });
 
   return { query, results };
-}
-
-// ---------------------------------------------------------------------------
-// Metadata helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Assemble the standard channel metadata object for message persistence.
- *
- * Combines provenance (trust context), channel/interface routing, and
- * optional per-message fields (automated flag, image source paths) into the
- * Record that `addMessage` stores in the `metadata` column.
- */
-function buildChannelMetadata(
-  sourceChannel: string,
-  sourceInterface: string,
-  opts?: {
-    trustContext?: Parameters<typeof provenanceFromTrustContext>[0];
-    provenanceOverride?: Record<string, unknown>;
-    automated?: boolean;
-    attachments?: ReadonlyArray<{
-      filename: string;
-      mimeType: string;
-      filePath?: string;
-    }>;
-  },
-): Record<string, unknown> {
-  const provenance =
-    opts?.provenanceOverride ?? provenanceFromTrustContext(opts?.trustContext);
-  const imageSourcePaths = opts?.attachments
-    ? extractImageSourcePaths(opts.attachments)
-    : undefined;
-  return {
-    ...provenance,
-    userMessageChannel: sourceChannel,
-    assistantMessageChannel: sourceChannel,
-    userMessageInterface: sourceInterface,
-    assistantMessageInterface: sourceInterface,
-    ...(opts?.automated ? { automated: true } : {}),
-    ...(imageSourcePaths ? { imageSourcePaths } : {}),
-  };
 }
 
 // ---------------------------------------------------------------------------

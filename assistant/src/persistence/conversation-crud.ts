@@ -27,7 +27,7 @@ import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import type { ConversationDeletedInputContext } from "../hooks/types.js";
 import { HOOKS } from "../plugin-api/constants.js";
@@ -67,6 +67,7 @@ import {
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
+import type { ConversationCreateType } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,
@@ -85,6 +86,7 @@ import {
   enqueuePurgeConversationLexical,
 } from "./job-handlers/message-lexical.js";
 import {
+  rawAll,
   rawExec,
   rawGet,
   rawLogsRun,
@@ -459,8 +461,6 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
   clientMessageId: "clientMessageId",
 });
 
-export type ConversationCreateType = "standard" | "background" | "scheduled";
-
 /**
  * Monotonic timestamp source for message ordering. Two messages saved within
  * the same millisecond (e.g., tool_results user message + assistant message in
@@ -669,6 +669,13 @@ export function createConversation(
   titleOrOpts?:
     | string
     | {
+        /**
+         * Adopt an explicit conversation id instead of minting a new uuid.
+         * Callers that already hold a client-provided id and want the row to
+         * carry it verbatim (e.g. {@link ensureConversationExists}) pass it
+         * here; everyone else omits it and gets a fresh uuid.
+         */
+        id?: string;
         title?: string;
         /**
          * Override the `is_auto_title` column (schema default 1). Pass
@@ -696,7 +703,7 @@ export function createConversation(
     requestedConversationType ?? "standard";
   const source = opts.source ?? "user";
   const groupId = opts.groupId;
-  const id = uuid();
+  const id = opts.id ?? uuid();
   const memoryScopeId = "default";
 
   // Ensure group_id column exists for deterministic schema readiness,
@@ -762,6 +769,58 @@ export function createConversation(
   initConversationDir({ ...conversation, originChannel: null });
 
   return conversation;
+}
+
+/**
+ * A conversation id adopted verbatim from an untrusted source must be safe to
+ * embed as a single path component of the on-disk conversation dir
+ * (`<timestamp>_<id>/meta.json`). This pattern admits server uuids and the
+ * web client's `crypto.randomUUID()` / `draft-<ts>-<hex>` drafts while
+ * rejecting anything with path separators, `..`, or other traversal vectors.
+ */
+const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * Ensure a `conversations` row exists for `id`, creating one with default
+ * columns only when absent. Idempotent. Returns `true` iff this call inserted
+ * the row (so callers can emit a one-time creation side effect, e.g. a
+ * conversations-list invalidation).
+ *
+ * The normal text-send path persists the conversation row through the
+ * conversation-key store before the first message is written, so `messages`
+ * inserts always have their FK target. Entry points that adopt a
+ * client-provided conversation id directly — notably the live-voice session,
+ * which binds to the id from its start frame — have no such guarantee: on the
+ * first turn of a brand-new chat the row does not exist yet, and persisting
+ * the user message trips `FOREIGN KEY constraint failed`. Call this before the
+ * first persist to close that gap while keeping the adopted id verbatim.
+ *
+ * Because the id is adopted verbatim and reaches the filesystem via
+ * `createConversation` → `initConversationDir`, an id from an external client
+ * is validated first — a value like `../../tmp/x` would otherwise write
+ * `meta.json` outside the conversations directory.
+ */
+export function ensureConversationExists(id: string): boolean {
+  if (getConversation(id)) {
+    return false;
+  }
+  if (!ADOPTABLE_CONVERSATION_ID_RE.test(id)) {
+    throw new Error(
+      `Refusing to adopt unsafe conversation id: ${JSON.stringify(id)}`,
+    );
+  }
+  try {
+    createConversation({ id });
+    return true;
+  } catch (err) {
+    // A concurrent caller may have created the row between the check and the
+    // insert (UNIQUE(id) violation). That's the desired end state, so only
+    // rethrow if the row still isn't there.
+    if (!getConversation(id)) {
+      throw err;
+    }
+    return false;
+  }
 }
 
 export function getConversation(id: string): ConversationRow | null {
@@ -2319,12 +2378,21 @@ export function unarchiveConversation(id: string): boolean {
  * Persist the processing-start timestamp for a conversation. Called by
  * `Conversation.setProcessing(true)` so out-of-process callers can detect
  * mid-turn state by reading the `conversations` row directly. Pass `null`
- * to clear (turn ended).
+ * to clear (turn ended); a clean turn end also closes any interruption
+ * streak, so the startup auto-resume budget refills.
  */
 export function setConversationProcessingStartedAt(
   id: string,
   startedAt: number | null,
 ): void {
+  if (startedAt == null) {
+    rawRun(
+      "conversation:setProcessingStartedAt",
+      "UPDATE conversations SET processing_started_at = NULL, processing_resume_attempts = 0 WHERE id = ?",
+      id,
+    );
+    return;
+  }
   rawRun(
     "conversation:setProcessingStartedAt",
     "UPDATE conversations SET processing_started_at = ? WHERE id = ?",
@@ -2344,6 +2412,43 @@ export function clearStaleProcessingFlags(): number {
   return rawRun(
     "conversation:clearStaleProcessingFlags",
     "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
+  );
+}
+
+export interface InterruptedConversationRow {
+  id: string;
+  /** Consecutive startup auto-resume attempts since the last clean turn end. */
+  resumeAttempts: number;
+}
+
+/**
+ * Conversations whose persisted processing flag is still set. Read at daemon
+ * startup before {@link clearStaleProcessingFlags} so the interrupted-turn
+ * reconciler knows which conversations were mid-turn when the previous
+ * process exited.
+ */
+export function listInterruptedConversations(): InterruptedConversationRow[] {
+  return rawAll<{ id: string; processing_resume_attempts: number }>(
+    "conversation:listInterrupted",
+    "SELECT id, processing_resume_attempts FROM conversations WHERE processing_started_at IS NOT NULL",
+  ).map((row) => ({
+    id: row.id,
+    resumeAttempts: row.processing_resume_attempts,
+  }));
+}
+
+/**
+ * Bump the persisted auto-resume counter for a conversation the startup
+ * reconciler is about to resume. Intentionally left set by
+ * {@link clearStaleProcessingFlags} — the counter must survive the flag clear
+ * so the resume cap holds across boots. Reset to 0 by the clean turn-end
+ * write in {@link setConversationProcessingStartedAt}.
+ */
+export function incrementProcessingResumeAttempts(id: string): void {
+  rawRun(
+    "conversation:incrementResumeAttempts",
+    "UPDATE conversations SET processing_resume_attempts = processing_resume_attempts + 1 WHERE id = ?",
+    id,
   );
 }
 

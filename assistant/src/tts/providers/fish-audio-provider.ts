@@ -17,6 +17,7 @@ import {
 import { getConfig } from "../../config/loader.js";
 import type { TtsFishAudioProviderConfig } from "../../config/schemas/tts.js";
 import { getLogger } from "../../util/logger.js";
+import { resolvePcmOutputSampleRateHz } from "../pcm-sample-rates.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
 import type {
   TtsProvider,
@@ -26,13 +27,6 @@ import type {
 } from "../types.js";
 
 const log = getLogger("tts:fish-audio");
-
-/**
- * Sample rate for PCM requests that carry no `sampleRateHz` hint. The
- * media-stream transcoder assumes headerless PCM is 16 kHz (the
- * ElevenLabs/Deepgram/xAI convention) and downsamples to 8 kHz telephony.
- */
-const DEFAULT_PCM_SAMPLE_RATE_HZ = 16_000;
 
 /**
  * PCM/WAV sample rates the Fish Audio TTS API accepts. Per
@@ -93,34 +87,9 @@ function resolveReferenceId(
   return referenceId;
 }
 
-/** Nearest Fish-supported PCM sample rate to `hintHz`; ties prefer the higher rate. */
-function nearestSupportedPcmSampleRateHz(hintHz: number): number {
-  return SUPPORTED_PCM_SAMPLE_RATES_HZ.reduce((best, rate) => {
-    const bestDelta = Math.abs(best - hintHz);
-    const delta = Math.abs(rate - hintHz);
-    if (delta < bestDelta || (delta === bestDelta && rate > best)) {
-      return rate;
-    }
-    return best;
-  });
-}
-
-/**
- * Actual PCM output sample rate for a request. A PCM request's hint is clamped
- * to the nearest Fish-supported rate (e.g. 48 kHz → 44.1 kHz) so the same value
- * is both sent to the API and reported to callers; non-PCM formats carry their
- * rate in the container and report undefined.
- */
-function resolvePcmOutputSampleRateHz(
-  request: TtsSynthesisRequest,
-): number | undefined {
-  if (request.outputFormat !== "pcm") {
-    return undefined;
-  }
-  return nearestSupportedPcmSampleRateHz(
-    request.sampleRateHz ?? DEFAULT_PCM_SAMPLE_RATE_HZ,
-  );
-}
+/** PCM rate resolver bound to the Fish-supported rate list (e.g. 48 kHz → 44.1 kHz). */
+const resolveFishPcmSampleRateHz = (request: TtsSynthesisRequest) =>
+  resolvePcmOutputSampleRateHz(request, SUPPORTED_PCM_SAMPLE_RATES_HZ);
 
 // ---------------------------------------------------------------------------
 // Provider implementation
@@ -137,7 +106,7 @@ async function performSynthesis(
   // hinted sample rate is clamped to the nearest API-supported rate.
   const pcmRequested = request.outputFormat === "pcm";
   const effectiveFormat = pcmRequested ? "pcm" : config.format;
-  const sampleRateHz = resolvePcmOutputSampleRateHz(request);
+  const sampleRateHz = resolveFishPcmSampleRateHz(request);
 
   const effectiveConfig: FishAudioSynthesisConfig = {
     ...config,
@@ -185,7 +154,7 @@ export function createFishAudioProvider(): TtsProvider {
   return {
     id: "fish-audio",
     capabilities,
-    resolveOutputSampleRateHz: resolvePcmOutputSampleRateHz,
+    resolveOutputSampleRateHz: resolveFishPcmSampleRateHz,
     synthesize: (request) => performSynthesis(request),
     synthesizeStream: (request, onChunk) => performSynthesis(request, onChunk),
   };

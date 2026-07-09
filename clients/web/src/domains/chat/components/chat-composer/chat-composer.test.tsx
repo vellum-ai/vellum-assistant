@@ -16,6 +16,7 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import { type ChatAttachment, useComposerStore } from "@/domains/chat/composer-store";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
+import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 // Pure helpers live in `chat-composer-utils` (no mocks needed), so import them
 // statically. `ChatComposer` itself is imported dynamically *after* the mocks
@@ -38,14 +39,24 @@ mock.module("@/runtime/is-electron", () => ({
   isElectron: () => mockIsElectron,
 }));
 
-// Live-voice integration mocks. The composer mounts `LiveVoiceButton` (which
-// self-gates on `voice-mode`) and reads live-voice session state via the
-// `useLiveVoiceStore` per-field selectors for the transcript surface +
-// dictation mutual-exclusion. Both are mocked so the composer renders in
-// isolation: the flag via a mutable `mockVoiceMode`, and the session via a
-// mutable state + transcript bag exposed through the store's `.use.*`
-// selectors. Defaults (flag off, idle, empty) keep the existing HTML-surface
-// assertions unchanged.
+// Capacitor-iOS detection. The composer skips the first-run prefs card on the
+// native iOS shell (a dismissible pre-prompt before the `getUserMedia`
+// permission alert violates `docs/CAPACITOR.md` § OS permission requests) and
+// starts the session directly. Defaults to non-iOS (web) so the existing
+// first-run tests exercise the card path unchanged.
+let mockIsNativeIOS = false;
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeIOS: () => mockIsNativeIOS,
+}));
+
+// Live-voice integration. The session controller (`useLiveVoice`) lives in
+// the layout-mounted `useLiveVoiceSessionController`, NOT in the composer —
+// the composer only reads the real `useLiveVoiceStore` (self-contained
+// zustand, no heavy imports) and drives the session through the
+// `starter`/`controls` seams registered there. Tests therefore seed the real
+// store and register spy seams; only the flag store is mocked (consumed by
+// the real `LiveVoiceButton`, which self-gates on it). Defaults (flag off,
+// idle) keep the existing HTML-surface assertions unchanged.
 let mockVoiceMode = false;
 mock.module("@/stores/assistant-feature-flag-store", () => ({
   useAssistantFeatureFlagStore: {
@@ -55,46 +66,37 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
   },
 }));
 
-// Local mirror of the live-voice session phases this test exercises. Kept as a
-// narrow union (not an import from the `voice` domain) so the `chat` test stays
-// free of cross-domain coupling — the composer only ever distinguishes idle
-// from non-idle, so the precise phase taxonomy is irrelevant here.
-type MockLiveVoiceState = "idle" | "connecting" | "listening" | "failed";
+import {
+  makeControlsSpies,
+  seedLiveVoiceSession as seedLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
+import {
+  useLiveVoiceStore,
+  type LiveVoiceSessionState,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 
-let mockLiveVoiceState: MockLiveVoiceState = "idle";
-let mockLivePartial = "";
-let mockLiveFinal = "";
-let mockLiveAssistant = "";
-const liveStartSpy = mock(
-  async (_assistantId: string, _conversationId?: string) => {},
+const liveStarterSpy = mock(
+  (_assistantId: string, _conversationId: string | null) => {},
 );
-const liveStopSpy = mock(async () => {});
-// The composer reads session state through the store's per-field selectors
-// (`useLiveVoiceStore.use.state()` etc.), so mock the store rather than the
-// `useLiveVoice` controller. `LiveVoiceButton` is the only `useLiveVoice`
-// consumer, and it is mocked separately below.
-mock.module("@/domains/chat/voice/live-voice/live-voice-store", () => ({
-  useLiveVoiceStore: {
-    use: {
-      state: () => mockLiveVoiceState,
-      partialTranscript: () => mockLivePartial,
-      finalTranscript: () => mockLiveFinal,
-      assistantTranscript: () => mockLiveAssistant,
-    },
-  },
-}));
-mock.module("@/domains/chat/voice/live-voice/use-live-voice", () => ({
-  useLiveVoice: () => ({
-    state: mockLiveVoiceState,
-    partialTranscript: mockLivePartial,
-    finalTranscript: mockLiveFinal,
-    assistantTranscript: mockLiveAssistant,
-    inputAmplitude: 0,
-    error: null,
-    start: liveStartSpy,
-    stop: liveStopSpy,
-  }),
-}));
+const liveControls = makeControlsSpies();
+
+/**
+ * Seed the real live-voice store with an active session (shared helper bound
+ * to this file's ids/spies). `conversationId` defaults to the id
+ * `renderVoiceComposer` binds, so the rendered composer owns the session;
+ * pass another id to simulate a session owned by a different thread, or
+ * `null` for a draft-started session.
+ */
+function seedLiveVoiceSession(
+  state: LiveVoiceSessionState,
+  conversationId: string | null = "conv_test",
+) {
+  seedLiveVoiceStore(state, {
+    assistantId: "asst_test",
+    conversationId,
+    controls: liveControls,
+  });
+}
 
 // The real `VoiceInputButton` self-suppresses (returns null) unless the test
 // DOM exposes `MediaRecorder` + `getUserMedia`, which happy-dom does not. Mock
@@ -107,6 +109,23 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
       aria-label="Start voice input"
       disabled={props.disabled ?? false}
     />
+  ),
+}));
+
+// First-run prefs card. Stubbed to a lightweight probe that exposes the two
+// wired callbacks — the real card pulls in `useAssistantAvatar` (React Query),
+// irrelevant to the composer's interception wiring, which is all these tests
+// assert. Full card behavior lives in `voice-first-run-card.test.tsx`.
+mock.module("@/domains/chat/voice/voice-room/voice-first-run-card", () => ({
+  VoiceFirstRunCard: (props: { onStart: () => void; onDismiss?: () => void }) => (
+    <div data-testid="first-run-card">
+      <button type="button" onClick={props.onStart}>
+        first-run-start
+      </button>
+      <button type="button" onClick={() => props.onDismiss?.()}>
+        first-run-dismiss
+      </button>
+    </div>
   ),
 }));
 
@@ -129,20 +148,30 @@ mock.module("@/domains/chat/voice/voice-recording-store", () => ({
 
 function resetLiveVoiceMocks() {
   mockIsElectron = false;
+  mockIsNativeIOS = false;
   mockVoiceMode = false;
-  mockLiveVoiceState = "idle";
-  mockLivePartial = "";
-  mockLiveFinal = "";
-  mockLiveAssistant = "";
   mockVoicePhase = "idle";
   setAudioLevelSpy.mockClear();
-  liveStartSpy.mockClear();
-  liveStopSpy.mockClear();
+  liveStarterSpy.mockClear();
+  liveControls.stop.mockClear();
+  liveControls.release.mockClear();
+  liveControls.interrupt.mockClear();
+  useLiveVoiceStore.getState().reset();
+  useLiveVoiceStore.getState().setStarter(liveStarterSpy);
+  // Default to the returning-user path so the entry-point mic starts a session
+  // directly. First-run interception (the prefs card) is covered by
+  // `voice-first-run-card.test.tsx`; a test that wants it opts in by setting
+  // `firstRunSeen: false`.
+  useVoicePrefsStore.setState({
+    showUserTranscript: false,
+    showAssistantTranscript: false,
+    firstRunSeen: true,
+  });
 }
 
 // Imported after the mocks so the component (and its transitive flag-store /
-// live-voice / voice-input-button imports) resolve against the mocked modules.
-// The pure helpers (computeGhostSuffix / shouldSubmitOnEnter) come from
+// voice-input-button imports) resolve against the mocked modules. The pure
+// helpers (computeGhostSuffix / shouldSubmitOnEnter) come from
 // `chat-composer-utils`, imported statically above.
 const { ChatComposer } = await import(
   "@/domains/chat/components/chat-composer/chat-composer"
@@ -496,7 +525,7 @@ function renderComposer(
       sendDisabled={false}
       onAddAttachmentFiles={() => {}}
       onStopGenerating={() => {}}
-      canStopGenerating={false}
+      isAssistantBusy={false}
       assistantId="asst_test"
       {...rest}
     />,
@@ -517,45 +546,45 @@ describe("ChatComposer — placeholder", () => {
 });
 
 describe("ChatComposer — send/stop button visibility", () => {
-  test("canStopGenerating=false renders a Send button (aria-label='Send message')", () => {
-    const html = renderComposer({ canStopGenerating: false });
+  test("isAssistantBusy=false renders a Send button (aria-label='Send message')", () => {
+    const html = renderComposer({ isAssistantBusy: false });
     expect(html).toContain('aria-label="Send message"');
     expect(html).not.toContain('aria-label="Stop generating"');
   });
 
-  test("canStopGenerating=true on desktop renders only the Stop button (send/attach/voice hidden)", () => {
+  test("isAssistantBusy=true on desktop renders only the Stop button (send/attach/voice hidden)", () => {
     mockIsMobile = false;
-    const html = renderComposer({ canStopGenerating: true });
+    const html = renderComposer({ isAssistantBusy: true });
     expect(html).toContain('aria-label="Stop generating"');
     expect(html).not.toContain('aria-label="Send message"');
   });
 
-  test("canStopGenerating=true on mobile with no input renders only Stop button", () => {
+  test("isAssistantBusy=true on mobile with no input renders only Stop button", () => {
     mockIsMobile = true;
-    const html = renderComposer({ input: "", canStopGenerating: true });
+    const html = renderComposer({ input: "", isAssistantBusy: true });
     expect(html).toContain('aria-label="Stop generating"');
     expect(html).not.toContain('aria-label="Send message"');
     mockIsMobile = false;
   });
 
-  test("canStopGenerating=true on mobile with user input renders only Send button", () => {
+  test("isAssistantBusy=true on mobile with user input renders only Send button", () => {
     mockIsMobile = true;
-    const html = renderComposer({ input: "hello", canStopGenerating: true });
+    const html = renderComposer({ input: "hello", isAssistantBusy: true });
     expect(html).not.toContain('aria-label="Stop generating"');
     expect(html).toContain('aria-label="Send message"');
     mockIsMobile = false;
   });
 
-  test("canStopGenerating=false keeps the Send button even during awaiting_user_input", () => {
+  test("isAssistantBusy=false keeps the Send button even during awaiting_user_input", () => {
     useTurnStore.setState({ ...INITIAL_TURN_STATE, phase: "awaiting_user_input" });
-    const html = renderComposer({ canStopGenerating: false });
+    const html = renderComposer({ isAssistantBusy: false });
     expect(html).toContain('aria-label="Send message"');
     expect(html).not.toContain('aria-label="Stop generating"');
   });
 
-  test("canStopGenerating=true shows stop button after page refresh (idle phase, server processing)", () => {
+  test("isAssistantBusy=true shows stop button after page refresh (idle phase, server processing)", () => {
     useTurnStore.setState(INITIAL_TURN_STATE);
-    const html = renderComposer({ canStopGenerating: true });
+    const html = renderComposer({ isAssistantBusy: true });
     expect(html).toContain('aria-label="Stop generating"');
   });
 });
@@ -747,7 +776,7 @@ function renderVoiceComposer(
       sendDisabled={false}
       onAddAttachmentFiles={() => {}}
       onStopGenerating={() => {}}
-      canStopGenerating={false}
+      isAssistantBusy={false}
       assistantId="asst_test"
       conversationId="conv_test"
       voiceInputRef={createRef<VoiceInputButtonHandle>()}
@@ -768,7 +797,6 @@ describe("ChatComposer — live-voice integration", () => {
 
     // THEN the live-voice control is absent and dictation is unaffected
     expect(queryByLabelText("Start voice mode")).toBeNull();
-    expect(queryByLabelText("Stop voice mode")).toBeNull();
     const dictation = queryByLabelText(
       "Start voice input",
     ) as HTMLButtonElement | null;
@@ -776,88 +804,257 @@ describe("ChatComposer — live-voice integration", () => {
     expect(dictation?.disabled).toBe(false);
   });
 
-  test("flag ON, idle: live-voice button present, dictation still enabled", () => {
-    // GIVEN the flag is on with no active session
+  test("flag ON, idle + empty: voice-mode button owns the send slot, dictation available, no voice bar", () => {
+    // GIVEN the flag is on with no active session and an empty composer
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
-    mockLiveVoiceState = "idle";
 
     // WHEN the composer renders
-    const { getByLabelText, queryByLabelText } = renderVoiceComposer();
+    const { getByLabelText, queryByLabelText, queryByRole } =
+      renderVoiceComposer();
 
-    // THEN both mics are available and neither is forced disabled
+    // THEN the voice-mode button occupies the send slot (there is nothing to
+    // send yet), dictation is available, and the row is the normal composer
+    // row (no voice bar). The send arrow is absent until the message has
+    // content (see the swap test below).
     expect(getByLabelText("Start voice mode")).toBeTruthy();
     const dictation = queryByLabelText(
       "Start voice input",
     ) as HTMLButtonElement | null;
     expect(dictation?.disabled).toBe(false);
+    expect(queryByRole("group", { name: "Voice session" })).toBeNull();
+    expect(queryByLabelText("Send message")).toBeNull();
   });
 
-  test("active session disables dictation (mutual exclusion)", () => {
-    // GIVEN a live-voice session is listening
+  test("typing swaps the voice-mode button for the send arrow", () => {
+    // GIVEN the flag is on, no active session, and the user has typed content
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
-    mockLiveVoiceState = "listening";
+
+    // WHEN the composer renders with a non-empty draft
+    const { getByLabelText, queryByLabelText } = renderVoiceComposer({
+      input: "hello",
+    });
+
+    // THEN the send arrow takes the slot and the voice-mode button steps aside
+    expect(getByLabelText("Send message")).toBeTruthy();
+    expect(queryByLabelText("Start voice mode")).toBeNull();
+  });
+
+  test("clicking the live-voice button starts a session through the store-registered starter", () => {
+    // GIVEN the flag is on with no active session
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+
+    // WHEN the user clicks the entry-point mic
+    const { getByLabelText } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN the layout-owned controller is asked to start with the bound
+    // context (the composer holds no controller of its own)
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+  });
+
+  test("first-ever entry opens the prefs card instead of starting the session", () => {
+    // GIVEN the flag is on, no session, and the user has never entered voice
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+
+    // WHEN the user clicks the entry-point mic
+    const { getByLabelText, getByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN the prefs card appears and the session has NOT started yet
+    expect(getByTestId("first-run-card")).toBeTruthy();
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+  });
+
+  test("first-run card Start persists the flag then starts the session", () => {
+    // GIVEN the first-run card is open
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+    const { getByLabelText, getByText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // WHEN the user commits via Start
+    fireEvent.click(getByText("first-run-start"));
+
+    // THEN the first run is consumed, the card closes, and the session starts
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+  });
+
+  test("dismissing the first-run card cancels without consuming the first run", () => {
+    // GIVEN the first-run card is open
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+    const { getByLabelText, getByText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // WHEN the user dismisses it
+    fireEvent.click(getByText("first-run-dismiss"));
+
+    // THEN nothing started and the first run is still available for next time
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
+  });
+
+  test("Capacitor iOS: first-ever entry skips the card and starts directly (permission alert reached)", () => {
+    // GIVEN the native iOS shell, the flag on, no session, and a first-ever
+    // entry — a dismissible pre-prompt here would violate CAPACITOR.md
+    // § OS permission requests, so the card must be skipped.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockIsNativeIOS = true;
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+
+    // WHEN the user clicks the entry-point mic
+    const { getByLabelText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN no card renders and the session starts straight away so the OS
+    // getUserMedia alert is the next thing the user sees. The first-run flag
+    // is left untouched (the card, not the mic, owns marking it seen).
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+  });
+
+  test("Capacitor iOS: returning-user entry still starts directly (unchanged)", () => {
+    // GIVEN the native iOS shell with the first run already consumed
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockIsNativeIOS = true;
+    // resetLiveVoiceMocks already sets firstRunSeen: true
+
+    // WHEN the user clicks the entry-point mic
+    const { getByLabelText, queryByTestId } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN it behaves exactly like the returning-user path on any platform
+    expect(queryByTestId("first-run-card")).toBeNull();
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+  });
+
+  test("owned active session swaps the action row for the voice bar (mutual exclusion by absence)", () => {
+    // GIVEN a live-voice session owned by this composer's conversation
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    seedLiveVoiceSession("listening");
 
     // WHEN the composer renders
-    const { getByLabelText } = renderVoiceComposer();
+    const { getByRole, queryByLabelText } = renderVoiceComposer();
 
-    // THEN the live-voice control is a stop affordance and the dictation
-    // mic is disabled so the two capture flows can't run together
-    expect(getByLabelText("Stop voice mode")).toBeTruthy();
-    const dictation = getByLabelText(
-      "Start voice input",
-    ) as HTMLButtonElement;
+    // THEN the voice bar replaces the whole action row — attach, both mic
+    // buttons, and send are gone, so the two capture flows can't coexist
+    expect(getByRole("group", { name: "Voice session" })).toBeTruthy();
+    expect(queryByLabelText("Start voice mode")).toBeNull();
+    expect(queryByLabelText("Start voice input")).toBeNull();
+    expect(queryByLabelText("Send message")).toBeNull();
+    // ...and the old inline transcript strip is gone for good
+    expect(queryByLabelText("Live voice transcript")).toBeNull();
+  });
+
+  test("session owned by another conversation leaves this composer untouched (pill is the surface)", () => {
+    // GIVEN a session owned by thread A while this composer shows thread B
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    seedLiveVoiceSession("listening", "conv-other-thread");
+
+    // WHEN the composer renders
+    const { container, getByLabelText, queryByLabelText, queryByRole } =
+      renderVoiceComposer();
+
+    // THEN no voice bar, no transcript region, and the textarea stays
+    // editable — thread B behaves like a normal composer. The empty send slot
+    // holds the voice-mode button (disabled below), so the send arrow is absent.
+    expect(queryByRole("group", { name: "Voice session" })).toBeNull();
+    expect(queryByLabelText("Send message")).toBeNull();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.disabled).toBe(false);
+    // ...except both mic entry points are disabled: the running session owns
+    // the microphone, so no second capture flow may start from here
+    const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
+    expect(liveVoice.disabled).toBe(true);
+    const dictation = getByLabelText("Start voice input") as HTMLButtonElement;
     expect(dictation.disabled).toBe(true);
   });
 
-  test("active session surfaces user + assistant transcripts", () => {
-    // GIVEN a listening session with partial speech and a streaming reply
+  test("draft composer keeps owning a draft-started session after the server assigns a conversation", () => {
+    // GIVEN a session started from a draft (no conversation) whose `ready`
+    // frame has since republished a server-assigned conversation id
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
-    mockLiveVoiceState = "listening";
-    mockLivePartial = "what is the";
-    mockLiveAssistant = "Let me check";
+    seedLiveVoiceSession("listening", null);
+    useLiveVoiceStore.getState().setConversationId("conv-server-assigned");
 
-    // WHEN the composer renders
-    const { getByLabelText } = renderVoiceComposer();
+    // WHEN the draft composer (bound to no conversation) renders
+    const { getByRole } = renderVoiceComposer({ conversationId: undefined });
 
-    // THEN the transcript surface shows both sides of the turn
-    const surface = getByLabelText("Live voice transcript");
-    expect(surface.textContent).toContain("what is the");
-    expect(surface.textContent).toContain("Let me check");
+    // THEN it still owns the session — the voice bar stays, so the user
+    // sitting at the composer that started the session never sees it
+    // handed off to the title-bar pill
+    expect(getByRole("group", { name: "Voice session" })).toBeTruthy();
   });
 
-  test("active session stays stoppable even when the composer is busy", () => {
+  test("owned session keeps the textarea mounted but inert", () => {
+    // GIVEN a live-voice session owned by this composer's conversation
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    seedLiveVoiceSession("listening");
+
+    // WHEN the composer renders
+    const { container } = renderVoiceComposer();
+
+    // THEN the textarea stays mounted (VoiceLiveTranscript renders into its
+    // grid cell once speech streams) but is disabled so focus/typing can't
+    // fight the session
+    const textarea = container.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    expect((textarea as HTMLTextAreaElement).disabled).toBe(true);
+  });
+
+  test("voice bar ✕ ends the session even when the composer is busy", () => {
     // GIVEN a live session AND the composer is otherwise disabled
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
-    mockLiveVoiceState = "listening";
+    seedLiveVoiceSession("listening");
 
     // WHEN the composer renders with typingDisabled raised
     const { getByLabelText } = renderVoiceComposer({ typingDisabled: true });
 
-    // THEN the stop control is still actionable and clicking it stops
-    const stop = getByLabelText("Stop voice mode") as HTMLButtonElement;
-    expect(stop.disabled).toBe(false);
-    fireEvent.click(stop);
-    expect(liveStopSpy).toHaveBeenCalledTimes(1);
+    // THEN the end control is still actionable and clicking it stops the
+    // session through the store-registered controls
+    const end = getByLabelText("End voice session") as HTMLButtonElement;
+    expect(end.disabled).toBe(false);
+    fireEvent.click(end);
+    expect(liveControls.stop).toHaveBeenCalledTimes(1);
   });
 
-  test("flag ON but no transcript content: surface stays empty when idle", () => {
-    // GIVEN the flag is on but the session is idle
+  test("voice bar ↑ manually releases the turn while listening", () => {
+    // GIVEN a listening session owned by this composer
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
-    mockLiveVoiceState = "idle";
+    seedLiveVoiceSession("listening");
 
-    // WHEN the composer renders
-    const { queryByLabelText } = renderVoiceComposer();
+    // WHEN the user clicks send-now
+    const { getByLabelText } = renderVoiceComposer();
+    fireEvent.click(getByLabelText("Send now"));
 
-    // THEN no transcript surface is rendered (idle = nothing to show)
-    expect(queryByLabelText("Live voice transcript")).toBeNull();
+    // THEN the turn is released through the store-registered controls
+    expect(liveControls.release).toHaveBeenCalledTimes(1);
+    expect(liveControls.stop).not.toHaveBeenCalled();
   });
 
-  test("dictation active disables the live-voice button (reverse mutual exclusion)", () => {
+  test("dictation active hides the live-voice button (reverse mutual exclusion)", () => {
     // GIVEN the flag is on, no live session, but dictation is active.
     // `processing` is one of the two phases that make the composer's
     // `isVoiceActive` true (alongside `recording`); we use it because
@@ -866,16 +1063,15 @@ describe("ChatComposer — live-voice integration", () => {
     // same either way.
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
-    mockLiveVoiceState = "idle";
     mockVoicePhase = "processing";
 
     // WHEN the composer renders
-    const { getByLabelText } = renderVoiceComposer();
+    const { queryByLabelText } = renderVoiceComposer();
 
-    // THEN the live-voice start affordance is disabled so it can't open a
-    // second mic/voice session alongside the dictation recorder
-    const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
-    expect(liveVoice.disabled).toBe(true);
+    // THEN the send slot (which holds the voice-mode entry point while idle) is
+    // hidden entirely during dictation, so no second mic/voice session can open
+    // alongside the recorder — mutual exclusion by absence.
+    expect(queryByLabelText("Start voice mode")).toBeNull();
   });
 
   test("electron dictation uses the system overlay instead of the inline composer preview", () => {
@@ -883,34 +1079,277 @@ describe("ChatComposer — live-voice integration", () => {
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockIsElectron = true;
     mockVoiceMode = true;
-    mockLiveVoiceState = "idle";
     mockVoicePhase = "processing";
 
     // WHEN the composer renders
-    const { getByLabelText, queryByLabelText } = renderVoiceComposer();
+    const { queryByLabelText } = renderVoiceComposer();
 
     // THEN the shared top-center dictation overlay owns the visual treatment,
-    // so the composer-specific preview is absent while mutual exclusion stays.
+    // so the composer-specific preview is absent; and the send slot (voice-mode
+    // entry point) stays hidden during dictation — mutual exclusion by absence.
     expect(queryByLabelText("Transcribing")).toBeNull();
-    const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
-    expect(liveVoice.disabled).toBe(true);
+    expect(queryByLabelText("Start voice mode")).toBeNull();
   });
 
-  test("failed live-voice state is inactive: dictation re-enabled, no transcript surface", () => {
-    // GIVEN the flag is on and a live-voice start attempt has failed
+  test("failed live-voice state is inactive: normal row restored, dictation re-enabled", () => {
+    // GIVEN the flag is on and a live-voice session has failed
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
-    mockLiveVoiceState = "failed";
+    seedLiveVoiceSession("listening");
+    useLiveVoiceStore.getState().fail("boom");
 
     // WHEN the composer renders (dictation idle)
-    const { getByLabelText, queryByLabelText } = renderVoiceComposer();
+    const { getByLabelText, queryByRole } = renderVoiceComposer();
 
-    // THEN dictation is treated as available again (failed = inactive)...
+    // THEN the voice bar is unmounted and the normal row is back — with an
+    // empty draft the send slot shows the voice-mode entry point again...
+    expect(queryByRole("group", { name: "Voice session" })).toBeNull();
+    expect(getByLabelText("Start voice mode")).toBeTruthy();
+    // ...with dictation treated as available again (failed = inactive)
     const dictation = getByLabelText(
       "Start voice input",
     ) as HTMLButtonElement;
     expect(dictation.disabled).toBe(false);
-    // ...and the transcript surface is unmounted rather than left hanging
-    expect(queryByLabelText("Live voice transcript")).toBeNull();
+  });
+
+  test("failed session surfaces the error as a dismissible notice", () => {
+    // GIVEN a failed session carrying an error message
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    seedLiveVoiceSession("listening");
+    useLiveVoiceStore.getState().fail("Microphone capture could not start.");
+
+    // WHEN the composer renders
+    const { getByText, getByLabelText } = renderVoiceComposer();
+
+    // THEN the error notice is visible with the session's message
+    expect(getByText("Microphone capture could not start.")).toBeTruthy();
+
+    // WHEN the user dismisses it
+    fireEvent.click(getByLabelText("Dismiss"));
+
+    // THEN the store is reset back to idle (which clears the error)
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+    expect(useLiveVoiceStore.getState().error).toBeNull();
+  });
+
+  test("no live-voice error notice while idle or without an error", () => {
+    // GIVEN the flag is on with an idle session and no error
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+
+    // WHEN the composer renders
+    const { queryByLabelText } = renderVoiceComposer();
+
+    // THEN no dismissible notice is mounted
+    expect(queryByLabelText("Dismiss")).toBeNull();
+  });
+
+  test("voice bar persists when the flag flips off mid-session (no stranded session)", () => {
+    // GIVEN an active owned session but the voice-mode flag has since
+    // flipped off while the layout-owned controller keeps the session live
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = false;
+    seedLiveVoiceSession("listening");
+
+    // WHEN the composer renders
+    const { getByRole, getByLabelText, queryByLabelText } =
+      renderVoiceComposer();
+
+    // THEN the active-UI swap follows the session state, not eligibility:
+    // the bar (and its ✕ stop control) stays until teardown completes...
+    expect(getByRole("group", { name: "Voice session" })).toBeTruthy();
+    const end = getByLabelText("End voice session") as HTMLButtonElement;
+    expect(end.disabled).toBe(false);
+    // ...while the entry-point button stays flag-gated off
+    expect(queryByLabelText("Start voice mode")).toBeNull();
+
+    // AND the ✕ still ends the live session
+    fireEvent.click(end);
+    expect(liveControls.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("voice bar persists when assistantId is transiently cleared mid-session", () => {
+    // GIVEN an active owned session whose assistantId has been cleared from
+    // props
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    seedLiveVoiceSession("listening");
+
+    // WHEN the composer renders without an assistant id
+    const { getByRole, getByLabelText } = renderVoiceComposer({
+      assistantId: null,
+    });
+
+    // THEN the stop control remains available for the live mic/socket
+    expect(getByRole("group", { name: "Voice session" })).toBeTruthy();
+    fireEvent.click(getByLabelText("End voice session"));
+    expect(liveControls.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("failure after an eligibility drop still surfaces the error notice", () => {
+    // GIVEN a session that failed right after the flag flipped off
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = false;
+    seedLiveVoiceSession("listening");
+    useLiveVoiceStore.getState().fail("Connection lost.");
+
+    // WHEN the composer renders
+    const { getByText } = renderVoiceComposer();
+
+    // THEN the user still learns why voice stopped
+    expect(getByText("Connection lost.")).toBeTruthy();
+  });
+
+  test("no-voice variant (app-editing) never swaps its row for a session it doesn't own", () => {
+    // GIVEN a live session exists in the global store (owned elsewhere) and
+    // this variant has no voice props
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    seedLiveVoiceSession("listening", "conv-other-thread");
+
+    // WHEN the app-editing variant renders (no voiceInputRef/onVoiceTranscript)
+    const html = renderComposer();
+
+    // THEN its action row is untouched — no voice bar, normal send button
+    expect(html).not.toContain('aria-label="Voice session"');
+    expect(html).toContain('aria-label="Send message"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Live-voice transcript in the composer text area (Light 55)
+//
+// While speech streams, the disabled textarea is visually hidden and the
+// display-only `VoiceLiveTranscript` renders in its grid cell; with no
+// transcript yet the textarea (and its placeholder) stays visible.
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer — live-voice transcript area", () => {
+  test("streaming speech hides the textarea and renders the transcript in its place", () => {
+    // GIVEN a listening owned session with an in-flight partial transcript,
+    // and the user opted in to seeing their own words
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useVoicePrefsStore.setState({ showUserTranscript: true });
+    seedLiveVoiceSession("listening");
+    useLiveVoiceStore
+      .getState()
+      .setPartialTranscript("this is a text that I am just speaking");
+
+    // WHEN the composer renders
+    const { container, getByLabelText } = renderVoiceComposer();
+
+    // THEN the transcript region shows the speech as composer text...
+    const region = getByLabelText("Voice transcript");
+    expect(region.textContent).toContain(
+      "this is a text that I am just speaking",
+    );
+    // ...with a caret, in place of the visually hidden (still-mounted,
+    // still-uneditable) textarea
+    expect(region.querySelector('[data-testid="voice-transcript-caret"]')).toBeTruthy();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.className).toContain("hidden");
+    expect(textarea.disabled).toBe(true);
+  });
+
+  test("streaming speech does NOT render the transcript when the show-your-words pref is off (default)", () => {
+    // GIVEN a listening owned session streaming speech, but the user has kept
+    // "Show the words you say" OFF (the default) — the composer must not
+    // surface their spoken words
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    // `showUserTranscript` defaults to false in the per-test reset; make the
+    // intent explicit here.
+    useVoicePrefsStore.setState({ showUserTranscript: false });
+    seedLiveVoiceSession("listening");
+    useLiveVoiceStore
+      .getState()
+      .setPartialTranscript("this is a text that I am just speaking");
+
+    // WHEN the composer renders
+    const { container, queryByLabelText } = renderVoiceComposer();
+
+    // THEN no transcript region mounts and the (still-uneditable) textarea
+    // stays visible so its placeholder shows through instead
+    expect(queryByLabelText("Voice transcript")).toBeNull();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.className).not.toContain("hidden");
+    expect(textarea.disabled).toBe(true);
+  });
+
+  test("speech from a session owned by another thread never streams into this composer", () => {
+    // GIVEN a session owned by thread A streaming speech while this composer
+    // shows thread B
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    seedLiveVoiceSession("listening", "conv-other-thread");
+    useLiveVoiceStore.getState().setPartialTranscript("thread A's words");
+
+    // WHEN the composer renders
+    const { container, queryByLabelText } = renderVoiceComposer();
+
+    // THEN no transcript region mounts and the textarea stays editable —
+    // thread A's speech must not leak into thread B's input
+    expect(queryByLabelText("Voice transcript")).toBeNull();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.className).not.toContain("hidden");
+    expect(textarea.disabled).toBe(false);
+  });
+
+  test("empty transcript keeps the textarea (and its placeholder) visible", () => {
+    // GIVEN an active owned session with no speech yet (Light 53 baseline)
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    seedLiveVoiceSession("listening");
+
+    // WHEN the composer renders
+    const { container, queryByLabelText } = renderVoiceComposer();
+
+    // THEN nothing replaces the textarea — its placeholder shows through
+    expect(queryByLabelText("Voice transcript")).toBeNull();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.className).not.toContain("hidden");
+  });
+
+  test("textarea is restored after the session ends, even with a leftover final transcript", () => {
+    // GIVEN the session has ended (store back to idle, final text lingering)
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    useLiveVoiceStore.getState().setFinalTranscript("what I said last");
+
+    // WHEN the composer renders
+    const { container, queryByLabelText } = renderVoiceComposer();
+
+    // THEN the composer behaves normally: no transcript region, editable textarea
+    expect(queryByLabelText("Voice transcript")).toBeNull();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.className).not.toContain("hidden");
+    expect(textarea.disabled).toBe(false);
+  });
+
+  // The ghost-suffix mirror and the live transcript share the same grid cell,
+  // so a suggestion painted during a session would overlay the streaming
+  // speech. The composer suppresses the ghost while it owns the session.
+  test("ghost suffix renders normally with no active session (baseline)", () => {
+    // GIVEN an empty draft and a pending autocomplete suggestion, no session
+    const html = renderComposer({ input: "", suggestion: "ghost completion text" });
+
+    // THEN the ghost suffix paints into the composer's mirror cell
+    expect(html).toContain("ghost completion text");
+  });
+
+  test("owned live-voice session suppresses the ghost suffix (no overlay on the transcript)", () => {
+    // GIVEN a listening session this composer owns and a pending suggestion
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    seedLiveVoiceSession("listening");
+
+    // WHEN the composer renders with the suggestion present
+    const { container } = renderVoiceComposer({ suggestion: "ghost completion text" });
+
+    // THEN the ghost is gone — the shared grid cell is left for the streaming
+    // transcript, not the suggestion overlay
+    expect(container.textContent).not.toContain("ghost completion text");
   });
 });

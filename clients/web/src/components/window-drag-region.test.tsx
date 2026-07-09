@@ -19,6 +19,7 @@ import { WindowDragRegion } from "@/components/window-drag-region";
 beforeEach(() => {
   isElectronMock = false;
   inlineTitleBarActiveMock = false;
+  window.history.replaceState({}, "", "/");
 });
 
 describe("WindowDragRegion", () => {
@@ -39,6 +40,16 @@ describe("WindowDragRegion", () => {
     // out-stack and swallow the header's button clicks.
     isElectronMock = true;
     inlineTitleBarActiveMock = true;
+    expect(renderToStaticMarkup(<WindowDragRegion />)).toBe("");
+  });
+
+  test("yields in pop-out thread windows (?popout=1)", () => {
+    // Pop-outs keep their native title bar (the desktop shell passes no
+    // titleBarStyle) and never mount ChatLayoutHeader, so the strip would
+    // stay up forever — swallowing clicks on the standalone voice-session
+    // pill floated at the window's top-right.
+    isElectronMock = true;
+    window.history.replaceState({}, "", "/?popout=1");
     expect(renderToStaticMarkup(<WindowDragRegion />)).toBe("");
   });
 });

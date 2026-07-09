@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
+  hasAnyActiveConversation,
   listBackgroundConversations,
   listConversations,
 } from "@/utils/conversation-list-fetchers";
@@ -481,5 +482,70 @@ describe("listBackgroundConversations — pagination", () => {
     expect(
       calls.every((c) => c.query?.conversationType === "background"),
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasAnyActiveConversation — single-page existence probe
+// ---------------------------------------------------------------------------
+
+describe("hasAnyActiveConversation", () => {
+  const originalGet = daemonClient.get;
+
+  afterEach(() => {
+    daemonClient.get = originalGet;
+  });
+
+  function setupSinglePage(conversationIds: string[]): {
+    calls: Array<{ query: Record<string, unknown> | undefined }>;
+  } {
+    const calls: Array<{ query: Record<string, unknown> | undefined }> = [];
+    daemonClient.get = mock(
+      async (options: { query?: Record<string, unknown> }) => {
+        calls.push({ query: options.query });
+        return {
+          data: {
+            conversations: conversationIds.map((id) => ({
+              id,
+              title: "",
+              createdAt: 0,
+              updatedAt: 0,
+              lastMessageAt: 0,
+              conversationType: "standard",
+              source: "vellum",
+              groupId: "",
+            })),
+            // Existence needs one page — hasMore must never trigger a walk.
+            hasMore: true,
+          },
+          error: null,
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    ) as typeof daemonClient.get;
+    return { calls };
+  }
+
+  test("true when the first page has any conversation, fetching exactly one page", async () => {
+    const { calls } = setupSinglePage(["conv-1"]);
+
+    await expect(hasAnyActiveConversation("assistant-1")).resolves.toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  test("false when the assistant has no active conversations", async () => {
+    setupSinglePage([]);
+
+    await expect(hasAnyActiveConversation("assistant-1")).resolves.toBe(false);
+  });
+
+  test("throws on a failed fetch (callers own the fail-open policy)", async () => {
+    daemonClient.get = mock(async () => ({
+      data: null,
+      error: { message: "boom" },
+      response: new Response(null, { status: 500 }),
+    })) as typeof daemonClient.get;
+
+    await expect(hasAnyActiveConversation("assistant-1")).rejects.toThrow();
   });
 });

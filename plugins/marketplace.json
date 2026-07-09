@@ -18,6 +18,18 @@
       "license": "MIT"
     },
     {
+      "name": "kitchen-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/kitchen-companion",
+        "ref": "b6ebdda6992dfa1fd2186a600a642f538fb64584"
+      },
+      "description": "Full kitchen companion. Scan your fridge with a photo to stock a pantry inventory and get 3 makeable-now recipes, get alerts before food expires, clip recipes from any URL into a clean format, and generate meal plans with grocery lists from what you actually have.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/kitchen-companion",
+      "license": "MIT"
+    },
+    {
       "name": "simple-memory",
       "source": {
         "source": "github",
@@ -94,11 +106,23 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/admin-copilot",
-        "ref": "3d375a31c910448e45723487d18358b78bf3ddb0"
+        "ref": "d30596aa50a1c702f5d74e05c45bd965d14e2107"
       },
       "description": "Proactive chief-of-staff: a morning digest, propose-then-confirm inbox triage, calendar prep, and a weekly competitor brief.",
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/admin-copilot",
+      "license": "MIT"
+    },
+    {
+      "name": "cofounder",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/cofounder",
+        "ref": "547adf1c0db0cbb32855ff0e4ef46c056248bdea"
+      },
+      "description": "AI co-founder that remembers your company context, challenges your thinking, and tracks your decisions.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/cofounder",
       "license": "MIT"
     },
     {
@@ -207,6 +231,54 @@
       "description": "Track every credit on the Amex cards you hold (Platinum, Gold, Business Platinum, Delta Gold/Platinum/Reserve) with status-aware reminders before any window closes.",
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/amex-perk-reminder",
+      "license": "MIT"
+    },
+    {
+      "name": "google-drive-search",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/google-drive-search",
+        "ref": "ddd5013477cc1ec8d1fb174db6b599dbfe1cca21"
+      },
+      "description": "Local full-text search across your Google Drive. Indexes file metadata and document content into SQLite FTS5 for instant, private search.",
+      "category": "productivity",
+      "homepage": "https://github.com/ZeebBoyBlue/google-drive-search",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "coffee-aficionado",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/coffee-aficionado",
+        "ref": "b37a0b5adc2bda5559d3b21abe38e436093c1ff3"
+      },
+      "description": "Find great coffee beans and machines matched to your taste profile, budget, and kitchen. Persistent memory learns your preferences over time.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/coffee-aficionado",
+      "license": "MIT"
+    },
+    {
+      "name": "plant-doctor",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/plant-doctor",
+        "ref": "1115ac07a5b7f731600f037b743e011a84bd0597"
+      },
+      "description": "Diagnose plants from photos. Identifies the species, assesses health with visible evidence, and returns a care plan. Named plants get a persistent checkup history so you can track whether they are improving.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/plant-doctor",
+      "license": "MIT"
+    },
+    {
+      "name": "tennis-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/tennis-companion",
+        "ref": "1c6d2bd448ee7b5285d37cfee4e0e413522746d1"
+      },
+      "description": "Tennis journal, drill sessions, court finder, and progress tracking. Log matches with opponent tendencies, generate 30-minute practice sessions with progressions, find nearby courts via OpenStreetMap, and track win rate by surface and conditions.",
+      "category": "health",
+      "homepage": "https://github.com/vellum-ai/tennis-companion",
       "license": "MIT"
     }
   ]

@@ -51,6 +51,11 @@ mock.module("../../../config/env-registry.js", () => ({
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({ llm: {} }),
   getConfigReadOnly: () => ({ llm: {} }),
+  // Unused by these tests, but the route module's import chain
+  // (config/default-provider.js) needs the named exports to resolve.
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
 }));
 
 // Mock DNS resolution: all hostnames resolve to a public IP by default.

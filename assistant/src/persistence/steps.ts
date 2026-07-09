@@ -428,6 +428,8 @@ import { migrateCanonicalGuardianRequesterSignals } from "./migrations/317-canon
 import { migrateDropContactChannelTelemetry } from "./migrations/318-drop-contact-channel-telemetry.js";
 import { migrateRemoveLegacyManagedConnections } from "./migrations/319-remove-legacy-managed-connections.js";
 import { migrateDropTraceEventsTable } from "./migrations/320-drop-trace-events-table.js";
+import { migrateCanonicalGuardianRequestTrigger } from "./migrations/321-canonical-guardian-request-trigger.js";
+import { migrateAddProcessingResumeAttempts } from "./migrations/322-add-processing-resume-attempts.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1327,4 +1329,6 @@ export const migrationSteps: MigrationStep[] = [
   migrateDropContactChannelTelemetry,
   migrateRemoveLegacyManagedConnections,
   migrateDropTraceEventsTable,
+  migrateCanonicalGuardianRequestTrigger,
+  migrateAddProcessingResumeAttempts,
 ];

@@ -7,8 +7,22 @@ import { isPointerCoarse } from "@/utils/pointer";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Horizontal zone from the left edge (px) where a touch is eligible. */
-export const EDGE_ZONE_PX = 20;
+/**
+ * Width (px) of the transparent recovery strip `EdgeSwipeHitZone` lays over
+ * touch-swallowing content (e.g. a sandboxed iframe) so a left-edge touch
+ * still reaches the `document` listener. Kept narrow so the covered content
+ * stays interactive everywhere outside the strip.
+ */
+export const EDGE_SWIPE_HIT_ZONE_PX = 20;
+
+/**
+ * Fraction of the viewport width, measured from the left edge, within which a
+ * touch may arm the gesture. Spanning the left half makes the swipe forgiving
+ * rather than demanding a pixel-perfect edge touch, matching the wide
+ * activation bands common to iOS-style interactive back gestures (cf.
+ * react-navigation's `gestureResponseDistance`).
+ */
+const ACTIVATION_ZONE_VW_RATIO = 0.5;
 
 /** Minimum horizontal travel (px) to commit the swipe. */
 const COMMIT_THRESHOLD_PX = 100;
@@ -47,6 +61,57 @@ export function commitThresholdPx(viewportWidth: number): number {
   );
 }
 
+/**
+ * Distance from the left edge (px) within which a touch may arm the gesture,
+ * derived from the viewport width so the activation band scales with it.
+ */
+export function activationZonePx(viewportWidth: number): number {
+  return viewportWidth * ACTIVATION_ZONE_VW_RATIO;
+}
+
+/**
+ * Whether the touched element is (or sits inside) a surface that owns
+ * horizontal drags for its own text interaction: a text field or
+ * contenteditable region (caret placement, e.g. the rich-text document
+ * editor), or a selectable transcript message text block (text selection,
+ * marked by `data-message-text`). A widened-band swipe beginning here would
+ * otherwise hijack the caret / selection and navigate away, so over these
+ * surfaces the gesture stays edge-only. The marker sits on the rendered text
+ * block only, not the whole message row, so the forgiving band still arms over
+ * a row's gaps, attachments, and action affordances.
+ */
+export function ownsHorizontalTextDrag(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return (
+    target.closest(
+      'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-message-text]',
+    ) !== null
+  );
+}
+
+/**
+ * Whether a touch at `clientX` may arm the gesture, given the viewport width
+ * and whether it began on a surface that owns horizontal text drags. Edge
+ * touches (within `EDGE_SWIPE_HIT_ZONE_PX`) always arm, preserving deliberate
+ * edge swipe-back everywhere; the widened band beyond the edge arms only off
+ * text-drag surfaces.
+ */
+export function shouldArmAt(
+  clientX: number,
+  viewportWidth: number,
+  ownsTextDrag: boolean,
+): boolean {
+  if (clientX > activationZonePx(viewportWidth)) {
+    return false;
+  }
+  if (ownsTextDrag && clientX > EDGE_SWIPE_HIT_ZONE_PX) {
+    return false;
+  }
+  return true;
+}
+
 /** Whether vertical travel dominates enough to treat the gesture as a scroll. */
 export function isVerticalEscape(dx: number, dy: number): boolean {
   return Math.abs(dy) > Math.abs(dx) * VERTICAL_ESCAPE_RATIO;
@@ -72,6 +137,18 @@ export function computeVisualOffset(dx: number, threshold: number): number {
   return threshold + (dx - threshold) * OVERDRAG_DAMPING;
 }
 
+/**
+ * Resting-closed translateX (px, ≤ 0) for a full-width drawer panel that
+ * slides in from off-screen-left, given the touch's absolute viewport `x`.
+ * Anchoring the panel's right edge to the finger's absolute position (rather
+ * than the drag delta) keeps the drawer under the finger no matter where in
+ * the activation band the swipe began — a delta-based reveal would trail a
+ * mid-screen start by the start offset.
+ */
+export function computeDrawerOffset(x: number, viewportWidth: number): number {
+  return Math.min(0, x - viewportWidth);
+}
+
 /** Whether a finished gesture traveled far enough to commit. */
 export function isCommitted(finalDx: number, threshold: number): boolean {
   return finalDx >= threshold;
@@ -90,11 +167,12 @@ export interface UseEdgeSwipeCallbacks {
   onConfirm?: () => void;
   /**
    * Fired on every confirmed drag frame with the raw horizontal delta (`dx`,
-   * always > 0) and the current commit `threshold`. Consumers own the visual
-   * mapping — use `computeVisualOffset` for a damped translateX, or map `dx`
-   * to any other transform.
+   * always > 0), the current commit `threshold`, and the touch's absolute
+   * viewport position (`x`, i.e. `clientX`). Consumers own the visual mapping —
+   * use `dx` with `computeVisualOffset` for a delta-tracked translateX, or `x`
+   * with `computeDrawerOffset` to anchor an element to the finger.
    */
-  onMove: (dx: number, threshold: number) => void;
+  onMove: (dx: number, threshold: number, x: number) => void;
   /** Fired when a confirmed gesture is released past the commit threshold. */
   onCommit: (finalDx: number, threshold: number) => void;
   /**
@@ -185,7 +263,15 @@ export function useEdgeSwipe({
       if (event.touches.length !== 1) {return;}
       const touch = event.touches[0];
       if (!touch) {return;}
-      if (touch.clientX > EDGE_ZONE_PX) {return;}
+      if (
+        !shouldArmAt(
+          touch.clientX,
+          window.innerWidth,
+          ownsHorizontalTextDrag(event.target),
+        )
+      ) {
+        return;
+      }
 
       dragRef.current = {
         touchId: touch.identifier,
@@ -235,7 +321,7 @@ export function useEdgeSwipe({
         void haptic.light();
       }
 
-      callbacksRef.current.onMove(dx, threshold);
+      callbacksRef.current.onMove(dx, threshold, touch.clientX);
     };
 
     const handleTouchEnd = (event: TouchEvent) => {

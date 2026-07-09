@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
+  resolveEffectiveProfileKey,
 } from "../config/llm-resolver.js";
 import { type LLMCallSite, LLMSchema } from "../config/schemas/llm.js";
 
@@ -86,6 +87,76 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.provider).toBe("anthropic");
     expect(resolved.model).toBe("claude-haiku-4-5-20251001");
     expect(resolved.effort).toBe("low");
+  });
+
+  test("model-only override of a shared gateway model keeps a vercel-ai-gateway default provider", () => {
+    // `anthropic/claude-opus-4.8` is listed by both openrouter and
+    // vercel-ai-gateway; the applicable default provider serves it, so no
+    // provider is implied and the default wins.
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "vercel-ai-gateway",
+        model: "anthropic/claude-sonnet-4.6",
+      },
+      callSites: {
+        memoryExtraction: { model: "anthropic/claude-opus-4.8" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("vercel-ai-gateway");
+    expect(resolved.model).toBe("anthropic/claude-opus-4.8");
+  });
+
+  test("model-only override of a shared gateway model keeps an openrouter default provider", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "openrouter",
+        model: "anthropic/claude-sonnet-4.6",
+      },
+      callSites: {
+        memoryExtraction: { model: "anthropic/claude-opus-4.8" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("openrouter");
+    expect(resolved.model).toBe("anthropic/claude-opus-4.8");
+  });
+
+  test("model-only override of a gateway model with a non-serving default implies the catalog owner", () => {
+    // Anthropic's own catalog uses bare slugs, so it does not serve
+    // `anthropic/claude-sonnet-4.6` — the catalog owner (openrouter, the
+    // earliest entry listing it) is implied.
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      callSites: {
+        memoryExtraction: { model: "anthropic/claude-sonnet-4.6" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("openrouter");
+    expect(resolved.model).toBe("anthropic/claude-sonnet-4.6");
+  });
+
+  test("model unique to vercel-ai-gateway implies vercel-ai-gateway", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      callSites: {
+        memoryExtraction: { model: "openai/gpt-5.5-pro" },
+      },
+    });
+
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+
+    expect(resolved.provider).toBe("vercel-ai-gateway");
+    expect(resolved.model).toBe("openai/gpt-5.5-pro");
   });
 
   test("unknown model-only override preserves inherited provider", () => {
@@ -1381,6 +1452,73 @@ describe("resolveDefaultProfileKey", () => {
       activeProfile: "ab",
     });
     expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
+  });
+});
+
+describe("resolveEffectiveProfileKey", () => {
+  const llm = LLMSchema.parse({
+    default: fullDefault,
+    profiles: {
+      balanced: { provider: "anthropic", model: "claude-sonnet-4-7" },
+      "cost-optimized": { provider: "openai", model: "gpt-5-mini" },
+      pinned: { provider: "gemini", model: "gemini-2.5-pro" },
+    },
+    activeProfile: "balanced",
+  });
+
+  test("mainAgent: override wins over active", () => {
+    expect(
+      resolveEffectiveProfileKey("mainAgent", llm, {
+        overrideProfile: "pinned",
+      }),
+    ).toBe("pinned");
+  });
+
+  test("mainAgent: active wins when no override", () => {
+    expect(resolveEffectiveProfileKey("mainAgent", llm)).toBe("balanced");
+  });
+
+  // Codex P2: a pinned override on a bare non-mainAgent site must attribute to
+  // the override — `effectiveDefault` strips the catalog default when an
+  // override is present, so the override is the profile that supplies the config.
+  test("non-mainAgent: pinned override wins over stripped catalog default", () => {
+    expect(
+      resolveEffectiveProfileKey("filingAgent", llm, {
+        overrideProfile: "pinned",
+      }),
+    ).toBe("pinned");
+  });
+
+  test("non-mainAgent: catalog default when no override", () => {
+    // filingAgent's CALL_SITE_DEFAULTS profile is `cost-optimized`.
+    expect(resolveEffectiveProfileKey("filingAgent", llm)).toBe(
+      "cost-optimized",
+    );
+  });
+
+  test("non-mainAgent: explicit call-site profile is authoritative over override", () => {
+    const withSite = LLMSchema.parse({
+      ...llm,
+      callSites: { filingAgent: { profile: "cost-optimized" } },
+    });
+    expect(
+      resolveEffectiveProfileKey("filingAgent", withSite, {
+        overrideProfile: "pinned",
+      }),
+    ).toBe("cost-optimized");
+  });
+
+  test("non-mainAgent: forced override floats above the call-site profile", () => {
+    const withSite = LLMSchema.parse({
+      ...llm,
+      callSites: { filingAgent: { profile: "cost-optimized" } },
+    });
+    expect(
+      resolveEffectiveProfileKey("filingAgent", withSite, {
+        overrideProfile: "pinned",
+        forceOverrideProfile: true,
+      }),
+    ).toBe("pinned");
   });
 });
 

@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 
-import type { SetupChannelId } from "@/domains/contacts/types";
+import type { SetupChannelId } from "@/types/channel-types";
 import { getChannelLabel } from "@/utils/channel-presentation";
 import { routes } from "@/utils/routes";
 

@@ -1,0 +1,162 @@
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { DEFAULT_PROFILE_PROVIDERS } from "../config/default-profile-names.js";
+import { getIsPlatform } from "../config/env-registry.js";
+import { invalidateConfigCache } from "../config/loader.js";
+import { DefaultProviderSchema } from "../config/schemas/llm.js";
+import { hasManagedProxyPrereqs } from "../providers/platform-proxy/context.js";
+import { getProviderKeyAsync } from "../security/secure-keys.js";
+
+// Ensures `llm.defaultProvider` is populated on every boot.
+//
+// Existing installs that never ran the hatch flow need `llm.defaultProvider`
+// backfilled. This is split across two pieces with workspace migration 127:
+//   - The migration applies only synchronously-readable signals (a legacy
+//     `llm.default.provider`, or a personal `custom-*` profile's provider)
+//     and checkpoints before `mergeDefaultWorkspaceConfig()` merges the
+//     platform overlay in daemon/lifecycle.ts. An overlay merged afterward
+//     can rewrite `llm`, so the migration alone can't guarantee the field
+//     survives.
+//   - This ensure pass re-applies the same signals (platform first, then
+//     the sync signals), plus a login fallback ("logged in to the
+//     platform" is `hasManagedProxyPrereqs()`, an async secure-vault read
+//     that a sync migration cannot perform). It runs unconditionally on every boot
+//     (not gated on whether a platform overlay was merged this run) so it
+//     also repairs hand-deleted fields and configs restored from backups
+//     that predate the field.
+//
+// Idempotent: never overwrites an existing *valid* `llm.defaultProvider`
+// value (an invalid persisted object is dropped by LLMSchema's catch at
+// parse, so replacing it is repair, not overwrite), and never writes
+// `connectionName` — convention resolution
+// (`resolveDefaultConnectionName`) owns the name.
+//
+// The legacy `llm.default.provider` field is only honored as BYOK intent
+// when it is unambiguous: `LLMConfigBase.provider` defaults to "anthropic"
+// and the first-launch seed persists that default, so a bare "anthropic" is
+// treated as a possible schema-default echo and disambiguated via
+// `getProviderKeyAsync("anthropic")` (a vault/env read — the ensure pass is
+// async, unlike the sync migration). A key present confirms real BYOK
+// setup; absence falls through to custom profiles and the login fallback.
+// Other provider values can't be schema echoes and stay trustworthy as-is.
+
+const CUSTOM_PROFILE_ORDER = [
+  "custom-balanced",
+  "custom-quality-optimized",
+  "custom-cost-optimized",
+] as const;
+
+export async function ensureDefaultProvider(
+  workspaceDir: string,
+): Promise<void> {
+  const configPath = join(workspaceDir, "config.json");
+  if (!existsSync(configPath)) {
+    return;
+  }
+
+  let config: Record<string, unknown>;
+  try {
+    const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return;
+    }
+    config = raw as Record<string, unknown>;
+  } catch {
+    return;
+  }
+
+  const llm = readObject(config.llm) ?? {};
+  // Schema-validate rather than shape-check: LLMSchema's `.catch(undefined)`
+  // drops an invalid persisted object at parse, so readers see no default
+  // provider. Skipping on any object shape would leave such a workspace
+  // permanently unrepaired. Replacing an invalid object is repair, not
+  // overwrite — no reader ever saw it. An invalid object is not trusted as
+  // a signal (no provider salvage); resolution below matches what a fresh
+  // install would get.
+  if (DefaultProviderSchema.safeParse(llm.defaultProvider).success) {
+    return;
+  }
+
+  const provider = await resolveProvider(llm);
+
+  llm.defaultProvider = { provider };
+  config.llm = llm;
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  // The lifecycle call site runs before the first loadConfig() of this boot,
+  // so no cached config exists yet to invalidate; this call guards callers
+  // that read config before that first load (and any future reordering).
+  invalidateConfigCache();
+}
+
+async function resolveProvider(llm: Record<string, unknown>): Promise<string> {
+  // Platform outranks the legacy field (matching migration 127 and the hatch
+  // precedence): a pre-field platform config commonly carries
+  // `llm.default.provider: "anthropic"` as a schema-default echo, not a
+  // routing choice, and honoring it would pin the install to a personal
+  // connection.
+  if (getIsPlatform()) {
+    return "vellum";
+  }
+
+  const legacyProvider = readObject(llm.default)?.provider;
+  if (
+    typeof legacyProvider === "string" &&
+    isDefaultProfileProvider(legacyProvider)
+  ) {
+    // `llm.default.provider` defaults to "anthropic" in LLMConfigBase and the
+    // first-launch seed persists that default, so a bare "anthropic" is
+    // ambiguous: it may be a schema-default echo with no user intent rather
+    // than a BYOK routing choice. Disambiguate via evidence of an actual
+    // anthropic key — the same key connection `api_key` auth references, so
+    // connection-backed setups are covered. No evidence means the field is a
+    // non-signal and the chain falls through (custom profiles → login
+    // fallback). Other providers can't be schema echoes, so they stay
+    // trustworthy as-is.
+    if (legacyProvider !== "anthropic") {
+      return legacyProvider;
+    }
+    if (await getProviderKeyAsync("anthropic")) {
+      return "anthropic";
+    }
+  }
+
+  const profiles = readObject(llm.profiles);
+  if (profiles !== null) {
+    for (const name of CUSTOM_PROFILE_ORDER) {
+      const entry = readObject(profiles[name]);
+      if (entry === null) {
+        continue;
+      }
+      const provider = entry.provider;
+      if (typeof provider !== "string") {
+        continue;
+      }
+      return isDefaultProfileProvider(provider)
+        ? provider
+        : await loginFallback();
+    }
+  }
+
+  return await loginFallback();
+}
+
+async function loginFallback(): Promise<string> {
+  if (await hasManagedProxyPrereqs()) {
+    return "vellum";
+  }
+  return "anthropic";
+}
+
+function isDefaultProfileProvider(
+  value: string,
+): value is (typeof DEFAULT_PROFILE_PROVIDERS)[number] {
+  return (DEFAULT_PROFILE_PROVIDERS as readonly string[]).includes(value);
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}

@@ -28,6 +28,7 @@ const tagVariants = cva(
         positive: "bg-[var(--system-positive-weak)]",
         negative: "bg-[var(--system-negative-weak)]",
         warning: "bg-[var(--system-mid-weak)]",
+        info: "bg-[var(--system-info-weak)]",
         neutral: "bg-[var(--tag-bg-neutral)]",
       },
     },
@@ -50,6 +51,7 @@ const TONE_ICON_COLOR: Record<TagTone, string> = {
   positive: "var(--system-positive-strong)",
   negative: "var(--system-negative-strong)",
   warning: "var(--system-mid-strong)",
+  info: "var(--system-info-strong)",
   neutral: "var(--content-secondary)",
 };
 
@@ -127,7 +129,11 @@ export function Tag({
             "text-[color:var(--content-secondary)]",
             "transition-colors duration-150",
             "hover:bg-[color-mix(in_srgb,currentColor_15%,transparent)]",
-            "focus-visible:outline-none",
+            // Same keyboard focus affordance as Notice's dismiss button:
+            // suppress the default outline but replace it with the ring, so
+            // keyboard users never lose the focus indicator.
+            "keyboard-focus:outline-none keyboard-focus:ring-2",
+            "keyboard-focus:ring-[var(--ring)]",
           )}
         >
           <X style={iconStyle} aria-hidden="true" />

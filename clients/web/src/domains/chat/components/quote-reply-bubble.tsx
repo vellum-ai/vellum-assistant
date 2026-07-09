@@ -1,13 +1,13 @@
 /**
  * Overlay bubble that appears after the user starts a reply from a text
  * selection. Displays the quoted passage and a text input for the user's
- * reply, with one action:
+ * reply, with two actions:
  *
+ * - **Cancel** — dismisses the bubble without staging anything.
  * - **Add to Chat** — stages the quote+reply for inclusion in the next
  *   message the user sends from the composer.
  */
 
-import { MessageSquareQuote, X } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
@@ -107,9 +107,10 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
         side="top"
         align="center"
         sideOffset={8}
+        collisionPadding={12}
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="w-[360px] rounded-xl bg-transparent p-0 shadow-none"
+        className="w-[360px] rounded-xl bg-transparent p-0 shadow-none touch-mobile:w-[calc(100vw-24px)]"
       >
         <Card.Root
           padding="sm"
@@ -118,26 +119,6 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
           className="bg-[var(--surface-base)] shadow-lg"
         >
           <Card.Body padding="sm" className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <Typography
-                as="div"
-                variant="body-small-default"
-                className="flex min-w-0 items-center gap-1.5 text-[var(--content-tertiary)]"
-              >
-                <MessageSquareQuote className="h-3.5 w-3.5 shrink-0" />
-                <span>Quote &amp; Reply</span>
-              </Typography>
-              <Popover.Close asChild>
-                <Button
-                  variant="ghost"
-                  size="compact"
-                  iconOnly={<X />}
-                  expandOnMobile={false}
-                  aria-label="Close reply"
-                />
-              </Popover.Close>
-            </div>
-
             <Typography
               as="div"
               variant="body-small-default"
@@ -147,7 +128,7 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
                 aria-hidden="true"
                 className={quoteBlockquoteAccentClassName}
               />
-              <span className={quoteBlockquoteContentClassName}>
+              <span className={`${quoteBlockquoteContentClassName} italic`}>
                 {truncatedQuote}
               </span>
             </Typography>
@@ -163,9 +144,16 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
               className="min-h-[64px] resize-none text-body-small-default"
             />
 
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex items-center justify-between gap-2">
               <Button
                 variant="outlined"
+                size="compact"
+                onClick={closeReplyBubble}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
                 size="compact"
                 onClick={handleAddToChat}
                 disabled={!replyText.trim()}

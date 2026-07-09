@@ -1442,6 +1442,21 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
     }
     const hostDeviceId = getOrCreateHostDeviceId();
     extraAssistantEnv.VELLUM_DEVICE_ID = hostDeviceId;
+    // Forward the migration URL allowlists so a daemon inside the container
+    // can PUT/GET teleport bundles against a local (non-GCS) platform.
+    // Pass-through only: unset in normal use, preserving the strict
+    // GCS-only validator default. A containerized daemon reaches the host
+    // via host.docker.internal, so that is the value to export when
+    // teleporting docker assistants against a local platform.
+    for (const key of [
+      "VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS",
+      "VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS",
+    ] as const) {
+      const value = process.env[key];
+      if (value) {
+        extraAssistantEnv[key] = value;
+      }
+    }
     const extraGatewayEnv = {
       ...flagEnvVars,
       VELLUM_DEVICE_ID: hostDeviceId,

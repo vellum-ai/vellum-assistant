@@ -420,18 +420,10 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.cleanup).toEqual({
       enabled: true,
-      enqueueIntervalMs: 6 * 60 * 60 * 1000,
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
       conversationRetentionDays: 0,
       llmRequestLogRetentionMs: 1 * 60 * 60 * 1000,
     });
-  });
-
-  test("rejects invalid memory.cleanup.enqueueIntervalMs", () => {
-    const result = AssistantConfigSchema.safeParse({
-      memory: { cleanup: { enqueueIntervalMs: 0 } },
-    });
-    expect(result.success).toBe(false);
   });
 
   test("accepts memory.cleanup.llmRequestLogRetentionMs at the 365-day boundary", () => {
@@ -913,6 +905,37 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.disclosure.enabled).toBe(false);
     expect(result.calls.disclosure.text).toBe("Custom disclosure");
     expect(result.calls.safety.denyCategories).toEqual(["spam"]);
+  });
+
+  // ── Live voice config ───────────────────────────────────────────────
+
+  test("applies liveVoice defaults", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.liveVoice).toEqual({
+      mode: "open-mic",
+      vad: {
+        speechEnergyThreshold: 800,
+        silenceThresholdMs: 800,
+        maxTurnDurationMs: 30000,
+      },
+      maxSessionDurationSeconds: 1800,
+    });
+  });
+
+  test("accepts valid liveVoice config overrides", () => {
+    const result = AssistantConfigSchema.parse({
+      liveVoice: {
+        mode: "ptt",
+        vad: { speechEnergyThreshold: 1500, silenceThresholdMs: 1000 },
+        maxSessionDurationSeconds: 900,
+      },
+    });
+    expect(result.liveVoice.mode).toBe("ptt");
+    expect(result.liveVoice.vad.speechEnergyThreshold).toBe(1500);
+    expect(result.liveVoice.vad.silenceThresholdMs).toBe(1000);
+    // Unspecified vad fields still get defaults
+    expect(result.liveVoice.vad.maxTurnDurationMs).toBe(30000);
+    expect(result.liveVoice.maxSessionDurationSeconds).toBe(900);
   });
 
   test("accepts partial calls config with defaults for missing fields", () => {

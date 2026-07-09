@@ -44,6 +44,16 @@ Three entries at the plugin root are runtime-owned state, not part of the plugin
 
 Uninstalling a plugin (`assistant plugins uninstall`) removes the entire plugin directory, so `config.json`, `data/`, and `.disabled` go with it. No orphaned state is left behind.
 
+### State is plugin-owned
+
+A plugin must be fully self-contained: every byte of durable state it keeps lives in `data/`, and its lifecycle hooks own that state end-to-end.
+
+- **Create in `init`.** Open storage files (e.g. a SQLite database under `pluginStorageDir`) and apply the plugin's own schema in the `init` hook. Make it idempotent — `init` runs on every assistant boot, so `CREATE TABLE IF NOT EXISTS` plus in-place schema checks, not one-shot migrations.
+- **Close in `shutdown`.** Release storage handles so shutdown and in-place plugin redeploys never leak them.
+- **Purge in `conversation-deleted`.** Key per-conversation rows by conversation id and delete them when the hook fires, so data derived from a conversation does not outlive it.
+
+The assistant's own database is internal — `@vellumai/plugin-api` exposes no handle to it, and a plugin must not persist state elsewhere in the workspace. Keeping everything in `data/` is also what makes uninstall clean: removing the plugin directory removes all of its state.
+
 Each surface can also be dropped straight into the workspace at `/workspace/<surface>/<name>/` without wrapping it in a plugin. A plugin is what lets you ship several surfaces together as one installable unit.
 
 ## The manifest

@@ -26,7 +26,6 @@ import {
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
-  type DoctorMessageWithSourceEventId,
 } from "@/domains/settings/components/panels/doctor-history";
 import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
 import {
@@ -198,8 +197,7 @@ export function DoctorPanel() {
     }
 
     const store = useDoctorPanelStore.getState();
-    const messages = (historyDetail.messages ??
-      []) as DoctorMessageWithSourceEventId[];
+    const messages = historyDetail.messages ?? [];
     const resumedEntries = mapPersistedMessagesToEntries(messages);
     store.setEntries(resumedEntries);
     store.setPendingApproval(hasPendingApproval(resumedEntries));

@@ -233,7 +233,7 @@ const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   resizing_machine: "Assistant machine is resizing",
   resizing_storage: "Assistant storage is resizing",
   maintenance_mode: "Assistant is in maintenance mode",
-  crash_loop: "Assistant is crash looping",
+  crash_loop: "Assistant fatal error",
   unreachable: "Assistant is unreachable",
   not_found: "Assistant was not found",
   retiring: "Assistant is retiring",
@@ -458,12 +458,10 @@ function BannerNotice({
   banner,
   className,
   placement,
-  reserveTopSafeArea,
 }: {
   banner: BannerConfig;
   className?: string;
   placement: StatusBannerPlacement;
-  reserveTopSafeArea?: boolean;
 }) {
   return (
     <div
@@ -471,14 +469,6 @@ function BannerNotice({
         placement === "electron" ? "px-4 pt-2" : "px-0 pt-0",
         className,
       )}
-      style={
-        reserveTopSafeArea
-          ? {
-              paddingTop:
-                "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-            }
-          : undefined
-      }
     >
       <StatusBannerNotice
         tone={banner.tone}
@@ -894,20 +884,13 @@ function useAssistantBannerConfig(): BannerConfig | null {
 export function StatusBanner({
   className,
   placement = isElectron() ? "electron" : "web",
-  reserveTopSafeArea = false,
 }: {
   className?: string;
   placement?: StatusBannerPlacement;
-  reserveTopSafeArea?: boolean;
 }) {
   const banner = useAssistantBannerConfig();
 
   return banner ? (
-    <BannerNotice
-      banner={banner}
-      className={className}
-      placement={placement}
-      reserveTopSafeArea={reserveTopSafeArea}
-    />
+    <BannerNotice banner={banner} className={className} placement={placement} />
   ) : null;
 }

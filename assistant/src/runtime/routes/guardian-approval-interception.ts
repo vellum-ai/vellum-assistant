@@ -8,7 +8,7 @@
 import type { KnownBlock } from "@slack/types";
 
 import type { ChannelId } from "../../channels/types.js";
-import type { TrustContext } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { getLogger } from "../../util/logger.js";
 import { resolveCapabilities } from "../capabilities.js";
 import type { ApprovalDecisionResult } from "../channel-approval-types.js";

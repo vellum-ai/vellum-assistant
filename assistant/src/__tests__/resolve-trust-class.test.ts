@@ -15,8 +15,8 @@ import {
   FALLBACK_TURN_TRUST,
   mapChatTypeToConversationType,
   resolveTrustClass,
-  type TrustContext,
 } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 
 afterAll(() => {
   mock.restore();

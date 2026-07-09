@@ -41,6 +41,8 @@ const importSubagentDetailPanel = () =>
   import("@/domains/chat/components/subagent-detail-panel");
 const importToolDetailPanel = () =>
   import("@/domains/chat/components/tool-detail-panel");
+const importActivityStepsPanel = () =>
+  import("@/domains/chat/components/activity-steps-panel");
 const importAcpRunDetailPanel = () =>
   import("@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel");
 const importWorkflowDetailPanel = () =>
@@ -64,6 +66,9 @@ const WorkflowDetailPanel = lazy(() =>
 const ToolDetailPanel = lazy(() =>
   importToolDetailPanel().then((m) => ({ default: m.ToolDetailPanel })),
 );
+const ActivityStepsPanel = lazy(() =>
+  importActivityStepsPanel().then((m) => ({ default: m.ActivityStepsPanel })),
+);
 const BackgroundTaskDetailPanel = lazy(() =>
   importBackgroundTaskDetailPanel().then((m) => ({
     default: m.BackgroundTaskDetailPanel,
@@ -86,6 +91,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
   const closeToolDetail = useViewerStore.use.closeToolDetail();
+  const activeActivitySteps = useViewerStore.use.activeActivitySteps();
+  const closeActivitySteps = useViewerStore.use.closeActivitySteps();
   // Subscribe to only the active subagent's entry rather than the whole `byId`
   // map, so streaming events from *other* subagents don't re-render the chat
   // layout (and the chat transcript it hosts) on every token.
@@ -263,6 +270,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         case "tool-detail":
           viewer.closeToolDetail();
           break;
+        case "activity-steps":
+          viewer.closeActivitySteps();
+          break;
         case "subagent-detail":
           viewer.closeSubagentDetail();
           break;
@@ -302,6 +312,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     const run = () => {
       importSubagentDetailPanel().catch(() => {});
       importToolDetailPanel().catch(() => {});
+      importActivityStepsPanel().catch(() => {});
       importAcpRunDetailPanel().catch(() => {});
       importWorkflowDetailPanel().catch(() => {});
       importBackgroundTaskDetailPanel().catch(() => {});
@@ -435,6 +446,22 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             detail={activeToolDetail}
             onClose={closeToolDetail}
             onRiskBadgeClick={() => useViewerStore.getState().requestRuleEditorForActiveTool()}
+          />
+        </LazyBoundary>
+      );
+    } else if (mainView === "activity-steps" && activeActivitySteps) {
+      rightPanel = (
+        <LazyBoundary>
+          <ActivityStepsPanel
+            // Re-key per group so the drill-in level resets when a different
+            // group's header is clicked while the panel is already open.
+            key={`${activeActivitySteps.messageId ?? "snapshot"}:${
+              activeActivitySteps.groupIndex ??
+              activeActivitySteps.toolCalls[0]?.id ??
+              ""
+            }`}
+            payload={activeActivitySteps}
+            onClose={closeActivitySteps}
           />
         </LazyBoundary>
       );

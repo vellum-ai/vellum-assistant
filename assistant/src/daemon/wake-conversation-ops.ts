@@ -20,6 +20,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import { backfillMessageIdOnLogs } from "../persistence/llm-request-log-store.js";
+import { resolveMediaSourceData } from "../providers/media-resolve.js";
 import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -88,7 +89,9 @@ function translateAgentEventToServerMessage(
         (b): b is Extract<typeof b, { type: "image" }> => b.type === "image",
       );
       const imageDataList = imageBlocks?.length
-        ? imageBlocks.map((b) => b.source.data)
+        ? imageBlocks
+            .map((b) => resolveMediaSourceData(b.source)?.data)
+            .filter((d): d is string => d != null)
         : undefined;
       return {
         type: "tool_result",

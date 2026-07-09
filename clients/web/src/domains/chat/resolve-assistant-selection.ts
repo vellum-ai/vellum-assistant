@@ -36,12 +36,51 @@ export function resolveAssistantSelection(
     return null;
   }
 
-  const anchorNode = selection.anchorNode;
-  if (!anchorNode) {
+  const messageEl = resolveAssistantMessageElement(
+    selection.anchorNode,
+    container,
+  );
+  if (!messageEl) {
     return null;
   }
 
-  const messageEl = findMessageElement(anchorNode);
+  const messageId = messageEl.getAttribute("data-message-id");
+  if (!messageId) {
+    return null;
+  }
+
+  const rect = selection.getRangeAt(0).getBoundingClientRect();
+  return { text, messageId, rect };
+}
+
+/**
+ * Whether `node` sits inside an assistant message contained by `container`.
+ *
+ * Unlike `resolveAssistantSelection`, this consults only the DOM position of a
+ * node, not the window selection — so it is usable from a `selectstart`
+ * handler, where the new selection range is not yet associated and
+ * `window.getSelection()` still reports an empty/collapsed selection.
+ */
+export function isAssistantMessageNode(
+  node: Node | null,
+  container: HTMLElement | null,
+): boolean {
+  return resolveAssistantMessageElement(node, container) !== null;
+}
+
+/**
+ * Resolve a DOM node to the enclosing assistant message element, or `null`
+ * when the node is not inside an assistant message contained by `container`.
+ */
+function resolveAssistantMessageElement(
+  node: Node | null,
+  container: HTMLElement | null,
+): HTMLElement | null {
+  if (!node) {
+    return null;
+  }
+
+  const messageEl = findMessageElement(node);
   if (!messageEl) {
     return null;
   }
@@ -54,13 +93,11 @@ export function resolveAssistantSelection(
     return null;
   }
 
-  const messageId = messageEl.getAttribute("data-message-id");
-  if (!messageId) {
+  if (!messageEl.getAttribute("data-message-id")) {
     return null;
   }
 
-  const rect = selection.getRangeAt(0).getBoundingClientRect();
-  return { text, messageId, rect };
+  return messageEl;
 }
 
 /**

@@ -9,8 +9,9 @@
 
 import { z } from "zod";
 
-import type { ConversationCreateType } from "../persistence/conversation-crud.js";
+import type { ConversationCreateType } from "../persistence/conversation-types.js";
 import type { GuardianQuestionPayload } from "./guardian-question-mode.js";
+import { UrgencySchema } from "./urgency.js";
 
 // ── Source channel registry ────────────────────────────────────────────
 
@@ -135,9 +136,6 @@ export type NotificationSourceEventName =
 
 // ── Attention hints & routing ──────────────────────────────────────────
 
-export const UrgencySchema = z.enum(["low", "medium", "high", "critical"]);
-export type Urgency = z.infer<typeof UrgencySchema>;
-
 export const AttentionHintsSchema = z.object({
   requiresAction: z.boolean(),
   urgency: UrgencySchema,
@@ -192,9 +190,12 @@ export const AccessRequestContextPayloadSchema = z.object({
   guardianResolutionSource: GuardianResolutionSourceSchema,
   previousMemberStatus: z.string().nullable(),
   messagePreview: z.string().nullable(),
+  isBot: z.boolean().optional(),
   isStranger: z.boolean().optional(),
   isRestricted: z.boolean().optional(),
   messageTs: z.string().optional(),
+  /** `admitted` marks an introduction nudge for a floor-admitted sender. */
+  trigger: z.enum(["denied", "admitted"]).optional(),
 });
 export type AccessRequestContextPayload = z.infer<
   typeof AccessRequestContextPayloadSchema

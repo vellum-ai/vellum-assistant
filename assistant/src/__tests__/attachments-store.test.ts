@@ -23,6 +23,7 @@ mock.module("../config/loader.js", () => ({
 import {
   attachInlineAttachmentToMessage,
   AttachmentUploadError,
+  createInlineAttachment,
   deleteAttachment,
   deleteOrphanAttachments,
   getAttachmentById,
@@ -44,6 +45,7 @@ import { getConversationDirPath } from "../persistence/conversation-disk-view.js
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { rawGet, rawRun } from "../persistence/raw-query.js";
+import { mediaSourceBytes } from "../providers/media-resolve.js";
 import { getConversationsDir } from "../util/platform.js";
 
 await initializeDb();
@@ -190,6 +192,8 @@ describe("uploadAttachment", () => {
     expect(() => uploadAttachment("ok.txt", "text/plain", "AAA")).not.toThrow();
   });
 
+  // Inserting the 100 MB payload into SQLite can take several seconds on
+  // slow CI runners, so this test needs more than the default 5s timeout.
   test("accepts payload exactly at MAX_UPLOAD_BYTES", () => {
     // MAX_UPLOAD_BYTES (100 MB) is divisible by 3, so (MAX/3)*4 base64 chars
     // decodes to exactly MAX bytes with no padding.
@@ -199,7 +203,7 @@ describe("uploadAttachment", () => {
     expect(() =>
       uploadAttachment("exact.bin", "application/octet-stream", exactData),
     ).not.toThrow();
-  });
+  }, 30_000);
 });
 
 // ---------------------------------------------------------------------------
@@ -393,6 +397,44 @@ describe("getAttachmentById", () => {
 // ---------------------------------------------------------------------------
 // attachInlineAttachmentToMessage — filename collisions
 // ---------------------------------------------------------------------------
+
+describe("createInlineAttachment (workspace_ref persistence)", () => {
+  beforeEach(resetTables);
+
+  test("creates an unlinked row whose bytes resolve back via a workspace_ref", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "user", "hi");
+
+    // "aGVsbG8=" = "hello"
+    const stored = createInlineAttachment(
+      conv.id,
+      conv.createdAt,
+      "note.txt",
+      "text/plain",
+      "aGVsbG8=",
+    );
+
+    // The row exists but is NOT yet linked to the message (the persist path
+    // writes the link after addMessage, once the message id exists).
+    expect(getAttachmentsForMessage(msg.id)).toHaveLength(0);
+    expect(readFileSync(stored.filePath).toString()).toBe("hello");
+
+    // A workspace_ref pointing at the row resolves to the original bytes.
+    const resolved = mediaSourceBytes({
+      type: "workspace_ref",
+      media_type: "text/plain",
+      attachmentId: stored.id,
+      sizeBytes: stored.sizeBytes,
+    });
+    expect(resolved?.toString()).toBe("hello");
+
+    // Linking writes the GC anchor so the row is retrievable by message.
+    linkAttachmentToMessage(msg.id, stored.id, 0);
+    expect(getAttachmentsForMessage(msg.id).map((a) => a.id)).toEqual([
+      stored.id,
+    ]);
+  });
+});
 
 describe("attachInlineAttachmentToMessage filename collisions", () => {
   beforeEach(resetTables);

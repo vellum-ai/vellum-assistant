@@ -119,27 +119,53 @@ function StatCards({ usage }: { usage: ScheduleRowUsage }) {
   );
 }
 
+type RunConversation = NonNullable<ScheduleRun["conversations"]>[number];
+
+// A pruned or archived conversation is listed but not navigable. This mirrors
+// the legacy `canOpenScheduleRunConversation` rule.
+function canOpenRunConversation(c: RunConversation): boolean {
+  return c.exists && c.archivedAt == null;
+}
+
 function RunRow({
   run,
   index,
   isExpanded,
+  disableDirectOpen,
   onOpenConversation,
   onToggleDetails,
 }: {
   run: ScheduleRun;
   index: number;
   isExpanded: boolean;
+  disableDirectOpen: boolean;
   onOpenConversation: (conversationId: string) => void;
   onToggleDetails: (runId: string) => void;
 }) {
-  const conversationId = getOpenableScheduleRunConversationId(run);
-  // Script runs have no conversation to open; instead their captured
-  // stdout/stderr is shown inline by expanding the row.
+  // Older daemons do not send `conversations`, so the scalar pointer is
+  // wrapped in the same shape here. Newer daemons fold that pointer into the
+  // array themselves.
+  const legacyOpenId = getOpenableScheduleRunConversationId(run);
+  const conversations =
+    run.conversations ??
+    (legacyOpenId
+      ? [{ id: legacyOpenId, title: null, exists: true, archivedAt: null }]
+      : []);
   const hasOutput = hasRunText(run.output);
   const hasError = hasRunText(run.error);
-  const hasLocalDetails = !conversationId && (hasOutput || hasError);
+  // Clicking a run with exactly one openable conversation goes straight to
+  // it. Script mode disables that shortcut so the row expands instead,
+  // keeping stdout and stderr reachable.
+  const directOpenId =
+    !disableDirectOpen &&
+    conversations.length === 1 &&
+    canOpenRunConversation(conversations[0])
+      ? conversations[0].id
+      : null;
+  const hasExpand =
+    !directOpenId && (conversations.length > 0 || hasOutput || hasError);
   const detailsId = `schedule-run-details-${index}`;
-  const isInteractive = !!conversationId || hasLocalDetails;
+  const isInteractive = !!directOpenId || hasExpand;
 
   const body = (
     <>
@@ -163,7 +189,7 @@ function RunRow({
         <ChevronRight
           className={cn(
             "h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform",
-            hasLocalDetails && isExpanded ? "rotate-90" : "",
+            hasExpand && isExpanded ? "rotate-90" : "",
           )}
         />
       ) : null}
@@ -171,9 +197,38 @@ function RunRow({
   );
 
   const details =
-    hasLocalDetails && isExpanded ? (
+    hasExpand && isExpanded ? (
       <div id={detailsId} className="px-2 pb-3">
         <div className="space-y-3 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3">
+          {conversations.length > 0 ? (
+            <div>
+              <div className="mb-1 text-body-small-default text-[var(--content-secondary)]">
+                Conversations
+              </div>
+              <div className="space-y-1">
+                {conversations.map((c) =>
+                  canOpenRunConversation(c) ? (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => onOpenConversation(c.id)}
+                      className="block w-full truncate text-left text-body-small-default text-[var(--content-default)] hover:underline"
+                    >
+                      {hasRunText(c.title) ? c.title : "Conversation"}
+                    </button>
+                  ) : (
+                    <span
+                      key={c.id}
+                      className="block truncate text-body-small-default text-[var(--content-tertiary)] italic"
+                    >
+                      {hasRunText(c.title) ? c.title : "Conversation"}{" "}
+                      {c.exists ? "(archived)" : "(unavailable)"}
+                    </span>
+                  ),
+                )}
+              </div>
+            </div>
+          ) : null}
           {hasOutput ? (
             <div>
               <div className="mb-1 text-body-small-default text-[var(--content-secondary)]">
@@ -198,12 +253,12 @@ function RunRow({
       </div>
     ) : null;
 
-  if (conversationId) {
+  if (directOpenId) {
     return (
       <div>
         <button
           type="button"
-          onClick={() => onOpenConversation(conversationId)}
+          onClick={() => onOpenConversation(directOpenId)}
           aria-label={`Open conversation for run at ${formatTimestamp(run.startedAt)}`}
           className="flex w-full cursor-pointer items-center gap-3 px-2 py-3 text-left shadow-none transition-colors hover:bg-[var(--surface-hover)] focus:outline-none"
         >
@@ -213,13 +268,13 @@ function RunRow({
     );
   }
 
-  if (hasLocalDetails) {
+  if (hasExpand) {
     return (
       <div>
         <button
           type="button"
           onClick={() => onToggleDetails(run.id)}
-          aria-label={`Toggle output for run at ${formatTimestamp(run.startedAt)}`}
+          aria-label={`Toggle details for run at ${formatTimestamp(run.startedAt)}`}
           aria-expanded={isExpanded}
           aria-controls={detailsId}
           className="flex w-full cursor-pointer items-center gap-3 px-2 py-3 text-left shadow-none transition-colors hover:bg-[var(--surface-hover)] focus:outline-none"
@@ -237,10 +292,12 @@ function RunRow({
 function RecentRuns({
   runs,
   isLoading,
+  disableDirectOpen,
   onOpenConversation,
 }: {
   runs: ScheduleRun[] | undefined;
   isLoading: boolean;
+  disableDirectOpen: boolean;
   onOpenConversation: (conversationId: string) => void;
 }) {
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
@@ -267,6 +324,7 @@ function RecentRuns({
           run={run}
           index={index}
           isExpanded={expandedRunId === run.id}
+          disableDirectOpen={disableDirectOpen}
           onOpenConversation={onOpenConversation}
           onToggleDetails={(runId) =>
             setExpandedRunId((current) => (current === runId ? null : runId))
@@ -300,7 +358,9 @@ export function ScheduleDetailPanel({
 }: ScheduleDetailPanelProps) {
   const navigate = useNavigate();
   const { data: runs, isLoading } = useQuery({
-    queryKey: schedulesByIdRunsGetQueryKey({ path: { assistant_id: assistantId, id: schedule.id } }),
+    queryKey: schedulesByIdRunsGetQueryKey({
+      path: { assistant_id: assistantId, id: schedule.id },
+    }),
     queryFn: () => fetchScheduleRuns(assistantId, schedule.id),
     staleTime: 10_000,
   });
@@ -406,6 +466,7 @@ export function ScheduleDetailPanel({
           <RecentRuns
             runs={runs?.runs}
             isLoading={isLoading}
+            disableDirectOpen={schedule.mode === "script"}
             onOpenConversation={(conversationId) =>
               navigate(routes.conversation(conversationId))
             }

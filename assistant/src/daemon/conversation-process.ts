@@ -36,6 +36,7 @@ import {
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
+import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
 import {
@@ -91,9 +92,11 @@ function isEchoSuppressedUserMessage(
   );
 }
 
+/** Locale-formatted count for the user-facing context stats cards. */
+const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
+
 /** Format the result of a forced compaction into a user-facing message. */
 export function formatCompactResult(result: ContextWindowResult): string {
-  const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
   if (!result.compacted) {
     return [
       `Context compaction skipped — ${result.reason ?? "nothing to compact"}.`,
@@ -115,9 +118,50 @@ export function formatCompactResult(result: ContextWindowResult): string {
   ].join("\n");
 }
 
+/**
+ * User-facing copy for the compactor's internal skip-reason strings, keyed by
+ * the exact `ContextWindowResult.reason` values reachable from the
+ * "summarize up to here" path. Unknown reasons fall back to the raw string.
+ */
+const SUMMARIZE_SKIP_REASON_COPY: Record<string, string> = {
+  "fixed boundary out of range": "nothing to summarize before this point",
+  "tail_start at head — nothing to compact":
+    "nothing to summarize before this point",
+  "no messages to compact": "nothing to summarize",
+  "compaction disabled": "summarization is disabled in the assistant's config",
+  "provider error": "the summary could not be generated — try again",
+  "unparseable response": "the summary could not be generated — try again",
+};
+
+/**
+ * Format the result of a "summarize up to here" compaction into a user-facing
+ * card.
+ */
+export function formatSummarizeUpToResult(result: ContextWindowResult): string {
+  if (!result.compacted) {
+    const reason = result.reason
+      ? (SUMMARIZE_SKIP_REASON_COPY[result.reason] ?? result.reason)
+      : "nothing to summarize";
+    return `Summarization skipped — ${reason}.`;
+  }
+  const saved =
+    result.previousEstimatedInputTokens - result.estimatedInputTokens;
+  return [
+    "**Conversation summarized**",
+    // Persisted (row-space) count — `compactedMessages` is history-space and
+    // counts the synthetic summary head on a repeat summarize, which is not
+    // a message the user ever saw. The kept tail never contains the head.
+    `Summarized ${fmt(result.compactedPersistedMessages)} earlier messages. ${fmt(
+      result.preservedTailMessages,
+    )} recent messages kept in full.`,
+    `Context: ${fmt(result.previousEstimatedInputTokens)} → ${fmt(
+      result.estimatedInputTokens,
+    )} tokens (${fmt(saved)} saved)`,
+  ].join("\n");
+}
+
 /** Format the result of a forced clean into a user-facing message. */
 export function formatCleanResult(result: CleanResult): string {
-  const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
   const reclaimed =
     result.previousEstimatedInputTokens - result.estimatedInputTokens;
   return [
@@ -567,8 +611,8 @@ async function drainSingleMessage(
       // The in-memory userMessage (sent to the LLM) still uses the stripped content.
       const contentToPersist = serializePersistedUserMessageContent(
         next.content,
-        next.attachments,
         next.displayContent,
+        next.attachments,
       );
       await addMessage(conversation.conversationId, "user", contentToPersist, {
         metadata: drainChannelMeta,
@@ -663,8 +707,8 @@ async function drainSingleMessage(
         "user",
         serializePersistedUserMessageContent(
           next.content,
-          next.attachments,
           next.displayContent,
+          next.attachments,
         ),
         { metadata: drainChannelMeta },
       );
@@ -749,8 +793,8 @@ async function drainSingleMessage(
         "user",
         serializePersistedUserMessageContent(
           next.content,
-          next.attachments,
           next.displayContent,
+          next.attachments,
         ),
         { metadata: drainChannelMeta },
       );
@@ -1082,6 +1126,11 @@ async function drainBatch(
   // already received an error event and must not also receive the
   // assistant's streaming response for a turn that isn't theirs.
   const successfulBatch: QueuedMessage[] = [];
+  // `messages.id` of every successfully-persisted, non-deduplicated member,
+  // in persist order. All but the last are coalesced heads whose shared
+  // response lives on the final member's turn — stamped `batched` below so
+  // turn telemetry can tell them apart from failed turns.
+  const persistedMessageIds: string[] = [];
   for (let i = 0; i < batch.length; i++) {
     const qm = batch[i];
     qm.onEvent({
@@ -1183,6 +1232,7 @@ async function drainBatch(
         continue;
       }
       lastUserMessageId = batchPersistResult.id;
+      persistedMessageIds.push(batchPersistResult.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1319,6 +1369,18 @@ async function drainBatch(
     );
     conversation.preactivatedSkillIds = undefined;
     return;
+  }
+
+  // Every persisted member except the last is a coalesced-batch head: its
+  // window holds no assistant response because the shared response is
+  // attributed to the final member's turn. Stamp them `batched` (pointing at
+  // that final turn) so the turn-event scan reports them as coalesced rather
+  // than leaving them indistinguishable from failed turns. Stamping happens
+  // while the conversation is still processing, so the telemetry reporter's
+  // settled-turn barrier guarantees the stamp is visible before these turns
+  // ship.
+  for (const headId of persistedMessageIds.slice(0, -1)) {
+    stampTurnOutcome(headId, "batched", { batchedInto: lastUserMessageId });
   }
 
   // Tag turn-completion state with the last SUCCESSFUL persist so client-
@@ -1526,8 +1588,8 @@ export async function processMessage(
         "user",
         serializePersistedUserMessageContent(
           content,
-          attachments,
           displayContent,
+          attachments,
         ),
         { metadata: routerChannelMeta },
       );
@@ -1615,8 +1677,8 @@ export async function processMessage(
     // The in-memory userMessage (sent to the LLM) still uses the stripped content.
     const contentToPersist = serializePersistedUserMessageContent(
       content,
-      attachments,
       displayContent,
+      attachments,
     );
     const persisted = await addMessage(
       conversation.conversationId,
@@ -1698,8 +1760,8 @@ export async function processMessage(
         "user",
         serializePersistedUserMessageContent(
           content,
-          attachments,
           displayContent,
+          attachments,
         ),
         { metadata: pmChannelMeta },
       );
@@ -1775,8 +1837,8 @@ export async function processMessage(
         "user",
         serializePersistedUserMessageContent(
           content,
-          attachments,
           displayContent,
+          attachments,
         ),
         { metadata: pmChannelMeta },
       );

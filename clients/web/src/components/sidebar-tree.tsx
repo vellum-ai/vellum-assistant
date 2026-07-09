@@ -2,6 +2,7 @@ import { ChevronRight, type LucideIcon } from "lucide-react";
 import { Fragment } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { SideMenu } from "@vellumai/design-library";
 
 export interface SidebarItem {
@@ -31,6 +32,7 @@ export function SidebarTree({
 }: SidebarTreeProps) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   const renderItem = (item: SidebarItem, isLast: boolean, isIndexItem: boolean) => {
     const { href, onSelect } = item;
@@ -38,7 +40,7 @@ export function SidebarTree({
       href != null &&
       (pathname === href ||
         pathname.startsWith(href + "/") ||
-        (isIndexItem && indexPath != null && pathname === indexPath));
+        (!isMobile && isIndexItem && indexPath != null && pathname === indexPath));
     return (
       <Fragment key={item.id}>
         <SideMenu.Item

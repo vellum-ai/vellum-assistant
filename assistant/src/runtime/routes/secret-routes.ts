@@ -20,7 +20,6 @@ import { getConfig, invalidateConfigCache } from "../../config/loader.js";
 import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { evictConversationsForReload } from "../../daemon/conversation-store.js";
-import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
 import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v2/memory-v2-startup.js";
@@ -264,10 +263,8 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           setPlatformAssistantId(undefined);
         } else if (field === "platform_organization_id") {
           setPlatformOrganizationId(undefined);
-          setSentryOrganizationId(undefined);
         } else if (field === "platform_user_id") {
           setPlatformUserId(undefined);
-          setSentryUserId(undefined);
         }
         deleteCredentialMetadata(service, field);
       } else {
@@ -287,11 +284,9 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         }
         if (service === "vellum" && field === "platform_organization_id") {
           setPlatformOrganizationId(effectiveValue || undefined);
-          setSentryOrganizationId(effectiveValue || undefined);
         }
         if (service === "vellum" && field === "platform_user_id") {
           setPlatformUserId(effectiveValue || undefined);
-          setSentryUserId(effectiveValue || undefined);
         }
       }
       if (isManagedProxyCredential(service, field)) {
@@ -522,11 +517,9 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
       }
       if (service === "vellum" && field === "platform_organization_id") {
         setPlatformOrganizationId(undefined);
-        setSentryOrganizationId(undefined);
       }
       if (service === "vellum" && field === "platform_user_id") {
         setPlatformUserId(undefined);
-        setSentryUserId(undefined);
       }
       if (isManagedProxyCredential(service, field)) {
         await refreshProvidersAfterSecretChange();

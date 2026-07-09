@@ -66,7 +66,8 @@ export async function runToolStandalone(
     await initializeTools();
   }
 
-  if (!getTool(toolName)) {
+  const tool = getTool(toolName);
+  if (!tool) {
     throw new UnknownToolError(toolName);
   }
 

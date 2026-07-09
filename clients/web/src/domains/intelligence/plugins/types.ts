@@ -43,6 +43,23 @@ export interface PluginListItem {
    * predate the enable/disable surface (version-skew safeguard).
    */
   enabled?: boolean;
+  /**
+   * Author-declared emoji (`package.json` `vellum.icon`), shown in the row
+   * icon. Installed rows only — the catalog endpoint carries none. `undefined`
+   * when the plugin declares no icon; the row falls back to 📦/🧩.
+   */
+  icon?: string;
+  /**
+   * Whether the installed copy ships a valid author-bundled `icon.png`.
+   * Installed rows only. `undefined` on the catalog and on daemons that
+   * predate the icon endpoint; the icon `<img>` renders only when this is true.
+   */
+  hasIcon?: boolean;
+  /**
+   * Content hash of the bundled `icon.png`, used as the icon endpoint's
+   * cache-buster. Present only when `hasIcon` is true.
+   */
+  iconVersion?: string;
 }
 
 /** Generated element type for an installed plugin (`pluginsGet`). */
@@ -68,6 +85,9 @@ interface InstalledPluginSource {
   path?: string;
   issues?: string[];
   enabled?: boolean;
+  icon?: string;
+  hasIcon?: boolean;
+  iconVersion?: string;
 }
 
 interface CatalogPluginSource {

@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/web",
-  "version": "0.10.6",
+  "version": "0.10.7",
   "type": "module",
   "description": "Pre-built web SPA for the Vellum Assistant",
   "license": "MIT",
@@ -70,6 +70,7 @@
     "capacitor-plugin-safe-area": "5.0.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
+    "gradient-shimmer": "0.1.1",
     "jszip": "3.10.1",
     "katex": "0.17.0",
     "logrocket": "12.1.1",

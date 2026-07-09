@@ -93,7 +93,7 @@ mock.module("../config/loader.js", () => {
 // ── Credential mock (prevents real key lookups) ──────────────────────
 
 // Provider API keys resolve by default so telephony playability checks
-// (WAV-transport tests) can select providers; tests can narrow the
+// (PCM-transport tests) can select providers; tests can narrow the
 // resolvable set. Reset to null (all resolve) in beforeEach.
 let mockResolvableProviderKeys: ((service: string) => string | null) | null =
   null;
@@ -407,9 +407,9 @@ function setupController(
   task?: string,
   opts?: {
     assistantId?: string;
-    trustContext?: import("../daemon/trust-context.js").TrustContext;
-    /** Simulate the media-stream transport's WAV requirement. */
-    requiresWavAudio?: boolean;
+    trustContext?: import("../daemon/trust-context-types.js").TrustContext;
+    /** Simulate the media-stream transport's PCM requirement. */
+    requiresPcmAudio?: boolean;
   },
 ) {
   ensureConversation("conv-ctrl-test");
@@ -422,8 +422,8 @@ function setupController(
   });
   updateCallSession(session.id, { status: "in_progress" });
   const transport = createMockTransport();
-  if (opts?.requiresWavAudio) {
-    Object.assign(transport, { requiresWavAudio: true });
+  if (opts?.requiresPcmAudio) {
+    Object.assign(transport, { requiresPcmAudio: true });
   }
   const controller = new CallController(session.id, transport, task ?? null, {
     assistantId: opts?.assistantId,
@@ -3493,16 +3493,16 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  // ── Per-segment fallback on WAV-requiring transports ────────────────
+  // ── Per-segment fallback on PCM-requiring transports ────────────────
 
   /**
    * Register a failing fish-audio primary and a recording elevenlabs
    * fallback, with fish-audio configured as the active provider. Used by
-   * the WAV-transport segment-fallback tests. With
+   * the PCM-transport segment-fallback tests. With
    * `fishEmitsChunkBeforeFailing`, the primary emits one audio chunk (so
    * the play URL reaches the transport) before failing mid-stream.
    */
-  function registerWavFallbackProviders(opts?: {
+  function registerPcmFallbackProviders(opts?: {
     fishEmitsChunkBeforeFailing?: boolean;
   }): {
     fishTexts: string[];
@@ -3557,13 +3557,13 @@ describe("call-controller", () => {
     return { fishTexts, fallbackTexts };
   }
 
-  test("WAV transport: a failed segment and the rest of the turn synthesize via a playable fallback provider", async () => {
-    const { fishTexts, fallbackTexts } = registerWavFallbackProviders();
+  test("PCM transport: a failed segment and the rest of the turn synthesize via a playable fallback provider", async () => {
+    const { fishTexts, fallbackTexts } = registerPcmFallbackProviders();
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["First part is done. ", "Second part is done."]),
     );
     const { relay, controller } = setupController(undefined, {
-      requiresWavAudio: true,
+      requiresPcmAudio: true,
     });
 
     await controller.handleCallerUtterance("Hi");
@@ -3577,7 +3577,7 @@ describe("call-controller", () => {
       "Second part is done.",
     ]);
     expect(relay.sentPlayUrls.length).toBe(2);
-    // No text routes through native tokens on a WAV transport.
+    // No text routes through native tokens on a PCM transport.
     expect(relay.sentTokens.filter((t) => t.token.length > 0)).toEqual([]);
     const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
     expect(lastToken).toEqual({ token: "", last: true });
@@ -3585,15 +3585,15 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("WAV transport: a mid-stream failure after audio reached the caller is not re-spoken, but later segments use the fallback", async () => {
-    const { fishTexts, fallbackTexts } = registerWavFallbackProviders({
+  test("PCM transport: a mid-stream failure after audio reached the caller is not re-spoken, but later segments use the fallback", async () => {
+    const { fishTexts, fallbackTexts } = registerPcmFallbackProviders({
       fishEmitsChunkBeforeFailing: true,
     });
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["First part is done. ", "Second part is done."]),
     );
     const { relay, controller } = setupController(undefined, {
-      requiresWavAudio: true,
+      requiresPcmAudio: true,
     });
 
     await controller.handleCallerUtterance("Hi");
@@ -3612,16 +3612,16 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("WAV transport: when no playable fallback exists, failed segments are skipped and end-of-turn still fires", async () => {
+  test("PCM transport: when no playable fallback exists, failed segments are skipped and end-of-turn still fires", async () => {
     // Only fish-audio's key resolves, so the fallback scan finds nothing.
     mockResolvableProviderKeys = (service) =>
       service === "fish-audio" ? "test-key" : null;
-    const { fishTexts, fallbackTexts } = registerWavFallbackProviders();
+    const { fishTexts, fallbackTexts } = registerPcmFallbackProviders();
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["First part is done. ", "Second part is done."]),
     );
     const { relay, controller } = setupController(undefined, {
-      requiresWavAudio: true,
+      requiresPcmAudio: true,
     });
 
     await controller.handleCallerUtterance("Hi");
@@ -3629,7 +3629,7 @@ describe("call-controller", () => {
     expect(fishTexts).toEqual(["First part is done."]);
     expect(fallbackTexts).toEqual([]);
     expect(relay.sentPlayUrls.length).toBe(0);
-    // Native tokens are never used on a WAV transport, and the turn
+    // Native tokens are never used on a PCM transport, and the turn
     // still closes with the end-of-turn signal.
     expect(relay.sentTokens.filter((t) => t.token.length > 0)).toEqual([]);
     const lastToken = relay.sentTokens[relay.sentTokens.length - 1];

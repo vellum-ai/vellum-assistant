@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { getCatalogProviderForModel } from "../providers/model-catalog.js";
+import {
+  getCatalogProviderForModel,
+  isModelInCatalog,
+} from "../providers/model-catalog.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import { getEffectiveProfile } from "./default-profile-catalog.js";
 import {
@@ -201,9 +204,7 @@ export function resolveCallSiteConfig(
     );
   }
 
-  const resolved = finalize(
-    deepMerge(...layers.map(withImpliedProviderForKnownModel)),
-  );
+  const resolved = finalize(deepMerge(...withImpliedProviders(layers)));
   // `logitBias` is profile-scoped: the winning profile is its only source.
   // Overwrite — or clear — whatever the deep-merge may have copied from a
   // non-profile layer (`llm.default` or a call-site fragment), so a preset set
@@ -356,6 +357,38 @@ export function resolveDefaultProfileKey(
 }
 
 /**
+ * Returns the profile key that `resolveCallSiteConfig` would actually treat as
+ * the winning (highest-precedence) profile for a turn — the profile whose
+ * fragment supplies the resolved provider/model. Unlike `resolveDefaultProfileKey`
+ * this accounts for the per-turn `overrideProfile`/`forceOverrideProfile` and
+ * for `effectiveDefault` stripping the catalog default when an override is
+ * present, so error attribution names the slot the resolver really used:
+ * - `mainAgent`: override → active → catalog default.
+ * - forced override: the override.
+ * - other sites: the call-site's own profile (explicit or catalog default) when
+ *   one survives; otherwise override → active. A pinned override on a bare call
+ *   site therefore attributes to the override, not the stripped catalog default.
+ */
+export function resolveEffectiveProfileKey(
+  callSite: LLMCallSite,
+  llm: z.infer<typeof LLMSchema>,
+  opts: ResolveCallSiteOpts = {},
+): string | undefined {
+  const override = opts.overrideProfile ?? undefined;
+  if (callSite === "mainAgent") {
+    return override ?? resolveDefaultProfileKey(callSite, llm);
+  }
+  if (opts.forceOverrideProfile === true && override != null) {
+    return override;
+  }
+  const site =
+    llm.callSites?.[callSite] ??
+    effectiveDefault(callSite, llm, override != null);
+  if (site?.profile != null) return site.profile;
+  return override ?? llm.activeProfile ?? undefined;
+}
+
+/**
  * Stable non-null identity for profileless configs. Callers should prefer real
  * profile keys first; when no named profile applies, the resolved model id is
  * the only model-selection identifier available.
@@ -403,18 +436,41 @@ function effectiveDefault(
   return dflt;
 }
 
-function withImpliedProviderForKnownModel(source: Mergeable): Mergeable {
-  if (source.provider !== undefined) return source;
-  const model = source.model;
-  if (typeof model !== "string" || model.length === 0) return source;
-
-  const provider = getCatalogProviderForModel(model);
-  if (provider === undefined) return source;
-
-  return {
-    ...source,
-    provider,
-  };
+/**
+ * Stamp a catalog-implied provider onto model-only layers whose model the
+ * provider applicable at that point in the merge does not serve. Layers are
+ * scanned in merge order (low → high precedence), tracking the provider the
+ * merged config would carry at each layer: when that provider already lists
+ * the layer's model in its own catalog, no implication is needed and the
+ * layer stays provider-less so the lower-precedence provider wins. Models
+ * unknown to the catalog never imply a provider.
+ */
+function withImpliedProviders(layers: Mergeable[]): Mergeable[] {
+  let applicableProvider: string | undefined;
+  return layers.map((layer) => {
+    if (layer.provider !== undefined) {
+      if (typeof layer.provider === "string") {
+        applicableProvider = layer.provider;
+      }
+      return layer;
+    }
+    const model = layer.model;
+    if (typeof model !== "string" || model.length === 0) {
+      return layer;
+    }
+    if (
+      applicableProvider !== undefined &&
+      isModelInCatalog(applicableProvider, model)
+    ) {
+      return layer;
+    }
+    const provider = getCatalogProviderForModel(model);
+    if (provider === undefined) {
+      return layer;
+    }
+    applicableProvider = provider;
+    return { ...layer, provider };
+  });
 }
 
 /**

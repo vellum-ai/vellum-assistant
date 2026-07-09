@@ -7,6 +7,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
+import { ChevronRight } from "lucide-react";
 
 import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
 import { secretsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -105,6 +106,7 @@ export function ProviderCreateForm({
   const [connectionModels, setConnectionModels] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
 
   const isOpenAICompatible = provider === "openai-compatible";
   const connectionProviderOptions = useMemo(() => {
@@ -144,7 +146,9 @@ export function ProviderCreateForm({
   });
 
   const nameError = (() => {
-    if (!name.trim()) return null;
+    if (!name.trim()) {
+      return null;
+    }
     if (existingNames.includes(name.trim())) {
       return `A connection named "${name.trim()}" already exists.`;
     }
@@ -154,7 +158,9 @@ export function ProviderCreateForm({
   const canSave = name.trim().length > 0 && !nameError;
 
   async function handleSave() {
-    if (!canSave) return;
+    if (!canSave) {
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -286,47 +292,75 @@ export function ProviderCreateForm({
     hasStoredCredential,
   );
 
+  // Display Name + Key are auto-derived from the selected provider and rarely
+  // need editing, so they live under an "Advanced" disclosure. Force it open
+  // when the Key collides with an existing connection so the error is visible.
+  const detailsOpen = isDetailsExpanded || Boolean(nameError);
+
+  const advancedDetailsSection = (
+    <div>
+      <button
+        type="button"
+        aria-expanded={detailsOpen}
+        onClick={() => setIsDetailsExpanded((v) => !v)}
+        className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
+      >
+        <ChevronRight
+          className={`h-4 w-4 transition-transform ${detailsOpen ? "rotate-90" : ""}`}
+        />
+        <span>Advanced</span>
+        <span className="text-[var(--content-tertiary)] ml-1">
+          · Display name &amp; key
+        </span>
+      </button>
+
+      {detailsOpen && (
+        <div className="mt-2 space-y-4">
+          {/* Display Name */}
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              Display Name{" "}
+              <span className="text-[var(--content-disabled)]">(optional)</span>
+            </label>
+            <Input
+              value={label}
+              onChange={(e) => handleLabelChange(e.target.value)}
+              placeholder="e.g. My Anthropic Key"
+              fullWidth
+            />
+          </div>
+
+          {/* Key — editable on create, auto-derived from label */}
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              Key
+            </label>
+            <Input
+              value={name}
+              onChange={(e) => {
+                handleNameChange(e.target.value);
+                setError(null);
+              }}
+              placeholder="e.g. anthropic-personal"
+              fullWidth
+            />
+            {nameError && (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="text-(--system-negative-strong)"
+              >
+                {nameError}
+              </Typography>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   const body = (
     <div className="space-y-4">
-      {/* Display Name */}
-      <div className="space-y-1">
-        <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Display Name{" "}
-          <span className="text-[var(--content-disabled)]">(optional)</span>
-        </label>
-        <Input
-          value={label}
-          onChange={(e) => handleLabelChange(e.target.value)}
-          placeholder="e.g. My Anthropic Key"
-          fullWidth
-        />
-      </div>
-
-      {/* Key — editable on create, auto-derived from label */}
-      <div className="space-y-1">
-        <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Key
-        </label>
-        <Input
-          value={name}
-          onChange={(e) => {
-            handleNameChange(e.target.value);
-            setError(null);
-          }}
-          placeholder="e.g. anthropic-personal"
-          fullWidth
-        />
-        {nameError && (
-          <Typography
-            variant="body-small-default"
-            as="p"
-            className="text-(--system-negative-strong)"
-          >
-            {nameError}
-          </Typography>
-        )}
-      </div>
-
       {/* Provider */}
       <div className="space-y-1">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
@@ -479,6 +513,8 @@ export function ProviderCreateForm({
           onConnected={onCreated}
         />
       )}
+
+      {advancedDetailsSection}
 
       {error && (
         <Typography

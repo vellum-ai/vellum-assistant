@@ -32,6 +32,7 @@ import { RetryProvider } from "../retry.js";
 import { TogetherProvider } from "../together/client.js";
 import type { Provider } from "../types.js";
 import { UsageTrackingProvider } from "../usage-tracking.js";
+import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
 
@@ -106,6 +107,18 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     new OpenRouterProvider(apiKey, model, {
       useNativeWebSearch,
       streamTimeoutMs,
+    }),
+  "vercel-ai-gateway": ({
+    apiKey,
+    model,
+    streamTimeoutMs,
+    baseURL,
+    useNativeWebSearch,
+  }) =>
+    new VercelAIGatewayProvider(apiKey, model, {
+      useNativeWebSearch,
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
     }),
   "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new OpenAIChatCompletionsProvider(apiKey, model, {

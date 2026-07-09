@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
+import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
+
 /**
  * Animated tuple of (currentStepTitle, currentStepInfo) rendered inside
  * the collapsed header of a `ToolProgressCardShell`. Both texts animate
@@ -88,7 +90,9 @@ function useThrottledValue<T>(
     }
     const elapsed = nowMs - lastChangeAt.current;
     const wait = Math.max(0, minDwellMs - elapsed);
-    if (timer.current) clearTimeout(timer.current);
+    if (timer.current) {
+      clearTimeout(timer.current);
+    }
     timer.current = setTimeout(() => {
       // Land on whatever the latest pending value is — newer updates that
       // arrived while we were waiting will have overwritten it.
@@ -115,6 +119,7 @@ export function HeaderStepCarousel({
   currentStepInfo,
   bypassDwell = false,
   animationKey,
+  shimmer = false,
 }: {
   currentStepTitle: string;
   currentStepInfo: ReactNode;
@@ -138,6 +143,13 @@ export function HeaderStepCarousel({
    * in place — no per-tick slide.
    */
   animationKey?: string;
+  /**
+   * When `true`, the primary header label (the title, or the promoted
+   * title-less info text) renders through {@link StreamingShimmerText} — the
+   * avatar-tinted gradient sweep that marks in-flight work. Secondary info
+   * subtext stays plain.
+   */
+  shimmer?: boolean;
 }) {
   const reduce = useReducedMotion();
   const tuple = useMemo(
@@ -212,18 +224,25 @@ export function HeaderStepCarousel({
                 : "ml-1 block min-w-0 flex-1 truncate text-left text-[var(--content-emphasised)]"
             }
           >
-            {displayed.title}
+            {shimmer ? (
+              <StreamingShimmerText>{displayed.title}</StreamingShimmerText>
+            ) : (
+              displayed.title
+            )}
           </Typography>
         ) : null}
         {hasInfo ? (
           <>
             {hasTitle ? (
+              // Vertical rule divider between title and info. A real 14px
+              // rule (not a `|` glyph) so its height matches the labels'
+              // cap height regardless of font metrics. `ml-1` mirrors the
+              // info's own `ml-1` so the divider sits an even 8px
+              // (row `gap-1` + 4px margin) from BOTH labels.
               <span
                 aria-hidden="true"
-                className="shrink-0 text-[var(--border-element)]"
-              >
-                |
-              </span>
+                className="ml-1 h-3.5 w-px shrink-0 bg-[var(--border-element)]"
+              />
             ) : null}
             {isTextInfo ? (
               <Typography
@@ -247,7 +266,13 @@ export function HeaderStepCarousel({
                     : "text-[var(--content-emphasised)]"
                 }`}
               >
-                {displayed.info}
+                {/* When the info IS the primary label (title-less headers,
+                    e.g. bash), the shimmer applies to it instead. */}
+                {shimmer && !hasTitle && typeof displayed.info === "string" ? (
+                  <StreamingShimmerText>{displayed.info}</StreamingShimmerText>
+                ) : (
+                  displayed.info
+                )}
               </Typography>
             ) : (
               <span className="ml-1 block min-w-0 flex-1">

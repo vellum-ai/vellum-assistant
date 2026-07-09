@@ -25,6 +25,12 @@ export interface ResearchSubject {
   lastName: string;
   occupation: string;
   hobby?: string;
+  /**
+   * IANA timezone of the user's browser (e.g. "America/Denver"). A soft
+   * location signal the prompt's identity gate checks candidate matches
+   * against; the line is omitted when absent.
+   */
+  timezone?: string;
 }
 
 /**
@@ -86,7 +92,7 @@ export interface BuildResearchPromptOptions {
 }
 
 export function buildResearchPrompt(
-  { firstName, lastName, occupation, hobby }: ResearchSubject,
+  { firstName, lastName, occupation, hobby, timezone }: ResearchSubject,
   availableCapabilities: AvailableCapability[] = [],
   { includeSuggestions = true }: BuildResearchPromptOptions = {},
 ): string {
@@ -95,6 +101,7 @@ export function buildResearchPrompt(
     .join(" ");
   const role = occupation.trim();
   const hobbyText = hobby?.trim() ?? "";
+  const timezoneText = timezone?.trim() ?? "";
   const capabilitiesBlock = renderCapabilitiesBlock(
     availableCapabilities,
     includeSuggestions,
@@ -106,15 +113,20 @@ export function buildResearchPrompt(
     ? `"plugins": ["<exact name from the list above>"], `
     : "";
 
-  const identity =
-    [
-      fullName ? `My name is ${fullName}.` : "",
-      role ? `I work as ${role}.` : "",
-      hobbyText ? `My hobby is ${hobbyText}.` : "",
-    ]
-      .filter(Boolean)
-      .join(" ") ||
-    "I'd like you to get to know me before we start working together.";
+  const statedDetails = [
+    fullName ? `My name is ${fullName}.` : "",
+    role ? `I work as ${role}.` : "",
+    hobbyText ? `My hobby is ${hobbyText}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  // The timezone only augments real stated details — on an empty form the
+  // fallback line must still win, not a bare timezone.
+  const identity = statedDetails
+    ? [statedDetails, timezoneText ? `My timezone is ${timezoneText}.` : ""]
+        .filter(Boolean)
+        .join(" ")
+    : "I'd like you to get to know me before we start working together.";
 
   // The clickable-suggestions block is optional: the "Let's chat" final step
   // (personality-onboarding flag) installs the picked plugins and drops the
@@ -122,7 +134,7 @@ export function buildResearchPrompt(
   const suggestionsArrayExample = includeSuggestions
     ? ` "suggestions": [ { "suggestion": "I'll find the 3 newest arXiv eval papers worth your time", "prompt": "Find me the 3 newest arXiv eval papers worth reading." }, { "suggestion": "I'll draft a crisp summary of the latest model-serving trade-offs", "prompt": "Draft me a short summary of the latest model-serving trade-offs." }, { "suggestion": "Connect GitHub and I'll triage your stalest issues", "prompt": "Connect to GitHub and triage my oldest open issues." }, { "suggestion": "I'll plan a weekend climbing trip near Boulder", "prompt": "Plan me a weekend climbing trip near Boulder." } ]`
     : "";
-  const claimsExample = `"claims": [ { "claim": "Senior engineer at an AI infra startup", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Based in Boulder, CO", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Active climber on Mountain Project", "confidence": "maybe", "sources": [] }, { "claim": "Focused on evals or model serving infrastructure", "confidence": "guessing", "sources": ["https://github.com/example-user"] } ]`;
+  const claimsExample = `"claims": [ { "claim": "Senior engineer at an AI infra startup", "confidence": "confident", "sources": ["https://linkedin.com/in/example-user", "https://example-infra.com/about"] }, { "claim": "Based in Boulder, CO", "confidence": "maybe", "sources": ["https://linkedin.com/in/example-user"] }, { "claim": "Into climbing and the outdoors", "confidence": "guessing", "sources": [] } ]`;
   const shapeExample = `{ ${pluginsExample}${claimsExample}${
     suggestionsArrayExample ? `,${suggestionsArrayExample}` : ""
   } }`;
@@ -147,12 +159,14 @@ Keep each SHORT and skimmable: under 10 words, ONE clause, ONE artifact, no list
     : "";
 
   const closingFallback = includeSuggestions
-    ? `Don't include anything sensitive or private. If you found very little, lean on "guessing" claims and broadly useful suggestions for my role.`
-    : `Don't include anything sensitive or private. If you found very little, lean on "guessing" claims.`;
+    ? `Don't include anything sensitive or private. If the identity gate leaves you with very little, return only the honest "guessing" claims my stated details support, and lean on broadly useful suggestions for my role.`
+    : `Don't include anything sensitive or private. If the identity gate leaves you with very little, return only the honest "guessing" claims my stated details support.`;
 
   return `${identity}
 
-Get to know me. Search the web for what's publicly known about the person matching my name and role, and infer a handful of things about who I am: what I do, my role, where I'm based, what I'm into, anything that would help you assist me better. Lean on public sources (LinkedIn, company pages, social profiles, articles, personal sites, GitHub). It's fine to make reasonable inferences and label them honestly.
+Get to know me. Search the web for what's publicly known about me, and infer a handful of things about who I am: what I do, my role, where I'm based, what I'm into, anything that would help you assist me better. Prefer sources people author about themselves — LinkedIn, a personal site, GitHub, an employer's team page, published work, public social profiles. Never fetch or cite people-search or background-check aggregators (Instant Checkmate, Spokeo, BeenVerified, TruePeopleSearch, Whitepages, and similar); data-broker directories (ZoomInfo, RocketReach, Apollo) may corroborate another source but must never be a claim's only basis.
+
+IDENTITY GATE — decide who a page is about before you use it: a name match alone is NEVER enough to attribute a page to me. Attribute it to me only when it also corroborates something I stated — my role, my hobby, or a location consistent with my timezone if I gave one. If several people share my name and none clears that bar, or you find no verifiable match at all, then I have no public profile you can use: return ONLY inferences from what I stated above, each labeled "guessing" with "sources": []. An honest near-empty card beats a stranger's biography. If my details above read as placeholder or joke input rather than a real identity, skip the web search and return an empty claims array.
 
 Treat the name, role, and hobby I provided above as first-party context from me. Use public sources to enrich that context, not to override or correct it. If public sources use a different title or omit part of my stated role, do not frame my stated role as wrong; mention the public title only as supporting nuance when it is useful, and keep ${alignedArtifacts} aligned with my stated role.
 
@@ -162,10 +176,11 @@ ${shapeExample}
 
 Rules for "claims":
 
-AT MOST 5 claims, typically 3 to 4. Aim for at least one "confident" and at least one "guessing"; the rest "maybe".
+AT MOST 5 claims, typically 3 to 4. Never pad the list or inflate a confidence tier to seem thorough.
 Phrase each claim in third person as a short headline ("Senior engineer at an AI infra startup", "Based in Boulder, CO", "Active climber on Mountain Project"). No multi-clause sentences, no em-dash asides, no explanations. Good: "Contributed to Chirps (vector-DB security)". Bad: "You've done real work in vector database security. You contributed to Chirps, a tool for scanning vector DBs for sensitive data".
 Each claim must be independently true-or-false so I can remove the ones that are wrong.
-"confidence" is one of: "confident" (well supported by what you found), "maybe" (plausible but unverified), "guessing" (a hunch from limited signal).
+Every specific in a claim (employer, title, publication, city) must appear in a source you actually fetched this turn — never synthesize or embellish specifics a source doesn't state.
+"confidence" is earned per the identity gate: "confident" needs 2+ independent gate-passing sources, "maybe" needs exactly one, and a claim with no sources is an inference from my stated details and must be "guessing".
 "sources": 0 to 3 URLs you actually used as evidence for that specific claim. Use [] for pure inferences.
 ${suggestionRules}${capabilitiesBlock}
 ${closingFallback}

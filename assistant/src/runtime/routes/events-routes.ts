@@ -20,7 +20,6 @@
 
 import { type IntervalHistogram, monitorEventLoopDelay } from "node:perf_hooks";
 
-import * as Sentry from "@sentry/node";
 import { z } from "zod";
 
 import type { HostProxyCapability } from "../../channels/types.js";
@@ -86,8 +85,8 @@ let eventLoopResetTimer: ReturnType<typeof setInterval> | null = null;
  *
  * Guarded with try/catch because `node:perf_hooks.monitorEventLoopDelay`
  * was a stub in some older Bun versions; if the runtime ever regresses,
- * we still emit the shed log + Sentry capture without lag stats rather
- * than crashing the SSE handler.
+ * we still emit the shed log without lag stats rather than crashing the
+ * SSE handler.
  */
 function ensureEventLoopDelayMonitorStarted(): void {
   if (eventLoopDelay !== null) return;
@@ -165,16 +164,14 @@ export type SseShedReporter = (
 ) => void;
 
 /**
- * Build the structured payload sent to Sentry when an SSE subscriber is
- * shed under backpressure.
+ * Build the structured payload logged when an SSE subscriber is shed
+ * under backpressure.
  *
  * The conversation key is deliberately excluded: for channel-backed
  * conversations (WhatsApp, Telegram, etc.) the key embeds external
- * identifiers — phone numbers, chat IDs — and Sentry contexts are not
- * run through the PII redactor in `instrument.ts` (only
- * `exception.values`, `breadcrumbs`, and `extra` are). Correlation
- * with the client-side `sse_watchdog_fired` event is achieved via the
- * `client_id` tag + timestamp instead.
+ * identifiers — phone numbers, chat IDs. Correlation with the
+ * client-side `sse_watchdog_fired` event is achieved via the
+ * `client_id` field + timestamp instead.
  */
 export function buildSseShedSentryContext(
   reason: SseShedReason,
@@ -197,18 +194,18 @@ export function buildSseShedSentryContext(
 }
 
 /**
- * Report a backpressure-shed event from an SSE subscriber to logs and Sentry.
+ * Report a backpressure-shed event from an SSE subscriber to logs.
  *
  * SSE subscribers are shed when `controller.desiredSize <= 0`: the consumer
  * has stopped reading and the stream's bounded queue is full. From the
  * daemon's side this looks identical to a hung client — and the visible
- * symptom on the client side is the 45 s idle-watchdog firing (Sentry
- * issue `sse_watchdog_fired`). Surfacing the shed lets us time-correlate
+ * symptom on the client side is the 45 s idle-watchdog firing
+ * (`sse_watchdog_fired`). Surfacing the shed lets us time-correlate
  * the two sides and attribute stalls to either backpressure or another
  * cause (network drop, event-loop starvation, etc.).
  *
- * The Sentry call uses level="warning" intentionally: a shed is a
- * saturation event, not an internal error.
+ * Logged at `warn` intentionally: a shed is a saturation event, not an
+ * internal error.
  */
 const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
   const elDelay = sampleEventLoopDelay();
@@ -222,20 +219,6 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
     { ...sentryContext, conversation_key: inst.conversationKey },
     "sse subscriber shed under backpressure",
   );
-
-  try {
-    Sentry.withScope((scope) => {
-      scope.setLevel("warning");
-      scope.setTag("sse_shed_reason", reason);
-      if (inst.clientId) scope.setTag("client_id", inst.clientId);
-      if (inst.interfaceId) scope.setTag("interface_id", inst.interfaceId);
-      if (inst.connectionId) scope.setTag("connection_id", inst.connectionId);
-      scope.setContext("sse_shed", sentryContext);
-      Sentry.captureMessage(`sse_subscriber_shed:${reason}`);
-    });
-  } catch {
-    // Never let a telemetry failure break the SSE path.
-  }
 };
 
 /**
@@ -266,7 +249,7 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
  *   hub               -- override the event hub (defaults to process singleton).
  *   heartbeatIntervalMs -- how often to emit keep-alive comments (default 7 s).
  *   shedReporter      -- override the callback invoked when a subscriber is shed
- *                        under backpressure (defaults to log + Sentry capture).
+ *                        under backpressure (defaults to a log line).
  */
 export function handleSubscribeAssistantEvents(
   args: RouteHandlerArgs,
@@ -452,7 +435,7 @@ export function handleSubscribeAssistantEvents(
             type: "process" as const,
           });
     // Stamp the hub-assigned connection id so a later backpressure shed can be
-    // tied back to this specific connection in logs and Sentry.
+    // tied back to this specific connection in logs.
     instrumentation.connectionId = sub.connectionId;
   } catch (err) {
     if (err instanceof RangeError) {

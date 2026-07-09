@@ -29,6 +29,7 @@
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getDb } from "../persistence/db-connection.js";
+import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
@@ -52,7 +53,10 @@ const log = getLogger("providers/connection-resolution");
  * declared provider). These are deterministic configuration bugs that
  * should fail loudly rather than silently rerouting.
  */
-export class ConnectionResolutionError extends Error {
+export class ConnectionResolutionError extends ConfigError {
+  public readonly model?: string;
+  public readonly profileName?: string;
+
   constructor(
     public readonly connectionName: string,
     public readonly reason:
@@ -62,10 +66,12 @@ export class ConnectionResolutionError extends Error {
       | "missing_connection"
       | "model_incompatible",
     message: string,
-    public readonly cause?: unknown,
+    options?: { cause?: unknown; model?: string; profileName?: string },
   ) {
-    super(message);
+    super(message, { cause: options?.cause });
     this.name = "ConnectionResolutionError";
+    this.model = options?.model;
+    this.profileName = options?.profileName;
   }
 }
 
@@ -107,7 +113,7 @@ export async function tryResolveProviderForConnectionName(
       connectionName,
       "lookup_failed",
       `provider_connection lookup failed for "${connectionName}"`,
-      err,
+      { cause: err },
     );
   }
   if (!connection) {
@@ -183,6 +189,7 @@ export async function tryResolveProviderForConnectionName(
           connectionName,
           "model_incompatible",
           incompatMsg,
+          { model },
         );
       }
       throw new ConnectionResolutionError(
@@ -272,6 +279,7 @@ export async function resolveDefaultProvider(
           "<llm.default>",
           "model_incompatible",
           incompatMsg,
+          { model: resolved.model },
         );
       }
       throw new ConnectionResolutionError(

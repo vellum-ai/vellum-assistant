@@ -54,6 +54,7 @@ import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
 import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/memory-v2-activation-log-store.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
+import { resolveMediaSourceData } from "../providers/media-resolve.js";
 import type {
   ContentBlock,
   ImageContent,
@@ -100,6 +101,7 @@ import type {
   WebSearchMetadata,
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
+import { referenceMediaBlocksForPersist } from "./persist-media-references.js";
 import type { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("agent-loop-handlers");
@@ -168,6 +170,13 @@ export interface EventHandlerState {
   readonly exchangeRawResponses: unknown[];
   model: string;
   providerErrorUserMessage: string | null;
+  /**
+   * Stable classified code of the most recent provider error
+   * (`classifyConversationError(...).code`). Carried into the turn's
+   * telemetry outcome stamp when the loop terminates on the provider-error
+   * path.
+   */
+  providerErrorCode: string | null;
   persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
   /**
@@ -382,6 +391,7 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeRawResponses: [],
     model: "",
     providerErrorUserMessage: null,
+    providerErrorCode: null,
     persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -1278,8 +1288,24 @@ export async function finalizePendingToolResultRow(
     conversationId,
     metadata,
   );
+  // `getConversation` returns `ConversationRow | null`, so `!= null` gates on a
+  // real row (skipping media referencing / disk sync when the conversation was
+  // not found rather than asking those helpers to resolve a missing id).
+  const conv = getConversation(conversationId);
+  // Swap any base64 media the tools produced (screenshots, generated images)
+  // for workspace references so the blob stays in the attachment store, out of
+  // this row and the lexical index. Runs once, here at finalize (on-arrival
+  // writes keep base64 for durability); the send boundary re-inflates the refs.
+  const blocks = buildToolResultBlocks(state.pendingToolResults);
   const contentJson = JSON.stringify(
-    buildToolResultBlocks(state.pendingToolResults),
+    conv != null
+      ? referenceMediaBlocksForPersist(
+          conversationId,
+          conv.createdAt,
+          rowId,
+          blocks as ContentBlock[],
+        )
+      : blocks,
   );
   await persistLoopMessageContent(
     rowId,
@@ -1288,10 +1314,6 @@ export async function finalizePendingToolResultRow(
     rlog,
   );
   // Sync the row to the JSONL disk view so it stays in lockstep with the DB.
-  // `getConversation` returns `ConversationRow | null`, so `!= null` gates on a
-  // real row (skipping the sync when the conversation was not found rather than
-  // asking the disk-view to resolve a missing id).
-  const conv = getConversation(conversationId);
   if (conv != null) {
     syncMessageToDisk(conversationId, rowId, conv.createdAt);
   }
@@ -1403,7 +1425,9 @@ export async function handleToolResult(
     (b): b is ImageContent => b.type === "image",
   );
   const imageDataList = imageBlocks?.length
-    ? imageBlocks.map((b) => b.source.data)
+    ? imageBlocks
+        .map((b) => resolveMediaSourceData(b.source)?.data)
+        .filter((d): d is string => d != null)
     : undefined;
 
   // Perform state mutations before deps.onEvent() so that if onEvent throws
@@ -1850,6 +1874,7 @@ function handleError(
     buildConversationErrorMessage(deps.ctx.conversationId, classified),
   );
   state.providerErrorUserMessage = classified.userMessage;
+  state.providerErrorCode = classified.code;
   state.persistProviderErrorAsAssistantMessage =
     shouldPersistProviderErrorAsAssistantMessage(classified);
 }

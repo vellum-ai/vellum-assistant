@@ -6,7 +6,7 @@
  * `ApiKeyRef` + `buildLazyGetters` pattern allows handlers to resolve
  * the key at call time rather than at registration time.
  *
- * Extracted from `managed-main.ts` so the behavioral contract can be
+ * Extracted from the CES entrypoint so the behavioral contract can be
  * tested directly without exercising the full managed bootstrap lifecycle.
  */
 
