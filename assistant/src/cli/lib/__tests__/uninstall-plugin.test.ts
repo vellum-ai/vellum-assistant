@@ -1,8 +1,12 @@
 /**
  * Tests for {@link uninstallPlugin}.
  *
- * Each test materializes a temp workspace plugins directory and points
- * `uninstallPlugin` at it via the `workspacePluginsDir` option.
+ * The `shutdown` hook is resolved from `<workspace>/plugins/<name>/hooks` (the
+ * installer-enforced layout), so tests materialize plugins under the real
+ * workspace plugins directory — the test-preload temp workspace — rather than a
+ * divergent temp dir. `workspacePluginsDir` is passed as the same directory so
+ * the rm target and the hook-resolution path stay in agreement, matching
+ * production (where the override is omitted and both fall back to it).
  */
 
 import {
@@ -10,6 +14,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -18,6 +23,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { resetHookCacheForTests } from "../../../hooks/hook-loader.js";
+import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import { InvalidPluginNameError } from "../install-from-github.js";
 import {
   PluginNotInstalledError,
@@ -27,7 +34,10 @@ import {
 let pluginsDir: string;
 
 beforeEach(() => {
-  pluginsDir = mkdtempSync(join(tmpdir(), "plugins-uninstall-"));
+  pluginsDir = getWorkspacePluginsDir();
+  rmSync(pluginsDir, { recursive: true, force: true });
+  mkdirSync(pluginsDir, { recursive: true });
+  resetHookCacheForTests();
 });
 
 afterEach(() => {
@@ -49,11 +59,11 @@ function writePlugin(name: string): string {
 }
 
 describe("uninstallPlugin", () => {
-  test("removes the install target recursively", () => {
+  test("removes the install target recursively", async () => {
     const target = writePlugin("simple-memory");
     expect(existsSync(target)).toBe(true);
 
-    const result = uninstallPlugin({
+    const result = await uninstallPlugin({
       name: "simple-memory",
       workspacePluginsDir: pluginsDir,
     });
@@ -63,27 +73,50 @@ describe("uninstallPlugin", () => {
     expect(readdirSync(pluginsDir)).toEqual([]);
   });
 
-  test("throws PluginNotInstalledError when no directory exists", () => {
-    expect(() =>
+  test("runs the plugin's shutdown hook from disk before removing it", async () => {
+    const target = writePlugin("with-shutdown");
+    // Marker lives in the plugins dir (not the target), so it survives the rm
+    // and proves the shutdown hook ran during the uninstall.
+    const marker = join(pluginsDir, "shutdown-ran.txt");
+    writeFileSync(
+      join(target, "hooks", "shutdown.ts"),
+      `import { writeFileSync } from "node:fs";\n` +
+        `export default (ctx: { reason: string }) => {\n` +
+        `  writeFileSync(${JSON.stringify(marker)}, ctx.reason);\n` +
+        `};\n`,
+    );
+
+    await uninstallPlugin({
+      name: "with-shutdown",
+      workspacePluginsDir: pluginsDir,
+    });
+
+    expect(existsSync(target)).toBe(false);
+    expect(existsSync(marker)).toBe(true);
+    expect(readFileSync(marker, "utf8")).toBe("uninstall");
+  });
+
+  test("throws PluginNotInstalledError when no directory exists", async () => {
+    await expect(
       uninstallPlugin({
         name: "ghost",
         workspacePluginsDir: pluginsDir,
       }),
-    ).toThrow(PluginNotInstalledError);
+    ).rejects.toThrow(PluginNotInstalledError);
   });
 
-  test("throws PluginNotInstalledError when the target is a regular file", () => {
+  test("throws PluginNotInstalledError when the target is a regular file", async () => {
     writeFileSync(join(pluginsDir, "trap"), "not a plugin");
 
-    expect(() =>
+    await expect(
       uninstallPlugin({
         name: "trap",
         workspacePluginsDir: pluginsDir,
       }),
-    ).toThrow(PluginNotInstalledError);
+    ).rejects.toThrow(PluginNotInstalledError);
   });
 
-  test("removes a symlinked plugin without touching the link target", () => {
+  test("removes a symlinked plugin without touching the link target", async () => {
     const real = mkdtempSync(join(tmpdir(), "real-plugin-"));
     try {
       writeFileSync(
@@ -92,7 +125,7 @@ describe("uninstallPlugin", () => {
       );
       symlinkSync(real, join(pluginsDir, "linked"));
 
-      uninstallPlugin({
+      await uninstallPlugin({
         name: "linked",
         workspacePluginsDir: pluginsDir,
       });
@@ -113,12 +146,15 @@ describe("uninstallPlugin", () => {
     ["Name-WithCaps"],
     ["space name"],
     [""],
-  ])("rejects invalid plugin name %p before touching the filesystem", (bad) => {
-    // Salt the plugins dir with siblings to prove we don't blow them away.
-    writePlugin("real-plugin");
-    expect(() =>
-      uninstallPlugin({ name: bad, workspacePluginsDir: pluginsDir }),
-    ).toThrow(InvalidPluginNameError);
-    expect(existsSync(join(pluginsDir, "real-plugin"))).toBe(true);
-  });
+  ])(
+    "rejects invalid plugin name %p before touching the filesystem",
+    async (bad) => {
+      // Salt the plugins dir with siblings to prove we don't blow them away.
+      writePlugin("real-plugin");
+      await expect(
+        uninstallPlugin({ name: bad, workspacePluginsDir: pluginsDir }),
+      ).rejects.toThrow(InvalidPluginNameError);
+      expect(existsSync(join(pluginsDir, "real-plugin"))).toBe(true);
+    },
+  );
 });

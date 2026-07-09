@@ -640,7 +640,7 @@ $ assistant plugins publish --json`,
                 return;
               }
             }
-            const result = uninstallPlugin({ name });
+            const result = await uninstallPlugin({ name });
             log.info(
               { name: result.name, target: result.target },
               "external plugin uninstalled",
