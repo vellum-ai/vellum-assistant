@@ -105,7 +105,12 @@ import {
   resolvePricingForUsage,
   usesAnthropicPricingRules,
 } from "../../util/pricing.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  InternalError,
+  LlmRequestLogsDisabledError,
+  NotFoundError,
+} from "./errors.js";
 import {
   type LlmContextSummary,
   normalizeLlmContextPayloads,
@@ -1772,10 +1777,24 @@ function resolveConversationKind(
   return "user";
 }
 
+/**
+ * Guard every inspector read on the master `llmRequestLogs.disabled`
+ * opt-out. When logging is off there is nothing to serve (and any rows that
+ * predate the opt-out are intentionally withheld), so we fail fast with the
+ * distinct `LLM_REQUEST_LOGS_DISABLED` code the client keys on to render an
+ * enable-logging affordance instead of a generic error.
+ */
+function assertLlmRequestLoggingEnabled(): void {
+  if (getConfig().llmRequestLogs?.disabled === true) {
+    throw new LlmRequestLogsDisabledError();
+  }
+}
+
 async function handleGetLlmContext({
   pathParams = {},
   queryParams = {},
 }: RouteHandlerArgs) {
+  assertLlmRequestLoggingEnabled();
   const messageId = pathParams.id;
   if (!messageId) {
     throw new BadRequestError("message id is required");
@@ -1819,6 +1838,7 @@ async function handleGetLlmContext({
 async function handleGetConversationLlmContext({
   queryParams = {},
 }: RouteHandlerArgs) {
+  assertLlmRequestLoggingEnabled();
   const conversationKey = queryParams.conversationKey;
   const requestedConversationId = queryParams.conversationId;
   const view = resolveLlmContextView(queryParams.view);
@@ -1888,6 +1908,7 @@ async function handleGetConversationLlmContext({
 async function handleGetLlmRequestLogPayload({
   pathParams = {},
 }: RouteHandlerArgs) {
+  assertLlmRequestLoggingEnabled();
   const logId = pathParams.id;
   if (!logId) {
     throw new BadRequestError("log id is required");
@@ -1915,6 +1936,7 @@ async function handleGetLlmRequestLogPayload({
 async function handleGetLlmRequestLogContext({
   pathParams = {},
 }: RouteHandlerArgs) {
+  assertLlmRequestLoggingEnabled();
   const logId = pathParams.id;
   if (!logId) {
     throw new BadRequestError("log id is required");

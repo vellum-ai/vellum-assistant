@@ -16,6 +16,7 @@ import {
 import { v4 as uuid } from "uuid";
 
 import { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "../api/constants/call-sites.js";
+import { getConfigReadOnly } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { AssistantError, ProviderError } from "../util/errors.js";
 import {
@@ -40,6 +41,22 @@ function logsDb(): DrizzleDb {
     throw new Error("logs database unavailable");
   }
   return db;
+}
+
+/**
+ * True when the operator has opted out of LLM request logging via
+ * `llmRequestLogs.disabled`. Gates every `llm_request_logs` insert so no
+ * prompt/completion payload is written while logging is off. Read-only config
+ * access (no `ensureDataDir`/disk write) because this sits on the per-LLM-call
+ * critical path; defaults to "enabled" if config resolution throws so a config
+ * hiccup never silently drops logs.
+ */
+export function llmRequestLoggingDisabled(): boolean {
+  try {
+    return getConfigReadOnly().llmRequestLogs?.disabled === true;
+  } catch {
+    return false;
+  }
 }
 
 export type LogRow = {
@@ -166,6 +183,13 @@ export function recordRequestLog(
   callSite?: LLMCallSite,
   latencyBreakdown?: string,
 ): string {
+  // Master opt-out: when logging is disabled, skip the write entirely so no
+  // prompt/completion payload lands on disk. Returns an empty id — no
+  // production caller consumes the return value, and the row does not exist to
+  // be stamped/backfilled later.
+  if (llmRequestLoggingDisabled()) {
+    return "";
+  }
   const db = logsDb();
   const id = uuid();
   // Synchronous insert of the full request/response payloads (an entire
@@ -251,6 +275,11 @@ export function recordSyntheticAgentErrorMessageLog(args: {
   preparedRequest: unknown | null;
   createdAt: number;
 }): string {
+  // Synthetic error rows are `llm_request_logs` rows too — honour the same
+  // master opt-out so nothing is written while logging is disabled.
+  if (llmRequestLoggingDisabled()) {
+    return "";
+  }
   const db = logsDb();
   const id = uuid();
   const requestPayload = JSON.stringify({
