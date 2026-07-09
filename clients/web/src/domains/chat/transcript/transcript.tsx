@@ -272,11 +272,23 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
          *  streaming growth). Wrapping all rows in a single observed
          *  element is cheaper than observing each row individually. */}
         <div ref={contentRef} className="flex w-full flex-col">
-          {/* History items in chronological order — oldest at top. */}
-          {partition.historyItems.map((item) => (
+          {/* History items in chronological order — oldest at top. In the
+           *  no-anchor mode (assistant-only history, e.g. recovered
+           *  conversation) the avatar renders directly below the last history
+           *  item, so that item is the "latest message" and collapses its
+           *  hover-actions row; with an anchor present the latest turn owns
+           *  the flag instead (see `LatestTurnRow`). */}
+          {partition.historyItems.map((item, i) => (
             <Fragment key={item.key}>
               <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
-                <TranscriptRow item={item} {...rowProps} />
+                <TranscriptRow
+                  item={item}
+                  {...rowProps}
+                  isLatestMessage={
+                    !partition.anchorMessage &&
+                    i === partition.historyItems.length - 1
+                  }
+                />
               </div>
             </Fragment>
           ))}
