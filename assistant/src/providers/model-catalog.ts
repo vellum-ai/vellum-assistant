@@ -325,6 +325,56 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       linkLabel: "Open OpenAI Platform",
     },
     models: [
+      // GPT-5.6 family (Sol / Terra / Luna). cacheRead is the 90% cached-read
+      // discount. GPT-5.6+ also bills cache *writes* at 1.25x input, but that
+      // isn't represented here yet — the managed proxy's OpenAI billing path
+      // doesn't emit a cache-write token class (Anthropic-only today). No
+      // long-context tier data yet, so `tiers` is omitted.
+      {
+        id: "gpt-5.6-sol",
+        displayName: "GPT-5.6 Sol",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
+        id: "gpt-5.6-terra",
+        displayName: "GPT-5.6 Terra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 2.5,
+          outputPer1mTokens: 15.0,
+          cacheReadPer1mTokens: 0.25,
+        },
+      },
+      {
+        id: "gpt-5.6-luna",
+        displayName: "GPT-5.6 Luna",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheReadPer1mTokens: 0.1,
+        },
+      },
       {
         id: "gpt-5.5",
         displayName: "GPT-5.5",
