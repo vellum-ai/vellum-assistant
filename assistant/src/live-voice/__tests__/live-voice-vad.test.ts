@@ -1342,4 +1342,60 @@ describe("LiveVoiceSession sustained-speech barge-in guard", () => {
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => countType(frames, "speech_started") === 1);
   });
+
+  test("the guard also covers the client playback tail after tts_done", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const abort = mock();
+    const startVoiceTurn = mock(async (turnOptions: VoiceTurnOptions) => {
+      callbacks ??= turnOptions.callbacks;
+      return { turnId: "bridge-turn", abort };
+    });
+    // One full second of PCM: the server clears the turn on tts_done while
+    // the client is still audibly draining this tail.
+    const longTailChunk: LiveVoiceTtsAudioChunk = {
+      type: "tts_audio",
+      contentType: "audio/pcm",
+      sampleRate: SAMPLE_RATE,
+      dataBase64: Buffer.alloc(2 * SAMPLE_RATE).toString("base64"),
+    };
+    const streamTtsAudio = mock(async (ttsOptions: LiveVoiceTtsOptions) => {
+      ttsOptions.onAudioChunk(longTailChunk);
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["what's the weather", "   "],
+      startVoiceTurn,
+      streamTtsAudio,
+      bargeInMinSpeechMs: 60,
+      turnDetectorConfig: { silenceThresholdMs: 5_000 },
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    callbacks?.assistant_text_delta?.(makeTextDelta("It is sunny today."));
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    const baseline = countType(frames, "speech_started");
+
+    // A sub-guard noise blip during the drain window must not flush the
+    // audible tail.
+    for (let index = 0; index < 3; index += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+    }
+    await session.handleBinaryAudio(SILENT_CHUNK);
+    await flushAsyncCallbacks();
+    expect(countType(frames, "speech_started")).toBe(baseline);
+
+    // Sustained speech during the drain window trips the guard: the tail
+    // flushes (speech_started) — with no turn left to cancel.
+    for (let index = 0; index < 6; index += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+    }
+    await waitFor(() => countType(frames, "speech_started") === baseline + 1);
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(abort).not.toHaveBeenCalled();
+  });
 });

@@ -288,9 +288,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // speech_started + barge-in fire (at most once per onset). A non-speech
   // chunk zeroes the run; the detector's utterance end discards the guard.
   private pendingBargeIn: {
-    turn: ActiveAssistantTurn;
+    // Null when guarding only the post-tts_done drain window (the turn is
+    // already finalized but the client is still playing its tail).
+    turn: ActiveAssistantTurn | null;
     speechMs: number;
   } | null = null;
+  // Estimated wall-clock ms until the client finishes draining the
+  // assistant audio sent so far. The server clears the turn right after
+  // tts_done while the client keeps playing the buffered tail — the
+  // sustained-speech guard must also cover that window or a noise blip
+  // clips the reply's last words. Advanced per sent tts_audio frame from
+  // the chunk's PCM duration; zeroed whenever the client flushes playback
+  // (speech_started, turn_cancelled, interrupt, close).
+  private assistantPlaybackTailUntilMs = 0;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -842,8 +852,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const turn = this.activeAssistantTurn;
     const speakingTurn =
       turn && !turn.finalized && turn.ttsAudioStarted ? turn : null;
+    // The client can still be draining audible playback after tts_done
+    // (the turn is already cleared server-side) — that tail deserves the
+    // same guard, or a noise blip clips the reply's last words.
+    const drainingPlayback = Date.now() < this.assistantPlaybackTailUntilMs;
 
-    if (speakingTurn && this.bargeInMinSpeechMs > 0) {
+    if ((speakingTurn || drainingPlayback) && this.bargeInMinSpeechMs > 0) {
       // Onset audio keeps flowing into the cycle/pre-roll while the guard
       // accumulates (trackBargeInGuard), so no speech is lost either way.
       this.pendingBargeIn = { turn: speakingTurn, speechMs: 0 };
@@ -851,6 +865,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     this.pendingBargeIn = null;
+    this.assistantPlaybackTailUntilMs = 0;
     void this.sendFrame({ type: "speech_started" });
     if (speakingTurn) {
       this.bargeIn(speakingTurn);
@@ -876,9 +891,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     this.pendingBargeIn = null;
+    this.assistantPlaybackTailUntilMs = 0;
     void this.sendFrame({ type: "speech_started" });
     const { turn } = guard;
-    if (turn === this.activeAssistantTurn && !turn.finalized) {
+    if (turn && turn === this.activeAssistantTurn && !turn.finalized) {
       this.bargeIn(turn);
     }
   }
@@ -886,7 +902,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private bargeIn(turn: ActiveAssistantTurn): void {
     // Abort synchronously so no tts_audio frame can follow turn_cancelled,
     // and settle the cancelled turn's metrics so the next utterance's marks
-    // do not collide with it in the collector.
+    // do not collide with it in the collector. turn_cancelled flushes
+    // client playback, so the drain estimate resets with it.
+    this.assistantPlaybackTailUntilMs = 0;
     turn.abortController.abort();
     this.metrics.markBargeIn(turn.turnId);
     void (async () => {
@@ -1288,6 +1306,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     this.state = "interrupted";
     // A client interrupt also discards speech parked in the pre-roll ring.
+    // The client stopped its own playback, so the drain estimate resets.
+    this.assistantPlaybackTailUntilMs = 0;
     this.takeVadPreRoll();
     this.vadPendingTurnEnd = null;
     const utterance = this.currentUtterance;
@@ -1828,6 +1848,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       if (!sent) {
         return;
       }
+      // Extend the client playback-tail estimate by this chunk's PCM
+      // duration (chunks queue gaplessly client-side, so the tail grows
+      // from whichever is later: now or the current estimate).
+      const chunkMs =
+        (Buffer.byteLength(chunk.dataBase64, "base64") /
+          2 /
+          chunk.sampleRate) *
+        1_000;
+      const now = Date.now();
+      this.assistantPlaybackTailUntilMs =
+        Math.max(now, this.assistantPlaybackTailUntilMs) + chunkMs;
       const turnAfterSend = this.activeAssistantTurn;
       if (turnAfterSend?.token !== token || turnAfterSend.ttsAudioStarted) {
         return;
