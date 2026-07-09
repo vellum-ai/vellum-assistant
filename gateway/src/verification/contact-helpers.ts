@@ -759,7 +759,9 @@ export async function upsertVerifiedContactChannel(params: {
       ? { channelId: channel.id, contactId: channel.contactId }
       : null;
   } catch (mirrorErr) {
-    if (!mirrorSoft) throw mirrorErr;
+    if (!mirrorSoft) {
+      throw mirrorErr;
+    }
     log.warn(
       { err: mirrorErr, sourceChannel },
       "Assistant mirror lookup failed (soft); proceeding gateway-only",
@@ -801,7 +803,9 @@ export async function upsertVerifiedContactChannel(params: {
   try {
     await mirrorVerifiedChannel(result.mirror);
   } catch (mirrorErr) {
-    if (!mirrorSoft) throw mirrorErr;
+    if (!mirrorSoft) {
+      throw mirrorErr;
+    }
     log.warn(
       { err: mirrorErr, sourceChannel },
       "Assistant mirror upsert failed (soft); gateway ACL result stands",

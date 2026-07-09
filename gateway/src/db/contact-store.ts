@@ -789,7 +789,9 @@ export class ContactStore {
       .from(contactChannels)
       .where(eq(contactChannels.id, gwChannelId))
       .get();
-    if (!channel) return null;
+    if (!channel) {
+      return null;
+    }
 
     const contact = this.getContact(channel.contactId);
     if (
@@ -836,7 +838,9 @@ export class ContactStore {
       .from(contactChannels)
       .where(eq(contactChannels.id, gwChannelId))
       .get();
-    if (!after) return null;
+    if (!after) {
+      return null;
+    }
 
     return { channel: after, didWrite: true };
   }
