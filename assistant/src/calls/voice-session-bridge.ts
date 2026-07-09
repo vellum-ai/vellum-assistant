@@ -424,11 +424,11 @@ export async function startVoiceTurn(
   // Hence the re-check loop, bounded by one shared budget. In practice
   // each leg settles within a few microtasks; the bound only guards a
   // wedged prior turn.
+  // Abort is only honored inside the wait legs: a pre-aborted signal on an
+  // idle conversation still starts the turn, which the signal wiring below
+  // then aborts immediately (pinned by the pre-aborted-signal test).
   let remainingWaitMs = maxWaitMs;
   for (;;) {
-    if (opts.signal?.aborted) {
-      throw new Error("Turn aborted while waiting for conversation");
-    }
     if (conversation.isProcessing()) {
       let idle: boolean;
       try {
