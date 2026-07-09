@@ -527,7 +527,6 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
                         variant="tool"
                         iconName={step.iconName}
                         label={step.activity || step.info || step.title}
-                        riskLevel={step.riskLevel}
                         tone={
                           step.status === "error" || step.status === "denied"
                             ? "error"

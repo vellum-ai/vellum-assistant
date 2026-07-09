@@ -8,17 +8,17 @@ import { ChatPill } from "@/domains/chat/components/chat-pill";
  * `showScrollToLatest`. Clicking pins the transcript back to the latest
  * message.
  *
- * When `isStreaming` is true, a 3-dot pulse animation renders at the start
+ * When `isAssistantBusy` is true, a 3-dot pulse animation renders at the start
  * of the pill to signal that more content is still arriving out of view —
  * matches the macOS TypingIndicatorView phase pattern used by the inline
  * "thinking" row in `TranscriptRow`.
  */
 export function ScrollToLatestButton({
   onClick,
-  isStreaming = false,
+  isAssistantBusy = false,
 }: {
   onClick: () => void;
-  isStreaming?: boolean;
+  isAssistantBusy?: boolean;
 }) {
   return (
     <ChatPill
@@ -30,7 +30,7 @@ export function ScrollToLatestButton({
       // `shadow-md` on desktop and for the other pill consumers.
       className="text-[var(--content-emphasised)] max-md:shadow-lg"
     >
-      {isStreaming && (
+      {isAssistantBusy && (
         <span
           aria-hidden
           className="inline-flex items-center gap-[3px]"

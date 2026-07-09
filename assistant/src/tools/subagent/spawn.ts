@@ -160,21 +160,25 @@ export async function executeSubagentSpawn(
   // that only surfaces with no `activeProfile` set and a hand-tuned call-site
   // profile.
   //
-  // The fallback is forwarded NON-forced, so an explicit
-  // `llm.callSites.subagentSpawn` profile still wins; an explicit
-  // `inference_profile` argument keeps `forceOverrideProfile` and wins
-  // outright. (The row read short-circuits to `undefined` for the background
-  // subagent conversation and for tool calls outside an agent-loop turn.)
+  // An explicit `llm.callSites.subagentSpawn` profile must still win over
+  // the invoker-default tier: that tier is a matching heuristic, not a user
+  // choice, and any override outranks the call-site pin under
+  // override-or-default resolution — so the heuristic is only forwarded
+  // when no explicit pin exists. (Under the legacy cascade a non-forced
+  // override already lost to the pin, so this guard is behavior-identical
+  // there.) An explicit `inference_profile` argument keeps
+  // `forceOverrideProfile` and wins outright; the row read short-circuits
+  // to `undefined` for the background subagent conversation and for tool
+  // calls outside an agent-loop turn.
   let inheritedOverrideProfile = requestedOverrideProfile;
   if (inheritedOverrideProfile === undefined) {
-    const inheritedCandidate =
+    const llm = getConfig().llm;
+    inheritedOverrideProfile =
       context.overrideProfile ??
       getConversationOverrideProfile(context.conversationId) ??
-      resolveDefaultProfileKey(
-        context.invokingCallSite ?? "mainAgent",
-        getConfig().llm,
-      );
-    inheritedOverrideProfile = inheritedCandidate;
+      (llm.callSites?.subagentSpawn?.profile == null
+        ? resolveDefaultProfileKey(context.invokingCallSite ?? "mainAgent", llm)
+        : undefined);
   }
 
   try {

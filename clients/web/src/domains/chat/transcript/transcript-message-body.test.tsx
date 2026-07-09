@@ -1,13 +1,6 @@
-import {
-  afterAll,
-  afterEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 // The transcript transitively pulls in the viewer store → the generated daemon
 // SDK (not built in CI/worktree checkouts). Stub the two endpoints it references
@@ -18,9 +11,12 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   documentsByIdGet: async () => ({ data: undefined }),
 }));
 
-mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
-  MessageAttachments: () => <div data-testid="attachments" />,
-}));
+mock.module(
+  "@/domains/chat/components/chat-attachments/message-attachments",
+  () => ({
+    MessageAttachments: () => <div data-testid="attachments" />,
+  }),
+);
 
 // The ACP-run and background-task rows wire their transcript stop button to
 // these standalone actions; stub them so clicking Stop records the call without
@@ -34,22 +30,50 @@ mock.module("@/domains/chat/utils/background-task-actions", () => ({
   stopBackgroundTask: stopBackgroundTaskMock,
 }));
 
+// Captures the latest `onVellumLinkClick` handler so tests can drive the
+// vellum:// link download path directly through the mocked markdown renderer.
+let lastVellumLinkClick: ((href: string, linkText: string) => void) | undefined;
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ChatMarkdownMessage: ({
     content,
     hardLineBreaks,
+    onVellumLinkClick,
   }: {
     content: string;
     hardLineBreaks?: boolean;
-  }) => (
-    <div
-      data-testid="markdown"
-      data-hard-line-breaks={hardLineBreaks ? "true" : "false"}
-    >
-      {content}
-    </div>
-  ),
+    onVellumLinkClick?: (href: string, linkText: string) => void;
+  }) => {
+    lastVellumLinkClick = onVellumLinkClick;
+    return (
+      <div
+        data-testid="markdown"
+        data-hard-line-breaks={hardLineBreaks ? "true" : "false"}
+      >
+        {content}
+      </div>
+    );
+  },
 }));
+
+// `handleVellumLinkClick` resolves the clicked link to an attachment and hands
+// it to `downloadAttachment`; stub it to record which attachment matched.
+// The stub mirrors the real helper's `previewUrl` fallback branch (the only
+// one reachable without an assistantId) so the mid-turn tool-result image
+// test still observes `saveFile` receiving the data-URL bytes.
+const downloadAttachmentMock = mock(
+  async (attachment: { filename: string; previewUrl: string | null }) => {
+    if (attachment.previewUrl) {
+      const { saveFile } = await import("@/runtime/native-file");
+      await saveFile(attachment.previewUrl, attachment.filename);
+    }
+  },
+);
+mock.module(
+  "@/domains/chat/components/chat-attachments/download-attachment",
+  () => ({
+    downloadAttachment: downloadAttachmentMock,
+  }),
+);
 
 mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
   SurfaceRouter: ({ surface }: { surface: { surfaceId: string } }) => (
@@ -143,41 +167,47 @@ mock.module(
 // descriptor + id each render helper maps to, and that the transcript's
 // `onOpen`/`onStop` wiring reaches the row — without hydrating each kind's
 // store (the row's own markup is covered by `inline-process-card.test`).
-mock.module(
-  "@/domains/chat/process-registry/inline-process-card-row",
-  () => ({
-    InlineProcessCardRow: ({
-      descriptor,
-      id,
-      onOpen,
-      onStop,
-    }: {
-      descriptor: { kind: string };
-      id: string;
-      onOpen?: () => void;
-      onStop?: () => void;
-    }) => (
-      <div
-        data-testid="inline-process-card"
-        data-process-kind={descriptor.kind}
-        data-process-id={id}
-        data-has-stop={onStop ? "true" : "false"}
-      >
-        <button
-          type="button"
-          data-testid="inline-process-card-open"
-          onClick={() => onOpen?.()}
-        />
-        <button
-          type="button"
-          data-testid="inline-process-card-stop"
-          onClick={() => onStop?.()}
-        />
-      </div>
-    ),
-  }),
-);
+mock.module("@/domains/chat/process-registry/inline-process-card-row", () => ({
+  InlineProcessCardRow: ({
+    descriptor,
+    id,
+    onOpen,
+    onStop,
+  }: {
+    descriptor: { kind: string };
+    id: string;
+    onOpen?: () => void;
+    onStop?: () => void;
+  }) => (
+    <div
+      data-testid="inline-process-card"
+      data-process-kind={descriptor.kind}
+      data-process-id={id}
+      data-has-stop={onStop ? "true" : "false"}
+    >
+      <button
+        type="button"
+        data-testid="inline-process-card-open"
+        onClick={() => onOpen?.()}
+      />
+      <button
+        type="button"
+        data-testid="inline-process-card-stop"
+        onClick={() => onStop?.()}
+      />
+    </div>
+  ),
+}));
 
+// The mid-turn tool-result image strip downloads data-URL bytes through
+// `downloadAttachment`, which lazily imports the native-file bridge. Stub it so
+// clicking Download records the call without touching Capacitor / DOM anchors.
+const saveFileMock = mock(async () => {});
+mock.module("@/runtime/native-file", () => ({
+  saveFile: saveFileMock,
+}));
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
@@ -475,7 +505,12 @@ describe("TranscriptMessageBody", () => {
           role: "assistant",
           contentBlocks: [
             thinkingBlock("why I called the tool"),
-            toolUseBlock({ id: "tc-a", name: "bash", input: {}, completedAt: 1 }),
+            toolUseBlock({
+              id: "tc-a",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
             textBlock("the answer"),
           ],
           timestamp: 1_000,
@@ -601,12 +636,8 @@ describe("TranscriptMessageBody", () => {
       "[data-testid='tool-result-image']",
     );
     expect(images.length).toBe(2);
-    expect(images[0]!.getAttribute("src")).toBe(
-      "data:image/png;base64,img-a",
-    );
-    expect(images[1]!.getAttribute("src")).toBe(
-      "data:image/png;base64,img-b",
-    );
+    expect(images[0]!.getAttribute("src")).toBe("data:image/png;base64,img-a");
+    expect(images[1]!.getAttribute("src")).toBe("data:image/png;base64,img-b");
   });
 
   test("infers non-png MIME types for assistant tool-result images", () => {
@@ -638,6 +669,117 @@ describe("TranscriptMessageBody", () => {
     );
   });
 
+  test("mid-turn tool-result images are keyboard-operable and named from the tool", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-fileread",
+      name: "file_read",
+      input: { path: "/tmp/diagram.png" },
+      result: "Read 1 image",
+      imageDataList: ["img-a"],
+      completedAt: 1,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-fileread-image",
+          role: "assistant",
+          contentBlocks: [toolUseBlock(toolCall)],
+          toolCalls: [toolCall],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const image = container.querySelector("[data-testid='tool-result-image']");
+    const clickable = image?.closest("[role='button']");
+    expect(clickable).not.toBeNull();
+    // Filename mirrors the daemon's `toolNameToFilePrefix` (`file_read` →
+    // `file-read.png`), surfaced as the accessible label and download label.
+    expect(clickable!.getAttribute("aria-label")).toBe("file-read.png");
+    expect(clickable!.getAttribute("tabindex")).toBe("0");
+    const download = container.querySelector(
+      "[aria-label='Download file-read.png']",
+    );
+    expect(download).not.toBeNull();
+  });
+
+  test("clicking a mid-turn tool-result image opens the shared preview", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-open",
+      name: "media_generate_image",
+      input: { prompt: "diagram" },
+      result: "Generated 1 image",
+      imageDataList: ["img-a"],
+      completedAt: 1,
+    };
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <TranscriptMessageBody
+          message={{
+            id: "m-open-preview",
+            role: "assistant",
+            contentBlocks: [toolUseBlock(toolCall)],
+            toolCalls: [toolCall],
+            timestamp: 1_000,
+          }}
+          onSurfaceAction={noop}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(document.querySelector("[role='dialog']")).toBeNull();
+    const clickable = container
+      .querySelector("[data-testid='tool-result-image']")
+      ?.closest("[role='button']");
+    fireEvent.click(clickable!);
+
+    // The reused AttachmentPreviewModal portals into document.body.
+    const dialog = document.querySelector("[role='dialog']");
+    expect(dialog).not.toBeNull();
+    expect(dialog!.getAttribute("aria-label")).toBe(
+      "Preview of media-generate-image.png",
+    );
+  });
+
+  test("downloading a mid-turn tool-result image saves the data-URL bytes", async () => {
+    saveFileMock.mockClear();
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-dl",
+      name: "file_read",
+      input: { path: "/tmp/shot.png" },
+      result: "Read 1 image",
+      imageDataList: ["img-a"],
+      completedAt: 1,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-download-image",
+          role: "assistant",
+          contentBlocks: [toolUseBlock(toolCall)],
+          toolCalls: [toolCall],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const download = container.querySelector(
+      "[aria-label='Download file-read.png']",
+    );
+    fireEvent.click(download!);
+    await waitFor(() => {
+      expect(saveFileMock).toHaveBeenCalledWith(
+        "data:image/png;base64,img-a",
+        "file-read.png",
+      );
+    });
+  });
+
   test("a tool + thinking run still renders the boxed activity card", () => {
     // A run with more than one card item (tool + thinking) is NOT a lone tool,
     // so it stays the boxed card rather than collapsing to the inline chip.
@@ -647,7 +789,12 @@ describe("TranscriptMessageBody", () => {
           id: "m-tool-thinking",
           role: "assistant",
           contentBlocks: [
-            toolUseBlock({ id: "tc-mix", name: "bash", input: {}, completedAt: 1 }),
+            toolUseBlock({
+              id: "tc-mix",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
             thinkingBlock("reasoning about the tool"),
             textBlock("done"),
           ],
@@ -698,7 +845,12 @@ describe("TranscriptMessageBody", () => {
           contentBlocks: [
             thinkingBlock("just reasoning"),
             textBlock("answer"),
-            toolUseBlock({ id: "tc-a", name: "bash", input: {}, completedAt: 1 }),
+            toolUseBlock({
+              id: "tc-a",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
           ],
           timestamp: 1_000,
         }}
@@ -725,7 +877,10 @@ describe("TranscriptMessageBody", () => {
     const html = renderMessage({
       id: "m-think",
       role: "assistant",
-      contentBlocks: [thinkingBlock("chain of thought"), textBlock("the answer")],
+      contentBlocks: [
+        thinkingBlock("chain of thought"),
+        textBlock("the answer"),
+      ],
       timestamp: 1_000,
     });
 
@@ -896,6 +1051,161 @@ describe("TranscriptMessageBody", () => {
     expect(container.querySelector("[data-testid='attachments']")).toBeNull();
   });
 
+  test("vellum link click matches the decoded path basename for bare labels", () => {
+    downloadAttachmentMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-link",
+          role: "assistant",
+          contentBlocks: [textBlock("grab it")],
+          attachments: [
+            {
+              id: "att-enc",
+              filename: "qa shot.png",
+              mimeType: "image/png",
+              sizeBytes: 99,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // Bare label + percent-encoded path: the daemon stored the DECODED
+    // basename ("qa shot.png"), so the click must decode before matching.
+    lastVellumLinkClick?.(
+      "vellum://workspace/scratch/qa%20shot.png",
+      "desktop",
+    );
+    expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
+    expect(
+      (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
+    ).toMatchObject({ id: "att-enc" });
+  });
+
+  test("bare-label links to files sharing a basename resolve independently", () => {
+    downloadAttachmentMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-dup",
+          role: "assistant",
+          contentBlocks: [textBlock("two results")],
+          attachments: [
+            {
+              id: "att-first",
+              filename: "first.png",
+              mimeType: "image/png",
+              sizeBytes: 1,
+              previewUrl: null,
+            },
+            {
+              id: "att-second",
+              filename: "second.png",
+              mimeType: "image/png",
+              sizeBytes: 2,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    lastVellumLinkClick?.("vellum://workspace/b/result.png", "second");
+    expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
+    expect(
+      (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
+    ).toMatchObject({ id: "att-second" });
+  });
+
+  test("bare label cannot be shadowed by an unrelated attachment with that name", () => {
+    downloadAttachmentMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-shadow",
+          role: "assistant",
+          contentBlocks: [textBlock("two files")],
+          attachments: [
+            {
+              // Unrelated attachment explicitly named like the link's label.
+              id: "att-decoy",
+              filename: "desktop",
+              mimeType: "application/octet-stream",
+              sizeBytes: 1,
+              previewUrl: null,
+            },
+            {
+              // The attachment the daemon materialized for the clicked link
+              // (bare label, so stored as label + path extension).
+              id: "att-real",
+              filename: "desktop.png",
+              mimeType: "image/png",
+              sizeBytes: 2,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    lastVellumLinkClick?.(
+      "vellum://workspace/qa-delete-desktop-dialog.png",
+      "desktop",
+    );
+    expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
+    expect(
+      (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
+    ).toMatchObject({ id: "att-real" });
+  });
+
+  test("vellum link click still matches link text and raw basename", () => {
+    downloadAttachmentMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-link2",
+          role: "assistant",
+          contentBlocks: [textBlock("two links")],
+          attachments: [
+            {
+              id: "att-label",
+              filename: "report.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 10,
+              previewUrl: null,
+            },
+            {
+              id: "att-raw",
+              filename: "qa%ZZshot.png",
+              mimeType: "image/png",
+              sizeBytes: 11,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // Link text still wins when it names the attachment.
+    lastVellumLinkClick?.("vellum://workspace/out/final.pdf", "report.pdf");
+    expect(
+      (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
+    ).toMatchObject({ id: "att-label" });
+
+    // Malformed percent-encoding: decodeURIComponent throws, raw basename
+    // fallback still finds the attachment.
+    lastVellumLinkClick?.("vellum://workspace/qa%ZZshot.png", "shot");
+    expect(
+      (downloadAttachmentMock.mock.calls[1] as unknown[])[0],
+    ).toMatchObject({ id: "att-raw" });
+  });
+
   test("renders assistant attachments via the separate MessageAttachments strip", () => {
     const { container } = render(
       <TranscriptMessageBody
@@ -918,7 +1228,9 @@ describe("TranscriptMessageBody", () => {
     );
 
     // Assistant path: separate strip renders, no surface-lift bubble.
-    expect(container.querySelector("[data-testid='attachments']")).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='attachments']"),
+    ).not.toBeNull();
     expect(
       container.querySelector("[class*='bg-[var(--surface-lift)]']"),
     ).toBeNull();
@@ -990,7 +1302,12 @@ describe("TranscriptMessageBody", () => {
           role: "user",
           contentBlocks: [
             textBlock("before tool"),
-            toolUseBlock({ id: "tc-1", name: "bash", input: {}, completedAt: 1 }),
+            toolUseBlock({
+              id: "tc-1",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
             textBlock("after tool"),
           ],
         }}
@@ -1035,7 +1352,12 @@ describe("TranscriptMessageBody", () => {
           id: "u4",
           role: "user",
           contentBlocks: [
-            toolUseBlock({ id: "tc-1", name: "bash", input: {}, completedAt: 1 }),
+            toolUseBlock({
+              id: "tc-1",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
           ],
         }}
         onSurfaceAction={noop}

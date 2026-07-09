@@ -1445,6 +1445,18 @@ describe("GeminiProvider", () => {
     ).toBe("invalid_credentials");
   });
 
+  test("maps a generic project/billing setup 403 to invalid_credentials, not model_restricted", async () => {
+    // Generic setup terms (billing, not enabled, not supported) must not trip
+    // the "switch models / upgrade plan" banner — they need their own detail.
+    for (const message of [
+      "PERMISSION_DENIED: Cloud Billing has not been enabled for this project",
+      "PERMISSION_DENIED: Generative Language API has not been used in project 123 or it is not enabled",
+      "PERMISSION_DENIED: User location is not supported for the API use",
+    ]) {
+      expect(await reasonForApiError(403, message)).toBe("invalid_credentials");
+    }
+  });
+
   test("maps 404 / NOT_FOUND to model_not_found", async () => {
     expect(
       await reasonForApiError(404, "NOT_FOUND: model does not exist"),

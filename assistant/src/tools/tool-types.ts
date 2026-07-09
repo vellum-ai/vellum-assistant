@@ -184,17 +184,8 @@ export type ProxyToolResolver = (
 ) => Promise<ToolExecutionResult>;
 
 // ---------------------------------------------------------------------------
-// Tool lifecycle events
+// Permission prompt option ladders
 // ---------------------------------------------------------------------------
-
-interface ToolLifecycleEventBase {
-  toolName: string;
-  input: Record<string, unknown>;
-  workingDir: string;
-  conversationId: string;
-  requestId?: string;
-  executionTarget?: ExecutionTarget;
-}
 
 export interface AllowlistOption {
   label: string;
@@ -206,71 +197,6 @@ export interface ScopeOption {
   label: string;
   scope: string;
 }
-
-export interface ToolExecutionStartEvent extends ToolLifecycleEventBase {
-  type: "start";
-  startedAtMs: number;
-}
-
-export interface ToolPermissionPromptEvent extends ToolLifecycleEventBase {
-  type: "permission_prompt";
-  riskLevel: string;
-  /** Classifier-provided reason explaining why the risk level was assigned (bash/host_bash only). */
-  riskReason?: string;
-  reason: string;
-  allowlistOptions: AllowlistOption[];
-  scopeOptions: ScopeOption[];
-  diff?: DiffInfo;
-  persistentDecisionsAllowed?: boolean;
-}
-
-export interface ToolPermissionDeniedEvent extends ToolLifecycleEventBase {
-  type: "permission_denied";
-  riskLevel: string;
-  /** Classifier-provided reason explaining why the risk level was assigned (bash/host_bash only). */
-  riskReason?: string;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  decision: "deny" | "always_deny";
-  reason: string;
-  durationMs: number;
-}
-
-export interface ToolExecutedEvent extends ToolLifecycleEventBase {
-  type: "executed";
-  riskLevel: string;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  decision: string;
-  durationMs: number;
-  result: ToolExecutionResult;
-}
-
-export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
-  type: "error";
-  riskLevel: string;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  decision: string;
-  durationMs: number;
-  errorMessage: string;
-  isExpected: boolean;
-  /** Classifies the error for downstream consumers (audit, alerting, monitoring). */
-  errorCategory: ErrorCategory;
-  errorName?: string;
-  errorStack?: string;
-}
-
-export type ToolLifecycleEvent =
-  | ToolExecutionStartEvent
-  | ToolPermissionPromptEvent
-  | ToolPermissionDeniedEvent
-  | ToolExecutedEvent
-  | ToolExecutionErrorEvent;
-
-export type ToolLifecycleEventHandler = (
-  event: ToolLifecycleEvent,
-) => void | Promise<void>;
 
 // ---------------------------------------------------------------------------
 // Tool context
@@ -294,8 +220,6 @@ export interface ToolContext {
   onOutput?: (chunk: string) => void;
   /** Abort signal for cooperative cancellation. Tools should check this periodically. */
   signal?: AbortSignal;
-  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
-  onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools - delegates execution to an external client. */
   proxyToolResolver?: ProxyToolResolver;
   /** When set, only tools in this set may execute. Tools outside the set are blocked with an error. */
@@ -331,9 +255,9 @@ export interface ToolContext {
    * "Always Allow" rules, or non-interactive auto-approve shortcuts may
    * bypass the prompt. This flag is independently sufficient: it
    * promotes allow → prompt decisions on its own and suppresses
-   * temporary override options in the prompt UI. Used by
-   * `manage_secure_command_tool` to ensure a human reviews each secure
-   * bundle installation.
+   * temporary override options in the prompt UI. Used by the `run_workflow`
+   * launch path so a human consents to a run whose capability manifest grants
+   * side-effecting tools.
    */
   requireFreshApproval?: boolean;
   /** Approval callback for proxy policy decisions that require user confirmation. */

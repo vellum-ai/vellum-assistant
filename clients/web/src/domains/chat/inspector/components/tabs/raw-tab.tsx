@@ -1,6 +1,7 @@
-import { AlertCircle, Copy, Download, RefreshCw } from "lucide-react";
+import { AlertCircle, Download, RefreshCw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { CopyButton } from "@/domains/chat/inspector/components/copy-button";
 import { useLlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api";
 import { captureError } from "@/lib/sentry/capture-error";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
@@ -80,20 +81,15 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
             <Button
               variant="ghost"
               size="compact"
-              iconOnly
-              leftIcon={<Download size={14} aria-hidden />}
+              iconOnly={<Download aria-hidden />}
               aria-label={`Download ${pane} payload`}
               onClick={() =>
                 void downloadRawPayload(displayText, downloadFilename)
               }
             />
-            <Button
-              variant="ghost"
-              size="compact"
-              iconOnly
-              leftIcon={<Copy size={14} aria-hidden />}
-              aria-label={`Copy ${pane} payload`}
-              onClick={() => void navigator.clipboard.writeText(displayText)}
+            <CopyButton
+              text={displayText}
+              ariaLabel={`Copy ${pane} payload`}
             />
           </div>
         </div>

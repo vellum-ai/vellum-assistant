@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
+import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
@@ -150,6 +151,8 @@ export interface OpenAIChatCompletionsProviderOptions {
   coerceObjectArgsToJsonString?: boolean;
 }
 
+const log = getLogger("chat-completions");
+
 /** Wire-level reasoning_effort values. The OpenAI SDK type doesn't include
  *  `"max"`, but Fireworks accepts it for DeepSeek V4; the assignment to
  *  `params.reasoning_effort` casts through this union. */
@@ -186,6 +189,35 @@ export function clampReasoningEffort(
   return REASONING_EFFORT_RANK[value] > REASONING_EFFORT_RANK[ceiling]
     ? ceiling
     : value;
+}
+
+/**
+ * True when the request carried an explicit reasoning opt-out (`"none"` sent
+ * as flat `reasoning_effort` or nested `reasoning.effort`) and the provider
+ * rejected it with a 4xx that names the reasoning field. Reasoning-only
+ * models (e.g. DeepSeek R1) reject the opt-out rather than ignore it; that
+ * one case is worth a single retry with the reasoning params stripped —
+ * model-default reasoning beats a hard failure.
+ */
+function isReasoningOptOutRejection(error: unknown, params: unknown): boolean {
+  const p = params as {
+    reasoning_effort?: unknown;
+    reasoning?: { effort?: unknown } | null;
+  };
+  const optedOut =
+    p.reasoning_effort === "none" ||
+    (typeof p.reasoning === "object" &&
+      p.reasoning !== null &&
+      p.reasoning.effort === "none");
+  if (!optedOut) {
+    return false;
+  }
+  const status = (error as { status?: unknown }).status;
+  if (typeof status !== "number" || status < 400 || status >= 500) {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /reasoning/i.test(message);
 }
 
 /**
@@ -477,12 +509,32 @@ export class OpenAIChatCompletionsProvider implements Provider {
           ...this.requestHeaders,
           ...(usageAttributionHeaders ?? {}),
         };
-        const stream = await this.client.chat.completions.create(params, {
-          signal: timeoutSignal,
-          ...(Object.keys(requestHeaders).length > 0
-            ? { headers: requestHeaders }
-            : {}),
-        });
+        const createStream = () =>
+          this.client.chat.completions.create(params, {
+            signal: timeoutSignal,
+            ...(Object.keys(requestHeaders).length > 0
+              ? { headers: requestHeaders }
+              : {}),
+          });
+        let stream: Awaited<ReturnType<typeof createStream>>;
+        try {
+          stream = await createStream();
+        } catch (error) {
+          if (!isReasoningOptOutRejection(error, params)) {
+            throw error;
+          }
+          log.warn(
+            {
+              provider: this.name,
+              model: modelOverride ?? this.model,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            "Model rejected the explicit reasoning opt-out; retrying without reasoning params",
+          );
+          delete params.reasoning_effort;
+          delete (params as unknown as Record<string, unknown>).reasoning;
+          stream = await createStream();
+        }
 
         for await (const chunk of stream) {
           const choice = chunk.choices[0];

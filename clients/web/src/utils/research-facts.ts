@@ -20,6 +20,8 @@
  * `DisplayMessage`-bound helpers) so existing importers are unaffected.
  */
 
+import { hostMatchesDomain } from "@/utils/domains";
+
 export type ResearchConfidence = "confident" | "maybe" | "guessing";
 
 /** Optional reason a user gives when removing a claim. */
@@ -72,6 +74,44 @@ function normalizeConfidence(raw: unknown): ResearchConfidence {
 function normalizeSources(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter((s): s is string => typeof s === "string" && s.trim().length > 0);
+}
+
+/**
+ * People-search / background-check aggregators. Scraped-data directories are
+ * weak identity evidence and alarming to see cited on the card, so their URLs
+ * are stripped from every claim's sources — and a claim backed ONLY by them is
+ * dropped entirely.
+ */
+const AGGREGATOR_SOURCE_DENYLIST = [
+  "beenverified.com",
+  "checkpeople.com",
+  "clustrmaps.com",
+  "cyberbackgroundchecks.com",
+  "fastpeoplesearch.com",
+  "instantcheckmate.com",
+  "intelius.com",
+  "mylife.com",
+  "nuwber.com",
+  "peekyou.com",
+  "peoplefinders.com",
+  "peoplelooker.com",
+  "radaris.com",
+  "spokeo.com",
+  "thatsthem.com",
+  "truepeoplesearch.com",
+  "truthfinder.com",
+  "usphonebook.com",
+  "ussearch.com",
+  "whitepages.com",
+];
+
+/** True when the URL's host is (or is a subdomain of) a denylisted aggregator. */
+function isAggregatorSource(url: string): boolean {
+  const host = domainFromUrl(url);
+  if (!host) return false;
+  return AGGREGATOR_SOURCE_DENYLIST.some((domain) =>
+    hostMatchesDomain(host, domain),
+  );
 }
 
 /** Strip a (possibly unterminated) ```json fence so the body is raw JSON-ish. */
@@ -127,10 +167,21 @@ function toFact(entry: unknown): ResearchFact | null {
   if (!entry || typeof entry !== "object") return null;
   const claim = (entry as { claim?: unknown }).claim;
   if (typeof claim !== "string" || !claim.trim()) return null;
+  const rawSources = normalizeSources((entry as { sources?: unknown }).sources);
+  const sources = rawSources.filter((s) => !isAggregatorSource(s));
+  // A web-sourced claim whose every source is an aggregator has no evidence
+  // worth showing — drop it rather than render it as if it were sourceless.
+  if (rawSources.length > 0 && sources.length === 0) return null;
+  const confidence = normalizeConfidence(
+    (entry as { confidence?: unknown }).confidence,
+  );
   return {
     claim: claim.trim(),
-    confidence: normalizeConfidence((entry as { confidence?: unknown }).confidence),
-    sources: normalizeSources((entry as { sources?: unknown }).sources),
+    // Sourceless "confident" caps at "maybe" — the deterministic backstop for
+    // a model that inflates tiers past the prompt's evidence rubric.
+    confidence:
+      confidence === "confident" && sources.length === 0 ? "maybe" : confidence,
+    sources,
   };
 }
 

@@ -242,7 +242,7 @@ describe("TextSelectionPopover", () => {
 });
 
 describe("QuoteReplyBubble", () => {
-  test("renders the reply editor with only Add to Chat", async () => {
+  test("renders the reply editor with Cancel and Add to Chat", async () => {
     useQuoteReplyStore.setState({
       replyBubble: {
         quotedText:
@@ -270,12 +270,30 @@ describe("QuoteReplyBubble", () => {
     expect(quoteBlock.previousElementSibling?.className).toContain("h-5");
     expect(quoteBlock.previousElementSibling?.className).toContain("w-0.5");
     expect(
-      screen.getByRole("button", { name: "Close reply" }).getAttribute("data-slot"),
+      screen.getByRole("button", { name: "Cancel" }).getAttribute("data-slot"),
     ).toBe("button");
     expect(
       screen.getByRole("button", { name: "Add to Chat" }).getAttribute("data-slot"),
     ).toBe("button");
+    expect(screen.queryByRole("button", { name: "Close reply" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send Now" })).toBeNull();
+  });
+
+  test("Cancel dismisses the bubble without staging", async () => {
+    useQuoteReplyStore.setState({
+      replyBubble: {
+        quotedText: "quoted context",
+        sourceMessageId: "msg-1",
+        anchorRect: { top: 120, left: 180, width: 0, height: 0 },
+      },
+    });
+
+    render(<QuoteReplyBubble />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    expect(useQuoteReplyStore.getState().replyBubble).toBeNull();
+    expect(useQuoteReplyStore.getState().stagedQuotes).toHaveLength(0);
   });
 
   test("Enter stages the reply, closes the bubble, and focuses the composer", async () => {
@@ -336,5 +354,28 @@ describe("StagedQuotesStrip", () => {
     expect(
       screen.getByRole("button", { name: "Remove quote" }).getAttribute("data-slot"),
     ).toBe("button");
+  });
+
+  test("editing a staged reply updates the store", () => {
+    useQuoteReplyStore.setState({
+      stagedQuotes: [
+        {
+          id: "quote-1",
+          quotedText: "competitive research",
+          replyText: "old reply",
+          sourceMessageId: "msg-1",
+        },
+      ],
+    });
+
+    render(<StagedQuotesStrip />);
+
+    const replyField = screen.getByLabelText("Edit reply");
+    expect((replyField as HTMLTextAreaElement).value).toBe("old reply");
+    fireEvent.change(replyField, { target: { value: "a revised reply" } });
+
+    expect(useQuoteReplyStore.getState().stagedQuotes[0]?.replyText).toBe(
+      "a revised reply",
+    );
   });
 });

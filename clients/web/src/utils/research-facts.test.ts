@@ -162,6 +162,111 @@ describe("parseResearchResultStreaming — completeness signal", () => {
   });
 });
 
+describe("parseResearchResultStreaming — claim evidence guards", () => {
+  const payload = (claims: unknown[]): string =>
+    JSON.stringify({ claims, suggestions: [] });
+
+  test("downgrades a sourceless confident claim to maybe", () => {
+    const { claims } = parseResearchResultStreaming(
+      payload([{ claim: "Founder", confidence: "confident", sources: [] }]),
+    );
+
+    expect(claims).toEqual([
+      { claim: "Founder", confidence: "maybe", sources: [] },
+    ]);
+  });
+
+  test("keeps confident when real sources are attached", () => {
+    const { claims } = parseResearchResultStreaming(
+      payload([
+        {
+          claim: "Founder",
+          confidence: "confident",
+          sources: ["https://linkedin.com/in/example-user"],
+        },
+      ]),
+    );
+
+    expect(claims[0]?.confidence).toBe("confident");
+  });
+
+  test("leaves sourceless maybe and guessing tiers untouched", () => {
+    const { claims } = parseResearchResultStreaming(
+      payload([
+        { claim: "Based in Boulder", confidence: "maybe", sources: [] },
+        { claim: "Into climbing", confidence: "guessing", sources: [] },
+      ]),
+    );
+
+    expect(claims.map((c) => c.confidence)).toEqual(["maybe", "guessing"]);
+  });
+
+  test("drops a claim backed only by people-search aggregators", () => {
+    const { claims } = parseResearchResultStreaming(
+      payload([
+        {
+          claim: "Lives in Dallas",
+          confidence: "confident",
+          sources: [
+            "https://www.spokeo.com/example-user",
+            "https://profiles.beenverified.com/example-user",
+          ],
+        },
+        {
+          claim: "Founder",
+          confidence: "confident",
+          sources: ["https://linkedin.com/in/example-user"],
+        },
+      ]),
+    );
+
+    expect(claims).toEqual([
+      {
+        claim: "Founder",
+        confidence: "confident",
+        sources: ["https://linkedin.com/in/example-user"],
+      },
+    ]);
+  });
+
+  test("strips aggregator URLs from a mixed source list, keeping the claim", () => {
+    const { claims } = parseResearchResultStreaming(
+      payload([
+        {
+          claim: "Engineer at Acme",
+          confidence: "confident",
+          sources: [
+            "https://instantcheckmate.com/example-user",
+            "https://acme.example.com/team",
+          ],
+        },
+      ]),
+    );
+
+    expect(claims).toEqual([
+      {
+        claim: "Engineer at Acme",
+        confidence: "confident",
+        sources: ["https://acme.example.com/team"],
+      },
+    ]);
+  });
+
+  test("guards apply on the streaming path too", () => {
+    // Claims surface mid-stream through the same mapper, so a half-delivered
+    // payload must never flash an aggregator-only claim before settling.
+    const partial =
+      '{ "claims": [ { "claim": "Lives in Dallas", "confidence": "confident", "sources": ["https://spokeo.com/x"] }, { "claim": "Founder", "confidence": "confident", "sources": [] }, { "claim": "half-writ';
+
+    const { claims, complete } = parseResearchResultStreaming(partial);
+
+    expect(complete).toBe(false);
+    expect(claims).toEqual([
+      { claim: "Founder", confidence: "maybe", sources: [] },
+    ]);
+  });
+});
+
 describe("pluginDisplayName", () => {
   test("title-cases a hyphenated install name", () => {
     expect(pluginDisplayName("marketing-expert")).toBe("Marketing Expert");

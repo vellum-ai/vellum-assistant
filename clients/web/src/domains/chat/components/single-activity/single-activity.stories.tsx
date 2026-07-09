@@ -55,9 +55,9 @@ export const Thinking: Story = {
 };
 
 /**
- * Streaming — the link owns the loading state: the brain glyph is swapped for
- * the shared three-dot indicator and the label reads "Thinking". It stays
- * clickable so the reasoning-so-far opens in the drawer mid-stream.
+ * Streaming — the link owns the loading state: the label (the live reasoning
+ * preview) renders through the avatar-tinted `StreamingShimmerText` sweep. It
+ * stays clickable so the reasoning-so-far opens in the drawer mid-stream.
  */
 export const ThinkingStreaming: Story = {
   args: {
@@ -70,7 +70,7 @@ export const ThinkingStreaming: Story = {
 /**
  * Streaming, before any reasoning text has landed. The link still renders (so
  * it can be the single thinking affordance from the very start of the turn) —
- * dots + "Thinking", with an empty drawer until content arrives.
+ * a shimmering "Thinking", with an empty drawer until content arrives.
  */
 export const ThinkingStreamingEmpty: Story = {
   args: {
@@ -242,8 +242,7 @@ export const WebSearchExpanded: Story = {
 };
 
 /**
- * Loading — the leading glyph becomes the shared three-dot indicator while the
- * search is in flight.
+ * Loading — the "Web Search" label shimmers while the search is in flight.
  */
 export const WebSearchLoading: Story = {
   args: {

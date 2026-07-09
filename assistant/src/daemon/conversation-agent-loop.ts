@@ -27,9 +27,12 @@ import {
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
 import {
+  isOverrideOrDefaultResolutionEnabled,
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
+  resolveEffectiveProfileKey,
   resolveProfilelessModelKey,
+  selectWinningProfile,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -64,6 +67,10 @@ import { enqueueAutoAnalysisOnCompaction } from "../runtime/services/auto-analys
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
+import {
+  emitToolProfilingSummary,
+  startToolProfilingRequest,
+} from "../tools/tool-profiler.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
@@ -400,6 +407,42 @@ export async function runAgentLoopImpl(
   const readCurrentOverrideProfile = (): string | undefined =>
     options?.overrideProfile ?? resolveOverrideProfile(ctx);
 
+  // Best-effort attribution for error classification: names the resolved
+  // connection and profile so credential/connection errors point at the
+  // exact slot to fix instead of a generic banner. Resolution can itself
+  // throw on a broken config — attribution must never mask the real error.
+  const turnErrorAttribution = (): {
+    connectionName?: string;
+    profileName?: string;
+  } => {
+    try {
+      const overrideProfile = readCurrentOverrideProfile();
+      const resolveOpts = {
+        overrideProfile,
+        forceOverrideProfile,
+        selectionSeed: ctx.conversationId,
+      };
+      const resolved = resolveCallSiteConfig(
+        turnCallSite,
+        config.llm,
+        resolveOpts,
+      );
+      const profileName = resolveEffectiveProfileKey(
+        turnCallSite,
+        config.llm,
+        resolveOpts,
+      );
+      return {
+        ...(resolved.provider_connection
+          ? { connectionName: resolved.provider_connection }
+          : {}),
+        ...(profileName ? { profileName } : {}),
+      };
+    } catch {
+      return {};
+    }
+  };
+
   const effectiveContextWindow = resolveEffectiveContextWindow({
     llm: config.llm,
     callSite: turnCallSite,
@@ -409,11 +452,23 @@ export async function runAgentLoopImpl(
   });
   let currentEffectiveContextWindow: EffectiveContextWindow =
     effectiveContextWindow;
+  const logResolutionFallback = (info: {
+    callSite: string;
+    requested: string;
+    reason: string;
+  }) => {
+    rlog.warn(
+      { ...info, conversationId: ctx.conversationId },
+      "Inference profile fell back to the call-site default",
+    );
+  };
+
   let currentContextWindowConfig = contextWindowConfigFromEffective(
     resolveCallSiteConfig(turnCallSite, config.llm, {
       overrideProfile: turnOverrideProfile ?? undefined,
       forceOverrideProfile,
       selectionSeed: ctx.conversationId,
+      onResolutionFallback: logResolutionFallback,
     }).contextWindow,
     currentEffectiveContextWindow,
   );
@@ -434,6 +489,7 @@ export async function runAgentLoopImpl(
         resolveCallSiteConfig(turnCallSite, config.llm, {
           overrideProfile: currentOverrideProfile,
           forceOverrideProfile,
+          onResolutionFallback: logResolutionFallback,
           selectionSeed: ctx.conversationId,
         }).contextWindow,
         currentEffectiveContextWindow,
@@ -562,7 +618,7 @@ export async function runAgentLoopImpl(
   ctx.lastAssistantAttachments = [];
   ctx.lastAttachmentWarnings = [];
 
-  ctx.profiler.startRequest();
+  startToolProfilingRequest(ctx.conversationId);
   let turnStarted = false;
   const state = createEventHandlerState();
   let persistedErrorAssistantMessage = false;
@@ -876,10 +932,21 @@ export async function runAgentLoopImpl(
     // `modelProfileKey` is the actual profile used for this turn. The
     // notice key is narrower: it only marks turns where runtime context should
     // remind the model that the profile changed.
+    // Under override-or-default semantics the reported key must come from
+    // the same winner selection dispatch used — a hand-rolled chain would
+    // credit profiles the resolver never consulted (e.g. activeProfile on a
+    // non-mainAgent turn).
     const effectiveProfileKey =
-      turnOverrideProfile ??
-      config.llm.activeProfile ??
-      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      (isOverrideOrDefaultResolutionEnabled()
+        ? selectWinningProfile(turnCallSite, config.llm, {
+            ...(turnOverrideProfile != null
+              ? { overrideProfile: turnOverrideProfile }
+              : {}),
+            selectionSeed: ctx.conversationId,
+          }).profileName
+        : (turnOverrideProfile ??
+          config.llm.activeProfile ??
+          resolveDefaultProfileKey("mainAgent", config.llm))) ??
       resolveProfilelessModelKey(turnCallSite, config.llm, {
         ...(turnOverrideProfile != null
           ? { overrideProfile: turnOverrideProfile }
@@ -1506,7 +1573,10 @@ export async function runAgentLoopImpl(
         requestId: reqId,
       });
       rlog.error({ err }, "Conversation processing error");
-      const classified = classifyConversationError(err, errorCtx);
+      const classified = classifyConversationError(err, {
+        ...errorCtx,
+        ...turnErrorAttribution(),
+      });
       if (!turnReplied) {
         abnormalOutcome = { outcome: "failed", failureCode: classified.code };
       }
@@ -1554,7 +1624,7 @@ export async function runAgentLoopImpl(
       void writeRelationshipState().catch(() => {});
     }
 
-    ctx.profiler.emitSummary(reqId);
+    emitToolProfilingSummary(ctx.conversationId, reqId);
 
     // Tear down this turn's per-turn state. Abort reliably drives the loop to
     // this `finally` within a bounded time — cooperative signal propagation

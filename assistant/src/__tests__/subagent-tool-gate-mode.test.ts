@@ -181,13 +181,7 @@ const noopSecretPrompter = {
 } as unknown as SecretPrompter;
 
 function makeToolFn(executor: ToolExecutor, ctx: ToolSetupContext) {
-  return createToolExecutor(
-    executor,
-    noopPrompter,
-    noopSecretPrompter,
-    ctx,
-    () => {},
-  );
+  return createToolExecutor(executor, noopPrompter, noopSecretPrompter, ctx);
 }
 
 // ---------------------------------------------------------------------------

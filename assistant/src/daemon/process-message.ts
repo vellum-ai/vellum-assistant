@@ -5,6 +5,8 @@
  * it through DI. The DaemonServer methods delegate here.
  */
 
+import { v7 as uuidv7 } from "uuid";
+
 import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import {
   createAssistantMessage,
@@ -375,8 +377,8 @@ export async function processMessage(
       "user",
       serializePersistedUserMessageContent(
         content,
-        attachments,
         options?.displayContent,
+        attachments,
       ),
       { metadata: userMetaWithSlack },
     );
@@ -468,8 +470,8 @@ export async function processMessage(
       "user",
       serializePersistedUserMessageContent(
         content,
-        attachments,
         options?.displayContent,
+        attachments,
       ),
       { metadata: compactUserMeta },
     );
@@ -523,8 +525,8 @@ export async function processMessage(
       "user",
       serializePersistedUserMessageContent(
         content,
-        attachments,
         options?.displayContent,
+        attachments,
       ),
       { metadata: cleanUserMeta },
     );
@@ -549,7 +551,7 @@ export async function processMessage(
 
   const resolvedContent = slashResult.content;
 
-  const requestId = crypto.randomUUID();
+  const requestId = uuidv7();
   const persistMetadata = options?.slackInbound
     ? { slackInbound: options.slackInbound }
     : undefined;
@@ -615,7 +617,7 @@ export async function processMessageInBackground(
   );
   const emitEvent = buildEventEmitter(options?.onEvent);
 
-  const requestId = crypto.randomUUID();
+  const requestId = uuidv7();
   const persistMetadata = options?.slackInbound
     ? { slackInbound: options.slackInbound }
     : undefined;

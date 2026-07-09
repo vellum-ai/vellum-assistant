@@ -64,6 +64,16 @@ export const conversations = sqliteTable(
      */
     processingStartedAt: integer("processing_started_at"),
     /**
+     * Count of consecutive startup auto-resume attempts for this
+     * conversation's interrupted turn. Incremented by the startup reconciler
+     * when it wakes a conversation whose `processing_started_at` survived the
+     * previous process; reset to 0 whenever a turn ends cleanly. Caps
+     * resume-loops for turns that repeatedly take the process down.
+     */
+    processingResumeAttempts: integer("processing_resume_attempts")
+      .notNull()
+      .default(0),
+    /**
      * Highest stream `seq` whose content is durably persisted to this
      * conversation's message rows. Seeded with the global high-water seq when
      * the row is inserted and advanced on each persistence flush

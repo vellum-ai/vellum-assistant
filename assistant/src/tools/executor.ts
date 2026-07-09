@@ -2,13 +2,15 @@ import { readFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
 import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
-import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
-import { isUntrustedShellLockdownActive } from "../runtime/effective-capabilities.js";
-import { redactSensitiveFields } from "../security/redaction.js";
 import { getCesClient } from "../security/secure-keys.js";
 import { TokenExpiredError } from "../security/token-manager.js";
+import {
+  recordToolDenied,
+  recordToolError,
+  recordToolExecuted,
+} from "../telemetry/tool-audit.js";
 import { type AbortReason, isAbortReason } from "../util/abort-reasons.js";
 import { PermissionDeniedError, ToolError } from "../util/errors.js";
 import { pathExists, safeStatSync } from "../util/fs.js";
@@ -18,22 +20,16 @@ import {
   manifestGrantsSideEffects,
 } from "../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
-import { resolveExecutionTarget } from "./execution-target.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
 import { PermissionChecker } from "./permission-checker.js";
-import { getTool } from "./registry.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
 import { applyEdit } from "./shared/filesystem/edit-engine.js";
 import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
 import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
 import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
-import {
-  stringifyToolInput,
-  type ToolContext,
-  type ToolExecutionResult,
-  type ToolLifecycleEvent,
-} from "./types.js";
+import { recordToolCompletion } from "./tool-profiler.js";
+import { type ToolContext, type ToolExecutionResult } from "./types.js";
 
 const log = getLogger("tool-executor");
 
@@ -84,33 +80,21 @@ export class ToolExecutor {
     let permApprovalMode: string | undefined;
     let permApprovalReason: string | undefined;
     let permRiskThreshold: string | undefined;
-    // Registered tools have `executionTarget` stamped at load time; the
-    // `resolveExecutionTarget` fallback only fires for unknown tools (the
-    // executor's name-aliased lookup can race against late registration).
-    const executionTarget =
-      getTool(name)?.executionTarget ?? resolveExecutionTarget({ name });
-
-    emitLifecycleEvent(context, {
-      type: "start",
-      toolName: name,
-      executionTarget,
-      input,
-      workingDir: context.workingDir,
-      conversationId: context.conversationId,
-      requestId: context.requestId,
-      startedAtMs: startTime,
-    });
-
+    // Whether THIS invocation was interactively prompted. Distinct from the
+    // turn-level `context.approvedViaPrompt` (seeded from
+    // `approvedViaPromptThisTurn`, which stays true for later auto-approved
+    // tools in the same turn): the `permission_decided` telemetry must reflect
+    // a prompt for this specific call, not any prompt earlier in the turn.
+    let wasPromptedThisInvocation = false;
     // Run pre-execution approval gates (abort, guardian policy,
-    // allowed-tool-set, task-run preflight, tool registry lookup).
+    // allowed-tool-set, task-run preflight, tool registry lookup). The gate
+    // resolves the tool's sandbox/host target internally.
     const gateResult = await this.approvalHandler.checkPreExecutionGates(
       name,
       input,
       context,
-      executionTarget,
       riskLevel,
       startTime,
-      (event) => emitLifecycleEvent(context, event),
     );
 
     if (!gateResult.allowed) {
@@ -120,32 +104,6 @@ export class ToolExecutor {
     const tool = gateResult.tool;
 
     try {
-      // CES shell lockdown: set forcePromptSideEffects BEFORE both the
-      // grantConsumed short-circuit and the permission check. This ensures
-      // the flag is visible to all downstream consumers regardless of
-      // whether a scoped grant was consumed. Previously this was nested
-      // inside the `!grantConsumed` block, meaning untrusted host_bash
-      // calls that arrived with a consumed guardian-approval grant would
-      // skip this assignment entirely - defeating the lockdown.
-      if (
-        name === "host_bash" &&
-        isUntrustedShellLockdownActive({
-          trustClass: context.trustClass,
-          lockdownEnabled: isCesShellLockdownEnabled(getConfig()),
-        })
-      ) {
-        context.forcePromptSideEffects = true;
-      }
-
-      // Secure command tool installation always requires fresh per-invocation
-      // approval - no persistent grants. This is unconditional (not gated on
-      // CES lockdown or trust class) because installing secure tools is
-      // inherently high-impact.
-      if (name === "manage_secure_command_tool") {
-        context.forcePromptSideEffects = true;
-        context.requireFreshApproval = true;
-      }
-
       // A workflow run whose capability manifest grants side-effecting tools or
       // host functions (beyond the read-only baseline) must prompt at LAUNCH.
       // The manifest is authored and declared by the model, and the run's
@@ -223,8 +181,6 @@ export class ToolExecutor {
           input,
           tool,
           context,
-          executionTarget,
-          (event) => emitLifecycleEvent(context, event),
           startTime,
           computePreviewDiff,
         );
@@ -256,6 +212,7 @@ export class ToolExecutor {
 
         if (permResult.wasPrompted) {
           context.approvedViaPrompt = true;
+          wasPromptedThisInvocation = true;
         }
       } else {
         // Grant consumed — permission check was skipped. Set provenance explicitly
@@ -285,22 +242,19 @@ export class ToolExecutor {
       if (execResult.cesApprovalRequired && !cesClient) {
         const msg = `CES approval required for "${name}" but no CES client is available. Ensure the Credential Execution Service is running.`;
         const durationMs = Date.now() - startTime;
-        emitLifecycleEvent(context, {
-          type: "error",
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
+        recordToolError({
           conversationId: context.conversationId,
           requestId: context.requestId,
-          riskLevel,
-          matchedTrustRuleId: permMatchedTrustRuleId,
-          decision: "error",
-          durationMs,
+          toolName: name,
+          input,
           errorMessage: msg,
           isExpected: true,
-          errorCategory: "tool_failure",
+          riskLevel,
+          matchedTrustRuleId: permMatchedTrustRuleId,
+          durationMs,
+          attribution: context.attribution ?? null,
         });
+        recordToolCompletion(context.conversationId, name, durationMs, true);
         return { content: msg, isError: true };
       }
       if (execResult.cesApprovalRequired && cesClient) {
@@ -344,41 +298,34 @@ export class ToolExecutor {
               ? `CES approval timed out for "${name}". The tool was not executed.`
               : `CES approval denied for "${name}". The tool was not executed.`;
           const durationMs = Date.now() - startTime;
-          emitLifecycleEvent(context, {
-            type: "permission_denied",
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
+          recordToolDenied({
             conversationId: context.conversationId,
-            requestId: context.requestId,
+            toolName: name,
+            input,
+            reason: denialReason,
             riskLevel,
             matchedTrustRuleId: permMatchedTrustRuleId,
-            decision: "deny",
-            reason: denialReason,
             durationMs,
+            wasPrompted: false,
           });
           return { content: denialReason, isError: true };
         } else {
           // bridgeResult.outcome === "error"
           const errorMsg = `CES approval bridge error for "${name}": ${bridgeResult.message}`;
           const durationMs = Date.now() - startTime;
-          emitLifecycleEvent(context, {
-            type: "error",
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
+          recordToolError({
             conversationId: context.conversationId,
             requestId: context.requestId,
-            riskLevel,
-            matchedTrustRuleId: permMatchedTrustRuleId,
-            decision: "error",
-            durationMs,
+            toolName: name,
+            input,
             errorMessage: errorMsg,
             isExpected: true,
-            errorCategory: "tool_failure",
+            riskLevel,
+            matchedTrustRuleId: permMatchedTrustRuleId,
+            durationMs,
+            attribution: context.attribution ?? null,
           });
+          recordToolCompletion(context.conversationId, name, durationMs, true);
           return { content: errorMsg, isError: true };
         }
       }
@@ -387,9 +334,8 @@ export class ToolExecutor {
       // extraction below strips directives and swaps raw values for
       // placeholders, which changes the content length, and telemetry must
       // report the true payload size. Only the size leaves the device,
-      // never the payload. Stamped here (not centrally in
-      // emitLifecycleEvent) because only this site sees the content before
-      // extractAndSanitize() rewrites it.
+      // never the payload. Measured here because only this site sees the
+      // content before extractAndSanitize() rewrites it.
       const rawResultBytes = Buffer.byteLength(execResult.content, "utf8");
 
       // Sensitive output extraction: strip directives, replace raw values
@@ -406,25 +352,27 @@ export class ToolExecutor {
       }
 
       const durationMs = Date.now() - startTime;
-      // Strip sensitiveBindings from lifecycle event to prevent raw values leaking
+      // Strip sensitiveBindings before auditing to prevent raw values leaking.
       const { sensitiveBindings: _sb, ...safeResult } = execResult;
-      emitLifecycleEvent(context, {
-        type: "executed",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
+      recordToolExecuted({
         conversationId: context.conversationId,
-        requestId: context.requestId,
+        toolName: name,
+        input,
+        resultContent: safeResult.content,
+        resultBytes: rawResultBytes,
+        decision,
         riskLevel,
         matchedTrustRuleId: permMatchedTrustRuleId,
-        approvalMode: permApprovalMode,
-        approvalReason: permApprovalReason,
-        decision,
         durationMs,
-        result: safeResult,
-        resultBytes: rawResultBytes,
+        attribution: context.attribution ?? null,
+        wasPrompted: wasPromptedThisInvocation,
       });
+      recordToolCompletion(
+        context.conversationId,
+        name,
+        durationMs,
+        safeResult.isError,
+      );
 
       // Merge risk metadata from the classifier assessment cache onto the
       // tool result so downstream consumers (AgentEvent → handleToolResult →
@@ -490,34 +438,21 @@ export class ToolExecutor {
         err instanceof ToolError ||
         err instanceof TokenExpiredError;
 
-      const errorCategory = isAbort
-        ? ("tool_failure" as const)
-        : err instanceof PermissionDeniedError
-          ? ("permission_denied" as const)
-          : err instanceof TokenExpiredError
-            ? ("auth" as const)
-            : err instanceof ToolError
-              ? ("tool_failure" as const)
-              : ("unexpected" as const);
-
-      emitLifecycleEvent(context, {
-        type: "error",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
+      recordToolError({
         conversationId: context.conversationId,
         requestId: context.requestId,
-        riskLevel,
-        matchedTrustRuleId: permMatchedTrustRuleId,
-        decision: "error",
-        durationMs,
+        toolName: name,
+        input,
         errorMessage: msg,
         isExpected,
-        errorCategory,
         errorName: err instanceof Error ? err.name : undefined,
         errorStack: err instanceof Error ? err.stack : undefined,
+        riskLevel,
+        matchedTrustRuleId: permMatchedTrustRuleId,
+        durationMs,
+        attribution: context.attribution ?? null,
       });
+      recordToolCompletion(context.conversationId, name, durationMs, true);
 
       if (isExpected) {
         return { content: msg, isError: true };
@@ -620,67 +555,6 @@ export function computePerToolTimeoutMs(
 }
 
 /**
- * Sanitize tool inputs before they are emitted in lifecycle events.
- * Applies recursive field-level redaction for known-sensitive keys.
- */
-function sanitizeToolInput(
-  _toolName: string,
-  input: Record<string, unknown>,
-): Record<string, unknown> {
-  return redactSensitiveFields(input);
-}
-
-function emitLifecycleEvent(
-  context: ToolContext,
-  event: ToolLifecycleEvent,
-): void {
-  const handler = context.onToolLifecycleEvent;
-  if (!handler) return;
-
-  // Redact sensitive fields from tool inputs before they reach audit listeners
-  const sanitizedEvent = {
-    ...event,
-    input: sanitizeToolInput(event.toolName, event.input),
-  };
-
-  // Stamp telemetry fields centrally so every executed/error event carries
-  // them — including the pre-execution gate failures (aborted, disk
-  // pressure, unknown/inactive tool) emitted from checkPreExecutionGates(),
-  // whose emission sites don't have to remember to copy them. This is the
-  // sole writer of both fields. (`resultBytes` is the exception: it is
-  // stamped at the executed emission site in executeInternal, the only
-  // place that sees the result content before sensitive-output extraction
-  // rewrites it; the spread above passes it through untouched.)
-  if (sanitizedEvent.type === "executed" || sanitizedEvent.type === "error") {
-    sanitizedEvent.attribution = context.attribution ?? null;
-    // Sized from the RAW pre-sanitization input — redaction changes the
-    // serialized length, and telemetry must report the true payload size.
-    // Only the size leaves the device, never the payload.
-    sanitizedEvent.inputBytes = Buffer.byteLength(
-      stringifyToolInput(event.input),
-      "utf8",
-    );
-  }
-
-  try {
-    const maybePromise = handler(sanitizedEvent as ToolLifecycleEvent);
-    if (maybePromise) {
-      void maybePromise.catch((err) => {
-        log.warn(
-          { err, eventType: event.type, toolName: event.toolName },
-          "Tool lifecycle event handler failed (non-fatal, tool execution was not affected)",
-        );
-      });
-    }
-  } catch (err) {
-    log.warn(
-      { err, eventType: event.type, toolName: event.toolName },
-      "Tool lifecycle event handler failed (non-fatal, tool execution was not affected)",
-    );
-  }
-}
-
-/**
  * Compute a preview diff for file tools so the confirmation prompt can show
  * what will change. Returns undefined for non-file tools or on any error.
  */
@@ -700,16 +574,22 @@ function computePreviewDiff(
     if (toolName === "file_write") {
       const rawPath = input.path as string;
       const content = input.content as string;
-      if (!rawPath || typeof content !== "string") return undefined;
+      if (!rawPath || typeof content !== "string") {
+        return undefined;
+      }
       const pathCheck = sandboxPolicy(rawPath, workingDir, {
         mustExist: false,
       });
-      if (!pathCheck.ok) return undefined;
+      if (!pathCheck.ok) {
+        return undefined;
+      }
       const filePath = pathCheck.resolved;
       const isNewFile = !pathExists(filePath);
       if (!isNewFile) {
         const stat = safeStatSync(filePath);
-        if (!stat || stat.size > MAX_FILE_SIZE_BYTES) return undefined;
+        if (!stat || stat.size > MAX_FILE_SIZE_BYTES) {
+          return undefined;
+        }
       }
       const oldContent = isNewFile ? "" : readFileSync(filePath, "utf-8");
       return { filePath, oldContent, newContent: content, isNewFile };
@@ -724,18 +604,27 @@ function computePreviewDiff(
         typeof oldString !== "string" ||
         typeof newString !== "string" ||
         oldString.length === 0
-      )
+      ) {
         return undefined;
+      }
       const pathCheck = sandboxPolicy(rawPath, workingDir);
-      if (!pathCheck.ok) return undefined;
+      if (!pathCheck.ok) {
+        return undefined;
+      }
       const filePath = pathCheck.resolved;
       const stat = safeStatSync(filePath);
-      if (!stat) return undefined;
-      if (stat.size > MAX_FILE_SIZE_BYTES) return undefined;
+      if (!stat) {
+        return undefined;
+      }
+      if (stat.size > MAX_FILE_SIZE_BYTES) {
+        return undefined;
+      }
       const content = readFileSync(filePath, "utf-8");
       const replaceAll = input.replace_all === true;
       const result = applyEdit(content, oldString, newString, replaceAll);
-      if (!result.ok) return undefined;
+      if (!result.ok) {
+        return undefined;
+      }
       return {
         filePath,
         oldContent: content,

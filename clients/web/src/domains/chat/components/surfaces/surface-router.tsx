@@ -16,6 +16,7 @@ import { FileUploadSurface } from "@/domains/chat/components/surfaces/file-uploa
 import { FormSurface } from "@/domains/chat/components/surfaces/form-surface";
 import { ListSurface } from "@/domains/chat/components/surfaces/list-surface";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
+import { SkillCreatedCard } from "@/domains/chat/components/surfaces/skill-created-card";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { TableSurface } from "@/domains/chat/components/surfaces/table-surface";
 import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface";
@@ -131,6 +132,9 @@ export function SurfaceRouter({
           onOpenDocument={onOpenDocument}
         />
       );
+
+    case "skill_card":
+      return <SkillCreatedCard surface={surface} onAction={onAction} />;
 
     default:
       // Fallback card for unsupported surface types

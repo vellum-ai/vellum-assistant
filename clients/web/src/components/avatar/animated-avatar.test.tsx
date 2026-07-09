@@ -1,6 +1,6 @@
 /**
  * Regression test for the "stuck blink" bug: a blink is a
- * `setIsBlinking(true)` → 150ms → `false` pair, and if `isStreaming` flips
+ * `setIsBlinking(true)` → 150ms → `false` pair, and if `isAssistantBusy` flips
  * true mid-blink the effect cleanup cancels the pending "un-blink" timeout.
  * Without the streaming guard the eyes freeze squished (scaleY 0.1) until the
  * component remounts (page refresh / conversation switch).
@@ -55,7 +55,7 @@ describe("AnimatedAvatar blink", () => {
         components={BUNDLED_COMPONENTS}
         traits={TRAITS}
         size={56}
-        isStreaming={false}
+        isAssistantBusy={false}
       />,
     );
 
@@ -75,7 +75,7 @@ describe("AnimatedAvatar blink", () => {
         components={BUNDLED_COMPONENTS}
         traits={TRAITS}
         size={56}
-        isStreaming
+        isAssistantBusy
       />,
     );
     expect(eyeTransform(container)).toBe("scaleY(1)");

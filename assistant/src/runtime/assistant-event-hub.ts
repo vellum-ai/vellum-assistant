@@ -40,7 +40,6 @@ export function capabilityForMessageType(
   return HOST_PREFIX_TO_CAPABILITY[stem];
 }
 import { appendEventToStream } from "../signals/event-stream.js";
-import { IntegrityError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantEvent } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
@@ -596,13 +595,6 @@ export function broadcastMessage(
   const targetClientId = options?.targetClientId;
   const targetInterfaceId = options?.targetInterfaceId;
 
-  // Confirmation-request side effects: canonical guardian request creation.
-  // The home-feed `activity.failed` notification side-effect lives in the
-  // notifications pipeline now, so we no longer emit a feed event here.
-  if (msg.type === "confirmation_request" && resolvedConversationId) {
-    void createCanonicalRequestForConfirmation(msg, resolvedConversationId);
-  }
-
   // `conversation_list_invalidated` is a list-level system event — publish
   // it unscoped so every subscriber refreshes its sidebar.
   const scopedConversationId =
@@ -679,101 +671,4 @@ function extractConversationId(msg: ServerMessage): string | undefined {
     return record.conversationId as string;
   }
   return undefined;
-}
-
-// ── Canonical guardian request ────────────────────────────────────────────────
-
-function resolveCanonicalRequestSourceType(
-  sourceChannel: string,
-): "desktop" | "channel" | "voice" {
-  if (sourceChannel === "phone") return "voice";
-  if (sourceChannel === "vellum") return "desktop";
-  return "channel";
-}
-
-/**
- * Lazily load heavy dependencies and create a canonical guardian request +
- * bridge for a confirmation_request message. Called fire-and-forget from
- * broadcastMessage.
- */
-async function createCanonicalRequestForConfirmation(
-  msg: ServerMessage & { type: "confirmation_request" },
-  conversationId: string,
-): Promise<void> {
-  try {
-    const [
-      { findConversation },
-      { createCanonicalGuardianRequest, generateCanonicalRequestCode },
-      { redactSecrets },
-      { summarizeToolInput },
-      { DAEMON_INTERNAL_ASSISTANT_ID },
-      { bridgeConfirmationRequestToGuardian },
-    ] = await Promise.all([
-      import("../daemon/conversation-registry.js"),
-      import("../contacts/canonical-guardian-store.js"),
-      import("../security/secret-scanner.js"),
-      import("../tools/tool-input-summary.js"),
-      import("./assistant-scope.js"),
-      import("./confirmation-request-guardian-bridge.js"),
-    ]);
-
-    const conversation = findConversation(conversationId);
-    const trustContext = conversation?.trustContext;
-    const sourceChannel = trustContext?.sourceChannel ?? "vellum";
-    const inputRecord = msg.input as Record<string, unknown>;
-    const activityRaw =
-      (typeof inputRecord.activity === "string"
-        ? inputRecord.activity
-        : undefined) ??
-      (typeof inputRecord.reason === "string" ? inputRecord.reason : undefined);
-    const canonicalRequest = createCanonicalGuardianRequest({
-      id: msg.requestId,
-      kind: "tool_approval",
-      sourceType: resolveCanonicalRequestSourceType(sourceChannel),
-      sourceChannel,
-      conversationId,
-      requesterExternalUserId: trustContext?.requesterExternalUserId,
-      requesterChatId: trustContext?.requesterChatId,
-      guardianExternalUserId: trustContext?.guardianExternalUserId,
-      guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
-      toolName: msg.toolName,
-      commandPreview:
-        redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
-        undefined,
-      riskLevel: msg.riskLevel,
-      activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
-      executionTarget: msg.executionTarget,
-      status: "pending",
-      requestCode: generateCanonicalRequestCode(),
-      expiresAt: Date.now() + 5 * 60 * 1000,
-    });
-
-    if (trustContext && conversation) {
-      await bridgeConfirmationRequestToGuardian({
-        canonicalRequest,
-        trustContext,
-        conversationId,
-        toolName: msg.toolName,
-        assistantId: conversation.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-      });
-    }
-  } catch (err) {
-    if (err instanceof IntegrityError) {
-      // The confirmation could not be promoted to a canonical guardian request
-      // (e.g. its trust context resolved no guardianPrincipalId). Channel
-      // guardian decisions — reactions, buttons, and text — all route through
-      // the canonical pipeline, so without this record none of them can resolve
-      // the confirmation. Surface it rather than swallowing: for a guardian's
-      // own confirmation a bound principal should always be present.
-      log.warn(
-        { err, conversationId, requestId: msg.requestId },
-        "Could not create canonical guardian request for confirmation; channel guardian decisions will not work for it",
-      );
-    } else {
-      log.debug(
-        { err, conversationId },
-        "Failed to create canonical request from broadcast",
-      );
-    }
-  }
 }

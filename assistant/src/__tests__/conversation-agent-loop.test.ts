@@ -89,7 +89,29 @@ mock.module("../config/loader.js", () => ({
         },
       },
       profiles: mockLlmProfiles,
-      callSites: {},
+      // The call-site tweak applies under BOTH resolution semantics (the
+      // legacy cascade layers it over llm.default; override-or-default
+      // applies it over the winner), so the small context window that the
+      // overflow/compaction tests depend on holds regardless of the
+      // override-or-default-resolution flag.
+      callSites: {
+        mainAgent: {
+          contextWindow: {
+            enabled: true,
+            maxInputTokens: 100000,
+            targetBudgetRatio: 0.3,
+            compactThreshold: 0.8,
+            summaryBudgetRatio: 0.05,
+            overflowRecovery: {
+              enabled: true,
+              safetyMarginRatio: 0.05,
+              maxAttempts: 3,
+              interactiveLatestTurnCompression: "summarize",
+              nonInteractiveLatestTurnCompression: "truncate",
+            },
+          },
+        },
+      },
       activeProfile: mockLlmActiveProfile,
       pricingOverrides: [],
     },
@@ -140,7 +162,9 @@ const runMockReducer = async (
   cfg: unknown,
   state: unknown,
 ) => {
-  if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
+  if (mockReducerStepFn) {
+    return mockReducerStepFn(msgs, cfg, state);
+  }
   return {
     messages: msgs,
     tier: "forced_compaction",
@@ -187,7 +211,9 @@ function makeOverflowLadderStub(): {
 } {
   let state: unknown;
   const reduceOverflowOneRung = async (msgs: Message[], opts: unknown) => {
-    if (!state) state = makeInitialReducerState();
+    if (!state) {
+      state = makeInitialReducerState();
+    }
     const step = (await runMockReducer(msgs, opts, state)) as {
       state: unknown;
     };
@@ -439,7 +465,9 @@ const getSlackCompactionWatermarkForPrefixMock = mock(
     context: typeof mockSlackChronologicalContext,
     compactedRenderedMessages: number,
   ) => {
-    if (!context || compactedRenderedMessages <= 0) return null;
+    if (!context || compactedRenderedMessages <= 0) {
+      return null;
+    }
     const start = context.compactableStartIndex;
     const end = Math.min(
       context.renderedMessages.length,
@@ -577,9 +605,15 @@ mock.module("../daemon/conversation-error.js", () => ({
   classifyConversationError: (_err: unknown, _ctx: unknown) =>
     mockConversationErrorClassification,
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
-    if (!ctx.aborted) return false;
-    if (err instanceof DOMException && err.name === "AbortError") return true;
-    if (err instanceof Error && err.name === "AbortError") return true;
+    if (!ctx.aborted) {
+      return false;
+    }
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return true;
+    }
+    if (err instanceof Error && err.name === "AbortError") {
+      return true;
+    }
     return false;
   },
   buildConversationErrorMessage: (
@@ -742,10 +776,6 @@ function makeCtx(
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,

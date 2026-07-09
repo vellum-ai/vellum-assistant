@@ -92,7 +92,6 @@ describe("startCes", () => {
 
     // Verify env vars
     const env = lastSpawnCall!.options.env!;
-    expect(env["CES_STANDALONE"]).toBe("1");
     expect(env["CES_LOCAL_SOCKET"]).toBeDefined();
     expect(env["CREDENTIAL_SECURITY_DIR"]).toBeDefined();
     expect(env["VELLUM_WORKSPACE_DIR"]).toBeDefined();

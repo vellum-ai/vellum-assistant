@@ -262,7 +262,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     if (isVideo && effectiveUrl) {
       return (
         <video
+          data-testid="video-preview"
           src={effectiveUrl}
+          poster={attachment.thumbnailUrl ?? undefined}
           controls
           className="max-h-[80vh] max-w-[90vw] rounded"
         />

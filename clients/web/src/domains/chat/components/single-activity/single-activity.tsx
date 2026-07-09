@@ -3,8 +3,9 @@
  * in one of three variants:
  *
  *   - `variant="thinking"` — an assistant reasoning run. A brain glyph +
- *     "Thought process", or the shared {@link ThreeDotIndicator} + "Thinking"
- *     while streaming. OWNS the streaming/loading state so it can be the single
+ *     "Thought process"; while streaming the label reads "Thinking" (or the
+ *     live reasoning preview) rendered through the avatar-tinted
+ *     {@link StreamingShimmerText}. OWNS the streaming/loading state so it can be the single
  *     thinking affordance from the start of a turn, staying clickable so the
  *     live reasoning opens in the drawer as it arrives; no-ops once settled with
  *     empty content (see `shouldShowThinkingIndicator`).
@@ -43,7 +44,7 @@ import { useMemo, type ReactNode } from "react";
 
 import { cn } from "@/utils/misc";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
-import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
+import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { deriveStepLabel } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import {
@@ -86,7 +87,7 @@ export type SingleActivityProps =
       info: string;
       /** Websites to feed the rotating WebsiteCarousel in the header info slot. */
       carouselItems: WebSearchResultItem[];
-      /** Card-level state: drives the leading indicator (loading -> dots). */
+      /** Card-level state: while `loading` the "Web Search" label shimmers. */
       state: "loading" | "complete" | "error";
       /** The single web step to render when expanded (favicon chips / error). Null during the brief loading window before metadata arrives. */
       step: Extract<ToolCallCardStep, { kind: "web_search" | "web_search_error" }> | null;
@@ -101,6 +102,12 @@ interface ResolvedView {
   ariaLabel: string;
   icon: ReactNode;
   label: string;
+  /**
+   * When `true`, the label renders through {@link StreamingShimmerText} — the
+   * avatar-tinted gradient glint that marks in-flight work (streaming
+   * reasoning). The three-dot pulse is retired in its favor.
+   */
+  shimmerLabel?: boolean;
   riskLevel?: string;
   tone: "default" | "error";
   active: boolean;
@@ -162,16 +169,20 @@ export function SingleActivity(props: SingleActivityProps) {
               isError && "text-[var(--system-negative-strong)]",
             )}
           >
-            {state === "loading" ? (
-              <ThreeDotIndicator
-                data-testid="inline-web-loading"
-                className="shrink-0"
-              />
-            ) : (
-              <Globe className="size-4 shrink-0" aria-hidden />
-            )}
+            <Globe className="size-4 shrink-0" aria-hidden />
           </span>
-          <span className="shrink-0">Web Search</span>
+          {/* While the search is in flight the label carries the loading
+              signal — an avatar-tinted gradient glint sweeps across it. */}
+          {state === "loading" ? (
+            <StreamingShimmerText
+              data-testid="inline-web-loading"
+              className="shrink-0"
+            >
+              Web Search
+            </StreamingShimmerText>
+          ) : (
+            <span className="shrink-0">Web Search</span>
+          )}
           <span aria-hidden className="shrink-0 text-[var(--content-tertiary)]">
             |
           </span>
@@ -231,17 +242,13 @@ export function SingleActivity(props: SingleActivityProps) {
     view = {
       dataTestId: "thought-process-link",
       ariaLabel: "View thinking",
-      icon: isStreaming ? (
-        <ThreeDotIndicator
-          data-testid="thought-process-loading"
-          className="shrink-0"
-        />
-      ) : (
-        <Brain className="size-4 shrink-0" aria-hidden />
-      ),
+      icon: <Brain className="size-4 shrink-0" aria-hidden />,
       label: isStreaming
         ? (streamingThinkingPreview ?? "Thinking")
         : "Thought process",
+      // Streaming state is carried by the label itself — the avatar-tinted
+      // shimmer sweep — so the glyph stays the stable brain.
+      shimmerLabel: isStreaming,
       tone: "default",
       // Thinking payloads carry an empty `toolCallId`; the bare panel addresses
       // the whole group (no segment index), so match on its (message, group)
@@ -327,7 +334,13 @@ export function SingleActivity(props: SingleActivityProps) {
         {view.icon}
       </span>
       <span className="min-w-0 max-w-[min(520px,calc(100vw-8rem))] truncate">
-        {view.label}
+        {view.shimmerLabel ? (
+          <StreamingShimmerText data-testid="thought-process-loading">
+            {view.label}
+          </StreamingShimmerText>
+        ) : (
+          view.label
+        )}
       </span>
       {view.riskLevel ? <RiskBadge level={view.riskLevel} /> : null}
       <ChevronRight

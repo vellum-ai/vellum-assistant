@@ -85,7 +85,8 @@ export function registerPluginsCommand(program: Command): void {
   registerCommand(program, {
     name: "plugins",
     transport: "local",
-    description: "Manage external plugins",
+    description:
+      "List, search, install, and manage external plugins (`list` shows what is installed, `search` queries the marketplace)",
     build: (plugins) => {
       plugins.addHelpText(
         "after",
@@ -639,7 +640,7 @@ $ assistant plugins publish --json`,
                 return;
               }
             }
-            const result = uninstallPlugin({ name });
+            const result = await uninstallPlugin({ name });
             log.info(
               { name: result.name, target: result.target },
               "external plugin uninstalled",

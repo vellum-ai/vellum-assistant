@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 
-import type { ConversationCreateType } from "../persistence/conversation-crud.js";
+import type { ConversationCreateType } from "../persistence/conversation-types.js";
 import type { GuardianQuestionPayload } from "./guardian-question-mode.js";
 import { UrgencySchema } from "./urgency.js";
 
