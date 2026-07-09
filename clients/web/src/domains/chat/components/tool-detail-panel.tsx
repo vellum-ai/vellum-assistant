@@ -1,7 +1,9 @@
 /**
  * Side-drawer body shown when a tool-call step pill is clicked. Mirrors the
  * web `SubagentDetailPanel` shell (outer container, header with leading icon /
- * title / risk badge / close, scrollable body with sections).
+ * title / close, scrollable body with sections). The call's risk level lives
+ * in the body's "Reasoning" section (badge + trust-rule button), not the
+ * header.
  *
  * Driven by the `ToolDetailPayload` opened into `viewer-store`. Both variants
  * subscribe to the chat-session store so an open drawer streams live: the tool
@@ -28,11 +30,12 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Typography } from "@vellumai/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { DetailShell } from "@/domains/chat/components/detail-shell";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
+import { useViewerStore } from "@/stores/viewer-store";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
 import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
@@ -40,6 +43,7 @@ import {
     deriveStepLabelFromName,
     type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { getRiskToleranceHint } from "@/domains/chat/utils/risk";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
@@ -111,12 +115,19 @@ export function CodeBlock({ text }: { text: string }) {
 }
 
 /** Uppercase section label in `--content-tertiary`. */
-export function SectionLabel({ children }: { children: string }) {
+export function SectionLabel({
+  children,
+  className = "mb-1.5",
+}: {
+  children: string;
+  /** Margin override for rows that manage their own spacing. */
+  className?: string;
+}) {
   return (
     <Typography
       variant="label-small-default"
       as="div"
-      className="mb-1.5 uppercase tracking-wider text-[var(--content-tertiary)]"
+      className={`uppercase tracking-wider text-[var(--content-tertiary)] ${className}`}
     >
       {children}
     </Typography>
@@ -178,8 +189,53 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
   const hasStreamedOutput = !!streamedOutput;
   const inputJson = JSON.stringify(detail.input, null, 2);
 
+  // Risk assessment can land after the drawer opens — prefer the live call.
+  // The raw `riskReason` rule-match string ("ls (default)") is internal
+  // classifier jargon and is deliberately NOT shown.
+  const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
+  const riskHint = getRiskToleranceHint(riskLevel);
+  // The trust-rule editor needs the raw tool call (its allowlist ladder /
+  // scope options), which the bridge resolves from the transcript — offer the
+  // button only when the call resolves live, so it never opens on nothing.
+  const canCreateTrustRule = liveTc != null;
+
   return (
     <>
+      {/* Reasoning — the call's risk level and the affordance to persist
+          that judgement as a trust rule. Label row (with the trust-rule
+          button trailing) over the badge in an overlay card. */}
+      {riskLevel && (
+        <div className="mb-5">
+          <div className="mb-1.5 flex items-center justify-between gap-3">
+            <SectionLabel className="mb-0">Reasoning</SectionLabel>
+            {canCreateTrustRule && (
+              <Button
+                variant="outlined"
+                size="compact"
+                className="shrink-0"
+                onClick={() =>
+                  useViewerStore.getState().requestRuleEditor(detail.toolCallId)
+                }
+              >
+                Create Trust Rule
+              </Button>
+            )}
+          </div>
+          <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
+            <RiskBadge level={riskLevel} />
+            {riskHint && (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="mt-1.5 text-[var(--content-secondary)]"
+              >
+                {riskHint}
+              </Typography>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Tool name + activity + input */}
       <div>
         <Typography
@@ -230,11 +286,9 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
 export function ToolDetailPanel({
   detail,
   onClose,
-  onRiskBadgeClick,
 }: {
   detail: ToolDetailPayload;
   onClose: () => void;
-  onRiskBadgeClick?: () => void;
 }) {
   // Thinking variant — reuse the same shell/header but render the full
   // reasoning markdown with no input/output sections and no risk badge.
@@ -253,9 +307,6 @@ export function ToolDetailPanel({
       title={title}
       closeLabel="Close tool details"
       onClose={onClose}
-      headerTrailing={
-        <RiskBadge level={detail.riskLevel} onClick={onRiskBadgeClick} />
-      }
     >
       <ToolDetailBody detail={detail} />
     </DetailShell>

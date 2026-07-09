@@ -258,7 +258,6 @@ function TimelineStep({
     <ToolStepPill
       iconName={step.iconName}
       label={step.activity || step.info || step.title}
-      riskLevel={step.riskLevel}
       active={activeDetail?.toolCallId === step.toolCallId}
       tone={
         step.status === "error" || step.status === "denied"

@@ -445,7 +445,6 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           <ToolDetailPanel
             detail={activeToolDetail}
             onClose={closeToolDetail}
-            onRiskBadgeClick={() => useViewerStore.getState().requestRuleEditorForActiveTool()}
           />
         </LazyBoundary>
       );
