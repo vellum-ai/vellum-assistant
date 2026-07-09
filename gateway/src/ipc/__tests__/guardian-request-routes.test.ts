@@ -263,6 +263,11 @@ describe("guardian_requests_list", () => {
     );
     expect(all).toHaveLength(3);
 
+    const omittedParams = GuardianRequestListIpcResponseSchema.parse(
+      await call(METHODS.list),
+    );
+    expect(omittedParams).toHaveLength(3);
+
     const voiceOnly = GuardianRequestListIpcResponseSchema.parse(
       await call(METHODS.list, { sourceType: "voice" }),
     );

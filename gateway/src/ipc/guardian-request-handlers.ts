@@ -59,8 +59,9 @@ import {
 import type { IpcRoute } from "./server.js";
 
 // The server validates req.params BEFORE the handler runs, and no-arg daemon
-// callers (`ipcCallPersistent(method)`) send req.params === undefined — these
-// two routes must accept the omitted-params call shape and default it to {}.
+// callers (`ipcCallPersistent(method)`) send req.params === undefined — every
+// route whose params are all-optional must accept the omitted-params call
+// shape and default it to {}.
 const ExpireInteractionBoundParamsSchema = z.preprocess(
   (v) => v ?? {},
   ExpireInteractionBoundIpcParamsSchema,
@@ -68,6 +69,10 @@ const ExpireInteractionBoundParamsSchema = z.preprocess(
 const SweepExpiredParamsSchema = z.preprocess(
   (v) => v ?? {},
   SweepExpiredGuardianRequestsIpcParamsSchema,
+);
+const ListGuardianRequestsParamsSchema = z.preprocess(
+  (v) => v ?? {},
+  ListGuardianRequestsIpcParamsSchema,
 );
 
 export const guardianRequestRoutes: IpcRoute[] = [
@@ -102,9 +107,9 @@ export const guardianRequestRoutes: IpcRoute[] = [
     // `sourceType` filters translate into source_channel predicates
     // gateway-side (the column is not stored).
     method: GUARDIAN_REQUESTS_IPC_METHODS.list,
-    schema: ListGuardianRequestsIpcParamsSchema,
+    schema: ListGuardianRequestsParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      const filters = ListGuardianRequestsIpcParamsSchema.parse(params);
+      const filters = ListGuardianRequestsParamsSchema.parse(params);
       return listGuardianRequests(filters);
     },
   },
