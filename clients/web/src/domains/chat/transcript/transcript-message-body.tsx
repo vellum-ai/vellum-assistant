@@ -695,9 +695,11 @@ export function TranscriptMessageBody({
   const columnClass = `flex w-full min-w-0 flex-col gap-2 ${isUser ? "items-end" : "items-start"}`;
 
   // See `TranscriptMessageBodyProps.isLatestMessage` for why only the latest
-  // message collapses this row instead of reserving its height.
+  // message collapses this row instead of reserving its height. `-mt-2`
+  // cancels the column's `gap-2` slot while collapsed — a zero-height flex
+  // item still incurs the parent gap — and animates back to `mt-0` on reveal.
   const trailerHeightClass = isLatestMessage
-    ? "h-0 overflow-hidden group-hover/msg:h-6 has-[:focus-visible]:h-6 group-data-[revealed=true]/msg:h-6"
+    ? "h-0 -mt-2 overflow-hidden group-hover/msg:h-6 group-hover/msg:mt-0 has-[:focus-visible]:h-6 has-[:focus-visible]:mt-0 group-data-[revealed=true]/msg:h-6 group-data-[revealed=true]/msg:mt-0"
     : "h-6 overflow-hidden";
 
   const trailer = (
@@ -707,7 +709,7 @@ export function TranscriptMessageBody({
         assistantDisplayName={assistantDisplayName}
       />
       <div
-        className={`${trailerHeightClass} opacity-0 transition-[height,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
+        className={`${trailerHeightClass} opacity-0 transition-[height,margin,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
       >
         <MessageHoverActions
           message={message}
