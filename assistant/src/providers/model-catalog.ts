@@ -1009,6 +1009,19 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       // xAI
       {
+        id: "x-ai/grok-4.5",
+        displayName: "Grok 4.5",
+        contextWindowTokens: 500000,
+        // xAI publishes no completion cap; 30K is the tracker-reported
+        // single-response limit.
+        maxOutputTokens: 30000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 2, outputPer1mTokens: 6 },
+      },
+      {
         id: "x-ai/grok-4.20-beta",
         displayName: "Grok 4.20 Beta",
         contextWindowTokens: 256000,

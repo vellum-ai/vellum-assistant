@@ -401,6 +401,14 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
+      id: "x-ai/grok-4.5",
+      displayName: "Grok 4.5",
+      contextWindowTokens: 500_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 30_000,
+      supportsThinking: true,
+    },
+    {
       id: "x-ai/grok-4.20-beta",
       displayName: "Grok 4.20 Beta",
       contextWindowTokens: 256_000,
