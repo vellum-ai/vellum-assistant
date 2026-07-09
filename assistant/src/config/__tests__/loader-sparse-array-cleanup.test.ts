@@ -103,7 +103,10 @@ describe("config recovery compacts arrays after stripping invalid elements", () 
     expect(config.tools.exclude).toEqual(["tool-a", "tool-b"]);
   });
 
-  test("a fully-invalid array collapses to empty, not to a parse failure", () => {
+  test("an array emptied by stripping all invalid elements reverts to its schema default", () => {
+    // `tools.exclude` defaults to `[]`, so a fully-invalid array reverting to
+    // the default still resolves to `[]` — but it must not parse-fail, and the
+    // rest of the config must survive.
     writeConfig({
       tools: { exclude: [1, 2] },
       maxStepsPerSession: 66,
@@ -113,5 +116,51 @@ describe("config recovery compacts arrays after stripping invalid elements", () 
 
     expect(config.tools.exclude).toEqual([]);
     expect(config.maxStepsPerSession).toBe(66);
+  });
+
+  test("emptied-by-compaction array reverts to a non-empty schema default (backup.offsite.destinations)", () => {
+    // `backup.offsite.destinations` defaults to `null`, where `null` means "use
+    // the iCloud default destination" and `[]` means "no offsite destinations".
+    // Stripping the sole invalid element must NOT leave an explicit `[]` that
+    // overrides the default — it must fall back to the schema default `null`.
+    writeConfig({
+      backup: { offsite: { destinations: [123] } },
+      maxStepsPerSession: 66,
+    });
+
+    const config = loadConfig();
+
+    expect(config.backup.offsite.destinations).toBeNull();
+    expect(config.maxStepsPerSession).toBe(66);
+  });
+
+  test("emptied-by-compaction array reverts to a non-empty schema default (skills.allowBundled)", () => {
+    // `skills.allowBundled` defaults to `null` (load all bundled skills); an
+    // explicit `[]` would exclude ALL bundled skills. Stripping every invalid
+    // element must revert to the default, not silently disable all skills.
+    writeConfig({
+      skills: { allowBundled: [1, 2] },
+      maxStepsPerSession: 66,
+    });
+
+    const config = loadConfig();
+
+    expect(config.skills.allowBundled).toBeNull();
+    expect(config.maxStepsPerSession).toBe(66);
+  });
+
+  test("an explicitly-empty array on disk is preserved as the user's choice", () => {
+    // `backup.offsite.destinations: []` has no invalid elements to strip, so it
+    // is never touched by compaction. An unrelated invalid field forces the
+    // cleanup path to run over the whole tree; the empty array must survive as
+    // the user's explicit "no offsite destinations" choice.
+    writeConfig({
+      backup: { offsite: { destinations: [] } },
+      maxStepsPerSession: "not-a-number",
+    });
+
+    const config = loadConfig();
+
+    expect(config.backup.offsite.destinations).toEqual([]);
   });
 });
