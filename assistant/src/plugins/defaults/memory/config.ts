@@ -12,15 +12,17 @@ let cachedSignature: string | null = null;
 
 /**
  * Cheap freshness key for the config file, mirroring the host loader's
- * signature check (size + mtime + ctime). "absent" when the file is missing
+ * signature check (path + size + mtime + ctime). The path is part of the key
+ * so a process that switches workspaces (tests, CLI helpers) never serves one
+ * workspace's cached slice for another's. "absent" when the file is missing
  * or unreadable.
  */
 function configFileSignature(path: string): string {
   try {
     const s = statSync(path);
-    return `${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
+    return `${path}:${s.size}:${s.mtimeMs}:${s.ctimeMs}`;
   } catch {
-    return "absent";
+    return `${path}:absent`;
   }
 }
 
@@ -61,7 +63,9 @@ function readRawMemoryField(path: string): Record<string, unknown> {
  */
 function parseMemorySlice(raw: Record<string, unknown>): MemoryConfig {
   const result = MemoryConfigSchema.safeParse(raw);
-  if (result.success) return structuredClone(result.data);
+  if (result.success) {
+    return structuredClone(result.data);
+  }
 
   const cleaned = structuredClone(raw);
   for (const issue of result.error.issues) {
@@ -76,7 +80,9 @@ function parseMemorySlice(raw: Record<string, unknown>): MemoryConfig {
   }
 
   const retry = MemoryConfigSchema.safeParse(cleaned);
-  if (retry.success) return structuredClone(retry.data);
+  if (retry.success) {
+    return structuredClone(retry.data);
+  }
 
   log.warn("Memory config validation failed after cleanup. Using defaults.");
   return structuredClone(MemoryConfigSchema.parse({}));
@@ -89,10 +95,14 @@ function deleteLeaf(
 ): void {
   let node: unknown = obj;
   for (const key of path.slice(0, -1)) {
-    if (node === null || typeof node !== "object") return;
+    if (node === null || typeof node !== "object") {
+      return;
+    }
     node = (node as Record<string | number, unknown>)[key];
   }
-  if (node === null || typeof node !== "object") return;
+  if (node === null || typeof node !== "object") {
+    return;
+  }
   delete (node as Record<string | number, unknown>)[path.at(-1)!];
 }
 
@@ -136,7 +146,9 @@ function applyDeploymentContextFill(
 export function getMemoryConfig(): MemoryConfig {
   const path = getWorkspaceConfigPath();
   const signature = configFileSignature(path);
-  if (cached && cachedSignature === signature) return cached;
+  if (cached && cachedSignature === signature) {
+    return cached;
+  }
 
   const raw = readRawMemoryField(path);
   const memory = parseMemorySlice(raw);

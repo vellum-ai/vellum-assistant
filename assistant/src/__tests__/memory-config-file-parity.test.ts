@@ -8,7 +8,9 @@
  * loader's semantics change, this is the tripwire.
  */
 
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { getConfig } from "../config/loader.js";
@@ -146,6 +148,30 @@ describe("memory config file parity", () => {
     expect(ctxLoad.capabilityReserve + ctxLoad.serendipitySlots).toBeLessThan(
       ctxLoad.maxNodes,
     );
+  });
+
+  test("switching VELLUM_WORKSPACE_DIR busts the cache (path is part of the key)", () => {
+    const savedWorkspace = process.env.VELLUM_WORKSPACE_DIR;
+    try {
+      writeConfig({ memory: { enabled: false } });
+      expect(getMemoryConfig().enabled).toBe(false);
+
+      const otherWorkspace = mkdtempSync(join(tmpdir(), "vellum-parity-ws-"));
+      process.env.VELLUM_WORKSPACE_DIR = otherWorkspace;
+      // The other workspace has no config.json → schema defaults, not the
+      // previous workspace's cached slice.
+      expect(getMemoryConfig().enabled).toBe(true);
+      expectParity();
+
+      writeFileSync(
+        join(otherWorkspace, "config.json"),
+        JSON.stringify({ memory: { v2: { enabled: false } } }),
+      );
+      expect(getMemoryConfig().v2.enabled).toBe(false);
+      expectParity();
+    } finally {
+      process.env.VELLUM_WORKSPACE_DIR = savedWorkspace;
+    }
   });
 
   test("the cache serves the same object until the file changes", () => {
