@@ -770,7 +770,26 @@ export class ContactStore {
     // returns null.
     const channel = await this.resolveGatewayChannel(channelId);
     if (!channel) return null;
-    const gwChannelId = channel.id;
+    return this.markChannelRevokedById(channel.id, reason);
+  }
+
+  /**
+   * Synchronous core of {@link markChannelRevoked}, keyed on an
+   * already-resolved GATEWAY channel id (no assistant-side id fallback) —
+   * plain statements over the gateway DB, composable inside a caller-owned
+   * transaction. Same guards: guardian downgrade rejection, blocked no-op,
+   * idempotent re-revoke.
+   */
+  markChannelRevokedById(
+    gwChannelId: string,
+    reason?: string,
+  ): { channel: ContactChannel; didWrite: boolean } | null {
+    const channel = this.db
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, gwChannelId))
+      .get();
+    if (!channel) return null;
 
     const contact = this.getContact(channel.contactId);
     if (
@@ -778,10 +797,10 @@ export class ContactStore {
       reason !== GUARDIAN_BINDING_REVOKE_REASON
     ) {
       log.warn(
-        { channelId, reason },
+        { channelId: gwChannelId, reason },
         "markChannelRevoked: rejected guardian channel downgrade",
       );
-      throw new CannotDowngradeGuardianError(channelId);
+      throw new CannotDowngradeGuardianError(gwChannelId);
     }
 
     // A blocked channel stays blocked: blocked is stricter than revoked, and
@@ -1146,6 +1165,69 @@ export class ContactStore {
       blockedReason?: string | null;
     }>;
   }): Promise<{ contact: ContactWithInfo; created: boolean }> {
+    const { contactId, created, mirrorParams } =
+      this.upsertContactGatewayWrites(params);
+
+    // ── Mirror to assistant DB (best-effort typed op) ──────────────────
+    await this.mirrorContactUpsertBestEffort(contactId, mirrorParams);
+
+    // ── Read back full contact shape (best-effort) ─────────────────────
+    // Source ACL (role/principalId, channel status/policy/verified_*) from the
+    // gateway DB — the just-written source of truth — and overlay assistant-
+    // owned info. The assistant mirror would report stale unverified/allow/
+    // contact defaults for fresh creates.
+    const fullContact = await this.getContactWithInfo(contactId).catch((err) => {
+      log.warn(
+        { contactId, err },
+        "upsertContact: gateway read-back failed; returning gateway fallback",
+      );
+      return null;
+    });
+
+    if (fullContact) {
+      return { contact: fullContact, created };
+    }
+
+    // Fallback: synthesize from gateway row + provided params.
+    const gatewayRow = this.db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, contactId))
+      .get()!;
+    return {
+      contact: {
+        id: gatewayRow.id,
+        displayName: gatewayRow.displayName,
+        role: gatewayRow.role,
+        principalId: gatewayRow.principalId,
+        notes: params.notes ?? null,
+        contactType: params.contactType ?? "human",
+        userFile: null,
+        createdAt: gatewayRow.createdAt,
+        updatedAt: gatewayRow.updatedAt,
+        interactionCount: 0,
+        lastInteraction: null,
+        channels: [],
+        assistantMetadata: null,
+      },
+      created,
+    };
+  }
+
+  /**
+   * Synchronous gateway-DB core of {@link upsertContact}: contact resolution
+   * (explicit id → channel logical key → create) plus channel sync, as plain
+   * statements with no assistant IO — composable inside a caller-owned
+   * transaction. `mirrorParams` is the canonicalized input for the
+   * post-commit {@link mirrorContactUpsertBestEffort}.
+   */
+  upsertContactGatewayWrites(
+    params: Parameters<ContactStore["upsertContact"]>[0],
+  ): {
+    contactId: string;
+    created: boolean;
+    mirrorParams: Parameters<ContactStore["upsertContact"]>[0];
+  } {
     const now = Date.now();
     let contactId = params.id;
     let created = false;
@@ -1248,12 +1330,23 @@ export class ContactStore {
       this.syncChannels(contactId, canonicalChannels, now);
     }
 
-    // ── 5. Mirror to assistant DB (best-effort typed op) ──────────────
-    const canonicalParams = canonicalChannels
+    const mirrorParams = canonicalChannels
       ? { ...params, channels: canonicalChannels }
       : params;
+    return { contactId, created, mirrorParams };
+  }
+
+  /**
+   * Best-effort assistant-DB mirror for a committed gateway contact upsert.
+   * Failures are logged (a daemon missing the typed op escalates via the
+   * watchdog reporter) and never thrown.
+   */
+  async mirrorContactUpsertBestEffort(
+    contactId: string,
+    params: Parameters<ContactStore["upsertContact"]>[0],
+  ): Promise<void> {
     try {
-      await this.mirrorContactToAssistantDb(contactId, canonicalParams);
+      await this.mirrorContactToAssistantDb(contactId, params);
     } catch (err) {
       // Unknown method = old daemon without the typed op: the gateway write
       // stands with no mirror and no fallback — escalate loudly.
@@ -1266,48 +1359,6 @@ export class ContactStore {
         );
       }
     }
-
-    // ── 6. Read back full contact shape (best-effort) ─────────────────
-    // Source ACL (role/principalId, channel status/policy/verified_*) from the
-    // gateway DB — the just-written source of truth — and overlay assistant-
-    // owned info. The assistant mirror would report stale unverified/allow/
-    // contact defaults for fresh creates.
-    const fullContact = await this.getContactWithInfo(contactId).catch((err) => {
-      log.warn(
-        { contactId, err },
-        "upsertContact: gateway read-back failed; returning gateway fallback",
-      );
-      return null;
-    });
-
-    if (fullContact) {
-      return { contact: fullContact, created };
-    }
-
-    // Fallback: synthesize from gateway row + provided params.
-    const gatewayRow = this.db
-      .select()
-      .from(contacts)
-      .where(eq(contacts.id, contactId))
-      .get()!;
-    return {
-      contact: {
-        id: gatewayRow.id,
-        displayName: gatewayRow.displayName,
-        role: gatewayRow.role,
-        principalId: gatewayRow.principalId,
-        notes: params.notes ?? null,
-        contactType: params.contactType ?? "human",
-        userFile: null,
-        createdAt: gatewayRow.createdAt,
-        updatedAt: gatewayRow.updatedAt,
-        interactionCount: 0,
-        lastInteraction: null,
-        channels: [],
-        assistantMetadata: null,
-      },
-      created,
-    };
   }
 
   /**

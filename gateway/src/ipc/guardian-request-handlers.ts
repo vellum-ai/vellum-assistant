@@ -9,13 +9,14 @@
  * return the wire DTO (or null / an array); mutations return a minimal
  * `{ ok: true }` ack.
  *
- * `guardian_requests_decide` (decision CAS + in-transaction ACL outcomes) is
- * not registered here.
+ * `guardian_requests_decide` commits the decision CAS and the ACL outcome in
+ * one gateway transaction (see `decideGuardianRequest`).
  */
 
 import {
   CreateGuardianRequestDeliveryIpcParamsSchema,
   CreateGuardianRequestIpcParamsSchema,
+  DecideGuardianRequestIpcParamsSchema,
   ExpireGuardianRequestIpcParamsSchema,
   ExpireInteractionBoundIpcParamsSchema,
   GUARDIAN_REQUESTS_IPC_METHODS,
@@ -39,6 +40,7 @@ import { z } from "zod";
 import {
   createGuardianRequest,
   createGuardianRequestDelivery,
+  decideGuardianRequest,
   expireGuardianRequest,
   expireInteractionBoundRequests,
   getGuardianRequest,
@@ -120,6 +122,17 @@ export const guardianRequestRoutes: IpcRoute[] = [
       const { id, patch } = UpdateGuardianRequestIpcParamsSchema.parse(params);
       updateGuardianRequest(id, patch);
       return { ok: true };
+    },
+  },
+  {
+    // Decision CAS + ACL outcome in ONE gateway transaction; a CAS miss
+    // returns status_conflict with zero side effects, a failed outcome write
+    // rolls the CAS back (request stays pending, retryable).
+    method: GUARDIAN_REQUESTS_IPC_METHODS.decide,
+    schema: DecideGuardianRequestIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const input = DecideGuardianRequestIpcParamsSchema.parse(params);
+      return decideGuardianRequest(input);
     },
   },
   {
