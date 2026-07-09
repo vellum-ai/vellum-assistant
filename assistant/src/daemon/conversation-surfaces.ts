@@ -1,4 +1,4 @@
-import { v4 as uuid } from "uuid";
+import { v4 as uuid, v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
 import { SurfaceActionSchema } from "../api/events/ui-surface-show.js";
@@ -2080,7 +2080,7 @@ export async function handleSurfaceAction(
       "Surface action: preparing to send message to model",
     );
 
-    const requestId = uuid();
+    const requestId = uuidv7();
     ctx.surfaceActionRequestIds.add(requestId);
     // Pass conversationId so events without an inline conversationId (e.g.
     // text_delta) are published with the correct conversation scope and
@@ -2307,7 +2307,7 @@ export async function handleSurfaceAction(
         surfaceData,
       );
 
-  const requestId = uuid();
+  const requestId = uuidv7();
   ctx.surfaceActionRequestIds.add(requestId);
   // Pass conversationId so events without an inline conversationId (e.g.
   // text_delta) are published with the correct conversation scope and
