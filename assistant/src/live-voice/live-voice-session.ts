@@ -261,8 +261,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // partial/final events route here ahead of currentUtterance; kept set
   // through a grace timeout so a late flush still attributes to (and is
   // dropped for) the cycle that owns the audio.
-  private finalizingUtterance: UtteranceCycle | null = null;
+  /**
+   * FIFO of cycles with an outstanding finalize request on the shared
+   * stream, oldest first. Flush finals and `finalized` signals carry no
+   * request identity, but the provider answers requests in order — so the
+   * queue head owns the next flush/`finalized`, and a stale flush can
+   * never be attributed to a newer cycle's request.
+   */
+  private finalizeQueue: UtteranceCycle[] = [];
   private finalizeGraceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The cycle whose grace timer is armed (only the newest release has one). */
+  private finalizeGraceCycle: UtteranceCycle | null = null;
   private readonly finalizeGraceMs: number;
 
   constructor(
@@ -900,7 +909,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     utterance.phase = "released";
-    this.finalizingUtterance = utterance;
+    this.finalizeQueue.push(utterance);
     this.armFinalizeGraceTimer(utterance);
     try {
       shared.finalizeUtterance?.();
@@ -910,7 +919,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         "Live voice utterance finalize failed; proceeding with the transcript collected so far",
       );
       this.clearFinalizeGraceTimer();
-      this.finalizingUtterance = null;
+      this.finalizeQueue = this.finalizeQueue.filter((c) => c !== utterance);
       utterance.phase = "transcriber_closed";
     }
     await this.startAssistantTurnIfReady();
@@ -919,8 +928,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   private armFinalizeGraceTimer(utterance: UtteranceCycle): void {
     this.clearFinalizeGraceTimer();
+    this.finalizeGraceCycle = utterance;
     this.finalizeGraceTimer = setTimeout(() => {
       this.finalizeGraceTimer = null;
+      this.finalizeGraceCycle = null;
       void this.handleFinalizeGraceTimeout(utterance).catch(() => {});
     }, this.finalizeGraceMs);
   }
@@ -930,16 +941,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       clearTimeout(this.finalizeGraceTimer);
       this.finalizeGraceTimer = null;
     }
+    this.finalizeGraceCycle = null;
   }
 
   // The finalize flush never arrived: proceed with the segments collected
-  // so far. finalizingUtterance stays set so a late flush still routes to
-  // (and is dropped for) this cycle instead of polluting the next one.
+  // so far. The cycle stays in the finalize queue so its late flush is
+  // still attributed to (and dropped for) it instead of polluting a newer
+  // cycle's request.
   private async handleFinalizeGraceTimeout(
     utterance: UtteranceCycle,
   ): Promise<void> {
     if (
-      this.finalizingUtterance !== utterance ||
+      !this.finalizeQueue.includes(utterance) ||
       this.isClosed ||
       this.state === "failed" ||
       this.state === "interrupted"
@@ -1002,6 +1015,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
+  // The cycle that should receive new (non-flush) transcript events: the
+  // oldest queued finalize request whose turn has not dispatched, falling
+  // back to the current cycle once every queued request has dispatched.
+  private pendingTranscriptCycle(): UtteranceCycle | null {
+    return (
+      this.finalizeQueue.find(
+        (cycle) => !cycle.assistantTurnStarted && !cycle.completed,
+      ) ?? this.currentUtterance
+    );
+  }
+
   // Persistent-mode event routing. One shared stream serves many cycles, so
   // events route dynamically: the cycle awaiting its finalize flush owns
   // the audio being flushed; otherwise the current cycle does. Flush events
@@ -1022,14 +1046,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     switch (event.type) {
       case "partial": {
-        // A finalizing cycle owns the stream only until its turn
-        // dispatches (grace timeout); after that, partials belong to the
-        // user's next utterance on the current cycle.
-        const finalizing = this.finalizingUtterance;
-        const target =
-          finalizing && !finalizing.assistantTurnStarted
-            ? finalizing
-            : this.currentUtterance;
+        // Partials belong to the oldest cycle still awaiting its
+        // transcript; after every queued request has dispatched, they
+        // belong to the user's next utterance on the current cycle.
+        const target = this.pendingTranscriptCycle();
         if (!target || target.assistantTurnStarted || target.completed) {
           return;
         }
@@ -1038,19 +1058,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       case "final": {
-        const finalizing = this.finalizingUtterance;
         if (event.fromFinalize) {
-          // A finalize flush commits audio buffered before the finalize
-          // request — it belongs to the finalizing cycle, never to new
-          // speech. After a grace-timeout dispatch the transcript is
-          // sealed, so a late flush is dropped rather than mutating a
-          // dispatched turn or polluting the next cycle.
-          if (
-            finalizing &&
-            !finalizing.assistantTurnStarted &&
-            !finalizing.completed
-          ) {
-            await this.recordFinalTranscript(finalizing, event.text);
+          // A finalize flush commits audio buffered before its finalize
+          // request. The provider answers requests in order, so the flush
+          // belongs to the OLDEST outstanding request — never to a newer
+          // cycle's request and never to new speech. After a grace-timeout
+          // dispatch the owning transcript is sealed, so a late flush is
+          // dropped rather than mutating a dispatched turn or polluting a
+          // newer cycle.
+          const owner = this.finalizeQueue[0];
+          if (owner && !owner.assistantTurnStarted && !owner.completed) {
+            await this.recordFinalTranscript(owner, event.text);
           } else {
             log.warn(
               "Dropping a late finalize flush segment: its assistant turn already dispatched",
@@ -1058,14 +1076,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           }
           return;
         }
-        // Ordinary finals: the finalizing cycle owns the stream until its
-        // turn dispatches; afterwards new speech belongs to the current
-        // cycle (the finalize flush is flagged, so it can never be
-        // mistaken for new speech).
-        const target =
-          finalizing && !finalizing.assistantTurnStarted && !finalizing.completed
-            ? finalizing
-            : this.currentUtterance;
+        // Ordinary finals: new speech for the oldest still-pending cycle,
+        // or the current one once every queued request has dispatched.
+        const target = this.pendingTranscriptCycle();
         if (!target || target.assistantTurnStarted || target.completed) {
           log.warn(
             "Dropping a late final transcript segment: its assistant turn already dispatched",
@@ -1076,16 +1089,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       case "finalized": {
-        const target = this.finalizingUtterance;
-        this.clearFinalizeGraceTimer();
-        this.finalizingUtterance = null;
-        if (!target) {
+        // Completes the oldest outstanding finalize request, whether or
+        // not its flush final arrived (the provider may omit an empty
+        // flush; its own fallback still emits `finalized`).
+        const owner = this.finalizeQueue.shift() ?? null;
+        if (owner && owner === this.finalizeGraceCycle) {
+          this.clearFinalizeGraceTimer();
+        }
+        if (!owner) {
           return;
         }
-        if (target.phase === "released") {
+        if (owner.phase === "released") {
           // In persistent mode "transcriber_closed" means the cycle's
           // transcript is complete — the shared stream stays open.
-          target.phase = "transcriber_closed";
+          owner.phase = "transcriber_closed";
         }
         await this.startAssistantTurnIfReady();
         return;
@@ -1098,18 +1115,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // per-cycle path — the next arm resolves a fresh transcriber.
         this.sharedTranscriber = null;
         this.clearFinalizeGraceTimer();
-        const finalizing = this.finalizingUtterance;
-        this.finalizingUtterance = null;
-        const current = this.currentUtterance;
-        if (finalizing && finalizing.transcriber === transcriber) {
-          finalizing.transcriber = null;
+        const drained = this.finalizeQueue;
+        this.finalizeQueue = [];
+        for (const finalizing of drained) {
+          if (finalizing.transcriber === transcriber) {
+            finalizing.transcriber = null;
+          }
           if (finalizing.phase === "released") {
             finalizing.phase = "transcriber_closed";
           }
         }
+        const current = this.currentUtterance;
         if (
           current &&
-          current !== finalizing &&
+          !drained.includes(current) &&
           current.transcriber === transcriber
         ) {
           current.transcriber = null;
@@ -1190,7 +1209,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // close(); persistent mode re-establishes itself on the next arm.
   private stopSessionTranscriber(): void {
     this.clearFinalizeGraceTimer();
-    this.finalizingUtterance = null;
+    this.finalizeQueue = [];
     const shared = this.sharedTranscriber;
     this.sharedTranscriber = null;
     const utterance = this.currentUtterance;

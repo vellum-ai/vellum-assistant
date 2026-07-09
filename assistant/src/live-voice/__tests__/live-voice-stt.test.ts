@@ -730,6 +730,53 @@ describe("LiveVoiceSession STT", () => {
     expect(secondContent).not.toContain("first utterance");
   });
 
+  test("a stale flush arriving after the next cycle released is dropped, not absorbed", async () => {
+    const transcriber = new FinalizingMockStreamingTranscriber();
+    transcriber.respondToFinalize = false;
+    const startVoiceTurn = completingVoiceTurnStarter();
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      finalizeGraceMs: 25,
+    });
+
+    // Cycle A: dispatched by grace timeout, its flush still outstanding.
+    await session.start();
+    await session.handleBinaryAudio(loudPcmChunk());
+    transcriber.emit({ type: "final", text: "first utterance" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 1,
+    );
+
+    // Cycle B releases while A's request is still open (two queued
+    // requests). A's stale flush then arrives — it must be attributed to
+    // A's request (and dropped), never appended to B.
+    await session.handleBinaryAudio(loudPcmChunk());
+    transcriber.emit({ type: "final", text: "second utterance" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    transcriber.emit({
+      type: "final",
+      text: "stale first flush",
+      fromFinalize: true,
+    });
+    transcriber.emit({ type: "finalized" });
+    // B's own flush completes its request.
+    transcriber.emit({ type: "final", text: "flush b", fromFinalize: true });
+    transcriber.emit({ type: "finalized" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 2,
+    );
+
+    expect(startVoiceTurn).toHaveBeenCalledTimes(2);
+    const secondContent = startVoiceTurn.mock.calls[1]?.[0]?.content ?? "";
+    expect(secondContent).toContain("second utterance");
+    expect(secondContent).toContain("flush b");
+    expect(secondContent).not.toContain("stale first flush");
+    expect(secondContent).not.toContain("first utterance");
+  });
+
   test("falls back to a fresh transcriber when the shared stream closes unexpectedly", async () => {
     const transcribers: FinalizingMockStreamingTranscriber[] = [];
     const resolver = mock(async () => {
