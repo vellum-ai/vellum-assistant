@@ -875,7 +875,8 @@ function ProfileEditorModalInner({
 
   // Only surface Advanced once a model is chosen: Name and Key derive from the
   // model, and the model controls the available advanced parameters.
-  const createAdvancedOpen = advancedExpanded || Boolean(keyError);
+  const createAdvancedOpen =
+    advancedExpanded || (Boolean(keyError) && getDirty());
   const createAdvancedDisclosure =
     model !== "" ? (
       <div>

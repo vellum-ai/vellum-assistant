@@ -1020,6 +1020,12 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
 
     fireEvent.click(getButton("Save As New"));
 
+    // Clearing the generated key does not surface a validation error before
+    // the user interacts with the collapsed identity fields.
+    expect(getButton("Advanced").getAttribute("aria-expanded")).toBe("false");
+    expect(document.body.textContent).not.toContain("Key is required");
+    fireEvent.click(getButton("Advanced"));
+
     // The duplicate drops the invariant lock: name and key are editable and
     // the Active toggle is back.
     expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
