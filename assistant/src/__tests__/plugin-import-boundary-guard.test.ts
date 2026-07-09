@@ -161,6 +161,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../config/memory-v3-gate.js",
     "../../../config/schema.js",
     "../../../config/schemas/memory-v2.js",
+    "../../../config/schemas/memory.js",
     "../../../config/types.js",
     "../../../contacts/guardian-delivery-reader.js",
     "../../../context/compactor.js",

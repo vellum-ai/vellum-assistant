@@ -89,6 +89,7 @@ const realFlags = {
 const realConfigLoader = {
   ...(await import("../../../../../config/loader.js")),
 };
+const realMemoryConfig = { ...(await import("../../config.js")) };
 const realDbConnection = {
   ...(await import("../../../../../persistence/db-connection.js")),
 };
@@ -186,6 +187,24 @@ mock.module("../../../../../config/loader.js", () => ({
           },
         }
       : realConfigLoader.getConfig(),
+}));
+
+// Memory code resolves its config through the plugin's own accessor, not
+// getConfig(); stub the same conditional slice there.
+mock.module("../../config.js", () => ({
+  getMemoryConfig: () =>
+    carryMockActive
+      ? {
+          v3: {
+            live: true,
+            spotlight: {
+              n: SPOTLIGHT_N,
+              windowTurns: SPOTLIGHT_WINDOW_TURNS,
+            },
+            prune: pruneConfig ?? undefined,
+          },
+        }
+      : realMemoryConfig.getMemoryConfig(),
 }));
 
 mock.module("../../../../../config/assistant-feature-flags.js", () => ({
