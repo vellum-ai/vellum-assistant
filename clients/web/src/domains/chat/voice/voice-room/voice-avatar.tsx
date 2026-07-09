@@ -22,9 +22,15 @@ export interface VoiceAvatarProps {
   size?: number;
 }
 
-/** Visuals whose scale rides live amplitude via the rAF loop. */
+/**
+ * Visuals whose scale rides live amplitude via the rAF loop. Only `responding`
+ * (the assistant is speaking): the avatar emits an outward pulse on its own TTS
+ * output. `listening` deliberately stays at rest — the user's voice is expressed
+ * by the bottom waves coming *in* (see voice-listening-waves.tsx), not by
+ * scaling the avatar.
+ */
 function isAudioReactive(visual: VoiceAvatarVisual): boolean {
-  return visual === "responding" || visual === "listening";
+  return visual === "responding";
 }
 
 /**
@@ -40,10 +46,12 @@ function isAudioReactive(visual: VoiceAvatarVisual): boolean {
  * owned by the room wrapper (see `voice-room.tsx`), not here.
  *
  * For the audio-reactive visuals a requestAnimationFrame loop polls
- * `getAmplitude()` and writes the `--voice-amp` custom property on the avatar
- * wrapper — never through React state, so per-sample updates cause no
- * re-render. Reduced-motion users get the static avatar (CSS loops and the
- * amplitude scale are both disabled).
+ * `getAmplitude()` and writes the `--voice-amp` custom property on the outer
+ * `.voice-avatar` node — never through React state, so per-sample updates cause
+ * no re-render. It's written on the outer node (not the `__amp` child) so the
+ * `::after` emanation ring can read it: only `responding` is reactive, and its
+ * TTS-output amplitude drives the color emanating outward (see index.css).
+ * Reduced-motion users get the static avatar (CSS loops disabled).
  */
 export function VoiceAvatar({
   assistantId,
@@ -99,10 +107,11 @@ export function VoiceAvatar({
 
   return (
     <div
+      ref={ampRef}
       className={`voice-avatar voice-avatar--${visual}`}
       style={{ width: size, height: size }}
     >
-      <div ref={ampRef} className="voice-avatar__amp">
+      <div className="voice-avatar__amp">
         <ChatAvatar
           components={components}
           traits={traits}
