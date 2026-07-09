@@ -313,7 +313,7 @@
         "ref": "1cf0054fa652a0b981f871e389136fbc22b02cf9"
       },
       "description": "Track expenses, income, recurring bills, and savings funds from your assistant. Multi-currency, receipt OCR, Plaid bank sync, and financial summaries. All data stored locally in SQLite.",
-      "category": "finance",
+      "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/personal-finance",
       "license": "MIT"
     }
