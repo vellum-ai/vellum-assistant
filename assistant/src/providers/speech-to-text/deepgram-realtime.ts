@@ -322,6 +322,16 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   private outstandingFinalizes = 0;
 
   /**
+   * Number of Finalize requests the fallback timer settled whose
+   * `from_finalize` flush has not yet arrived. Flushes arrive in request
+   * order, so while this is positive the next `from_finalize` frame
+   * answers a fallback-settled request: it is dropped as stale instead of
+   * being emitted as — and settling — a newer request's flush. Reset on
+   * close alongside the outstanding-request drain.
+   */
+  private fallbackSettledFinalizes = 0;
+
+  /**
    * Fallback timer for in-flight Finalize requests. Deepgram omits the
    * `from_finalize` flush when nothing significant is buffered, so this
    * timer emits `finalized` after {@link FINALIZE_FALLBACK_MS} to keep the
@@ -466,10 +476,17 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * flushing buffered audio as a Results frame with `from_finalize: true`
    * (possibly with an empty transcript). The adapter emits the resulting
    * `final` (when non-empty) followed by one `finalized` event, and the
-   * stream stays open for more audio. Overlapping requests are answered
-   * in order — one `finalized` per request. When the socket is not open
-   * there is nothing buffered provider-side, so `finalized` is emitted
-   * immediately. {@link stop} remains the session-teardown path.
+   * stream stays open for more audio.
+   *
+   * Every request settles exactly once, oldest first: by its
+   * `from_finalize` flush when one arrives in time, or by a fallback
+   * timer ({@link DeepgramRealtimeOptions.finalizeFallbackMs}) when
+   * Deepgram omits the flush (nothing significant buffered) or answers
+   * too slowly. A flush arriving after its request was fallback-settled
+   * is dropped as stale — no `final`, no second `finalized` — so its
+   * text can never be attributed to a newer request. When the socket is
+   * not open there is nothing buffered provider-side, so `finalized` is
+   * emitted immediately. {@link stop} remains the session-teardown path.
    */
   finalizeUtterance(): void {
     const ws = this.ws;
@@ -637,7 +654,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * - `final` for `is_final: true` frames.
    * - `finalized` after the `final` of a `from_finalize: true` flush frame
    *   (the response to {@link finalizeUtterance}). An empty flush emits
-   *   only `finalized` — silence flushes carry no transcript to commit.
+   *   only `finalized` — silence flushes carry no transcript to commit. A
+   *   flush whose request the fallback timer already settled is dropped
+   *   entirely (no `final`, no `finalized`) — see {@link finalizeUtterance}.
    */
   private handleTranscriptFrame(frame: DeepgramStreamResponse): void {
     const alternative = frame.channel?.alternatives?.[0];
@@ -646,6 +665,20 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
     // Extract text, defaulting to empty string for silence segments.
     const text = typeof transcript === "string" ? transcript.trim() : "";
+
+    // A flush whose request the fallback timer already settled is stale:
+    // flushes arrive in request order, so it pairs with the oldest
+    // fallback-settled request, whose `finalized` was already emitted.
+    // Emitting its text (or another `finalized`) here would attribute it
+    // to a newer request's utterance.
+    if (fromFinalize && this.fallbackSettledFinalizes > 0) {
+      this.fallbackSettledFinalizes -= 1;
+      log.debug(
+        { droppedTextLength: text.length },
+        "Dropped a stale from_finalize flush: its request was fallback-settled",
+      );
+      return;
+    }
 
     const speakerLabel = this.diarize
       ? extractSpeakerLabel(alternative)
@@ -808,6 +841,11 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       log.debug(
         "Deepgram sent no from_finalize flush — emitting finalized fallback",
       );
+      if (this.outstandingFinalizes > 0) {
+        // The request settles without its flush; a flush that still
+        // arrives later is dropped as stale in handleTranscriptFrame.
+        this.fallbackSettledFinalizes += 1;
+      }
       this.settleOneFinalize();
     }, this.finalizeFallbackMs);
   }
@@ -839,6 +877,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     while (this.outstandingFinalizes > 0) {
       this.settleOneFinalize();
     }
+    // Closed sessions process no further frames, so pending stale-flush
+    // bookkeeping resets with the drained requests.
+    this.fallbackSettledFinalizes = 0;
     this.emitEvent({ type: "closed" });
     this.onEvent = null;
   }
