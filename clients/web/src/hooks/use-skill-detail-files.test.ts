@@ -6,8 +6,10 @@
 
 import { describe, expect, it } from "bun:test";
 
-import type { SkillFileEntry } from "@/domains/intelligence/skills/types.js";
-import { pickDefaultFilePath } from "@/domains/intelligence/skills/use-skill-detail-files.js";
+import {
+  pickDefaultFilePath,
+  type SkillFileEntry,
+} from "@/hooks/use-skill-detail-files.js";
 
 function makeEntry(overrides: Partial<SkillFileEntry> = {}): SkillFileEntry {
   return {

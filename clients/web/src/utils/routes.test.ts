@@ -25,6 +25,19 @@ describe("routes", () => {
       "/assistant/schedules/sch_123",
     );
   });
+
+  test("builds the skills tab and per-skill detail paths", () => {
+    expect(routes.skills.root).toBe("/assistant/skills");
+    expect(routes.skills.detail("my-skill")).toBe("/assistant/skills/my-skill");
+  });
+
+  test("encodes namespaced skill ids into a single path segment", () => {
+    // skills.sh catalog ids contain slashes (org/repo/skill); the produced
+    // URL must keep the id as ONE segment so `skills/:skillId` can match it.
+    expect(routes.skills.detail("org/repo/shared-skill")).toBe(
+      "/assistant/skills/org%2Frepo%2Fshared-skill",
+    );
+  });
 });
 
 describe("isConversationPath (conversation area, subroutes included)", () => {

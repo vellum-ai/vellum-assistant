@@ -30,9 +30,11 @@ const mockReadInstallMeta = mock(
     _dir: string,
   ): {
     origin: string;
-    slug: string;
+    slug?: string;
     sourceRepo?: string;
     installedAt?: string;
+    author?: "assistant" | "user";
+    sourceConversationId?: string;
   } | null => null,
 );
 
@@ -354,5 +356,91 @@ describe("getSkill — skillssh audit enrichment", () => {
     if (detail.origin === "vellum") {
       expect(detail.owner).toEqual({ kind: "plugin", id: "caveman" });
     }
+  });
+});
+
+describe("getSkill — assistant-memory conversation lineage", () => {
+  beforeEach(() => {
+    mockResolveSkillStates.mockReset();
+    mockReadInstallMeta.mockReset();
+    mockFetchSkillAudits.mockReset();
+
+    mockResolveSkillStates.mockReturnValue([
+      {
+        summary: {
+          id: "triage-inbox",
+          displayName: "Triage Inbox",
+          description: "Distilled inbox triage procedure",
+          source: "managed" as const,
+          directoryPath: "/tmp/test-skills/triage-inbox",
+        },
+        state: "enabled" as const,
+      },
+    ]);
+    mockFetchSkillAudits.mockResolvedValue({});
+  });
+
+  test("includes sourceConversationId when install-meta records it", async () => {
+    // GIVEN a retrospective-authored skill whose install-meta carries lineage
+    mockReadInstallMeta.mockReturnValue({
+      origin: "custom",
+      author: "assistant",
+      sourceConversationId: "conv-123",
+      installedAt: "2026-01-01T00:00:00Z",
+    });
+
+    const result = await getSkill("triage-inbox");
+
+    expect("skill" in result).toBe(true);
+    if (!("skill" in result)) {
+      throw new Error("Expected skill response");
+    }
+
+    const detail = result.skill;
+    expect(detail.origin).toBe("assistant-memory");
+    if (detail.origin === "assistant-memory") {
+      expect(detail.sourceConversationId).toBe("conv-123");
+    }
+  });
+
+  test("omits sourceConversationId when install-meta has none", async () => {
+    // GIVEN a retrospective-authored skill without recorded lineage
+    mockReadInstallMeta.mockReturnValue({
+      origin: "custom",
+      author: "assistant",
+      installedAt: "2026-01-01T00:00:00Z",
+    });
+
+    const result = await getSkill("triage-inbox");
+
+    expect("skill" in result).toBe(true);
+    if (!("skill" in result)) {
+      throw new Error("Expected skill response");
+    }
+
+    const detail = result.skill;
+    expect(detail.origin).toBe("assistant-memory");
+    expect("sourceConversationId" in detail).toBe(false);
+  });
+
+  test("never exposes lineage on non-assistant-memory origins", async () => {
+    // GIVEN a user-installed custom skill that (unexpectedly) carries a
+    // sourceConversationId in install-meta
+    mockReadInstallMeta.mockReturnValue({
+      origin: "custom",
+      sourceConversationId: "conv-123",
+      installedAt: "2026-01-01T00:00:00Z",
+    });
+
+    const result = await getSkill("triage-inbox");
+
+    expect("skill" in result).toBe(true);
+    if (!("skill" in result)) {
+      throw new Error("Expected skill response");
+    }
+
+    const detail = result.skill;
+    expect(detail.origin).toBe("custom");
+    expect("sourceConversationId" in detail).toBe(false);
   });
 });

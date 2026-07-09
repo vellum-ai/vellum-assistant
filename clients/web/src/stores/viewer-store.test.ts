@@ -344,6 +344,90 @@ describe("closeBackgroundTaskDetail", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Skill detail
+// ---------------------------------------------------------------------------
+
+describe("openSkillDetail", () => {
+  it("saves current view and switches to skill-detail", () => {
+    getState().openSkillDetail("skill-1");
+    const state = getState();
+    expect(state.mainView).toBe("skill-detail");
+    expect(state.activeSkillDetailId).toBe("skill-1");
+    expect(state.viewBeforeSkillDetail).toBe("chat");
+  });
+
+  it("preserves existing viewBeforeSkillDetail when already in skill-detail", () => {
+    useViewerStore.setState({
+      mainView: "skill-detail",
+      viewBeforeSkillDetail: "app",
+      activeSkillDetailId: "skill-1",
+    });
+    getState().openSkillDetail("skill-2");
+    const state = getState();
+    expect(state.viewBeforeSkillDetail).toBe("app");
+    expect(state.activeSkillDetailId).toBe("skill-2");
+  });
+
+  it("saves non-chat view correctly", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openSkillDetail("skill-1");
+    expect(getState().viewBeforeSkillDetail).toBe("app");
+  });
+
+  it("does not overwrite a real prior view with a transient one when opened over tool-detail", () => {
+    useViewerStore.setState({
+      mainView: "tool-detail",
+      viewBeforeSkillDetail: "app",
+      activeToolDetail: SAMPLE_TOOL,
+    });
+    getState().openSkillDetail("skill-1");
+    const state = getState();
+    expect(state.mainView).toBe("skill-detail");
+    expect(state.viewBeforeSkillDetail).toBe("app");
+  });
+});
+
+describe("closeSkillDetail", () => {
+  it("restores viewBeforeSkillDetail and clears activeSkillDetailId", () => {
+    useViewerStore.setState({
+      mainView: "skill-detail",
+      viewBeforeSkillDetail: "chat",
+      activeSkillDetailId: "skill-1",
+    });
+    getState().closeSkillDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeSkillDetailId).toBeNull();
+  });
+
+  it("restores a non-chat view", () => {
+    useViewerStore.setState({
+      mainView: "skill-detail",
+      viewBeforeSkillDetail: "app",
+      activeSkillDetailId: "skill-1",
+    });
+    getState().closeSkillDetail();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeSkillDetailId).toBeNull();
+  });
+
+  it("unwinds stacked panels one layer at a time (skill-detail over tool-detail)", () => {
+    // Mirrors the Escape flow: each panel keeps its own viewBefore*, so
+    // closing skill-detail restores its saved non-overlay view, and closing
+    // tool-detail afterwards restores the view it saved — the stack never
+    // dead-ends inside an overlay.
+    getState().openToolDetail(SAMPLE_TOOL);
+    getState().openSkillDetail("skill-1");
+    getState().closeSkillDetail();
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeSkillDetailId).toBeNull();
+    getState().closeToolDetail();
+    expect(getState().mainView).toBe("chat");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Workflow detail
 // ---------------------------------------------------------------------------
 
