@@ -269,7 +269,10 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   if (useMobileLayout) {
     return (
       <div
-        className="absolute inset-0 z-30 flex flex-col bg-[var(--surface-lift)]"
+        // z-50 keeps the full-screen palette above the navigation drawer
+        // (fixed z-40 in chat-layout), which stays mounted underneath so
+        // dismissing search returns to the menu.
+        className="fixed inset-0 z-50 flex flex-col bg-[var(--surface-lift)]"
         role="dialog"
         aria-modal="true"
         aria-label="Search"
