@@ -63,9 +63,9 @@ export interface UninstallPluginResult {
  * clean up. It runs in whatever process performs the uninstall — both the CLI
  * command and the daemon's `DELETE` route call this — because a `shutdown` hook
  * must not assume it shares a process with its `init`. Resolving a hook that
- * imports `@vellumai/plugin-api` needs the workspace shim in place; the caller
- * provides it (the daemon at boot, the `plugins` CLI command group at init). A
- * missing, throwing, or slow hook is best-effort (time-boxed inside
+ * imports `@vellumai/plugin-api` needs the workspace shim in place; each caller
+ * ensures it first — the daemon `DELETE` route and the `plugins` CLI command
+ * group. A missing, throwing, or slow hook is best-effort (time-boxed inside
  * {@link runShutdownHook}) and never blocks the removal.
  */
 export async function uninstallPlugin(

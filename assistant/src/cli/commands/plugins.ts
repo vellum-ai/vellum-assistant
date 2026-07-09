@@ -15,7 +15,6 @@ import {
   type PluginDiffResult,
   PluginDiffUnavailableError,
 } from "../lib/diff-plugin.js";
-import { ensureCliPluginApiShim } from "../lib/ensure-cli-plugin-api-shim.js";
 import {
   inspectPlugin,
   type PluginInspection,
@@ -93,10 +92,14 @@ export function registerPluginsCommand(program: Command): void {
       // group, before any subcommand action runs. A subcommand that resolves a
       // plugin hook in this fresh CLI process — `uninstall` running a plugin's
       // `shutdown` — needs the package importable; the daemon materializes the
-      // same shim at boot, this covers the standalone CLI. Best-effort: a failed
-      // shim just means such a hook's import may not resolve.
+      // same shim at boot, this covers the standalone CLI. Dynamically imported
+      // so the daemon-internal module stays out of the CLI's static graph
+      // (`cli/no-daemon-internals`). Best-effort: a failed shim just means such a
+      // hook's import may not resolve.
       plugins.hook("preAction", async () => {
-        await ensureCliPluginApiShim();
+        const { ensurePluginApiShim } =
+          await import("../../plugins/ensure-plugin-api-shim.js");
+        await ensurePluginApiShim().catch(() => {});
       });
 
       plugins.addHelpText(
