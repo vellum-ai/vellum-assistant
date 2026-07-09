@@ -264,8 +264,20 @@ mock.module("../../../../runtime/agent-wake.js", () => ({
   },
 }));
 
+// Mid-turn fallback requeue recorder (`upsertMemoryRetrospectiveJob` is the
+// same coalescing upsert the enqueue helper uses).
+let retrospectiveJobUpserts: Array<{
+  payload: { conversationId: string };
+  runAfter: number;
+}> = [];
 mock.module("../../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => "follow-up-job-id",
+  upsertMemoryRetrospectiveJob: (
+    payload: { conversationId: string },
+    runAfter: number,
+  ) => {
+    retrospectiveJobUpserts.push({ payload, runAfter });
+  },
 }));
 
 // proc-to-skills gate. Drives both `buildForkInstruction`'s skill-authoring
@@ -278,7 +290,10 @@ mock.module("../../../../config/memory-v3-gate.js", () => ({
 }));
 
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { memoryRetrospectiveJob } from "../memory-retrospective-job.js";
+import {
+  memoryRetrospectiveJob,
+  SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+} from "../memory-retrospective-job.js";
 
 function makeConfig(
   overrides: {
@@ -371,6 +386,7 @@ describe("memoryRetrospectiveJob", () => {
     forkedConversationId = "fork-conv-1";
     forkCalls = [];
     addMessageCalls = [];
+    retrospectiveJobUpserts = [];
     conversationOverrides = {};
     messagesByConversationId = {};
     loadedConversations = {};
@@ -736,19 +752,36 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Mid-turn skip gate
+  // Mid-turn requeue gate
   // -------------------------------------------------------------------------
 
-  test("source mid-turn → skipped outcome, pointer unchanged, lastRunAt bumped, no fork", async () => {
+  test("source mid-turn → skipped outcome, state fully untouched, job re-upserted with the fallback delay, no fork", async () => {
     loadedConversations["src-conv-1"] = { processing: true };
 
+    const before = Date.now();
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+    const after = Date.now();
 
     expect(outcome.kind).toBe("source_processing");
-    // `lastProcessedMessageId` untouched — only the cooldown timestamp moves.
+    // BOTH pointers untouched. `lastRunAt` must stay unbumped so the
+    // turn-end message-indexing trigger check re-enqueues immediately (the
+    // primary, event-driven requeue) instead of being cooldown-suppressed —
+    // a fresh single-turn conversation would otherwise burn its first run
+    // forever.
     expect(stateUpserts).toHaveLength(0);
-    expect(lastRunAtBumps).toHaveLength(1);
-    expect(lastRunAtBumps[0]!.conversationId).toBe("src-conv-1");
+    expect(lastRunAtBumps).toHaveLength(0);
+    // Timed fallback row for a turn that aborts without indexing another
+    // message: coalescing re-upsert at the named delay.
+    expect(retrospectiveJobUpserts).toHaveLength(1);
+    expect(retrospectiveJobUpserts[0]!.payload).toEqual({
+      conversationId: "src-conv-1",
+    });
+    expect(retrospectiveJobUpserts[0]!.runAfter).toBeGreaterThanOrEqual(
+      before + SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+    );
+    expect(retrospectiveJobUpserts[0]!.runAfter).toBeLessThanOrEqual(
+      after + SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+    );
     // No fork, no instruction, no wake, no cleanup side effects.
     expect(forkCalls).toHaveLength(0);
     expect(addMessageCalls).toHaveLength(0);
@@ -756,7 +789,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(deletedConversationIds).toEqual([]);
   });
 
-  test("source loaded but idle → normal run", async () => {
+  test("source loaded but idle → normal run, no requeue upsert", async () => {
     loadedConversations["src-conv-1"] = { processing: false };
 
     const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
@@ -765,6 +798,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(forkCalls).toHaveLength(1);
     expect(lastRunAtBumps).toHaveLength(0);
     expect(stateUpserts).toHaveLength(1);
+    expect(retrospectiveJobUpserts).toHaveLength(0);
   });
 
   test("source unloaded (not in registry) → normal run", async () => {

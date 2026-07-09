@@ -17,7 +17,6 @@
 import {
   addMessage,
   getConversation,
-  isConversationProcessing,
 } from "../../../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../../../persistence/conversation-disk-view.js";
 import { publishConversationMessagesChanged } from "../../../runtime/sync/resource-sync-events.js";
@@ -193,10 +192,19 @@ function readScaffoldInput(input: unknown): AuthoredSkill | null {
  * `surfaceId` (doubling as the insert's idempotency nonce via
  * `clientMessageId`) is derived from the run conversation id, so a retried
  * finalize cannot produce two cards for one run — a deduplicated insert also
- * skips the disk-view sync and client broadcast. Skips when the source
- * conversation no longer exists (deleted mid-run) or is mid-turn (inserting
- * would splice the card into an in-flight display turn; the admission check
- * ran minutes earlier). Best-effort — failures are logged and never thrown.
+ * skips the disk-view sync and client broadcast. Distinct runs get distinct
+ * ids, so a conversation accumulates one card per authoring run over its
+ * life, by design.
+ *
+ * Inserts unconditionally with respect to turn state — a source conversation
+ * that is mid-turn still gets its card. Mid-turn insertion is safe: the
+ * message carries a `_surfaceFallback` text block, the Anthropic client's
+ * placeholder splice + `ensureToolPairing` tolerate an assistant row landing
+ * between a tool_use and its tool_result, and the retrospective accounting
+ * excludes `SKILL_CARD_MESSAGE_KIND` rows from re-trigger counting so the
+ * card never wakes another pass. The only skip is a source conversation that
+ * no longer exists (deleted mid-run). Best-effort — failures are logged and
+ * never thrown.
  */
 export async function insertSkillCardMessage(
   sourceConversationId: string,
@@ -206,16 +214,9 @@ export async function insertSkillCardMessage(
   try {
     const sourceConversation = getConversation(sourceConversationId);
     if (!sourceConversation) {
-      log.debug(
+      log.info(
         { sourceConversationId, runConversationId },
         "skill card: source conversation no longer exists; skipping",
-      );
-      return;
-    }
-    if (isConversationProcessing(sourceConversationId)) {
-      log.debug(
-        { sourceConversationId, runConversationId },
-        "skill card: source conversation is mid-turn; skipping",
       );
       return;
     }
@@ -255,8 +256,8 @@ export async function insertSkillCardMessage(
       },
     );
     if (persisted.deduplicated) {
-      log.debug(
-        { sourceConversationId, runConversationId },
+      log.info(
+        { sourceConversationId, runConversationId, surfaceId },
         "skill card: message already exists (deduplicated); skipping sync and publish",
       );
       return;
@@ -277,6 +278,15 @@ export async function insertSkillCardMessage(
       );
     }
     publishConversationMessagesChanged(sourceConversationId);
+    log.info(
+      {
+        sourceConversationId,
+        runConversationId,
+        surfaceId,
+        skillIds: skills.map((s) => s.skillId),
+      },
+      "skill card: inserted into source conversation",
+    );
   } catch (err) {
     log.warn(
       { err, sourceConversationId, runConversationId },

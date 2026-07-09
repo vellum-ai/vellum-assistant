@@ -21,6 +21,9 @@ let addMessageCalls: Array<{
 }> = [];
 let addMessageThrowsFor: string | null = null;
 let addMessageDeduplicatesFor: string | null = null;
+// Mirrors the real persistence layer's `clientMessageId` idempotency: a
+// repeated (conversationId, clientMessageId) pair reports `deduplicated`.
+let seenClientMessageIds = new Set<string>();
 let processingConversationIds: string[] = [];
 
 let syncedToDisk: Array<{
@@ -78,13 +81,24 @@ mock.module("../../../../persistence/conversation-crud.js", () => ({
       throw new Error(`insert failed for ${conversationId}`);
     }
     addMessageCalls.push({ conversationId, role, content, options });
+    const clientMessageId = options?.clientMessageId;
+    const dedupKey =
+      typeof clientMessageId === "string"
+        ? `${conversationId}:${clientMessageId}`
+        : null;
+    const deduplicated =
+      addMessageDeduplicatesFor === conversationId ||
+      (dedupKey !== null && seenClientMessageIds.has(dedupKey));
+    if (dedupKey !== null) {
+      seenClientMessageIds.add(dedupKey);
+    }
     return {
       id: `persisted-msg-${addMessageCalls.length}`,
       conversationId,
       role,
       content,
       createdAt: 42,
-      deduplicated: addMessageDeduplicatesFor === conversationId,
+      deduplicated,
     };
   },
   deleteConversation: (_id: string) => {},
@@ -154,6 +168,7 @@ mock.module("../../../../runtime/agent-wake.js", () => ({
 
 mock.module("../../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => "follow-up-job-id",
+  upsertMemoryRetrospectiveJob: () => {},
 }));
 
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
@@ -291,6 +306,7 @@ describe("memory-retrospective skill card", () => {
     addMessageCalls = [];
     addMessageThrowsFor = null;
     addMessageDeduplicatesFor = null;
+    seenClientMessageIds = new Set();
     processingConversationIds = [];
     syncedToDisk = [];
     publishedConversationIds = [];
@@ -542,16 +558,51 @@ describe("memory-retrospective skill card", () => {
     expect(publishedConversationIds).toHaveLength(0);
   });
 
-  test("insert is a no-op when the source conversation is mid-turn", async () => {
+  test("insert still writes the card when the source conversation is mid-turn", async () => {
+    // A skill-created card must land EVERY time a retrospective authors
+    // skills, mid-turn included: the message is provider-safe (fallback text
+    // block; placeholder splice + ensureToolPairing tolerate an assistant
+    // row between tool_use/tool_result) and the accounting excludes card
+    // rows from re-trigger counting.
     processingConversationIds = ["src-conv-9"];
 
     await insertSkillCardMessage("src-conv-9", "run-conv-1", [
       { skillId: "skill-a", name: "Skill A", description: "Does A" },
     ]);
 
-    expect(addMessageCalls).toHaveLength(0);
-    expect(syncedToDisk).toHaveLength(0);
-    expect(publishedConversationIds).toHaveLength(0);
+    expect(addMessageCalls).toHaveLength(1);
+    expect(addMessageCalls[0]!.conversationId).toBe("src-conv-9");
+    expect(syncedToDisk).toHaveLength(1);
+    expect(publishedConversationIds).toEqual(["src-conv-9"]);
+  });
+
+  test("distinct run ids on the same source produce one card each; a retried run id stays deduped", async () => {
+    const skills = [
+      { skillId: "skill-a", name: "Skill A", description: "Does A" },
+    ];
+
+    await insertSkillCardMessage("src-conv-9", "run-conv-1", skills);
+    await insertSkillCardMessage("src-conv-9", "run-conv-2", skills);
+    // Retried finalize of run 1: same clientMessageId → persistence dedups.
+    await insertSkillCardMessage("src-conv-9", "run-conv-1", skills);
+
+    // Multiple cards over a conversation's life are expected — one per
+    // authoring run, keyed by the run-derived clientMessageId.
+    expect(
+      addMessageCalls.map(
+        (c) => (c.options as Record<string, unknown>).clientMessageId,
+      ),
+    ).toEqual([
+      "skill-card-run-conv-1",
+      "skill-card-run-conv-2",
+      "skill-card-run-conv-1",
+    ]);
+    // Only the two distinct runs reach the disk view and client broadcast.
+    expect(syncedToDisk.map((s) => s.messageId)).toEqual([
+      "persisted-msg-1",
+      "persisted-msg-2",
+    ]);
+    expect(publishedConversationIds).toEqual(["src-conv-9", "src-conv-9"]);
   });
 
   test("deduplicated insert (retried finalize) skips disk sync and publish", async () => {
