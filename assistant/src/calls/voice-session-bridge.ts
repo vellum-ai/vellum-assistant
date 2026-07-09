@@ -507,12 +507,16 @@ export async function startVoiceTurn(
     break;
   }
 
-  // Hoisted so the catch below can clear partially-applied turn state
-  // when a setter or `persistUserMessage` throws — otherwise `trustContext`,
-  // `callSessionId`, etc. leak into subsequent non-voice turns on the same
-  // conversation. The client callback is only reset when this turn actually
-  // installed it (tracked via `clientCallbackInstalled`); otherwise cleanup
-  // would detach an active sender installed by a prior turn.
+  // Releases the per-turn state of a voice turn that OWNED the conversation,
+  // so `trustContext`, `callSessionId`, etc. don't leak into subsequent
+  // non-voice turns. Runs on exactly two paths: the agent-loop `finally`
+  // (the turn ran) and the first-persist non-busy failure below (the persist
+  // failed while no concurrent turn held the lock). Paths where this turn
+  // LOST the conversation to a concurrent winner must use `restoreTurnState`
+  // instead — this reset-to-defaults would clobber the winner's live state.
+  // The client callback is only reset when this turn actually installed it
+  // (tracked via `clientCallbackInstalled`); otherwise cleanup would detach
+  // an active sender installed by a prior turn.
   let clientCallbackInstalled = false;
   const cleanup = () => {
     conversation.setChannelCapabilities(null);
@@ -540,9 +544,10 @@ export async function startVoiceTurn(
   };
   /**
    * Install this turn's per-conversation state (caller trust, call session
-   * id, channel capabilities, voice control prompt). Runs before every
-   * persist attempt: the busy-retry path below uninstalls via `cleanup()`
-   * for the duration of its wait, then re-installs before retrying.
+   * id, channel capabilities, voice control prompt, turn channel/interface
+   * contexts). Runs before every persist attempt: the busy-retry path below
+   * restores the prior owner's values via `restoreTurnState` for the
+   * duration of its wait, then re-installs before retrying.
    */
   const installVoiceTurnState = () => {
     conversation.setAssistantId(
@@ -561,36 +566,95 @@ export async function startVoiceTurn(
     );
     conversation.setVoiceCallControlPrompt(voiceCallControlPrompt);
   };
+  /**
+   * Capture every conversation value `installVoiceTurnState` overwrites
+   * (plus `forcePromptSideEffects`, cleared by `cleanup`) so a turn that
+   * never wins the conversation can put them back untouched.
+   */
+  const snapshotTurnState = () => ({
+    assistantId: conversation.assistantId,
+    callSessionId: conversation.callSessionId,
+    trustContext: conversation.trustContext,
+    commandIntent: conversation.commandIntent,
+    turnChannelContext: conversation.getTurnChannelContext?.() ?? null,
+    turnInterfaceContext: conversation.getTurnInterfaceContext?.() ?? null,
+    channelCapabilities: conversation.channelCapabilities,
+    voiceCallControlPrompt: conversation.voiceCallControlPrompt,
+    forcePromptSideEffects: conversation.forcePromptSideEffects,
+  });
+  /**
+   * Put back the values captured by `snapshotTurnState`. Used on every path
+   * where this turn LOST the conversation to a concurrent winner (the busy
+   * persist race and the retry's terminal failures): the winner is mid-run
+   * with its own per-turn state, so `cleanup()`'s reset-to-defaults would
+   * null its trust context and capabilities and leave it running as
+   * assistantId "self". A lost race must leave the conversation exactly as
+   * found. Setter order mirrors `cleanup` (trust released before the voice
+   * prompt).
+   */
+  const restoreTurnState = (snap: ReturnType<typeof snapshotTurnState>) => {
+    conversation.setChannelCapabilities(snap.channelCapabilities ?? null);
+    conversation.setTrustContext(snap.trustContext ?? null);
+    conversation.setCommandIntent(snap.commandIntent ?? null);
+    conversation.setAssistantId(snap.assistantId ?? null);
+    conversation.setTurnChannelContext(snap.turnChannelContext);
+    conversation.setTurnInterfaceContext?.(snap.turnInterfaceContext);
+    conversation.setVoiceCallControlPrompt(snap.voiceCallControlPrompt ?? null);
+    conversation.callSessionId = snap.callSessionId;
+    conversation.forcePromptSideEffects = snap.forcePromptSideEffects;
+  };
   let messageId: string;
+  // Captured before the install so a lost persist race can put the prior
+  // owner's values back (see restoreTurnState).
+  const preInstallState = snapshotTurnState();
   try {
     installVoiceTurnState();
-
-    try {
-      messageId = await persistTurnUserMessage();
-    } catch (err) {
-      // A queued-message drain can take the lock between the wait loop
-      // above and this persist — the drain reaches its own persist a few
-      // microtasks after the idle transition that released this turn.
-      // Within the remaining budget, wait the drained turn out and retry
-      // the persist once instead of failing the barge-in. The drained turn
-      // must not run with this turn's phone prompt or caller trust, so the
-      // voice state is uninstalled while it holds the lock and re-installed
-      // before the retry.
-      if (
-        !(err instanceof Error) ||
-        err.message !== CONVERSATION_BUSY_MESSAGE ||
-        remainingWaitMs <= 0
-      ) {
-        throw err;
-      }
+  } catch (err) {
+    // A partially-applied install never owned the conversation: undo it
+    // value-for-value rather than resetting shared state to defaults.
+    restoreTurnState(preInstallState);
+    throw err;
+  }
+  try {
+    messageId = await persistTurnUserMessage();
+  } catch (err) {
+    // A queued-message drain can take the lock between the wait loop
+    // above and this persist — the drain reaches its own persist a few
+    // microtasks after the idle transition that released this turn.
+    // Within the remaining budget, wait the drained turn out and retry
+    // the persist once instead of failing the barge-in.
+    if (
+      !(err instanceof Error) ||
+      err.message !== CONVERSATION_BUSY_MESSAGE ||
+      remainingWaitMs <= 0
+    ) {
+      // Non-busy persist failure: no concurrent turn took the lock, so
+      // this turn still owns the state it installed. Release it to
+      // defaults, matching the agent-loop finally of a turn that ran.
       cleanup();
-      await waitOutProcessingLock();
+      throw err;
+    }
+    // The busy error means a concurrent turn won the lock race and is
+    // running. It must not run with this turn's phone prompt, caller
+    // trust, or turn channel/interface contexts, so the winner's values
+    // are put back for the duration of the wait.
+    restoreTurnState(preInstallState);
+    // Throws the exact busy error on an exhausted budget and the exact
+    // turn-aborted error on abort; the restore above already left the
+    // conversation exactly as the winner had it.
+    await waitOutProcessingLock();
+    // Re-capture before re-installing: the winner may have changed the
+    // conversation state while it held the lock.
+    const preRetryState = snapshotTurnState();
+    try {
       installVoiceTurnState();
       messageId = await persistTurnUserMessage();
+    } catch (retryErr) {
+      // The retry lost again (or failed outright) without this turn ever
+      // running — leave the conversation exactly as the winner left it.
+      restoreTurnState(preRetryState);
+      throw retryErr;
     }
-  } catch (err) {
-    cleanup();
-    throw err;
   }
   try {
     opts.callbacks?.persisted_user_message_id?.(messageId);

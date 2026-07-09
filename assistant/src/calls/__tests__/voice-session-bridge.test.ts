@@ -135,6 +135,113 @@ function makeFakeConversation(opts: {
   };
 }
 
+/**
+ * The full set of per-turn conversation values the bridge snapshots and
+ * restores when it loses the persist race (see `restoreTurnState` in
+ * voice-session-bridge.ts).
+ */
+interface FakeTurnState {
+  assistantId: string | undefined;
+  callSessionId: string | undefined;
+  trustContext: unknown;
+  commandIntent: unknown;
+  turnChannelContext: unknown;
+  turnInterfaceContext: unknown;
+  channelCapabilities: unknown;
+  voiceCallControlPrompt: string | undefined;
+  forcePromptSideEffects: boolean;
+}
+
+/**
+ * Wire stateful setters/getters onto a fake conversation, mirroring the real
+ * Conversation's field semantics (a null setter argument clears the field to
+ * undefined; turn contexts store null as-is), so the bridge's
+ * snapshot/restore logic reads and writes live values. Returns a reader for
+ * the conversation's current turn state.
+ */
+function wireTurnState(
+  fake: FakeConversation,
+  initial: Partial<FakeTurnState>,
+): () => FakeTurnState {
+  const conv = fake as FakeConversation & {
+    assistantId?: string;
+    trustContext?: unknown;
+    commandIntent?: unknown;
+    channelCapabilities?: unknown;
+    voiceCallControlPrompt?: string;
+    getTurnChannelContext?: () => unknown;
+    getTurnInterfaceContext?: () => unknown;
+  };
+  conv.assistantId = initial.assistantId;
+  conv.callSessionId = initial.callSessionId;
+  conv.trustContext = initial.trustContext;
+  conv.commandIntent = initial.commandIntent;
+  conv.channelCapabilities = initial.channelCapabilities;
+  conv.voiceCallControlPrompt = initial.voiceCallControlPrompt;
+  conv.forcePromptSideEffects = initial.forcePromptSideEffects ?? false;
+  let turnChannelContext: unknown = initial.turnChannelContext ?? null;
+  let turnInterfaceContext: unknown = initial.turnInterfaceContext ?? null;
+  conv.setAssistantId = (id: string | null) => {
+    conv.assistantId = id ?? undefined;
+  };
+  conv.setTrustContext = (ctx: unknown) => {
+    conv.trustContext = ctx ?? undefined;
+  };
+  conv.setCommandIntent = (intent: unknown) => {
+    conv.commandIntent = intent ?? undefined;
+  };
+  conv.setChannelCapabilities = (caps: unknown) => {
+    conv.channelCapabilities = caps ?? undefined;
+  };
+  conv.setVoiceCallControlPrompt = (prompt: string | null) => {
+    conv.voiceCallControlPrompt = prompt ?? undefined;
+  };
+  conv.setTurnChannelContext = (ctx: unknown) => {
+    turnChannelContext = ctx;
+  };
+  conv.setTurnInterfaceContext = (ctx: unknown) => {
+    turnInterfaceContext = ctx;
+  };
+  conv.getTurnChannelContext = () => turnChannelContext;
+  conv.getTurnInterfaceContext = () => turnInterfaceContext;
+  return () => ({
+    assistantId: conv.assistantId,
+    callSessionId: conv.callSessionId,
+    trustContext: conv.trustContext,
+    commandIntent: conv.commandIntent,
+    turnChannelContext,
+    turnInterfaceContext,
+    channelCapabilities: conv.channelCapabilities,
+    voiceCallControlPrompt: conv.voiceCallControlPrompt,
+    forcePromptSideEffects: conv.forcePromptSideEffects,
+  });
+}
+
+/**
+ * Winner-like per-turn state: the values a concurrent turn (e.g. a drained
+ * text turn from an iMessage channel) would have installed before this voice
+ * turn's persist lost the race to it.
+ */
+function makeWinnerState(): FakeTurnState {
+  return {
+    assistantId: "assistant-winner",
+    callSessionId: "session-winner",
+    trustContext: { sourceChannel: "imessage", trustClass: "trusted_contact" },
+    commandIntent: undefined,
+    turnChannelContext: {
+      userMessageChannel: "imessage",
+      assistantMessageChannel: "imessage",
+    },
+    turnInterfaceContext: {
+      userMessageInterface: "channel",
+      assistantMessageInterface: "channel",
+    },
+    channelCapabilities: { channel: "imessage", supportsDynamicUi: false },
+    voiceCallControlPrompt: "winner control prompt",
+    forcePromptSideEffects: false,
+  };
+}
+
 function makeTurnOptions(signal?: AbortSignal, conversationId?: string) {
   return {
     conversationId: conversationId ?? "conv-voice-bridge-test",
@@ -536,5 +643,142 @@ describe("startVoiceTurn queued-message drain race", () => {
       "Turn aborted while waiting for conversation",
     );
     expect(fake.persistCount()).toBe(1);
+  });
+});
+
+describe("startVoiceTurn race-loss state restore", () => {
+  // A busy persist means a concurrent turn (the lock winner) is running with
+  // per-turn state it installed. Every race-loss path must put the winner's
+  // values back — clearing to defaults would null the winner's trust context
+  // and capabilities mid-run and reset its assistantId to "self".
+
+  test("losing the persist race restores the winner's values for the duration of the retry wait", async () => {
+    const winnerState = makeWinnerState();
+    const statesDuringWait: FakeTurnState[] = [];
+    const statesAtRetryPersist: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: async () => {
+        statesDuringWait.push(readState());
+        fake.setProcessingFlag(false);
+        return true;
+      },
+      onPersist: (attempt) => {
+        if (attempt === 1) {
+          fake.setProcessingFlag(true);
+          throw new Error("Conversation is already processing a message");
+        }
+        statesAtRetryPersist.push(readState());
+      },
+    });
+    const readState = wireTurnState(fake.conversation, winnerState);
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-race-loss-restore"),
+      callSessionId: "session-voice-loser",
+      trustContext: { sourceChannel: "phone", trustClass: "guardian" },
+    });
+
+    // During the retry wait the conversation reads back the WINNER's values
+    // — including the turn channel/interface contexts — not nulls/defaults.
+    expect(statesDuringWait).toEqual([winnerState]);
+    // After the wait and the successful retry, the voice turn's values are
+    // installed again.
+    expect(statesAtRetryPersist.length).toBe(1);
+    const retryState = statesAtRetryPersist[0]!;
+    expect(retryState.assistantId).toBe("self");
+    expect(retryState.callSessionId).toBe("session-voice-loser");
+    expect(retryState.trustContext).toEqual({
+      sourceChannel: "phone",
+      trustClass: "guardian",
+    });
+    expect(retryState.turnChannelContext).toEqual({
+      userMessageChannel: "phone",
+      assistantMessageChannel: "phone",
+    });
+    expect(retryState.turnInterfaceContext).toEqual({
+      userMessageInterface: "phone",
+      assistantMessageInterface: "phone",
+    });
+    expect(retryState.voiceCallControlPrompt).toContain("voice_call_control");
+  });
+
+  test("a busy persist whose retry wait exhausts the budget leaves the winner's values in place", async () => {
+    const winnerState = makeWinnerState();
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: async () => false,
+      onPersist: () => {
+        fake.setProcessingFlag(true);
+        throw new Error("Conversation is already processing a message");
+      },
+    });
+    const readState = wireTurnState(fake.conversation, winnerState);
+    fakeConversation = fake.conversation;
+
+    await expect(
+      startVoiceTurn({
+        ...makeTurnOptions(undefined, "conv-race-budget-restore"),
+        callSessionId: "session-voice-loser",
+        trustContext: { sourceChannel: "phone", trustClass: "guardian" },
+      }),
+    ).rejects.toThrow("Conversation is already processing a message");
+    // The voice turn never ran, so it leaves zero trace: the conversation is
+    // exactly as the winner had it, not reset to defaults.
+    expect(readState()).toEqual(winnerState);
+  });
+
+  test("a retry persist that stays busy leaves the winner's values in place", async () => {
+    const winnerState = makeWinnerState();
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: async () => true,
+      onPersist: () => {
+        throw new Error("Conversation is already processing a message");
+      },
+    });
+    const readState = wireTurnState(fake.conversation, winnerState);
+    fakeConversation = fake.conversation;
+
+    await expect(
+      startVoiceTurn({
+        ...makeTurnOptions(undefined, "conv-race-retry-busy-restore"),
+        trustContext: { sourceChannel: "phone", trustClass: "guardian" },
+      }),
+    ).rejects.toThrow("Conversation is already processing a message");
+    expect(fake.persistCount()).toBe(2);
+    expect(readState()).toEqual(winnerState);
+  });
+
+  test("an abort during the busy-persist retry wait leaves the winner's values in place", async () => {
+    const winnerState = makeWinnerState();
+    const controller = new AbortController();
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: ({ signal }) =>
+        new Promise<boolean>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        }),
+      onPersist: () => {
+        fake.setProcessingFlag(true);
+        throw new Error("Conversation is already processing a message");
+      },
+    });
+    const readState = wireTurnState(fake.conversation, winnerState);
+    fakeConversation = fake.conversation;
+
+    const turnPromise = startVoiceTurn({
+      ...makeTurnOptions(controller.signal, "conv-race-abort-restore"),
+      trustContext: { sourceChannel: "phone", trustClass: "guardian" },
+    });
+    await flushMicrotasks();
+    controller.abort();
+    await expect(turnPromise).rejects.toThrow(
+      "Turn aborted while waiting for conversation",
+    );
+    expect(readState()).toEqual(winnerState);
   });
 });
