@@ -34,6 +34,7 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
+import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -106,6 +107,16 @@ export function TranscriptMessageBody({
   const groups = groupContentBlocks(message.contentBlocks ?? [], {
     splitInlineThinking: !isUser,
   });
+
+  // Only the trailing text group of a streaming assistant message is still
+  // growing, so only it gets the typewriter re-pacing; earlier groups (and
+  // everything once the turn settles) render their text directly.
+  const trailingGroup = groups[groups.length - 1];
+  const smoothedTrailingText = useSmoothStreamText(
+    isStreaming && !isUser && trailingGroup?.type === "text"
+      ? trailingGroup.text
+      : null,
+  );
 
   const textBubbleClass = isSlackMessage
     ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"
@@ -675,7 +686,11 @@ export function TranscriptMessageBody({
     gi: number,
   ): ReactNode => {
     if (group.type === "text") {
-      return renderTextWithInlineSurfaces(group.text, `b-text-${gi}`);
+      const text =
+        gi === lastGroupIndex && smoothedTrailingText !== null
+          ? smoothedTrailingText
+          : group.text;
+      return renderTextWithInlineSurfaces(text, `b-text-${gi}`);
     }
     if (group.type === "surface") {
       return renderSurfaceNode(group.surface, `b-surface-${gi}`);
