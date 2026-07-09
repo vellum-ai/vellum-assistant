@@ -18,7 +18,6 @@ const actualPersonaResolver = await import(
 );
 mock.module("../../../prompts/persona-resolver.js", () => ({
   ...actualPersonaResolver,
-  resolveGuardianPersona: () => mockGuardianPersona,
   resolveGuardianPersonaStrict: () => mockGuardianPersona,
 }));
 
