@@ -11,7 +11,10 @@ import { buildCliProgram } from "../../../../cli/program.js";
 import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../../config/loader.js";
 import { resolveSkillStates } from "../../../../config/skill-state.js";
-import { loadSkillCatalog } from "../../../../config/skills.js";
+import {
+  loadSkillCatalog,
+  type SkillSummary,
+} from "../../../../config/skills.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
@@ -22,15 +25,39 @@ import {
   getCachedCatalogSync,
   getCatalog,
 } from "../../../../skills/catalog-cache.js";
-import {
-  fromCatalogSkill,
-  fromSkillSummary,
-  type SkillCapabilityInput,
-} from "../../../../skills/skill-memory.js";
 import { getLogger } from "../../../../util/logger.js";
+import type { SkillCapabilityInput } from "../v2/skill-content.js";
 import { createNode } from "./store.js";
 
 const log = getLogger("graph-capability-seed");
+
+/** A remote-catalog entry as returned by the shared catalog cache. */
+type RemoteCatalogSkill = Awaited<ReturnType<typeof getCatalog>>[number];
+
+/** Project a locally-resolved skill summary to its capability fields. */
+function fromSkillSummary(entry: SkillSummary): SkillCapabilityInput {
+  return {
+    id: entry.id,
+    displayName: entry.displayName,
+    description: entry.description,
+    activationHints: entry.activationHints,
+    avoidWhen: entry.avoidWhen,
+  };
+}
+
+/**
+ * Project a remote-catalog entry to its capability fields. Display name and
+ * hints live inside the entry's nested vellum metadata.
+ */
+function fromCatalogSkill(entry: RemoteCatalogSkill): SkillCapabilityInput {
+  return {
+    id: entry.id,
+    displayName: entry.metadata?.vellum?.["display-name"] ?? entry.name,
+    description: entry.description,
+    activationHints: entry.metadata?.vellum?.["activation-hints"],
+    avoidWhen: entry.metadata?.vellum?.["avoid-when"],
+  };
+}
 
 /** Default significance for capability nodes. */
 const CAPABILITY_SIGNIFICANCE = 0.6;
@@ -138,8 +165,9 @@ export function seedSkillGraphNodes(): void {
     } else {
       for (const entry of cachedCatalog) {
         const flagKey = entry.metadata?.vellum?.["feature-flag"];
-        if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config))
+        if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) {
           continue;
+        }
         seenKeys.add(`${SKILL_SOURCE_PREFIX}${entry.id}`);
       }
       pruneStaleCapabilities(SKILL_SOURCE_PREFIX, seenKeys);
@@ -184,17 +212,23 @@ export async function seedCliGraphNodes(): Promise<void> {
 export async function seedUninstalledCatalogSkillMemories(): Promise<void> {
   try {
     const fullCatalog = await getCatalog();
-    if (fullCatalog.length === 0) return;
+    if (fullCatalog.length === 0) {
+      return;
+    }
 
     const installedCatalog = loadSkillCatalog();
     const installedIds = new Set(installedCatalog.map((s) => s.id));
 
     const config = getConfig();
     for (const entry of fullCatalog) {
-      if (installedIds.has(entry.id)) continue;
+      if (installedIds.has(entry.id)) {
+        continue;
+      }
 
       const flagKey = entry.metadata?.vellum?.["feature-flag"];
-      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
+      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) {
+        continue;
+      }
 
       upsertSkillCapabilityNode(entry.id, fromCatalogSkill(entry));
     }
@@ -251,9 +285,12 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
       // for nodes created before the fix so they don't decay immediately,
       // and backfill significance for nodes created before the raise to 0.6)
       const updates: Record<string, number> = { lastAccessed: now };
-      if (existing.lastConsolidated === 0) updates.lastConsolidated = now;
-      if (existing.significance < CAPABILITY_SIGNIFICANCE)
+      if (existing.lastConsolidated === 0) {
+        updates.lastConsolidated = now;
+      }
+      if (existing.significance < CAPABILITY_SIGNIFICANCE) {
         updates.significance = CAPABILITY_SIGNIFICANCE;
+      }
       db.update(memoryGraphNodes)
         .set(updates)
         .where(eq(memoryGraphNodes.id, existing.id))
@@ -368,7 +405,9 @@ function cleanupOldFormatCapabilityNodes(): void {
 
   for (const node of oldFormatNodes) {
     // Verify this is truly old-format: "skill:{id}\n..."
-    if (!/^skill:\S+\n/.test(node.content)) continue;
+    if (!/^skill:\S+\n/.test(node.content)) {
+      continue;
+    }
 
     db.update(memoryGraphNodes)
       .set({ fidelity: "gone", lastAccessed: now })
@@ -396,7 +435,9 @@ function cleanupOldFormatCapabilityNodes(): void {
     .all();
 
   for (const node of oldCliNodes) {
-    if (!/^cli:\S+\n/.test(node.content)) continue;
+    if (!/^cli:\S+\n/.test(node.content)) {
+      continue;
+    }
     db.update(memoryGraphNodes)
       .set({ fidelity: "gone", lastAccessed: now })
       .where(eq(memoryGraphNodes.id, node.id))
@@ -427,7 +468,9 @@ function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
 
   const now = Date.now();
   for (const row of allCapabilities) {
-    if (row.fidelity === "gone") continue;
+    if (row.fidelity === "gone") {
+      continue;
+    }
 
     // Extract sourceKey from JSON
     try {

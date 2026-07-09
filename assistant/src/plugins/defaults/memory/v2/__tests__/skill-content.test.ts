@@ -4,7 +4,7 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-import type { SkillCapabilityInput } from "../../../../../skills/skill-memory.js";
+import type { SkillCapabilityInput } from "../skill-content.js";
 
 describe("buildSkillContent", () => {
   test("renders minimal input with id, displayName, description", async () => {

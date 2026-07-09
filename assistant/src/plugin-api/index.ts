@@ -188,3 +188,13 @@ export {
   embedAndUpsert,
   selectedBackendSupportsMultimodal,
 } from "../persistence/embeddings/plugin-facade.js";
+// Skills — the installed skill catalog with resolved states, and the remote
+// skill catalog. Host-resolved: catalog load, install-state resolution,
+// feature-flag gating, and install-meta reads are composed internally, so
+// plugins hold no config and run no flag checks. Async because the facade
+// loads the catalog/flag graph lazily on first call.
+export type { ResolvedSkillEntry } from "../skills/available-skills.js";
+export {
+  listCatalogSkills,
+  listInstalledSkills,
+} from "../skills/available-skills.js";
