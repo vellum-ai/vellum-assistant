@@ -103,10 +103,16 @@ export function resolveAttachmentFilename(
   // Bare label: keep the label as a per-link disambiguator (two links to
   // different files sharing a basename must not collide, because the
   // transcript resolves clicks by filename) and append the path's
-  // extension so the stored name carries the correct type.
+  // extension so the stored name carries the correct type. Skip the
+  // append when the label already ends with that extension (a label like
+  // `report.xlsx` for `report.xlsx` must not become `report.xlsx.xlsx`).
   const dot = fallback.lastIndexOf(".");
   if (dot > 0 && dot < fallback.length - 1) {
-    return `${preferred}.${fallback.slice(dot + 1)}`;
+    const ext = fallback.slice(dot + 1);
+    if (preferred.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
+      return preferred;
+    }
+    return `${preferred}.${ext}`;
   }
   return fallback;
 }

@@ -55,6 +55,32 @@ describe("resolveAttachmentFilename", () => {
     ).toBe("second.png");
   });
 
+  test("does not duplicate an unknown extension the label already has", () => {
+    expect(
+      resolveAttachmentFilename(
+        "report.xlsx",
+        "/workspace/report.xlsx",
+        "label",
+      ),
+    ).toBe("report.xlsx");
+  });
+
+  test("matches the existing extension case-insensitively", () => {
+    expect(
+      resolveAttachmentFilename("data.YAML", "/workspace/data.yaml", "label"),
+    ).toBe("data.YAML");
+  });
+
+  test("still appends when the label ends differently", () => {
+    expect(
+      resolveAttachmentFilename(
+        "summary.v2",
+        "/workspace/data.parquet",
+        "label",
+      ),
+    ).toBe("summary.v2.parquet");
+  });
+
   test("falls back to the basename when the path has no extension", () => {
     expect(resolveAttachmentFilename("label", "/tmp/rawfile", "label")).toBe(
       "rawfile",
