@@ -636,3 +636,4 @@ describe("selectLatestHistorySession", () => {
     expect(selectLatestHistorySession([])).toBeNull();
   });
 });
+

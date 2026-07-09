@@ -1,4 +1,4 @@
-import { ArrowUp, Check, ChevronDown, ClipboardCopy, Loader2, Play, Square } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ClipboardCopy, Loader2, Play, RefreshCw, Square } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -36,12 +36,23 @@ import {
 import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-sse";
 import { useDoctorAutoScroll } from "@/domains/settings/components/panels/use-doctor-auto-scroll";
 import {
+  DOCTOR_UNAVAILABLE_MESSAGE,
+  DOCTOR_UNAVAILABLE_STATUSES,
+  isExpectedDoctorApiError,
+} from "@/domains/settings/components/panels/doctor-errors";
+import {
   assistantsDoctorHistoryListOptions,
   assistantsDoctorHistoryRetrieveOptions,
-  useAssistantsDoctorSessionsMessagesCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { type Options, assistantsDoctorSessionsCreate } from "@/generated/api/sdk.gen";
-import type { AssistantsDoctorSessionsCreateData } from "@/generated/api/types.gen";
+import {
+  type Options,
+  assistantsDoctorSessionsCreate,
+  assistantsDoctorSessionsMessagesCreate,
+} from "@/generated/api/sdk.gen";
+import type {
+  AssistantsDoctorSessionsCreateData,
+  AssistantsDoctorSessionsMessagesCreateData,
+} from "@/generated/api/types.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -118,6 +129,7 @@ export function DoctorPanel() {
   const sessionId = useDoctorPanelStore.use.sessionId();
   const storeSessionStatus = useDoctorPanelStore.use.sessionStatus();
   const historyDismissed = useDoctorPanelStore.use.historyDismissed();
+  const reconnectSnapshot = useDoctorPanelStore.use.reconnectSnapshot();
 
   // Local UI state
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -253,6 +265,9 @@ export function DoctorPanel() {
             "You've used all of your available Doctor sessions for this month. Please try again next month.",
           );
         }
+        if (response && DOCTOR_UNAVAILABLE_STATUSES.has(response.status)) {
+          throw new ApiError(response.status, DOCTOR_UNAVAILABLE_MESSAGE);
+        }
         throw error;
       }
       return data!;
@@ -268,7 +283,7 @@ export function DoctorPanel() {
       connectSSE(assistantId, data.session_id);
     },
     onError(error) {
-      if (!(error instanceof ApiError && error.status === 429)) {
+      if (!isExpectedDoctorApiError(error)) {
         captureError(error, { context: "start_doctor_session" });
       }
       const store = useDoctorPanelStore.getState();
@@ -282,7 +297,26 @@ export function DoctorPanel() {
     },
   });
 
-  const sendMutation = useAssistantsDoctorSessionsMessagesCreateMutation({
+  // Custom mutationFn for the same reason as startMutation: the generated
+  // hook discards response.status, which we need to give Doctor-service
+  // unavailability (502/503/504) a distinct message.
+  const sendMutation = useMutation({
+    async mutationFn(
+      options: Options<AssistantsDoctorSessionsMessagesCreateData>,
+    ) {
+      const { data, error, response } =
+        await assistantsDoctorSessionsMessagesCreate({
+          ...options,
+          throwOnError: false,
+        });
+      if (error) {
+        if (response && DOCTOR_UNAVAILABLE_STATUSES.has(response.status)) {
+          throw new ApiError(response.status, DOCTOR_UNAVAILABLE_MESSAGE);
+        }
+        throw error;
+      }
+      return data!;
+    },
     onMutate(variables) {
       const content = variables.body.content;
       const store = useDoctorPanelStore.getState();
@@ -296,10 +330,14 @@ export function DoctorPanel() {
       useDoctorPanelStore.getState().setThinking(true);
     },
     onError(error) {
-      captureError(error, { context: "send_doctor_message" });
+      if (!isExpectedDoctorApiError(error)) {
+        captureError(error, { context: "send_doctor_message" });
+      }
       useDoctorPanelStore.getState().appendEntry({
         kind: "error",
-        content: extractErrorMessage(error, undefined, "Failed to send message"),
+        content: error instanceof ApiError
+          ? error.message
+          : extractErrorMessage(error, undefined, "Failed to send message"),
       });
     },
   });
@@ -324,6 +362,27 @@ export function DoctorPanel() {
       path: { assistant_id: assistantId, session_id: sessionId },
       body: { content: text },
     });
+  };
+
+  // Re-attach to the durable session after a transient stream failure.
+  // The SSE hook resumes from the stored replay cursor (Last-Event-ID);
+  // if the session actually expired, reconnecting surfaces that instead
+  // (404/410 → "Previous session expired").
+  const handleReconnect = () => {
+    const store = useDoctorPanelStore.getState();
+    const snapshot = store.reconnectSnapshot;
+    if (!sessionId || !snapshot) {
+      return;
+    }
+    // failStream cleared the pending prompt flags, but a prompt that was
+    // showing when the transport died is still awaiting a reply
+    // server-side and is not replayed past the stored cursor — restore
+    // the flags from the snapshot taken at disconnect time.
+    store.setPendingApproval(snapshot.pendingApproval);
+    store.setPendingBackup(snapshot.pendingBackup);
+    store.setReconnectSnapshot(null);
+    store.setSessionStatus("active");
+    connectSSE(assistantId, sessionId);
   };
 
   const handleEndSession = () => {
@@ -417,6 +476,14 @@ export function DoctorPanel() {
   const isSessionActive = sessionId !== null && storeSessionStatus === "active";
   const isSessionEnded = !isSessionActive && storeEntries.length > 0 &&
     (storeSessionStatus === "completed" || storeSessionStatus === "error");
+  // Only a transport failure is re-attachable: the reconnect snapshot is
+  // set exclusively by failStream. Server-terminal errors (Doctor status
+  // "error" events) and completed/expired sessions never set it, and
+  // without a sessionId there is nothing to rejoin.
+  const canReconnect =
+    storeSessionStatus === "error" &&
+    sessionId !== null &&
+    reconnectSnapshot !== null;
   const sessionStatus = (isSessionActive || isSessionEnded)
     ? storeSessionStatus
     : (historyStatus ?? "idle");
@@ -669,13 +736,28 @@ export function DoctorPanel() {
             </form>
           )}
 
-          {/* Session ended — option to restart */}
+          {/* Session ended — reconnect (durable sessions survive transient
+              stream failures) and/or restart */}
           {(isSessionEnded || (!isSessionActive && historyStatus && historyStatus !== "active")) && (
             <div className="flex shrink-0 items-center justify-center gap-3 py-2">
+              {canReconnect && (
+                <button
+                  type="button"
+                  onClick={handleReconnect}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)]"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Reconnect
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleNewSession}
-                className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)]"
+                className={
+                  canReconnect
+                    ? "flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--surface-lift)] px-4 py-2 text-body-medium-default text-[var(--content-default)] transition-colors hover:bg-[var(--surface-hover)]"
+                    : "flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)]"
+                }
               >
                 <Play className="h-4 w-4" />
                 New Session
