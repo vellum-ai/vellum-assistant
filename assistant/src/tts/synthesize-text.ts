@@ -3,11 +3,13 @@
  *
  * Resolves the globally configured provider via {@link resolveTtsConfig},
  * looks up the provider adapter in the registry, and delegates synthesis.
- * Callers supply the pre-sanitized text and a use-case discriminator;
- * provider selection is always global — per-use-case policy only gates
+ * Callers can pass raw text (including markdown, URLs, emoji); it is sanitized
+ * internally via {@link sanitizeForTts} before being sent to the provider.
+ * Provider selection is always global — per-use-case policy only gates
  * capabilities (e.g. format checks), never overrides the chosen provider.
  */
 
+import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getTtsProvider } from "./provider-catalog.js";
@@ -21,7 +23,7 @@ const log = getLogger("tts:synthesize");
 // ---------------------------------------------------------------------------
 
 export interface SynthesizeTextOptions {
-  /** Pre-sanitized text to speak. */
+  /** Text to speak. Sanitized internally — callers can pass raw model output. */
   text: string;
 
   /** Product surface requesting synthesis. */
@@ -72,6 +74,14 @@ export async function synthesizeText(
   const config = getConfig();
   const { provider: providerId } = resolveTtsConfig(config);
 
+  const sanitized = sanitizeForTts(options.text).trim();
+  if (!sanitized) {
+    throw new TtsSynthesisError(
+      "TTS_SYNTHESIS_FAILED",
+      "Text is empty after sanitization (markdown/URLs/emoji stripped).",
+    );
+  }
+
   let provider;
   try {
     provider = getTtsProvider(providerId);
@@ -93,14 +103,14 @@ export async function synthesizeText(
 
   try {
     return await provider.synthesize({
-      text: options.text,
+      text: sanitized,
       useCase: options.useCase,
       voiceId: options.voiceId,
       signal: options.signal,
     });
   } catch (err) {
     // Re-throw TtsSynthesisError as-is (e.g. from inner adapter errors).
-    if (err instanceof TtsSynthesisError) throw err;
+    if (err instanceof TtsSynthesisError) {throw err;}
 
     throw new TtsSynthesisError(
       "TTS_SYNTHESIS_FAILED",
