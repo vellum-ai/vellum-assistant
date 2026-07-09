@@ -468,8 +468,10 @@ gatewayClient.interceptors.error.use(daemonErrorInterceptor);
 // mode and returns `response.body` (a ReadableStream or null) as
 // `data` — producing the "body=null" errors reported in LUM-2371.
 //
-// Every endpoint in these OpenAPI specs returns JSON; non-JSON call
-// sites (blob downloads) explicitly override `parseAs` per-request.
+// Almost every endpoint in these OpenAPI specs returns JSON; non-JSON
+// call sites (blob downloads, the platform managed-speech TTS endpoint's
+// binary audio) must explicitly override `parseAs` per-request — see
+// `sounds/api.ts` and `avatar-api.ts` for the pattern.
 //
 // Reference: https://heyapi.dev/openapi-ts/clients/fetch#parser
 for (const apiClient of [daemonClient, gatewayClient, platformClient, authClient]) {
