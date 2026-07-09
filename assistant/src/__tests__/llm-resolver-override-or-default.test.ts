@@ -395,9 +395,8 @@ describe("flag-on / flag-off parity on materialized workspaces", () => {
 });
 
 describe("explicit default-profile references resolve through the default provider", () => {
-  // Regression: a conversation/schedule pin, activeProfile, or callSites
-  // reference to a default key resolved the vellum catalog column regardless
-  // of llm.defaultProvider, dispatching vellum model ids to BYOK connections.
+  // Regressed failure mode: the vellum column's model ids dispatched to
+  // BYOK connections.
   const managedStubs = {
     balanced: { source: "managed" as const },
     "cost-optimized": { source: "managed" as const },
@@ -471,9 +470,7 @@ describe("explicit default-profile references resolve through the default provid
 });
 
 describe("hatch-era disabled stubs on default keys", () => {
-  // Fresh BYOK hatches persist disabled managed stubs; a stale stub must not
-  // suppress an explicit pin — the code-owned body stands, as on the intent
-  // rung.
+  // Fresh BYOK hatches persist disabled managed stubs.
   const disabledStubs = {
     balanced: { source: "managed" as const, status: "disabled" as const },
     "cost-optimized": {
@@ -500,8 +497,7 @@ describe("hatch-era disabled stubs on default keys", () => {
       ...anthropicDp,
     });
     const resolved = resolveCallSiteConfig("mainAgent", llm);
-    // The default key wins its rung; it must not fall through to the
-    // call-site pin below it.
+    // The call-site pin below the active rung must not capture the turn.
     expect(resolved.provider).toBe("anthropic");
     expect(resolved.model).not.toBe(completeCustom.model);
   });
@@ -547,8 +543,8 @@ describe("user shadows of default keys keep their intent", () => {
       requested: "balanced",
       reason: "disabled",
     });
-    // Falls to the balanced intent through the default provider — but via the
-    // anchor rung, after the disabled shadow reported.
+    // The anchor lands on the same intent either way; the report above is
+    // what distinguishes fall-through from silent replacement.
     expect(resolved.provider).toBe("anthropic");
     expect(resolved.model).not.toBe("gpt-5.4");
   });
