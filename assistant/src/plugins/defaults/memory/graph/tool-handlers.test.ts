@@ -54,10 +54,6 @@ mock.module("../jobs/embed-pkb-file.js", () => ({
   enqueuePkbIndexJob: () => {},
 }));
 
-mock.module("../pkb/types.js", () => ({
-  PKB_WORKSPACE_SCOPE: "workspace",
-}));
-
 // ── Import handlers after mocks are set up ─────────────────────────────────────
 import type { AssistantConfig } from "../../../../config/types.js";
 import {

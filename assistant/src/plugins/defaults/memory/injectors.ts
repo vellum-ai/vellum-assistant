@@ -39,7 +39,7 @@ import { getLiveGraphMemory } from "./graph/conversation-graph-memory.js";
 import { getPkbAutoInjectList } from "./pkb/autoinject.js";
 import { readPkbContext } from "./pkb/context.js";
 import { searchPkbFiles } from "./pkb/pkb-search.js";
-import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "./pkb/types.js";
+import { getPkbRoot } from "./pkb/types.js";
 import { readMemoryV2StaticContent } from "./v2/static-context.js";
 
 const pkbReminderLog = getLogger("pkb-reminder");
@@ -256,7 +256,6 @@ async function buildPkbReminderWithHints(
         queryVector,
         graphMemory?.pkbSparseVector,
         8,
-        [PKB_WORKSPACE_SCOPE],
       );
       const inContext = getInContextPkbPaths(
         { messages: runMessages },

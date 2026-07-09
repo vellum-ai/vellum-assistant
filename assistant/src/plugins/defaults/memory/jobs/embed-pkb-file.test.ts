@@ -12,16 +12,11 @@ mock.module("../../../../util/logger.js", () => ({
 const indexPkbFileCalls: Array<{
   pkbRoot: string;
   absPath: string;
-  memoryScopeId: string;
 }> = [];
 
 mock.module("../pkb/pkb-index.js", () => ({
-  indexPkbFile: async (
-    pkbRoot: string,
-    absPath: string,
-    memoryScopeId: string,
-  ) => {
-    indexPkbFileCalls.push({ pkbRoot, absPath, memoryScopeId });
+  indexPkbFile: async (pkbRoot: string, absPath: string) => {
+    indexPkbFileCalls.push({ pkbRoot, absPath });
   },
 }));
 
@@ -77,7 +72,6 @@ describe("embedPkbFileJob", () => {
       makeJob({
         pkbRoot: "/pkb/root",
         absPath: "/pkb/root/note.md",
-        memoryScopeId: "scope-123",
       }),
       TEST_CONFIG,
     );
@@ -86,32 +80,39 @@ describe("embedPkbFileJob", () => {
     expect(indexPkbFileCalls[0]).toEqual({
       pkbRoot: "/pkb/root",
       absPath: "/pkb/root/note.md",
-      memoryScopeId: "scope-123",
     });
   });
 
   test("skips when pkbRoot is missing", async () => {
     await embedPkbFileJob(
-      makeJob({ absPath: "/pkb/root/note.md", memoryScopeId: "scope-123" }),
+      makeJob({ absPath: "/pkb/root/note.md" }),
       TEST_CONFIG,
     );
     expect(indexPkbFileCalls).toHaveLength(0);
   });
 
   test("skips when absPath is missing", async () => {
-    await embedPkbFileJob(
-      makeJob({ pkbRoot: "/pkb/root", memoryScopeId: "scope-123" }),
-      TEST_CONFIG,
-    );
+    await embedPkbFileJob(makeJob({ pkbRoot: "/pkb/root" }), TEST_CONFIG);
     expect(indexPkbFileCalls).toHaveLength(0);
   });
 
-  test("skips when memoryScopeId is missing", async () => {
+  test("processes a legacy payload that still carries a memoryScopeId key", async () => {
+    // Rows enqueued before scope removal persist in the job queue with the
+    // extra key; the handler reads only pkbRoot/absPath and must not skip.
     await embedPkbFileJob(
-      makeJob({ pkbRoot: "/pkb/root", absPath: "/pkb/root/note.md" }),
+      makeJob({
+        pkbRoot: "/pkb/root",
+        absPath: "/pkb/root/note.md",
+        memoryScopeId: "legacy-scope",
+      }),
       TEST_CONFIG,
     );
-    expect(indexPkbFileCalls).toHaveLength(0);
+
+    expect(indexPkbFileCalls).toHaveLength(1);
+    expect(indexPkbFileCalls[0]).toEqual({
+      pkbRoot: "/pkb/root",
+      absPath: "/pkb/root/note.md",
+    });
   });
 });
 
@@ -130,7 +131,6 @@ describe("enqueuePkbIndexJob", () => {
     const id = enqueuePkbIndexJob({
       pkbRoot: "/pkb/root",
       absPath: "/pkb/root/note.md",
-      memoryScopeId: "scope-abc",
     });
     expect(id).toBeTruthy();
 
@@ -142,7 +142,6 @@ describe("enqueuePkbIndexJob", () => {
     expect(job.payload).toEqual({
       pkbRoot: "/pkb/root",
       absPath: "/pkb/root/note.md",
-      memoryScopeId: "scope-abc",
     });
   });
 
@@ -150,7 +149,6 @@ describe("enqueuePkbIndexJob", () => {
     enqueuePkbIndexJob({
       pkbRoot: "/pkb/root",
       absPath: "/pkb/root/note.md",
-      memoryScopeId: "scope-rt",
     });
 
     const claimed = claimMemoryJobs({ slowLlm: 10, fast: 10, embed: 10 });
@@ -163,7 +161,6 @@ describe("enqueuePkbIndexJob", () => {
     expect(indexPkbFileCalls[0]).toEqual({
       pkbRoot: "/pkb/root",
       absPath: "/pkb/root/note.md",
-      memoryScopeId: "scope-rt",
     });
   });
 });
