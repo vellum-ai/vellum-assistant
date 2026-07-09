@@ -126,6 +126,7 @@ export function PreferencesMenu({
             side="top"
             align="start"
             sideOffset={8}
+            onOpenAutoFocus={(event) => event.preventDefault()}
             className="w-64 rounded-lg p-4"
           >
             {content}
