@@ -294,7 +294,7 @@ describe("decide IPC schemas", () => {
     const withOutcome = {
       id: "req-1",
       expectedStatus: "pending",
-      status: "approved",
+      status: "denied",
       decidedByExternalUserId: "tg-guardian-1",
       decidedByPrincipalId: "principal-1",
       aclOutcome: {
@@ -316,6 +316,43 @@ describe("decide IPC schemas", () => {
     expect(DecideGuardianRequestIpcParamsSchema.parse(plainCas)).toEqual(
       plainCas,
     );
+  });
+
+  test("rejects an aclOutcome that contradicts the decision status", () => {
+    const activate = {
+      type: "activate_member",
+      sourceChannel: "telegram",
+      externalUserId: "tg-user-1",
+      verifiedVia: "guardian_approval",
+    } as const;
+    expect(
+      DecideGuardianRequestIpcParamsSchema.parse({
+        id: "req-1",
+        expectedStatus: "pending",
+        status: "approved",
+        aclOutcome: activate,
+      }),
+    ).toMatchObject({ status: "approved" });
+    expect(() =>
+      DecideGuardianRequestIpcParamsSchema.parse({
+        id: "req-1",
+        expectedStatus: "pending",
+        status: "denied",
+        aclOutcome: activate,
+      }),
+    ).toThrow();
+    expect(() =>
+      DecideGuardianRequestIpcParamsSchema.parse({
+        id: "req-1",
+        expectedStatus: "pending",
+        status: "approved",
+        aclOutcome: {
+          type: "block",
+          sourceChannel: "telegram",
+          externalUserId: "tg-user-1",
+        },
+      }),
+    ).toThrow();
   });
 
   test("only resolves pending to approved/denied", () => {

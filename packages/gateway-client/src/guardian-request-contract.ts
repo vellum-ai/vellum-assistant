@@ -369,22 +369,42 @@ export type GuardianRequestDecisionStatus = z.infer<
   typeof GuardianRequestDecisionStatusSchema
 >;
 
+/** ACL outcome types each decision status may carry. */
+const OUTCOME_TYPES_BY_DECISION_STATUS: Record<
+  GuardianRequestDecisionStatus,
+  ReadonlySet<GuardianRequestAclOutcome["type"]>
+> = {
+  approved: new Set(["activate_member", "mint_outbound_session"]),
+  denied: new Set(["seed_unverified", "block"]),
+};
+
 /**
  * Request for `guardian_requests_decide` (status CAS + optional ACL outcome).
  * Decisions only resolve a pending request to approved/denied — expiry has
  * `guardian_requests_expire`/`_sweep_expired`, terminal→pending has
  * `guardian_requests_reopen` — so a malformed call can never apply an
- * `aclOutcome` while leaving the request decidable again.
+ * `aclOutcome` while leaving the request decidable again. The outcome type
+ * must agree with the status: activation/minting only on approval,
+ * seeding/blocking only on denial.
  */
-export const DecideGuardianRequestIpcParamsSchema = z.object({
-  id: z.string().min(1),
-  expectedStatus: z.literal("pending"),
-  status: GuardianRequestDecisionStatusSchema,
-  decidedByExternalUserId: z.string().optional(),
-  decidedByPrincipalId: z.string().optional(),
-  answerText: z.string().optional(),
-  aclOutcome: GuardianRequestAclOutcomeSchema.optional(),
-});
+export const DecideGuardianRequestIpcParamsSchema = z
+  .object({
+    id: z.string().min(1),
+    expectedStatus: z.literal("pending"),
+    status: GuardianRequestDecisionStatusSchema,
+    decidedByExternalUserId: z.string().optional(),
+    decidedByPrincipalId: z.string().optional(),
+    answerText: z.string().optional(),
+    aclOutcome: GuardianRequestAclOutcomeSchema.optional(),
+  })
+  .refine(
+    (params) =>
+      !params.aclOutcome ||
+      OUTCOME_TYPES_BY_DECISION_STATUS[params.status].has(
+        params.aclOutcome.type,
+      ),
+    { message: "aclOutcome type contradicts the decision status" },
+  );
 
 export type DecideGuardianRequestIpcParams = z.infer<
   typeof DecideGuardianRequestIpcParamsSchema
