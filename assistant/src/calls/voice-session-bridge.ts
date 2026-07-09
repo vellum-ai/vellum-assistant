@@ -409,51 +409,65 @@ export async function startVoiceTurn(
   );
   const waitStartedAt = Date.now();
 
-  if (conversation.isProcessing()) {
-    // Voice barge-in can race with turn teardown. Wait for the previous
-    // turn to finish aborting before giving up. The wait is event-driven —
-    // `waitForIdle` resolves from the `setProcessing(false)` transition —
-    // so the turn starts on the same tick the lock releases instead of
-    // paying up to a 50 ms poll interval after every barge-in.
-    let idle: boolean;
-    try {
-      idle = await conversation.waitForIdle({
-        timeoutMs: maxWaitMs,
-        signal: opts.signal,
-      });
-    } catch {
-      // waitForIdle rejects only when opts.signal aborted mid-wait.
-      throw new Error("Turn aborted while waiting for conversation");
-    }
+  // Two conditions must both clear before this turn may install its
+  // per-turn conversation state, and clearing one can re-raise the other:
+  //
+  // - The processing lock. `waitForIdle` resolves from the
+  //   `setProcessing(false)` transition, so the turn starts on the same
+  //   tick the lock releases instead of paying up to a 50 ms poll interval
+  //   after every barge-in.
+  // - The prior turn's teardown. Its `finally { cleanup() }` runs after
+  //   `setProcessing(false)` (see `pendingTurnTeardowns`), and a queued
+  //   message drained by the prior `runAgentLoop` can retake the lock
+  //   right after that teardown settles.
+  //
+  // Hence the re-check loop, bounded by one shared budget. In practice
+  // each leg settles within a few microtasks; the bound only guards a
+  // wedged prior turn.
+  let remainingWaitMs = maxWaitMs;
+  for (;;) {
     if (opts.signal?.aborted) {
       throw new Error("Turn aborted while waiting for conversation");
     }
-    if (!idle) {
-      // Waited the full budget (see resolveProcessingWaitMs) without the lock
-      // releasing, so the prior turn is genuinely wedged. The controller
-      // catches this terminal error and speaks a brief non-technical
-      // re-prompt rather than staying silent.
-      throw new Error("Conversation is already processing a message");
+    if (conversation.isProcessing()) {
+      let idle: boolean;
+      try {
+        idle = await conversation.waitForIdle({
+          timeoutMs: remainingWaitMs,
+          signal: opts.signal,
+        });
+      } catch {
+        // waitForIdle rejects only when opts.signal aborted mid-wait.
+        throw new Error("Turn aborted while waiting for conversation");
+      }
+      if (opts.signal?.aborted) {
+        throw new Error("Turn aborted while waiting for conversation");
+      }
+      if (!idle) {
+        // Waited the full budget (see resolveProcessingWaitMs) without the
+        // lock releasing, so the prior turn is genuinely wedged. The
+        // controller catches this terminal error and speaks a brief
+        // non-technical re-prompt rather than staying silent.
+        throw new Error("Conversation is already processing a message");
+      }
+      // A successful idle wait is trusted; fall through to the teardown
+      // leg in the same iteration.
+      remainingWaitMs = Math.max(0, maxWaitMs - (Date.now() - waitStartedAt));
     }
-  }
-
-  // The idle transition alone is not enough: the prior turn's
-  // `finally { cleanup() }` runs after `setProcessing(false)`. Wait for that
-  // teardown on the remaining budget so this turn's per-turn conversation
-  // state cannot be nulled by the prior turn's cleanup (see
-  // `pendingTurnTeardowns`). In practice this settles within a few
-  // microtasks; the bound only guards a wedged continuation.
-  const priorTeardown = pendingTurnTeardowns.get(opts.conversationId);
-  if (priorTeardown) {
-    const remainingMs = Math.max(0, maxWaitMs - (Date.now() - waitStartedAt));
-    const torndown = await waitForPriorTurnTeardown(
-      priorTeardown,
-      remainingMs,
-      opts.signal,
-    );
-    if (!torndown) {
-      throw new Error("Conversation is already processing a message");
+    const priorTeardown = pendingTurnTeardowns.get(opts.conversationId);
+    if (priorTeardown) {
+      const torndown = await waitForPriorTurnTeardown(
+        priorTeardown,
+        remainingWaitMs,
+        opts.signal,
+      );
+      if (!torndown) {
+        throw new Error("Conversation is already processing a message");
+      }
+      remainingWaitMs = Math.max(0, maxWaitMs - (Date.now() - waitStartedAt));
+      continue;
     }
+    break;
   }
 
   // Hoisted so the catch below can clear partially-applied turn state

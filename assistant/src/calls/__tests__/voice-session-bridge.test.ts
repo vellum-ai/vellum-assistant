@@ -116,6 +116,9 @@ function makeFakeConversation(opts: {
     conversation,
     waitForIdleCalls,
     persistCount: () => persistCount,
+    setProcessingFlag: (value: boolean) => {
+      opts.processing = value;
+    },
   };
 }
 
@@ -293,6 +296,44 @@ describe("startVoiceTurn prior-turn teardown barrier", () => {
       "persist",
       "client:install",
     ]);
+  });
+
+  test("a queued drain that retakes the lock after teardown is also waited out", async () => {
+    let releaseAgentLoop!: () => void;
+    const fake = makeFakeConversation({
+      processing: false,
+      runAgentLoop: () =>
+        new Promise<void>((resolve) => {
+          releaseAgentLoop = resolve;
+        }),
+      // The prior turn's queued-message drain holds the lock when turn 2
+      // clears the teardown barrier; waitForIdle releases it.
+      waitForIdle: async () => {
+        fake.setProcessingFlag(false);
+        return true;
+      },
+    });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn(makeTurnOptions(undefined, "conv-teardown-requeue"));
+    expect(fake.persistCount()).toBe(1);
+
+    const turn2 = startVoiceTurn(
+      makeTurnOptions(undefined, "conv-teardown-requeue"),
+    );
+    await flushMicrotasks();
+    expect(fake.persistCount()).toBe(1);
+
+    // The drain retakes the lock in the same window the teardown settles.
+    fake.setProcessingFlag(true);
+    releaseAgentLoop();
+    await flushMicrotasks();
+    await turn2;
+
+    // Turn 2 consulted waitForIdle for the retaken lock instead of
+    // failing inside persistUserMessage.
+    expect(fake.waitForIdleCalls.length).toBe(1);
+    expect(fake.persistCount()).toBe(2);
   });
 
   test("an abort while waiting on a wedged prior teardown throws the turn-aborted error", async () => {
