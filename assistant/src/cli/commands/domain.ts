@@ -11,7 +11,11 @@ const loadModule = createRequire(import.meta.url);
 
 const log = getCliLogger("domain");
 
-/** Loaded lazily: config/env pulls the full config-loader graph. */
+/**
+ * Loaded lazily because config/env pulls the full config-loader graph. Sync
+ * require rather than import(): commander invokes help-text callbacks
+ * synchronously, so there is no place to await a module load.
+ */
 function envDomains(): { apexDomain: string; baseDomain: string } {
   const { getApexDomain, getAssistantDomain } = loadModule(
     "../../config/env.js",

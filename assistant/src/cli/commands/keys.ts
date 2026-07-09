@@ -7,7 +7,11 @@ import { log } from "../logger.js";
 
 const loadModule = createRequire(import.meta.url);
 
-/** Loaded lazily: the provider catalog pulls the full model/TTS/STT graphs. */
+/**
+ * Loaded lazily because the provider catalog pulls the full model/TTS/STT
+ * graphs. Sync require rather than import(): commander invokes help-text
+ * callbacks synchronously, so there is no place to await a module load.
+ */
 function apiKeyProviders(): readonly string[] {
   const { API_KEY_PROVIDERS } = loadModule(
     "../../providers/provider-secret-catalog.js",
