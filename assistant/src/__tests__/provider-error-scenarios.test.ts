@@ -445,6 +445,55 @@ describe("RetryProvider — server error retries", () => {
 });
 
 // ---------------------------------------------------------------------------
+// RetryProvider — reason-driven retryability
+// ---------------------------------------------------------------------------
+
+describe("RetryProvider — reason-driven retryability", () => {
+  for (const reason of ["rate_limited", "overloaded", "server_error"] as const) {
+    test(`retries a ProviderError with reason=${reason}`, async () => {
+      const inner = makeFlaky(
+        1,
+        new ProviderError("transient", "openai", undefined, { reason }),
+      );
+      const provider = new RetryProvider(inner);
+
+      const result = await provider.sendMessage(MESSAGES);
+      expect(result.stopReason).toBe("end_turn");
+      expect(inner.calls).toBe(2);
+    });
+  }
+
+  for (const reason of [
+    "invalid_credentials",
+    "model_restricted",
+    "context_overflow",
+  ] as const) {
+    test(`does NOT retry a ProviderError with reason=${reason}`, async () => {
+      // A retryable-looking 429 status must not override a terminal reason.
+      const inner = makeFailing(
+        new ProviderError("terminal", "openai", 429, { reason }),
+      );
+      const provider = new RetryProvider(inner);
+
+      await expect(provider.sendMessage(MESSAGES)).rejects.toThrow("terminal");
+      expect(inner.calls).toBe(1);
+    });
+  }
+
+  test("reason=unknown falls through to the status fallback (429 retries)", async () => {
+    const inner = makeFlaky(
+      1,
+      new ProviderError("rate limited", "openai", 429, { reason: "unknown" }),
+    );
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(result.stopReason).toBe("end_turn");
+    expect(inner.calls).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // RetryProvider — network error retries
 // ---------------------------------------------------------------------------
 

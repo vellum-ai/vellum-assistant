@@ -2,7 +2,7 @@ import OpenAI from "openai";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
-import { ProviderError } from "../../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
@@ -789,7 +789,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
             `This model (${model}) doesn't support image input. Remove the image or switch to a vision-capable model.`,
             this.name,
             error.status,
-            abortReason ? { abortReason } : undefined,
+            // Stamp the reason so classification is status-independent (a vision
+            // rejection returned as 401/403 must not read as an invalid key).
+            abortReason
+              ? { abortReason, reason: "vision_unsupported" }
+              : { reason: "vision_unsupported" },
           );
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
@@ -801,6 +805,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           apiErrorParam?: string;
           requestId?: string;
           rawBody?: string;
+          reason?: ProviderErrorReason;
         } = {};
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
@@ -813,6 +818,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           errorOptions.apiErrorParam = normalized.apiErrorParam;
         if (normalized.requestId) errorOptions.requestId = normalized.requestId;
         if (normalized.rawBody) errorOptions.rawBody = normalized.rawBody;
+        if (normalized.reason) errorOptions.reason = normalized.reason;
         throw new ProviderError(
           formattedMessage,
           this.name,
