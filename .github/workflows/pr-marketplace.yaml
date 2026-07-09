@@ -8,6 +8,8 @@ on:
       - 'scripts/check-marketplace-prefix.mjs'
       - 'meta/feature-flags/feature-flag-registry.json'
       - 'meta/feature-flags/sync-bundled-copies.ts'
+      - 'assistant/src/cli/lib/bundled-marketplace.json'
+      - 'clients/web/src/lib/feature-flags/feature-flag-registry.json'
       - '.github/workflows/pr-marketplace.yaml'
 
 concurrency:
