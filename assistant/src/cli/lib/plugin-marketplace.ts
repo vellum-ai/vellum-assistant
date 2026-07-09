@@ -100,7 +100,7 @@ const marketplaceEntrySchema = z.object({
   license: z.string().optional(),
 });
 
-const marketplaceManifestSchema = z.object({
+export const marketplaceManifestSchema = z.object({
   name: z.string(),
   owner: z
     .object({
