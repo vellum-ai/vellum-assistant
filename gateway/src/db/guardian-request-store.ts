@@ -1,9 +1,8 @@
 /**
  * Gateway-owned guardian request store.
  *
- * Drizzle-backed port of the assistant's canonical-guardian-store (guardian
- * requests become gateway-native). Same semantics and status vocabulary;
- * resolution uses compare-and-swap (CAS): the first writer to transition a
+ * Sole access layer for guardian_requests + guardian_request_deliveries.
+ * Resolution uses compare-and-swap (CAS): the first writer to transition a
  * request from the expected status wins.
  */
 

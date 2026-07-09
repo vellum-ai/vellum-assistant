@@ -504,10 +504,8 @@ export const channelDenialReplyLog = sqliteTable(
 // ---------------------------------------------------------------------------
 //
 // Unified guardian approval requests across all kinds (access_request,
-// tool_approval, tool_grant_request, pending_question). Column names mirror
-// the assistant's canonical_guardian_requests table 1:1 except
-// conversation_id → source_conversation_id (provenance naming) and
-// source_type, which is derived from source_channel at read time
+// tool_approval, tool_grant_request, pending_question). There is no
+// source_type column: it is derived from source_channel at read time
 // (phone → voice, vellum → desktop, else channel). Accessed via
 // db/guardian-request-store.ts.
 
