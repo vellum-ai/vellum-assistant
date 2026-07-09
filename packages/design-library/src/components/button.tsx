@@ -252,6 +252,16 @@ export interface ButtonProps
    * (e.g. a chip's remove "×") where the enlarged circle is undesirable.
    */
   expandOnMobile?: boolean;
+  /**
+   * Extra classes merged onto the icon-only glyph wrapper span (the element
+   * that carries the `[&_svg]:size-3.5` sizing). This is the supported way to
+   * resize an icon-only glyph: a call-site `className` lands on the button box,
+   * where an `[&_svg]:size-*` utility only ties with the wrapper's own svg rule
+   * and loses on source order. Because this string is merged onto the wrapper
+   * itself (last in `cn`), an `[&_svg]:size-5` here reliably wins. Ignored
+   * unless `iconOnly` is set.
+   */
+  iconOnlyGlyphClassName?: string;
   tintColor?: string;
   tooltip?: string;
   /** Side the tooltip is placed on. Defaults to Radix's "top". */
@@ -276,6 +286,7 @@ export function Button({
   fullWidth = false,
   active = false,
   expandOnMobile = true,
+  iconOnlyGlyphClassName,
   tintColor,
   tooltip,
   tooltipSide,
@@ -310,6 +321,10 @@ export function Button({
   const iconOnlyClass = cn(
     "inline-flex items-center justify-center shrink-0 size-3.5 [&_svg]:size-3.5",
     expandOnMobile && "touch-mobile:size-4 touch-mobile:[&_svg]:size-4",
+    // Merged last so a caller-supplied `[&_svg]:size-*` overrides the defaults
+    // above on the same element (source-order win), rather than fighting them
+    // from the button box via a lower-priority descendant selector.
+    iconOnlyGlyphClassName,
   );
 
   const Comp = asChild ? Slot : "button";
