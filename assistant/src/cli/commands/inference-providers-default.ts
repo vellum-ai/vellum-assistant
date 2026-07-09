@@ -8,26 +8,13 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import { log } from "../logger.js";
+import { writeCliError, writeLine } from "../lib/cli-output.js";
 
 interface DefaultProviderStatus {
   provider: string | null;
   connectionName?: string;
   resolvedConnectionName: string | null;
   availability: { status: string; message?: string };
-}
-
-function writeLine(msg: string): void {
-  process.stdout.write(msg + "\n");
-}
-
-function writeCliError(message: string, json?: boolean): void {
-  if (json) {
-    process.stdout.write(JSON.stringify({ ok: false, error: message }) + "\n");
-  } else {
-    log.error(message);
-  }
-  process.exitCode = 1;
 }
 
 function printStatus(status: DefaultProviderStatus, json?: boolean): void {

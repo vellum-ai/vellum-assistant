@@ -11,7 +11,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import { log } from "../logger.js";
+import { renderTable, writeCliError, writeLine } from "../lib/cli-output.js";
 
 interface CatalogModel {
   provider: string;
@@ -23,35 +23,6 @@ interface CatalogModel {
   supportsVision?: boolean;
   supportsToolUse?: boolean;
   featureFlag?: string;
-}
-
-function writeLine(msg: string): void {
-  process.stdout.write(msg + "\n");
-}
-
-function writeCliError(message: string, json?: boolean): void {
-  if (json) {
-    process.stdout.write(JSON.stringify({ ok: false, error: message }) + "\n");
-  } else {
-    log.error(message);
-  }
-  process.exitCode = 1;
-}
-
-/** Render rows as a left-aligned fixed-width table with a header row. */
-function renderTable(headers: string[], rows: string[][]): void {
-  const widths = headers.map((h, i) =>
-    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length)),
-  );
-  const fmt = (cells: string[]) =>
-    cells
-      .map((c, i) => (c ?? "").padEnd(widths[i]!))
-      .join("  ")
-      .trimEnd();
-  writeLine(fmt(headers));
-  for (const row of rows) {
-    writeLine(fmt(row));
-  }
 }
 
 export function attachModelsSubcommand(inference: Command): void {
