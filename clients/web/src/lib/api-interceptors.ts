@@ -100,7 +100,10 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   // assistant-scoped requests without this list — that is the paved road
   // for new endpoints. Deliberately NOT listed: `artifacts` (no
   // gateway/daemon route exists) and `a2a` (platform broker route); those
-  // stay on the platform.
+  // stay on the platform. The contact family (`contacts`,
+  // `contact-channels`) is forwarded via {@link FLATTENED_FIRST_SEGMENTS}
+  // with the assistant prefix stripped — it does not belong in this
+  // allowlist.
   "config",
 ]);
 
@@ -152,11 +155,9 @@ export async function rewriteForSelfHostedIngress(
   if (!match) return null;
   const [, subPath, firstSegment] = match;
   if (
-    !subPath ||
-    !firstSegment ||
-    (!skipSegmentAllowlist &&
-      !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment) &&
-      !FLATTENED_FIRST_SEGMENTS.has(firstSegment))
+    !skipSegmentAllowlist &&
+    !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment) &&
+    !FLATTENED_FIRST_SEGMENTS.has(firstSegment)
   ) {
     return null;
   }
