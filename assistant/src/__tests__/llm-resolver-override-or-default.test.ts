@@ -526,3 +526,42 @@ describe("hatch-era disabled stubs on default keys", () => {
     });
   });
 });
+
+describe("user shadows of default keys keep their intent", () => {
+  test("a disabled user shadow reports and falls through, not silently the catalog", () => {
+    const { fallbacks, opts } = collect();
+    const llm = LLMSchema.parse({
+      profiles: {
+        balanced: {
+          ...completeCustom,
+          status: "disabled" as const,
+          model: "gpt-5.4",
+        },
+      },
+      activeProfile: "balanced",
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, opts);
+    expect(fallbacks).toContainEqual({
+      callSite: "mainAgent",
+      requested: "balanced",
+      reason: "disabled",
+    });
+    // Falls to the balanced intent through the default provider — but via the
+    // anchor rung, after the disabled shadow reported.
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).not.toBe("gpt-5.4");
+  });
+
+  test("a usable user shadow of a default key wins verbatim", () => {
+    const llm = LLMSchema.parse({
+      profiles: { balanced: { ...completeCustom, model: "gpt-5.4" } },
+      ...anthropicDp,
+    });
+    const pinned = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "balanced",
+    });
+    expect(pinned.model).toBe("gpt-5.4");
+    expect(pinned.provider).toBe("openai");
+  });
+});

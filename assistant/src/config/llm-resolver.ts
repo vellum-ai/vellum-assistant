@@ -381,11 +381,12 @@ export function selectWinningProfile(
  * would, never the vellum column regardless of `llm.defaultProvider`. Custom
  * names resolve to their workspace entry either way.
  *
- * Like `usableDefaultIntent`, a stale workspace stub on a default key never
+ * Like `usableDefaultIntent`, a persisted managed stub on a default key never
  * suppresses the code-owned body: defaults cannot be disabled through any
- * write path, so a disabled/thin stub is hatch-era state (pre-M5 "no vellum
- * connection") that the pure catalog overrides. Usable user shadows —
- * including mixes, which the caller expands — still win.
+ * write path, so a disabled/thin managed stub carries no user intent and the
+ * pure catalog overrides it. User-owned shadows do carry intent: a usable one
+ * wins (mixes are expanded by the caller), and an unusable one is returned
+ * as-is so the rung reports it and falls through.
  */
 function providerAwareEntry(
   llm: z.infer<typeof LLMSchema>,
@@ -406,6 +407,10 @@ function providerAwareEntry(
     entry.provider != null &&
     entry.model != null
   ) {
+    return entry;
+  }
+  const workspace = llm.profiles?.[name];
+  if (workspace != null && workspace.source !== "managed") {
     return entry;
   }
   return resolveDefaultProfileForProvider(undefined, name, defaultProvider);
