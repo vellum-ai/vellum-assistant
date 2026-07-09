@@ -132,6 +132,25 @@ export function inferMimeType(filename: string): string {
 // Kind classification
 // ---------------------------------------------------------------------------
 
+/**
+ * Pick the attachment filename for a resolved file directive.
+ *
+ * Link display text is only honored as the filename when it carries a
+ * recognized extension. Bare labels (e.g. `[desktop](vellum://.../shot.png)`)
+ * would otherwise produce extensionless downloads with an
+ * `application/octet-stream` MIME type, which macOS opens as raw text.
+ * In that case the real path basename wins.
+ */
+export function resolveAttachmentFilename(
+  preferred: string | undefined,
+  resolvedPath: string,
+): string {
+  const fallback = basename(resolvedPath);
+  if (!preferred) return fallback;
+  if (inferMimeType(preferred) !== "application/octet-stream") return preferred;
+  return fallback;
+}
+
 export function classifyKind(mimeType: string): "image" | "video" | "document" {
   if (mimeType.startsWith("image/")) return "image";
   if (mimeType.startsWith("video/")) return "video";
@@ -616,7 +635,7 @@ export function resolveSandboxDirective(
     };
   }
 
-  const filename = directive.filename ?? basename(resolved);
+  const filename = resolveAttachmentFilename(directive.filename, resolved);
   const mimeType = directive.mimeType ?? inferMimeType(filename);
   const dataBase64 = data.toString("base64");
 
@@ -728,7 +747,7 @@ export async function resolveHostDirective(
     };
   }
 
-  const filename = directive.filename ?? basename(resolved);
+  const filename = resolveAttachmentFilename(directive.filename, resolved);
   const mimeType = directive.mimeType ?? inferMimeType(filename);
   const dataBase64 = data.toString("base64");
 

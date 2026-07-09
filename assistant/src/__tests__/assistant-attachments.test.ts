@@ -12,6 +12,7 @@ import {
   incompleteVellumLinkSuffixLength,
   inferMimeType,
   MAX_ASSISTANT_ATTACHMENT_BYTES,
+  resolveAttachmentFilename,
   stripVellumLinks,
   validateDrafts,
 } from "../daemon/assistant-attachments.js";
@@ -117,6 +118,45 @@ describe("inferMimeType", () => {
 
   test("uses last extension for double-dotted names", () => {
     expect(inferMimeType("archive.tar.gz")).toBe("application/gzip");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAttachmentFilename
+// ---------------------------------------------------------------------------
+
+describe("resolveAttachmentFilename", () => {
+  test("honors preferred name when it has a recognized extension", () => {
+    expect(
+      resolveAttachmentFilename("report.pdf", "/workspace/out/final-v2.pdf"),
+    ).toBe("report.pdf");
+  });
+
+  test("falls back to path basename for an extensionless label", () => {
+    expect(
+      resolveAttachmentFilename(
+        "desktop",
+        "/workspace/qa-delete-desktop-dialog.png",
+      ),
+    ).toBe("qa-delete-desktop-dialog.png");
+  });
+
+  test("falls back to path basename for an unrecognized extension", () => {
+    expect(resolveAttachmentFilename("notes.xyz", "/workspace/notes.txt")).toBe(
+      "notes.txt",
+    );
+  });
+
+  test("falls back to path basename when preferred is undefined", () => {
+    expect(resolveAttachmentFilename(undefined, "/workspace/shot.png")).toBe(
+      "shot.png",
+    );
+  });
+
+  test("keeps basename fallback even when the path is extensionless too", () => {
+    expect(resolveAttachmentFilename("build file", "/workspace/Makefile")).toBe(
+      "Makefile",
+    );
   });
 });
 
