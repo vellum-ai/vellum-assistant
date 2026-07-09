@@ -60,6 +60,7 @@ import {
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
+import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type {
@@ -650,7 +651,16 @@ export async function persistUserMessage(
     // `setProcessing(true)` persists the flag and can throw (e.g.
     // SQLITE_BUSY). Keeping it inside the try ensures a failure here unwinds
     // the request-id/abort bookkeeping below rather than stranding it.
-    ctx.setProcessing(true);
+    //
+    // This is the first DB write on the message-send path — it precedes the
+    // (already retried) message insert — so under transient WAL contention it
+    // must retry too, or the turn dies here before the insert is ever reached.
+    // `setProcessing` reverts its in-memory flag when its persist throws, so
+    // each attempt is safe to re-run.
+    await withSqliteRetry(() => ctx.setProcessing(true), {
+      op: "conversation:setProcessing",
+      context: { conversationId: ctx.conversationId },
+    });
     const result = await persistQueuedMessageBody(ctx, {
       ...options,
       attachments,
