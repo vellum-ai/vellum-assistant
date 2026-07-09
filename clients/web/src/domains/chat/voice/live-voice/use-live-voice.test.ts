@@ -7,7 +7,7 @@
  * AudioContext is touched.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 // The default client factory in use-live-voice statically imports the real
@@ -915,6 +915,263 @@ describe("utterance_discarded", () => {
       });
     });
     expect(h.view.result.current.state).toBe("thinking");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Turn latency (server metrics frame + client-heard measurement)
+// ---------------------------------------------------------------------------
+
+describe("turn latency", () => {
+  /** Aggregate fields every server `metrics` frame carries. */
+  const METRICS_FIELDS = {
+    sttMs: 420,
+    llmFirstDeltaMs: 600,
+    ttsFirstAudioMs: 300,
+    totalMs: 2100,
+  };
+
+  // Silence the per-turn `[live-voice] turn latency` debug line and let tests
+  // assert on it.
+  let debugSpy: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    debugSpy = spyOn(console, "debug").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    debugSpy.mockRestore();
+  });
+
+  const latencyLogs = () =>
+    debugSpy.mock.calls.filter(
+      (call: unknown[]) => call[0] === "[live-voice] turn latency",
+    );
+
+  test("hands-free: utterance_end → first tts_audio produces a positive clientHeardLatencyMs", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 2,
+        reason: "silence",
+      });
+    });
+    // Real time elapses between end-of-speech and the response's first audio.
+    await act(async () => {
+      await sleep(10);
+    });
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 3, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 4,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+
+    const latency = useLiveVoiceStore.getState().lastTurnLatency;
+    expect(latency).not.toBeNull();
+    expect(latency!.clientHeardLatencyMs).toBeGreaterThan(0);
+    // No metrics frame yet: only the client half is known.
+    expect(latency!.server).toBeNull();
+
+    // A second tts_audio frame of the same response does not re-measure:
+    // the store still holds the exact object written on the first frame.
+    act(() => {
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 5,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(useLiveVoiceStore.getState().lastTurnLatency).toBe(latency!);
+  });
+
+  test("manual: ptt_release → first tts_audio produces a positive clientHeardLatencyMs", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    act(() => {
+      useLiveVoiceStore.getState().controls?.release();
+    });
+    expect(h.client.pttReleaseCount).toBe(1);
+    await act(async () => {
+      await sleep(10);
+    });
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 3,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+
+    expect(
+      useLiveVoiceStore.getState().lastTurnLatency?.clientHeardLatencyMs,
+    ).toBeGreaterThan(0);
+  });
+
+  test("a metrics frame pairs the server metrics with the client measurement and logs once", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 2,
+        reason: "silence",
+      });
+      h.client.emit("sttFinal", { type: "stt_final", seq: 3, text: "hello" });
+    });
+    await act(async () => {
+      await sleep(10);
+    });
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 4, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 5,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    await act(async () => {
+      h.client.emit("ttsDone", { type: "tts_done", seq: 6, turnId: "t1" });
+      h.player.finishPlayback();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      h.client.emit("metrics", {
+        type: "metrics",
+        seq: 7,
+        turnId: "t1",
+        ...METRICS_FIELDS,
+        roundTripMs: 750,
+      });
+    });
+
+    const latency = useLiveVoiceStore.getState().lastTurnLatency;
+    expect(latency?.server?.turnId).toBe("t1");
+    expect(latency?.server?.roundTripMs).toBe(750);
+    expect(latency?.clientHeardLatencyMs).toBeGreaterThan(0);
+
+    // Exactly one debug line per completed turn, carrying both halves.
+    const logs = latencyLogs();
+    expect(logs).toHaveLength(1);
+    expect(logs[0]![1]).toMatchObject({
+      turnId: "t1",
+      roundTripMs: 750,
+      clientHeardLatencyMs: latency!.clientHeardLatencyMs,
+    });
+  });
+
+  test("an absent roundTripMs (older daemon) is stored and logged as null", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // An older daemon's metrics frame predates the field entirely.
+    act(() => {
+      h.client.emit("metrics", {
+        type: "metrics",
+        seq: 2,
+        turnId: "t1",
+        ...METRICS_FIELDS,
+      });
+    });
+
+    const latency = useLiveVoiceStore.getState().lastTurnLatency;
+    expect(latency?.server?.roundTripMs).toBeNull();
+    expect(latency?.clientHeardLatencyMs).toBeNull();
+    const logs = latencyLogs();
+    expect(logs).toHaveLength(1);
+    expect(logs[0]![1]).toMatchObject({ roundTripMs: null });
+  });
+
+  test("turn_cancelled clears the pending stamp so it never pairs across turns", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // The utterance ends (stamp set)…
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 2,
+        reason: "silence",
+      });
+      h.client.emit("sttFinal", { type: "stt_final", seq: 3, text: "hello" });
+      h.client.emit("thinking", { type: "thinking", seq: 4, turnId: "t1" });
+    });
+    // …but the turn is barged in and cancelled before any audio.
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 5 });
+      h.client.emit("turnCancelled", {
+        type: "turn_cancelled",
+        seq: 6,
+        turnId: "t1",
+      });
+    });
+
+    await act(async () => {
+      await sleep(10);
+    });
+    // The next turn's first audio must not pair with the dead stamp.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 7, turnId: "t2" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 8,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(useLiveVoiceStore.getState().lastTurnLatency).toBeNull();
+  });
+
+  test("utterance_discarded clears the pending stamp", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // A noise-only utterance is closed (stamp set) and then discarded.
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 2,
+        reason: "silence",
+      });
+      h.client.emit("sttFinal", { type: "stt_final", seq: 3, text: " " });
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 4,
+      });
+    });
+
+    await act(async () => {
+      await sleep(10);
+    });
+    // A later turn's audio (here without its own utterance_end, so no fresh
+    // stamp) must not measure against the discarded utterance's stamp.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 5, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 6,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(useLiveVoiceStore.getState().lastTurnLatency).toBeNull();
   });
 });
 
