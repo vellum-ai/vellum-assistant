@@ -1,6 +1,6 @@
 # Web App — Backwards Compatibility
 
-How the web client copes with talking to an assistant that may be running an older version 
+How the web client copes with talking to an assistant that may be running an older version
 than the bundle the browser just loaded.
 
 See also [`clients/web/AGENTS.md`](../AGENTS.md), the umbrella
@@ -31,14 +31,14 @@ informing us of live clients in use so we can delete old cold paths incrementall
 
 ## Where it lives
 
-| Module | Role |
-|---|---|
-| `src/lib/backwards-compat/` | The centralized registry. One file per gated feature, each declaring its own `MIN_VERSION`. `grep` this path to find everything that can eventually be deleted. |
-| `src/lib/backwards-compat/utils.ts` | The shared gate primitives: `useAssistantSupports`, `assistantSupports`, `whenAssistantVersionKnown`. Every gate uses these so semver parsing and pre-release handling are uniform. |
-| `src/utils/semver.ts` | Low-level `parseSemver` / `compareParsed` / `comparePreRelease`. No app knowledge — just version-string math. |
-| `src/stores/assistant-identity-store.ts` | Zustand store holding the active assistant's `{ name, version }`. The source of truth every gate reads. |
-| `src/assistant/identity.ts` | Fetches identity from the assistant's `/identity` endpoint and refreshes it on the SSE `identity_changed` event. |
-| `src/lib/backwards-compat/impersonate-version-flag.ts` | Debug flag for overriding the reported version locally, so a single dev can exercise old and new code paths without juggling installs. |
+| Module                                                 | Role                                                                                                                                                                                |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/backwards-compat/`                            | The centralized registry. One file per gated feature, each declaring its own `MIN_VERSION`. `grep` this path to find everything that can eventually be deleted.                     |
+| `src/lib/backwards-compat/utils.ts`                    | The shared gate primitives: `useAssistantSupports`, `assistantSupports`, `whenAssistantVersionKnown`. Every gate uses these so semver parsing and pre-release handling are uniform. |
+| `src/utils/semver.ts`                                  | Low-level `parseSemver` / `compareParsed` / `comparePreRelease`. No app knowledge — just version-string math.                                                                       |
+| `src/stores/assistant-identity-store.ts`               | Zustand store holding the active assistant's `{ name, version }`. The source of truth every gate reads.                                                                             |
+| `src/assistant/identity.ts`                            | Fetches identity from the assistant's `/identity` endpoint and refreshes it on the SSE `identity_changed` event.                                                                    |
+| `src/lib/backwards-compat/impersonate-version-flag.ts` | Debug flag for overriding the reported version locally, so a single dev can exercise old and new code paths without juggling installs.                                              |
 
 ## How a gate is detected
 
@@ -65,14 +65,14 @@ knowing before you add a gate:
 - **Unknown version returns `false`.** The version starts `null` and
   hydrates asynchronously after identity fetches. Until then, every gate
   reports "not supported" and the app falls back to the legacy path. That
-  fallback must be something *any* assistant understands.
+  fallback must be something _any_ assistant understands.
 - **Pre-release suffixes on the patch are ignored.** `0.8.5-rc.1` counts
   as `0.8.5`, so RC/beta/alpha testers get the new path the moment the
   patch version bumps.
 - **`dev` builds are treated as AHEAD of the stable release with the same
   base** — the opposite of strict semver. A build like
   `0.10.0-dev.202606211252.5cf8576` contains unreleased commits on top of
-  `0.10.0`, so it's considered *newer* than `0.10.0` stable. Two dev
+  `0.10.0`, so it's considered _newer_ than `0.10.0` stable. Two dev
   builds with the same base compare by their pre-release string, which
   encodes a `dev.YYYYMMDDHHMM.sha` timestamp. This lets a gate target a
   specific dev build by passing the exact dev version string as
@@ -108,23 +108,24 @@ awaits `resolveSupportsAvatarStateManifest()` before branching).
    `whenAssistantVersionKnown()` first.
 5. Add a colocated `<feature>.test.ts`.
 
-Keep the old code path until the gate is removed — the gate *is* the
+Keep the old code path until the gate is removed — the gate _is_ the
 contract that says it still has callers.
 
 ## The gates
 
 Each module owns one feature's old/new split. Current registry:
 
-| Gate (`src/lib/backwards-compat/…`) | `MIN_VERSION` | Old behavior (< version) | New behavior (≥ version) |
-|---|---|---|---|
-| `flag-query-freshness.ts` | `0.8.5` | 5 s poll interval on feature-flag queries | Push-based invalidation via `sync_changed` + SSE reconnect (60 s stale, no poll) |
-| `conversation-id-wire-field.ts` | `0.8.6` | Send `conversationKey` (create-or-lookup) on `POST /v1/messages` | Send strict `conversationId` (direct internal-id lookup) |
-| `server-minted-conversation.ts` | `0.8.6` | Mint a draft UUID locally, send as `conversationKey` | Omit both id fields; assistant mints the id and echoes it back on first send |
-| `avatar-state-manifest.ts` | `0.8.7` | Infer render mode from workspace sidecar files; write via generic `workspace/write` + `workspace/delete` | Authoritative `GET /avatar/state` + atomic `POST /avatar/image` |
-| `conversation-processing-state.ts` | `0.8.8` | Client-side optimistic mirror (`processingConversationIds`), cleared manually on terminal events | Trust the server `isProcessing` flag on the conversation row |
-| `llm-context-summary-view.ts` | `0.8.12` | Inline context sections from the list response | `view=summary` light list + lazy per-log detail via `GET /v1/llm-request-logs/:id/context` |
-| `vision-attachment-gate.ts` | `0.10.0-dev.202606211252.5cf8576` | Client filters images out for non-vision models | Allow any file type; the image-fallback plugin filters/captions server-side |
-| `default-provider-settings.ts` | `0.10.8` | No default-provider marker UI in the Providers modal; status query never fires | "Default" tag + "Set as default" via `GET/PUT /v1/config/llm/default-provider` |
+| Gate (`src/lib/backwards-compat/…`) | `MIN_VERSION`                     | Old behavior (< version)                                                                                 | New behavior (≥ version)                                                                   |
+| ----------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `flag-query-freshness.ts`           | `0.8.5`                           | 5 s poll interval on feature-flag queries                                                                | Push-based invalidation via `sync_changed` + SSE reconnect (60 s stale, no poll)           |
+| `conversation-id-wire-field.ts`     | `0.8.6`                           | Send `conversationKey` (create-or-lookup) on `POST /v1/messages`                                         | Send strict `conversationId` (direct internal-id lookup)                                   |
+| `server-minted-conversation.ts`     | `0.8.6`                           | Mint a draft UUID locally, send as `conversationKey`                                                     | Omit both id fields; assistant mints the id and echoes it back on first send               |
+| `avatar-state-manifest.ts`          | `0.8.7`                           | Infer render mode from workspace sidecar files; write via generic `workspace/write` + `workspace/delete` | Authoritative `GET /avatar/state` + atomic `POST /avatar/image`                            |
+| `conversation-processing-state.ts`  | `0.8.8`                           | Client-side optimistic mirror (`processingConversationIds`), cleared manually on terminal events         | Trust the server `isProcessing` flag on the conversation row                               |
+| `llm-context-summary-view.ts`       | `0.8.12`                          | Inline context sections from the list response                                                           | `view=summary` light list + lazy per-log detail via `GET /v1/llm-request-logs/:id/context` |
+| `vision-attachment-gate.ts`         | `0.10.0-dev.202606211252.5cf8576` | Client filters images out for non-vision models                                                          | Allow any file type; the image-fallback plugin filters/captions server-side                |
+| `default-provider-settings.ts`      | `0.10.8`                          | No default-provider marker UI in the Providers modal; status query never fires                           | "Default" tag + "Set as default" via `GET/PUT /v1/config/llm/default-provider`             |
+| `complete-profile-snapshots.ts`     | `0.10.8`                          | Blank profile fields live-inherit (deep merge); no snapshot copy in the editor                           | Blanks are baked at save time; editor shows the snapshot helper line                       |
 
 When you delete a row here, also delete its module, its test, and the now-dead
 legacy branch at the call site.
@@ -136,7 +137,7 @@ with the code they protect:
 
 - **SSE event parsing** — `src/lib/streaming/event-parser.ts` accepts both
   the enveloped event shape (`{ id, conversationId, seq, emittedAt,
-  message }`, 0.8.5+) and the flat legacy shape (`{ type, … }`), wrapping
+message }`, 0.8.5+) and the flat legacy shape (`{ type, … }`), wrapping
   the legacy form in a synthetic envelope so downstream callers never see
   the difference.
 - **Message normalization** — `src/domains/chat/api/messages.ts`
@@ -163,8 +164,8 @@ overrides the version every gate sees:
 ```js
 // In the browser console (debug builds expose window._vellumDebug.flags):
 impersonateVersion("0.8.6"); // pretend the assistant is 0.8.6, then reload
-impersonateVersion(null);    // clear the override, then reload
-impersonateVersion();        // log the current override, no reload
+impersonateVersion(null); // clear the override, then reload
+impersonateVersion(); // log the current override, no reload
 ```
 
 It persists to `localStorage` (`vellum:debug:impersonateAssistantVersion`)
