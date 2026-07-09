@@ -785,12 +785,12 @@ describe("Anthropic models on OpenRouter", () => {
   test("prices non-Anthropic OpenRouter model from catalog", () => {
     const result = resolvePricing(
       "openrouter",
-      "x-ai/grok-4.20-beta",
+      "x-ai/grok-4.20",
       1_000_000,
       1_000_000,
     );
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe(3 + 15);
+    expect(result.estimatedCostUsd).toBe(1.25 + 2.5);
   });
 
   test("returns unpriced for unknown non-Anthropic OpenRouter model", () => {

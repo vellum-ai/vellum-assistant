@@ -770,7 +770,7 @@
         "linkLabel": "Open OpenRouter"
       },
       "supportsPlatformAuth": false,
-      "defaultModel": "x-ai/grok-4.20-beta",
+      "defaultModel": "x-ai/grok-4.20",
       "models": [
         {
           "id": "anthropic/claude-fable-5",
@@ -958,22 +958,6 @@
           }
         },
         {
-          "id": "x-ai/grok-4.20-beta",
-          "displayName": "Grok 4.20 Beta",
-          "contextWindowTokens": 256000,
-          "maxOutputTokens": 16000,
-          "defaultContextWindowTokens": 200000,
-          "longContextMode": "native-model",
-          "supportsThinking": true,
-          "supportsCaching": false,
-          "supportsVision": true,
-          "supportsToolUse": true,
-          "pricing": {
-            "inputPer1mTokens": 3,
-            "outputPer1mTokens": 15
-          }
-        },
-        {
           "id": "x-ai/grok-4.3",
           "displayName": "Grok 4.3",
           "contextWindowTokens": 1000000,
@@ -990,19 +974,19 @@
           }
         },
         {
-          "id": "x-ai/grok-4",
-          "displayName": "Grok 4",
-          "contextWindowTokens": 131072,
+          "id": "x-ai/grok-4.20",
+          "displayName": "Grok 4.20",
+          "contextWindowTokens": 2000000,
           "maxOutputTokens": 16000,
-          "defaultContextWindowTokens": 131072,
-          "longContextMode": "unsupported",
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
           "supportsThinking": true,
           "supportsCaching": false,
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 3,
-            "outputPer1mTokens": 15
+            "inputPer1mTokens": 1.25,
+            "outputPer1mTokens": 2.5
           }
         },
         {
