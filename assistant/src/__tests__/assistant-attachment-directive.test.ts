@@ -31,6 +31,7 @@ describe("parseDirectives", () => {
       path: "output/report.pdf",
       filename: "report.pdf",
       mimeType: "application/pdf",
+      filenameSource: "explicit",
     });
     expect(result.cleanText).toBe("Here is the report:");
     expect(result.parseWarnings).toHaveLength(0);

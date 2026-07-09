@@ -16,6 +16,7 @@
     "./grants": "./src/grants.ts",
     "./rpc": "./src/rpc.ts",
     "./rendering": "./src/rendering.ts",
+    "./attachment-naming": "./src/attachment-naming.ts",
     "./error": "./src/error.ts"
   },
   "scripts": {

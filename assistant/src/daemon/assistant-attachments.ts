@@ -6,7 +6,6 @@
  */
 
 import { readFileSync, statSync } from "node:fs";
-import { basename } from "node:path";
 
 import { isPlaceholderSentinelText } from "../providers/placeholder-sentinels.js";
 import {
@@ -68,69 +67,18 @@ export function estimateBase64Bytes(
 }
 
 // ---------------------------------------------------------------------------
-// MIME inference
+// MIME inference / filename resolution (shared contract)
 // ---------------------------------------------------------------------------
 
-const EXTENSION_MIME_MAP: Record<string, string> = {
-  // Images
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  svg: "image/svg+xml",
-  ico: "image/x-icon",
-  bmp: "image/bmp",
-  heic: "image/heic",
-  heif: "image/heif",
+// The stored-filename rule is a contract with the web client (which resolves
+// clicked vellum:// links back to attachments by filename), so it lives in
+// @vellumai/service-contracts. Re-exported here for the daemon's callers.
+import {
+  inferMimeType,
+  resolveAttachmentFilename,
+} from "@vellumai/service-contracts/attachment-naming";
 
-  // Documents
-  pdf: "application/pdf",
-  json: "application/json",
-  xml: "application/xml",
-  csv: "text/csv",
-  txt: "text/plain",
-  md: "text/markdown",
-  html: "text/html",
-  css: "text/css",
-  js: "text/javascript",
-  ts: "text/typescript",
-
-  // Audio
-  mp3: "audio/mpeg",
-  wav: "audio/wav",
-  ogg: "audio/ogg",
-  flac: "audio/flac",
-  aac: "audio/aac",
-  m4a: "audio/x-m4a",
-  opus: "audio/opus",
-
-  // Video
-  mp4: "video/mp4",
-  webm: "video/webm",
-  mov: "video/quicktime",
-  mpeg: "video/mpeg",
-
-  // Archives
-  zip: "application/zip",
-  gz: "application/gzip",
-  tar: "application/x-tar",
-};
-
-/**
- * Infer a MIME type from a filename extension.
- * Returns `application/octet-stream` when the extension is unrecognised.
- */
-export function inferMimeType(filename: string): string {
-  const dot = filename.lastIndexOf(".");
-  if (dot === -1) return "application/octet-stream";
-  const ext = filename.slice(dot + 1).toLowerCase();
-  return EXTENSION_MIME_MAP[ext] ?? "application/octet-stream";
-}
-
-// ---------------------------------------------------------------------------
-// Kind classification
-// ---------------------------------------------------------------------------
+export { inferMimeType, resolveAttachmentFilename };
 
 export function classifyKind(mimeType: string): "image" | "video" | "document" {
   if (mimeType.startsWith("image/")) return "image";
@@ -186,6 +134,13 @@ export interface DirectiveRequest {
   path: string;
   filename: string | undefined;
   mimeType: string | undefined;
+  /**
+   * Where `filename` came from. `"explicit"` filenames (directive
+   * attributes) are authoritative and used verbatim. `"label"` filenames
+   * (markdown link display text) are cosmetic and only honored when they
+   * carry a recognized extension; otherwise the path basename wins.
+   */
+  filenameSource?: "explicit" | "label";
 }
 
 interface DirectiveParseResult {
@@ -258,6 +213,7 @@ export function parseDirectives(text: string): DirectiveParseResult {
       path: attrs["path"],
       filename: attrs["filename"] || undefined,
       mimeType: attrs["mime_type"] || undefined,
+      filenameSource: "explicit",
     });
 
     return "";
@@ -357,6 +313,7 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
         path,
         filename,
         mimeType: undefined,
+        filenameSource: "label",
       });
     } else {
       // host: decodedPath is already absolute (starts with /)
@@ -371,6 +328,7 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
         path: decodedPath,
         filename,
         mimeType: undefined,
+        filenameSource: "label",
       });
     }
   }
@@ -616,7 +574,11 @@ export function resolveSandboxDirective(
     };
   }
 
-  const filename = directive.filename ?? basename(resolved);
+  const filename = resolveAttachmentFilename(
+    directive.filename,
+    resolved,
+    directive.filenameSource,
+  );
   const mimeType = directive.mimeType ?? inferMimeType(filename);
   const dataBase64 = data.toString("base64");
 
@@ -728,7 +690,11 @@ export async function resolveHostDirective(
     };
   }
 
-  const filename = directive.filename ?? basename(resolved);
+  const filename = resolveAttachmentFilename(
+    directive.filename,
+    resolved,
+    directive.filenameSource,
+  );
   const mimeType = directive.mimeType ?? inferMimeType(filename);
   const dataBase64 = data.toString("base64");
 

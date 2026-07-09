@@ -10,6 +10,8 @@ import {
 } from "react";
 
 import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
+import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachment-naming";
+
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
@@ -115,17 +117,20 @@ export function TranscriptMessageBody({
     : `break-words text-[15px] ${textBubbleClass}`;
 
   const forkMessageId = message.id;
-  const forkHandler = forkMessageId && onForkConversation
-    ? () => onForkConversation(forkMessageId)
-    : undefined;
+  const forkHandler =
+    forkMessageId && onForkConversation
+      ? () => onForkConversation(forkMessageId)
+      : undefined;
   const summarizeMessageId = message.id;
-  const summarizeHandler = summarizeMessageId && onSummarizeUpToHere
-    ? () => onSummarizeUpToHere(summarizeMessageId)
-    : undefined;
+  const summarizeHandler =
+    summarizeMessageId && onSummarizeUpToHere
+      ? () => onSummarizeUpToHere(summarizeMessageId)
+      : undefined;
   const inspectMessageId = message.id;
-  const inspectHandler = inspectMessageId && onInspectMessage
-    ? () => onInspectMessage(inspectMessageId)
-    : undefined;
+  const inspectHandler =
+    inspectMessageId && onInspectMessage
+      ? () => onInspectMessage(inspectMessageId)
+      : undefined;
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [revealed, setRevealed] = useState(false);
@@ -135,7 +140,11 @@ export function TranscriptMessageBody({
     if (!revealed) return;
     const onDocPointerDown = (e: PointerEvent) => {
       const target = e.target as Node | null;
-      if (target && wrapperRef.current && !wrapperRef.current.contains(target)) {
+      if (
+        target &&
+        wrapperRef.current &&
+        !wrapperRef.current.contains(target)
+      ) {
         setRevealed(false);
       }
     };
@@ -143,24 +152,27 @@ export function TranscriptMessageBody({
     return () => document.removeEventListener("pointerdown", onDocPointerDown);
   }, [revealed]);
 
-  const handleBubbleClick = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
-    const target = e.target as Element | null;
-    if (isInteractiveClickTarget(target)) {
-      return;
-    }
+  const handleBubbleClick = useCallback(
+    (e: ReactMouseEvent<HTMLDivElement>) => {
+      const target = e.target as Element | null;
+      if (isInteractiveClickTarget(target)) {
+        return;
+      }
 
-    if (slackMessageUrl && isPointerCoarse()) {
-      if (window.getSelection()?.toString()) return;
-      window.open(slackMessageUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
+      if (slackMessageUrl && isPointerCoarse()) {
+        if (window.getSelection()?.toString()) return;
+        window.open(slackMessageUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
 
-    if (!isPointerCoarse()) return;
-    setRevealed((v) => !v);
-  }, [slackMessageUrl]);
+      if (!isPointerCoarse()) return;
+      setRevealed((v) => !v);
+    },
+    [slackMessageUrl],
+  );
 
-  const linkedSubagentEntries = useSubagentStore(
-    (s) => lookupSubagentEntriesForMessage(s.byParent, message),
+  const linkedSubagentEntries = useSubagentStore((s) =>
+    lookupSubagentEntriesForMessage(s.byParent, message),
   );
   const byToolUseId = useSubagentStore.use.byToolUseId();
   const byToolUseIdWf = useWorkflowStore.use.byToolUseId();
@@ -260,10 +272,33 @@ export function TranscriptMessageBody({
 
   const handleVellumLinkClick = useCallback(
     (href: string, linkText: string) => {
-      const pathBasename = href.split("/").pop() ?? "";
+      const rawBasename = href.split("/").pop() ?? "";
+      // The daemon percent-decodes vellum:// paths before storing attachment
+      // filenames, so match on the decoded basename. Keep the raw form as a
+      // defensive fallback for malformed encodings.
+      let pathBasename = rawBasename;
+      try {
+        pathBasename = decodeURIComponent(rawBasename);
+      } catch {
+        // Malformed percent-encoding: fall back to the raw basename.
+      }
+      // Mirror the daemon's stored-filename rule (shared contract): a link
+      // label is only the stored name when it carries a recognized
+      // extension, otherwise the attachment lives under the path basename.
+      // Search the expected name first so an unrelated attachment that
+      // happens to share the label's text cannot shadow the linked file.
+      // The label/basename/raw fallbacks keep older messages working when
+      // their stored filenames do not follow the shared naming rule.
+      const expectedFilename = resolveAttachmentFilename(
+        linkText || undefined,
+        pathBasename,
+        "label",
+      );
       const att =
+        message.attachments?.find((a) => a.filename === expectedFilename) ??
         message.attachments?.find((a) => a.filename === linkText) ??
-        message.attachments?.find((a) => a.filename === pathBasename);
+        message.attachments?.find((a) => a.filename === pathBasename) ??
+        message.attachments?.find((a) => a.filename === rawBasename);
       if (att) {
         void downloadAttachment(att, assistantId);
       } else {
@@ -388,7 +423,9 @@ export function TranscriptMessageBody({
             onOpen={() => handleAcpRunClick(acpSessionId)}
             onStop={() =>
               void stopAcpRun(acpSessionId).catch((err) => {
-                captureError(err, { context: "TranscriptMessageBody.stopAcpRun" });
+                captureError(err, {
+                  context: "TranscriptMessageBody.stopAcpRun",
+                });
               })
             }
             stopAriaLabel="Stop run"
@@ -402,7 +439,10 @@ export function TranscriptMessageBody({
   const renderInlineBackgroundTaskCards = (
     toolCalls: ChatMessageToolCall[],
   ) => {
-    const taskIds = resolveBackgroundTaskIds(toolCalls, claimedBackgroundTaskIds);
+    const taskIds = resolveBackgroundTaskIds(
+      toolCalls,
+      claimedBackgroundTaskIds,
+    );
     if (taskIds.length === 0) return null;
     return (
       <div className="flex w-full flex-col gap-1.5">
@@ -639,7 +679,12 @@ export function TranscriptMessageBody({
     if (group.type === "surface") {
       return renderSurfaceNode(group.surface, `b-surface-${gi}`);
     }
-    return renderActivityGroup(group.items, `b-activity-${gi}`, gi === lastGroupIndex, gi);
+    return renderActivityGroup(
+      group.items,
+      `b-activity-${gi}`,
+      gi === lastGroupIndex,
+      gi,
+    );
   };
 
   const wrapperClass = `group/msg flex ${isUser ? "justify-end" : "justify-start"}`;
