@@ -292,6 +292,18 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/smb-inbox-brief",
       "license": "MIT"
+    },
+    {
+      "name": "family-briefing",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/family-briefing",
+        "ref": "8d363835f752992a397e350825f229902fc4a5ff"
+      },
+      "description": "Daily morning briefing for parents: merges family calendars, triages school emails, and detects scheduling conflicts.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/family-briefing",
+      "license": "MIT"
     }
   ]
 }
