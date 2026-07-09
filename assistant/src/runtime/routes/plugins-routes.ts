@@ -88,6 +88,7 @@ import {
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
+import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -1014,6 +1015,16 @@ async function handleUninstallPlugin({
   // `sanitizePluginName` check the CLI uses, so attacker-supplied
   // `../escape` style names get rejected before `rmSync` is reached.
   const rawName = pathParams.name ?? "";
+
+  // The daemon marks itself DB-ready and serves HTTP before
+  // `initializePlugins()` materializes the workspace `@vellumai/plugin-api`
+  // shim, so a DELETE that lands in that boot window would run a plugin's
+  // `shutdown` hook before the shim exists — a hook importing the package
+  // would fail to resolve and be silently skipped before the directory is
+  // removed. Ensure the shim here first. Best-effort and idempotent: outside
+  // that window it's a cheap no-op rewrite, and a failure just means such a
+  // hook's import may not resolve.
+  await ensurePluginApiShim().catch(() => {});
 
   try {
     const result = await uninstallPlugin({ name: rawName });

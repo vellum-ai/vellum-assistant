@@ -109,6 +109,20 @@ export function registerPluginsCommand(program: Command): void {
     description:
       "List, search, install, and manage external plugins (`list` shows what is installed, `search` queries the marketplace)",
     build: (plugins) => {
+      // Materialize the `@vellumai/plugin-api` shim once for the whole command
+      // group, before any subcommand action runs. A subcommand that resolves a
+      // plugin hook in this fresh CLI process — `uninstall` running a plugin's
+      // `shutdown` — needs the package importable; the daemon materializes the
+      // same shim at boot, this covers the standalone CLI. Dynamically imported
+      // so the daemon-internal module stays out of the CLI's static graph
+      // (`cli/no-daemon-internals`). Best-effort: a failed shim just means such a
+      // hook's import may not resolve.
+      plugins.hook("preAction", async () => {
+        const { ensurePluginApiShim } =
+          await import("../../plugins/ensure-plugin-api-shim.js");
+        await ensurePluginApiShim().catch(() => {});
+      });
+
       plugins.addHelpText(
         "after",
         `
