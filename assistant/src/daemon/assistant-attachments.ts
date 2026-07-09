@@ -135,18 +135,22 @@ export function inferMimeType(filename: string): string {
 /**
  * Pick the attachment filename for a resolved file directive.
  *
- * Link display text is only honored as the filename when it carries a
- * recognized extension. Bare labels (e.g. `[desktop](vellum://.../shot.png)`)
- * would otherwise produce extensionless downloads with an
- * `application/octet-stream` MIME type, which macOS opens as raw text.
- * In that case the real path basename wins.
+ * Explicit filenames (`<vellum-attachment filename="..." />` attributes)
+ * are an authoring contract and always used verbatim. Link display text
+ * (`[label](vellum://...)`) is cosmetic: it is only honored as the filename
+ * when it carries a recognized extension. Bare labels
+ * (e.g. `[desktop](vellum://.../shot.png)`) would otherwise produce
+ * extensionless downloads with an `application/octet-stream` MIME type,
+ * which macOS opens as raw text. In that case the real path basename wins.
  */
 export function resolveAttachmentFilename(
   preferred: string | undefined,
   resolvedPath: string,
+  filenameSource: "explicit" | "label" = "explicit",
 ): string {
   const fallback = basename(resolvedPath);
   if (!preferred) return fallback;
+  if (filenameSource === "explicit") return preferred;
   if (inferMimeType(preferred) !== "application/octet-stream") return preferred;
   return fallback;
 }
@@ -205,6 +209,13 @@ export interface DirectiveRequest {
   path: string;
   filename: string | undefined;
   mimeType: string | undefined;
+  /**
+   * Where `filename` came from. `"explicit"` filenames (directive
+   * attributes) are authoritative and used verbatim. `"label"` filenames
+   * (markdown link display text) are cosmetic and only honored when they
+   * carry a recognized extension; otherwise the path basename wins.
+   */
+  filenameSource?: "explicit" | "label";
 }
 
 interface DirectiveParseResult {
@@ -277,6 +288,7 @@ export function parseDirectives(text: string): DirectiveParseResult {
       path: attrs["path"],
       filename: attrs["filename"] || undefined,
       mimeType: attrs["mime_type"] || undefined,
+      filenameSource: "explicit",
     });
 
     return "";
@@ -376,6 +388,7 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
         path,
         filename,
         mimeType: undefined,
+        filenameSource: "label",
       });
     } else {
       // host: decodedPath is already absolute (starts with /)
@@ -390,6 +403,7 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
         path: decodedPath,
         filename,
         mimeType: undefined,
+        filenameSource: "label",
       });
     }
   }
@@ -635,7 +649,11 @@ export function resolveSandboxDirective(
     };
   }
 
-  const filename = resolveAttachmentFilename(directive.filename, resolved);
+  const filename = resolveAttachmentFilename(
+    directive.filename,
+    resolved,
+    directive.filenameSource,
+  );
   const mimeType = directive.mimeType ?? inferMimeType(filename);
   const dataBase64 = data.toString("base64");
 
@@ -747,7 +765,11 @@ export async function resolveHostDirective(
     };
   }
 
-  const filename = resolveAttachmentFilename(directive.filename, resolved);
+  const filename = resolveAttachmentFilename(
+    directive.filename,
+    resolved,
+    directive.filenameSource,
+  );
   const mimeType = directive.mimeType ?? inferMimeType(filename);
   const dataBase64 = data.toString("base64");
 

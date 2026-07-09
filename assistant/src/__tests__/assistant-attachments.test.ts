@@ -126,9 +126,13 @@ describe("inferMimeType", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveAttachmentFilename", () => {
-  test("honors preferred name when it has a recognized extension", () => {
+  test("honors a label with a recognized extension", () => {
     expect(
-      resolveAttachmentFilename("report.pdf", "/workspace/out/final-v2.pdf"),
+      resolveAttachmentFilename(
+        "report.pdf",
+        "/workspace/out/final-v2.pdf",
+        "label",
+      ),
     ).toBe("report.pdf");
   });
 
@@ -137,26 +141,40 @@ describe("resolveAttachmentFilename", () => {
       resolveAttachmentFilename(
         "desktop",
         "/workspace/qa-delete-desktop-dialog.png",
+        "label",
       ),
     ).toBe("qa-delete-desktop-dialog.png");
   });
 
-  test("falls back to path basename for an unrecognized extension", () => {
-    expect(resolveAttachmentFilename("notes.xyz", "/workspace/notes.txt")).toBe(
-      "notes.txt",
-    );
+  test("falls back to path basename for a label with unrecognized extension", () => {
+    expect(
+      resolveAttachmentFilename("notes.xyz", "/workspace/notes.txt", "label"),
+    ).toBe("notes.txt");
   });
 
   test("falls back to path basename when preferred is undefined", () => {
-    expect(resolveAttachmentFilename(undefined, "/workspace/shot.png")).toBe(
-      "shot.png",
-    );
+    expect(
+      resolveAttachmentFilename(undefined, "/workspace/shot.png", "label"),
+    ).toBe("shot.png");
   });
 
   test("keeps basename fallback even when the path is extensionless too", () => {
-    expect(resolveAttachmentFilename("build file", "/workspace/Makefile")).toBe(
-      "Makefile",
-    );
+    expect(
+      resolveAttachmentFilename("build file", "/workspace/Makefile", "label"),
+    ).toBe("Makefile");
+  });
+
+  test("explicit directive filenames are used verbatim regardless of extension", () => {
+    expect(
+      resolveAttachmentFilename(
+        "custom.dat",
+        "/workspace/data.bin",
+        "explicit",
+      ),
+    ).toBe("custom.dat");
+    expect(
+      resolveAttachmentFilename("no-extension", "/workspace/data.bin"),
+    ).toBe("no-extension");
   });
 });
 
