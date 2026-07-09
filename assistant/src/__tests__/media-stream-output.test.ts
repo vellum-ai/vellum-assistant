@@ -1393,7 +1393,7 @@ describe("MediaStreamOutput", () => {
 
       expect(arrayBufferCalled).toBe(true);
       expect(bodyAccessed).toBe(false);
-      // mp3 cannot be transcoded in this path: silence, exactly as before.
+      // mp3 cannot be transcoded in this path, so no media frames go out.
       expect(countEvents(sent, "media")).toBe(0);
     });
 
@@ -1444,7 +1444,8 @@ describe("MediaStreamOutput", () => {
       await drain(() => output.getPlaybackQueueLength() === 0);
       await drain();
 
-      // No crash; behavior matches the pre-existing buffered transcode.
+      // No crash; a malformed WAV yields no usable frames from the
+      // buffered transcode's fixed-offset reads.
       expect(countEvents(sent, "media")).toBe(0);
 
       // The output still works for a subsequent playable item.
