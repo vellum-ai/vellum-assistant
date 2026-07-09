@@ -198,3 +198,14 @@ export {
   listCatalogSkills,
   listInstalledSkills,
 } from "../skills/available-skills.js";
+// Stored-message content — pure projections over the persisted message
+// content format (a JSON content-block array): flatten to displayable text,
+// extract media blocks or their metadata. Plugins that read conversation
+// history use these instead of parsing the stored JSON themselves, so they
+// stay agnostic to how message content is persisted.
+export {
+  extractMediaBlockMeta,
+  extractMediaBlocks,
+  extractTextFromStoredMessageContent,
+  stringifyMessageContent,
+} from "../persistence/message-content.js";

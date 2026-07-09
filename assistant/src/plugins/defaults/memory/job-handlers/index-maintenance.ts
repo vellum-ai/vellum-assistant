@@ -1,4 +1,7 @@
-import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
+import {
+  extractMediaBlockMeta,
+  selectedBackendSupportsMultimodal,
+} from "@vellumai/plugin-api";
 import { eq, isNotNull, like, ne } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
@@ -12,7 +15,6 @@ import {
   enqueueMemoryJob,
   type MemoryJob,
 } from "../../../../persistence/jobs-store.js";
-import { extractMediaBlockMeta } from "../../../../persistence/message-content.js";
 import {
   mediaAssets,
   memoryEmbeddings,

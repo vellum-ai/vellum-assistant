@@ -1,13 +1,12 @@
 import { readFile } from "node:fs/promises";
 
-import { embedAndUpsert } from "@vellumai/plugin-api";
+import { embedAndUpsert, extractMediaBlocks } from "@vellumai/plugin-api";
 import { eq } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
 import type { EmbeddingInput } from "../../../../persistence/embeddings/embedding-types.js";
 import { asString } from "../../../../persistence/job-utils.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { extractMediaBlocks } from "../../../../persistence/message-content.js";
 import {
   mediaAssets,
   memorySegments,

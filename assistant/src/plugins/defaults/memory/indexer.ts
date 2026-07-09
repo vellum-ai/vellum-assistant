@@ -1,4 +1,8 @@
-import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
+import {
+  extractMediaBlockMeta,
+  extractTextFromStoredMessageContent,
+  selectedBackendSupportsMultimodal,
+} from "@vellumai/plugin-api";
 import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
 
@@ -15,10 +19,6 @@ import {
   isMemoryEnabled,
   upsertDebouncedJob,
 } from "../../../persistence/jobs-store.js";
-import {
-  extractMediaBlockMeta,
-  extractTextFromStoredMessageContent,
-} from "../../../persistence/message-content.js";
 import { memorySegments } from "../../../persistence/schema/index.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { enqueueAutoAnalysisIfEnabled } from "../../../runtime/services/auto-analysis-enqueue.js";
