@@ -324,6 +324,13 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
     deleteNestedKey(cleaned, issue.path as (string | number)[], true);
   }
 
+  // Deleting an invalid array element via `deleteNestedKey` uses `delete
+  // arr[i]` semantics, which leaves a sparse hole that the re-parse reads as
+  // `undefined` and rejects — one bad element in any array field would
+  // otherwise invalidate the whole cleaned config. Compact the holes away
+  // before re-parsing.
+  compactSparseArrays(cleaned);
+
   const retry = AssistantConfigSchema.safeParse(cleaned);
   if (retry.success) {
     return applyNestedDefaults(retry.data);
@@ -332,6 +339,29 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   // If still failing, fall back to full defaults
   log.warn("Config validation failed after cleanup. Using full defaults.");
   return cloneDefaultConfig();
+}
+
+/**
+ * Recursively remove holes from every array reachable inside `value`,
+ * mutating in place. Config values come from `JSON.parse`, which cannot
+ * encode holes (or `undefined`), so any hole is the residue of a
+ * `deleteNestedKey` strip of an invalid array element and is safe to drop.
+ * Surviving elements are recursed into so nested arrays are compacted too.
+ */
+function compactSparseArrays(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (let i = value.length - 1; i >= 0; i--) {
+      if (i in value) {
+        compactSparseArrays(value[i]);
+      } else {
+        value.splice(i, 1);
+      }
+    }
+  } else if (isPlainObject(value)) {
+    for (const child of Object.values(value)) {
+      compactSparseArrays(child);
+    }
+  }
 }
 
 /**
