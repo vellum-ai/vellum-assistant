@@ -12,6 +12,7 @@ import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import {
   getEffectiveProfile,
+  isDefaultProfileKey,
   resolveDefaultProfileForProvider,
 } from "./default-profile-catalog.js";
 import {
@@ -379,16 +380,35 @@ export function selectWinningProfile(
  * `callSites` profile) must yield the same body the call-site intent rung
  * would, never the vellum column regardless of `llm.defaultProvider`. Custom
  * names resolve to their workspace entry either way.
+ *
+ * Like `usableDefaultIntent`, a stale workspace stub on a default key never
+ * suppresses the code-owned body: defaults cannot be disabled through any
+ * write path, so a disabled/thin stub is hatch-era state (pre-M5 "no vellum
+ * connection") that the pure catalog overrides. Usable user shadows —
+ * including mixes, which the caller expands — still win.
  */
 function providerAwareEntry(
   llm: z.infer<typeof LLMSchema>,
   name: string,
 ): ProfileEntry | undefined {
-  return resolveDefaultProfileForProvider(
+  const defaultProvider = llm.defaultProvider ?? null;
+  const entry = resolveDefaultProfileForProvider(
     llm.profiles,
     name,
-    llm.defaultProvider ?? null,
+    defaultProvider,
   );
+  if (!isDefaultProfileKey(name) || entry?.mix != null) {
+    return entry;
+  }
+  if (
+    entry != null &&
+    entry.status !== "disabled" &&
+    entry.provider != null &&
+    entry.model != null
+  ) {
+    return entry;
+  }
+  return resolveDefaultProfileForProvider(undefined, name, defaultProvider);
 }
 
 /**

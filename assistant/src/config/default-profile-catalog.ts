@@ -406,7 +406,7 @@ export function resolveDefaultProfileForProvider(
   );
 }
 
-function isDefaultProfileKey(name: string): name is DefaultProfileKey {
+export function isDefaultProfileKey(name: string): name is DefaultProfileKey {
   return (DEFAULT_PROFILE_KEYS as readonly string[]).includes(name);
 }
 

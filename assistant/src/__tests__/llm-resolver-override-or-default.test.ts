@@ -469,3 +469,60 @@ describe("explicit default-profile references resolve through the default provid
     );
   });
 });
+
+describe("hatch-era disabled stubs on default keys", () => {
+  // Fresh BYOK hatches persist disabled managed stubs; a stale stub must not
+  // suppress an explicit pin — the code-owned body stands, as on the intent
+  // rung.
+  const disabledStubs = {
+    balanced: { source: "managed" as const, status: "disabled" as const },
+    "cost-optimized": {
+      source: "managed" as const,
+      status: "disabled" as const,
+    },
+  };
+
+  test("an override pin to a disabled default stub still resolves the provider's column", () => {
+    const llm = LLMSchema.parse({ profiles: disabledStubs, ...anthropicDp });
+    const pinned = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "cost-optimized",
+    });
+    const viaIntent = resolveCallSiteConfig("conversationSummarization", llm);
+    expect(pinned.provider).toBe("anthropic");
+    expect(pinned.model).toBe(viaIntent.model);
+  });
+
+  test("activeProfile pointing at a disabled default stub resolves, not falls through", () => {
+    const llm = LLMSchema.parse({
+      profiles: { ...disabledStubs, mine: completeCustom },
+      activeProfile: "balanced",
+      callSites: { mainAgent: { profile: "mine" } },
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    // The default key wins its rung; it must not fall through to the
+    // call-site pin below it.
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).not.toBe(completeCustom.model);
+  });
+
+  test("a disabled CUSTOM profile is still skipped", () => {
+    const { fallbacks, opts } = collect();
+    const llm = LLMSchema.parse({
+      profiles: {
+        mine: { ...completeCustom, status: "disabled" as const },
+      },
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      ...opts,
+      overrideProfile: "mine",
+    });
+    expect(resolved.model).not.toBe(completeCustom.model);
+    expect(fallbacks).toContainEqual({
+      callSite: "mainAgent",
+      requested: "mine",
+      reason: "disabled",
+    });
+  });
+});
