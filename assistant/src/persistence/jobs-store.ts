@@ -67,6 +67,7 @@ export type MemoryJobType =
   | "purge_conversation_lexical"
   | "delete_message_lexical"
   | "backfill_lexical_index"
+  | "skill_card_insert"
   // Retired/legacy — no live handler; persisted rows drop via LEGACY_JOB_TYPES.
   | "memory_v3_consolidate"
   | "memory_v3_index_maintenance"
@@ -357,6 +358,51 @@ export function upsertMemoryRetrospectiveJob(
     return;
   }
   enqueueMemoryJob("memory_retrospective", payload, runAfter, dbOverride);
+}
+
+/**
+ * Upsert a pending `skill_card_insert` job — the deferred delivery of a
+ * retrospective run's skill card into a source conversation that was mid-turn
+ * at insert time (see `memory-retrospective-skill-card.ts`). Keyed by
+ * `runConversationId`: one pending delivery exists per authoring run, so the
+ * handler's own still-mid-turn re-upsert (and any duplicate enqueue) coalesces
+ * into a single row instead of stacking deliveries — the message-level
+ * `clientMessageId` dedup remains the final backstop against a double card.
+ * The earliest `runAfter` wins, mirroring `upsertMemoryRetrospectiveJob`; the
+ * stored payload is kept as-is since every enqueue for a given run carries the
+ * same snapshot (the skill list is derived from that run's persisted
+ * messages).
+ */
+export function upsertSkillCardInsertJob(
+  payload: {
+    sourceConversationId: string;
+    runConversationId: string;
+  } & Record<string, unknown>,
+  runAfter: number = Date.now(),
+): void {
+  const db = memoryDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "skill_card_insert"),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.runConversationId') = ${payload.runConversationId}`,
+      ),
+    )
+    .get();
+  if (existing) {
+    const nextRunAfter = Math.min(existing.runAfter, runAfter);
+    if (nextRunAfter !== existing.runAfter) {
+      db.update(memoryJobs)
+        .set({ runAfter: nextRunAfter, updatedAt: Date.now() })
+        .where(eq(memoryJobs.id, existing.id))
+        .run();
+    }
+    return;
+  }
+  enqueueMemoryJob("skill_card_insert", payload, runAfter);
 }
 
 /**
