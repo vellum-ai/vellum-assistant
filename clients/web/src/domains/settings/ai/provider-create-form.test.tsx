@@ -168,9 +168,9 @@ function getButton(label: string): HTMLButtonElement {
 function openAdvancedFields(): void {
   const button = Array.from(
     document.querySelectorAll<HTMLButtonElement>("button"),
-  ).find((b) => b.textContent?.includes("Display name"));
+  ).find((b) => b.textContent?.trim() === "Advanced");
   if (!button) {
-    throw new Error("expected the Advanced (Display name & key) disclosure");
+    throw new Error("expected the Advanced disclosure");
   }
   if (button.getAttribute("aria-expanded") !== "true") {
     fireEvent.click(button);
@@ -661,7 +661,7 @@ describe("ProviderCreateForm submit sequence", () => {
     // keeping the Key field and its validation message visible.
     const disclosure = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((b) => b.textContent?.includes("Display name"));
+    ).find((b) => b.textContent?.trim() === "Advanced");
     if (!disclosure) {
       throw new Error("expected the Advanced disclosure button");
     }
