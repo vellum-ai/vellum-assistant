@@ -435,7 +435,7 @@
     {
       "id": "llm-cost-optimizer",
       "name": "llm-cost-optimizer",
-      "description": "Analyze and reduce LLM spend by mapping call-site overrides to managed profiles (Balanced / Quality / Speed). Covers spend analysis, profile assignment, and config correctness.",
+      "description": "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Speed) only where they should deviate from shipped defaults.",
       "metadata": {
         "emoji": "💸",
         "vellum": {
@@ -444,6 +444,18 @@
         }
       },
       "updatedAt": "2026-06-15T21:08:24.000Z"
+    },
+    {
+      "id": "llm-provider-setup",
+      "name": "llm-provider-setup",
+      "description": "Set up a new LLM provider connection, discover valid model ids, create and validate a model profile — securely and end-to-end via CLI. Covers managed vs BYO keys, secure credential collection, model discovery, profile creation, and live verification.",
+      "metadata": {
+        "emoji": "🔌",
+        "vellum": {
+          "category": "development",
+          "display-name": "LLM Provider Setup"
+        }
+      }
     },
     {
       "id": "macos-automation",
@@ -653,7 +665,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-08T19:30:57.000Z"
+      "updatedAt": "2026-07-08T23:28:09.000Z"
     },
     {
       "id": "public-ingress",
