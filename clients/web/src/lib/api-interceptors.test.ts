@@ -568,6 +568,16 @@ const CONTACT_FLATTEN_CASES = [
   },
   { method: "POST", scoped: "contacts/merge", flat: "/v1/contacts/merge" },
   {
+    method: "GET",
+    scoped: "contacts/invites",
+    flat: "/v1/contacts/invites",
+  },
+  {
+    method: "DELETE",
+    scoped: "contacts/invites/invite-456",
+    flat: "/v1/contacts/invites/invite-456",
+  },
+  {
     method: "POST",
     scoped: "contact-channels/channel-abc/verify",
     flat: "/v1/contact-channels/channel-abc/verify",
