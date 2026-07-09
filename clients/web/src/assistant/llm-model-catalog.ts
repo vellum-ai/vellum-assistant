@@ -110,6 +110,7 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
       supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
     },
     {
       id: "gpt-5.6-terra",
@@ -118,6 +119,7 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
       supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
     },
     {
       id: "gpt-5.6-luna",
@@ -126,6 +128,7 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
       supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
     },
     {
       id: "gpt-5.5",
