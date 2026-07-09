@@ -30,7 +30,7 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import type { TrustRulePayload } from "@/domains/chat/rule-editor-actions";
-import { toRiskLevel } from "@/domains/chat/utils/risk";
+import { getRiskToleranceHint, toRiskLevel } from "@/domains/chat/utils/risk";
 
 import type { RuleEditorContext } from "@/domains/chat/rule-editor-store";
 import type { AllowlistOption } from "@/types/interaction-ui-types";
@@ -92,9 +92,9 @@ function isPipelineDecomposition(options: AllowlistOption[]): boolean {
 // ---------------------------------------------------------------------------
 
 const RISK_LEVELS = [
-  { value: "low", label: "Low", hint: "Auto-approved at Conservative tolerance or higher", dotColor: "bg-[var(--system-positive-strong)]" },
-  { value: "medium", label: "Medium", hint: "Auto-approved at Relaxed tolerance or higher", dotColor: "bg-[var(--system-mid-strong)]" },
-  { value: "high", label: "High", hint: "Auto-approved only at Full Access tolerance", dotColor: "bg-[var(--system-negative-strong)]" },
+  { value: "low", label: "Low", dotColor: "bg-[var(--system-positive-strong)]" },
+  { value: "medium", label: "Medium", dotColor: "bg-[var(--system-mid-strong)]" },
+  { value: "high", label: "High", dotColor: "bg-[var(--system-negative-strong)]" },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -386,7 +386,7 @@ export function ChatRuleEditorModal({
     });
   }, [onSaveAsNew, effectiveOptions, selectedPatternIndex, context.toolName, selectedRiskLevel, resolvedScope]);
 
-  const riskHint = RISK_LEVELS.find((r) => r.value === selectedRiskLevel)?.hint ?? "";
+  const riskHint = getRiskToleranceHint(selectedRiskLevel) ?? "";
 
   // Suggestion annotation: show when in edit mode, suggestion exists,
   // and its risk differs from the existing rule's risk.

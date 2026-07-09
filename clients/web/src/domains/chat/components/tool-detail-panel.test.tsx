@@ -144,6 +144,10 @@ describe("ToolDetailPanel", () => {
     expect(getByTestId("risk-badge").getAttribute("data-risk-level")).toBe(
       "low",
     );
+    // The tolerance description renders under the chip.
+    expect(
+      getByText("Auto-approved at Conservative tolerance or higher"),
+    ).toBeDefined();
     // The classifier's rule-match string is internal jargon — never shown.
     expect(queryByText("File edit (default)")).toBeNull();
     // The tool call isn't resolvable in the (empty) transcript, so the

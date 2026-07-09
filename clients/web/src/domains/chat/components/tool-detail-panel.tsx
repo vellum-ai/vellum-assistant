@@ -43,6 +43,7 @@ import {
     deriveStepLabelFromName,
     type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { getRiskToleranceHint } from "@/domains/chat/utils/risk";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
@@ -192,6 +193,7 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
   // The raw `riskReason` rule-match string ("ls (default)") is internal
   // classifier jargon and is deliberately NOT shown.
   const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
+  const riskHint = getRiskToleranceHint(riskLevel);
   // The trust-rule editor needs the raw tool call (its allowlist ladder /
   // scope options), which the bridge resolves from the transcript — offer the
   // button only when the call resolves live, so it never opens on nothing.
@@ -221,6 +223,15 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
           </div>
           <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
             <RiskBadge level={riskLevel} />
+            {riskHint && (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="mt-1.5 text-[var(--content-secondary)]"
+              >
+                {riskHint}
+              </Typography>
+            )}
           </div>
         </div>
       )}
