@@ -642,7 +642,12 @@ function toolEntryForName(name: string): ToolListEntry {
     description: tool?.description ?? "",
     riskLevel: tool?.defaultRiskLevel ?? "unknown",
     category: tool?.category ?? "",
-    source: owner ? `${owner.kind}:${owner.id}` : tool ? "core" : "unknown",
+    source:
+      owner === undefined
+        ? "unknown"
+        : owner.kind === "default"
+          ? "core"
+          : `${owner.kind}:${owner.id}`,
   };
 }
 

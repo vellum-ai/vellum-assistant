@@ -22,10 +22,21 @@ const tools = new Map<string, Tool>();
 // `register*` functions and read by `getToolOwner()`. Lives on the registry
 // (not on the `Tool` object) so callers cannot spoof ownership by writing a
 // field on the manifest — the only way to claim a tool is to go through a
-// `register*` function, which stamps the owner from its arguments. Core
-// tools intentionally have no entry here; `getToolOwner` returns `undefined`
-// for them.
+// `register*` function, which stamps the owner from its arguments. Built-in
+// (default) tools intentionally have no entry here; `getToolOwner` synthesizes
+// the shared {@link DEFAULT_TOOL_OWNER} for any registered tool without one.
 const ownersByName = new Map<string, OwnerInfo>();
+
+// Owner returned by `getToolOwner` for built-in tools — those registered
+// without an explicit extension owner in `ownersByName`. One frozen instance is
+// shared across all built-ins; `id` is a constant sentinel because built-ins
+// are not a distinct installable extension. Keeping this out of `ownersByName`
+// leaves the register-time conflict checks (which key off "has no owner entry")
+// and the workspace stash/restore bookkeeping unchanged.
+const DEFAULT_TOOL_OWNER: OwnerInfo = Object.freeze({
+  kind: "default",
+  id: "default",
+});
 
 // ── External tool registry ───────────────────────────────────────────
 // Skills register their tools here at initialization time so the tool
@@ -235,15 +246,25 @@ export function getEnabledTools(): Tool[] {
 }
 
 /**
- * Return the recorded owner for a tool, or `undefined` if the tool is
- * core-origin (no owner) or unknown. Consumers that need to gate behavior on
- * which extension contributed a tool (permissions checker, approval-handler
- * load hints, conversation-skill-tools projection) call this rather than
- * reading owner off the `Tool` object — the registry is the single source of
- * truth for ownership.
+ * Return the owner for a tool. Extension-owned tools (skill / plugin / MCP /
+ * workspace) return their recorded {@link OwnerInfo}; any other *registered*
+ * tool is part of the built-in set and returns the shared
+ * {@link DEFAULT_TOOL_OWNER}. Returns `undefined` only when `name` is not
+ * registered at all — an unknown tool, which callers treat as "not a real tool"
+ * (skip / deny), never as a built-in.
+ *
+ * Because a tool cannot be invoked unless it was registered first, an invocable
+ * tool always resolves to a defined owner in practice.
+ *
+ * Consumers that gate behavior on which extension contributed a tool
+ * (permissions checker, approval-handler load hints, conversation-skill-tools
+ * projection) call this rather than reading owner off the `Tool` object — the
+ * registry is the single source of truth for ownership.
  */
 export function getToolOwner(name: string): OwnerInfo | undefined {
-  return ownersByName.get(name);
+  const owner = ownersByName.get(name);
+  if (owner) return owner;
+  return tools.has(name) ? DEFAULT_TOOL_OWNER : undefined;
 }
 
 /**

@@ -254,14 +254,15 @@ const FORBIDDEN_SET: ReadonlySet<string> = new Set(WORKFLOW_FORBIDDEN_TOOLS);
  * then hand that replacement — with arbitrary side-effecting behavior — to every
  * empty-manifest run, with no consent.
  *
- * Core tools have no owner ({@link getToolOwner} returns `undefined`). If any
- * owner holds this name, the live entry is an override, so resolve the stashed
- * original core tool ({@link getCoreToolOverride}) instead — and never the
- * replacement. Returns `undefined` (skipped, not failed) when no trusted core
- * entry exists, matching the baseline's convenience-grant semantics.
+ * Built-in tools carry a `default` owner ({@link getToolOwner}). Any *other*
+ * owner holding this name means the live entry is an override, so resolve the
+ * stashed original built-in ({@link getCoreToolOverride}) instead — and never
+ * the replacement. Returns `undefined` (skipped, not failed) when no trusted
+ * built-in entry exists, matching the baseline's convenience-grant semantics.
  */
 function resolveBaselineTool(name: string): Tool | undefined {
-  if (getToolOwner(name)) return getCoreToolOverride(name);
+  const owner = getToolOwner(name);
+  if (owner && owner.kind !== "default") return getCoreToolOverride(name);
   return getTool(name);
 }
 
