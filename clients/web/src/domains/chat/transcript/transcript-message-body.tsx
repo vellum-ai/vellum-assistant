@@ -286,9 +286,9 @@ export function TranscriptMessageBody({
       // label is only the stored name when it carries a recognized
       // extension, otherwise the attachment lives under the path basename.
       // Search the expected name first so an unrelated attachment that
-      // happens to share the label's text cannot shadow the linked file;
-      // keep label/basename/raw fallbacks for attachments stored before
-      // this rule existed.
+      // happens to share the label's text cannot shadow the linked file.
+      // The label/basename/raw fallbacks keep older messages working when
+      // their stored filenames do not follow the shared naming rule.
       const expectedFilename = resolveAttachmentFilename(
         linkText || undefined,
         pathBasename,
