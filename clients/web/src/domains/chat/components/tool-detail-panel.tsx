@@ -200,8 +200,8 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
   return (
     <>
       {/* Reasoning — the call's risk level and the affordance to persist
-          that judgement as a trust rule. Bare section: label row (with the
-          trust-rule button trailing) over the badge, no container card. */}
+          that judgement as a trust rule. Label row (with the trust-rule
+          button trailing) over the badge in an overlay card. */}
       {riskLevel && (
         <div className="mb-5">
           <div className="mb-1.5 flex items-center justify-between gap-3">
@@ -219,7 +219,9 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
               </Button>
             )}
           </div>
-          <RiskBadge level={riskLevel} />
+          <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
+            <RiskBadge level={riskLevel} />
+          </div>
         </div>
       )}
 
