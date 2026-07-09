@@ -97,9 +97,14 @@ export async function listInstalledSkills(): Promise<ResolvedSkillEntry[]> {
  * whose declared feature flag is disabled are reported with
  * `state: "unavailable"`; all others are `state: "available"`. Not deduplicated
  * against the installed catalog — callers that merge the two lists filter by
- * installed ids themselves. Returns an empty array when the catalog is empty
- * and throws when it cannot be fetched, so callers keep their own
- * degraded-mode handling.
+ * installed ids themselves.
+ *
+ * A fetch failure never rejects: the underlying cache degrades through its
+ * fallback chain (stale cache → bundled local catalog → empty) and this
+ * returns whatever that yields. An empty result therefore means "could not
+ * enumerate the catalog" as much as "the catalog is empty" — callers must
+ * gate destructive reconciliation (pruning against the catalog id set) on a
+ * non-empty result. Unexpected errors from the catalog read propagate.
  */
 export async function listCatalogSkills(): Promise<ResolvedSkillEntry[]> {
   const [{ getCatalog }, { isAssistantFeatureFlagEnabled }] = await Promise.all(

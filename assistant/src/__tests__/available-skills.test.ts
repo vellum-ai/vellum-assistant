@@ -250,14 +250,17 @@ describe("listCatalogSkills", () => {
   });
 
   test("returns an empty array for an empty catalog", async () => {
+    // A fetch failure surfaces the same way: `getCatalog` degrades through
+    // its fallback chain and yields [] rather than rejecting, so callers
+    // treat an empty result as "could not enumerate".
     remoteFixture = [];
     const { listCatalogSkills } = await import("../skills/available-skills.js");
     expect(await listCatalogSkills()).toEqual([]);
   });
 
-  test("propagates catalog fetch failures to the caller", async () => {
-    remoteError = new Error("catalog unreachable");
+  test("adds no error handling of its own — unexpected catalog-read errors propagate", async () => {
+    remoteError = new Error("catalog read exploded");
     const { listCatalogSkills } = await import("../skills/available-skills.js");
-    expect(listCatalogSkills()).rejects.toThrow("catalog unreachable");
+    await expect(listCatalogSkills()).rejects.toThrow("catalog read exploded");
   });
 });
