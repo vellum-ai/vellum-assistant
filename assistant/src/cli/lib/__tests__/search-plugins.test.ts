@@ -16,6 +16,7 @@ import {
   InvalidSearchPatternError,
   marketplaceMatch,
   type PluginCatalog,
+  projectMarketplaceEntries,
 } from "../search-plugins.js";
 
 // External marketplace refs must be full commit SHAs (immutable). Fixtures use
@@ -188,5 +189,31 @@ describe("marketplaceMatch", () => {
       marketplaceMatch(entry("plain-plugin", "acme/plain-plugin", SHA_B))
         .category,
     ).toBeNull();
+  });
+});
+
+describe("projectMarketplaceEntries", () => {
+  test("dedupes by name (first wins) and sorts alphabetically", () => {
+    const matches = projectMarketplaceEntries([
+      entry("git-tools", "acme/git-tools", SHA_C),
+      entry("memory-graph", "acme/memory-graph", SHA_B),
+      entry("git-tools", "acme/other-git-tools", SHA_A),
+    ]);
+    expect(matches.map((m) => m.name)).toEqual(["git-tools", "memory-graph"]);
+    // First occurrence wins on a name collision.
+    expect(matches[0]!.source.repo).toBe("acme/git-tools");
+  });
+
+  test("projects each entry via marketplaceMatch", () => {
+    const [match] = projectMarketplaceEntries([
+      entry("simple-memory", "vellum-ai/simple-memory", SHA_A),
+    ]);
+    expect(match).toEqual(
+      marketplaceMatch(entry("simple-memory", "vellum-ai/simple-memory", SHA_A)),
+    );
+  });
+
+  test("returns an empty list for no entries", () => {
+    expect(projectMarketplaceEntries([])).toEqual([]);
   });
 });
