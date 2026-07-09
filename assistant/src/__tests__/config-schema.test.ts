@@ -1034,8 +1034,8 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.voice.utteranceEndMs).toBe(2500);
   });
 
-  test("rejects calls.voice.utteranceEndMs outside the 500-5000 range", () => {
-    for (const utteranceEndMs of [400, 5001]) {
+  test("rejects calls.voice.utteranceEndMs outside the 1000-5000 range", () => {
+    for (const utteranceEndMs of [999, 5001]) {
       const result = AssistantConfigSchema.safeParse({
         calls: { voice: { utteranceEndMs } },
       });
