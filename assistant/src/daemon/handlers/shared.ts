@@ -659,15 +659,21 @@ export function renderHistoryContent(
         typeof block.content === "string" ? block.content : "";
       const isError = block.is_error === true;
       // Extract image data from persisted contentBlocks (e.g. browser_screenshot,
-      // image generation) as base64. The source may be inline base64 or a
-      // workspace reference; resolveMediaSourceData reads either back to base64.
+      // image generation). Referenced media (a workspace_ref source) emits its
+      // attachment id so clients fetch the bytes by id on render instead of
+      // inlining base64 into the history wire; legacy inline base64 sources are
+      // resolved and carried as base64. A given image goes to exactly one list.
       const imageDataList: string[] = [];
+      const imageAttachmentIds: string[] = [];
       if (Array.isArray(block.contentBlocks)) {
         for (const cb of block.contentBlocks) {
           if (isRecord(cb) && cb.type === "image" && isRecord(cb.source)) {
-            const resolved = resolveMediaSourceData(
-              cb.source as unknown as MediaSource,
-            );
+            const source = cb.source as unknown as MediaSource;
+            if (source.type === "workspace_ref" && source.attachmentId) {
+              imageAttachmentIds.push(source.attachmentId);
+              continue;
+            }
+            const resolved = resolveMediaSourceData(source);
             if (resolved) imageDataList.push(resolved.data);
           }
         }
@@ -679,6 +685,9 @@ export function renderHistoryContent(
         if (imageDataList.length > 0) {
           matched.imageData = imageDataList[0];
           matched.imageDataList = imageDataList;
+        }
+        if (imageAttachmentIds.length > 0) {
+          matched.imageAttachmentIds = imageAttachmentIds;
         }
       }
       // Orphan tool_result with no matching tool_use — drop it. Synthesizing
