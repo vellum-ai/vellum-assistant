@@ -131,14 +131,14 @@ describe("GET /tools", () => {
       [...toolNames].sort((a, b) => a.localeCompare(b)),
     );
 
-    // AND each core tool reports "core" as its source plus its metadata
+    // AND each built-in tool reports "default:default" as its source plus metadata
     const beta = tools.find((t) => t.name === "b_core_tool");
     expect(beta).toEqual({
       name: "b_core_tool",
       description: "Beta tool",
       riskLevel: RiskLevel.High,
       category: "testing",
-      source: "core",
+      source: "default:default",
     });
   });
 
@@ -210,7 +210,9 @@ describe("GET /tools", () => {
     expect(schemas.b_core_tool).toBeUndefined();
 
     // AND each entry's metadata is resolved from the global registry
-    expect(tools.find((t) => t.name === "a_core_tool")?.source).toBe("core");
+    expect(tools.find((t) => t.name === "a_core_tool")?.source).toBe(
+      "default:default",
+    );
   });
 
   test("with conversationId, marks a snapshot tool absent from the registry as unknown", async () => {

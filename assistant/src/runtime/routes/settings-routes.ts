@@ -622,7 +622,7 @@ interface ToolListEntry {
   description: string;
   riskLevel: string;
   category: string;
-  /** Tool origin: "core" for built-ins, otherwise "<kind>:<id>" (e.g. "plugin:echo"). */
+  /** Tool origin as "<kind>:<id>" (e.g. "default:default" for built-ins, "plugin:echo"). */
   source: string;
 }
 
@@ -630,9 +630,10 @@ interface ToolListEntry {
  * Build a catalog entry for one tool name, reading metadata and ownership
  * from the registry (the single source of truth) rather than off any
  * caller-supplied object, so `source` cannot be spoofed by a manifest
- * field. `source` is `core` for built-ins, `<kind>:<id>` for an owned tool
- * (e.g. `plugin:echo`), and `unknown` for a name no longer in the registry
- * (e.g. a conversation snapshot referencing a since-unloaded skill tool).
+ * field. `source` is `<kind>:<id>` for a registered tool (e.g.
+ * `default:default` for a built-in, `plugin:echo` for an owned tool), and
+ * `unknown` for a name no longer in the registry (e.g. a conversation snapshot
+ * referencing a since-unloaded skill tool).
  */
 function toolEntryForName(name: string): ToolListEntry {
   const tool = getTool(name);
@@ -642,12 +643,7 @@ function toolEntryForName(name: string): ToolListEntry {
     description: tool?.description ?? "",
     riskLevel: tool?.defaultRiskLevel ?? "unknown",
     category: tool?.category ?? "",
-    source:
-      owner === undefined
-        ? "unknown"
-        : owner.kind === "default"
-          ? "core"
-          : `${owner.kind}:${owner.id}`,
+    source: owner ? `${owner.kind}:${owner.id}` : "unknown",
   };
 }
 
@@ -1015,7 +1011,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List registered tools with metadata and schemas",
     description:
-      "Return registered tools. Without `conversationId`, returns every tool in the global registry; `tools` carries per-tool metadata (description, author-asserted risk level, category, and contributing source: core, skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools available to that conversation as of its most recent turn (including skill/MCP tools registered over its lifecycle); 404 if no such conversation is active. With `agent`, simulates the subagent tool projection for a given role or resolves a live subagent's conversation.",
+      "Return registered tools. Without `conversationId`, returns every tool in the global registry; `tools` carries per-tool metadata (description, author-asserted risk level, category, and contributing source: default (built-in), skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools available to that conversation as of its most recent turn (including skill/MCP tools registered over its lifecycle); 404 if no such conversation is active. With `agent`, simulates the subagent tool projection for a given role or resolves a live subagent's conversation.",
     tags: ["tools"],
     queryParams: [
       {
@@ -1045,7 +1041,7 @@ export const ROUTES: RouteDefinition[] = [
           source: z
             .string()
             .describe(
-              'Tool origin: "core" for built-ins, otherwise "<kind>:<id>" (e.g. "plugin:echo", "skill:my-skill", "mcp:server").',
+              'Tool origin as "<kind>:<id>" (e.g. "default:default" for built-ins, "plugin:echo", "skill:my-skill", "mcp:server").',
             ),
         }),
       ),
