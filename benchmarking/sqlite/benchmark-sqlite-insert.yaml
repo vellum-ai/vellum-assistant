@@ -9,10 +9,10 @@
 #
 name: Benchmark - SQLite insert scaling
 
-# Builds two SQLite databases (sequential vs. random primary key), then times
-# small insert batches against each to show how write performance depends on
-# where a row lands in the B-tree. Heavy (multi-GiB fill), so it only runs on
-# demand (workflow_dispatch) or when the benchmark itself changes.
+# Builds two SQLite databases keyed by UUIDv7 (time-ordered) vs UUIDv4 (random),
+# then times small insert batches against each to show how write performance
+# depends on where a row lands in the B-tree. Heavy (multi-GiB fill), so it only
+# runs on demand (workflow_dispatch) or when the benchmark itself changes.
 on:
   # Run manually from the Actions UI. All knobs are exposed as inputs.
   workflow_dispatch:
@@ -52,7 +52,7 @@ jobs:
     name: Fill & benchmark
     # ubuntu-latest is the smallest GitHub-hosted runner. Its ~7 GiB RAM is a
     # feature here: a multi-GiB DB spills out of the page cache, so the random
-    # key's cache-miss penalty shows on top of its page-split cost.
+    # UUIDv4 key's cache-miss penalty shows on top of its page-split cost.
     runs-on: ubuntu-latest
     # The measured phase is seconds; the multi-GiB fill dominates. Cap well
     # under GitHub's 6-hour default so a stall does not hold a runner.
