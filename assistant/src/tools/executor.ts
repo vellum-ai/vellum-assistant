@@ -2,10 +2,8 @@ import { readFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
 import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
-import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
-import { isUntrustedShellLockdownActive } from "../runtime/effective-capabilities.js";
 import { getCesClient } from "../security/secure-keys.js";
 import { TokenExpiredError } from "../security/token-manager.js";
 import {
@@ -106,32 +104,6 @@ export class ToolExecutor {
     const tool = gateResult.tool;
 
     try {
-      // CES shell lockdown: set forcePromptSideEffects BEFORE both the
-      // grantConsumed short-circuit and the permission check. This ensures
-      // the flag is visible to all downstream consumers regardless of
-      // whether a scoped grant was consumed. Previously this was nested
-      // inside the `!grantConsumed` block, meaning untrusted host_bash
-      // calls that arrived with a consumed guardian-approval grant would
-      // skip this assignment entirely - defeating the lockdown.
-      if (
-        name === "host_bash" &&
-        isUntrustedShellLockdownActive({
-          trustClass: context.trustClass,
-          lockdownEnabled: isCesShellLockdownEnabled(getConfig()),
-        })
-      ) {
-        context.forcePromptSideEffects = true;
-      }
-
-      // Secure command tool installation always requires fresh per-invocation
-      // approval - no persistent grants. This is unconditional (not gated on
-      // CES lockdown or trust class) because installing secure tools is
-      // inherently high-impact.
-      if (name === "manage_secure_command_tool") {
-        context.forcePromptSideEffects = true;
-        context.requireFreshApproval = true;
-      }
-
       // A workflow run whose capability manifest grants side-effecting tools or
       // host functions (beyond the read-only baseline) must prompt at LAUNCH.
       // The manifest is authored and declared by the model, and the run's

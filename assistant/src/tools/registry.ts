@@ -933,8 +933,7 @@ export function getAllToolDefinitions(): Tool[] {
 }
 
 export async function initializeTools(): Promise<void> {
-  const { explicitTools, getCesToolsIfEnabled, cesTools } =
-    await import("./tool-manifest.js");
+  const { explicitTools } = await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
   // registrations.  In production this is empty; in tests a non-skill tool
@@ -970,12 +969,6 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
-  // CES tools - registered only when the CES feature flag is enabled.
-  const activeCesTools = getCesToolsIfEnabled();
-  for (const tool of activeCesTools) {
-    registerTool(tool);
-  }
-
   registerUiSurfaceTools();
   registerAppTools();
   registerSystemTools();
@@ -996,7 +989,6 @@ export async function initializeTools(): Promise<void> {
       ...explicitTools.map((t) => t.name!),
       ...extEntries.map(({ tool }) => tool.name),
       ...hostTools.map((t) => t.name!),
-      ...cesTools.map((t) => t.name!),
       ...allUiSurfaceTools.map((t) => t.name!),
       ...coreAppProxyTools.map((t) => t.name!),
     ]);
@@ -1030,46 +1022,6 @@ export async function initializeTools(): Promise<void> {
   // here would create a registry ↔ loader cycle.
   const { loadWorkspaceTools } = await import("./workspace-tools/loader.js");
   await loadWorkspaceTools();
-}
-
-/**
- * Register any feature-flag-gated tools (CES `ces-tools`) that are enabled but
- * not yet in the registry. Idempotent and safe to call repeatedly.
- *
- * `initializeTools()` registers the gated tools once at startup, but feature-flag
- * overrides are fetched from the gateway ASYNCHRONOUSLY and non-blocking (see
- * `lifecycle.ts` — `initFeatureFlagOverrides()` is fired with `void`), so
- * `initializeTools()` can run BEFORE the flag value is known and register
- * nothing. The daemon receives ALL overrides (local `protected/feature-flags.json`
- * and remote/LaunchDarkly alike) through that async fetch, so this race affects
- * every install — without this follow-up sync a flag-enabled assistant would
- * never see the gated tools until a restart, which can lose the same race again.
- * Call this once the override fetch resolves.
- *
- * Enable-direction only: it does not unregister tools whose flag was turned OFF
- * (a live flip to OFF still requires a restart to drop them — the expected
- * behavior for daemon-gating flags). Never throws.
- */
-export async function syncFlagGatedTools(): Promise<void> {
-  try {
-    const { getCesToolsIfEnabled } = await import("./tool-manifest.js");
-    const enabled = [...getCesToolsIfEnabled()];
-    const added: string[] = [];
-    for (const tool of enabled) {
-      if (tool.name && !tools.has(tool.name)) {
-        registerTool(tool);
-        added.push(tool.name);
-      }
-    }
-    if (added.length > 0) {
-      log.info({ tools: added }, "Registered flag-gated tools after flag load");
-    }
-  } catch (err) {
-    log.warn(
-      { err },
-      "syncFlagGatedTools failed; flag-gated tools may stay unregistered until restart",
-    );
-  }
 }
 
 /**
