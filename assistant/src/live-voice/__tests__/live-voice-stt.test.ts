@@ -64,6 +64,49 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   }
 }
 
+// Finalize-capable fake: with server_vad this flips the session into
+// persistent mode (one shared stream across utterance cycles). Each
+// finalize flushes "utterance <n>" as a final followed by finalized.
+class FinalizingMockStreamingTranscriber extends MockStreamingTranscriber {
+  startCalls = 0;
+  stopCalls = 0;
+  finalizeCalls = 0;
+  // When false the flush never arrives, exercising the grace-timeout path.
+  respondToFinalize = true;
+
+  override async start(
+    onEvent: (event: SttStreamServerEvent) => void,
+  ): Promise<void> {
+    this.startCalls += 1;
+    await super.start(onEvent);
+  }
+
+  override stop(): void {
+    this.stopCalls += 1;
+    super.stop();
+  }
+
+  finalizeUtterance(): void {
+    this.finalizeCalls += 1;
+    if (!this.respondToFinalize) {
+      return;
+    }
+    this.emit({ type: "final", text: `utterance ${this.finalizeCalls}` });
+    this.emit({ type: "finalized" });
+  }
+}
+
+function completingVoiceTurnStarter() {
+  return mock(async (options: VoiceTurnOptions) => {
+    options.callbacks?.message_complete?.({
+      type: "message_complete",
+      conversationId: options.conversationId,
+      messageId: "assistant-message-123",
+    });
+    return { turnId: "bridge-turn-1", abort: mock() };
+  });
+}
+
 function createContext(overrides: Partial<LiveVoiceClientStartFrame> = {}): {
   context: LiveVoiceSessionFactoryContext;
   frames: LiveVoiceServerFrame[];
@@ -558,6 +601,125 @@ describe("LiveVoiceSession STT", () => {
     await session.handleClientFrame({ type: "interrupt" });
 
     expect(transcriber.stopCalls).toBe(2);
+  });
+
+  test("reuses one streaming transcriber across server_vad cycles without stop or reconnect", async () => {
+    const transcriber = new FinalizingMockStreamingTranscriber();
+    const resolver = mock(async () => transcriber);
+    const startVoiceTurn = completingVoiceTurnStarter();
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(loudPcmChunk());
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 1,
+    );
+
+    await session.handleBinaryAudio(loudPcmChunk());
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 2,
+    );
+
+    expect(resolver).toHaveBeenCalledTimes(1);
+    expect(transcriber.startCalls).toBe(1);
+    // The turn starts on the finalized flush — the stream is never torn
+    // down between cycles.
+    expect(transcriber.stopCalls).toBe(0);
+    expect(transcriber.finalizeCalls).toBe(2);
+    expect(startVoiceTurn.mock.calls.map((call) => call[0].content)).toEqual([
+      "utterance 1",
+      "utterance 2",
+    ]);
+    expect(
+      frames.flatMap((frame) =>
+        frame.type === "stt_final" ? [frame.text] : [],
+      ),
+    ).toEqual(["utterance 1", "utterance 2"]);
+
+    await session.close("websocket_close");
+    expect(transcriber.stopCalls).toBe(1);
+  });
+
+  test("grace timeout starts the turn with collected segments when the finalize flush never arrives", async () => {
+    const transcriber = new FinalizingMockStreamingTranscriber();
+    transcriber.respondToFinalize = false;
+    const startVoiceTurn = completingVoiceTurnStarter();
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      finalizeGraceMs: 25,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(loudPcmChunk());
+    transcriber.emit({ type: "final", text: "collected before release" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(transcriber.finalizeCalls).toBe(1);
+    expect(transcriber.stopCalls).toBe(0);
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+    expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
+      content: "collected before release",
+    });
+
+    // A flush landing after the grace-timeout fallback must not mutate the
+    // dispatched transcript.
+    transcriber.emit({ type: "final", text: "late flush" });
+    transcriber.emit({ type: "finalized" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+    expect(
+      frames.flatMap((frame) =>
+        frame.type === "stt_final" ? [frame.text] : [],
+      ),
+    ).toEqual(["collected before release"]);
+  });
+
+  test("falls back to a fresh transcriber when the shared stream closes unexpectedly", async () => {
+    const transcribers: FinalizingMockStreamingTranscriber[] = [];
+    const resolver = mock(async () => {
+      const transcriber = new FinalizingMockStreamingTranscriber();
+      transcribers.push(transcriber);
+      return transcriber;
+    });
+    const startVoiceTurn = completingVoiceTurnStarter();
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(loudPcmChunk());
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 1,
+    );
+
+    // Provider drops the shared stream between utterances.
+    transcribers[0]?.emit({ type: "closed" });
+    await session.handleBinaryAudio(loudPcmChunk());
+    await waitFor(() => transcribers.length === 2);
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 2,
+    );
+
+    expect(resolver).toHaveBeenCalledTimes(2);
+    expect(transcribers[1]?.startCalls).toBe(1);
+    expect(startVoiceTurn.mock.calls.map((call) => call[0].content)).toEqual([
+      "utterance 1",
+      "utterance 1",
+    ]);
   });
 
   test("uses the production streaming transcriber resolver by default", () => {

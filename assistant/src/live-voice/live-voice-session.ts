@@ -21,9 +21,11 @@ import { publishConversationListAndMetadataChanged } from "../runtime/sync/resou
 import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
+  SttStreamServerErrorEvent,
   SttStreamServerEvent,
 } from "../stt/types.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
+import { getLogger } from "../util/logger.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
@@ -52,6 +54,8 @@ import {
   type LiveVoiceServerFramePayload,
 } from "./protocol.js";
 
+const log = getLogger("live-voice-session");
+
 type LiveVoiceSessionState =
   | "initializing"
   | "active"
@@ -66,6 +70,11 @@ const SERVER_VAD_PENDING_AUDIO_MAX_SECONDS = 10;
 // onset so the transcriber gets leading context without streaming an open
 // quiet mic.
 const SERVER_VAD_PRE_ROLL_MAX_CHUNKS = 25;
+// Bounded wait for the shared transcriber's finalize flush; on expiry the
+// assistant turn proceeds with the transcript collected so far. This is the
+// strict upper bound on the release→turn-start tail in persistent mode (the
+// provider keeps its own, longer, finalize fallback).
+const FINALIZE_GRACE_MS = 1_000;
 
 export type LiveVoiceStreamingTranscriberResolver = (
   options: ResolveStreamingTranscriberOptions,
@@ -126,17 +135,27 @@ export interface LiveVoiceSessionOptions {
    * `DEFAULT_SPEECH_ENERGY_THRESHOLD`.
    */
   speechEnergyThreshold?: number;
+  /**
+   * Overrides the bounded wait for the shared transcriber's finalize
+   * flush in persistent mode (test hook). Defaults to `FINALIZE_GRACE_MS`.
+   */
+  finalizeGraceMs?: number;
 }
 
 type LiveVoiceUtterancePhase =
   | "pending"
   | "streaming"
   | "released"
+  // The cycle's transcript is complete and the assistant turn may start.
+  // In per-cycle mode the transcriber socket has closed; in persistent
+  // (shared-transcriber) mode the stream stays open — the finalize flush
+  // (or its grace timeout) completed instead.
   | "transcriber_closed";
 
 // One capture→transcribe→turn cycle. A session runs many of these back to
-// back: each cycle owns its transcriber, transcript, audio buffers, and
-// metrics-turn flags so consecutive turns stay isolated.
+// back: each cycle owns its transcript, audio buffers, and metrics-turn
+// flags so consecutive turns stay isolated. The transcriber is per-cycle in
+// manual mode and a session-shared instance in persistent server-VAD mode.
 interface UtteranceCycle {
   phase: LiveVoiceUtterancePhase;
   released: boolean;
@@ -231,6 +250,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // replayed once the parked speech flushes into the next armed utterance.
   private vadPendingTurnEnd: "silence" | "max-duration" | null = null;
   private readonly metricsClock: LiveVoiceMetricsClock;
+  // Persistent mode: server-VAD sessions with a finalize-capable provider
+  // keep one streaming transcriber for the whole session. Utterance release
+  // flushes via finalizeUtterance() instead of tearing the stream down, and
+  // re-arm reuses this instance synchronously. Null in manual mode, for
+  // providers without finalizeUtterance, and after an unexpected stream
+  // close (the next arm resolves a fresh transcriber).
+  private sharedTranscriber: StreamingTranscriber | null = null;
+  // The released cycle whose finalize flush is awaited. Shared-transcriber
+  // partial/final events route here ahead of currentUtterance; kept set
+  // through a grace timeout so a late flush still attributes to (and is
+  // dropped for) the cycle that owns the audio.
+  private finalizingUtterance: UtteranceCycle | null = null;
+  private finalizeGraceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly finalizeGraceMs: number;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -255,6 +288,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ...(options.metricsClock ? { clock: options.metricsClock } : {}),
     });
     this.speechEnergyThreshold = options.speechEnergyThreshold;
+    this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
     this.turnDetector =
       context.startFrame.turnDetection === "server_vad"
         ? new MediaTurnDetector(options.turnDetectorConfig ?? {}, {
@@ -343,11 +377,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
     this.turnDetector?.dispose();
-    const utterance = this.currentUtterance;
-    if (utterance) {
-      stopTranscriberBestEffort(utterance.transcriber);
-      utterance.transcriber = null;
-    }
+    this.stopSessionTranscriber();
     await this.cancelAssistantTurn("session_closed");
     if (shouldEmitSessionEndMetrics) {
       await this.emitSessionEndMetrics();
@@ -355,9 +385,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.drainOutboundFrames();
   }
 
-  // Creates the next utterance record and arms a fresh streaming transcriber
-  // for it. Called once from start() and, in server_vad mode, again after
-  // every finalized turn (per-utterance phase tracks the cycle).
+  // Creates the next utterance record and arms a streaming transcriber for
+  // it: the session-shared instance when persistent mode is active (a
+  // synchronous re-arm), otherwise a freshly resolved one. Called once from
+  // start() and, in server_vad mode, again after every finalized turn
+  // (per-utterance phase tracks the cycle).
   private async beginUtterance(): Promise<UtteranceStartResult> {
     const utterance: UtteranceCycle = {
       phase: "pending",
@@ -389,6 +421,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const replayTurnEnd = this.vadPendingTurnEnd;
     this.vadPendingTurnEnd = null;
 
+    const shared = this.sharedTranscriber;
+    if (shared) {
+      // Persistent re-arm: the shared stream is already open, so the cycle
+      // goes straight to streaming with no resolve/start round-trip.
+      utterance.transcriber = shared;
+      return await this.activateUtterance(utterance, replayTurnEnd);
+    }
+
     try {
       const transcriber = await this.resolveTranscriber({
         sampleRate: this.context.startFrame.audio.sampleRate,
@@ -407,29 +447,33 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
 
       utterance.transcriber = transcriber;
-      await transcriber.start((event) => {
-        void this.handleTranscriberEvent(utterance, event);
-      });
+      if (
+        this.turnDetector &&
+        typeof transcriber.finalizeUtterance === "function"
+      ) {
+        // Adopt persistent mode: this stream serves the whole session, so
+        // its events route by cycle ownership instead of binding to this
+        // one cycle.
+        this.sharedTranscriber = transcriber;
+        await transcriber.start((event) => {
+          void this.handleSharedTranscriberEvent(transcriber, event);
+        });
+      } else {
+        await transcriber.start((event) => {
+          void this.handleTranscriberEvent(utterance, event);
+        });
+      }
 
       if (this.isUtteranceStale(utterance)) {
+        this.releaseSharedTranscriber(transcriber);
         stopTranscriberBestEffort(transcriber);
         utterance.transcriber = null;
         return { status: "stale" };
       }
 
-      utterance.phase = "streaming";
-      this.state = "active";
-      await this.flushPendingUtteranceAudio(utterance);
-      if (utterance.released) {
-        await this.stopUtteranceForRelease(utterance);
-      } else if (replayTurnEnd) {
-        // The parked utterance completed during the window (detector already
-        // idle): replay its boundary so it turns without more speech.
-        await this.sendFrame({ type: "utterance_end", reason: replayTurnEnd });
-        await this.releaseUtterance();
-      }
-      return { status: "started" };
+      return await this.activateUtterance(utterance, replayTurnEnd);
     } catch (err) {
+      this.releaseSharedTranscriber(utterance.transcriber);
       stopTranscriberBestEffort(utterance.transcriber);
       utterance.transcriber = null;
       if (this.isUtteranceStale(utterance)) {
@@ -441,6 +485,35 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           err,
         )}`,
       };
+    }
+  }
+
+  // Transitions an armed cycle to streaming: flush buffered audio, complete
+  // a release that landed while the cycle was pending, and replay a parked
+  // detector boundary.
+  private async activateUtterance(
+    utterance: UtteranceCycle,
+    replayTurnEnd: "silence" | "max-duration" | null,
+  ): Promise<UtteranceStartResult> {
+    utterance.phase = "streaming";
+    this.state = "active";
+    await this.flushPendingUtteranceAudio(utterance);
+    if (utterance.released) {
+      await this.stopUtteranceForRelease(utterance);
+    } else if (replayTurnEnd) {
+      // The parked utterance completed during the window (detector already
+      // idle): replay its boundary so it turns without more speech.
+      await this.sendFrame({ type: "utterance_end", reason: replayTurnEnd });
+      await this.releaseUtterance();
+    }
+    return { status: "started" };
+  }
+
+  private releaseSharedTranscriber(
+    transcriber: StreamingTranscriber | null,
+  ): void {
+    if (transcriber && this.sharedTranscriber === transcriber) {
+      this.sharedTranscriber = null;
     }
   }
 
@@ -789,6 +862,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private async stopUtteranceForRelease(
     utterance: UtteranceCycle,
   ): Promise<void> {
+    const shared = this.sharedTranscriber;
+    if (shared && utterance.transcriber === shared) {
+      await this.finalizeUtteranceForRelease(utterance, shared);
+      return;
+    }
+
     utterance.phase = "released";
     try {
       utterance.transcriber?.stop();
@@ -804,6 +883,74 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     await this.startAssistantTurnIfReady();
     await this.drainOutboundFrames();
+  }
+
+  // Persistent-mode release: flush the shared stream's buffered audio with
+  // finalizeUtterance() instead of tearing the stream down. The assistant
+  // turn starts on the `finalized` event; the grace timer bounds a flush
+  // that never arrives.
+  private async finalizeUtteranceForRelease(
+    utterance: UtteranceCycle,
+    shared: StreamingTranscriber,
+  ): Promise<void> {
+    if (
+      utterance.phase === "released" ||
+      utterance.phase === "transcriber_closed"
+    ) {
+      return;
+    }
+    utterance.phase = "released";
+    this.finalizingUtterance = utterance;
+    this.armFinalizeGraceTimer(utterance);
+    try {
+      shared.finalizeUtterance?.();
+    } catch (err) {
+      log.warn(
+        { err },
+        "Live voice utterance finalize failed; proceeding with the transcript collected so far",
+      );
+      this.clearFinalizeGraceTimer();
+      this.finalizingUtterance = null;
+      utterance.phase = "transcriber_closed";
+    }
+    await this.startAssistantTurnIfReady();
+    await this.drainOutboundFrames();
+  }
+
+  private armFinalizeGraceTimer(utterance: UtteranceCycle): void {
+    this.clearFinalizeGraceTimer();
+    this.finalizeGraceTimer = setTimeout(() => {
+      this.finalizeGraceTimer = null;
+      void this.handleFinalizeGraceTimeout(utterance).catch(() => {});
+    }, this.finalizeGraceMs);
+  }
+
+  private clearFinalizeGraceTimer(): void {
+    if (this.finalizeGraceTimer !== null) {
+      clearTimeout(this.finalizeGraceTimer);
+      this.finalizeGraceTimer = null;
+    }
+  }
+
+  // The finalize flush never arrived: proceed with the segments collected
+  // so far. finalizingUtterance stays set so a late flush still routes to
+  // (and is dropped for) this cycle instead of polluting the next one.
+  private async handleFinalizeGraceTimeout(
+    utterance: UtteranceCycle,
+  ): Promise<void> {
+    if (
+      this.finalizingUtterance !== utterance ||
+      this.isClosed ||
+      this.state === "failed" ||
+      this.state === "interrupted"
+    ) {
+      return;
+    }
+    log.warn(
+      "Live voice finalize flush timed out; starting the turn with the transcript collected so far",
+    );
+    utterance.phase = "transcriber_closed";
+    await this.startAssistantTurnIfReady();
   }
 
   private async handleTranscriberEvent(
@@ -824,31 +971,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         this.markFirstPartial(utterance);
         await this.sendFrame({ type: "stt_partial", text: event.text });
         return;
-      case "final": {
-        const transcript = event.text.trim();
-        if (transcript.length > 0) {
-          utterance.finalTranscriptSegments.push(transcript);
-        }
-        this.markFinalTranscript(utterance);
-        await this.sendFrame({ type: "stt_final", text: event.text });
-        await this.startAssistantTurnIfReady();
+      case "final":
+        await this.recordFinalTranscript(utterance, event.text);
         return;
-      }
-      case "error": {
-        // Providers emit `error` mid-stream and may keep streaming; `closed`
-        // / `final` still drive turn lifecycle. Only transient categories are
-        // recoverable — auth/rate-limit/invalid-audio will not self-heal, so
-        // hands-free clients must surface them instead of suppressing them.
-        const recoverable =
-          event.category === "timeout" || event.category === "provider-error";
-        await this.sendFrame({
-          type: "error",
-          code: LiveVoiceProtocolErrorCode.InvalidField,
-          message: event.message,
-          ...(recoverable ? { recoverable: true } : {}),
-        });
+      case "finalized":
+        // Per-cycle transcribers are torn down with stop(); the finalize
+        // completion signal has no cycle to advance here.
         return;
-      }
+      case "error":
+        await this.sendTranscriberErrorFrame(event);
+        return;
       case "closed":
         utterance.phase = "transcriber_closed";
         utterance.transcriber = null;
@@ -870,6 +1002,131 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
+  // Persistent-mode event routing. One shared stream serves many cycles, so
+  // events route dynamically: the cycle awaiting its finalize flush owns
+  // the audio being flushed; otherwise the current cycle does. Flush events
+  // for a transcript that already dispatched its assistant turn are dropped
+  // — a dispatched transcript is never mutated.
+  private async handleSharedTranscriberEvent(
+    transcriber: StreamingTranscriber,
+    event: SttStreamServerEvent,
+  ): Promise<void> {
+    if (
+      this.sharedTranscriber !== transcriber ||
+      this.isClosed ||
+      this.state === "failed" ||
+      this.state === "interrupted"
+    ) {
+      return;
+    }
+
+    switch (event.type) {
+      case "partial": {
+        const target = this.finalizingUtterance ?? this.currentUtterance;
+        if (!target || target.assistantTurnStarted || target.completed) {
+          return;
+        }
+        this.markFirstPartial(target);
+        await this.sendFrame({ type: "stt_partial", text: event.text });
+        return;
+      }
+      case "final": {
+        const target = this.finalizingUtterance ?? this.currentUtterance;
+        if (!target || target.assistantTurnStarted || target.completed) {
+          log.warn(
+            "Dropping a late final transcript segment: its assistant turn already dispatched",
+          );
+          return;
+        }
+        await this.recordFinalTranscript(target, event.text);
+        return;
+      }
+      case "finalized": {
+        const target = this.finalizingUtterance;
+        this.clearFinalizeGraceTimer();
+        this.finalizingUtterance = null;
+        if (!target) {
+          return;
+        }
+        if (target.phase === "released") {
+          // In persistent mode "transcriber_closed" means the cycle's
+          // transcript is complete — the shared stream stays open.
+          target.phase = "transcriber_closed";
+        }
+        await this.startAssistantTurnIfReady();
+        return;
+      }
+      case "error":
+        await this.sendTranscriberErrorFrame(event);
+        return;
+      case "closed": {
+        // The shared stream closed under the session: fall back to the
+        // per-cycle path — the next arm resolves a fresh transcriber.
+        this.sharedTranscriber = null;
+        this.clearFinalizeGraceTimer();
+        const finalizing = this.finalizingUtterance;
+        this.finalizingUtterance = null;
+        const current = this.currentUtterance;
+        if (finalizing && finalizing.transcriber === transcriber) {
+          finalizing.transcriber = null;
+          if (finalizing.phase === "released") {
+            finalizing.phase = "transcriber_closed";
+          }
+        }
+        if (
+          current &&
+          current !== finalizing &&
+          current.transcriber === transcriber
+        ) {
+          current.transcriber = null;
+          current.phase = "transcriber_closed";
+          // An unreleased cycle with nothing captured: retire it so the
+          // next speech chunk lazily arms a fresh utterance.
+          if (
+            !current.released &&
+            !current.completed &&
+            current.finalTranscriptSegments.length === 0
+          ) {
+            await this.finalizePendingUtterance(current, "transcriber_closed");
+            return;
+          }
+        }
+        await this.startAssistantTurnIfReady();
+        return;
+      }
+    }
+  }
+
+  private async recordFinalTranscript(
+    utterance: UtteranceCycle,
+    text: string,
+  ): Promise<void> {
+    const transcript = text.trim();
+    if (transcript.length > 0) {
+      utterance.finalTranscriptSegments.push(transcript);
+    }
+    this.markFinalTranscript(utterance);
+    await this.sendFrame({ type: "stt_final", text });
+    await this.startAssistantTurnIfReady();
+  }
+
+  // Providers emit `error` mid-stream and may keep streaming; `closed` /
+  // `final` still drive turn lifecycle. Only transient categories are
+  // recoverable — auth/rate-limit/invalid-audio will not self-heal, so
+  // hands-free clients must surface them instead of suppressing them.
+  private async sendTranscriberErrorFrame(
+    event: SttStreamServerErrorEvent,
+  ): Promise<void> {
+    const recoverable =
+      event.category === "timeout" || event.category === "provider-error";
+    await this.sendFrame({
+      type: "error",
+      code: LiveVoiceProtocolErrorCode.InvalidField,
+      message: event.message,
+      ...(recoverable ? { recoverable: true } : {}),
+    });
+  }
+
   private async interrupt(): Promise<void> {
     if (this.isClosed || this.state === "failed") {
       return;
@@ -880,9 +1137,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.takeVadPreRoll();
     this.vadPendingTurnEnd = null;
     const utterance = this.currentUtterance;
+    this.stopSessionTranscriber();
     if (utterance) {
-      stopTranscriberBestEffort(utterance.transcriber);
-      utterance.transcriber = null;
       // In server_vad mode the current utterance may be the lazily armed
       // next cycle, distinct from the in-flight turn's — finalize it too so
       // the post-turn re-arm can replace it.
@@ -893,6 +1149,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     await this.cancelAssistantTurn("interrupt");
     await this.drainOutboundFrames();
+  }
+
+  // Stops whichever streaming transcriber the session holds (shared or
+  // per-cycle) and clears the finalize bookkeeping. Used by interrupt() and
+  // close(); persistent mode re-establishes itself on the next arm.
+  private stopSessionTranscriber(): void {
+    this.clearFinalizeGraceTimer();
+    this.finalizingUtterance = null;
+    const shared = this.sharedTranscriber;
+    this.sharedTranscriber = null;
+    const utterance = this.currentUtterance;
+    const transcriber = utterance?.transcriber ?? null;
+    if (utterance) {
+      utterance.transcriber = null;
+    }
+    stopTranscriberBestEffort(transcriber);
+    if (shared && shared !== transcriber) {
+      stopTranscriberBestEffort(shared);
+    }
   }
 
   private async startAssistantTurnIfReady(): Promise<void> {
