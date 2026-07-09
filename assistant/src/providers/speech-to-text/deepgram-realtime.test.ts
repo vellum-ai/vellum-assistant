@@ -730,6 +730,118 @@ describe("DeepgramRealtimeTranscriber", () => {
       expect(events).toEqual([{ type: "finalized" }]);
     });
 
+    test("a late flush after a fallback settlement emits neither final nor finalized", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 20,
+      });
+
+      transcriber.finalizeUtterance();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(events).toEqual([{ type: "finalized" }]);
+
+      // The request already settled — its slow flush is stale, and its
+      // text must not surface as a fresh flush.
+      mockWs.simulateMessage(
+        resultsFrame("late tail", { is_final: true, from_finalize: true }),
+      );
+
+      expect(events).toEqual([{ type: "finalized" }]);
+    });
+
+    test("a stale flush does not consume a newer request's settlement", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 20,
+      });
+
+      // Request one settles via the fallback (its flush is running late).
+      transcriber.finalizeUtterance();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(events).toEqual([{ type: "finalized" }]);
+
+      // Request two goes out, then request one's LATE flush finally lands.
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("previous turn tail", {
+          is_final: true,
+          from_finalize: true,
+        }),
+      );
+      // The stale flush is dropped: no final, and request two stays live.
+      expect(events).toEqual([{ type: "finalized" }]);
+
+      // Request two's own flush settles it normally.
+      mockWs.simulateMessage(
+        resultsFrame("current turn", { is_final: true, from_finalize: true }),
+      );
+      expect(events).toEqual([
+        { type: "finalized" },
+        {
+          type: "final",
+          text: "current turn",
+          confidence: 0.95,
+          fromFinalize: true,
+        },
+        { type: "finalized" },
+      ]);
+    });
+
+    test("teardown with a fallback-settled request pending resets cleanly", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 20,
+      });
+
+      // Request one settles via the fallback; its flush never arrives
+      // before teardown. Request two is still outstanding at stop().
+      transcriber.finalizeUtterance();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      transcriber.finalizeUtterance();
+
+      transcriber.stop();
+      mockWs.simulateClose(1000, "normal");
+
+      const types = events.map((e) => e.type);
+      expect(types.filter((t) => t === "finalized")).toHaveLength(2);
+      expect(types.at(-1)).toBe("closed");
+
+      // Frames after close are ignored — no stale bookkeeping survives.
+      mockWs.simulateMessage(
+        resultsFrame("post-close tail", {
+          is_final: true,
+          from_finalize: true,
+        }),
+      );
+      expect(events.map((e) => e.type)).toEqual(types);
+    });
+
+    test("utteranceBoundaryFinals: a stale flush is dropped and a timely flush still forces the boundary", async () => {
+      const { transcriber, events } = await startSession({
+        utteranceBoundaryFinals: true,
+        finalizeFallbackMs: 20,
+      });
+
+      mockWs.simulateMessage(resultsFrame("first part", { is_final: true }));
+      transcriber.finalizeUtterance();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(events).toEqual([{ type: "finalized" }]);
+
+      transcriber.finalizeUtterance();
+      // Request one's late flush: dropped — withheld text stays withheld.
+      mockWs.simulateMessage(
+        resultsFrame("stale tail", { is_final: true, from_finalize: true }),
+      );
+      expect(events).toEqual([{ type: "finalized" }]);
+
+      // Request two's timely flush forces the boundary as usual.
+      mockWs.simulateMessage(
+        resultsFrame("live tail", { is_final: true, from_finalize: true }),
+      );
+      expect(events).toEqual([
+        { type: "finalized" },
+        { type: "final", text: "first part live tail" },
+        { type: "finalized" },
+      ]);
+    });
+
     test("a pending finalize completes as finalized before closed on teardown", async () => {
       const { transcriber, events } = await startSession({
         finalizeFallbackMs: 60_000,
