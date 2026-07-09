@@ -139,6 +139,31 @@ describe("uninstallPlugin", () => {
     }
   });
 
+  test("does not run shutdown for a disabled plugin", async () => {
+    const target = writePlugin("disabled-plugin");
+    // Add a shutdown hook that would write a marker if executed.
+    const marker = join(pluginsDir, "shutdown-ran.txt");
+    writeFileSync(
+      join(target, "hooks", "shutdown.ts"),
+      `import { writeFileSync } from "node:fs";\n` +
+        `export default (ctx: { reason: string }) => {\n` +
+        `  writeFileSync(${JSON.stringify(marker)}, ctx.reason);\n` +
+        `};\n`,
+    );
+    // Disable the plugin via the .disabled sentinel.
+    writeFileSync(join(target, ".disabled"), "");
+
+    await uninstallPlugin({
+      name: "disabled-plugin",
+      workspacePluginsDir: pluginsDir,
+    });
+
+    expect(existsSync(target)).toBe(false);
+    // The shutdown hook must NOT have run — a disabled plugin's code
+    // should never execute, including during uninstall.
+    expect(existsSync(marker)).toBe(false);
+  });
+
   test.each([
     ["../escape"],
     ["/abs/path"],
