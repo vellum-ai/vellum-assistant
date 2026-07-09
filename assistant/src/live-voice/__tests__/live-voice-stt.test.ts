@@ -863,6 +863,110 @@ describe("LiveVoiceSession STT", () => {
     expect(secondContent).not.toContain("first utterance");
   });
 
+  test("holds the next finalize request until the outstanding one settles", async () => {
+    const transcriber = new FinalizingMockStreamingTranscriber();
+    transcriber.respondToFinalize = false;
+    const startVoiceTurn = completingVoiceTurnStarter();
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      finalizeGraceMs: 25,
+    });
+
+    // Cycle A: released, the provider stays silent, the grace timeout
+    // seals and dispatches it with A's request still outstanding.
+    await session.start();
+    await session.handleBinaryAudio(loudPcmChunk());
+    transcriber.emit({ type: "final", text: "first utterance" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 1,
+    );
+    expect(transcriber.finalizeCalls).toBe(1);
+
+    // Cycle B releases while A's request is outstanding: B's request must
+    // wait — two in-flight requests can be answered by a single flush and
+    // desync the queue permanently.
+    await session.handleBinaryAudio(loudPcmChunk());
+    transcriber.emit({ type: "final", text: "second utterance" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    expect(transcriber.finalizeCalls).toBe(1);
+
+    // A's answer finally arrives: its stale flush is dropped against A,
+    // and B's request goes out on the pump (the fake answers it
+    // synchronously with "utterance 2").
+    transcriber.emit({ type: "final", text: "stale tail", fromFinalize: true });
+    transcriber.respondToFinalize = true;
+    transcriber.emit({ type: "finalized" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 2,
+    );
+
+    expect(transcriber.finalizeCalls).toBe(2);
+    expect(startVoiceTurn).toHaveBeenCalledTimes(2);
+    const secondContent = startVoiceTurn.mock.calls[1]?.[0]?.content ?? "";
+    expect(secondContent).toContain("second utterance");
+    expect(secondContent).toContain("utterance 2");
+    expect(secondContent).not.toContain("stale tail");
+    expect(secondContent).not.toContain("first utterance");
+  });
+
+  test("drops a sealed never-requested cycle when the outstanding finalize settles", async () => {
+    const transcriber = new FinalizingMockStreamingTranscriber();
+    transcriber.respondToFinalize = false;
+    const startVoiceTurn = completingVoiceTurnStarter();
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+      startVoiceTurn,
+      finalizeGraceMs: 25,
+    });
+
+    // Cycle A: released, silent provider, grace-sealed and dispatched with
+    // its request outstanding.
+    await session.start();
+    await session.handleBinaryAudio(loudPcmChunk());
+    transcriber.emit({ type: "final", text: "first utterance" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 1,
+    );
+
+    // Cycle B: releases while A is outstanding (its request never sent),
+    // then its own grace timeout seals and dispatches it too.
+    await session.handleBinaryAudio(loudPcmChunk());
+    transcriber.emit({ type: "final", text: "second utterance" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 2,
+    );
+    expect(transcriber.finalizeCalls).toBe(1);
+
+    // A's finalized arrives. B is sealed and never sent a request — no
+    // finalized will ever answer it, so the pump drains it without
+    // sending a request for an already-dispatched transcript.
+    transcriber.emit({ type: "finalized" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(transcriber.finalizeCalls).toBe(1);
+
+    // Cycle C: the request slot is free again — C's request goes out and
+    // its flush is attributed to C.
+    transcriber.respondToFinalize = true;
+    await session.handleBinaryAudio(loudPcmChunk());
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 3,
+    );
+
+    expect(transcriber.finalizeCalls).toBe(2);
+    expect(startVoiceTurn).toHaveBeenCalledTimes(3);
+    const thirdContent = startVoiceTurn.mock.calls[2]?.[0]?.content ?? "";
+    expect(thirdContent).toContain("utterance 2");
+    expect(thirdContent).not.toContain("first utterance");
+    expect(thirdContent).not.toContain("second utterance");
+  });
+
   test("falls back to a fresh transcriber when the shared stream closes unexpectedly", async () => {
     const transcribers: FinalizingMockStreamingTranscriber[] = [];
     const resolver = mock(async () => {

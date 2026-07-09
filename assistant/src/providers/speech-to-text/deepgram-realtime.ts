@@ -312,18 +312,22 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   private closed = false;
 
   /**
-   * Whether a `Finalize` control frame is in flight — armed when
-   * {@link finalizeUtterance} sends the frame, cleared when the
-   * resulting `from_finalize` flush emits the `finalized` event. Keeps
-   * `finalized` emitted at most once per finalize request.
+   * Number of `Finalize` control frames in flight — incremented when
+   * {@link finalizeUtterance} sends a frame, decremented when a
+   * `from_finalize` flush (or the fallback timer) emits its `finalized`
+   * event. Deepgram answers requests in order, so each settlement pairs
+   * with the oldest outstanding request; counting keeps `finalized`
+   * emitted exactly once per request even when requests overlap.
    */
-  private finalizePending = false;
+  private outstandingFinalizes = 0;
 
   /**
-   * Fallback timer for an in-flight Finalize. Deepgram omits the
+   * Fallback timer for in-flight Finalize requests. Deepgram omits the
    * `from_finalize` flush when nothing significant is buffered, so this
    * timer emits `finalized` after {@link FINALIZE_FALLBACK_MS} to keep the
-   * completion contract. Cleared when the flush arrives or on cleanup.
+   * completion contract, re-arming while requests remain outstanding.
+   * Cleared when a flush arrives (and re-armed if more are pending) or on
+   * cleanup.
    */
   private finalizeFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -462,8 +466,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * flushing buffered audio as a Results frame with `from_finalize: true`
    * (possibly with an empty transcript). The adapter emits the resulting
    * `final` (when non-empty) followed by one `finalized` event, and the
-   * stream stays open for more audio. When the socket is not open there
-   * is nothing buffered provider-side, so `finalized` is emitted
+   * stream stays open for more audio. Overlapping requests are answered
+   * in order — one `finalized` per request. When the socket is not open
+   * there is nothing buffered provider-side, so `finalized` is emitted
    * immediately. {@link stop} remains the session-teardown path.
    */
   finalizeUtterance(): void {
@@ -481,16 +486,8 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       this.emitEvent({ type: "finalized" });
       return;
     }
-    this.finalizePending = true;
-    if (this.finalizeFallbackTimer !== null) {
-      clearTimeout(this.finalizeFallbackTimer);
-    }
-    this.finalizeFallbackTimer = setTimeout(() => {
-      log.debug(
-        "Deepgram sent no from_finalize flush — emitting finalized fallback",
-      );
-      this.emitFinalizedIfPending();
-    }, this.finalizeFallbackMs);
+    this.outstandingFinalizes += 1;
+    this.armFinalizeFallbackTimer();
   }
 
   stop(): void {
@@ -692,7 +689,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     }
 
     if (fromFinalize) {
-      this.emitFinalizedIfPending();
+      this.settleOneFinalize();
     }
   }
 
@@ -780,18 +777,46 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   }
 
   /**
-   * Emit the `finalized` event for an in-flight {@link finalizeUtterance}
-   * request. No-op unless a Finalize frame is pending, so `finalized` is
-   * emitted at most once per request.
+   * Emit `finalized` for the oldest in-flight {@link finalizeUtterance}
+   * request and re-arm the fallback timer while more remain outstanding.
+   * No-op when no request is in flight, so `finalized` is emitted at most
+   * once per request.
    */
-  private emitFinalizedIfPending(): void {
+  private settleOneFinalize(): void {
+    this.clearFinalizeFallbackTimer();
+    if (this.outstandingFinalizes === 0) {
+      return;
+    }
+    this.outstandingFinalizes -= 1;
+    this.emitEvent({ type: "finalized" });
+    if (this.outstandingFinalizes > 0) {
+      this.armFinalizeFallbackTimer();
+    }
+  }
+
+  /**
+   * (Re)arm the fallback timer that emits `finalized` when Deepgram
+   * omits the `from_finalize` flush for an in-flight Finalize request.
+   */
+  private armFinalizeFallbackTimer(): void {
+    if (this.closed) {
+      return;
+    }
+    this.clearFinalizeFallbackTimer();
+    this.finalizeFallbackTimer = setTimeout(() => {
+      this.finalizeFallbackTimer = null;
+      log.debug(
+        "Deepgram sent no from_finalize flush — emitting finalized fallback",
+      );
+      this.settleOneFinalize();
+    }, this.finalizeFallbackMs);
+  }
+
+  private clearFinalizeFallbackTimer(): void {
     if (this.finalizeFallbackTimer !== null) {
       clearTimeout(this.finalizeFallbackTimer);
       this.finalizeFallbackTimer = null;
     }
-    if (!this.finalizePending) return;
-    this.finalizePending = false;
-    this.emitEvent({ type: "finalized" });
   }
 
   /**
@@ -808,9 +833,12 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.forceClose();
 
     this.flushPendingUtterance();
-    // A Finalize with no flush response must still complete before the
-    // stream reports closed, so waiters see finalized → closed in order.
-    this.emitFinalizedIfPending();
+    // Every Finalize with no flush response must still complete before
+    // the stream reports closed, so waiters see one finalized per request
+    // followed by closed, in order.
+    while (this.outstandingFinalizes > 0) {
+      this.settleOneFinalize();
+    }
     this.emitEvent({ type: "closed" });
     this.onEvent = null;
   }
@@ -847,10 +875,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       clearInterval(this.keepaliveTimer);
       this.keepaliveTimer = null;
     }
-    if (this.finalizeFallbackTimer !== null) {
-      clearTimeout(this.finalizeFallbackTimer);
-      this.finalizeFallbackTimer = null;
-    }
+    this.clearFinalizeFallbackTimer();
   }
 
   /**

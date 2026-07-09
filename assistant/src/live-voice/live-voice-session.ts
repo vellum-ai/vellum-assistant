@@ -182,6 +182,10 @@ interface UtteranceCycle {
   // The whole cycle (turn included) finalized; the record can no longer
   // accept audio and the session may re-arm over it.
   completed: boolean;
+  // A `Finalize` request for this cycle went out on the shared stream, so
+  // one `finalized` signal is owed to it. At most one queued cycle has
+  // this set at a time — see pumpFinalizeQueue.
+  finalizeRequested: boolean;
   transcriber: StreamingTranscriber | null;
   pendingAudioChunks: Buffer[];
   pendingAudioBytes: number;
@@ -322,16 +326,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // providers without finalizeUtterance, and after an unexpected stream
   // close (the next arm resolves a fresh transcriber).
   private sharedTranscriber: StreamingTranscriber | null = null;
-  // The released cycle whose finalize flush is awaited. Shared-transcriber
-  // partial/final events route here ahead of currentUtterance; kept set
-  // through a grace timeout so a late flush still attributes to (and is
-  // dropped for) the cycle that owns the audio.
   /**
-   * FIFO of cycles with an outstanding finalize request on the shared
+   * FIFO of released cycles awaiting finalize settlement on the shared
    * stream, oldest first. Flush finals and `finalized` signals carry no
-   * request identity, but the provider answers requests in order — so the
-   * queue head owns the next flush/`finalized`, and a stale flush can
-   * never be attributed to a newer cycle's request.
+   * request identity, so at most one `Finalize` request is in flight at a
+   * time (the head's, marked `finalizeRequested` — see pumpFinalizeQueue):
+   * the head owns the next flush/`finalized`, and a stale flush can never
+   * be attributed to a newer cycle's request.
    */
   private finalizeQueue: UtteranceCycle[] = [];
   private finalizeGraceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -472,6 +473,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       released: false,
       assistantTurnStarted: false,
       completed: false,
+      finalizeRequested: false,
       transcriber: null,
       pendingAudioChunks: [],
       pendingAudioBytes: 0,
@@ -891,8 +893,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       guard.speechMs = 0;
       return;
     }
-    guard.speechMs +=
-      (chunk.byteLength / 2 / this.context.startFrame.audio.sampleRate) * 1_000;
+    guard.speechMs += pcm16DurationMs(
+      chunk.byteLength,
+      this.context.startFrame.audio.sampleRate,
+    );
     if (guard.speechMs < this.bargeInMinSpeechMs) {
       return;
     }
@@ -998,7 +1002,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): Promise<void> {
     const shared = this.sharedTranscriber;
     if (shared && utterance.transcriber === shared) {
-      await this.finalizeUtteranceForRelease(utterance, shared);
+      await this.finalizeUtteranceForRelease(utterance);
       return;
     }
 
@@ -1025,7 +1029,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // that never arrives.
   private async finalizeUtteranceForRelease(
     utterance: UtteranceCycle,
-    shared: StreamingTranscriber,
   ): Promise<void> {
     if (
       utterance.phase === "released" ||
@@ -1036,19 +1039,59 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance.phase = "released";
     this.finalizeQueue.push(utterance);
     this.armFinalizeGraceTimer(utterance);
-    try {
-      shared.finalizeUtterance?.();
-    } catch (err) {
-      log.warn(
-        { err },
-        "Live voice utterance finalize failed; proceeding with the transcript collected so far",
-      );
-      this.clearFinalizeGraceTimer();
-      this.finalizeQueue = this.finalizeQueue.filter((c) => c !== utterance);
-      utterance.phase = "transcriber_closed";
-    }
+    this.pumpFinalizeQueue();
     await this.startAssistantTurnIfReady();
     await this.drainOutboundFrames();
+  }
+
+  // Sends at most one `Finalize` request at a time on the shared stream:
+  // `finalized` carries no request identity, and a provider answering two
+  // overlapping requests with a single flush would desync the FIFO
+  // permanently. While a request is outstanding the queue waits; when the
+  // head settles, cycles that dispatched (grace-sealed) before their
+  // request was ever sent are dropped — no `finalized` will ever answer
+  // them, and their buffered tail arrives as ordinary finals — then the
+  // next awaiting cycle's request goes out.
+  private pumpFinalizeQueue(): void {
+    if (this.finalizeQueue.some((cycle) => cycle.finalizeRequested)) {
+      return;
+    }
+    while (true) {
+      const head = this.finalizeQueue[0];
+      if (!head) {
+        return;
+      }
+      if (head.assistantTurnStarted || head.completed) {
+        this.dropFromFinalizeQueue(head);
+        continue;
+      }
+      const shared = this.sharedTranscriber;
+      if (!shared) {
+        return;
+      }
+      head.finalizeRequested = true;
+      try {
+        shared.finalizeUtterance?.();
+      } catch (err) {
+        log.warn(
+          { err },
+          "Live voice utterance finalize failed; proceeding with the transcript collected so far",
+        );
+        this.dropFromFinalizeQueue(head);
+        if (head.phase === "released") {
+          head.phase = "transcriber_closed";
+        }
+        continue;
+      }
+      return;
+    }
+  }
+
+  private dropFromFinalizeQueue(utterance: UtteranceCycle): void {
+    this.finalizeQueue = this.finalizeQueue.filter((c) => c !== utterance);
+    if (utterance === this.finalizeGraceCycle) {
+      this.clearFinalizeGraceTimer();
+    }
   }
 
   private armFinalizeGraceTimer(utterance: UtteranceCycle): void {
@@ -1214,20 +1257,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       case "finalized": {
-        // Completes the oldest outstanding finalize request, whether or
+        // Completes the head's outstanding finalize request, whether or
         // not its flush final arrived (the provider may omit an empty
         // flush; its own fallback still emits `finalized`).
         const owner = this.finalizeQueue.shift() ?? null;
         if (owner && owner === this.finalizeGraceCycle) {
           this.clearFinalizeGraceTimer();
         }
-        if (!owner) {
-          return;
-        }
-        if (owner.phase === "released") {
+        if (owner && owner.phase === "released") {
           // In persistent mode "transcriber_closed" means the cycle's
           // transcript is complete — the shared stream stays open.
           owner.phase = "transcriber_closed";
+        }
+        // The request slot is free again: send the next awaiting cycle's.
+        this.pumpFinalizeQueue();
+        if (!owner) {
+          return;
         }
         await this.startAssistantTurnIfReady();
         return;
@@ -1857,11 +1902,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // Extend the client playback-tail estimate by this chunk's PCM
       // duration (chunks queue gaplessly client-side, so the tail grows
       // from whichever is later: now or the current estimate).
-      const chunkMs =
-        (Buffer.byteLength(chunk.dataBase64, "base64") /
-          2 /
-          chunk.sampleRate) *
-        1_000;
+      const chunkMs = pcm16DurationMs(
+        Buffer.byteLength(chunk.dataBase64, "base64"),
+        chunk.sampleRate,
+      );
       const now = Date.now();
       this.assistantPlaybackTailUntilMs =
         Math.max(now, this.assistantPlaybackTailUntilMs) + chunkMs;
@@ -2390,6 +2434,11 @@ function takeBufferedAudio(chunks: Buffer[]): Buffer | null {
   return audio.byteLength > 0 ? audio : null;
 }
 
+// Duration (ms) of PCM16 mono audio: 2 bytes per sample.
+function pcm16DurationMs(byteLength: number, sampleRate: number): number {
+  return (byteLength / 2 / sampleRate) * 1_000;
+}
+
 function estimatePcmDurationMs(input: {
   byteLength: number;
   mimeType: string;
@@ -2403,10 +2452,7 @@ function estimatePcmDurationMs(input: {
     return undefined;
   }
 
-  const bytesPerMonoSample = 2;
-  return Math.round(
-    (input.byteLength / (input.sampleRate * bytesPerMonoSample)) * 1000,
-  );
+  return Math.round(pcm16DurationMs(input.byteLength, input.sampleRate));
 }
 
 function unavailableTranscriberMessage(): string {

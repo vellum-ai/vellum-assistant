@@ -827,6 +827,71 @@ describe("DeepgramRealtimeTranscriber", () => {
       ]);
     });
 
+    test("overlapping requests each emit final then finalized, in order", async () => {
+      const { transcriber, events } = await startSession();
+
+      transcriber.finalizeUtterance();
+      transcriber.finalizeUtterance();
+      const textMessages = mockWs.sentData.filter((d) => typeof d === "string");
+      expect(textMessages).toHaveLength(2);
+      expect(events).toHaveLength(0);
+
+      mockWs.simulateMessage(
+        resultsFrame("flush one", { is_final: true, from_finalize: true }),
+      );
+      mockWs.simulateMessage(
+        resultsFrame("flush two", { is_final: true, from_finalize: true }),
+      );
+
+      expect(events).toEqual([
+        {
+          type: "final",
+          text: "flush one",
+          confidence: 0.95,
+          fromFinalize: true,
+        },
+        { type: "finalized" },
+        {
+          type: "final",
+          text: "flush two",
+          confidence: 0.95,
+          fromFinalize: true,
+        },
+        { type: "finalized" },
+      ]);
+    });
+
+    test("fallback emits one finalized per outstanding request when both flushes are omitted", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 20,
+      });
+
+      transcriber.finalizeUtterance();
+      transcriber.finalizeUtterance();
+      expect(events).toHaveLength(0);
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(events).toEqual([{ type: "finalized" }, { type: "finalized" }]);
+    });
+
+    test("teardown drains every outstanding finalize before closed", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 60_000,
+      });
+
+      transcriber.finalizeUtterance();
+      transcriber.finalizeUtterance();
+      transcriber.stop();
+      mockWs.simulateClose(1000, "normal");
+
+      const types = events.map((e) => e.type);
+      expect(types.filter((t) => t === "finalized")).toHaveLength(2);
+      expect(types.indexOf("closed")).toBeGreaterThan(
+        types.lastIndexOf("finalized"),
+      );
+    });
+
     test("stop() teardown path is unchanged after a finalize cycle", async () => {
       const { transcriber, events } = await startSession();
 
