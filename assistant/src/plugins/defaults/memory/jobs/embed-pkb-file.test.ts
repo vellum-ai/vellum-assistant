@@ -26,6 +26,14 @@ mock.module("../../../../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
+// Controls the enqueue gate: PKB index jobs are v1-only, so the enqueue
+// helper consults memory.v2.enabled.
+let v2Enabled = false;
+
+mock.module("../config.js", () => ({
+  getMemoryConfig: () => ({ v2: { enabled: v2Enabled } }),
+}));
+
 import { DEFAULT_CONFIG } from "../../../../config/defaults.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getMemoryDb } from "../../../../persistence/db-connection.js";
@@ -123,8 +131,23 @@ describe("enqueuePkbIndexJob", () => {
 
   beforeEach(() => {
     indexPkbFileCalls.length = 0;
+    v2Enabled = false;
     const db = getMemoryDb()!;
     db.delete(memoryJobs).run();
+  });
+
+  test("does not enqueue when memory v2 is enabled", () => {
+    v2Enabled = true;
+
+    const id = enqueuePkbIndexJob({
+      pkbRoot: "/pkb/root",
+      absPath: "/pkb/root/note.md",
+    });
+
+    expect(id).toBe("");
+    expect(claimMemoryJobs({ slowLlm: 10, fast: 10, embed: 10 })).toHaveLength(
+      0,
+    );
   });
 
   test("enqueues a pending embed_pkb_file job with payload", () => {

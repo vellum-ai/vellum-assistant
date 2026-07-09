@@ -5,6 +5,7 @@ import {
   isMemoryEnabled,
   type MemoryJob,
 } from "../../../../persistence/jobs-store.js";
+import { getMemoryConfig } from "../config.js";
 import { indexPkbFile } from "../pkb/pkb-index.js";
 
 /**
@@ -46,9 +47,16 @@ export async function embedPkbFileJob(
 
 /**
  * Enqueue an `embed_pkb_file` job (async, fire-and-forget).
+ *
+ * PKB is the v1 storage layer; under v2 nothing reads the PKB index and the
+ * v1 Qdrant collection is not initialized, so processing the job would throw.
+ * Skipping the enqueue here covers every producer (file-write hook, remember,
+ * startup reconcile); a later switch back to v1 rebuilds the index via the
+ * startup reconcile.
  */
 export function enqueuePkbIndexJob(input: EmbedPkbFileJobInput): string {
   if (!isMemoryEnabled()) return "";
+  if (getMemoryConfig().v2.enabled) return "";
   return enqueueMemoryJob("embed_pkb_file", {
     pkbRoot: input.pkbRoot,
     absPath: input.absPath,
