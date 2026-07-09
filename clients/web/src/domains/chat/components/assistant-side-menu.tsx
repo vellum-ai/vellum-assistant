@@ -88,12 +88,8 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
 
 function SearchButton() {
   const toggle = useCommandPaletteStore.use.toggle();
-  // Intentionally does NOT close the drawer. On mobile the command palette
-  // renders full-screen at z-50 (see command-palette.tsx), painting above the
-  // navigation drawer (fixed z-40 in chat-layout) so it fully covers the menu
-  // while open. Leaving the drawer mounted underneath means dismissing the
-  // palette (✕ / Escape / backdrop) returns to the menu the user opened search
-  // from, instead of falling through to the chat view (Figma 6788:6749).
+  // Leaves the drawer open: the palette (fixed z-50) covers it, so dismissing
+  // search returns to the menu rather than the chat behind it.
   const handleClick = useCallback(() => {
     toggle();
   }, [toggle]);

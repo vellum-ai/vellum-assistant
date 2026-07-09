@@ -269,13 +269,9 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   if (useMobileLayout) {
     return (
       <div
-        // z-50 so the full-screen mobile palette paints above the navigation
-        // drawer (fixed z-40 in chat-layout). The drawer is intentionally left
-        // mounted underneath while search is open, so dismissing the palette
-        // (✕ / Escape / backdrop) returns to the menu it was opened from
-        // instead of falling through to the chat view (Figma 6788:6749). When
-        // opened via ⌘K with the drawer closed there is nothing to cover, so
-        // this is a safe no-op for that path.
+        // z-50 keeps the full-screen palette above the navigation drawer
+        // (fixed z-40 in chat-layout), which stays mounted underneath so
+        // dismissing search returns to the menu.
         className="fixed inset-0 z-50 flex flex-col bg-[var(--surface-lift)]"
         role="dialog"
         aria-modal="true"

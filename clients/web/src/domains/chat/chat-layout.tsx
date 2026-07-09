@@ -291,14 +291,9 @@ export function ChatLayout() {
     }
   }, [isMobile]);
 
-  // Close the mobile drawer whenever the route changes. Individual nav
-  // handlers (handleSelectConversation) already close it, but navigation that
-  // originates elsewhere — notably the command palette's Settings / New Chat /
-  // generic-navigate results, which route without touching drawer state —
-  // would otherwise leave the drawer open over the destination. Keying off the
-  // pathname closes it uniformly for every navigation source. Opening the
-  // drawer is pure local state and never changes the pathname, so this can't
-  // fight the open gesture.
+  // Close the drawer on any route change, covering navigation sources that
+  // don't manage drawer state themselves (e.g. command palette results).
+  // Opening the drawer never changes the pathname, so this can't fight it.
   useEffect(() => {
     setDrawerOpen(false);
   }, [location.pathname]);
