@@ -263,6 +263,70 @@ export function AssistantSideMenu({
     />
   ) : null;
 
+  // --- Built-in navigation ---
+  // Pinned apps above the built-in nav, separated by a divider. On the rail
+  // this block lives in the non-scrolling header; on the overlay it renders
+  // at the top of the body so the whole menu scrolls as one surface (Figma
+  // 6764:6745).
+
+  const builtInNav = (
+    <>
+      {pinnedApps.length > 0 ? (
+        <>
+          <div className="flex flex-col gap-[4px]">
+            {pinnedApps.map((app) => (
+              <PinnedAppNavItem
+                key={app.appId}
+                app={app}
+                collapsed={collapsed}
+                active={activeAppId === app.appId}
+                onOpen={onOpenApp ? (appId) => { onOpenApp(appId); onClose?.(); } : undefined}
+              />
+            ))}
+          </div>
+          <SideMenu.Separator />
+        </>
+      ) : null}
+      {/* 4px row gap to match the conversation list. */}
+      <div className="flex flex-col gap-[4px]">
+        <SideMenu.Item
+          icon={Brain}
+          label={assistantName || "Your Assistant"}
+          showCollapsedTooltip
+          active={isIntelligenceActive}
+          onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
+        />
+        {onOpenLibrary ? (
+          <SideMenu.Item
+            icon={LayoutGrid}
+            label="Library"
+            showCollapsedTooltip
+            active={isLibraryActive}
+            onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
+          />
+        ) : null}
+        {onOpenHome ? (
+          <SideMenu.Item
+            icon={Calendar}
+            label="Activity"
+            showCollapsedTooltip
+            active={isHomeActive}
+            badge={
+              hasUnreadHome && !isHomeActive ? (
+                <span
+                  className="h-2 w-2 rounded-full bg-[var(--system-negative-strong)]"
+                  aria-hidden="true"
+                />
+              ) : undefined
+            }
+            onSelect={onOpenHome ? () => { onOpenHome(); onClose?.(); } : undefined}
+          />
+        ) : null}
+      </div>
+      <SideMenu.Separator />
+    </>
+  );
+
   // --- JSX ---
 
   return (
@@ -273,80 +337,34 @@ export function AssistantSideMenu({
         variant={variant}
         width={width}
         onWidthChange={onWidthChange}
-        className="h-full"
+        className="relative h-full"
       >
         <SideMenu.Header>
           {variant === "overlay" ? (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  iconOnly={<X />}
-                  aria-label="Close navigation"
-                  onClick={() => onClose?.()}
-                />
-                <SearchButton onClose={onClose} />
-              </div>
-              <div className="flex items-center gap-2">{headerActions}</div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                iconOnly={<X />}
+                aria-label="Close navigation"
+                onClick={() => onClose?.()}
+              />
+              <SearchButton onClose={onClose} />
             </div>
-          ) : null}
-          {/* Pinned apps sit above the built-in nav, separated by a divider. */}
-          {pinnedApps.length > 0 ? (
-            <>
-              <div className="flex flex-col gap-[4px]">
-                {pinnedApps.map((app) => (
-                  <PinnedAppNavItem
-                    key={app.appId}
-                    app={app}
-                    collapsed={collapsed}
-                    active={activeAppId === app.appId}
-                    onOpen={onOpenApp ? (appId) => { onOpenApp(appId); onClose?.(); } : undefined}
-                  />
-                ))}
-              </div>
-              <SideMenu.Separator />
-            </>
-          ) : null}
-          {/* 4px row gap to match the conversation list. */}
-          <div className="flex flex-col gap-[4px]">
-            <SideMenu.Item
-              icon={Brain}
-              label={assistantName || "Your Assistant"}
-              showCollapsedTooltip
-              active={isIntelligenceActive}
-              onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
-            />
-            {onOpenLibrary ? (
-              <SideMenu.Item
-                icon={LayoutGrid}
-                label="Library"
-                showCollapsedTooltip
-                active={isLibraryActive}
-                onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
-              />
-            ) : null}
-            {onOpenHome ? (
-              <SideMenu.Item
-                icon={Calendar}
-                label="Activity"
-                showCollapsedTooltip
-                active={isHomeActive}
-                badge={
-                  hasUnreadHome && !isHomeActive ? (
-                    <span
-                      className="h-2 w-2 rounded-full bg-[var(--system-negative-strong)]"
-                      aria-hidden="true"
-                    />
-                  ) : undefined
-                }
-                onSelect={onOpenHome ? () => { onOpenHome(); onClose?.(); } : undefined}
-              />
-            ) : null}
-          </div>
-          <SideMenu.Separator />
+          ) : (
+            builtInNav
+          )}
         </SideMenu.Header>
 
-        <SideMenu.Body className="gap-4 pt-3 max-md:pt-4">
+        <SideMenu.Body
+          className={
+            variant === "overlay"
+              /* pb-24 keeps the last rows scrollable clear of the floating
+                 action pills. */
+              ? "gap-4 pt-3 pb-24 max-md:pt-4"
+              : "gap-4 pt-3 max-md:pt-4"
+          }
+        >
+          {variant === "overlay" ? builtInNav : null}
           {collapsed && variant === "rail" ? (
             <div className="flex flex-col items-center gap-2">
               {headerActions}
@@ -486,7 +504,30 @@ export function AssistantSideMenu({
           )}
         </SideMenu.Body>
 
-        {footerAction ? (
+        {variant === "overlay" ? (
+          /* Overlay: the footer bar is replaced by floating action pills so
+             the primary actions sit in the thumb zone without spending two
+             fixed rows (Figma 6764:6745). `pointer-events-none` on the row
+             keeps the list scrollable between/around the pills. */
+          <div className="pointer-events-none absolute inset-x-4 bottom-4 z-10 flex items-center justify-center gap-4">
+            {footerAction ? (
+              <div className="pointer-events-auto flex-1">{footerAction}</div>
+            ) : null}
+            {onStartNewConversation ? (
+              <Button
+                variant="primary"
+                className="pointer-events-auto h-10 flex-1 rounded-full px-4 shadow-[var(--shadow-lg)]"
+                leftIcon={<SquarePen />}
+                onClick={() => {
+                  onStartNewConversation();
+                  onClose?.();
+                }}
+              >
+                New Chat
+              </Button>
+            ) : null}
+          </div>
+        ) : footerAction ? (
           <SideMenu.Footer>
             {/* The collapsed rail drops the footer divider (per design). */}
             {collapsed && variant === "rail" ? null : <SideMenu.Separator />}
