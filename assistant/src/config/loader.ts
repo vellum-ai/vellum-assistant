@@ -301,15 +301,21 @@ function writeQuarantineNotice(
  * API keys). The on-disk file is left intact, so the user's values are still
  * present but inactive until the invalid entries are fixed.
  *
- * Gated on `suppressConfigDiskWritesDepth`: the transient `getConfig()` re-parse
- * during a `config set`/`patch` write runs under suppression, and that in-memory
- * validation must not write a user-facing notice. Best-effort — any failure is
- * logged and swallowed; the `log.warn` reset lines remain the authoritative
- * record. `invalidPaths` is capped so a pathological config cannot bloat the
- * sentinel.
+ * Deliberately NOT gated on `suppressConfigDiskWritesDepth`. The only suppressed
+ * `getConfig()` is the re-parse inside `commitConfigWrite`, which runs *after*
+ * `saveRawConfig` — so it reflects the persisted config, not a transient one. A
+ * bad conversational `config set` must surface the reset it just caused;
+ * skipping the write here would leave that live-session reset silent, because
+ * the full-default fallback is then cached against the invalid file signature
+ * and later loads short-circuit before re-validating. The sentinel is a
+ * separate file, so writing it does not conflict with the suppression's purpose
+ * (blocking the first-launch-seed / deprecated-strip rewrites of config.json).
+ *
+ * Best-effort — any failure is logged and swallowed; the `log.warn` reset lines
+ * remain the authoritative record. `invalidPaths` is capped so a pathological
+ * config cannot bloat the sentinel.
  */
 function recordConfigValidationReset(invalidPaths: string[]): void {
-  if (suppressConfigDiskWritesDepth !== 0) return;
   try {
     const noticePath = getConfigValidationResetNoticePath();
     const dir = dirname(noticePath);
@@ -344,13 +350,14 @@ function recordConfigValidationReset(invalidPaths: string[]): void {
  * Clear any stale config-validation-reset sentinel once the config validates
  * cleanly again — a validation reset is recoverable (fix the invalid entry and
  * the values come back), so the notice must stop as soon as the config parses,
- * not linger until age-out like a quarantine. Runs only on genuine (re)loads
- * (`loadConfig` short-circuits on a fresh cache before reaching validation) and
- * is gated on suppression for the same reason as {@link
- * recordConfigValidationReset}. Best-effort.
+ * not linger until age-out like a quarantine. Not gated on suppression (see
+ * {@link recordConfigValidationReset}): the suppressed re-parse inside
+ * `commitConfigWrite` is exactly when a user fixes their config via `config
+ * set`, and the fallback config it produced is about to be cached against the
+ * new signature — so if we skipped clearing here, later short-circuiting loads
+ * would keep injecting the stale notice until age-out. Best-effort.
  */
 function clearConfigValidationResetNotice(): void {
-  if (suppressConfigDiskWritesDepth !== 0) return;
   try {
     rmSync(getConfigValidationResetNoticePath(), { force: true });
   } catch {

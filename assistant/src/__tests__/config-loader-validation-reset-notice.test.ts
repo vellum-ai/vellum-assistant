@@ -26,7 +26,11 @@ import {
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { invalidateConfigCache, loadConfig } from "../config/loader.js";
+import {
+  invalidateConfigCache,
+  loadConfig,
+  withSuppressedConfigDiskWritesSync,
+} from "../config/loader.js";
 import { getConfigValidationResetNoticePath } from "../util/platform.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
@@ -120,6 +124,41 @@ describe("config-validation-reset notice sentinel", () => {
     );
 
     loadConfig();
+
+    expect(existsSync(NOTICE_PATH)).toBe(false);
+  });
+
+  test("writes the sentinel even under suppressed disk writes (config-set path)", () => {
+    // `commitConfigWrite` re-parses via getConfig() inside
+    // withSuppressedConfigDiskWrites *after* persisting the new config, then
+    // caches the fallback against the invalid file signature so later loads
+    // short-circuit. If the sentinel isn't written during this suppressed load,
+    // the live-session reset the user just caused stays silent until a restart.
+    writeFullResetConfig();
+    invalidateConfigCache();
+
+    withSuppressedConfigDiskWritesSync(() => loadConfig());
+
+    expect(existsSync(NOTICE_PATH)).toBe(true);
+    expect(readNotice().invalidPaths).toContain("llm.activeProfile");
+  });
+
+  test("clears the sentinel under suppressed disk writes when the fix lands (config-set path)", () => {
+    // First cause a reset so the sentinel exists.
+    writeFullResetConfig();
+    loadConfig();
+    expect(existsSync(NOTICE_PATH)).toBe(true);
+    invalidateConfigCache();
+
+    // The user fixes the config; the recovery re-parse runs under suppression
+    // (commitConfigWrite) and caches the clean config against the new signature.
+    // The notice must be cleared here, or short-circuiting loads keep injecting
+    // it for up to seven days after recovery.
+    writeFileSync(
+      CONFIG_PATH,
+      JSON.stringify({ provider: "anthropic", model: "claude-opus-4-7" }),
+    );
+    withSuppressedConfigDiskWritesSync(() => loadConfig());
 
     expect(existsSync(NOTICE_PATH)).toBe(false);
   });

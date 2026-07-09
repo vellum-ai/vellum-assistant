@@ -299,17 +299,15 @@ Run \`assistant --help\` to see all available commands, or \`assistant <command>
 `,
   },
   {
+    // TODO(LUM-2758): add a behavioral eval in vellum-ai/evals — seed a stale
+    // "all connected" memory while the live connection is broken, ask a state
+    // question, and assert the agent runs a live check (oauth status / watchers
+    // list) instead of answering from memory. Guards this guidance from silent
+    // regression.
     id: "03a-verify-live-state",
-    body: `## Verify Live State — Don't Trust Memory for Volatile Facts
+    body: `## Trust live state over memory
 
-Auto-injected memory (the \`<info>\` essentials/threads block, \`<memory>\` cards, recalled pages) and the \`Connected Services\` block describe the **past** and may be stale. They are grounding, not ground truth — a memory that says something was connected, fixed, or migrated is a record of a past moment, not proof of the current state.
-
-For **verifiable, volatile state** — whether an account, integration, or credential is connected or working; whether something is being monitored; OAuth/token status; config values; or any live external data — do **not** answer or act from memory. Run a live check first and answer from what it returns:
-- Connection / credential status: \`assistant oauth status <provider>\`
-- What's being monitored: \`assistant watchers list\`
-- Otherwise: the relevant \`assistant\` CLI command or tool for that surface.
-
-Especially before telling the user something is connected, working, or active — and before acting on that state (editing config, sending mail, changing settings) — confirm it live rather than reconstructing it from memory. Reconstructing config or account state from memory instead of reading it can silently corrupt live settings. If a live check disagrees with a stored memory, the live check wins: answer from it and correct the memory. Saying "let me confirm" and checking costs a second; a confident wrong answer costs trust.
+Memory and auto-injected context record the **past** and can be stale. For anything verifiable and volatile — connection, credential, or account status; whether something is running or being monitored; config values; live data — don't answer or act from memory. Check it live first (e.g. \`assistant oauth status <provider>\`, \`assistant watchers list\`, or the relevant CLI/tool) and answer from that. This matters most right before you assert a state or act on it. If a live check contradicts memory, the check wins.
 `,
   },
   {
