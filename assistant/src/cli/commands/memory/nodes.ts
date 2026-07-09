@@ -1,12 +1,14 @@
 /**
  * `assistant memory nodes` CLI subgroup.
  *
- * Content-based CRUD over the memory v2 graph nodes, each subcommand a thin
- * IPC wrapper over the daemon's memory-cli routes:
+ * Content-based CRUD over the memory v2 graph nodes. Handlers are invoked
+ * directly in-process (no IPC, no daemon dependency) — exactly the same
+ * functions the daemon would call, but run here without routing through the
+ * main thread:
  *
- *   - `list`   → memory_list   (GET  /v1/memory/list)
- *   - `delete` → memory_delete (POST /v1/memory/delete)
- *   - `update` → memory_update (POST /v1/memory/update)
+ *   - `list`   → handleListMemory
+ *   - `delete` → handleDeleteMemory
+ *   - `update` → handleUpdateMemory
  *
  * Unlike `memory items`, which addresses nodes by UUID, these commands address
  * nodes by content text — matching the way an operator or agent naturally
@@ -15,33 +17,20 @@
 
 import type { Command } from "commander";
 
-import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { getConfig } from "../../../config/loader.js";
+import {
+  handleDeleteMemory,
+  handleListMemory,
+  handleUpdateMemory,
+} from "../../../plugins/defaults/memory/graph/tool-handlers.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { writeOutput } from "../../output.js";
 
-interface MemoryNode {
-  id: string;
-  content: string;
-  type: string;
-  fidelity: string;
-  created: number;
-}
-
-interface ListMemoryNodesResponse {
-  nodes: MemoryNode[];
-  total: number;
-}
-
-interface MemoryOpResponse {
-  success: boolean;
-  message: string;
-}
-
 export function registerMemoryNodesCommand(memory: Command): void {
   registerCommand(memory, {
     name: "nodes",
-    transport: "ipc",
+    transport: "local",
     description: "Content-based list, delete, and update of memory graph nodes",
     build: (nodes) => {
       nodes.addHelpText(
@@ -88,35 +77,30 @@ Examples:
   $ assistant memory nodes list --json`,
         )
         .action(
-          async (
+          (
             opts: { search?: string; limit?: string; json?: boolean },
             cmd: Command,
           ) => {
-            const queryParams: Record<string, string> = {};
-            if (opts.search) {
-              queryParams.search = opts.search;
-            }
-            if (opts.limit) {
-              queryParams.limit = opts.limit;
-            }
-
-            const result = await cliIpcCall<ListMemoryNodesResponse>(
-              "memory_list",
-              { queryParams },
+            const result = handleListMemory(
+              {
+                search: opts.search,
+                limit: opts.limit ? parseInt(opts.limit, 10) : undefined,
+              },
+              getConfig(),
             );
 
-            if (!result.ok) {
-              return exitFromIpcResult(result, cmd);
-            }
-
-            const response = result.result ?? { nodes: [], total: 0 };
-
-            if (opts.json) {
-              writeOutput(cmd, response);
+            if (!result.success) {
+              log.error(result.message);
+              process.exitCode = 1;
               return;
             }
 
-            if (response.nodes.length === 0) {
+            if (opts.json) {
+              writeOutput(cmd, { nodes: result.nodes, total: result.total });
+              return;
+            }
+
+            if (result.nodes.length === 0) {
               log.info(
                 opts.search
                   ? `No memory nodes found matching "${opts.search}".`
@@ -133,18 +117,18 @@ Examples:
 
             const typeWidth = Math.max(
               4,
-              ...response.nodes.map((n) => n.type.length),
+              ...result.nodes.map((n) => n.type.length),
             );
             const fidelityWidth = Math.max(
               7,
-              ...response.nodes.map((n) => n.fidelity.length),
+              ...result.nodes.map((n) => n.fidelity.length),
             );
 
             console.log(
               `${"CONTENT".padEnd(CONTENT_WIDTH)}  ${"TYPE".padEnd(typeWidth)}  ${"FIDELITY".padEnd(fidelityWidth)}  CREATED`,
             );
 
-            for (const n of response.nodes) {
+            for (const n of result.nodes) {
               const created = new Date(n.created).toLocaleString("en-US", {
                 month: "short",
                 day: "numeric",
@@ -157,7 +141,7 @@ Examples:
             }
 
             console.log(
-              `\n${response.total} node${response.total === 1 ? "" : "s"}${opts.search ? ` matching "${opts.search}"` : ""}`,
+              `\n${result.total} node${result.total === 1 ? "" : "s"}${opts.search ? ` matching "${opts.search}"` : ""}`,
             );
           },
         );
@@ -187,32 +171,30 @@ Examples:
   $ assistant memory nodes delete "User prefers TypeScript"
   $ assistant memory nodes delete "User prefers TypeScript" --json`,
         )
-        .action(
-          async (content: string, opts: { json?: boolean }, cmd: Command) => {
-            if (!content.trim()) {
-              log.error(
-                "content is required. Run 'assistant memory nodes list' to find the exact text.",
-              );
-              process.exitCode = 1;
-              return;
-            }
+        .action((content: string, opts: { json?: boolean }, cmd: Command) => {
+          if (!content.trim()) {
+            log.error(
+              "content is required. Run 'assistant memory nodes list' to find the exact text.",
+            );
+            process.exitCode = 1;
+            return;
+          }
 
-            const result = await cliIpcCall<MemoryOpResponse>("memory_delete", {
-              body: { content },
-            });
+          const result = handleDeleteMemory({ content }, getConfig());
 
-            if (!result.ok) {
-              return exitFromIpcResult(result, cmd);
-            }
+          if (!result.success) {
+            log.error(result.message);
+            process.exitCode = 1;
+            return;
+          }
 
-            if (opts.json) {
-              writeOutput(cmd, result.result);
-              return;
-            }
+          if (opts.json) {
+            writeOutput(cmd, result);
+            return;
+          }
 
-            log.info(result.result?.message ?? "Deleted.");
-          },
-        );
+          log.info(result.message);
+        });
 
       // ── update ────────────────────────────────────────────────────────────
 
@@ -240,7 +222,7 @@ Examples:
   $ assistant memory nodes update "old fact" "corrected fact" --json`,
         )
         .action(
-          async (
+          (
             oldContent: string,
             newContent: string,
             opts: { json?: boolean },
@@ -254,20 +236,24 @@ Examples:
               return;
             }
 
-            const result = await cliIpcCall<MemoryOpResponse>("memory_update", {
-              body: { old_content: oldContent, new_content: newContent },
-            });
+            const result = handleUpdateMemory(
+              { old_content: oldContent, new_content: newContent },
+              "cli",
+              getConfig(),
+            );
 
-            if (!result.ok) {
-              return exitFromIpcResult(result, cmd);
-            }
-
-            if (opts.json) {
-              writeOutput(cmd, result.result);
+            if (!result.success) {
+              log.error(result.message);
+              process.exitCode = 1;
               return;
             }
 
-            log.info(result.result?.message ?? "Updated.");
+            if (opts.json) {
+              writeOutput(cmd, result);
+              return;
+            }
+
+            log.info(result.message);
           },
         );
     },
