@@ -1,19 +1,26 @@
 import { Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
-    inferenceProviderconnectionsGetOptions,
-    inferenceProviderconnectionsGetQueryKey,
+  configGetQueryKey,
+  configLlmDefaultproviderGetOptions,
+  configLlmDefaultproviderGetQueryKey,
+  configLlmDefaultproviderPutMutation,
+  inferenceProviderconnectionsGetOptions,
+  inferenceProviderconnectionsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { inferenceProviderconnectionsByNameDelete } from "@/generated/daemon/sdk.gen";
 
-import type { ProviderConnection } from "@/generated/daemon/types.gen";
+import type {
+  DefaultProviderStatus,
+  ProviderConnection,
+} from "@/generated/daemon/types.gen";
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal";
 // ---------------------------------------------------------------------------
@@ -35,6 +42,33 @@ function formatAuthSummary(auth: ProviderConnection["auth"]): string {
   }
 }
 
+type DefaultEligibleProvider = NonNullable<DefaultProviderStatus["provider"]>;
+
+// Compile-time mirrored from the generated union: `satisfies` rejects a
+// member the server dropped, and the exhaustiveness check below fails when
+// the server adds one this list is missing.
+const DEFAULT_ELIGIBLE_PROVIDERS = [
+  "anthropic",
+  "openai",
+  "gemini",
+  "fireworks",
+  "openrouter",
+  "vellum",
+] as const satisfies readonly DefaultEligibleProvider[];
+type _AssertAllEligibleProvidersListed = [DefaultEligibleProvider] extends [
+  (typeof DEFAULT_ELIGIBLE_PROVIDERS)[number],
+]
+  ? true
+  : never;
+const _assertAllEligibleProvidersListed: _AssertAllEligibleProvidersListed = true;
+void _assertAllEligibleProvidersListed;
+
+function isDefaultEligibleProvider(
+  provider: string,
+): provider is DefaultEligibleProvider {
+  return (DEFAULT_ELIGIBLE_PROVIDERS as readonly string[]).includes(provider);
+}
+
 // ---------------------------------------------------------------------------
 // ManageProvidersModal
 // ---------------------------------------------------------------------------
@@ -51,21 +85,29 @@ export function ManageProvidersModal({
   onClose,
 }: ManageProvidersModalProps) {
   const [editorOpen, setEditorOpen] = useState(false);
-  const [editingConnection, setEditingConnection] = useState<ProviderConnection | null>(null);
+  const [editingConnection, setEditingConnection] =
+    useState<ProviderConnection | null>(null);
 
   const queryClient = useQueryClient();
   const queryOpts = inferenceProviderconnectionsGetOptions({
     path: { assistant_id: assistantId },
   });
-  const { data, isLoading: loading, isError } = useQuery({
+  const {
+    data,
+    isLoading: loading,
+    isError,
+  } = useQuery({
     ...queryOpts,
     enabled: isOpen,
   });
+  const { data: defaultProvider } = useQuery({
+    ...configLlmDefaultproviderGetOptions({
+      path: { assistant_id: assistantId },
+    }),
+    enabled: isOpen,
+  });
 
-  const connections = useMemo(
-    () => data?.connections ?? [],
-    [data],
-  );
+  const connections = useMemo(() => data?.connections ?? [], [data]);
 
   function handleEditorSave(_saved: ProviderConnection) {
     void queryClient.invalidateQueries({
@@ -142,6 +184,19 @@ export function ManageProvidersModal({
                 }),
               });
             }}
+            defaultProvider={defaultProvider}
+            onDefaultChanged={() => {
+              void queryClient.invalidateQueries({
+                queryKey: configLlmDefaultproviderGetQueryKey({
+                  path: { assistant_id: assistantId },
+                }),
+              });
+              void queryClient.invalidateQueries({
+                queryKey: configGetQueryKey({
+                  path: { assistant_id: assistantId },
+                }),
+              });
+            }}
           />
         )
       ) : null}
@@ -162,6 +217,8 @@ interface ManageProvidersModalInnerProps {
   onEditClick: (conn: ProviderConnection) => void;
   onNewClick: () => void;
   onConnectionDeleted: (name: string) => void;
+  defaultProvider: DefaultProviderStatus | undefined;
+  onDefaultChanged: () => void;
 }
 
 function ManageProvidersModalInner({
@@ -173,9 +230,42 @@ function ManageProvidersModalInner({
   onEditClick,
   onNewClick,
   onConnectionDeleted,
+  defaultProvider,
+  onDefaultChanged,
 }: ManageProvidersModalInnerProps) {
   const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
   const [deleting, setDeleting] = useState<Record<string, boolean>>({});
+  const [settingDefault, setSettingDefault] = useState<string | null>(null);
+  const setDefaultMutation = useMutation(configLlmDefaultproviderPutMutation());
+
+  async function handleSetDefault(conn: ProviderConnection) {
+    if (!isDefaultEligibleProvider(conn.provider)) {
+      return;
+    }
+    setSettingDefault(conn.name);
+    setDeleteErrors((prev) => {
+      const next = { ...prev };
+      delete next[conn.name];
+      return next;
+    });
+    try {
+      // Always pin the clicked connection's name explicitly: convention
+      // resolution (`${provider}-personal`) dangles for web-onboarded
+      // connections named bare `anthropic`/`openai`.
+      await setDefaultMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { provider: conn.provider, connectionName: conn.name },
+      });
+      onDefaultChanged();
+    } catch {
+      setDeleteErrors((prev) => ({
+        ...prev,
+        [conn.name]: "Failed to set the default provider. Please try again.",
+      }));
+    } finally {
+      setSettingDefault(null);
+    }
+  }
 
   async function handleDelete(name: string) {
     setDeleting((prev) => ({ ...prev, [name]: true }));
@@ -222,8 +312,8 @@ function ManageProvidersModalInner({
       <Modal.Header>
         <Modal.Title>Provider Connections</Modal.Title>
         <Modal.Description>
-          Manage inference provider connections. Each connection binds a name to a
-          provider and auth configuration.
+          Manage inference provider connections. Each connection binds a name to
+          a provider and auth configuration.
         </Modal.Description>
       </Modal.Header>
 
@@ -259,6 +349,11 @@ function ManageProvidersModalInner({
               const isDeleting = deleting[conn.name] ?? false;
               const deleteError = deleteErrors[conn.name];
               const isManaged = conn.isManaged ?? false;
+              const isDefaultConnection =
+                conn.name === defaultProvider?.resolvedConnectionName;
+              const isEligibleDefault = isDefaultEligibleProvider(
+                conn.provider,
+              );
 
               return (
                 <div key={conn.name}>
@@ -281,6 +376,11 @@ function ManageProvidersModalInner({
                             Platform
                           </Tag>
                         )}
+                        {isDefaultConnection && (
+                          <Tag title="This connection serves your default provider.">
+                            Default
+                          </Tag>
+                        )}
                       </div>
                       <Typography
                         variant="body-medium-lighter"
@@ -296,6 +396,25 @@ function ManageProvidersModalInner({
 
                     {/* Actions */}
                     <div className="flex shrink-0 items-center gap-2">
+                      {!isDefaultConnection && (
+                        <Button
+                          variant="ghost"
+                          size="compact"
+                          disabled={
+                            !isEligibleDefault || settingDefault != null
+                          }
+                          title={
+                            isEligibleDefault
+                              ? undefined
+                              : "Built-in profiles can't run on this provider."
+                          }
+                          onClick={() => void handleSetDefault(conn)}
+                        >
+                          {settingDefault === conn.name
+                            ? "Setting…"
+                            : "Set as default"}
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="compact"
@@ -308,11 +427,15 @@ function ManageProvidersModalInner({
                         size="compact"
                         iconOnly={<Trash2 />}
                         aria-label={`Delete ${conn.name}`}
-                        disabled={isManaged || isDeleting}
+                        disabled={
+                          isManaged || isDeleting || isDefaultConnection
+                        }
                         title={
-                          isManaged
-                            ? "Managed connections cannot be deleted"
-                            : undefined
+                          isDefaultConnection
+                            ? "This connection serves your default provider. Set another connection as default first."
+                            : isManaged
+                              ? "Managed connections cannot be deleted"
+                              : undefined
                         }
                         onClick={() => void handleDelete(conn.name)}
                         tintColor="var(--system-negative-strong)"
