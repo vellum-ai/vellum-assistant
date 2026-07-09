@@ -715,9 +715,15 @@ export async function materializePluginTree(
   // An external clone is often a foreign-ecosystem plugin (e.g. a Claude Code
   // plugin) that the Vellum loader can't run as-is. When we curate an adapter
   // stub for it, overlay the stub and run its transform so the materialized
-  // tree is a valid Vellum plugin. Raw clones (no stub) are left untouched.
+  // tree is a valid Vellum plugin. Raw clones (no stub) are left untouched,
+  // except for a minimal package.json synthesis when the upstream repo shipped
+  // none — the Vellum loader hard-requires one and would silently skip the
+  // plugin without it.
   if (cloned.fileCount > 0 && opts.stubRef !== null) {
     await applyAdapterStub(opts.name, opts.stubRef, opts.destDir, deps);
+  }
+  if (cloned.fileCount > 0 && !existsSync(join(opts.destDir, "package.json"))) {
+    synthesizeMinimalPackageJson(opts.name, opts.destDir);
   }
   return cloned;
 }
@@ -973,6 +979,71 @@ function normalizeInstalledManifest(
   }
 
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
+
+/**
+ * Write a minimal Vellum-compatible `package.json` into a staged plugin that
+ * shipped no manifest of its own. The Vellum external plugin loader
+ * (`buildPluginFromDir`) hard-requires a `package.json` validated against
+ * `PluginPackageJsonSchema` and silently skips the plugin when it's missing.
+ *
+ * When a `.claude-plugin/plugin.json` or `.codex-plugin/plugin.json` is
+ * present, its `name`, `version`, and `description` fields are carried over so
+ * the synthesized manifest reflects the upstream identity rather than an
+ * anonymous stub. The `@vellumai/plugin-api` peer dependency is stamped at the
+ * same default range used by {@link normalizeInstalledManifest}.
+ */
+function synthesizeMinimalPackageJson(
+  name: string,
+  stagingDir: string,
+): void {
+  const manifestPath = join(stagingDir, "package.json");
+
+  // Try to read metadata from a Claude Code or Codex plugin manifest so the
+  // synthesized package.json carries the upstream name, version, and
+  // description rather than a bare skeleton.
+  const foreignManifest = readForeignPluginManifest(stagingDir);
+
+  const manifest: PackageManifest = {
+    name,
+    version: foreignManifest?.version ?? "0.0.0",
+    ...(foreignManifest?.description
+      ? { description: foreignManifest.description }
+      : {}),
+    peerDependencies: {
+      "@vellumai/plugin-api": PLUGIN_API_PEER_RANGE,
+    },
+  };
+
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
+
+/**
+ * Read a `.claude-plugin/plugin.json` or `.codex-plugin/plugin.json` manifest
+ * from a staged plugin directory, returning the `name`, `version`, and
+ * `description` fields if present. Returns `undefined` when neither file exists
+ * or neither can be parsed.
+ */
+function readForeignPluginManifest(
+  stagingDir: string,
+): { name?: string; version?: string; description?: string } | undefined {
+  for (const dir of [".claude-plugin", ".codex-plugin"]) {
+    const path = join(stagingDir, dir, "plugin.json");
+    const parsed = readPackageJson(path);
+    if (parsed !== null) {
+      const name = typeof parsed.name === "string" ? parsed.name : undefined;
+      const version =
+        typeof parsed.version === "string" ? parsed.version : undefined;
+      const description =
+        typeof parsed.description === "string"
+          ? parsed.description
+          : undefined;
+      if (name || version || description) {
+        return { name, version, description };
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
