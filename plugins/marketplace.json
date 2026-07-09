@@ -358,7 +358,7 @@
       "source": {
         "source": "github",
         "repo": "garrison-faridi/vellum-twitch-plugin",
-        "ref": "38b052ae0565747b0c38e8afd56a81b6a8c16e70"
+        "ref": "66f35b29195841d7587fc7173d58bdeaa9c7c04e"
       },
       "description": "Twitch chat + stream tooling. Send chat, check live status, read buffered inbound messages.",
       "category": "hobby",
