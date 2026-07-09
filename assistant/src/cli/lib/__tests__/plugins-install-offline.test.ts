@@ -3,7 +3,8 @@
  *
  * With `VELLUM_DISABLE_PLATFORM=true` there is no platform to serve a verified
  * tarball, so `assistant plugins install <name>` resolves the pin from the
- * bundled marketplace catalog and installs through the GitHub path — with zero
+ * bundled marketplace catalog and installs through the trusted GitHub path
+ * (`trustedSource`, which preserves the curated adapter stub) — with zero
  * platform calls. A name absent from the bundled catalog fails clearly. With
  * platform features enabled, the platform install endpoint is used unchanged.
  */
@@ -36,7 +37,7 @@ mock.module("../install-from-github.js", () => ({
       name: opts.name,
       target: `/plugins/${opts.name}`,
       fileCount: 3,
-      ref: opts.directSource?.ref ?? "main",
+      ref: opts.trustedSource?.ref ?? opts.directSource?.ref ?? "main",
       commit: "abc1234def",
       committedAt: null,
     };
@@ -96,7 +97,7 @@ describe("plugins install by name — disable-platform mode", () => {
     mock.restore();
   });
 
-  test("installs a bundled plugin via the GitHub path with no platform call", async () => {
+  test("installs a bundled plugin via the trusted GitHub path with no platform call", async () => {
     process.env.VELLUM_DISABLE_PLATFORM = "true";
     delete process.env.IS_PLATFORM;
 
@@ -106,12 +107,15 @@ describe("plugins install by name — disable-platform mode", () => {
     expect(installPluginCalls.length).toBe(1);
     const opts = installPluginCalls[0]!;
     expect(opts.name).toBe(BUNDLED_PLUGIN);
-    expect(opts.directSource).toEqual({
+    // A trusted pre-resolved source (not `directSource`) so the curated adapter
+    // stub — caveman ships one — is still overlaid on the offline install.
+    expect(opts.trustedSource).toEqual({
       owner: "JuliusBrussee",
       repo: "caveman",
       rootPath: "",
       ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
     });
+    expect(opts.directSource).toBeUndefined();
     expect(process.exitCode).not.toBe(1);
   });
 
