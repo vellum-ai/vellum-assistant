@@ -9,8 +9,17 @@
  */
 
 import bundledManifest from "./bundled-marketplace.json" with { type: "json" };
-import { marketplaceManifestSchema } from "./plugin-marketplace.js";
+import {
+  type MarketplaceEntry,
+  marketplaceManifestSchema,
+  type ResolvedPluginSource,
+  resolveMarketplaceSource,
+} from "./plugin-marketplace.js";
 import { marketplaceMatch, type PluginCatalog } from "./search-plugins.js";
+
+// Re-exported so `local`-tagged CLI commands can gate on platform features
+// without importing `platform/` directly (cli/no-daemon-internals allows lib).
+export { arePlatformFeaturesEnabled } from "../../platform/feature-gate.js";
 
 /**
  * Validate and project the bundled manifest into a {@link PluginCatalog}:
@@ -26,7 +35,7 @@ export function buildBundledPluginCatalog(
   const matches = [];
   const seen = new Set<string>();
   for (const entry of plugins) {
-    if (seen.has(entry.name)) continue;
+    if (seen.has(entry.name)) {continue;}
     matches.push(marketplaceMatch(entry));
     seen.add(entry.name);
   }
@@ -42,4 +51,25 @@ let memoized: PluginCatalog | undefined;
 export function readBundledPluginCatalog(): PluginCatalog {
   memoized ??= buildBundledPluginCatalog();
   return memoized;
+}
+
+let memoizedEntries: readonly MarketplaceEntry[] | undefined;
+
+/** Validated bundled manifest entries, parsed once and reused. */
+function bundledEntries(): readonly MarketplaceEntry[] {
+  memoizedEntries ??= marketplaceManifestSchema.parse(bundledManifest).plugins;
+  return memoizedEntries;
+}
+
+/**
+ * Resolve an install name to its pinned GitHub source from the bundled manifest,
+ * or `null` when no bundled entry claims the name. The offline analogue of
+ * resolving against the remote-fetched marketplace — used when platform
+ * features are disabled and `assistant plugins install <name>` must resolve the
+ * pin without any network call.
+ */
+export function resolveBundledPluginSource(
+  name: string,
+): ResolvedPluginSource | null {
+  return resolveMarketplaceSource(name, bundledEntries());
 }
