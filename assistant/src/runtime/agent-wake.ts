@@ -682,10 +682,21 @@ export async function wakeAgentForOpportunity(
     // Wait for any independently started user turn to release the processing
     // lock so we don't run a second agent loop concurrently. With no abort
     // signal, waitForIdle never rejects — `false` means the budget elapsed
-    // with the lock still held.
-    const idle = await conversation.waitForIdle({
+    // with the lock still held. Idle waiters are notified FIFO from the same
+    // `setProcessing(false)` transition, so a competing waiter registered
+    // earlier (e.g. a voice turn) can re-take the lock before this
+    // continuation runs — re-check `isProcessing()` after every wakeup and
+    // re-wait on the remaining budget until the lock is observed free.
+    const idleDeadline = nowFn() + WAKE_IDLE_TIMEOUT_MS;
+    let idle = await conversation.waitForIdle({
       timeoutMs: WAKE_IDLE_TIMEOUT_MS,
     });
+    while (idle && conversation.isProcessing()) {
+      const remainingMs = idleDeadline - nowFn();
+      idle =
+        remainingMs > 0 &&
+        (await conversation.waitForIdle({ timeoutMs: remainingMs }));
+    }
     if (!idle) {
       log.warn(
         { conversationId, source },
@@ -757,7 +768,10 @@ export async function wakeAgentForOpportunity(
     // message arriving while the flag is set is queued by `enqueueMessage()`
     // and drained after the wake's tail is pushed + persisted. This happens
     // before applying a wake-scoped tool allowlist so a concurrent user turn
-    // cannot start under the wake's restricted tool set.
+    // cannot start under the wake's restricted tool set. The idle gate above
+    // observed the lock free, and nothing between its final `isProcessing()`
+    // check and this acquisition awaits — keep that stretch await-free so
+    // the lock cannot change hands in between.
     conversation.setProcessing(true);
 
     // ── Pre-run auto-compaction gate ──────────────────────────────────
