@@ -6,7 +6,7 @@
  * yields a live `Conversation`. These tests build a lightweight structural
  * double typed as `Conversation` (`makeWakeConversation`) that stubs only the
  * handful of members the wake touches — `getMessages`, `messages.push`,
- * `isProcessing`/`setProcessing`, `currentTurnTrustContext`,
+ * `isProcessing`/`setProcessing`/`waitForIdle`, `currentTurnTrustContext`,
  * `setSubagentAllowedTools`, `drainQueue`, `maybeCompact`,
  * `contextWindowManager.estimateInputTokens`, and a scripted `agentLoop.run()`.
  *
@@ -115,6 +115,12 @@ interface WakeConversationProbe {
    * sizes against the wake's window instead of mainAgent's.
    */
   maybeCompactSizings: unknown[];
+  /**
+   * Options passed to each `conversation.waitForIdle()` call — the wake's
+   * pre-run busy gate. Lets tests pin the wait budget the wake hands to the
+   * conversation's event-driven wait.
+   */
+  waitForIdleCalls: Array<{ timeoutMs: number }>;
 }
 
 const wakeConvRegistry = new Map<string, WakeConversationProbe>();
@@ -400,6 +406,17 @@ function makeWakeConversation(options: {
   estimatedInputTokens?: number;
   /** Seed for the conversation's resting `trustContext`. */
   initialTrustContext?: unknown;
+  /**
+   * Replaces the double's default `waitForIdle` behavior (fast-path `true`
+   * when idle, `true` on the `setProcessing(false)` transition, `false`
+   * after a real `timeoutMs` timer). Lets the timeout test script the
+   * `false` outcome without waiting out the production budget. Calls are
+   * recorded in `waitForIdleCalls` either way.
+   */
+  waitForIdleImpl?: (waitOptions: {
+    timeoutMs: number;
+    signal?: AbortSignal;
+  }) => Promise<boolean>;
 }): WakeConversation {
   const conversationId = options.conversationId ?? "conv-test";
   const probe: WakeConversationProbe = {
@@ -419,10 +436,12 @@ function makeWakeConversation(options: {
     persistedAtEachEmit: [],
     maybeCompactOrders: [],
     maybeCompactSizings: [],
+    waitForIdleCalls: [],
   };
   wakeConvRegistry.set(conversationId, probe);
 
   let processing = options.isProcessing ?? false;
+  const idleWaiters = new Set<() => void>();
   let order = 0;
   let activeAllowedTools = options.initialAllowedTools;
   let wakePersonaOverride: unknown;
@@ -518,6 +537,41 @@ function makeWakeConversation(options: {
       processing = on;
       probe.processingToggles.push(on);
       probe.callSequence.push(on ? "processing:true" : "processing:false");
+      // Mirrors Conversation.setProcessing: a clear releases pending
+      // waitForIdle waiters (copy-and-clear, like the real notifier).
+      if (!on) {
+        const waiters = [...idleWaiters];
+        idleWaiters.clear();
+        for (const notify of waiters) {
+          notify();
+        }
+      }
+    },
+    // Mirrors Conversation.waitForIdle for the signal-less shape the wake
+    // uses: fast-path `true` when idle, `true` on the setProcessing(false)
+    // transition, `false` when `timeoutMs` elapses first.
+    waitForIdle: (waitOptions: {
+      timeoutMs: number;
+      signal?: AbortSignal;
+    }): Promise<boolean> => {
+      probe.waitForIdleCalls.push({ timeoutMs: waitOptions.timeoutMs });
+      if (options.waitForIdleImpl) {
+        return options.waitForIdleImpl(waitOptions);
+      }
+      if (!processing) {
+        return Promise.resolve(true);
+      }
+      return new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          idleWaiters.delete(notify);
+          resolve(false);
+        }, waitOptions.timeoutMs);
+        const notify = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        idleWaiters.add(notify);
+      });
     },
     get currentTurnTrustContext() {
       return currentTurnTrustContext;
@@ -1768,11 +1822,15 @@ describe("wakeAgentForOpportunity", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(settled).toBe(false);
 
-    // "User turn" completes — wake now proceeds.
+    // "User turn" completes — wake now proceeds. The release notification
+    // resolves the wait; the double's only other exit is its (untriggered)
+    // 30s timeout timer, so the wake proceeding here proves the wait is
+    // event-driven rather than clock-driven.
     conversation.setProcessing(false);
     const result = await wakePromise;
     expect(result.invoked).toBe(true);
     expect(result.producedToolCalls).toBe(false);
+    expect(conversation.waitForIdleCalls).toEqual([{ timeoutMs: 30_000 }]);
   });
 
   test("returns invoked: false with reason 'not_found' when the conversation cannot be resolved", async () => {
@@ -1788,34 +1846,31 @@ describe("wakeAgentForOpportunity", () => {
   });
 
   test("returns invoked: false with reason 'timeout' when the target stays busy past the wait-until-idle window", async () => {
-    // Resolver returns a target that is permanently `processing`. Fast-
-    // forward the injected `now` past the 30s deadline so waitUntilIdle
-    // returns false. Without the distinct `timeout` reason, callers
-    // cannot tell this case apart from "not_found".
+    // Resolver returns a target that is permanently `processing`. The
+    // scripted `waitForIdle` resolves `false` — the real Conversation's
+    // timeout outcome — without holding the test for the 30s production
+    // budget. Without the distinct `timeout` reason, callers cannot tell
+    // this case apart from "not_found".
     const conversation = makeWakeConversation({
       conversationId: "conv-busy",
       isProcessing: true,
       runImpl: async (input) => runResult(input),
+      waitForIdleImpl: async () => false,
     });
-    let t = 0;
-    const now = () => {
-      // First call establishes the deadline at +30_000. Every subsequent
-      // call jumps past the deadline so the polling loop exits after one
-      // 50ms tick.
-      const v = t;
-      t += 31_000;
-      return v;
-    };
 
     const result = await wakeAgentForOpportunity(
       { conversationId: "conv-busy", hint: "x", source: "y" },
-      { resolveTarget: async () => conversation, now },
+      { resolveTarget: async () => conversation },
     );
     expect(result).toEqual({
       invoked: false,
       producedToolCalls: false,
       reason: "timeout",
     });
+    // The wake handed the conversation's event-driven wait its full 30s
+    // budget, and did not start the agent loop on the busy conversation.
+    expect(conversation.waitForIdleCalls).toEqual([{ timeoutMs: 30_000 }]);
+    expect(conversation.runCalls).toHaveLength(0);
   });
 
   test("agent loop error is treated as a no-op", async () => {
