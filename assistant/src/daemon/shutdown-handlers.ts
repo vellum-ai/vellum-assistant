@@ -61,7 +61,9 @@ let shuttingDown = false;
 let exitCode = 0;
 
 async function shutdown(): Promise<void> {
-  if (shuttingDown) return;
+  if (shuttingDown) {
+    return;
+  }
   shuttingDown = true;
 
   // Force exit if graceful shutdown takes too long.
@@ -306,6 +308,11 @@ export function installShutdownHandlers(): void {
 
   process.on("SIGHUP", () => {
     handleShutdownSignal("SIGHUP", "Received SIGHUP — terminal hangup");
+  });
+
+  process.on("SIGUSR1", () => {
+    log.info("Received SIGUSR1 — refreshing database connections");
+    resetDb();
   });
 
   process.on("unhandledRejection", (reason) => {

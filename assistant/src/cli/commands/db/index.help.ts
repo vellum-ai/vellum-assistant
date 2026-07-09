@@ -18,5 +18,10 @@ export const dbHelp: CliCommandHelp = {
       name: "repair",
       description: "Run the database repair sequence (integrity check, …)",
     },
+    {
+      name: "refresh",
+      description:
+        "Signal all assistant processes to reopen their SQLite database connections",
+    },
   ],
 };

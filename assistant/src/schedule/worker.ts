@@ -12,10 +12,10 @@
  * user-facing traffic, and keep running during a main-thread freeze in the
  * daemon.
  */
-
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
+import { resetDb } from "../persistence/db-connection.js";
 import { initializeTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { getScheduleWorkerPidPath } from "../util/platform.js";
@@ -98,6 +98,11 @@ async function main(): Promise<void> {
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+
+  process.on("SIGUSR1", () => {
+    log.info("Received SIGUSR1 — refreshing database connections");
+    resetDb();
+  });
 
   // Catch stray exceptions that escape the tick loop so they produce a clean
   // pino-formatted log entry (and PID-file cleanup) instead of a raw stack

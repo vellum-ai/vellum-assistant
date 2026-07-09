@@ -13,6 +13,7 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
+import { resetDb } from "../persistence/db-connection.js";
 import { getLogger } from "../util/logger.js";
 import {
   getMonitoringDataDir,
@@ -76,6 +77,11 @@ async function main(): Promise<void> {
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+
+  process.on("SIGUSR1", () => {
+    log.info("Received SIGUSR1 — refreshing database connections");
+    resetDb();
+  });
 
   process.on("uncaughtException", (err) => {
     log.error({ err }, "Uncaught exception in resource monitor process");
