@@ -217,8 +217,8 @@ export {
 export type { ConversationRow } from "../persistence/conversation-crud.js";
 export {
   addMessage,
-  buildRecallEvidenceExcerpt,
-  deleteConversationGently,
+  buildMessageExcerpt,
+  deleteConversation,
   getConversation,
   getConversationDirPath,
   getMessages,

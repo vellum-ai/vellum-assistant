@@ -95,7 +95,7 @@ export async function addMessage(
  * Delete a conversation, yielding the event loop between row batches. Returns
  * the memory ids whose vector-store entries the caller must clean up.
  */
-export async function deleteConversationGently(
+export async function deleteConversation(
   id: string,
 ): Promise<DeletedMemoryIds> {
   const { deleteConversationGently: fn } =
@@ -138,7 +138,7 @@ export async function hasLexicalTokens(text: string): Promise<boolean> {
  * preserving external-content envelopes so third-party boundaries stay
  * visible.
  */
-export async function buildRecallEvidenceExcerpt(
+export async function buildMessageExcerpt(
   rawContent: string,
   query: string,
 ): Promise<string> {

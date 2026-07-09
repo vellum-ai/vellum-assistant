@@ -43,7 +43,7 @@
 import {
   addMessage,
   type ConversationRow,
-  deleteConversationGently,
+  deleteConversation,
   getConversation,
   isConversationProcessing,
 } from "@vellumai/plugin-api";
@@ -777,7 +777,7 @@ async function safeDeleteRetrospectiveConversation(
   warnMessage: string,
 ): Promise<void> {
   try {
-    await deleteConversationGently(conversationId);
+    await deleteConversation(conversationId);
   } catch (err) {
     log.warn({ err, conversationId }, warnMessage);
   }
@@ -826,7 +826,7 @@ async function deleteSupersededPriorRetrospective(
     // delete the message rows off the event loop in lock-friendly batches —
     // the deletion mirror of the batched fork copy that built them — instead
     // of one lock-holding transaction that would starve live user turns.
-    await deleteConversationGently(prior.id);
+    await deleteConversation(prior.id);
   } catch (err) {
     log.warn(
       { err, priorConversationId: prior.id },

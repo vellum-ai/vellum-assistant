@@ -1,5 +1,5 @@
 import {
-  buildRecallEvidenceExcerpt,
+  buildMessageExcerpt,
   hasLexicalTokens,
   searchMessageIdsLexical,
 } from "@vellumai/plugin-api";
@@ -264,7 +264,7 @@ async function buildRecallExcerpt(
   row: ConversationEvidenceRow,
   query: string,
 ): Promise<string> {
-  const excerpt = await buildRecallEvidenceExcerpt(row.content, query);
+  const excerpt = await buildMessageExcerpt(row.content, query);
   const slackMeta = parseSlackRecallMetadata(row.metadata);
   if (
     row.role !== "user" ||
