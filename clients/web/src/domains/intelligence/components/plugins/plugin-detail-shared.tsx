@@ -21,7 +21,7 @@ import { shortSha } from "@/domains/intelligence/plugins/utils";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { cn } from "@/utils/misc";
-import { Button, ConfirmDialog } from "@vellumai/design-library";
+import { Button, ConfirmDialog, Toggle } from "@vellumai/design-library";
 
 /**
  * Presentational building blocks shared by the plugin detail surfaces so the
@@ -152,6 +152,11 @@ interface PluginDetailActionsProps {
   isUpgrading: boolean;
   /** Gates whether an upgrade prompts before overwriting local edits. */
   hasLocalEdits: boolean;
+  /** Auto-include state of the installed copy; `undefined` hides the toggle (see `PluginListItem.enabled`). */
+  enabled?: boolean;
+  /** Flip the auto-include state (optimistic, no confirm dialog). */
+  onToggle?: () => void;
+  isToggling?: boolean;
 }
 
 /**
@@ -171,6 +176,9 @@ export function PluginDetailActions({
   isRemoving,
   isUpgrading,
   hasLocalEdits,
+  enabled,
+  onToggle,
+  isToggling,
 }: PluginDetailActionsProps) {
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [confirmingUpgrade, setConfirmingUpgrade] = useState(false);
@@ -210,6 +218,17 @@ export function PluginDetailActions({
         // Wrap on narrow (mobile overlay) widths so a Download + Upgrade +
         // Remove set can't push actions off-screen; single row on desktop.
         <div className="flex flex-wrap items-center gap-2 md:flex-nowrap md:shrink-0">
+          {/* Auto-include toggle leads the cluster (mirrors the MCP card).
+              Hidden when enablement is unknown — an older daemon or a deep-link
+              with no list row to source it from. Optimistic, no confirm. */}
+          {enabled !== undefined && onToggle ? (
+            <Toggle
+              label="Auto-include in chat"
+              checked={enabled}
+              onChange={() => onToggle()}
+              disabled={isToggling}
+            />
+          ) : null}
           {artifact ? (
             <Button asChild leftIcon={<Download aria-hidden />}>
               <a href={artifact.url} download>

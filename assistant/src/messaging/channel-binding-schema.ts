@@ -1,14 +1,16 @@
 import { z } from "zod";
 
+/** Channel-neutral deep-link pair into an external client: a native app URL
+ *  (e.g. `slack://…`) and/or a browser URL. */
+const externalSourceLinkSchema = z.object({
+  appUrl: z.string().optional(),
+  webUrl: z.string().optional(),
+});
+
 const slackThreadSchema = z.object({
   channelId: z.string(),
   threadTs: z.string(),
-  link: z
-    .object({
-      appUrl: z.string().optional(),
-      webUrl: z.string().optional(),
-    })
-    .optional(),
+  link: externalSourceLinkSchema.optional(),
 });
 
 const slackChannelSchema = z.object({
@@ -36,6 +38,12 @@ export const channelBindingSchema = z.object({
   username: z.string().nullable(),
   slackThread: slackThreadSchema.optional(),
   slackChannel: slackChannelSchema.optional(),
+  /** Deep link back to the conversation's source in the external channel —
+   *  the specific thread when the binding has one, otherwise the chat or
+   *  channel. Channel-neutral: any channel whose binding-metadata builder can
+   *  produce links emits it (currently Slack only), and clients can render an
+   *  "open in source" affordance without channel-specific logic. */
+  sourceLink: externalSourceLinkSchema.optional(),
 });
 
 type ChannelBinding = z.infer<typeof channelBindingSchema>;
@@ -47,5 +55,5 @@ type ChannelBinding = z.infer<typeof channelBindingSchema>;
  */
 export type ChannelBindingMetadata = Pick<
   ChannelBinding,
-  "externalChatName" | "slackThread" | "slackChannel"
+  "externalChatName" | "slackThread" | "slackChannel" | "sourceLink"
 >;

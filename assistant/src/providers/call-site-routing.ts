@@ -54,10 +54,9 @@ export class CallSiteRoutingProvider implements Provider {
   // both in-flight at the same time on the same provider instance) each see
   // their own value — no clobbering, no premature clear.
   //
-  // During sendMessage, emitLlmCallStartedIfNeeded reads provider.name on the
-  // first text_delta (before the response completes). The getter below returns
-  // the async-context value so streaming trace events carry the routed
-  // provider's name, not the default's.
+  // The getter below returns the async-context value while a routed
+  // sendMessage is in flight, so any code that reads provider.name during
+  // the call sees the routed provider's name, not the default's.
   private readonly _activeProviderContext = new AsyncLocalStorage<string>();
 
   get name(): string {
@@ -114,9 +113,9 @@ export class CallSiteRoutingProvider implements Provider {
 
     const doSend = async (): Promise<ProviderResponse> => {
       const response = await target.sendMessage(messages, options);
-      // Also stamp actualProvider on the response so that handleUsage /
-      // llm_call_finished (which read event.actualProvider, not provider.name)
-      // attribute the call to the right provider.
+      // Also stamp actualProvider on the response so that handleUsage
+      // (which reads event.actualProvider, not provider.name) attributes
+      // the call to the right provider.
       if (isRouted && response.actualProvider == null) {
         return { ...response, actualProvider: target.name };
       }
@@ -124,8 +123,8 @@ export class CallSiteRoutingProvider implements Provider {
     };
 
     // Run inside the async context so that any code reading provider.name
-    // during streaming (e.g. emitLlmCallStartedIfNeeded on text_delta) sees
-    // the routed provider's name for this specific call, not the default.
+    // during streaming sees the routed provider's name for this specific
+    // call, not the default.
     return isRouted
       ? this._activeProviderContext.run(target.name, doSend)
       : doSend();
@@ -258,6 +257,7 @@ export class CallSiteRoutingProvider implements Provider {
           "<resolved-callsite>",
           "model_incompatible",
           incompatMsg,
+          { model: resolved.model },
         );
       }
     }

@@ -51,6 +51,67 @@ export function getMtime(filePath: string): number {
 }
 
 /**
+ * Evict `filePath` from the runtime module registry so the next dynamic
+ * `import()` of that path re-evaluates the file from disk.
+ *
+ * Bun's CJS and ESM loaders share one module registry, so deleting the
+ * `require.cache` entry invalidates `import()` too. This is Node-compat
+ * surface — intended behavior per the Bun maintainers
+ * (github.com/oven-sh/bun/discussions/10162) but not spec-guaranteed, so it
+ * is pinned end-to-end by `../hooks/__tests__/hook-live-reload.test.ts`.
+ *
+ * Callers must evict only when the file's content actually changed on disk
+ * (mtime moved, or the file was deleted and recreated) — evicting on every
+ * read would defeat the module cache entirely. Eviction is per-file: modules
+ * the evicted file imports stay cached, so an edit to a hook's helper module
+ * takes effect only if the helper is evicted as well.
+ */
+export function evictModule(filePath: string): void {
+  delete require.cache[filePath];
+}
+
+/**
+ * Error a {@link withTimeout} race rejects with when the deadline wins. Named
+ * so callers that time-box user code can tell "the wrapped promise took too
+ * long" apart from "the wrapped promise itself rejected".
+ */
+export class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TimeoutError";
+  }
+}
+
+/**
+ * Reject with a {@link TimeoutError} after `ms` if `p` hasn't settled. The
+ * losing promise is abandoned, not cancelled — the caller must treat a timeout
+ * as best-effort and swallow any late rejection from the abandoned promise.
+ *
+ * This is the one place surface paths time-box user code: the surface import
+ * itself ({@link importWithTimeout}) and the hook runner's `shutdown`
+ * invocation both wrap through here so the deadline logic lives once.
+ */
+export function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new TimeoutError(message)), ms);
+    p.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
  * In-flight import promises, keyed by file path. Prevents duplicate
  * `import()` calls when multiple readers request the same surface
  * concurrently.
@@ -61,21 +122,22 @@ const inflight = new Map<string, Promise<unknown>>();
  * Import a module's default export with a timeout. If the import doesn't
  * resolve within `timeoutMs`, logs a warning and returns `undefined` so a
  * hanging module doesn't block daemon startup indefinitely. Defaults to the
- * module-level {@link getSurfaceImportTimeout}.
+ * module-level {@link getSurfaceImportTimeout}. A genuine import failure (not a
+ * timeout) propagates so the caller can log and cache it as absent.
  */
 export async function importWithTimeout<T>(
   filePath: string,
   timeoutMs: number = importTimeoutMs,
 ): Promise<T | undefined> {
-  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const importPromise = importWithDedup<T>(filePath);
   try {
-    const timeoutSentinel = Symbol("import-timeout");
-    const importPromise = importWithDedup<T>(filePath);
-    const timeoutPromise = new Promise<typeof timeoutSentinel>((resolve) => {
-      timeoutHandle = setTimeout(() => resolve(timeoutSentinel), timeoutMs);
-    });
-    const result = await Promise.race([importPromise, timeoutPromise]);
-    if (result === timeoutSentinel) {
+    return await withTimeout<T>(
+      importPromise,
+      timeoutMs,
+      `Import timed out after ${timeoutMs}ms — skipping surface`,
+    );
+  } catch (err) {
+    if (err instanceof TimeoutError) {
       importPromise.catch(() => {
         /* swallow — late rejection from abandoned import */
       });
@@ -85,9 +147,7 @@ export async function importWithTimeout<T>(
       );
       return undefined;
     }
-    return result as T;
-  } finally {
-    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+    throw err;
   }
 }
 
@@ -96,11 +156,10 @@ export async function importWithTimeout<T>(
  * the same file path. This prevents two readers from triggering duplicate
  * `import()` calls when they request the same surface simultaneously.
  *
- * Note: Bun caches `import()` by resolved path within a process and does not
- * bust on query-string or hash changes, so the dedup is about avoiding
- * redundant async work, not cache-busting. A content edit to an existing
- * file is only picked up after a process restart (added and removed files
- * are picked up live, since discovery is by directory listing).
+ * Note: Bun caches `import()` by resolved path within a process, so the
+ * dedup is about avoiding redundant async work, not cache-busting. A caller
+ * that needs a content edit picked up must call {@link evictModule} before
+ * re-importing; a bare re-import returns the cached module.
  */
 async function importWithDedup<T>(filePath: string): Promise<T> {
   let promise = inflight.get(filePath);

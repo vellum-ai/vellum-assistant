@@ -63,7 +63,7 @@ mock.module("../config/loader.js", () => ({
 import type { AgentEvent } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import { LLMSchema } from "../config/schemas/llm.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type {
   Message,
   Provider,

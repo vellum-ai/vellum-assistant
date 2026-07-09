@@ -156,6 +156,7 @@ function recordUsageCostAt(
     { estimatedCostUsd, pricingStatus: "priced" },
   );
   rawRun(
+    "test:setUsageCreatedAt",
     "UPDATE llm_usage_events SET created_at = ? WHERE id = ?",
     createdAt,
     event.id,
@@ -174,6 +175,7 @@ function setScheduleRunWindow({
   status?: "ok" | "error" | "running";
 }) {
   rawRun(
+    "test:setCronRunWindow",
     "UPDATE cron_runs SET status = ?, started_at = ?, finished_at = ?, duration_ms = ?, created_at = ? WHERE id = ?",
     status,
     startedAt,
@@ -804,6 +806,7 @@ describe("schedule and heartbeat run metadata", () => {
     const runId = await createScheduleRun(job.id, conversation.id);
     await completeScheduleRun(runId, { status: "ok" });
     rawRun(
+      "test:setCronRunTimes",
       "UPDATE cron_runs SET started_at = ?, finished_at = ?, duration_ms = ?, created_at = ? WHERE id = ?",
       1000,
       2000,
@@ -849,6 +852,7 @@ describe("schedule and heartbeat run metadata", () => {
     });
     const archivedAt = 3000;
     rawRun(
+      "test:archiveConversation",
       "UPDATE conversations SET archived_at = ? WHERE id = ?",
       archivedAt,
       conversation.id,
@@ -926,6 +930,7 @@ describe("schedule and heartbeat run metadata", () => {
     const runId = insertPendingHeartbeatRun(900);
     startHeartbeatRun(runId);
     rawRun(
+      "test:setHeartbeatRunOk",
       "UPDATE heartbeat_runs SET status = 'ok', scheduled_for = ?, started_at = ?, finished_at = ?, duration_ms = ?, conversation_id = ?, created_at = ? WHERE id = ?",
       900,
       1000,
@@ -966,6 +971,7 @@ describe("schedule and heartbeat run metadata", () => {
     });
     const runId = insertPendingHeartbeatRun(1000);
     rawRun(
+      "test:setHeartbeatRunRunning",
       "UPDATE heartbeat_runs SET status = 'running', finished_at = NULL, conversation_id = ?, created_at = ? WHERE id = ?",
       conversation.id,
       1000,
@@ -1160,7 +1166,7 @@ describe("POST /schedules — create", () => {
   async function postCreate(body: Record<string, unknown>) {
     const route = findRoute("schedules", "POST");
     return (await route.handler({ body })) as {
-      schedules: Array<{ id: string; inferenceProfile: string | null }>;
+      schedule: { id: string; inferenceProfile: string | null };
     };
   }
 
@@ -1171,7 +1177,7 @@ describe("POST /schedules — create", () => {
       expression: "0 9 * * *",
       message: "good morning",
     });
-    expect(result.schedules).toHaveLength(1);
+    expect(result.schedule.id).toBeDefined();
     const job = listSchedules()[0];
     expect(job.name).toBe("Morning ping");
     expect(job.mode).toBe("execute");
@@ -1329,7 +1335,7 @@ describe("POST /schedules — create", () => {
       message: "write the digest",
       inferenceProfile: "cost-optimized",
     });
-    expect(result.schedules[0].inferenceProfile).toBe("cost-optimized");
+    expect(result.schedule.inferenceProfile).toBe("cost-optimized");
     expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
   });
 
@@ -1340,7 +1346,7 @@ describe("POST /schedules — create", () => {
       expression: "0 9 * * *",
       message: "hi",
     });
-    expect(result.schedules[0].inferenceProfile).toBeNull();
+    expect(result.schedule.inferenceProfile).toBeNull();
   });
 
   test("rejects an unknown inferenceProfile", async () => {

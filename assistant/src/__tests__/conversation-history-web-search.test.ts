@@ -622,6 +622,13 @@ describe("web_search_tool_result structural guard", () => {
     "context/post-turn-tool-result-truncation.ts",
     "context/tool-result-spool.ts",
 
+    // Outbound sanitize bundle: the media-strip and AX-tree transforms
+    // operate on locally-executed tool results (media contentBlocks and
+    // <ax-tree> text), which web_search_tool_result blocks never carry.
+    // Web-search blocks are handled by the bundle's own third transform
+    // (stripHistoricalWebSearchResults), so nothing is silently dropped.
+    "context/outbound-sanitize.ts",
+
     // Anthropic provider type guards define API-specific discriminants.
     // It has a separate isWebSearchToolResultBlock for the other type.
     "providers/anthropic/client.ts",
@@ -660,6 +667,25 @@ describe("web_search_tool_result structural guard", () => {
     // any non-exploration block simply bounds the trailing run, which is the
     // conservative direction (fewer nudges). Same reasoning as agent/loop.ts.
     "plugins/defaults/exploration-drift/hooks/post-tool-use.ts",
+
+    // Deep-sweeps image blocks nested in a tool_result's rich `contentBlocks`
+    // (a field only locally-executed tool results carry) so they can be
+    // captioned for text-only models. web_search_tool_result blocks have an
+    // opaque provider-specific `content` and never carry contentBlocks, so
+    // there is nothing there to sweep.
+    "plugins/defaults/image-fallback/src/caption-blocks.ts",
+
+    // Walks a tool_result's rich `contentBlocks` to detect nested media that
+    // needs resolving from a workspace reference. web_search_tool_result blocks
+    // carry no contentBlocks, so only tool_result is relevant here. Same
+    // reasoning as caption-blocks.ts above.
+    "providers/media-resolve.ts",
+
+    // Walks a tool_result's rich `contentBlocks` to materialize nested base64
+    // media into workspace references at persist time. web_search_tool_result
+    // blocks carry no contentBlocks, so only tool_result is relevant. Same
+    // reasoning as media-resolve.ts above.
+    "daemon/persist-media-references.ts",
 
     // Detects turn boundaries by checking whether a user message carries any
     // tool_result block (internal continuation) vs. none (genuine user prompt).

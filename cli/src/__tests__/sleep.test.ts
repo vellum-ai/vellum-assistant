@@ -139,7 +139,8 @@ describe("sleep command", () => {
       consoleLog.mockRestore();
     }
 
-    expect(stopProcessByPidFileMock).toHaveBeenCalledTimes(2);
+    // assistant + gateway + CES sibling
+    expect(stopProcessByPidFileMock).toHaveBeenCalledTimes(3);
   });
 
   test("force stops the assistant even when an active call lease exists", async () => {
@@ -154,7 +155,7 @@ describe("sleep command", () => {
       consoleLog.mockRestore();
     }
 
-    expect(stopProcessByPidFileMock).toHaveBeenCalledTimes(2);
+    expect(stopProcessByPidFileMock).toHaveBeenCalledTimes(3);
     // The assistant stop passes a generous 120s grace so the daemon's WAL
     // checkpoint completes before any SIGKILL (default 2s would truncate it).
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
@@ -170,6 +171,12 @@ describe("sleep command", () => {
       "gateway",
       undefined,
       7000,
+    );
+    // The CES sibling is stopped by its PID file; a no-op when absent.
+    expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
+      3,
+      join(assistantRootDir, "ces.pid"),
+      "credential-executor",
     );
   });
 });

@@ -5,8 +5,11 @@ import type { DoctorMessage } from "@/generated/api/types.gen";
 import {
   hasPendingApproval,
   hasPendingBackup,
+  isReplayableDoctorSourceEventId,
+  latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
+  replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
 } from "@/domains/settings/components/panels/doctor-history";
@@ -18,6 +21,7 @@ function msg(overrides: Partial<DoctorMessage> & Pick<DoctorMessage, "kind">): D
     content: "",
     metadata: null,
     sequence: 0,
+    source_event_id: null,
     occurred_at: "2026-01-01T00:00:00Z",
     ...overrides,
   };
@@ -67,7 +71,9 @@ describe("mapPersistedMessagesToEntries", () => {
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
     expect(entry.kind).toBe("tool_call");
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("run_diagnostics");
     expect(entry.meta.input).toEqual({ flag: true });
     expect(entry.meta.toolCallId).toBe("tc-1");
@@ -79,7 +85,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "tool_call", content: "fallback_name", metadata: {} }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("fallback_name");
     expect(entry.content).toBe("fallback_name");
   });
@@ -89,7 +97,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ id: "msg-tc", kind: "tool_call", content: "tool", metadata: { toolName: "tool" } }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolCallId).toBe("msg-tc");
   });
 
@@ -110,7 +120,9 @@ describe("mapPersistedMessagesToEntries", () => {
     ]);
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.result).toBe("result data");
     expect(entry.meta.isError).toBe(false);
     expect(entry.meta.status).toBe("completed");
@@ -132,7 +144,9 @@ describe("mapPersistedMessagesToEntries", () => {
       }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.isError).toBe(true);
     expect(entry.meta.status).toBe("error");
   });
@@ -163,7 +177,9 @@ describe("mapPersistedMessagesToEntries", () => {
     ]);
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
-    if (entry.kind !== "approval") throw new Error("unreachable");
+    if (entry.kind !== "approval") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("exec_command");
     expect(entry.meta.toolCallId).toBe("ap-1");
     expect(entry.meta.description).toBe("Run ls in /tmp");
@@ -174,7 +190,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "approval", content: "exec", metadata: { toolName: "exec" } }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "approval") throw new Error("unreachable");
+    if (entry.kind !== "approval") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.description).toBe("");
   });
 
@@ -197,6 +215,42 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "status", content: "error" }),
     ]);
     expect(entries[0]!.content).toBe("Session ended with error");
+  });
+
+  test("maps status 'feedback_prompt' to a feedback prompt entry", () => {
+    const entries = mapPersistedMessagesToEntries([
+      msg({
+        kind: "status",
+        content: "feedback_prompt",
+        metadata: { summary: "The app colors are ugly." },
+      }),
+    ]);
+    expect(entries).toEqual([
+      {
+        id: "msg-1",
+        kind: "feedback_prompt",
+        content: "The app colors are ugly.",
+        timestamp: Date.parse("2026-01-01T00:00:00Z"),
+      },
+    ]);
+  });
+
+  test("maps status 'feedback_prompt' metadata classification to a reason", () => {
+    const entries = mapPersistedMessagesToEntries([
+      msg({
+        kind: "status",
+        content: "feedback_prompt",
+        metadata: {
+          summary: "Compact mode would help.",
+          classification: "feature_request",
+        },
+      }),
+    ]);
+    expect(entries[0]).toMatchObject({
+      kind: "feedback_prompt",
+      content: "Compact mode would help.",
+      meta: { reason: "feature_request" },
+    });
   });
 
   test("skips unknown status content", () => {
@@ -225,7 +279,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "tool_call", content: "tool", metadata: "not an object" }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("tool");
     expect(entry.meta.input).toEqual({});
   });
@@ -235,7 +291,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "tool_call", content: "tool", metadata: null }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("tool");
   });
 
@@ -244,7 +302,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "tool_call", content: "tool", metadata: [1, 2, 3] }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("tool");
     expect(entry.meta.input).toEqual({});
   });
@@ -270,7 +330,9 @@ describe("mapPersistedMessagesToEntries", () => {
     expect(entries).toHaveLength(4);
     expect(entries.map((e) => e.kind)).toEqual(["user", "assistant", "tool_call", "status"]);
     const toolEntry = entries[2]!;
-    if (toolEntry.kind !== "tool_call") throw new Error("unreachable");
+    if (toolEntry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(toolEntry.meta.status).toBe("completed");
   });
 
@@ -296,11 +358,56 @@ describe("mapPersistedStatusToPanelStatus", () => {
 });
 
 // ---------------------------------------------------------------------------
+// replayable Doctor source event IDs
+// ---------------------------------------------------------------------------
+
+describe("Doctor source event ID helpers", () => {
+  test("accepts Redis stream IDs and rejects legacy or malformed values", () => {
+    expect(isReplayableDoctorSourceEventId("123-0")).toBe(true);
+    expect(isReplayableDoctorSourceEventId("123")).toBe(false);
+    expect(isReplayableDoctorSourceEventId("evt-123")).toBe(false);
+    expect(isReplayableDoctorSourceEventId(null)).toBe(false);
+    expect(isReplayableDoctorSourceEventId(undefined)).toBe(false);
+  });
+
+  test("extracts replayable IDs in persisted message order", () => {
+    const messages = [
+      { source_event_id: null },
+      { source_event_id: "1-0" },
+      { source_event_id: "legacy-event" },
+      { source_event_id: "2-0" },
+    ];
+
+    expect(replayableDoctorSourceEventIds(messages)).toEqual(["1-0", "2-0"]);
+  });
+
+  test("returns the latest replayable ID from persisted history", () => {
+    const messages = [
+      { source_event_id: "1-0" },
+      { source_event_id: null },
+      { source_event_id: "2-0" },
+      { source_event_id: "legacy-event" },
+    ];
+
+    expect(latestReplayableDoctorSourceEventId(messages)).toBe("2-0");
+  });
+
+  test("returns null when persisted history has no replayable IDs", () => {
+    expect(
+      latestReplayableDoctorSourceEventId([
+        { source_event_id: null },
+        { source_event_id: "legacy-event" },
+      ]),
+    ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // hasPendingApproval
 // ---------------------------------------------------------------------------
 
 describe("hasPendingApproval", () => {
-  test("returns true when last non-status entry is approval", () => {
+  test("returns true when last actionable entry is approval", () => {
     const entries: ChatEntry[] = [
       { id: "1", kind: "user", content: "x", timestamp: 0 },
       {
@@ -310,7 +417,13 @@ describe("hasPendingApproval", () => {
         timestamp: 0,
         meta: { toolName: "exec", input: {}, toolCallId: "tc-1", description: "" },
       },
-      { id: "3", kind: "status", content: "active", timestamp: 0 },
+      {
+        id: "3",
+        kind: "feedback_prompt",
+        content: "Share feedback",
+        timestamp: 0,
+      },
+      { id: "4", kind: "status", content: "active", timestamp: 0 },
     ];
     expect(hasPendingApproval(entries)).toBe(true);
   });
@@ -339,7 +452,7 @@ describe("hasPendingApproval", () => {
 // ---------------------------------------------------------------------------
 
 describe("hasPendingBackup", () => {
-  test("returns true when last non-status entry is backup_prompt", () => {
+  test("returns true when last actionable entry is backup_prompt", () => {
     const entries: ChatEntry[] = [
       { id: "1", kind: "user", content: "x", timestamp: 0 },
       {
@@ -348,6 +461,12 @@ describe("hasPendingBackup", () => {
         content: "tool",
         timestamp: 0,
         meta: { toolName: "tool" },
+      },
+      {
+        id: "3",
+        kind: "feedback_prompt",
+        content: "Share feedback",
+        timestamp: 0,
       },
     ];
     expect(hasPendingBackup(entries)).toBe(true);

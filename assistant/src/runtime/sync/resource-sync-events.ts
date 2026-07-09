@@ -9,6 +9,17 @@ import { getAvatarImagePath } from "../../util/platform.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { publishSyncInvalidation } from "./sync-publisher.js";
 
+/**
+ * Derive the initiating client's id from request headers so a sync publish can
+ * carry it as `originClientId`, letting that client self-echo-suppress its own
+ * invalidation. Trimmed; blank/absent headers yield `undefined`.
+ */
+export function getOriginClientId(
+  headers: Record<string, string> | undefined,
+): string | undefined {
+  return headers?.["x-vellum-client-id"]?.trim() || undefined;
+}
+
 export function publishAvatarChanged(originClientId?: string): void {
   broadcastMessage({
     type: "avatar_updated",
@@ -48,6 +59,10 @@ export function publishSchedulesChanged(originClientId?: string): void {
 
 export function publishAppsChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.appsList], originClientId);
+}
+
+export function publishPluginsChanged(originClientId?: string): void {
+  void publishSyncInvalidation([SYNC_TAGS.pluginsList], originClientId);
 }
 
 /**
@@ -156,6 +171,16 @@ export function publishConversationTitleChanged(
   // for any sibling-tab consumer that missed the typed event.
   void publishSyncInvalidation(
     [conversationMetadataSyncTag(conversationId)],
+    originClientId,
+  );
+}
+
+export function publishConversationEnabledPluginsChanged(
+  conversationId: string,
+  originClientId?: string,
+): void {
+  void publishSyncInvalidation(
+    [SYNC_TAGS.conversationsList, conversationMetadataSyncTag(conversationId)],
     originClientId,
   );
 }

@@ -3,15 +3,17 @@ import { ArrowLeft } from "lucide-react";
 import { FileMarkdown } from "@/components/file-markdown";
 import { PluginIcon } from "@/domains/intelligence/components/plugins/plugin-icon";
 import {
-    PluginDetailActionError,
-    PluginDetailActions,
-    PluginDetailError,
-    PluginDetailLoading,
-    PluginDetailMetadata,
+  PluginDetailActionError,
+  PluginDetailActions,
+  PluginDetailError,
+  PluginDetailLoading,
+  PluginDetailMetadata,
 } from "@/domains/intelligence/components/plugins/plugin-detail-shared";
 import { PluginOriginBadge } from "@/domains/intelligence/components/plugins/plugin-origin-badge";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
 import { usePluginDetail } from "@/domains/intelligence/plugins/use-plugin-detail";
+import { usePluginIconSrc } from "@/domains/intelligence/plugins/use-plugin-icon-src";
+import { usePluginToggle } from "@/domains/intelligence/plugins/use-plugin-toggle";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { Button, Card } from "@vellumai/design-library";
@@ -27,6 +29,8 @@ interface PluginDetailProps {
    * glyph immediately. `undefined` for deep-links with no matching row.
    */
   externalHint?: boolean;
+  /** Active/Off state seeded from the selected list row (see `PluginListItem.enabled`); `undefined` hides the toggle. */
+  enabled?: boolean;
 }
 
 /**
@@ -48,6 +52,7 @@ export function PluginDetail({
   name,
   onBack,
   externalHint,
+  enabled,
 }: PluginDetailProps) {
   const {
     plugin,
@@ -66,6 +71,15 @@ export function PluginDetail({
     hasLocalEdits,
   } = usePluginDetail(assistantId, name, { onRemoved: onBack });
 
+  const { toggle, togglingName } = usePluginToggle(assistantId);
+
+  const iconSrc = usePluginIconSrc(
+    assistantId,
+    name,
+    plugin?.hasIcon,
+    plugin?.iconVersion,
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="mb-4 flex items-start gap-3">
@@ -80,6 +94,7 @@ export function PluginDetail({
           name={name}
           plugin={plugin}
           externalHint={externalHint}
+          iconSrc={iconSrc}
           drift={drift}
           onInstall={install}
           onRemove={remove}
@@ -88,6 +103,9 @@ export function PluginDetail({
           isRemoving={isRemoving}
           isUpgrading={isUpgrading}
           hasLocalEdits={hasLocalEdits}
+          enabled={enabled}
+          onToggle={() => toggle(name, !enabled)}
+          isToggling={togglingName === name}
         />
       </div>
 
@@ -133,6 +151,8 @@ interface HeaderProps {
   name: string;
   plugin: PluginsByNameGetResponse | null;
   externalHint?: boolean;
+  /** Bundled-icon object URL, gated + fetched by the parent; `undefined` → emoji/glyph. */
+  iconSrc?: string;
   drift: PluginDrift | undefined;
   onInstall: () => void;
   onRemove: () => void;
@@ -141,12 +161,16 @@ interface HeaderProps {
   isRemoving: boolean;
   isUpgrading: boolean;
   hasLocalEdits: boolean;
+  enabled?: boolean;
+  onToggle?: () => void;
+  isToggling: boolean;
 }
 
 function Header({
   name,
   plugin,
   externalHint,
+  iconSrc,
   drift,
   onInstall,
   onRemove,
@@ -155,6 +179,9 @@ function Header({
   isRemoving,
   isUpgrading,
   hasLocalEdits,
+  enabled,
+  onToggle,
+  isToggling,
 }: HeaderProps) {
   const isExternal = plugin?.source?.kind === "github";
   // Gate the header icon on the loaded plugin, seeding the known external state
@@ -171,7 +198,12 @@ function Header({
         {resolvedExternal === undefined ? (
           <span aria-hidden className="h-8 w-8 shrink-0" />
         ) : (
-          <PluginIcon external={resolvedExternal} size="md" />
+          <PluginIcon
+            external={resolvedExternal}
+            icon={plugin?.icon ?? undefined}
+            iconSrc={iconSrc}
+            size="md"
+          />
         )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -214,6 +246,9 @@ function Header({
           isRemoving={isRemoving}
           isUpgrading={isUpgrading}
           hasLocalEdits={hasLocalEdits}
+          enabled={enabled}
+          onToggle={onToggle}
+          isToggling={isToggling}
         />
       ) : null}
     </div>

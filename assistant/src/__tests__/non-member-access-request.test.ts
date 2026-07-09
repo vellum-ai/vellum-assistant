@@ -9,6 +9,8 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { sql } from "drizzle-orm";
+
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
@@ -94,12 +96,18 @@ function seedGatewayGuardian(
 }
 
 import {
+  createCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
+  resolveCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
+import {
+  isAccessRequestDenied,
+  maybeNotifyGuardianOfAdmittedContact,
+  notifyGuardianOfAccessRequest,
+} from "../runtime/access-request-helper.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
@@ -302,6 +310,74 @@ describe("non-member access request notification", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
+  });
+
+  // After the guardian denies an access request, subsequent DMs from the same
+  // sender do not re-prompt the guardian. Drives the real inbound path for both
+  // messages so the deny-dedup matches the exact assistant-scoped
+  // conversationId the notify path derives — a hand-crafted fixture could mask
+  // a mismatch.
+  test("a denied sender's subsequent DM does not re-prompt the guardian", async () => {
+    seedGatewayGuardian({
+      channelType: "telegram",
+      address: "guardian-user-789",
+      externalChatId: "guardian-chat-789",
+      principalId: anchorPrincipalId,
+    });
+    createGuardianBinding({
+      channel: "telegram",
+      guardianExternalUserId: "guardian-user-789",
+      guardianDeliveryChatId: "guardian-chat-789",
+      guardianPrincipalId: anchorPrincipalId,
+      verifiedVia: "test",
+    });
+
+    // 1) First DM from the unknown sender → guardian is prompted once.
+    await handleChannelInbound(
+      buildInboundRequest(),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    expect(emitSignalCalls.length).toBe(1);
+
+    const created = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "user-unknown-456",
+      sourceChannel: "telegram",
+      kind: "access_request",
+    });
+    expect(created.length).toBe(1);
+
+    // 2) Guardian denies — resolve the *real* request (same CAS transition the
+    // deny primitive performs), preserving its conversationId.
+    const denied = resolveCanonicalGuardianRequest(created[0].id, "pending", {
+      status: "denied",
+      decidedByExternalUserId: "guardian-user-789",
+    });
+    expect(denied?.status).toBe("denied");
+
+    // 3) Same sender DMs again → still denied, but NO new guardian prompt.
+    const resp2 = await handleChannelInbound(
+      buildInboundRequest({
+        externalMessageId: `msg-after-deny-${Date.now()}`,
+      }),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json2 = (await resp2.json()) as Record<string, unknown>;
+    expect(json2.denied).toBe(true);
+
+    // No additional access-request signal was emitted (still just the first).
+    expect(emitSignalCalls.length).toBe(1);
+
+    // And no fresh pending request was created for the denied sender.
+    const pendingAfter = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "user-unknown-456",
+      sourceChannel: "telegram",
+      kind: "access_request",
+    });
+    expect(pendingAfter.length).toBe(0);
   });
 
   test("access request is created with self-healed principal even without same-channel guardian binding", async () => {
@@ -749,7 +825,9 @@ describe("access-request-helper unit tests", () => {
     });
 
     expect(result.notified).toBe(true);
-    if (!result.notified) return;
+    if (!result.notified) {
+      return;
+    }
 
     await flushAsyncAccessRequestBookkeeping();
 
@@ -810,7 +888,9 @@ describe("access-request-helper unit tests", () => {
     });
 
     expect(result.notified).toBe(true);
-    if (!result.notified) return;
+    if (!result.notified) {
+      return;
+    }
 
     await flushAsyncAccessRequestBookkeeping();
 
@@ -825,5 +905,416 @@ describe("access-request-helper unit tests", () => {
     expect(telegram).toBeDefined();
     expect(telegram!.destinationChatId).toBe("guardian-chat-456");
     expect(telegram!.status).toBe("sent");
+  });
+
+  test("notifyGuardianOfAccessRequest is suppressed after a prior deny for the same sender", async () => {
+    // Simulate a previously-denied access request for this sender on this
+    // channel/assistant. The conversationId must match the assistant-scoped
+    // key the helper derives: access-req-<assistantId>-<channel>-<actor>.
+    createCanonicalGuardianRequest({
+      id: `denied-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-denied-user",
+      requesterExternalUserId: "denied-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "denied",
+    });
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-denied",
+      actorExternalId: "denied-user",
+      actorDisplayName: "Denied User",
+    });
+
+    // Suppressed: no new prompt, no signal, no new pending request.
+    expect(result.notified).toBe(false);
+    if (!result.notified) {
+      expect(result.reason).toBe("already_denied");
+    }
+    expect(emitSignalCalls.length).toBe(0);
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "denied-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(0);
+  });
+
+  // LUM-2673: inside the post-approval verification window, inbound from the
+  // sender must not create a new request or re-notify the guardian — the
+  // handshake is waiting on the sender to enter their code.
+  test("suppressed while the approval's verification window is open", async () => {
+    createCanonicalGuardianRequest({
+      id: `approved-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-approved-user",
+      requesterExternalUserId: "approved-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "approved",
+    });
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-approved",
+      actorExternalId: "approved-user",
+      actorDisplayName: "Approved User",
+    });
+
+    expect(result.notified).toBe(false);
+    if (!result.notified) {
+      expect(result.reason).toBe("approval_pending_verification");
+    }
+    expect(emitSignalCalls.length).toBe(0);
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "approved-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(0);
+  });
+
+  test("re-prompts once the approval's verification window has lapsed", async () => {
+    const requestId = `approved-stale-${Date.now()}`;
+    createCanonicalGuardianRequest({
+      id: requestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-stale-user",
+      requesterExternalUserId: "stale-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "approved",
+    });
+    // Age the approval decision past the verification-code TTL: the code can
+    // no longer be redeemed, so the sender's next message legitimately
+    // re-prompts the guardian.
+    const staleUpdatedAt = Date.now() - 11 * 60 * 1000;
+    getDb().run(
+      sql`UPDATE canonical_guardian_requests SET updated_at = ${staleUpdatedAt} WHERE id = ${requestId}`,
+    );
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-stale",
+      actorExternalId: "stale-user",
+      actorDisplayName: "Stale User",
+    });
+
+    expect(result.notified).toBe(true);
+    expect(emitSignalCalls.length).toBe(1);
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "stale-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(1);
+  });
+
+  test("a terminal deny wins over an in-window approval for the same sender", async () => {
+    createCanonicalGuardianRequest({
+      id: `approved-then-denied-a-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-flip-user",
+      requesterExternalUserId: "flip-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "approved",
+    });
+    createCanonicalGuardianRequest({
+      id: `approved-then-denied-d-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-flip-user",
+      requesterExternalUserId: "flip-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "denied",
+    });
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-flip",
+      actorExternalId: "flip-user",
+      actorDisplayName: "Flip User",
+    });
+
+    expect(result.notified).toBe(false);
+    if (!result.notified) {
+      expect(result.reason).toBe("already_denied");
+    }
+    expect(emitSignalCalls.length).toBe(0);
+  });
+
+  test("a prior deny for one sender does not suppress prompts for a different sender", async () => {
+    createCanonicalGuardianRequest({
+      id: `denied-other-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-denied-user",
+      requesterExternalUserId: "denied-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "denied",
+    });
+
+    // A different sender still gets a fresh prompt.
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-fresh",
+      actorExternalId: "fresh-user",
+      actorDisplayName: "Fresh User",
+    });
+
+    expect(result.notified).toBe(true);
+    expect(emitSignalCalls.length).toBe(1);
+
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "fresh-user",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(1);
+  });
+
+  test("a denied request on a different channel does not suppress a new channel's prompt", async () => {
+    // Denied on telegram; the same actor id messaging on slack is a distinct
+    // (channel-scoped) context and still surfaces to the guardian.
+    createCanonicalGuardianRequest({
+      id: `denied-tg-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-cross-user",
+      requesterExternalUserId: "cross-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "denied",
+    });
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "slack",
+      conversationExternalId: "C-cross",
+      actorExternalId: "cross-user",
+      actorDisplayName: "Cross User",
+    });
+
+    expect(result.notified).toBe(true);
+    const pending = listCanonicalGuardianRequests({
+      status: "pending",
+      requesterExternalUserId: "cross-user",
+      sourceChannel: "slack",
+      kind: "access_request",
+    });
+    expect(pending.length).toBe(1);
+  });
+
+  test("isAccessRequestDenied is true only for the denied (assistant, channel, sender)", () => {
+    const key = {
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      actorExternalId: "denied-user",
+    };
+    expect(isAccessRequestDenied(key)).toBe(false);
+
+    createCanonicalGuardianRequest({
+      id: `denied-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-denied-user",
+      requesterExternalUserId: "denied-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "denied",
+    });
+
+    expect(isAccessRequestDenied(key)).toBe(true);
+    // Scoped: a different channel or sender is not treated as denied.
+    expect(isAccessRequestDenied({ ...key, sourceChannel: "slack" })).toBe(
+      false,
+    );
+    expect(isAccessRequestDenied({ ...key, actorExternalId: "other" })).toBe(
+      false,
+    );
+    // A still-pending request is not a terminal deny.
+    createCanonicalGuardianRequest({
+      id: `pending-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-pending-user",
+      requesterExternalUserId: "pending-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "pending",
+    });
+    expect(
+      isAccessRequestDenied({ ...key, actorExternalId: "pending-user" }),
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Introduction nudge on first admit (maybeNotifyGuardianOfAdmittedContact)
+// ---------------------------------------------------------------------------
+
+describe("maybeNotifyGuardianOfAdmittedContact", () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  const baseParams = {
+    canonicalAssistantId: "self",
+    sourceChannel: "telegram" as const,
+    conversationExternalId: "chat-123",
+    actorExternalId: "user-unknown-456",
+    actorDisplayName: "Alice Unknown",
+  };
+
+  test("first admit fires an admitted-mode introduction card", async () => {
+    const result = await maybeNotifyGuardianOfAdmittedContact(baseParams);
+    expect(result.notified).toBe(true);
+    if (result.notified) {
+      expect(result.created).toBe(true);
+    }
+
+    const requests = listCanonicalGuardianRequests({
+      kind: "access_request",
+      requesterExternalUserId: baseParams.actorExternalId,
+    });
+    expect(requests.length).toBe(1);
+    expect(requests[0].questionText).toContain("was admitted");
+    expect(requests[0].requesterChatId).toBe("chat-123");
+
+    expect(emitSignalCalls.length).toBe(1);
+    const signal = emitSignalCalls[0];
+    expect((signal.contextPayload as Record<string, unknown>).trigger).toBe(
+      "admitted",
+    );
+    expect((signal.attentionHints as Record<string, unknown>).urgency).toBe(
+      "medium",
+    );
+  });
+
+  test("second admit in the same conversation is suppressed once-ever", async () => {
+    await maybeNotifyGuardianOfAdmittedContact(baseParams);
+    const second = await maybeNotifyGuardianOfAdmittedContact(baseParams);
+
+    expect(second.notified).toBe(false);
+    if (!second.notified) {
+      expect(second.reason).toBe("already_introduced");
+    }
+    expect(
+      listCanonicalGuardianRequests({ kind: "access_request" }).length,
+    ).toBe(1);
+    expect(emitSignalCalls.length).toBe(1);
+  });
+
+  test("a live pending card from another conversation dedupes instead of double-carding", async () => {
+    await maybeNotifyGuardianOfAdmittedContact(baseParams);
+    const dm = await maybeNotifyGuardianOfAdmittedContact({
+      ...baseParams,
+      conversationExternalId: "dm-777",
+    });
+
+    // The per-conversation guard passes, but the actor-level pending dedupe
+    // inside notifyGuardianOfAccessRequest keeps a single live card.
+    expect(dm.notified).toBe(true);
+    if (dm.notified) {
+      expect(dm.created).toBe(false);
+    }
+    expect(
+      listCanonicalGuardianRequests({ kind: "access_request" }).length,
+    ).toBe(1);
+  });
+
+  test("after the earlier card expires undecided, a new conversation re-nudges once", async () => {
+    await maybeNotifyGuardianOfAdmittedContact(baseParams);
+    getDb().run("UPDATE canonical_guardian_requests SET status = 'expired'");
+
+    const dm = await maybeNotifyGuardianOfAdmittedContact({
+      ...baseParams,
+      conversationExternalId: "dm-777",
+    });
+    expect(dm.notified).toBe(true);
+    if (dm.notified) {
+      expect(dm.created).toBe(true);
+    }
+    expect(
+      listCanonicalGuardianRequests({ kind: "access_request" }).length,
+    ).toBe(2);
+
+    // The original conversation stays suppressed in every state.
+    const original = await maybeNotifyGuardianOfAdmittedContact(baseParams);
+    expect(original.notified).toBe(false);
+    if (!original.notified) {
+      expect(original.reason).toBe("already_introduced");
+    }
+  });
+
+  test("a guardian terminal deny suppresses nudges across conversations", async () => {
+    await maybeNotifyGuardianOfAdmittedContact(baseParams);
+    getDb().run("UPDATE canonical_guardian_requests SET status = 'denied'");
+
+    const dm = await maybeNotifyGuardianOfAdmittedContact({
+      ...baseParams,
+      conversationExternalId: "dm-777",
+    });
+    expect(dm.notified).toBe(false);
+    if (!dm.notified) {
+      expect(dm.reason).toBe("already_denied");
+    }
+  });
+
+  test("returns no_sender_id without an actor id", async () => {
+    const result = await maybeNotifyGuardianOfAdmittedContact({
+      ...baseParams,
+      actorExternalId: undefined,
+    });
+    expect(result.notified).toBe(false);
+    if (!result.notified) {
+      expect(result.reason).toBe("no_sender_id");
+    }
+    expect(
+      listCanonicalGuardianRequests({ kind: "access_request" }).length,
+    ).toBe(0);
+  });
+
+  test("deny-path requests keep high urgency and carry no trigger marker", async () => {
+    await notifyGuardianOfAccessRequest(baseParams);
+    expect(emitSignalCalls.length).toBe(1);
+    const signal = emitSignalCalls[0];
+    expect(
+      "trigger" in (signal.contextPayload as Record<string, unknown>),
+    ).toBe(false);
+    expect((signal.attentionHints as Record<string, unknown>).urgency).toBe(
+      "high",
+    );
+    const requests = listCanonicalGuardianRequests({
+      kind: "access_request",
+      requesterExternalUserId: baseParams.actorExternalId,
+    });
+    expect(requests[0].questionText).toContain("requesting access");
   });
 });

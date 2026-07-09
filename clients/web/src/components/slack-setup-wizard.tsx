@@ -1,10 +1,11 @@
 import { ClipboardCopy, ExternalLink, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Button, Input, Radio, RadioGroup, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
+import { Button, Input, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { buildSlackManifestUrl } from "@/utils/slack-manifest";
 
-export type SlackThreadMode = "mention_only" | "mention_then_thread";
+export type MutationStatus = "idle" | "pending" | "success" | "error";
 
 const WIZARD_STEP_IDS = ["create-app", "app-token", "install-and-connect"] as const;
 type WizardStepId = (typeof WIZARD_STEP_IDS)[number];
@@ -18,37 +19,36 @@ const WIZARD_STEPS: StepperStep[] = [
 export interface SlackSetupWizardProps {
   assistantName: string;
   initialStepId?: WizardStepId;
-  connected?: boolean;
-  /** Compact stepper for constrained containers (e.g. side drawer). */
-  compact?: boolean;
-  threadMode?: SlackThreadMode;
-  threadModePending?: boolean;
-  onThreadModeChange?: (mode: SlackThreadMode) => void;
-  onSave?: (botToken: string, appToken: string) => Promise<void>;
+  onSave?: (botToken: string, appToken: string) => void;
+  saveStatus?: MutationStatus;
+  saveError?: string | null;
 }
 
+/**
+ * Three-step guided setup for connecting a Slack app: create the app from
+ * a manifest, generate the app-level token, then install and paste the bot
+ * token. Settings for an already-connected Slack (thread behavior) live in
+ * `SlackThreadBehavior`.
+ */
 export function SlackSetupWizard({
   assistantName,
   initialStepId = "create-app",
-  connected = false,
-  compact = false,
-  threadMode,
-  threadModePending = false,
-  onThreadModeChange,
   onSave,
+  saveStatus = "idle",
+  saveError = null,
 }: SlackSetupWizardProps) {
   const [stepId, setStepId] = useState<WizardStepId>(initialStepId);
   const [slackAppName, setSlackAppName] = useState(assistantName);
   const userEditedName = useRef(false);
 
   useEffect(() => {
-    if (!userEditedName.current) setSlackAppName(assistantName);
+    if (!userEditedName.current) {
+      setSlackAppName(assistantName);
+    }
   }, [assistantName]);
 
   const [appToken, setAppToken] = useState("");
   const [botToken, setBotToken] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const stepIndex = WIZARD_STEP_IDS.indexOf(stepId);
 
@@ -58,17 +58,8 @@ export function SlackSetupWizard({
     window.open(url, "_blank", "noopener,noreferrer");
   }, [slackAppName]);
 
-  const handleSave = useCallback(async () => {
-    if (!onSave || !botToken.trim() || !appToken.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await onSave(botToken.trim(), appToken.trim());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
+  const handleSave = useCallback(() => {
+    onSave?.(botToken.trim(), appToken.trim());
   }, [onSave, botToken, appToken]);
 
   const handleStepSelect = useCallback(
@@ -87,39 +78,6 @@ export function SlackSetupWizard({
     }
   }, [stepIndex]);
 
-  if (connected) {
-    return (
-      <div data-slot="slack-setup-wizard">
-        <div className="flex flex-col gap-3">
-          <Typography
-            as="span"
-            variant="body-small-emphasised"
-            className="text-[color:var(--content-secondary)]"
-          >
-            Thread Behavior
-          </Typography>
-          <RadioGroup<SlackThreadMode>
-            value={threadMode ?? "mention_then_thread"}
-            onValueChange={(next) => onThreadModeChange?.(next)}
-            disabled={threadModePending || !onThreadModeChange}
-            aria-label="Slack thread behavior"
-          >
-            <Radio<SlackThreadMode>
-              value="mention_only"
-              label="Mentions only"
-              helperText="Bot only responds when @mentioned."
-            />
-            <Radio<SlackThreadMode>
-              value="mention_then_thread"
-              label="Follow threads after first mention"
-              helperText="After an @mention in a thread, bot listens to all subsequent replies."
-            />
-          </RadioGroup>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div data-slot="slack-setup-wizard">
       <div className="flex flex-col gap-4">
@@ -127,8 +85,7 @@ export function SlackSetupWizard({
           steps={WIZARD_STEPS}
           current={stepIndex}
           onStepSelect={handleStepSelect}
-          disabled={saving}
-          compact={compact}
+          disabled={saveStatus === "pending"}
         />
 
         <div className="rounded-lg bg-[var(--surface-sunken)] p-4">
@@ -153,8 +110,8 @@ export function SlackSetupWizard({
           {stepId === "install-and-connect" && (
             <InstallAndConnectStep
               botToken={botToken}
-              saving={saving}
-              error={error}
+              saveStatus={saveStatus}
+              saveError={saveError}
               onBotTokenChange={setBotToken}
               onSave={handleSave}
             />
@@ -181,10 +138,10 @@ function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-body-medium-lighter text-[var(--content-default)]">
+      <Typography as="p" variant="body-medium-lighter" className="text-[color:var(--content-default)]">
         Name your Slack app, then click below to create it. All permissions and
         settings will be pre-configured automatically.
-      </p>
+      </Typography>
       <Input
         label="App Name"
         value={slackAppName}
@@ -206,16 +163,12 @@ function CreateAppStep({ slackAppName, onSlackAppNameChange, onCreateApp, onNext
           Create Slack App
         </Button>
       </div>
-      <p className="text-body-small-default text-[var(--content-faint)]">
+      <Typography as="p" variant="body-small-default" className="text-[color:var(--content-faint)]">
         Already have a Slack app?{" "}
-        <button
-          type="button"
-          className="text-[var(--content-link)] hover:underline"
-          onClick={onNext}
-        >
+        <Button variant="link" onClick={onNext}>
           Skip to next step
-        </button>
-      </p>
+        </Button>
+      </Typography>
     </div>
   );
 }
@@ -237,34 +190,29 @@ function AppTokenStep({
   onAppTokenChange,
   onNext,
 }: AppTokenStepProps) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(tokenName);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }, [tokenName]);
+  const { copy, copied } = useCopyToClipboard();
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-body-medium-lighter text-[var(--content-default)]">
+      <Typography as="p" variant="body-medium-lighter" className="text-[color:var(--content-default)]">
         On your app&apos;s settings page in Slack:
-      </p>
+      </Typography>
       <ol className="list-decimal list-inside space-y-1 text-body-medium-lighter text-[var(--content-default)]">
         <li>Go to <strong>Basic Information</strong> &rarr; <strong>App-Level Tokens</strong></li>
         <li>Click <strong>Generate Token and Scopes</strong></li>
         <li>
           Name it{" "}
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="inline-flex items-center gap-1 rounded bg-[var(--surface-base)] px-1.5 py-0.5 font-mono text-body-small-default text-[var(--content-strong)] hover:bg-[var(--surface-hover)]"
-            title="Click to copy"
+          <Button
+            variant="ghost"
+            size="compact"
+            onClick={() => copy(tokenName)}
+            className="inline-flex gap-1 rounded bg-[var(--surface-base)] px-1.5 py-0.5 font-mono text-body-small-default text-[color:var(--content-strong)] hover:bg-[var(--surface-hover)] h-auto"
+            tooltip="Click to copy"
           >
             {tokenName}
             <ClipboardCopy aria-hidden className="size-3" />
-          </button>
-          {copied && <span className="ml-1 text-body-small-default text-[var(--content-positive)]">Copied!</span>}
+          </Button>
+          {copied && <Typography as="span" variant="body-small-default" className="ml-1 text-[color:var(--content-positive)]">Copied!</Typography>}
           {" "}and add the <strong>connections:write</strong> scope
         </li>
         <li>Click <strong>Generate</strong> and copy the token</li>
@@ -299,16 +247,16 @@ function AppTokenStep({
 
 interface InstallAndConnectStepProps {
   botToken: string;
-  saving: boolean;
-  error: string | null;
+  saveStatus: MutationStatus;
+  saveError: string | null;
   onBotTokenChange: (value: string) => void;
   onSave: () => void;
 }
 
 function InstallAndConnectStep({
   botToken,
-  saving,
-  error,
+  saveStatus,
+  saveError,
   onBotTokenChange,
   onSave,
 }: InstallAndConnectStepProps) {
@@ -319,10 +267,10 @@ function InstallAndConnectStep({
         <li>Click <strong>Install to Workspace</strong> and approve the permissions</li>
         <li>Copy the <strong>Bot User OAuth Token</strong> shown on the page</li>
       </ol>
-      <p className="text-body-small-default text-[var(--content-faint)]">
+      <Typography as="p" variant="body-small-default" className="text-[color:var(--content-faint)]">
         If Slack shows &ldquo;Request approval&rdquo; instead, a workspace admin
         needs to approve the app first.
-      </p>
+      </Typography>
       <div className="flex items-end gap-3">
         <div className="flex-1">
           <Input
@@ -338,16 +286,21 @@ function InstallAndConnectStep({
           type="button"
           variant="primary"
           onClick={onSave}
-          disabled={!botToken.trim() || saving}
+          disabled={!botToken.trim() || saveStatus === "pending"}
         >
-          {saving ? "Saving\u2026" : "Save"}
+          {saveStatus === "pending" ? "Saving\u2026" : "Save"}
         </Button>
       </div>
-      {error ? (
-        <p className="text-body-small-default text-[var(--system-negative-strong)]">
-          {error}
-        </p>
-      ) : null}
+      {saveStatus === "success" && (
+        <Typography as="p" variant="body-small-default" className="text-[color:var(--content-positive)]">
+          Credentials saved.
+        </Typography>
+      )}
+      {saveStatus === "error" && saveError && (
+        <Typography as="p" variant="body-small-default" className="text-[color:var(--system-negative-strong)]">
+          {saveError}
+        </Typography>
+      )}
     </div>
   );
 }

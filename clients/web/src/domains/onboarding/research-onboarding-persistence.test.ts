@@ -84,6 +84,43 @@ describe("read/write/clear round-trip", () => {
   });
 });
 
+describe("Electron host", () => {
+  // The desktop app must start onboarding fresh on every launch: reads and
+  // writes are no-ops, but clear stays live so completion/retire can still
+  // remove a snapshot written by an older build (or the web host).
+  const vellumBridge = { platform: "electron" } as unknown as Window["vellum"];
+
+  beforeEach(() => {
+    window.vellum = vellumBridge;
+  });
+
+  afterEach(() => {
+    delete window.vellum;
+  });
+
+  test("never writes a snapshot", () => {
+    writeResearchSnapshot(USER, baseSnapshot());
+    expect(localStorage.getItem(`research_onboarding:${USER}`)).toBeNull();
+  });
+
+  test("never reads a snapshot, even one written by an older build", () => {
+    localStorage.setItem(
+      `research_onboarding:${USER}`,
+      JSON.stringify(baseSnapshot()),
+    );
+    expect(readResearchSnapshot(USER)).toBeNull();
+  });
+
+  test("clear still removes a stale snapshot", () => {
+    localStorage.setItem(
+      `research_onboarding:${USER}`,
+      JSON.stringify(baseSnapshot()),
+    );
+    clearResearchSnapshot(USER);
+    expect(localStorage.getItem(`research_onboarding:${USER}`)).toBeNull();
+  });
+});
+
 describe("resolveResumeStep", () => {
   test("jumps straight to suggestions once research finished", () => {
     const snapshot = baseSnapshot({

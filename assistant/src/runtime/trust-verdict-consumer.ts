@@ -10,6 +10,7 @@
  */
 
 import type { TrustVerdict } from "@vellumai/gateway-client";
+import { isTrustClass } from "@vellumai/gateway-client";
 
 import type { ChannelId } from "../channels/types.js";
 import { channelStatusToMemberStatus } from "../contacts/member-status.js";
@@ -20,7 +21,7 @@ import type {
   ContactRole,
   ContactWithChannels,
 } from "../contacts/types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { ActorTrustContext } from "./actor-trust-resolver.js";
 import { toTrustContext } from "./actor-trust-resolver.js";
 
@@ -105,6 +106,13 @@ export function trustContextFromVerdict(
     context.memberPolicy = member.policy;
   }
 
+  // Interaction telemetry is gateway-owned: carry the verdict's count straight
+  // through so turn assembly reads it from the verdict rather than the local
+  // assistant DB.
+  if (verdict.interactionCount !== undefined) {
+    context.requesterInteractionCount = verdict.interactionCount;
+  }
+
   return context;
 }
 
@@ -112,20 +120,61 @@ export function trustContextFromVerdict(
  * True when the verdict carries a member identity (contactId or channelId),
  * regardless of whether that member resolves to a usable {@link VerdictMember}.
  */
-export function verdictHasMemberIdentity(verdict: TrustVerdict): boolean {
+function verdictHasMemberIdentity(verdict: TrustVerdict): boolean {
   return !!(verdict.contactId || verdict.channelId);
 }
 
 /**
  * True when the verdict claims a member identity but that member can't be
  * resolved (partial/mixed-version verdict). Such a verdict is unusable —
- * callers fall back to local resolution.
+ * consumers fail closed (deny), never falling back to local resolution.
  */
-export function verdictMemberUnresolvable(verdict: TrustVerdict): boolean {
+function verdictMemberUnresolvable(verdict: TrustVerdict): boolean {
   return (
     verdictHasMemberIdentity(verdict) &&
     verdictMemberFromVerdict(verdict) === null
   );
+}
+
+/** Machine-readable cause for an unusable verdict; consumers switch on it. */
+export type VerdictUnusableReason =
+  | "missing"
+  | "resolution failed"
+  | "member unresolvable"
+  | "unrecognized trust class"
+  | "guardian without member";
+
+/**
+ * Classify whether a verdict can serve as a trust source. Unusable when
+ * missing, `resolutionFailed`, claiming a member whose ACL can't be
+ * reassembled, carrying an out-of-contract trust class (version skew,
+ * malformed payload), or claiming `guardian` without a member row
+ * (contradictory — the gateway proves guardian identity via a same-channel
+ * member row, so cross-channel address collisions must never confer guardian
+ * capabilities). Consumers fail closed on all of those. A memberless stranger
+ * verdict is usable.
+ */
+export function verdictUsability(
+  verdict: TrustVerdict | null | undefined,
+):
+  | { usable: true; verdict: TrustVerdict }
+  | { usable: false; reason: VerdictUnusableReason } {
+  if (verdict == null) {
+    return { usable: false, reason: "missing" };
+  }
+  if (verdict.resolutionFailed === true) {
+    return { usable: false, reason: "resolution failed" };
+  }
+  if (verdictMemberUnresolvable(verdict)) {
+    return { usable: false, reason: "member unresolvable" };
+  }
+  if (!isTrustClass(verdict.trustClass)) {
+    return { usable: false, reason: "unrecognized trust class" };
+  }
+  if (verdict.trustClass === "guardian" && !verdictMemberFromVerdict(verdict)) {
+    return { usable: false, reason: "guardian without member" };
+  }
+  return { usable: true, verdict };
 }
 
 // Allowed ACL enum values, kept in sync with the ContactChannel union types.
@@ -208,10 +257,6 @@ function memberRecordFromVerdict(
     address: verdict.address ?? "",
     isPrimary: false,
     externalChatId: verdict.externalChatId ?? null,
-    inviteId: null,
-    lastSeenAt: null,
-    interactionCount: 0,
-    lastInteraction: null,
     updatedAt: null,
     createdAt: 0,
   };
@@ -223,9 +268,6 @@ function memberRecordFromVerdict(
     id: member.contactId,
     displayName: member.displayName ?? "",
     notes: null,
-    role,
-    lastInteraction: null,
-    interactionCount: 0,
     createdAt: 0,
     updatedAt: 0,
     contactType: "human",

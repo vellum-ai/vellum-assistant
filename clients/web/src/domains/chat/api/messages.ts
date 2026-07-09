@@ -400,7 +400,15 @@ export type PostMessageResult =
   | { ok: false; status: number; error: { code?: string; detail?: string } };
 
 export type UploadAttachmentResult =
-  | { ok: true; id: string }
+  | {
+      ok: true;
+      id: string;
+      /** Stored metadata — may differ from the uploaded file when the
+       *  assistant normalizes the format (e.g. HEIC stored as JPEG). */
+      filename?: string;
+      mimeType?: string;
+      sizeBytes?: number;
+    }
   | { ok: false; status: number; error: { detail?: string } };
 
 /**
@@ -446,14 +454,40 @@ export async function uploadChatAttachment(
       error: { detail: "Upload response did not include an attachment id." },
     };
   }
-  return { ok: true, id };
+  return {
+    ok: true,
+    id,
+    ...(typeof data.filename === "string" ? { filename: data.filename } : {}),
+    ...(typeof data.mimeType === "string" ? { mimeType: data.mimeType } : {}),
+    ...(typeof data.sizeBytes === "number" ? { sizeBytes: data.sizeBytes } : {}),
+  };
 }
+
+/**
+ * Optional fields for {@link postChatMessage}.
+ *
+ * The wire-bound fields are Picked from the generated request body so they
+ * can never drift from the daemon's schema; `onboarding` stays the domain
+ * type because it is normalized (`normalizePreChatOnboardingContext`) before
+ * it reaches the wire.
+ */
+export type PostChatMessageOptions = Pick<
+  MessagesPostData["body"],
+  | "attachmentIds"
+  | "clientMessageId"
+  | "inferenceProfile"
+  | "enabledPlugins"
+  | "hidden"
+> & {
+  /** PreChat onboarding context — see the `postChatMessage` docs. */
+  onboarding?: PreChatOnboardingContext;
+};
 
 /**
  * Send a user message without polling for the response.
  * Returns the assistant/conversation IDs needed to subscribe to events.
  *
- * The optional `onboarding` parameter carries PreChat onboarding context that
+ * The optional `onboarding` field carries PreChat onboarding context that
  * should be attached only to the FIRST message after PreChat completion. Callers
  * are responsible for the consume-once semantics: include `onboarding` on the
  * initial post and omit it on every subsequent message in the conversation.
@@ -474,11 +508,16 @@ export async function postChatMessage(
   assistantId: string,
   conversationId: string | null,
   content: string,
-  attachmentIds: string[] = [],
-  onboarding?: PreChatOnboardingContext,
-  clientMessageId?: string,
-  inferenceProfile?: string | null,
+  options: PostChatMessageOptions = {},
 ): Promise<PostMessageResult> {
+  const {
+    attachmentIds = [],
+    onboarding,
+    clientMessageId,
+    inferenceProfile,
+    enabledPlugins,
+    hidden,
+  } = options;
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
   // create-or-lookup). See `lib/backwards-compat/conversation-id-wire-field.ts`.
@@ -535,6 +574,22 @@ export async function postChatMessage(
   // otherwise so the conversation inherits the global default profile.
   if (inferenceProfile) {
     body.inferenceProfile = inferenceProfile;
+  }
+  // Per-chat plugin selection for the conversation this message mints — the
+  // user picked an explicit plugin set in the composer before sending. The
+  // daemon persists it as the conversation's enabled-plugin set. Omitted when
+  // `null`/`undefined` so the conversation inherits the default set. The caller
+  // gates attachment on daemon support + an explicit selection (see
+  // `use-send-message.ts`); an empty array is a valid "no plugins" selection.
+  if (enabledPlugins != null) {
+    body.enabledPlugins = enabledPlugins;
+  }
+  // Persist the message but suppress it from the transcript (it still drives
+  // the turn LLM-side). Used for client-initiated machine signals the user
+  // never typed: the research-onboarding "Let's chat" greeting kickoff and
+  // the channel-setup wizard close/hand-off notifications.
+  if (hidden) {
+    body.hidden = true;
   }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)

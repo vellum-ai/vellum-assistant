@@ -72,6 +72,7 @@ function parsePaginatedResponse(
   const oldestTimestamp = body?.oldestTimestamp ?? null;
   const oldestMessageId = body?.oldestMessageId || null;
   const seq = body?.seq ?? null;
+  const processing = body?.processing;
 
   return {
     messages,
@@ -79,6 +80,7 @@ function parsePaginatedResponse(
     oldestTimestamp,
     oldestMessageId,
     seq,
+    processing,
     backgroundToolCompletions,
     ...(subagentNotifications.length > 0 ? { subagentNotifications } : {}),
   };

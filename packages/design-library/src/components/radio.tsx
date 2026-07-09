@@ -88,9 +88,15 @@ function Radio<T extends string>({
   const inputId = id ?? `radio-${reactId}`;
   const helperId = helperText ? `${inputId}-helper` : undefined;
 
+  // Checked colors are themeable via `--radio-checked-bg` / `--radio-checked-dot`
+  // (set them on any ancestor), defaulting to the standard positive green with
+  // a white dot. Mirrors the `--radio-border` override hook above.
   const ringSelectedColor = disabled
     ? "var(--content-disabled)"
-    : "var(--system-positive-strong)";
+    : "var(--radio-checked-bg, var(--system-positive-strong))";
+  const dotColor = disabled
+    ? "var(--surface-overlay)"
+    : "var(--radio-checked-dot, var(--aux-white))";
   const ringBg = disabled ? "var(--surface-overlay)" : "transparent";
 
   return (
@@ -128,11 +134,7 @@ function Radio<T extends string>({
           <span
             aria-hidden
             className="block h-2 w-2 rounded-full"
-            style={{
-              background: disabled
-                ? "var(--surface-overlay)"
-                : "var(--aux-white)",
-            }}
+            style={{ background: dotColor }}
           />
         </RadioGroupPrimitive.Indicator>
       </RadioGroupPrimitive.Item>

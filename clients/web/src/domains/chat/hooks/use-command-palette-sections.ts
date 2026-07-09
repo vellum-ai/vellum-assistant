@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 
+import { isElectron } from "@/runtime/is-electron";
+
 import {
   type CommandPaletteItemData,
   type CommandPaletteSection,
@@ -42,7 +44,7 @@ function buildActionsSection(assistantName: string): CommandPaletteSection {
         id: "action-new-conversation",
         icon: SquarePen,
         title: "New Conversation",
-        shortcutHint: "⌘N",
+        shortcutHint: isElectron() ? "⌘N" : "⌘⇧O",
       },
       {
         id: "action-current-conversation",

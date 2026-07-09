@@ -22,9 +22,12 @@ import {
 
 import "./test-preload.js";
 
-// ── Fake assistant DB ───────────────────────────────────────────────────────
-// Honors the info-join query (SELECT ... FROM contacts LEFT JOIN
-// assistant_contact_metadata WHERE c.id IN (...)) and throws on demand.
+// ── Fake daemon IPC (contacts_info_batch) ────────────────────────────────────
+// The info read now goes over typed IPC (`contacts_info_batch`), so we mock
+// `ipcCallAssistant` behind `fakeAssistantDb` — the daemon applies the metadata
+// gating + JSON parse, so this fake returns already-shaped infos and throws on
+// demand to exercise the caller's soft-fail path. Mirrors the mock in
+// contacts-info-joiner.test.ts.
 
 type FakeInfoRow = {
   id: string;
@@ -44,41 +47,54 @@ const fakeAssistantDb = {
   },
 };
 
-mock.module("../db/assistant-db-proxy.js", () => ({
-  assistantDbQuery: mock(async (sql: string, bind?: unknown[]) => {
-    if (fakeAssistantDb.throwOnQuery) {
-      throw new Error("simulated assistant DB outage");
-    }
-    const lower = sql.toLowerCase();
-    if (lower.includes("from contacts") && lower.includes("in (")) {
-      const ids = (bind ?? []) as string[];
-      const out: Array<{
-        id: string;
-        notes: string | null;
-        userFile: string | null;
-        contactType: string | null;
-        species: string | null;
-        metadata: string | null;
-      }> = [];
-      for (const id of ids) {
-        const row = fakeAssistantDb.info.get(id);
-        if (row) {
-          out.push({
-            id: row.id,
-            notes: row.notes,
-            userFile: row.user_file,
-            contactType: row.contact_type,
-            species: row.species,
-            metadata: row.metadata,
-          });
-        }
+function shapeInfo(row: FakeInfoRow) {
+  let assistantMetadata: {
+    species: string;
+    metadata: Record<string, unknown> | null;
+  } | null = null;
+  if (row.contact_type === "assistant" && row.species != null) {
+    let metadata: Record<string, unknown> | null = null;
+    if (row.metadata) {
+      try {
+        metadata = JSON.parse(row.metadata) as Record<string, unknown>;
+      } catch {
+        metadata = null;
       }
-      return out;
     }
-    return [];
-  }),
-  assistantDbRun: mock(async () => ({ changes: 1, lastInsertRowid: 0 })),
-  assistantDbExec: mock(async () => undefined),
+    assistantMetadata = { species: row.species, metadata };
+  }
+  return {
+    contactId: row.id,
+    notes: row.notes,
+    userFile: row.user_file,
+    contactType: row.contact_type,
+    assistantMetadata,
+  };
+}
+
+class FakeIpcHandlerError extends Error {}
+class FakeIpcTransportError extends Error {}
+
+mock.module("../ipc/assistant-client.js", () => ({
+  IpcHandlerError: FakeIpcHandlerError,
+  IpcTransportError: FakeIpcTransportError,
+  ipcCallAssistant: mock(
+    async (method: string, params?: Record<string, unknown>) => {
+      if (fakeAssistantDb.throwOnQuery) {
+        throw new Error("simulated assistant DB outage");
+      }
+      if (method === "contacts_info_batch") {
+        const contactIds = ((params?.body as { contactIds?: string[] })
+          ?.contactIds ?? []) as string[];
+        const infos = contactIds
+          .map((id) => fakeAssistantDb.info.get(id))
+          .filter((r): r is FakeInfoRow => r != null)
+          .map(shapeInfo);
+        return { infos };
+      }
+      return {};
+    },
+  ),
 }));
 
 import {
@@ -297,6 +313,50 @@ describe("ContactStore.listContactsRich", () => {
   test("empty gateway DB returns empty array", async () => {
     const result = await new ContactStore().listContactsRich();
     expect(result).toEqual([]);
+  });
+
+  test("ids filter restricts to the given contact ids, bypassing role/limit", async () => {
+    for (const id of ["a", "b", "c"]) {
+      seedGatewayContact({ id, role: "contact" });
+      seedGatewayChannel({
+        id: `ch-${id}`,
+        contactId: id,
+        interactionCount: id === "b" ? 5 : 1,
+        lastInteraction: id === "b" ? 42 : null,
+      });
+      seedAssistantInfo({ id, contactType: "human" });
+    }
+
+    const result = await new ContactStore().listContactsRich({
+      ids: ["b", "c"],
+      // role/limit are ignored when ids is present.
+      role: "guardian",
+      limit: 1,
+    });
+
+    expect(result.map((c) => c.id).sort()).toEqual(["b", "c"]);
+    const b = result.find((c) => c.id === "b")!;
+    expect(b.interactionCount).toBe(5);
+    expect(b.lastInteraction).toBe(42);
+  });
+
+  test("ids filter returns empty for an empty id set", async () => {
+    seedGatewayContact({ id: "a" });
+    seedAssistantInfo({ id: "a", contactType: "human" });
+    const result = await new ContactStore().listContactsRich({ ids: [] });
+    expect(result).toEqual([]);
+  });
+
+  test("ids filter dedupes and ignores unknown ids", async () => {
+    seedGatewayContact({ id: "a" });
+    seedGatewayChannel({ id: "ch-a", contactId: "a", interactionCount: 2 });
+    seedAssistantInfo({ id: "a", contactType: "human" });
+
+    const result = await new ContactStore().listContactsRich({
+      ids: ["a", "a", "ghost"],
+    });
+    expect(result.map((c) => c.id)).toEqual(["a"]);
+    expect(result[0].interactionCount).toBe(2);
   });
 
   test("primary channel appears first regardless of creation order", async () => {

@@ -17,6 +17,10 @@ mock.module("../../../config/loader.js", () => ({
   getConfigReadOnly: () => ({}),
   getConfig: () => ({}),
   invalidateConfigCache: () => {},
+  // Unused by these tests, but the route module's import chain
+  // (config/default-provider.js) needs the named exports to resolve.
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
 }));
 
 mock.module("../../../util/logger.js", () => ({

@@ -21,10 +21,11 @@ import { Tooltip } from "./tooltip";
  *
  * - Pass `variant` for chrome style and `size` for dimensions.
  * - Pass `leftIcon` / `rightIcon` for text+icon layouts.
- * - Pass `iconOnly` to render a square icon-only button (the icon is centered
- *   at the correct size for the chosen `size`). Without `asChild` the children
- *   are ignored; with `asChild` the caller's element (e.g. a `Link`) becomes
- *   the root and the icon is re-parented into it.
+ * - Pass the icon element as `iconOnly` (e.g. `iconOnly={<X />}`) to render a
+ *   square icon-only button (the icon is centered at the correct size for the
+ *   chosen `size`). Without `asChild` the children are ignored; with `asChild`
+ *   the caller's element (e.g. a `Link`) becomes the root and the icon is
+ *   re-parented into it.
  * - Use `asChild` to render as a child element (e.g. a `Link`) while keeping
  *   button styling and accessibility semantics. Uses Radix's `Slot`.
  * - Pass `expandOnMobile={false}` to opt an icon-only button out of the larger
@@ -99,6 +100,13 @@ const buttonVariants = cva(
           "hover:[--vbtn-fg:var(--primary-active)]",
           "hover:bg-[color-mix(in_srgb,var(--primary-second-hover)_15%,transparent)]",
           "active:bg-[color-mix(in_srgb,var(--primary-second-hover)_20%,transparent)] active:scale-100",
+          "disabled:[--vbtn-fg:var(--content-disabled)]",
+        ].join(" "),
+        link: [
+          "[--vbtn-fg:var(--content-link)]",
+          "inline bg-transparent border-transparent",
+          "hover:underline",
+          "active:scale-100",
           "disabled:[--vbtn-fg:var(--content-disabled)]",
         ].join(" "),
       },
@@ -200,6 +208,10 @@ const buttonVariants = cva(
           "touch-mobile:active:bg-[var(--surface-active)]",
         ].join(" "),
       },
+      {
+        variant: "link",
+        class: "h-auto p-0 rounded-none text-[length:inherit] leading-[inherit]",
+      },
     ],
     defaultVariants: {
       variant: "primary",
@@ -224,7 +236,13 @@ export interface ButtonProps
   size?: ButtonSize;
   leftIcon?: ReactNode;
   rightIcon?: ReactNode;
-  iconOnly?: ReactNode;
+  /**
+   * The icon element itself, not a flag. `true` is excluded from the type
+   * because a bare `iconOnly` attribute would put the icon-only chrome on a
+   * button with no visible content (`leftIcon`/`rightIcon`/`children` are
+   * ignored in icon-only mode). `false` stays allowed for `cond && <Icon />`.
+   */
+  iconOnly?: Exclude<ReactNode, boolean> | false;
   fullWidth?: boolean;
   active?: boolean;
   /**

@@ -20,6 +20,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import { backfillMessageIdOnLogs } from "../persistence/llm-request-log-store.js";
+import { resolveMediaSourceData } from "../providers/media-resolve.js";
 import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
@@ -88,7 +89,9 @@ function translateAgentEventToServerMessage(
         (b): b is Extract<typeof b, { type: "image" }> => b.type === "image",
       );
       const imageDataList = imageBlocks?.length
-        ? imageBlocks.map((b) => b.source.data)
+        ? imageBlocks
+            .map((b) => resolveMediaSourceData(b.source)?.data)
+            .filter((d): d is string => d != null)
         : undefined;
       return {
         type: "tool_result",
@@ -267,8 +270,9 @@ export async function persistWakeTailMessage(
  *
  * Mirrors {@link persistWakeTailMessage}'s channel/interface/provenance
  * metadata, but stamps `kind: "background-event"` (+ the originating `source`)
- * for identification, skips indexing (the body may carry untrusted command
- * output), and is NOT flagged hidden so the trigger shows in the transcript.
+ * for identification and skips indexing (the body may carry untrusted command
+ * output). The `backgroundEventSource` stamp lets clients hide this row from the
+ * rendered transcript — the user-facing wake card carries the status instead.
  */
 export async function persistWakeTriggerMessage(
   conversation: Conversation,
@@ -312,12 +316,10 @@ export async function persistWakeTriggerMessage(
       "wake trigger persist: syncMessageToDisk failed (non-fatal)",
     );
   }
-  // Tell connected clients the message list changed so they refetch and the
-  // visible trigger renders live. The normal user-send path publishes the same
-  // invalidation after persisting a user message; without it a wake that
-  // produces no assistant stream (silent no-op), or a conversation open in
-  // another client, would not show the <background_event> row until a manual
-  // reload.
+  // Tell connected clients the message list changed so they refetch. The
+  // trigger row itself is hidden from the transcript (clients drop rows carrying
+  // `backgroundEventSource`), but the refetch keeps other clients' state in sync
+  // and lets a wake that produces no assistant stream still settle cleanly.
   try {
     publishConversationMessagesChanged(conversation.conversationId);
   } catch (err) {

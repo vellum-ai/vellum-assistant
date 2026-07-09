@@ -8,7 +8,7 @@
  * the `LlmRequestLogSource` interface (which is `Promise`-returning so
  * implementations with real I/O can fit).
  */
-import type { LlmRequestLogSource } from "./llm-request-log-source.js";
+import type { LlmRequestLogSource } from "./llm-request-log-source-types.js";
 import {
   type CompactionAgentLogRow,
   getCompactionLogsBetween,

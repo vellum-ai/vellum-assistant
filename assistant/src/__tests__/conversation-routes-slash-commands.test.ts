@@ -8,7 +8,24 @@
  */
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
+// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
+// llm-resolver-override-or-default.test.ts and its companion suites.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
@@ -147,6 +164,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
 }));
 
 mock.module("../persistence/conversation-disk-view.js", () => ({
@@ -176,11 +194,10 @@ mock.module("../daemon/conversation-process.js", () => ({
   formatCompactResult: formatCompactResultMock,
 }));
 
+const realLocalActorIdentity =
+  await import("../runtime/local-actor-identity.js");
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-  }),
+  ...realLocalActorIdentity,
 }));
 
 mock.module("../runtime/trust-context-resolver.js", () => ({
@@ -567,7 +584,9 @@ describe("handleSendMessage canned wake-up greeting", () => {
   });
 
   afterEach(() => {
-    if (existsSync(bootstrapPath)) rmSync(bootstrapPath, { force: true });
+    if (existsSync(bootstrapPath)) {
+      rmSync(bootstrapPath, { force: true });
+    }
   });
 
   test("persists the clientMessageId on the user row", async () => {

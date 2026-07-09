@@ -94,7 +94,7 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
 // Import AFTER mocks so the module under test binds to the stubbed
 // implementations.
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   ensureGuardianPersonaFile,
   isGuardianPersonaCustomized,
@@ -132,7 +132,6 @@ afterEach(() => {
 
 describe("resolveGuardianPersonaPath", () => {
   test("returns null when no guardian exists", () => {
-
     expect(resolveGuardianPersonaPath()).toBeNull();
   });
 
@@ -206,7 +205,6 @@ describe("ensureGuardianPersonaFile", () => {
 
 describe("resolveGuardianPersonaStrict", () => {
   test("returns null when no guardian contact exists", () => {
-
     expect(resolveGuardianPersonaStrict()).toBeNull();
   });
 
@@ -350,5 +348,61 @@ describe("resolveUserSlug (guardian trust, no requester identity)", () => {
     } as TrustContext;
 
     expect(resolveUserSlug(trustContext)).toBe("alice");
+  });
+});
+
+// ── resolveUserSlug — guardian turns WITH a requester identity ─────
+//
+// A foreground guardian turn (e.g. the local desktop app after hatch) carries
+// both a `requesterExternalUserId` (the principal id) and a
+// `guardianExternalUserId`. The requester lookup can find the guardian's own
+// contact row whose `userFile` column is still null — the normal post-hatch
+// state, since onboarding writes users/guardian.md on disk but not the column.
+// That null must not strand the read on users/default.md: it has to fall
+// through to the guardian file the onboarding profile was written to.
+
+describe("resolveUserSlug (guardian trust WITH requester identity)", () => {
+  test("null-userFile guardian contact falls through to the guardian file, not default", () => {
+    // Guardian contact exists but has no explicit userFile (post-hatch state).
+    seedVellumGuardian(null);
+    // The requester principal id resolves to that same null-userFile contact.
+    mockContactsByAddress["vellum:principal-123"] = { userFile: null };
+
+    const trustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+      requesterExternalUserId: "principal-123",
+      guardianExternalUserId: "vellum:self",
+    } as TrustContext;
+
+    expect(resolveUserSlug(trustContext)).toBe("guardian");
+  });
+
+  test("an explicit requester userFile still wins over the guardian fallback", () => {
+    seedVellumGuardian(null);
+    mockContactsByAddress["vellum:principal-123"] = { userFile: "alice.md" };
+
+    const trustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+      requesterExternalUserId: "principal-123",
+      guardianExternalUserId: "vellum:self",
+    } as TrustContext;
+
+    expect(resolveUserSlug(trustContext)).toBe("alice");
+  });
+
+  test("non-guardian turn with a null-userFile contact does not borrow the guardian persona", () => {
+    seedVellumGuardian(null);
+    mockContactsByAddress["vellum:principal-123"] = { userFile: null };
+
+    const trustContext = {
+      sourceChannel: "vellum",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "principal-123",
+      guardianExternalUserId: "vellum:self",
+    } as TrustContext;
+
+    expect(resolveUserSlug(trustContext)).toBeNull();
   });
 });

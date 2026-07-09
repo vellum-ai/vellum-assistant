@@ -77,6 +77,7 @@ mock.module("../../../home/home-content-refresh.js", () => ({
 const {
   computeGreeting,
   formatRelativeTime,
+  handleBulkSetFeedItemStatus: _handleBulkSetFeedItemStatus,
   handleGetHomeFeed: _handleGetHomeFeed,
   handleListHomeFeed,
   handlePatchFeedItem: _handlePatchFeedItem,
@@ -308,11 +309,12 @@ describe("formatRelativeTime", () => {
 // ─── Route registration ────────────────────────────────────────────────────
 
 describe("homeFeedRouteDefinitions", () => {
-  test("registers GET /v1/home/feed, PATCH /v1/home/feed/:id, and POST /v1/home/feed/:id/actions/:actionId", () => {
+  test("registers GET /v1/home/feed, PATCH /v1/home/feed/:id, POST /v1/home/feed/mark-all, and POST /v1/home/feed/:id/actions/:actionId", () => {
     const routes = homeFeedRouteDefinitions();
     const endpoints = routes.map((r) => `${r.method} ${r.endpoint}`);
     expect(endpoints).toContain("GET home/feed");
     expect(endpoints).toContain("PATCH home/feed/:id");
+    expect(endpoints).toContain("POST home/feed/mark-all");
     expect(endpoints).toContain("POST home/feed/:id/actions/:actionId");
   });
 });
@@ -786,5 +788,144 @@ describe("handleListHomeFeed", () => {
 
     const result = handleListHomeFeed({ body: {} }) as ListResult;
     expect(result.items.map((i) => i.id)).toEqual(["alive"]);
+  });
+});
+
+// ─── handleBulkSetFeedItemStatus ───────────────────────────────────────────
+
+describe("handleBulkSetFeedItemStatus", () => {
+  type BulkResult = { updatedCount: number; updatedAt: string };
+
+  test("200 with count and updatedAt when items are flipped", async () => {
+    await appendFeedItem(makeItem({ id: "n1", status: "new" }) as never);
+    await appendFeedItem(
+      makeItem({
+        id: "n2",
+        status: "new",
+        createdAt: "2026-04-14T12:00:01.000Z",
+      }) as never,
+    );
+    await appendFeedItem(
+      makeItem({
+        id: "s1",
+        status: "seen",
+        createdAt: "2026-04-14T12:00:02.000Z",
+      }) as never,
+    );
+
+    const result = (await _handleBulkSetFeedItemStatus({
+      body: { from: ["new"], to: "seen" },
+    })) as BulkResult;
+
+    expect(result.updatedCount).toBe(2);
+    expect(typeof result.updatedAt).toBe("string");
+    expect(Number.isNaN(Date.parse(result.updatedAt))).toBe(false);
+  });
+
+  test("200 with updatedCount 0 when nothing matches", async () => {
+    await appendFeedItem(makeItem({ id: "s1", status: "seen" }) as never);
+    await appendFeedItem(
+      makeItem({
+        id: "s2",
+        status: "seen",
+        createdAt: "2026-04-14T12:00:01.000Z",
+      }) as never,
+    );
+
+    const result = (await _handleBulkSetFeedItemStatus({
+      body: { from: ["new"], to: "seen" },
+    })) as BulkResult;
+
+    expect(result.updatedCount).toBe(0);
+  });
+
+  test("ids scope limits update to specified items only", async () => {
+    await appendFeedItem(makeItem({ id: "n1", status: "new" }) as never);
+    await appendFeedItem(
+      makeItem({
+        id: "n2",
+        status: "new",
+        createdAt: "2026-04-14T12:00:01.000Z",
+      }) as never,
+    );
+
+    const result = (await _handleBulkSetFeedItemStatus({
+      body: { from: ["new"], to: "seen", ids: ["n1"] },
+    })) as BulkResult;
+
+    expect(result.updatedCount).toBe(1);
+  });
+
+  test("400 on empty from array", async () => {
+    let caught: unknown;
+    try {
+      await _handleBulkSetFeedItemStatus({
+        body: { from: [], to: "seen" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RouteError);
+    expect((caught as { statusCode: number }).statusCode).toBe(400);
+  });
+
+  test("400 on invalid to value", async () => {
+    let caught: unknown;
+    try {
+      await _handleBulkSetFeedItemStatus({
+        body: { from: ["new"], to: "bogus" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RouteError);
+    expect((caught as { statusCode: number }).statusCode).toBe(400);
+  });
+
+  test("400 on missing body fields", async () => {
+    let caught: unknown;
+    try {
+      await _handleBulkSetFeedItemStatus({
+        body: { from: ["new"] },
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RouteError);
+    expect((caught as { statusCode: number }).statusCode).toBe(400);
+  });
+
+  test("500 when the underlying write fails", async () => {
+    const feedPath = getHomeFeedPath();
+    writeFeedFile([makeItem({ id: "n1", status: "new" })]);
+
+    const fs = await import("node:fs");
+    const originalWrite = fs.writeFileSync;
+    mock.module("node:fs", () => ({
+      ...fs,
+      writeFileSync: mock(
+        (
+          path: string,
+          data: string | NodeJS.ArrayBufferView,
+          options?: import("node:fs").WriteFileOptions,
+        ) => {
+          if (typeof path === "string" && path === feedPath) {
+            throw new Error("Simulated write failure");
+          }
+          return originalWrite(path, data, options);
+        },
+      ),
+    }));
+
+    let caught: unknown;
+    try {
+      await _handleBulkSetFeedItemStatus({
+        body: { from: ["new"], to: "seen" },
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RouteError);
+    expect((caught as { statusCode: number }).statusCode).toBe(500);
   });
 });

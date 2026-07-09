@@ -34,7 +34,11 @@ let createCollectionCalls: CreateCollectionCall[];
 let upsertCalls: UpsertCall[];
 let queryCalls: QueryCall[];
 let deleteCalls: DeleteCall[];
+let deleteCollectionCalls: string[];
 let payloadIndexCalls: Array<Record<string, unknown>>;
+// Sparse-vector config reported by getCollection for an existing collection.
+let mockSparseVectors: Record<string, unknown> | null;
+let updateCollectionCalls: Array<{ name: string; params: unknown }>;
 let mockQueryPoints: Array<{
   id: string | number;
   score: number;
@@ -47,7 +51,10 @@ function resetMockState() {
   upsertCalls = [];
   queryCalls = [];
   deleteCalls = [];
+  deleteCollectionCalls = [];
   payloadIndexCalls = [];
+  mockSparseVectors = { sparse: { index: { on_disk: true } } };
+  updateCollectionCalls = [];
   mockQueryPoints = [];
 }
 
@@ -60,6 +67,20 @@ mock.module("@qdrant/js-client-rest", () => ({
     async createCollection(name: string, config: Record<string, unknown>) {
       createCollectionCalls.push({ name, config });
       mockCollectionExists = true;
+    }
+
+    async getCollection(_name: string) {
+      return {
+        config: {
+          params: {
+            ...(mockSparseVectors ? { sparse_vectors: mockSparseVectors } : {}),
+          },
+        },
+      };
+    }
+
+    async updateCollection(name: string, params: unknown) {
+      updateCollectionCalls.push({ name, params });
     }
 
     async createPayloadIndex(_name: string, config: Record<string, unknown>) {
@@ -80,6 +101,11 @@ mock.module("@qdrant/js-client-rest", () => ({
 
     async delete(name: string, opts: DeleteCall["opts"]) {
       deleteCalls.push({ name, opts });
+    }
+
+    async deleteCollection(name: string) {
+      deleteCollectionCalls.push(name);
+      mockCollectionExists = false;
     }
 
     async count(_name: string, _opts: unknown) {
@@ -112,11 +138,13 @@ describe("MessagesLexicalIndex", () => {
     expect(createCollectionCalls.length).toBe(1);
     const config = createCollectionCalls[0].config;
 
-    // Sparse vector named "sparse" must be present.
+    // Sparse vector named "sparse" must be present, with its inverted index
+    // on disk instead of Qdrant's in-RAM default — this index grows with
+    // every message ever written.
     expect(config.sparse_vectors).toBeDefined();
-    expect(
-      (config.sparse_vectors as Record<string, unknown>).sparse,
-    ).toBeDefined();
+    expect((config.sparse_vectors as Record<string, unknown>).sparse).toEqual({
+      index: { on_disk: true },
+    });
 
     // No dense `vectors` config at all.
     expect(config.vectors).toBeUndefined();
@@ -134,6 +162,35 @@ describe("MessagesLexicalIndex", () => {
     );
     expect(convIdx?.field_schema).toBe("keyword");
     expect(createdIdx?.field_schema).toBe("integer");
+  });
+
+  test("moves an in-RAM sparse index to disk on an existing collection", async () => {
+    mockCollectionExists = true;
+    // Collection created before the sparse index carried an explicit placement.
+    mockSparseVectors = { sparse: {} };
+
+    const index = makeIndex();
+    await index.ensureCollection();
+
+    // In-place update only — the collection is never dropped or recreated.
+    expect(createCollectionCalls).toEqual([]);
+    expect(deleteCollectionCalls).toEqual([]);
+    expect(updateCollectionCalls).toEqual([
+      {
+        name: "messages_lexical",
+        params: { sparse_vectors: { sparse: { index: { on_disk: true } } } },
+      },
+    ]);
+  });
+
+  test("leaves an already on-disk sparse index alone", async () => {
+    mockCollectionExists = true;
+    mockSparseVectors = { sparse: { index: { on_disk: true } } };
+
+    const index = makeIndex();
+    await index.ensureCollection();
+
+    expect(updateCollectionCalls).toEqual([]);
   });
 
   test("upsertMessage writes a deterministic point id and a sparse-only vector with the right payload", async () => {
@@ -275,6 +332,26 @@ describe("MessagesLexicalIndex", () => {
   test("count returns the collection count", async () => {
     const index = makeIndex();
     expect(await index.count()).toBe(7);
+  });
+
+  test("clear drops the whole collection when it exists", async () => {
+    mockCollectionExists = true;
+    const index = makeIndex();
+
+    const dropped = await index.clear();
+
+    expect(dropped).toBe(true);
+    expect(deleteCollectionCalls).toEqual(["messages_lexical"]);
+  });
+
+  test("clear returns false (no throw) when the collection is absent", async () => {
+    mockCollectionExists = false;
+    const index = makeIndex();
+
+    const dropped = await index.clear();
+
+    expect(dropped).toBe(false);
+    expect(deleteCollectionCalls).toEqual([]);
   });
 
   test("no dense vector is ever written or queried across operations", async () => {

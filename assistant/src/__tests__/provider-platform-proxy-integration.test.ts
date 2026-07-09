@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
+// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
+// llm-resolver-override-or-default.test.ts and its companion suites.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 import type { Services } from "../config/schemas/services.js";
 import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
@@ -637,7 +646,13 @@ describe("managed proxy integration — ollama exclusion", () => {
   test("ollama registers only when explicitly configured as provider", async () => {
     enableManagedProxy();
     mockProviderKeys = {};
-    await initializeProviders(makeProvidersConfig("ollama", "test-model"));
+    const config = makeProvidersConfig("ollama", "test-model");
+    // Disable the catalog default so resolution lands on llm.default.
+    config.llm.profiles = {
+      ...config.llm.profiles,
+      balanced: { source: "managed", status: "disabled" },
+    };
+    await initializeProviders(config);
     expect(listProviders()).toContain("ollama");
   });
 

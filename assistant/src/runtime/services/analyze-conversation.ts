@@ -20,6 +20,8 @@
  * against `llm.callSites.analyzeConversation` (falling back to `llm.default`
  * when no override is set).
  */
+import { v7 as uuidv7 } from "uuid";
+
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import {
   AUTO_ANALYSIS_GROUP_ID,
@@ -232,12 +234,19 @@ export async function analyzeConversation(
   }
 
   // i. Persist the user message (with provenance snapshot matching the
-  // trust context we will run under).
+  // trust context we will run under). Mint the request ID up front and
+  // persist the row under it so the analysis prompt's row id and the
+  // turn's `currentRequestId` are the same value: the same
+  // requestId-as-row-id invariant the standard submit path holds. Without
+  // this, `addMessage` would auto-assign a fresh row id while step (k)
+  // minted an unrelated `currentRequestId`, leaving `userMessageId` and
+  // `requestId` divergent for the analysis turn.
+  const requestId = uuidv7();
   const message = await addMessage(
     analysisConversationId,
     "user",
     JSON.stringify([{ type: "text", text: prompt }]),
-    { metadata: { provenanceTrustClass: trustClass } },
+    { id: requestId, metadata: { provenanceTrustClass: trustClass } },
   );
   const messageId = message.id;
 
@@ -268,10 +277,13 @@ export async function analyzeConversation(
   // j. Wire broadcastMessage as the event publisher
   analysisConversation.updateClient(broadcastMessage, !hasLiveSubscriber);
 
-  // k. Set up processing state (required by runAgentLoop guard)
+  // k. Set up processing state (required by runAgentLoop guard). Reuse the
+  // request ID the prompt row was persisted under (step i) so
+  // `currentRequestId` equals the user message's row id, keeping
+  // `requestId === userMessageId` for the analysis turn.
   analysisConversation.setProcessing(true);
   analysisConversation.abortController = new AbortController();
-  analysisConversation.currentRequestId = crypto.randomUUID();
+  analysisConversation.currentRequestId = requestId;
 
   // l. Fire-and-forget the agent loop. `callSite: 'analyzeConversation'`
   // routes the per-call provider config through `resolveCallSiteConfig`

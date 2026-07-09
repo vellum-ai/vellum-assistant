@@ -85,7 +85,8 @@ interface PanelItemProps {
   badge?: ReactNode;
   /**
    * Trailing slot (commonly an ellipsis / more-options button). Hidden by
-   * default, revealed on hover, and always visible when `active`.
+   * default; revealed on hover or focus-within, while a child menu is open
+   * (`aria-expanded="true"` on the trigger), and always when `active`.
    */
   trailingAction?: ReactNode;
   /** Selected state. Sets `aria-current="page"` automatically. */
@@ -196,7 +197,17 @@ const TRAILING_ACTION_CLASSES = [
   "flex items-center shrink-0",
   "opacity-0 transition-opacity",
   "group-hover:opacity-100",
+  // Keyboard path: reveal when the row or the action itself has focus, and
+  // keep it visible while its menu is open (focus moves into the portal'd
+  // menu content, so focus-within alone would let it fade mid-interaction).
+  "group-focus-within:opacity-100",
+  "has-[[aria-expanded=true]]:opacity-100",
   "group-aria-[current=page]:opacity-100",
+  // Coarse-pointer (touch) devices have no hover to reveal the action — keep
+  // it visible. Gates on pointer capability alone (not viewport width) so
+  // tablets and wide mobile layouts are covered too; a coarse primary
+  // pointer never matches desktop browsers or Electron.
+  "pointer-coarse:opacity-100",
 ].join(" ");
 
 // ---------------------------------------------------------------------------

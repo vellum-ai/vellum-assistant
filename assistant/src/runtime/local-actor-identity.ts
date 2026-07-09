@@ -4,27 +4,21 @@
  * Local connections come from the native app via local HTTP sessions.
  * No actor token is sent over the connection; instead, the daemon assigns a
  * deterministic local actor identity server-side by looking up the vellum
- * channel guardian binding.
- *
- * This routes local connections through the same `resolveTrustContext`
- * pathway used by HTTP channel ingress, producing equivalent
- * guardian-context behavior for the vellum channel.
+ * channel guardian binding — the same gateway-owned binding
+ * `resolveLocalPrincipalTrustContext` maps trust from.
  */
 
-import type { ChannelId } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
 import {
   getGuardianDelivery,
   guardianForChannel,
   peekCachedGuardianDelivery,
 } from "../contacts/guardian-delivery-reader.js";
-import type { TrustContext } from "../daemon/trust-context.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import { CURRENT_POLICY_EPOCH } from "./auth/policy.js";
 import { resolveScopeProfile } from "./auth/scopes.js";
 import type { AuthContext } from "./auth/types.js";
-import { resolveTrustContext } from "./trust-context-resolver.js";
 
 const log = getLogger("local-actor-identity");
 
@@ -68,6 +62,20 @@ export async function findLocalGuardianPrincipalId(): Promise<
 }
 
 /**
+ * Resolve a decidable guardian principal for canonical guardian-request
+ * creation: the channel binding's principal when present, else the vellum
+ * anchor principal (the adopt/repair path for guardian rows that carry no
+ * principal). A falsy binding principal (`null` or `""`) is unresolved by
+ * contract — decisionable requests must never be created with an empty
+ * principal, so callers fail closed on `undefined`.
+ */
+export async function resolveDecidableGuardianPrincipalId(
+  bindingPrincipalId: string | null,
+): Promise<string | undefined> {
+  return bindingPrincipalId || (await findLocalGuardianPrincipalId());
+}
+
+/**
  * Eagerly warm the gateway guardian-delivery cache for the vellum channel.
  *
  * The SSE eager-subscribe path resolves the actor principal synchronously via
@@ -107,8 +115,8 @@ export function findLocalGuardianPrincipalIdFromStore(): string | undefined {
  * guardian's principalId when running in `DISABLE_HTTP_AUTH=true` mode.
  *
  * The dev-bypass `AuthContext` (`runtime/auth/middleware.ts`) injects
- * `"dev-bypass"` as the actor principal id for every request, but tool-side
- * trust resolution (`resolveLocalTrustContext`) and SSE registration both
+ * `"dev-bypass"` as the actor principal id for every request, but trust
+ * resolution (`resolveLocalPrincipalTrustContext`) and SSE registration both
  * carry the real local guardian principalId. Without this translation, every
  * targeted host_bash/host_file/host_cu/host_transfer result POST mismatches
  * the same-user check and is rejected with 403, and conversation/surface/
@@ -158,46 +166,6 @@ export function resolveActorPrincipalIdForLocalGuardianSync(
     "dev-bypass actor principal received but no vellum guardian binding found; returning undefined",
   );
   return undefined;
-}
-
-/**
- * Resolve the guardian runtime context for a local connection.
- *
- * Looks up the vellum guardian binding to obtain the `guardianPrincipalId`,
- * then passes it as the sender identity through `resolveTrustContext` --
- * the same pathway HTTP channel routes use. This ensures local and HTTP
- * produce equivalent trust classification for the vellum channel.
- *
- * When no vellum guardian binding exists (e.g. fresh install before
- * bootstrap), falls back to a minimal guardian context so the local
- * user is not incorrectly denied.
- */
-export async function resolveLocalTrustContext(
-  sourceChannel: ChannelId = "vellum",
-): Promise<TrustContext> {
-  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-
-  const guardianPrincipalId = await findLocalGuardianPrincipalId();
-  if (guardianPrincipalId) {
-    const trustCtx = resolveTrustContext({
-      assistantId,
-      sourceChannel: "vellum",
-      conversationExternalId: "local",
-      actorExternalId: guardianPrincipalId,
-    });
-    return { ...trustCtx, sourceChannel };
-  }
-
-  log.warn(
-    "No vellum guardian binding found — gateway may not have started yet; falling back to minimal trust context",
-  );
-  const trustCtx = resolveTrustContext({
-    assistantId,
-    sourceChannel: "vellum",
-    conversationExternalId: "local",
-    actorExternalId: "local",
-  });
-  return { ...trustCtx, sourceChannel };
 }
 
 /**

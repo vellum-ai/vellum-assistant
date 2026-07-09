@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { NativeSplash } from "@/components/native-splash";
-import { DarkLoginShell, LoginCard, LoginErrorText } from "@/domains/account/components/login-shell";
-import { PlatformLoginButtons } from "@/domains/account/components/platform-login-buttons";
+import { DarkLoginShell, LoginCard, LoginErrorText, LoginHeading } from "@/domains/account/components/login-shell";
 import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
 import { startAuthFlow, startNativeLogin, useIsNativePlatform } from "@/runtime/native-auth";
+import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library";
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
@@ -82,24 +82,23 @@ function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
 }
 
 /**
- * Web login form: three equal sign-in buttons routing through WorkOS.
- * Wraps itself in a forced-dark theme context with the branded
- * `LoginBackground` — the web login screen is always dark per Figma.
+ * Web / Electron login: a single CTA that hands off to WorkOS AuthKit (which
+ * hosts the provider + email/password selection). Wrapped in a forced-dark
+ * theme context (the web login screen is always dark per Figma).
  */
 function WebLoginForm({ returnTo }: { returnTo: string | null }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
   const callbackUrl = buildProviderCallbackUrl(returnTo);
+  const signUpHref = returnTo
+    ? `${routes.account.signup}?returnTo=${encodeURIComponent(returnTo)}`
+    : routes.account.signup;
 
-  const handleProvider = async (providerHint?: string) => {
+  const handleContinue = async () => {
     setErrorMessage(null);
     setLoading(true);
     try {
-      await startAuthFlow(PROVIDER_ID, callbackUrl, {
-        ...(providerHint ? { providerHint } : {}),
-        returnTo,
-      });
+      await startAuthFlow(PROVIDER_ID, callbackUrl, { returnTo });
     } catch (err) {
       console.error("[web-login] auth flow failed:", err);
       setErrorMessage("Something went wrong. Please try again.");
@@ -110,14 +109,31 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
   return (
     <DarkLoginShell>
       <LoginCard>
-        <PlatformLoginButtons
-          returnTo={returnTo}
-          loading={loading}
-          errorMessage={errorMessage}
-          onProviderClick={(hint) => {
-            void handleProvider(hint);
-          }}
-        />
+        <LoginHeading>Sign in to Vellum</LoginHeading>
+        {errorMessage && <LoginErrorText>{errorMessage}</LoginErrorText>}
+        <div className="flex flex-col items-center gap-3">
+          <Button
+            type="button"
+            variant="primary"
+            fullWidth
+            onClick={() => void handleContinue()}
+            disabled={loading}
+            className="max-w-[300px]"
+          >
+            Continue
+          </Button>
+        </div>
+        <p className="text-body-small-default flex justify-center gap-1">
+          <span className="text-[var(--content-secondary)]">
+            Don&apos;t have an account?
+          </span>
+          <Link
+            to={signUpHref}
+            className="font-medium text-[var(--content-emphasised)] hover:underline"
+          >
+            Sign up
+          </Link>
+        </p>
       </LoginCard>
     </DarkLoginShell>
   );

@@ -22,6 +22,7 @@ export async function submitSurfaceAction(
   surfaceId: string,
   actionId: string,
   data?: Record<string, unknown>,
+  conversationId?: string,
 ): Promise<SurfaceActionResult> {
   if (
     !surfaceId ||
@@ -35,7 +36,7 @@ export async function submitSurfaceAction(
   try {
     const { data: resData, response } = await surfaceactionsPost({
       path: { assistant_id: assistantId },
-      body: { surfaceId, actionId, data },
+      body: { surfaceId, actionId, data, conversationId },
       throwOnError: false,
     });
     if (!response?.ok || !resData) {

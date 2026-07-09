@@ -10,18 +10,34 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Unique identifier for a registered TTS provider.
+ * The canonical, closed list of built-in TTS provider IDs.
  *
- * Values correspond to the provider names already used in config schemas
- * (e.g. `"elevenlabs"`, `"fish-audio"`). New providers simply add a new
- * string to this union — the registry enforces uniqueness at runtime.
+ * This is the single source of truth for provider identity. The provider
+ * catalog (`provider-catalog.ts`) is statically checked to define exactly one
+ * {@link TtsProviderDefinition} per ID here, and the config schema
+ * (`config/schemas/tts.ts`) derives its valid-provider validation from this
+ * list. This module is a dependency-free leaf so the config schema can read
+ * the IDs without pulling in the provider adapters (whose modules import the
+ * config loader).
+ *
+ * Adding a new TTS provider starts here — the compiler then walks you through
+ * the catalog and config-schema wiring.
  */
-export type TtsProviderId =
-  | "elevenlabs"
-  | "fish-audio"
-  | "deepgram"
-  | "xai"
-  | (string & {});
+export const TTS_PROVIDER_IDS = [
+  "elevenlabs",
+  "fish-audio",
+  "deepgram",
+  "xai",
+] as const;
+
+/**
+ * Unique identifier for a TTS provider — the closed union derived from
+ * {@link TTS_PROVIDER_IDS}. Values correspond to the provider names used in
+ * config schemas (e.g. `"elevenlabs"`, `"fish-audio"`). Lookup functions that
+ * accept runtime-sourced IDs (config values, test stubs) take `string` and
+ * validate at runtime instead of widening this union.
+ */
+export type TtsProviderId = (typeof TTS_PROVIDER_IDS)[number];
 
 // ---------------------------------------------------------------------------
 // Call-mode discriminator
@@ -30,10 +46,9 @@ export type TtsProviderId =
 /**
  * Describes how a TTS provider integrates with the telephony call path.
  *
- * - `native-twilio`    — Twilio handles TTS natively via ConversationRelay;
- *                         text tokens are forwarded to the relay and Twilio
- *                         synthesises audio using the provider's built-in
- *                         integration.
+ * - `native-twilio`    — Twilio handles TTS natively; text tokens are
+ *                         forwarded to Twilio, which synthesises audio
+ *                         using the provider's built-in integration.
  * - `synthesized-play` — The assistant synthesises audio via the provider's
  *                         HTTP API and streams chunks to Twilio via `play`
  *                         messages. Used when the provider is not natively
@@ -89,6 +104,14 @@ export interface TtsSynthesisRequest {
    * actual format of the returned audio.
    */
   outputFormat?: "pcm";
+
+  /**
+   * Optional preferred output sample rate in Hz, meaningful with
+   * `outputFormat: "pcm"`. Providers pick the nearest rate they support;
+   * callers must not assume the hint was honoured exactly and should rely
+   * on provider-documented behavior (see each provider's format mapping).
+   */
+  sampleRateHz?: number;
 }
 
 /** Output of a completed TTS synthesis call. */
@@ -164,11 +187,28 @@ export interface TtsProviderCapabilities {
  * `synthesizeStream`.
  */
 export interface TtsProvider {
-  /** Unique provider identifier used for registry lookup. */
-  readonly id: TtsProviderId;
+  /**
+   * Unique provider identifier used for adapter lookup. Plain `string`
+   * rather than {@link TtsProviderId} so tests can install stub adapters
+   * under arbitrary IDs; catalog adapters carry their catalog ID.
+   */
+  readonly id: string;
 
   /** Static capability advertisement. */
   readonly capabilities: TtsProviderCapabilities;
+
+  /**
+   * Actual PCM output sample rate in Hz that synthesizing `request` will
+   * produce, when deterministically known before synthesis begins.
+   *
+   * This up-front probe is the single source of truth for the actual output
+   * rate — {@link TtsSynthesisResult} carries no rate. Streaming callers that
+   * label emitted chunks with a rate use this so the first chunk — delivered
+   * before the final result resolves — carries the provider's true output
+   * rate rather than the request's `sampleRateHz` hint. Returns `undefined`
+   * for non-PCM output or when the rate is not known up-front.
+   */
+  resolveOutputSampleRateHz?(request: TtsSynthesisRequest): number | undefined;
 
   /**
    * Synthesize text and return the complete audio buffer.

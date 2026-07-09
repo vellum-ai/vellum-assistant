@@ -47,6 +47,19 @@ let recordedLastUsedTouches: Array<{ skillDir: string; today: string }> = [];
 
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
+  // Faithful reimplementation of the real plugin-scope filter — the
+  // per-chat plugin scope suite below depends on its drop behavior.
+  filterSkillsByEnabledPlugins: (
+    skills: SkillSummary[],
+    effectiveEnabledPluginSet: Set<string> | null,
+  ) =>
+    effectiveEnabledPluginSet === null
+      ? skills
+      : skills.filter((skill) => {
+          const owner = skill.owner;
+          if (owner?.kind !== "plugin") return true;
+          return effectiveEnabledPluginSet.has(owner.id);
+        }),
 }));
 
 mock.module("../skills/active-skill-tools.js", () => {
@@ -3004,6 +3017,66 @@ describe("includes metadata does not auto-activate child skill tools", () => {
     expect(result.allowedToolNames.has("gp_action")).toBe(true);
     expect(result.allowedToolNames.has("parent_action")).toBe(false);
     expect(result.allowedToolNames.has("child_action")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-chat plugin scope — effectiveEnabledPluginSet drops plugin skills
+// ---------------------------------------------------------------------------
+
+describe("projectSkillTools per-chat plugin scope", () => {
+  function makePluginSkill(id: string, pluginId: string): SkillSummary {
+    return {
+      ...makeSkill(id, `/skills/${id}`, "plugin"),
+      owner: { kind: "plugin", id: pluginId },
+    };
+  }
+
+  beforeEach(() => {
+    mockCatalog = [makeSkill("deploy"), makePluginSkill("plug_skill", "b")];
+    mockManifests = {
+      deploy: makeManifest(["deploy_run"]),
+      plug_skill: makeManifest(["plug_action"]),
+    };
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
+    mockRegisterFailures = new Set();
+  });
+
+  test("set excluding the owning plugin drops that plugin's skill tools", () => {
+    const result = projectSkillTools([], {
+      preactivatedSkillIds: ["deploy", "plug_skill"],
+      previouslyActiveSkillIds: new Map<string, string>(),
+      effectiveEnabledPluginSet: new Set(["a"]),
+    });
+
+    expect(result.allowedToolNames.has("deploy_run")).toBe(true);
+    expect(result.allowedToolNames.has("plug_action")).toBe(false);
+  });
+
+  test("null set leaves plugin skill resolution unchanged", () => {
+    const result = projectSkillTools([], {
+      preactivatedSkillIds: ["deploy", "plug_skill"],
+      previouslyActiveSkillIds: new Map<string, string>(),
+      effectiveEnabledPluginSet: null,
+    });
+
+    expect(result.allowedToolNames.has("deploy_run")).toBe(true);
+    expect(result.allowedToolNames.has("plug_action")).toBe(true);
+  });
+
+  test("set including the owning plugin keeps that plugin's skill tools", () => {
+    const result = projectSkillTools([], {
+      preactivatedSkillIds: ["deploy", "plug_skill"],
+      previouslyActiveSkillIds: new Map<string, string>(),
+      effectiveEnabledPluginSet: new Set(["b"]),
+    });
+
+    expect(result.allowedToolNames.has("deploy_run")).toBe(true);
+    expect(result.allowedToolNames.has("plug_action")).toBe(true);
   });
 });
 

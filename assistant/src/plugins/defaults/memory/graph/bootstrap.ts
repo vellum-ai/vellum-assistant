@@ -21,10 +21,7 @@ import {
   setMemoryCheckpoint,
 } from "../../../../persistence/checkpoints.js";
 import { getDb } from "../../../../persistence/db-connection.js";
-import {
-  initQdrantClient,
-  resolveQdrantUrl,
-} from "../../../../persistence/embeddings/qdrant-client.js";
+import { initQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
@@ -38,6 +35,7 @@ import {
 } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
+import { resolveQdrantUrl } from "../embeddings.js";
 import { runGraphExtraction } from "./extraction.js";
 import { countNodes } from "./store.js";
 
@@ -86,7 +84,7 @@ export async function bootstrapFromHistory(
   // Initialize Qdrant client for inline embedding
   try {
     initQdrantClient({
-      url: resolveQdrantUrl(config),
+      url: resolveQdrantUrl(),
       collection: config.memory.qdrant.collection,
       vectorSize: config.memory.qdrant.vectorSize,
       onDisk: config.memory.qdrant.onDisk ?? true,
@@ -416,6 +414,7 @@ export function migrateToolCreatedItems(): void {
   let rows: LegacyItem[];
   try {
     rows = rawAll<LegacyItem>(
+      "memoryGraph:migrateItems:select",
       `SELECT id, kind, subject, statement, confidence, importance, scope_id, first_seen_at
        FROM memory_items
        WHERE kind IN (${placeholders}) AND status = 'active'`,
@@ -447,6 +446,7 @@ export function migrateToolCreatedItems(): void {
     // Check if already migrated (sourceKey exists in graph)
     const sourceKey = `${prefix}${row.id}`;
     const existing = rawGet<{ id: string }>(
+      "memoryGraph:migrateItems:existing",
       `SELECT id FROM memory_graph_nodes WHERE source_conversations LIKE ?`,
       `%${sourceKey}%`,
     );
@@ -463,6 +463,7 @@ export function migrateToolCreatedItems(): void {
     });
 
     rawRun(
+      "memoryGraph:migrateItems:insert",
       `INSERT INTO memory_graph_nodes (
         id, content, type, created, last_accessed, last_consolidated,
         event_date, emotional_charge, fidelity, confidence, significance,

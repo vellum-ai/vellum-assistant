@@ -25,6 +25,11 @@ const ALLOWED_PREFIXES = {
     // deps) — status prints it to surface CLI-vs-runtime version drift.
     "../../version",
     "../../../version",
+    // Robust stdin reader (leaf module; only node:fs, no daemon deps) —
+    // commands that accept piped payloads read fd 0 through it at depth-1
+    // and depth-2.
+    "../../util/read-stdin",
+    "../../../util/read-stdin",
     // Logger / output at depth-1 and depth-2.
     "../logger",
     "../output",
@@ -78,6 +83,9 @@ const ALLOWED_PREFIXES = {
     // Secure key storage (keys.ts) needs direct security module access —
     // by design, the secure-key helpers run in-process (not over IPC).
     "../../security/",
+    // Canonical API-key provider list (keys.ts help text + validation) —
+    // a static metadata catalog with no daemon state.
+    "../../providers/provider-secret-catalog",
     // CES bridge (credential-execution.ts) speaks to the CES sidecar via
     // service-contracts RPC; daemon is not involved.
     "../../credential-execution/",

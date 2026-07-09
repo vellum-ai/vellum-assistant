@@ -62,12 +62,19 @@ export type RemoteWebPairingTokenResult =
 
 export class RemoteWebPairingError extends Error {
   readonly status: number;
+  readonly code: string | null;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code: string | null = null) {
     super(message);
     this.name = "RemoteWebPairingError";
     this.status = status;
+    this.code = code;
   }
+}
+
+function errorBodyCode(body: unknown): string | null {
+  const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+  return typeof code === "string" ? code : null;
 }
 
 function stringParam(
@@ -285,6 +292,7 @@ export async function exchangeRemoteWebPairingToken(
     throw new RemoteWebPairingError(
       response.status,
       `Pairing token exchange failed: ${response.status}`,
+      errorBodyCode(body),
     );
   }
 

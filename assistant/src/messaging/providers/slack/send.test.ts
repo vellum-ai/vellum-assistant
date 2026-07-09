@@ -31,6 +31,12 @@ mock.module("./api.js", () => ({
     }
   },
   uploadToSlackUrl: async () => {},
+  startSlackStream: (params: { markdownText?: string }) =>
+    callSlackApiMock("chat.startStream", { ...params }),
+  appendSlackStream: (params: { markdownText?: string }) =>
+    callSlackApiMock("chat.appendStream", { ...params }),
+  stopSlackStream: (params: { markdownText?: string }) =>
+    callSlackApiMock("chat.stopStream", { ...params }),
 }));
 
 const { SlackApiError } = await import("./api.js");
@@ -270,6 +276,85 @@ describe("sendSlackReply post path", () => {
 
     await expect(
       sendSlackReply("C123", "Fresh reply", { threadTs, blocks }),
+    ).rejects.toThrow();
+    expect(callSlackApiMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sendSlackReply approval fallback", () => {
+  const approval = {
+    requestId: "req-123",
+    actions: [
+      { id: "approve_once", label: "Approve once" },
+      { id: "reject", label: "Reject" },
+    ],
+    plainTextFallback: 'Reply "ABC123 approve" or "ABC123 reject"',
+  };
+  const blocks: KnownBlock[] = [
+    { type: "section", text: { type: "mrkdwn", text: "Approve tool: bash" } },
+  ];
+
+  beforeEach(() => {
+    callSlackApiMock.mockReset();
+    callSlackApiMock.mockImplementation(async () => ({ ok: true }));
+  });
+
+  test("block-free retry re-attaches plain-text reply instructions", async () => {
+    // Dropping an approval's blocks drops its buttons — the retry text must
+    // carry the reply instructions so the recipient can still act.
+    callSlackApiMock
+      .mockImplementationOnce(async () => {
+        throw new SlackApiError("invalid_blocks");
+      })
+      .mockImplementationOnce(async () => ({
+        ok: true,
+        ts: "1700000000.000400",
+      }));
+
+    const result = await sendSlackReply("C123", "Approve tool: bash", {
+      blocks,
+      approval,
+    });
+
+    expect(result).toEqual({ ok: true, ts: "1700000000.000400" });
+    expect(callSlackApiMock).toHaveBeenCalledTimes(2);
+    expect(callSlackApiMock).toHaveBeenNthCalledWith(2, "chat.postMessage", {
+      channel: "C123",
+      text: 'Approve tool: bash\n\nReply "ABC123 approve" or "ABC123 reject"',
+    });
+  });
+
+  test("retry text is unchanged when it already contains the instructions", async () => {
+    callSlackApiMock
+      .mockImplementationOnce(async () => {
+        throw new SlackApiError("msg_blocks_too_long");
+      })
+      .mockImplementationOnce(async () => ({
+        ok: true,
+        ts: "1700000000.000500",
+      }));
+
+    const text = `Approve tool: bash\n\n${approval.plainTextFallback}`;
+    await sendSlackReply("C123", text, { blocks, approval });
+
+    expect(callSlackApiMock).toHaveBeenNthCalledWith(2, "chat.postMessage", {
+      channel: "C123",
+      text,
+    });
+  });
+
+  test("approval without usable instructions is never retried bare", async () => {
+    // A block-free approval with no reply instructions gives the recipient no
+    // way to respond — fail the delivery instead so it surfaces as an error.
+    callSlackApiMock.mockImplementationOnce(async () => {
+      throw new SlackApiError("invalid_blocks");
+    });
+
+    await expect(
+      sendSlackReply("C123", "Approve tool: bash", {
+        blocks,
+        approval: { ...approval, plainTextFallback: "  " },
+      }),
     ).rejects.toThrow();
     expect(callSlackApiMock).toHaveBeenCalledTimes(1);
   });

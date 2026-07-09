@@ -14,7 +14,7 @@
  * - `useComposerSubmit` — submit logic, focus management
  * - `DiskPressureBannerSlot` — localStorage-backed dismiss/suppress
  * - `useRuleEditorBridge` — viewer-store → rule-editor bridge
- * - `useChatBannerSlots` — nudge/queued/slack banner assembly
+ * - `useChatBannerSlots` — nudge/queued banner assembly
  */
 
 import { type Dispatch, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -31,11 +31,16 @@ import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
 import { TextSelectionPopover } from "@/domains/chat/components/text-selection-popover";
+import { useNativeQuoteReply } from "@/domains/chat/hooks/use-native-quote-reply";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
+import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
+import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
 import { PROCESS_KINDS } from "@/domains/chat/process-registry/registry";
@@ -66,6 +71,10 @@ import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import {
+  resolveDroppedDirectories,
+  WEB_FOLDER_DROP_ERROR,
+} from "@/domains/chat/components/chat-attachments/handle-folder-drop";
 import { Button } from "@vellumai/design-library";
 import { Link, useLocation, useNavigate } from "react-router";
 import {
@@ -73,6 +82,7 @@ import {
   isManagedCredentialChatError,
   shouldShowGenericChatErrorNotice,
 } from "@/domains/chat/utils/error-classification";
+import { openUrlInPopupOrTab } from "@/domains/chat/utils/oauth-popup-links";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/types";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -83,7 +93,6 @@ import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
-import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { useViewerStore } from "@/stores/viewer-store";
 import { cmdEnterToSend } from "@/utils/composer-settings";
 import { haptic } from "@/utils/haptics";
@@ -122,6 +131,8 @@ export interface ChatMainPanelProps {
 
   // Conversation secondary actions (orchestration dependency)
   handleForkConversation: (throughMessageId: string) => Promise<void>;
+  /** Opens the "Summarize up to here" confirm dialog for a message. */
+  onSummarizeUpToHere?: (messageId: string) => void;
   handleInspectMessage?: (messageId: string) => void;
 
   // History pagination (from useConversationLoader in ActiveChatView)
@@ -202,6 +213,7 @@ export function ChatMainPanel({
   handleSteerMessage,
   handleEditQueueTail,
   handleForkConversation,
+  onSummarizeUpToHere,
   handleInspectMessage,
   historyPagination,
   diskPressure,
@@ -218,7 +230,7 @@ export function ChatMainPanel({
 }: ChatMainPanelProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const statusBannerVisible = !location.search.includes("popout=1");
+  const statusBannerVisible = !isPopoutWindow(location.search);
 
   // -------------------------------------------------------------------------
   // Derived UI state (provides assistantId, activeConversationId,
@@ -229,8 +241,7 @@ export function ChatMainPanel({
     uiContext,
     isIdle,
     showThinking,
-    isAssistantStreaming,
-    canStopGenerating,
+    isAssistantBusy,
     isSendDisabledFromTurn,
     thinkingLabel,
     liveAssistantMessageId,
@@ -239,7 +250,15 @@ export function ChatMainPanel({
     activeConversationId,
     activeConversation,
   } = useChatUIState();
-  const isChannelReadonly = isChannelConversation(activeConversation);
+
+  // Edit/recall + undo require a PROVEN-native conversation: while the row is
+  // unresolved (activeConversation undefined) or channel-origin, the undo path
+  // would delete imported channel history, so treat those as not-native.
+  const isNativeConversation =
+    activeConversation != null && !isChannelConversation(activeConversation);
+
+  // Gated to daemons that accept the per-chat plugin set (web is always-latest).
+  const supportsNewChatPlugins = useSupportsNewChatPlugins();
 
   // -------------------------------------------------------------------------
   // Composer — `ChatComposer` and `ComposerDraftNotices` self-source every
@@ -273,6 +292,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
+  const isAppMinimized = useViewerStore.use.isAppMinimized();
 
   // Conversation count (for nudges — TanStack Query deduped)
   const { conversations } = useConversationListQuery(assistantId, true);
@@ -391,6 +411,7 @@ export function ChatMainPanel({
     const el = transcriptRef.current?.getScrollElement() ?? null;
     transcriptContainerRef.current = el;
   });
+  useNativeQuoteReply(transcriptContainerRef);
 
   // Clear staged quotes and dismiss the reply bubble when the active
   // conversation changes to prevent quotes from one conversation leaking
@@ -454,6 +475,13 @@ export function ChatMainPanel({
     useComposerStore.getState().setInput("");
   }, [cancelEditing]);
 
+  // Clear stale edit-recall state when the active conversation changes: ChatMainPanel
+  // is not keyed by conversation, so an edit started in one thread would otherwise
+  // leak into the next and drive its send down the undo path.
+  useEffect(() => {
+    cancelEditing();
+  }, [activeConversationId, cancelEditing]);
+
   // -------------------------------------------------------------------------
   // Nudges + ghost text
   // -------------------------------------------------------------------------
@@ -508,29 +536,27 @@ export function ChatMainPanel({
   const typingDisabled =
     isLoadingHistory ||
     (assistantState.kind === "active" && !!assistantState.maintenanceMode?.enabled) ||
-    diskPressureInputDisabled ||
-    isChannelReadonly;
+    diskPressureInputDisabled;
 
   const sendDisabled = isSendDisabledFromTurn || typingDisabled;
 
-  const handleQuoteReplyNow = useCallback(
-    (quotedText: string, replyText: string) => {
-      if (sendDisabled || isChannelReadonly) {
-        return;
-      }
-      const blockquote = quotedText
-        .split("\n")
-        .map((line) => `> ${line}`)
-        .join("\n");
-      void sendMessage(`${blockquote}\n\n${replyText}`);
-    },
-    [sendMessage, sendDisabled, isChannelReadonly],
-  );
+  const handleQuoteAddedToChat = useCallback(() => {
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  }, [inputRef]);
 
   const isEmptyConversation =
     !!activeConversationId &&
     !isLoadingHistory &&
     messages.length === 0 &&
+    // A turn already in flight (e.g. the onboarding auto-greet, or any send whose
+    // first token hasn't landed) is NOT an empty conversation — showing the
+    // "start a conversation" empty state here flashes it for a beat before the
+    // streaming reply materializes (notably across the onboarding draft→real
+    // conversation switch, which resets the snapshot mid-turn).
+    !activeConversationIsProcessing &&
+    !isAssistantBusy &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
 
   const showDoctorAction =
@@ -543,11 +569,35 @@ export function ChatMainPanel({
     </Button>
   ) : undefined;
 
+  // Blocked automatic opens (see `handleOpenUrl`) carry the URL in
+  // `actionUrl`; the button click is a real user gesture, so the re-open
+  // always succeeds and the banner clears itself.
+  const buildOpenUrlAction = (
+    actionUrl: string | undefined,
+    clear: () => void,
+  ) =>
+    actionUrl ? (
+      <Button
+        variant="outlined"
+        size="compact"
+        onClick={() => {
+          if (openUrlInPopupOrTab(actionUrl)) {
+            clear();
+          }
+        }}
+      >
+        Open page
+      </Button>
+    ) : undefined;
+
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
         tone: "error" as const,
-        actions: doctorAction,
+        actions:
+          buildOpenUrlAction(error.actionUrl, () =>
+            useChatSessionStore.getState().setError(null),
+          ) ?? doctorAction,
       }
     : null;
   const hasGenericChatError = genericChatError !== null;
@@ -556,9 +606,11 @@ export function ChatMainPanel({
       ? {
           message: notice.message,
           tone: "warning" as const,
-          actions: isManagedCredentialChatError(notice)
-            ? doctorAction
-            : undefined,
+          actions:
+            buildOpenUrlAction(notice.actionUrl, () =>
+              useChatSessionStore.getState().setNotice(null),
+            ) ??
+            (isManagedCredentialChatError(notice) ? doctorAction : undefined),
         }
       : null;
   const genericChatBanner = genericChatError ?? genericChatNotice;
@@ -640,11 +692,24 @@ export function ChatMainPanel({
     },
     [addChatAttachmentFiles, activeModelSupportsVision, visionGateActive],
   );
+  const handleDroppedDirectories = useCallback((directories: File[]) => {
+    const { resolvedPaths, unresolvedCount } =
+      resolveDroppedDirectories(directories);
+    if (resolvedPaths.length > 0) {
+      useComposerStore.getState().addPathReferences(resolvedPaths);
+    }
+    if (unresolvedCount > 0) {
+      useComposerStore.setState({
+        attachmentLastError: WEB_FOLDER_DROP_ERROR,
+      });
+    }
+  }, []);
   const {
     isDragOver: isAttachmentDragOver,
     dropHandlers: attachmentDropHandlers,
   } = useChatAttachmentDropZone({
     onFiles: handleDroppedFiles,
+    onDirectories: handleDroppedDirectories,
     disabled: typingDisabled || !assistantId,
   });
 
@@ -700,6 +765,7 @@ export function ChatMainPanel({
     isEditing,
     editingMessageId,
     cancelEditing,
+    canUndoEdit: isNativeConversation,
     sendDisabled,
     typingDisabled,
     assistantId,
@@ -781,8 +847,7 @@ export function ChatMainPanel({
     avatar,
     mainView,
     openedAppState,
-    isAssistantStreaming,
-    activeConversationIsProcessing,
+    isAssistantBusy,
     onSelectStarter: handleSelectStarter,
     onSelectSuggestion: newThreadSuggestionsEnabled
       ? setSelectedSuggestion
@@ -790,9 +855,9 @@ export function ChatMainPanel({
   });
 
   // -------------------------------------------------------------------------
-  // Banner slots (nudge, queued, slack)
+  // Banner slots (nudge, queued)
   // -------------------------------------------------------------------------
-  const { mainBannerSlot, mainQueuedDrawerSlot, channelReadonlyBannerSlot } = useChatBannerSlots({
+  const { mainBannerSlot, mainQueuedDrawerSlot } = useChatBannerSlots({
     nudges,
     queuedMessages,
     onCancelQueuedMessage: handleCancelQueuedMessage,
@@ -800,9 +865,6 @@ export function ChatMainPanel({
     onSteerMessage: handleSteerMessage,
     onEditQueueTail: handleEditQueueTail,
     queueSteering,
-    activeConversation,
-    sanitizedMessages,
-    assistantId,
   });
 
   // -------------------------------------------------------------------------
@@ -830,6 +892,7 @@ export function ChatMainPanel({
     onConfirmationSubmit: handleConfirmationSubmit,
     onAllowAndCreateRule: handleAllowAndCreateRule,
     onForkConversation: handleForkConversationCallback,
+    onSummarizeUpToHere,
     onInspectMessage: handleInspectMessage,
     renderAvatar,
     onPullRefresh: handlePullRefresh,
@@ -868,10 +931,15 @@ export function ChatMainPanel({
       onVoiceError={setVoiceError}
       onVoiceBeforeStart={handleVoiceBeforeStart}
       onStopGenerating={handleStopGenerating}
-      canStopGenerating={canStopGenerating}
+      isAssistantBusy={isAssistantBusy}
       assistantId={assistantId}
-      conversationId={activeConversation?.conversationId}
-      onRecallLastMessage={isIdle ? handleRecallLastMessage : undefined}
+      // Routing-truth id (NOT `activeConversation?.conversationId`, which is
+      // transiently undefined until the row loads and always undefined for
+      // drafts): live-voice session ownership compares against this, and the
+      // session should attach to the thread the user is looking at — draft
+      // ids included (the runtime accepts client-generated conversation ids).
+      conversationId={activeConversationId}
+      onRecallLastMessage={isIdle && isNativeConversation ? handleRecallLastMessage : undefined}
       onCancelEdit={isEditing ? handleCancelEdit : undefined}
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
@@ -940,6 +1008,11 @@ export function ChatMainPanel({
     transcriptProps: chatTranscriptProps,
   };
 
+  const newChatPluginsSlot =
+    isEmptyConversation && supportsNewChatPlugins && assistantId ? (
+      <NewChatPluginsSection assistantId={assistantId} />
+    ) : undefined;
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -947,32 +1020,42 @@ export function ChatMainPanel({
   const isSidePanel = mainView === "app-editing" && !!openedAppState && !!editingConversationId;
   const variant = isSidePanel ? "side-panel" : "main";
 
+  // Mobile-only: while the app overlay is minimized to its bottom strip, the
+  // strip covers the bottom of the chat. Reserve its height so the composer
+  // sits above it. The guard mirrors the strip's mount condition — the strip
+  // renders only while `mainView === "app"`, and navigation can leave
+  // `isAppMinimized`/`openedAppState` set after it unmounts. The strip peeks
+  // `--app-strip-h` above the safe area, and the chat shell already pads for
+  // the safe area itself, so only the strip height needs reserving.
+  const appStripBottomInset =
+    isMobile && mainView === "app" && isAppMinimized && openedAppState
+      ? "var(--app-strip-h, 64px)"
+      : undefined;
+
   const chatBody = (
     <ChatBody
       variant={variant}
+      bottomInset={appStripBottomInset}
       scrollAreaProps={{
         ...chatBodyScrollAreaPropsBase,
         showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,
       }}
       composerSlot={composerNode}
-      onStopGenerating={handleStopGenerating}
+      pluginPillsSlot={newChatPluginsSlot}
       dragHandlers={attachmentDropHandlers}
       isAttachmentDragOver={isAttachmentDragOver}
       showScrollToLatest={
         scrollCoordinator.showScrollToLatest && messages.length > 0
       }
       onScrollToLatest={handleScrollToLatest}
-      isStreaming={isAssistantStreaming}
+      isAssistantBusy={isAssistantBusy}
       refreshFeedback={refreshFeedback}
       onDismissRefreshFeedback={handleDismissRefreshFeedback}
       onRetryRefresh={handleRetryRefreshFromPill}
       genericChatError={genericChatBanner}
       onDismissChatError={handleDismissChatError}
-      isChannelReadonly={isChannelReadonly}
-      canStopGenerating={canStopGenerating}
       bannerSlot={isSidePanel ? undefined : mainBannerSlot}
       queuedDrawerSlot={isSidePanel ? undefined : mainQueuedDrawerSlot}
-      readonlyBannerSlot={channelReadonlyBannerSlot}
       startersSlot={startersSlot}
       belowFoldSlot={belowFoldSlot}
       dockStartersToBottom={dockStartersToBottom}
@@ -1057,12 +1140,8 @@ export function ChatMainPanel({
       />
       {sendErrorModalNode}
       {ruleEditorModalNode}
-      {!isChannelReadonly && (
-        <>
-          <TextSelectionPopover containerRef={transcriptContainerRef} />
-          <QuoteReplyBubble onSendNow={handleQuoteReplyNow} />
-        </>
-      )}
+      <TextSelectionPopover containerRef={transcriptContainerRef} />
+      <QuoteReplyBubble onAddToChat={handleQuoteAddedToChat} />
     </>
   );
 }

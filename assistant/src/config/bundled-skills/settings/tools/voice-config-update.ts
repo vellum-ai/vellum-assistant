@@ -108,7 +108,7 @@ function validateSetting(
       return { ok: true, coerced: trimmed };
     }
     case "tts_provider": {
-      const catalogIds = listCatalogProviderIds();
+      const catalogIds: readonly string[] = listCatalogProviderIds();
       if (typeof value !== "string" || !catalogIds.includes(value.trim())) {
         return {
           ok: false,

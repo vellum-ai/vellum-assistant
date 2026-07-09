@@ -18,6 +18,18 @@
       "license": "MIT"
     },
     {
+      "name": "kitchen-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/kitchen-companion",
+        "ref": "b6ebdda6992dfa1fd2186a600a642f538fb64584"
+      },
+      "description": "Full kitchen companion. Scan your fridge with a photo to stock a pantry inventory and get 3 makeable-now recipes, get alerts before food expires, clip recipes from any URL into a clean format, and generate meal plans with grocery lists from what you actually have.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/kitchen-companion",
+      "license": "MIT"
+    },
+    {
       "name": "simple-memory",
       "source": {
         "source": "github",
@@ -70,7 +82,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/marketing-expert",
-        "ref": "15d1f38c2e3c82b8f206ea8009fb158c5ba4746f"
+        "ref": "6a85ee33e184c2be56ed63cd5681d1287a941eff"
       },
       "description": "Acts as a full-stack marketing expert for any business (B2B or B2C): an on-demand persona plus playbook skills (positioning, demand planning, launches, content & copywriting, brand voice, email sequences, SEO & GEO, competitive teardown, board reporting) and deterministic funnel/positioning/GTM/competitive tools.",
       "category": "marketing",
@@ -94,7 +106,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/admin-copilot",
-        "ref": "3d375a31c910448e45723487d18358b78bf3ddb0"
+        "ref": "d30596aa50a1c702f5d74e05c45bd965d14e2107"
       },
       "description": "Proactive chief-of-staff: a morning digest, propose-then-confirm inbox triage, calendar prep, and a weekly competitor brief.",
       "category": "productivity",
@@ -102,11 +114,23 @@
       "license": "MIT"
     },
     {
+      "name": "cofounder",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/cofounder",
+        "ref": "547adf1c0db0cbb32855ff0e4ef46c056248bdea"
+      },
+      "description": "AI co-founder that remembers your company context, challenges your thinking, and tracks your decisions.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/cofounder",
+      "license": "MIT"
+    },
+    {
       "name": "git-workflow",
       "source": {
         "source": "github",
         "repo": "vellum-ai/git-workflow",
-        "ref": "6a8a8df108615c3fdae2bb5c512c2b6632047dd6"
+        "ref": "829407aa93b63b8bca4717624533f2fc7f702a5d"
       },
       "description": "Git workflow tools and multi-perspective code review: branch management, push, stash, PR creation/review/merge/checkout, diffs, logs, changelog generation, and parallel subagent code review with confidence scoring.",
       "category": "developer",
@@ -118,7 +142,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/reading-pal",
-        "ref": "5226ff8ae6ae3636e695791b07dbae1f34e2217a"
+        "ref": "5219474719e67db7ea64848f6bd2a0b7312e4f27"
       },
       "description": "Your reading life in one plugin. Track your TBR pile, get guilt-tripped about your backlog, find your next read, and sync from Goodreads.",
       "category": "hobby",
@@ -142,11 +166,191 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/fitness-companion",
-        "ref": "e1aae9dd527f30cb897dd4a04c14f35950d263d2"
+        "ref": "fe4e02e2b514207a37f2a7e9f9c500ec8a73edcb"
       },
       "description": "Fitness and nutrition companion. Logs meals, workouts, and weight; looks up nutrition data from OpenFoodFacts; calculates macro targets; and injects daily fitness context into every conversation.",
       "category": "health",
       "homepage": "https://github.com/vellum-ai/fitness-companion",
+      "license": "MIT"
+    },
+    {
+      "name": "motion-design",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/motion-design",
+        "ref": "9cdc798c26e0141dcdf6887d7707559c38bfe00e"
+      },
+      "description": "Teaches the assistant to build polished UI animations with Motion (motion.dev) for React: animated product mockups, chat replays, typing effects, and staggered reveals, with a complete animated chat example included.",
+      "category": "creative",
+      "homepage": "https://github.com/vellum-ai/motion-design",
+      "license": "MIT"
+    },
+    {
+      "name": "travel-planner",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/travel-planner",
+        "ref": "10c2c4878b017997cb6766b8204b9803c56bc6cf"
+      },
+      "description": "A travel EA for your assistant. Remembers how you travel (carrier, miles, hotel budget, card benefits), keeps per-trip records, watches Gmail for booking changes, syncs your calendar, and emails an EA-style trip brief 48 hours before departure.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/AnitaKirkovska/travel-planner",
+      "license": "MIT"
+    },
+    {
+      "name": "astrology-horoscope",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/astrology-horoscope",
+        "ref": "d226ce2e0a021e12cbf89ca7313f7c76a0bd8e39"
+      },
+      "description": "Western tropical natal chart and transit computation. Local ephemeris (astronomy-engine, no API keys) for planet positions, ascendant/midheaven, whole-sign houses, and aspects, plus a natal-reading skill that interprets the raw chart into a readable report.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/astrology-horoscope",
+      "license": "MIT"
+    },
+    {
+      "name": "polyglot",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/polyglot",
+        "ref": "ab607b7c60b64b0ac5c6bf01609840a004cfd002"
+      },
+      "description": "Ambient language acquisition through your assistant. Three graduated modes (practice, ambient, immersive) weave a target language into your real conversations, with SM-2 spaced repetition, error-pattern tracking, and CEFR level history.",
+      "category": "education",
+      "homepage": "https://github.com/vellum-ai/polyglot",
+      "license": "MIT"
+    },
+    {
+      "name": "amex-perk-reminder",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/amex-perk-reminder",
+        "ref": "48649b3e9f5c37153c7a8b2887a740eadd7c0b1e"
+      },
+      "description": "Track every credit on the Amex cards you hold (Platinum, Gold, Business Platinum, Delta Gold/Platinum/Reserve) with status-aware reminders before any window closes.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/AnitaKirkovska/amex-perk-reminder",
+      "license": "MIT"
+    },
+    {
+      "name": "google-drive-search",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/google-drive-search",
+        "ref": "ddd5013477cc1ec8d1fb174db6b599dbfe1cca21"
+      },
+      "description": "Local full-text search across your Google Drive. Indexes file metadata and document content into SQLite FTS5 for instant, private search.",
+      "category": "productivity",
+      "homepage": "https://github.com/ZeebBoyBlue/google-drive-search",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "coffee-aficionado",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/coffee-aficionado",
+        "ref": "b37a0b5adc2bda5559d3b21abe38e436093c1ff3"
+      },
+      "description": "Find great coffee beans and machines matched to your taste profile, budget, and kitchen. Persistent memory learns your preferences over time.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/coffee-aficionado",
+      "license": "MIT"
+    },
+    {
+      "name": "plant-doctor",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/plant-doctor",
+        "ref": "1115ac07a5b7f731600f037b743e011a84bd0597"
+      },
+      "description": "Diagnose plants from photos. Identifies the species, assesses health with visible evidence, and returns a care plan. Named plants get a persistent checkup history so you can track whether they are improving.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/plant-doctor",
+      "license": "MIT"
+    },
+    {
+      "name": "tennis-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/tennis-companion",
+        "ref": "1c6d2bd448ee7b5285d37cfee4e0e413522746d1"
+      },
+      "description": "Tennis journal, drill sessions, court finder, and progress tracking. Log matches with opponent tendencies, generate 30-minute practice sessions with progressions, find nearby courts via OpenStreetMap, and track win rate by surface and conditions.",
+      "category": "health",
+      "homepage": "https://github.com/vellum-ai/tennis-companion",
+      "license": "MIT"
+    },
+    {
+      "name": "smb-inbox-brief",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/smb-inbox-brief",
+        "ref": "8e298bd8ded5e0e16c5160edcd547eda1e4d222f"
+      },
+      "description": "Find urgent replies, overdue invoices, quotes, and customer follow-ups before they slip. Scans email, logs business items, delivers urgency-ranked daily briefs.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/smb-inbox-brief",
+      "license": "MIT"
+    },
+    {
+      "name": "family-briefing",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/family-briefing",
+        "ref": "145f341db7d06ffa81e2052033f187679b8bda4d"
+      },
+      "description": "Daily morning briefing for parents: merges family calendars, triages school emails, and detects scheduling conflicts.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/family-briefing",
+      "license": "MIT"
+    },
+    {
+      "name": "personal-finance",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/personal-finance",
+        "ref": "f8f9bfba3d86c943001da894b920e7e867507dd4"
+      },
+      "description": "Track expenses, income, recurring bills, and savings funds from your assistant. Multi-currency, receipt OCR, Plaid bank sync, and financial summaries. All data stored locally in SQLite.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/personal-finance",
+      "license": "MIT"
+    },
+    {
+      "name": "proactive-slacks",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/proactive-slacks",
+        "ref": "a5dd35699455ae7a2db3d2243511a8c7edc49aea"
+      },
+      "description": "Let your assistant reach you on Slack on purpose. Route notifications by topic to the right channel at the right volume, with heartbeat-based change detection so it only pings when something actually changed.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/proactive-slacks",
+      "license": "MIT"
+    },
+    {
+      "name": "cognee",
+      "source": {
+        "source": "github",
+        "repo": "topoteretes/cognee-integrations",
+        "path": "integrations/vellum-assistant",
+        "ref": "d79bd9a216c9f6d88d27694cc0b42a18b63dba88"
+      },
+      "description": "Cognee knowledge graph memory for Vellum Assistant: session-aware storage, auto-routing recall, and persistent learning across sessions. Supports local mode and Cognee Cloud.",
+      "category": "memory",
+      "homepage": "https://github.com/topoteretes/cognee-integrations/tree/main/integrations/vellum-assistant"
+    },
+    {
+      "name": "influencer-marketing",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/influencer",
+        "ref": "8629b0dcfdacf62246122af2dcd7320baa6db04e"
+      },
+      "description": "Find and research influencers on Instagram, TikTok, and X/Twitter. Includes a strategy builder that walks from campaign brief to research criteria, a research skill that discovers real profiles via browser automation, scores candidates, and exports ranked shortlists, and a dashboard skill that turns the shortlist into an interactive outreach tracker.",
+      "category": "marketing",
+      "homepage": "https://github.com/ZeebBoyBlue/influencer",
       "license": "MIT"
     }
   ]

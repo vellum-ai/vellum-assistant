@@ -1,5 +1,27 @@
 # Build images from the repository root but keep context minimal.
 **
+# Workspace install inputs: the deps stage resolves from the root manifest,
+# lockfile, member manifests, and patch files — no source.
+!package.json
+!bun.lock
+!patches/
+!patches/**
+!clients/macos/package.json
+!clients/web/package.json
+!cli/package.json
+# Although we have a `**` ignore that correctly excludes large build artifacts from the build context,
+# it seems the walker doesn't prune a directory when there are `!` exceptions that can include files
+# beneath that directory. This manifests as an extremely long build context load time.
+# Adding an explicit exclusion rule seems to help with this.
+clients/.build
+clients/ios
+clients/chrome-extension
+clients/macos/apple-containers-runtime
+clients/macos/dist
+clients/macos/native
+clients/macos/node_modules
+clients/macos/out
+clients/macos/src
 !assistant/
 !assistant/**
 !credential-executor/
@@ -34,7 +56,6 @@
 !skills/meet-join/scripts/**
 
 # Exclude local dependencies and build outputs from included directories.
-assistant/node_modules/
 assistant/dist/
 assistant/out/
 assistant/build/
@@ -42,16 +63,13 @@ assistant/.env
 assistant/.env.*
 # Authoring-reference example plugins are not shipped with the production image.
 assistant/examples/
-credential-executor/node_modules/
 credential-executor/.env
 credential-executor/.env.*
-gateway/node_modules/
 gateway/.env
 gateway/.env.*
-packages/*/node_modules/
 packages/*/.env
 packages/*/.env.*
-skills/meet-join/node_modules/
-skills/meet-join/contracts/node_modules/
 skills/meet-join/**/__tests__/
 skills/meet-join/**/*.test.ts
+
+**/node_modules/

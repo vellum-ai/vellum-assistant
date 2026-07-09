@@ -19,7 +19,6 @@ import { uiShowTool } from "../tools/ui-surface/definitions.js";
 function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
   return {
     conversationId: "session-1",
-    traceEmitter: { emit: () => {} },
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<

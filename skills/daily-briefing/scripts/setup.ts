@@ -12,7 +12,7 @@
  *   bun scripts/setup.ts --status
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { parseArgs } from "node:util";
 
 const BRIEFING_NAME = "Daily Briefing";
@@ -73,23 +73,47 @@ function validateTime(time: string): boolean {
   return h >= 0 && h <= 23 && m >= 0 && m <= 59;
 }
 
+function validateTimezone(tz: string): boolean {
+  // Defense-in-depth: only accept real IANA timezone names. The exec layer
+  // below already prevents shell injection, but rejecting bogus input early
+  // gives a clear error instead of a confusing CLI failure.
+  try {
+    const supported = (
+      Intl as unknown as { supportedValuesOf?: (key: string) => string[] }
+    ).supportedValuesOf?.("timeZone");
+    if (supported && supported.length > 0) {
+      return supported.includes(tz);
+    }
+    // Fallback for runtimes without supportedValuesOf: let the Intl
+    // constructor validate. It throws RangeError on unknown zones.
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function parseCron(time: string): string {
   const [h, m] = time.split(":").map(Number);
   return `${m} ${h} * * *`;
 }
 
-function run(cmd: string): string {
+// Run a command WITHOUT a shell. Arguments are passed as an array to
+// execFileSync, so untrusted values (e.g. --timezone) can never be
+// interpreted as shell syntax. Never reintroduce a string/shell form here.
+function run(file: string, args: string[]): string {
   try {
-    return execSync(cmd, { encoding: "utf-8" }).trim();
+    return execFileSync(file, args, { encoding: "utf-8" }).trim();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Command failed: ${cmd}\n${msg}`);
+    const display = [file, ...args].join(" ");
+    throw new Error(`Command failed: ${display}\n${msg}`);
   }
 }
 
 function findExistingSchedule(): { id: string; enabled: boolean } | null {
   try {
-    const raw = run("assistant schedules list --json");
+    const raw = run("assistant", ["schedules", "list", "--json"]);
     const list = JSON.parse(raw) as Array<{
       id: string;
       name: string;
@@ -110,7 +134,7 @@ if (values.status) {
       "No daily briefing is configured. Run without --status to create one.",
     );
   } else {
-    const raw = run("assistant schedules list --json");
+    const raw = run("assistant", ["schedules", "list", "--json"]);
     const list = JSON.parse(raw) as Array<Record<string, unknown>>;
     const job = list.find((s) => s.name === BRIEFING_NAME);
     console.log(JSON.stringify(job, null, 2));
@@ -129,7 +153,7 @@ if (values.disable) {
     console.log("Daily briefing is already disabled.");
     process.exit(0);
   }
-  run(`assistant schedules disable ${existing.id}`);
+  run("assistant", ["schedules", "disable", existing.id]);
   console.log("Daily briefing disabled. Run without --disable to re-enable.");
   process.exit(0);
 }
@@ -142,24 +166,44 @@ if (!validateTime(values.time!)) {
   process.exit(1);
 }
 
+if (values.timezone && !validateTimezone(values.timezone)) {
+  console.error(
+    `Error: invalid timezone "${values.timezone}". Use an IANA timezone name, e.g. "America/New_York".`,
+  );
+  process.exit(1);
+}
+
 const cron = parseCron(values.time!);
-const tzArgs = values.timezone ? `--timezone "${values.timezone}"` : "";
+const tzArgs = values.timezone ? ["--timezone", values.timezone] : [];
 const existing = findExistingSchedule();
 
 if (existing) {
-  run(
-    `assistant schedules update ${existing.id} --expression "${cron}" ${tzArgs}`,
-  );
+  run("assistant", [
+    "schedules",
+    "update",
+    existing.id,
+    "--expression",
+    cron,
+    ...tzArgs,
+  ]);
   if (!existing.enabled) {
-    run(`assistant schedules enable ${existing.id}`);
+    run("assistant", ["schedules", "enable", existing.id]);
   }
   console.log(
     `Daily briefing updated and enabled. Delivery: ${values.time}${values.timezone ? ` (${values.timezone})` : ""}.`,
   );
 } else {
-  run(
-    `assistant schedules create "${BRIEFING_NAME}" --expression "${cron}" ${tzArgs} --message ${JSON.stringify(BRIEFING_PROMPT)} --reuse-conversation`,
-  );
+  run("assistant", [
+    "schedules",
+    "create",
+    BRIEFING_NAME,
+    "--expression",
+    cron,
+    ...tzArgs,
+    "--message",
+    BRIEFING_PROMPT,
+    "--reuse-conversation",
+  ]);
   console.log(
     `Daily briefing created. Delivery: ${values.time}${values.timezone ? ` (${values.timezone})` : ""}. You will receive your first briefing at the next scheduled time.`,
   );

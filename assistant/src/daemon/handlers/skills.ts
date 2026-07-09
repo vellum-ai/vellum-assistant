@@ -403,6 +403,11 @@ function toSlimSkillResponse(
     case "custom":
     case "assistant-memory":
       return { ...base, origin };
+    default:
+      // origin comes from install-meta.json on disk and isn't validated, so it
+      // may hold a value outside the known set. Degrade any such origin to
+      // "custom" — every skill must map to a defined response.
+      return { ...base, origin: "custom" };
   }
 }
 
@@ -726,6 +731,14 @@ export async function getSkill(
     category: slim.category,
     owner: slim.owner,
   };
+  if (detail.origin === "assistant-memory") {
+    // Retrospective-authored skills carry conversation lineage in install-meta;
+    // surface the durable source-conversation id so clients can link back.
+    const meta = readInstallMeta(found.summary.directoryPath);
+    if (meta?.sourceConversationId) {
+      detail.sourceConversationId = meta.sourceConversationId;
+    }
+  }
   return { skill: detail };
 }
 
@@ -1352,8 +1365,11 @@ export async function updateSkill(
     if (!result.success) {
       return { success: false, error: result.error ?? "Unknown error" };
     }
-    // Reload skill catalog to pick up updated skill
+    // Reload skill catalog to pick up updated skill, then reseed capability
+    // memory so changed description/activation-hints/avoid-when propagate to the
+    // graph nodes and v2 entries — matching the other skill-mutation handlers.
     loadSkillCatalog();
+    refreshSkillCapabilityMemories(getConfig());
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

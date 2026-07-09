@@ -19,7 +19,7 @@ import {
     writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
-import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant } from "@/lib/local-mode";
+import { getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
@@ -199,7 +199,7 @@ export function HatchingScreen() {
 
     const pinnedVersion = readSelectedVersion();
 
-    const handleHatchReady = () => {
+    const handleHatchReady = (readyAssistantId?: string) => {
       try {
         writeSelectedVersion("");
       } catch (err) {
@@ -229,6 +229,32 @@ export function HatchingScreen() {
             void navigate(`${routes.assistant}?onboarding=1`, {
               replace: true,
             });
+            return;
+          }
+          // A local hatch feeds the research/personality flow — now THE default
+          // onboarding. The assistant is live, so the research route adopts it
+          // (its background hatch resolves the existing local assistant instead
+          // of provisioning a managed one). The legacy pre-chat funnel is
+          // retired; it only remains as a fallback for any non-local hatch that
+          // still lands here.
+          if (useLocalHatch) {
+            // Carry the hosting choice through so the research route's
+            // background hatch ADOPTS this just-hatched local assistant instead
+            // of running a managed hatch (see `adoptExisting` there), and the
+            // assistant id so it adopts exactly this one — not whatever a stale
+            // selection or leftover lockfile entry resolves to.
+            const researchParams = new URLSearchParams();
+            if (hostingParam) {
+              researchParams.set("hosting", hostingParam);
+            }
+            if (readyAssistantId) {
+              researchParams.set("assistant", readyAssistantId);
+            }
+            const researchQs = researchParams.toString();
+            void navigate(
+              `${routes.onboarding.research}${researchQs ? `?${researchQs}` : ""}`,
+              { replace: true },
+            );
             return;
           }
           void navigate(
@@ -324,27 +350,11 @@ export function HatchingScreen() {
           transitionPhase("connecting");
           let gatewayReady = false;
           while (!cancelled && !gatewayReady) {
-            const gatewayUrl = getLocalGatewayUrl();
-            if (gatewayUrl) {
-              try {
-                const res = await fetch(`${gatewayUrl}/readyz`);
-                if (res.ok) {
-                  const body: unknown = await res.json();
-                  if (
-                    body &&
-                    typeof body === "object" &&
-                    "status" in body &&
-                    body.status === "ok"
-                  ) {
-                    clearGatewayToken();
-                    await primeLocalGatewayConnection();
-                    gatewayReady = true;
-                    break;
-                  }
-                }
-              } catch {
-                // Gateway not ready yet
-              }
+            if (await probeLocalGatewayReady()) {
+              clearGatewayToken();
+              await primeLocalGatewayConnection();
+              gatewayReady = true;
+              break;
             }
             if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
               // The hatch succeeded but the gateway never went healthy. We never
@@ -361,6 +371,21 @@ export function HatchingScreen() {
           }
           if (cancelled) return;
 
+          // Apply the model-provider key collected on the API-key step to
+          // the freshly hatched assistant. Runs BEFORE connectLocalAssistant
+          // because that call flips sessionStatus and remounts the component
+          // tree (see the module-level comment). The gateway token acquired by
+          // primeLocalGatewayConnection() above is sufficient for the daemon
+          // SDK calls; running them here avoids a race where the remounted
+          // instance navigates away before the provider setup completes.
+          if (result.assistantId) {
+            try {
+              await applyPendingProviderKey(result.assistantId);
+            } catch (err) {
+              captureError(err, { context: "onboarding_apply_provider_key" });
+            }
+          }
+
           // Assert an authenticated local session via the same canonical
           // connect primitive the returning-user picker and re-pair flow use,
           // so `sessionStatus` is "authenticated" at hand-off to chat. This
@@ -371,15 +396,7 @@ export function HatchingScreen() {
               .connectLocalAssistant(result.assistantId);
           }
 
-          // Apply the model-provider key collected on the API-key step to the
-          // freshly hatched assistant. Non-blocking on failure — onboarding
-          // proceeds and the user can fix it in Settings.
           if (result.assistantId) {
-            try {
-              await applyPendingProviderKey(result.assistantId);
-            } catch (err) {
-              captureError(err, { context: "onboarding_apply_provider_key" });
-            }
             useResolvedAssistantsStore.getState().upsertFromApi({
               id: result.assistantId,
               name: result.assistantId,
@@ -391,7 +408,7 @@ export function HatchingScreen() {
             void persistHatchAvatar(result.assistantId);
           }
 
-          handleHatchReady();
+          handleHatchReady(result.assistantId);
         } catch {
           releaseHatchGuards();
           if (cancelled) return;

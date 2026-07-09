@@ -164,6 +164,10 @@ function seedWorkspaceContext(
           assistantMessageInterface: interfaceName,
         }
       : undefined,
+    // Mirrors Conversation.getSubagentChildren: the `<active_subagents>` block
+    // is sourced from the live conversation, which delegates to the manager.
+    getSubagentChildren: () =>
+      getSubagentManager().getChildrenOf(TEST_CONVERSATION_ID),
   } as never);
 }
 

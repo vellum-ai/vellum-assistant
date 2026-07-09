@@ -24,7 +24,17 @@
  * Best-effort: `localStorage` can throw under privacy modes / quota, so every
  * access is guarded and a failure just degrades to the old restart-at-form
  * behavior.
+ *
+ * Web-only: inside the Electron host, read/write are no-ops so every app
+ * launch starts onboarding fresh. The refresh-resilience exists for the
+ * browser, where a stray reload mid-flow is easy; the desktop app has no
+ * reload affordance, and resuming a half-finished journey from a previous
+ * launch caused confusing states. `clearResearchSnapshot` stays live on both
+ * platforms so completion/retire still removes any snapshot an older build
+ * may have written.
  */
+
+import { isElectron } from "@/runtime/is-electron";
 
 import type { ResearchStatus } from "@/domains/onboarding/research-runner";
 import type { ResearchOnboardingValues } from "@/domains/onboarding/screens/research-onboarding-screen";
@@ -46,7 +56,11 @@ export type ResearchStep =
   | "meeting"
   | "looking"
   | "results"
-  | "suggestions";
+  | "suggestions"
+  | "finishing"
+  // Established-assistant guard: the off-ramp offered when the flow would run
+  // against an assistant that already has a life (see the route's guard).
+  | "existing";
 
 /** Completed research output — only snapshotted once the turn settles "done". */
 export interface PersistedResearchResults {
@@ -54,6 +68,12 @@ export interface PersistedResearchResults {
   claims: ResearchFact[];
   suggestions: ResearchSuggestion[];
   installedPlugins: string[];
+  /**
+   * Name → description for the installed plugins, so a refresh-resume can still
+   * render each plugin card with its description. Optional for back-compat with
+   * snapshots written before this field existed (defaulted to {} on read).
+   */
+  pluginCatalog?: Record<string, string>;
 }
 
 export interface ResearchOnboardingSnapshot {
@@ -88,6 +108,8 @@ function storageKey(userId: string | null): string | null {
 export function readResearchSnapshot(
   userId: string | null,
 ): ResearchOnboardingSnapshot | null {
+  // Desktop app: never resume — each launch starts onboarding fresh.
+  if (isElectron()) return null;
   const key = storageKey(userId);
   if (!key) return null;
   try {
@@ -104,6 +126,8 @@ export function writeResearchSnapshot(
   userId: string | null,
   snapshot: ResearchOnboardingSnapshot,
 ): void {
+  // Desktop app: don't persist steps — nothing should survive a relaunch.
+  if (isElectron()) return;
   const key = storageKey(userId);
   if (!key) return;
   try {
@@ -145,5 +169,9 @@ export function resolveResumeStep(
   if (snapshot.step === "meeting") {
     return snapshot.checkinBooked ? "looking" : "letschat";
   }
+  // The established-assistant guard holds an intercepted submit in transient
+  // state that a snapshot can't restore, so a saved journey never resumes onto
+  // it — land on the form and let a resubmit re-evaluate the guard.
+  if (snapshot.step === "existing") return "form";
   return snapshot.step;
 }

@@ -1,5 +1,5 @@
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import type { FC } from "react";
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
@@ -32,6 +32,14 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
 }) => {
   const { openPreview, previewModal } = useAttachmentPreview(assistantId, attachments);
 
+  // Ids whose previewUrl the browser failed to decode (e.g. a HEIC blob on a
+  // Chromium renderer). Those fall back to the chip instead of the browser's
+  // broken-image glyph.
+  const [failedImageIds, setFailedImageIds] = useState<ReadonlySet<string>>(new Set());
+  const markImageFailed = useCallback((id: string) => {
+    setFailedImageIds((prev) => new Set(prev).add(id));
+  }, []);
+
   const handleDownload = useCallback(
     (att: DisplayAttachment) => {
       void downloadAttachment(att, assistantId);
@@ -47,9 +55,11 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
     <>
       <div className="flex flex-col gap-2">
         {attachments.map((att) => {
+          const imageFailed = failedImageIds.has(att.id);
           const isInlineImage =
             classifyAttachment(att.mimeType, att.filename) === "image" &&
-            att.previewUrl != null;
+            att.previewUrl != null &&
+            !imageFailed;
 
           if (isInlineImage) {
             return (
@@ -68,10 +78,19 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
                     openPreview(att);
                   }
                 }}
+                onError={() => markImageFailed(att.id)}
                 className="max-h-[320px] max-w-full cursor-pointer rounded-lg object-contain"
               />
             );
           }
+
+          // A failed inline decode leaves a dead previewUrl (e.g. an
+          // undecodable HEIC blob on Chromium). Sanitize it so the chip and
+          // the full-screen modal both fall back to fetching stored bytes
+          // instead of reusing the broken blob.
+          const previewAttachment = imageFailed
+            ? { ...att, previewUrl: null }
+            : att;
 
           return (
             <MessageAttachmentSquare
@@ -79,8 +98,9 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
               filename={att.filename}
               mimeType={att.mimeType}
               sizeBytes={att.sizeBytes}
-              previewUrl={att.previewUrl}
-              onPreview={() => openPreview(att)}
+              previewUrl={previewAttachment.previewUrl}
+              thumbnailUrl={att.thumbnailUrl}
+              onPreview={() => openPreview(previewAttachment)}
               onDownload={() => handleDownload(att)}
             />
           );

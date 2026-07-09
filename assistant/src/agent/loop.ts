@@ -1,9 +1,8 @@
-import * as Sentry from "@sentry/node";
-
 import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
+import { preModelCallSanitize } from "../context/outbound-sanitize.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
@@ -13,18 +12,21 @@ import {
 import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
-import type { TrustContext } from "../daemon/trust-context.js";
-import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
-import { HOOKS } from "../plugin-api/constants.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type {
   AgentLoopExitReason,
-  PostCompactContext,
-  PostModelCallContext,
+  PostCompactInputContext,
   PostModelCallDecision,
-  PostToolUseContext,
-  PreModelCallContext,
-  StopContext,
-} from "../plugin-api/types.js";
+  PostModelCallInputContext,
+  PostToolUseInputContext,
+  PreModelCallInputContext,
+  StopInputContext,
+} from "../hooks/types.js";
+import {
+  timeSyncSection,
+  traceAsyncSection,
+} from "../persistence/slow-sync-log.js";
+import { HOOKS } from "../plugin-api/constants.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { runHook } from "../plugins/pipeline.js";
@@ -48,7 +50,6 @@ import {
 } from "../tools/sensitive-output-placeholders.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { isRetryableNetworkError } from "../util/retry.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
 
 const log = getLogger("agent-loop");
@@ -153,7 +154,9 @@ function buildNativeWebSearchProbeOptions(
   forceOverrideProfile: boolean,
   conversationId: string | undefined,
 ): SendMessageOptions | undefined {
-  if (!callSite) return undefined;
+  if (!callSite) {
+    return undefined;
+  }
   return {
     config: {
       callSite,
@@ -331,8 +334,8 @@ export type AgentEvent =
        * has the same `provider` column value as a successful `usage` row.
        *
        * Re-thrown by the inner LLM-call try/catch after emission so the
-       * outer agent-loop catch still handles abort, Sentry capture, the
-       * existing `error` event, and the loop break.
+       * outer agent-loop catch still handles abort, the existing `error`
+       * event, and the loop break.
        */
       type: "provider_error";
       rawRequest: unknown;
@@ -501,7 +504,9 @@ const MAX_POST_MODEL_CALL_CONTINUES = 5;
 function assistantTextOf(content: ReadonlyArray<ContentBlock>): string {
   let text = "";
   for (const block of content) {
-    if (block.type === "text") text += block.text;
+    if (block.type === "text") {
+      text += block.text;
+    }
   }
   return text;
 }
@@ -511,42 +516,6 @@ function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
     (block) => block.type === "text" && block.text.trim().length > 0,
   );
-}
-
-/**
- * User-config HTTP status codes that should never page the on-call: billing
- * exhaustion (402), invalid credentials (401), and forbidden/plan-gated (403).
- * The user-facing error path already surfaces an actionable message (e.g.
- * credits_exhausted); a Sentry issue adds noise without engineering signal.
- */
-const USER_CONFIG_STATUS_CODES = new Set([401, 402, 403]);
-
-/**
- * Whether an agent-loop error should be reported to Sentry. Suppresses:
- *
- *  - `ProviderError` carrying a user-config status code (401/402/403) — these
- *    are bad API keys, exhausted billing, or plan gates, not engineering bugs.
- *  - Retry-exhausted transient network errors (`retriesExhausted === true` +
- *    still categorized as retryable network) — the retry loop already tried
- *    its best; the user's network was flaky, not our code.
- *
- * Everything else (5xx with no retry-exhaustion tag, surprise errors, tool
- * failures, etc.) still pages.
- */
-export function shouldCaptureAgentLoopError(err: Error): boolean {
-  if (
-    err instanceof ProviderError &&
-    err.statusCode !== undefined &&
-    USER_CONFIG_STATUS_CODES.has(err.statusCode)
-  ) {
-    return false;
-  }
-  const exhausted = (err as Error & { retriesExhausted?: boolean })
-    .retriesExhausted;
-  if (exhausted === true && isRetryableNetworkError(err)) {
-    return false;
-  }
-  return true;
 }
 
 type AgentLoopContextWindowResolver = () => {
@@ -996,7 +965,7 @@ export class AgentLoop {
       overflowSignal != null || compactResult.compacted
         ? compactResult.messages
         : history;
-    const postCompactCtx: PostCompactContext = {
+    const postCompactCtx: PostCompactInputContext = {
       history: base,
       requestId,
       conversationId: this.conversationId,
@@ -1153,14 +1122,15 @@ export class AgentLoop {
       reason: AgentLoopExitReason,
       { emitExit, error }: { emitExit: boolean; error?: Error },
     ): Promise<void> => {
-      if (turnStopped) return;
+      if (turnStopped) {
+        return;
+      }
       turnStopped = true;
-      const stopCtx: StopContext = {
+      const stopCtx: StopInputContext = {
         conversationId: this.conversationId,
         messages: [...history],
         error,
         exitReason: reason,
-        logger: rlog,
       };
       try {
         await runHook(HOOKS.STOP, stopCtx);
@@ -1507,15 +1477,20 @@ export class AgentLoop {
         // the existing correction) so the calibrator learns the true
         // bias against provider ground truth instead of ratcheting a
         // feedback loop against its own corrected output.
-        const toolTokenBudget =
-          currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
-        const preSendEstimatedTokens = estimatePromptTokensRaw(
-          history,
-          runSystemPrompt,
-          {
-            providerName: getCalibrationProviderKey(this.provider),
-            toolTokenBudget,
+        const preSendEstimatedTokens = timeSyncSection(
+          "agent-loop:estimate-prompt-tokens",
+          () => {
+            const toolTokenBudget =
+              currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
+            return estimatePromptTokensRaw(history, runSystemPrompt, {
+              providerName: getCalibrationProviderKey(this.provider),
+              toolTokenBudget,
+            });
           },
+          (estimatedTokens) => ({
+            estimatedTokens,
+            messageCount: history.length,
+          }),
         );
         lastPreSendEstimatedTokens = preSendEstimatedTokens;
         rlog.info({ turn: toolUseTurns }, "LLM call start");
@@ -1523,7 +1498,11 @@ export class AgentLoop {
         // Sanitize the outbound history right before sending: drop accumulated
         // media, collapse old AX-tree snapshots, and convert historical
         // web-search results to text. See {@link preModelCallSanitize}.
-        const providerHistory = preModelCallSanitize(history);
+        const providerHistory = timeSyncSection(
+          "agent-loop:pre-model-call-sanitize",
+          () => preModelCallSanitize(history),
+          (sanitized) => ({ messageCount: sanitized.length }),
+        );
 
         // A `pre-model-call` hook (below) can defer this turn's assistant
         // output; when set, the live text stream is held so an
@@ -1563,7 +1542,9 @@ export class AgentLoop {
             if (event.type === "text_delta") {
               // Held when the turn's output is deferred — the final text is
               // emitted once, after the `post-model-call` hook runs.
-              if (deferAssistantOutput) return;
+              if (deferAssistantOutput) {
+                return;
+              }
               // Apply sensitive-output placeholder substitution (chunk-safe)
               if (substitutionMap.size > 0) {
                 const combined = streamingPending + event.text;
@@ -1577,7 +1558,9 @@ export class AgentLoop {
                   onEvent({ type: "text_delta", text: emit });
                 }
               } else {
-                if (event.text.length > 0) streamedVisibleText = true;
+                if (event.text.length > 0) {
+                  streamedVisibleText = true;
+                }
                 onEvent({ type: "text_delta", text: event.text });
               }
             } else if (event.type === "thinking_delta") {
@@ -1626,17 +1609,16 @@ export class AgentLoop {
         // call site / conversation. Fail-open: a throwing hook leaves the
         // request unchanged and streaming live.
         try {
-          const preModelCtx: PreModelCallContext = {
+          const preModelCtx: PreModelCallInputContext = {
             conversationId: this.conversationId,
             callSite: callSite ?? null,
             systemPrompt: providerOptions.systemPrompt ?? null,
             modelProfile: effectiveOverrideProfile ?? null,
             deferAssistantOutput: false,
-            logger: rlog,
           };
-          const finalPreModelCtx = await runHook(
-            HOOKS.PRE_MODEL_CALL,
-            preModelCtx,
+          const finalPreModelCtx = await traceAsyncSection(
+            "agent-loop:pre-model-call-hook",
+            () => runHook(HOOKS.PRE_MODEL_CALL, preModelCtx),
           );
           // Emit a changed event when the hook mutated the prompt. Compare
           // against the pre-hook value from providerOptions, not
@@ -1698,16 +1680,15 @@ export class AgentLoop {
         // provider rejections. On provider failure we emit `provider_error`
         // with the loop-level raw request so consumers can persist it as an
         // `llm_request_logs` row, then re-throw so the existing outer catch
-        // continues to handle abort sync, Sentry capture, the `error` event,
-        // and the loop break unchanged.
+        // continues to handle abort sync, the `error` event, and the loop
+        // break unchanged.
         // Latency: the request is about to leave for the provider. The span
         // from here to the first streamed token is time-to-first-token.
         latencyTracker?.mark("request_sent");
         let response: ProviderResponse;
         try {
-          response = await this.provider.sendMessage(
-            providerHistory,
-            providerOptions,
+          response = await traceAsyncSection("agent-loop:provider-send", () =>
+            this.provider.sendMessage(providerHistory, providerOptions),
           );
         } catch (llmCallError) {
           // Skip recording on abort — the user cancelled the request and
@@ -1794,16 +1775,18 @@ export class AgentLoop {
           messages: Message[];
         }> => {
           try {
-            const ctx: PostModelCallContext = {
+            const ctx: PostModelCallInputContext = {
               conversationId: this.conversationId,
               callSite: callSite ?? null,
               content: structuredClone(message.content),
               messages: [...history],
               stopReason: response.stopReason,
               decision: "stop",
-              logger: rlog,
             };
-            const result = await runHook(HOOKS.POST_MODEL_CALL, ctx);
+            const result = await traceAsyncSection(
+              "agent-loop:post-model-call-hook",
+              () => runHook(HOOKS.POST_MODEL_CALL, ctx),
+            );
             return {
               finalized: { role: "assistant", content: result.content },
               decision: result.decision,
@@ -1826,7 +1809,9 @@ export class AgentLoop {
         // would have shown. A no-op when text already streamed live — that
         // stream stands. Call only for a turn being kept.
         const emitFinalAssistantText = (content: ContentBlock[]): void => {
-          if (streamedVisibleText) return;
+          if (streamedVisibleText) {
+            return;
+          }
           const finalText = applySubstitutions(
             assistantTextOf(content),
             substitutionMap,
@@ -2230,7 +2215,7 @@ export class AgentLoop {
             resultBlocks.push(block);
             continue;
           }
-          const postToolUseCtx: PostToolUseContext = {
+          const postToolUseCtx: PostToolUseInputContext = {
             conversationId: this.conversationId,
             toolResponse: block as ToolResultContent,
             messages: history,
@@ -2239,7 +2224,6 @@ export class AgentLoop {
             maxInputTokens: contextWindowTokens,
             callSite: callSite ?? null,
             supportsDynamicUi,
-            logger: rlog,
           };
           const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
           resultBlocks.push(finalCtx.toolResponse);
@@ -2436,7 +2420,7 @@ export class AgentLoop {
         // hooks) is not a provider stop, so it falls straight through to the
         // error path below.
         if (error === providerCallError) {
-          const errorOutcomeCtx: PostModelCallContext = {
+          const errorOutcomeCtx: PostModelCallInputContext = {
             conversationId: this.conversationId,
             callSite: callSite ?? null,
             content: [],
@@ -2444,9 +2428,8 @@ export class AgentLoop {
             stopReason: null,
             error: err,
             decision: "stop",
-            logger: rlog,
           };
-          let errorOutcome: PostModelCallContext = errorOutcomeCtx;
+          let errorOutcome: PostModelCallInputContext = errorOutcomeCtx;
           try {
             errorOutcome = await runHook(
               HOOKS.POST_MODEL_CALL,
@@ -2477,9 +2460,6 @@ export class AgentLoop {
           { err, turn: toolUseTurns, messageCount: history.length },
           "Agent loop error during turn processing",
         );
-        if (shouldCaptureAgentLoopError(err)) {
-          Sentry.captureException(err);
-        }
         onEvent({ type: "error", error: err });
         // Catch-block fallback. A break site that stamped a more specific
         // reason before unwinding here keeps it; the guard makes this a no-op.
@@ -2504,179 +2484,4 @@ export class AgentLoop {
       newMessages: history.slice(newMessagesStart),
     };
   }
-}
-
-/** Number of most-recent AX tree snapshots to keep in conversation history. */
-const MAX_AX_TREES_IN_HISTORY = 2;
-
-/** Regex that matches the `<ax-tree>...</ax-tree>` markers. */
-const AX_TREE_PATTERN = /<ax-tree>[\s\S]*?<\/ax-tree>/g;
-const AX_TREE_PLACEHOLDER = "<ax_tree_omitted />";
-
-/**
- * Escapes any literal `</ax-tree>` occurrences inside AX tree content so
- * that the non-greedy compaction regex (`AX_TREE_PATTERN`) does not stop
- * prematurely when the user happens to be viewing XML/HTML source that
- * contains the closing tag.  The escaped content does not need to be
- * unescaped because compaction replaces the entire block with a placeholder.
- */
-export function escapeAxTreeContent(content: string): string {
-  return content.replace(/<\/ax-tree>/gi, "&lt;/ax-tree&gt;");
-}
-
-/**
- * Returns a shallow copy of `messages` where all but the most recent
- * `MAX_AX_TREES_IN_HISTORY` `<ax-tree>` blocks have been replaced with a
- * short placeholder.  This keeps the conversation context small so that
- * TTFT does not grow linearly with step count in computer-use sessions.
- *
- * Counting is per-block, not per-message — a single user message can
- * contain multiple tool_result blocks each with their own AX tree snapshot.
- */
-export function compactAxTreeHistory(messages: Message[]): Message[] {
-  // Collect (messageIndex, blockIndex) for every tool_result block with <ax-tree>
-  const axBlocks: Array<{ msgIdx: number; blockIdx: number }> = [];
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (msg.role !== "user") continue;
-    for (let j = 0; j < msg.content.length; j++) {
-      const block = msg.content[j];
-      if (
-        block.type === "tool_result" &&
-        typeof block.content === "string" &&
-        block.content.includes("<ax-tree>")
-      ) {
-        axBlocks.push({ msgIdx: i, blockIdx: j });
-      }
-    }
-  }
-
-  if (axBlocks.length <= MAX_AX_TREES_IN_HISTORY) {
-    return messages;
-  }
-
-  // Build a set of "msgIdx:blockIdx" keys for blocks that should be stripped
-  const toStrip = new Set(
-    axBlocks
-      .slice(0, -MAX_AX_TREES_IN_HISTORY)
-      .map((b) => `${b.msgIdx}:${b.blockIdx}`),
-  );
-
-  return messages.map((msg, idx) => {
-    // Quick check: does this message have any blocks to strip?
-    const hasStripTarget = msg.content.some((_, j) =>
-      toStrip.has(`${idx}:${j}`),
-    );
-    if (!hasStripTarget) return msg;
-
-    return {
-      ...msg,
-      content: msg.content.map((block, j) => {
-        if (
-          toStrip.has(`${idx}:${j}`) &&
-          block.type === "tool_result" &&
-          typeof block.content === "string"
-        ) {
-          return {
-            ...block,
-            content: block.content.replace(
-              AX_TREE_PATTERN,
-              AX_TREE_PLACEHOLDER,
-            ),
-          };
-        }
-        return block;
-      }),
-    };
-  });
-}
-
-/**
- * Strip image contentBlocks from all tool_result blocks except those in the
- * most recent user message that contains tool_result blocks. This prevents
- * screenshots from accumulating in the context window — each image is seen
- * once by the LLM on the turn it was captured, then replaced with a text
- * placeholder on subsequent turns.
- *
- * We target the last user message with tool_results (not just the last user
- * message) because a plain-text user message may follow the tool-result
- * turn. Using the last user message unconditionally would leave the most
- * recent tool screenshots unprotected from stripping.
- */
-function stripOldMediaBlocks(history: Message[]): Message[] {
-  // Find the last user message that contains tool_result blocks.
-  let lastToolResultUserIdx = -1;
-  for (let i = history.length - 1; i >= 0; i--) {
-    if (
-      history[i].role === "user" &&
-      history[i].content.some((b) => b.type === "tool_result")
-    ) {
-      lastToolResultUserIdx = i;
-      break;
-    }
-  }
-
-  return history.map((msg, idx) => {
-    // Keep the most recent tool-result user message intact (current turn)
-    if (idx === lastToolResultUserIdx || msg.role !== "user") return msg;
-
-    // Check if any tool_result blocks carry embedded media (image or audio).
-    const isMedia = (cb: ContentBlock) =>
-      cb.type === "image" || cb.type === "file";
-    const hasMedia = msg.content.some(
-      (b) =>
-        b.type === "tool_result" &&
-        (b as ToolResultContent).contentBlocks?.some(isMedia),
-    );
-    if (!hasMedia) return msg;
-
-    // Strip media from tool_result blocks, replacing with a text marker. The
-    // model already saw/heard the media in the turn it was captured; resending
-    // the bytes every turn (a 12 MB audio clip isn't optimized like images)
-    // bloats the request until compaction.
-    return {
-      ...msg,
-      content: msg.content.map((b) => {
-        if (b.type !== "tool_result") return b;
-        const tr = b as ToolResultContent;
-        if (!tr.contentBlocks?.some(isMedia)) return b;
-        return {
-          ...tr,
-          contentBlocks: undefined,
-          content:
-            (tr.content || "") +
-            "\n[Media (image/audio) was captured and shown previously — binary data removed to save context.]",
-        };
-      }),
-    };
-  });
-}
-
-/**
- * Sanitize the outbound history immediately before a provider call, bundling
- * the pre-send transforms the loop applies to every request:
- * - {@link stripOldMediaBlocks} drops accumulated screenshot/audio bytes from
- *   older tool results — the model saw the media on the turn it was captured.
- * - {@link compactAxTreeHistory} collapses all but the most recent few
- *   `<ax-tree>` snapshots so TTFT does not grow linearly with step count.
- * - {@link stripHistoricalWebSearchResults} converts historical
- *   `web_search_tool_result` blocks to text summaries; Anthropic's opaque
- *   `encrypted_content` tokens expire / are route-scoped, and replaying a stale
- *   one is rejected with `Invalid encrypted_content in search_result block`.
- *
- * Transforms the outbound copy only — the durable history keeps the rich
- * originals and each send re-derives the sanitized projection (every transform
- * is idempotent). Because it runs unconditionally before every provider call,
- * it is the single place where oversized media and expired web-search tokens
- * are guaranteed to be removed from a request.
- *
- * This is outbound-request preparation and should eventually move to a default
- * `pre-model-call` plugin hook ({@link HOOKS.PRE_MODEL_CALL}) once that hook's
- * context carries the outbound message list; for now it lives inline next to
- * the provider call it guards.
- */
-export function preModelCallSanitize(history: Message[]): Message[] {
-  const mediaStripped = stripOldMediaBlocks(history);
-  const axCompacted = compactAxTreeHistory(mediaStripped);
-  return stripHistoricalWebSearchResults(axCompacted).messages;
 }

@@ -2,8 +2,9 @@
  * Daemon-side reader for the guardian contact id(s), sourced from the gateway
  * DB (source of truth) via the `get_guardian_contact` IPC.
  *
- * Lets contact-serve paths determine the guardian without reading the local
- * `contacts.role` column. Result is cached with a short TTL.
+ * Lets contact-serve paths determine the guardian without any local role
+ * state (the local contact shape carries none). Result is cached with a
+ * short TTL.
  *
  * FAIL-SOFT: a cache miss or IPC error returns an empty set and logs a warning;
  * this never throws (it runs on contact-serve paths).

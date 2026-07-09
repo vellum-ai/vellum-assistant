@@ -16,7 +16,6 @@
 
 import { and, asc, eq, sql } from "drizzle-orm";
 
-import { assistantDbRun } from "../../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../../db/connection.js";
 import { ContactStore } from "../../db/contact-store.js";
 import {
@@ -166,11 +165,13 @@ export async function handleContactPromptSubmit(
           .onConflictDoNothing()
           .run();
         try {
-          await assistantDbRun(
-            `INSERT INTO contacts (id, display_name, contact_type, created_at, updated_at)
-             VALUES (?, ?, 'human', ?, ?)`,
-            [contactId, effectiveDisplayName, now, now],
-          );
+          await ipcCallAssistant("contacts_mirror_upsert_contact", {
+            body: {
+              contactId,
+              displayName: effectiveDisplayName,
+              contactType: "human",
+            },
+          });
         } catch (mirrorErr) {
           log.warn(
             { err: mirrorErr },
@@ -309,9 +310,9 @@ export async function handleContactPromptSubmit(
           .where(eq(gwContacts.id, contactId))
           .run();
         try {
-          await assistantDbRun("DELETE FROM contacts WHERE id = ?", [
-            contactId,
-          ]);
+          await ipcCallAssistant("contacts_mirror_delete_contact", {
+            body: { contactId },
+          });
         } catch (mirrorErr) {
           log.warn(
             { err: mirrorErr },

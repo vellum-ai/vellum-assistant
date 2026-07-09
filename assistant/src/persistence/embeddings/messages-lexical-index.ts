@@ -87,6 +87,7 @@ export class MessagesLexicalIndex {
     try {
       const exists = await this.client.collectionExists(this.collection);
       if (exists.exists) {
+        await this.reconcileSparseIndexOnDisk();
         if (await this.ensurePayloadIndexesSafe()) {
           this.collectionReady = true;
         }
@@ -106,7 +107,11 @@ export class MessagesLexicalIndex {
         // Sparse-only: no dense `vectors` config. The lexical index is a
         // BM25-style replacement for FTS5 and never holds a dense vector.
         sparse_vectors: {
-          sparse: {}, // Qdrant auto-infers sparse vector params
+          // The sparse inverted index lives in RAM unless placed on disk
+          // explicitly. This index covers every message ever written, so its
+          // RAM footprint grows without bound — keep it on disk alongside the
+          // payloads.
+          sparse: { index: { on_disk: this.onDisk } },
         },
         on_disk_payload: this.onDisk,
       });
@@ -311,6 +316,78 @@ export class MessagesLexicalIndex {
         return result.count;
       }
       throw err;
+    }
+  }
+
+  /**
+   * Remove every point from the index by dropping the whole collection. Used by
+   * "clear all conversations" — a bulk wipe with no conversation ids left to
+   * enqueue per-conversation purges against. Resetting `collectionReady` means
+   * the next write self-heals via `ensureCollection`. Returns `false` (rather
+   * than throwing) if the collection is absent or the drop fails, mirroring the
+   * shared Qdrant client's `deleteCollection` so callers can treat it as
+   * best-effort.
+   */
+  async clear(): Promise<boolean> {
+    try {
+      const exists = await this.client.collectionExists(this.collection);
+      if (!exists.exists) {
+        this.collectionReady = false;
+        return false;
+      }
+      await this.client.deleteCollection(this.collection);
+      this.collectionReady = false;
+      return true;
+    } catch (err) {
+      log.warn(
+        { err, collection: this.collection },
+        "Failed to clear messages lexical index collection",
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Align an existing collection's sparse-index placement with the configured
+   * `onDisk` flag. Qdrant keeps the sparse inverted index in RAM unless the
+   * collection explicitly opts into on-disk, and collections keep whatever
+   * they were created with — for this index that means RAM usage growing with
+   * every message ever written. `updateCollection` moves the index in place
+   * (the optimizer rewrites segments in the background) with no re-encode.
+   *
+   * Best-effort: a failed probe or update logs and leaves the collection
+   * serving from its current index — search keeps working either way.
+   */
+  private async reconcileSparseIndexOnDisk(): Promise<void> {
+    try {
+      const info = await this.client.getCollection(this.collection);
+      const sparseParams = (
+        info.config?.params as
+          | {
+              sparse_vectors?: Record<
+                string,
+                { index?: { on_disk?: boolean | null } | null } | undefined
+              >;
+            }
+          | undefined
+      )?.sparse_vectors;
+      if (!sparseParams || !("sparse" in sparseParams)) return;
+
+      const current = sparseParams.sparse?.index?.on_disk ?? false;
+      if (current === this.onDisk) return;
+
+      await this.client.updateCollection(this.collection, {
+        sparse_vectors: { sparse: { index: { on_disk: this.onDisk } } },
+      });
+      log.info(
+        { collection: this.collection, onDisk: this.onDisk },
+        "Moved sparse index placement on existing Qdrant collection",
+      );
+    } catch (err) {
+      log.warn(
+        { err, collection: this.collection, onDisk: this.onDisk },
+        "Failed to update sparse index placement — continuing with current index",
+      );
     }
   }
 

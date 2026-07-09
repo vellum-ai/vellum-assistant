@@ -13,6 +13,12 @@ import type { TtsElevenLabsProviderConfig } from "../../config/schemas/tts.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
+import { resolvePcmOutputSampleRateHz } from "../pcm-sample-rates.js";
+import type { TtsProviderDefinition } from "../provider-definition.js";
+import {
+  consumeSynthesisResponse,
+  type StreamReadTimeouts,
+} from "../stream-read.js";
 import type {
   TtsProvider,
   TtsProviderCapabilities,
@@ -31,7 +37,8 @@ export type ElevenLabsTtsErrorCode =
   | "ELEVENLABS_TTS_NO_VOICE_ID"
   | "ELEVENLABS_TTS_HTTP_ERROR"
   | "ELEVENLABS_TTS_EMPTY_RESPONSE"
-  | "ELEVENLABS_TTS_REQUEST_FAILED";
+  | "ELEVENLABS_TTS_REQUEST_FAILED"
+  | "ELEVENLABS_TTS_STREAM_TIMEOUT";
 
 export class ElevenLabsTtsError extends Error {
   readonly code: ElevenLabsTtsErrorCode;
@@ -158,128 +165,239 @@ function resolveVoiceId(
   return voiceId;
 }
 
+/** ElevenLabs `pcm_*` rates available on every subscription tier. */
+const UNRESTRICTED_PCM_SAMPLE_RATES_HZ = [16_000, 22_050, 24_000] as const;
+
+/** `pcm_44100` requires Pro tier or above upstream. */
+const PRO_TIER_PCM_SAMPLE_RATE_HZ = 44_100;
+
+/**
+ * PCM rate resolver for ElevenLabs. pcm_44100 is Pro-tier-gated upstream, so
+ * it is only used on an exact 44.1 kHz hint (explicit opt-in), never as a
+ * clamp target; all other hints clamp to the tier-unrestricted rates
+ * (e.g. 48 kHz → 24 kHz).
+ */
+const resolveElevenLabsPcmSampleRateHz = (request: TtsSynthesisRequest) => {
+  if (
+    request.outputFormat === "pcm" &&
+    request.sampleRateHz === PRO_TIER_PCM_SAMPLE_RATE_HZ
+  ) {
+    return PRO_TIER_PCM_SAMPLE_RATE_HZ;
+  }
+  return resolvePcmOutputSampleRateHz(
+    request,
+    UNRESTRICTED_PCM_SAMPLE_RATES_HZ,
+  );
+};
+
 /**
  * Choose the ElevenLabs output format based on the use case and optional
  * format hint.
  *
  * When the caller requests `outputFormat: "pcm"` (e.g. the media-stream
- * transport which needs raw PCM for mu-law transcoding), we use `pcm_16000`
- * — 16-bit signed little-endian at 16 kHz. The media-stream transport's
- * `audioBufferToFrames` handles the 16 kHz -> 8 kHz downsample.
+ * transport which needs raw PCM for mu-law transcoding), we request the
+ * `pcm_*` format — 16-bit signed little-endian — at the rate chosen by
+ * {@link resolveElevenLabsPcmSampleRateHz}, defaulting to 16 kHz when no
+ * hint is given (the shared no-hint convention across TTS providers).
  *
  * Otherwise:
  * - Phone calls benefit from lower-latency, smaller payloads (mp3 at 22050/32).
  * - Message playback uses higher quality (mp3 at 44100/128).
  */
 function resolveOutputFormat(request: TtsSynthesisRequest): string {
-  if (request.outputFormat === "pcm") {
-    return "pcm_16000";
+  const pcmSampleRateHz = resolveElevenLabsPcmSampleRateHz(request);
+  if (pcmSampleRateHz != null) {
+    return `pcm_${pcmSampleRateHz}`;
   }
   return request.useCase === "phone-call" ? "mp3_22050_32" : "mp3_44100_128";
 }
 
-export function createElevenLabsProvider(): TtsProvider {
+/**
+ * Resolve credentials and config, build the request body, and issue the
+ * ElevenLabs TTS HTTP request. Shared by `synthesize` (buffer endpoint) and
+ * `synthesizeStream` (`/stream` endpoint). Throws on missing credentials and
+ * non-OK responses; resolves with the OK response and the resolved content
+ * type.
+ */
+async function performTtsRequest(
+  request: TtsSynthesisRequest,
+  { stream }: { stream: boolean },
+): Promise<{ response: Response; contentType: string }> {
+  const apiKey = await getSecureKeyAsync(
+    credentialKey("elevenlabs", "api_key"),
+  );
+  if (!apiKey) {
+    throw new ElevenLabsTtsError(
+      "ELEVENLABS_TTS_NO_API_KEY",
+      "ElevenLabs API key not configured. " +
+        "Add it in Settings → Voice or via: assistant credentials set --service elevenlabs --field api_key <key>",
+    );
+  }
+
+  const config = getConfig().services.tts.providers.elevenlabs;
+  const voiceId = resolveVoiceId(request, config);
+  const outputFormat = resolveOutputFormat(request);
+
+  const url = stream
+    ? `${ELEVENLABS_API_BASE}/v1/text-to-speech/${voiceId}/stream?output_format=${outputFormat}`
+    : `${ELEVENLABS_API_BASE}/v1/text-to-speech/${voiceId}?output_format=${outputFormat}`;
+
+  // Streaming defaults to the low-latency flash model; batch keeps
+  // multilingual for quality. A configured voiceModelId always wins.
+  const defaultModelId = stream
+    ? "eleven_flash_v2_5"
+    : "eleven_multilingual_v2";
+
+  const body: Record<string, unknown> = {
+    text: request.text,
+    model_id: config.voiceModelId?.trim() || defaultModelId,
+    voice_settings: {
+      stability: config.stability,
+      similarity_boost: config.similarityBoost,
+      speed: config.speed,
+    },
+  };
+
+  log.info(
+    { voiceId, outputFormat, stream, textLength: request.text.length },
+    "Starting ElevenLabs TTS synthesis",
+  );
+
+  const contentType = FORMAT_CONTENT_TYPE[outputFormat] ?? "audio/mpeg";
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "xi-api-key": apiKey,
+        Accept: contentType,
+      },
+      body: JSON.stringify(body),
+      signal: request.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    throw new ElevenLabsTtsError(
+      "ELEVENLABS_TTS_REQUEST_FAILED",
+      `ElevenLabs TTS request failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    // Surface the upstream provider message verbatim when extractable —
+    // the daemon route wraps it with a single "TTS synthesis failed:"
+    // prefix on the way out. The HTTP status is preserved on `statusCode`
+    // and logged by the daemon, so we don't embed it in the message text.
+    const message =
+      extractElevenLabsErrorMessage(errorText) ??
+      `ElevenLabs returned HTTP ${response.status}`;
+    throw new ElevenLabsTtsError(
+      "ELEVENLABS_TTS_HTTP_ERROR",
+      message,
+      response.status,
+    );
+  }
+
+  return { response, contentType };
+}
+
+/**
+ * Issue the TTS request and consume the response into a complete result.
+ * The streaming path forwards chunks via `onChunk` as they arrive, guarded
+ * by first-chunk/idle stall timeouts; the buffer path reads the whole body.
+ */
+async function performSynthesis(
+  request: TtsSynthesisRequest,
+  options: {
+    stream: boolean;
+    onChunk?: (chunk: Uint8Array) => void;
+  } & StreamReadTimeouts,
+): Promise<TtsSynthesisResult> {
+  const { response, contentType } = await performTtsRequest(request, {
+    stream: options.stream,
+  });
+
+  const audio = await consumeSynthesisResponse(response, {
+    ...options,
+    makeTimeoutError: (timeoutMs) =>
+      new ElevenLabsTtsError(
+        "ELEVENLABS_TTS_STREAM_TIMEOUT",
+        `ElevenLabs streaming TTS read timed out after ${timeoutMs}ms`,
+      ),
+    makeEmptyError: (kind) =>
+      new ElevenLabsTtsError(
+        "ELEVENLABS_TTS_EMPTY_RESPONSE",
+        kind === "no-body"
+          ? "ElevenLabs streaming TTS returned no response body"
+          : "ElevenLabs TTS returned an empty audio response",
+      ),
+  });
+
+  log.debug(
+    { bytes: audio.byteLength, stream: options.stream },
+    "ElevenLabs TTS synthesis complete",
+  );
+
+  return { audio, contentType };
+}
+
+export function createElevenLabsProvider(
+  streamTimeouts: StreamReadTimeouts = {},
+): TtsProvider {
   const capabilities: TtsProviderCapabilities = {
-    supportsStreaming: false,
+    supportsStreaming: true,
     supportedFormats: ["mp3", "pcm"],
   };
 
   return {
     id: "elevenlabs",
     capabilities,
-
-    async synthesize(
-      request: TtsSynthesisRequest,
-    ): Promise<TtsSynthesisResult> {
-      const apiKey = await getSecureKeyAsync(
-        credentialKey("elevenlabs", "api_key"),
-      );
-      if (!apiKey) {
-        throw new ElevenLabsTtsError(
-          "ELEVENLABS_TTS_NO_API_KEY",
-          "ElevenLabs API key not configured. " +
-            "Add it in Settings → Voice or via: assistant credentials set --service elevenlabs --field api_key <key>",
-        );
-      }
-
-      const config = getConfig().services.tts.providers.elevenlabs;
-      const voiceId = resolveVoiceId(request, config);
-      const outputFormat = resolveOutputFormat(request);
-
-      const url = `${ELEVENLABS_API_BASE}/v1/text-to-speech/${voiceId}`;
-
-      const body: Record<string, unknown> = {
-        text: request.text,
-        model_id: config.voiceModelId?.trim() || "eleven_multilingual_v2",
-        voice_settings: {
-          stability: config.stability,
-          similarity_boost: config.similarityBoost,
-          speed: config.speed,
-        },
-      };
-
-      log.info(
-        { voiceId, outputFormat, textLength: request.text.length },
-        "Starting ElevenLabs TTS synthesis",
-      );
-
-      const acceptType = FORMAT_CONTENT_TYPE[outputFormat] ?? "audio/mpeg";
-
-      let response: Response;
-      try {
-        response = await fetch(`${url}?output_format=${outputFormat}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "xi-api-key": apiKey,
-            Accept: acceptType,
-          },
-          body: JSON.stringify(body),
-          signal: request.signal,
-        });
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") throw err;
-        throw new ElevenLabsTtsError(
-          "ELEVENLABS_TTS_REQUEST_FAILED",
-          `ElevenLabs TTS request failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "");
-        // Surface the upstream provider message verbatim when extractable —
-        // the daemon route wraps it with a single "TTS synthesis failed:"
-        // prefix on the way out. The HTTP status is preserved on `statusCode`
-        // and logged by the daemon, so we don't embed it in the message text.
-        const message =
-          extractElevenLabsErrorMessage(errorText) ??
-          `ElevenLabs returned HTTP ${response.status}`;
-        throw new ElevenLabsTtsError(
-          "ELEVENLABS_TTS_HTTP_ERROR",
-          message,
-          response.status,
-        );
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      if (arrayBuffer.byteLength === 0) {
-        throw new ElevenLabsTtsError(
-          "ELEVENLABS_TTS_EMPTY_RESPONSE",
-          "ElevenLabs TTS returned an empty audio response",
-        );
-      }
-
-      const contentType = FORMAT_CONTENT_TYPE[outputFormat] ?? "audio/mpeg";
-
-      log.debug(
-        { bytes: arrayBuffer.byteLength },
-        "ElevenLabs TTS synthesis complete",
-      );
-
-      return {
-        audio: Buffer.from(arrayBuffer),
-        contentType,
-      };
-    },
+    resolveOutputSampleRateHz: resolveElevenLabsPcmSampleRateHz,
+    synthesize: (request) => performSynthesis(request, { stream: false }),
+    synthesizeStream: (request, onChunk) =>
+      performSynthesis(request, { stream: true, onChunk, ...streamTimeouts }),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Provider definition
+// ---------------------------------------------------------------------------
+
+/**
+ * The complete ElevenLabs provider definition — catalog metadata and runtime
+ * adapter — assembled into the canonical catalog by `provider-catalog.ts`.
+ */
+export const elevenLabsTtsProviderDefinition: TtsProviderDefinition = {
+  id: "elevenlabs",
+  displayName: "ElevenLabs",
+  subtitle:
+    "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.",
+  supportsVoiceSelection: true,
+  apiKeyPlaceholder: "sk_…",
+  credentialsGuide: {
+    description:
+      "Sign in to ElevenLabs, go to your Profile, and copy your API key.",
+    url: "https://elevenlabs.io/app/settings/api-keys",
+    linkLabel: "Open ElevenLabs API Keys",
+  },
+  callMode: "native-twilio",
+  allowNativeFallback: true,
+  capabilities: {
+    supportsStreaming: true,
+    supportedFormats: ["mp3", "pcm"],
+  },
+  // The adapter honours the PCM hint via sample-rate-mapped pcm_* output.
+  mediaStreamPlayback: { outputFormat: "pcm" },
+  secretRequirements: [
+    {
+      credentialStoreKey: "credential/elevenlabs/api_key",
+      displayName: "ElevenLabs API Key",
+      setCommand:
+        "assistant credentials set --service elevenlabs --field api_key <key>",
+    },
+  ],
+  adapter: createElevenLabsProvider(),
+};

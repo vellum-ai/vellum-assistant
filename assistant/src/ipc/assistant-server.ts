@@ -33,6 +33,10 @@ import { createServer, type Server, type Socket } from "node:net";
 
 import { ensureSocketDir, SocketWatchdog } from "@vellumai/ipc-server-utils";
 
+import {
+  getDbMigrationReadiness,
+  isDbMigrationGateBypassed,
+} from "../daemon/daemon-readiness.js";
 import type { PrincipalType } from "../runtime/auth/types.js";
 import { findLocalGuardianPrincipalIdFromStore } from "../runtime/local-actor-identity.js";
 import { RouteError } from "../runtime/routes/errors.js";
@@ -51,11 +55,9 @@ import {
   writeStreamChunk,
   writeStreamEnd,
 } from "./ipc-framing.js";
+import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
+import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
-import {
-  type DbProxyTransactionParams,
-  handleDbProxyTransaction,
-} from "./routes/db-proxy-transaction.js";
 import { INVITE_IPC_METHODS } from "./routes/invite-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
@@ -192,28 +194,45 @@ export class AssistantIpcServer {
       this.methods.set(route.operationId, route.handler);
     }
 
-    // ⚠️  TEMPORARY — gateway→assistant DB proxies (see ipc/routes/db-proxy.ts
-    // and ipc/routes/db-proxy-transaction.ts). These are the ONLY routes
-    // defined directly here; all other routes go in ROUTES. Remove once
-    // contacts/guardian-binding logic is fully migrated to the gateway's
-    // own database.
+    // Gateway→assistant DB proxy — one-time gateway data migrations only,
+    // never runtime features (see ipc/routes/db-proxy.ts; allowlist-guarded).
+    // This is the ONLY route defined directly here; all other routes go in
+    // ROUTES.
     this.methods.set("db_proxy", (params) =>
       handleDbProxy(params as unknown as DbProxyParams),
     );
-    this.methods.set("db_proxy_transaction", (params) =>
-      handleDbProxyTransaction(params as unknown as DbProxyTransactionParams),
-    );
 
     // IPC-only invite methods (see ipc/routes/invite-ipc-routes.ts). The
-    // gateway calls these back over IPC to mint tokens / redeem voice + token
-    // invites (assistant-owned secrets). No HTTP surface; never in ROUTES.
+    // gateway calls these back over IPC to mirror redeemed-invite contact
+    // info locally. No HTTP surface; never in ROUTES.
     for (const [operationId, handler] of Object.entries(INVITE_IPC_METHODS)) {
+      this.methods.set(operationId, handler);
+    }
+
+    // IPC-only contact INFO-READ methods (see ipc/routes/contacts-info-ipc-routes.ts).
+    // The gateway calls these to read assistant-owned info fields + channel
+    // identity, replacing raw db_proxy SELECTs. No HTTP surface; never in ROUTES.
+    for (const [operationId, handler] of Object.entries(
+      CONTACTS_INFO_IPC_METHODS,
+    )) {
+      this.methods.set(operationId, handler);
+    }
+
+    // IPC-only contact identity-mirror methods (see
+    // ipc/routes/contacts-mirror-ipc-routes.ts). The gateway calls these back
+    // over IPC to mirror single-row contact/channel identity locally after a
+    // gateway-owned ACL write. No HTTP surface; never in ROUTES.
+    for (const [operationId, handler] of Object.entries(
+      CONTACTS_MIRROR_IPC_METHODS,
+    )) {
       this.methods.set(operationId, handler);
     }
 
     this.methods.set("$cancel", (params) => {
       const targetId = (params as { targetId?: string }).targetId;
-      if (targetId) this.abortControllers.get(targetId)?.abort();
+      if (targetId) {
+        this.abortControllers.get(targetId)?.abort();
+      }
       return null;
     });
 
@@ -255,11 +274,15 @@ export class AssistantIpcServer {
   stop(): void {
     this.watchdog.stop();
 
-    for (const ctrl of this.abortControllers.values()) ctrl.abort();
+    for (const ctrl of this.abortControllers.values()) {
+      ctrl.abort();
+    }
     this.abortControllers.clear();
 
     for (const client of this.clients) {
-      if (!client.destroyed) client.destroy();
+      if (!client.destroyed) {
+        client.destroy();
+      }
     }
     this.clients.clear();
 
@@ -359,6 +382,16 @@ export class AssistantIpcServer {
       return;
     }
 
+    // Gate ORM-touching methods on DB migration readiness. Migrations run
+    // asynchronously during startup, so the IPC server can be answering before
+    // the schema exists; dispatching a handler that calls getDb()/getSqlite()
+    // would hit a "no such table" error.
+    const migrationGate = this.dbMigrationGateResponse(req.method, req.id);
+    if (migrationGate) {
+      this.sendResponse(socket, reader, migrationGate);
+      return;
+    }
+
     void binary;
 
     // Skip AbortController for the $cancel meta-method itself
@@ -406,6 +439,35 @@ export class AssistantIpcServer {
       log.warn({ err, method: req.method }, "IPC handler error");
       this.sendResponse(socket, reader, this.buildErrorResponse(req.id, err));
     }
+  }
+
+  /**
+   * Returns a retryable 503 error envelope when an ORM-touching IPC method is
+   * called while DB migrations are not ready, or `null` when the call may
+   * proceed. Exempt methods (health/healthz/ps/$cancel) always return `null` so
+   * the gateway can poll `health` to observe when migrations finish (see
+   * gateway/src/post-assistant-ready.ts), and the migration-repair surface
+   * (rollback/import — see daemon-readiness.ts) is additionally allowed in the
+   * terminal failed state so recovery is possible. Carrying `statusCode` maps
+   * this to an `IpcHandlerError` (not an `IpcTransportError`) on the gateway
+   * client, so the warm-pool claim path waits and retries instead of failing
+   * hard.
+   */
+  private dbMigrationGateResponse(
+    method: string,
+    id: string,
+  ): IpcResponse | null {
+    // `$cancel` only aborts an in-flight request and never reads the DB.
+    if (method === "$cancel" || isDbMigrationGateBypassed(method)) return null;
+    const readiness = getDbMigrationReadiness();
+    if (readiness.ready) return null;
+    return {
+      id,
+      error: `Database migrations ${readiness.state}; IPC method '${method}' is temporarily unavailable`,
+      statusCode: 503,
+      errorCode: "DB_MIGRATIONS_UNAVAILABLE",
+      errorDetails: readiness,
+    };
   }
 
   private buildErrorResponse(id: string, err: unknown): IpcResponse {
@@ -595,7 +657,9 @@ export class AssistantIpcServer {
     response: IpcResponse,
     binary?: Uint8Array,
   ): void {
-    if (socket.destroyed) return;
+    if (socket.destroyed) {
+      return;
+    }
     if (reader.isLegacy) {
       writeLegacyMessage(socket, response);
     } else {
@@ -643,7 +707,9 @@ export function injectLocalActorHeader(
   if (!headers["x-vellum-actor-principal-id"]) {
     try {
       const localActor = findLocalGuardianPrincipalIdFromStore();
-      if (localActor) headers["x-vellum-actor-principal-id"] = localActor;
+      if (localActor) {
+        headers["x-vellum-actor-principal-id"] = localActor;
+      }
     } catch (err) {
       log.debug(
         { err },

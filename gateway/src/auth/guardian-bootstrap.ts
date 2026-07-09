@@ -11,7 +11,6 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
-import { assistantDbRun, assistantDbExec } from "../db/assistant-db-proxy.js";
 import {
   actorRefreshTokenRecords,
   actorTokenRecords,
@@ -21,9 +20,16 @@ import {
 import { readCredential } from "../credential-reader.js";
 import { credentialKey } from "../credential-key.js";
 import { arePlatformFeaturesEnabled } from "../feature-flag-resolver.js";
+import { reportGuardianMintRefused } from "../guardian-integrity-reporter.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { getLogger } from "../logger.js";
+import { deleteContactIfOrphaned } from "../verification/contact-helpers.js";
 
+import {
+  bustGuardianIntegrityCache,
+  guardianIntegrityState,
+  hasEvidenceOfPriorGuardian,
+} from "./guardian-integrity.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
 
@@ -63,6 +69,24 @@ export interface GuardianBootstrapResult {
   refreshTokenExpiresAt: number;
   refreshAfter: number;
   isNew: boolean;
+  /** True when the mint overrode evidence of a prior guardian (re-pair). */
+  mintedOverPriorEvidence: boolean;
+}
+
+/**
+ * Thrown when a vellum guardian mint is refused: the gateway DB has no active
+ * vellum guardian binding but carries evidence of prior onboarding, so a mint
+ * would permanently diverge from prior clients' tokens. Recovery is the
+ * explicit /v1/guardian/init flow.
+ */
+export class VellumGuardianMintRefusedError extends Error {
+  constructor() {
+    super(
+      "refusing to mint a vellum guardian principal: the gateway DB has " +
+        "evidence of a prior guardian — re-pair via guardian init to recover",
+    );
+    this.name = "VellumGuardianMintRefusedError";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -177,17 +201,29 @@ export interface CreateGuardianBindingResult {
   channel: string;
 }
 
+/** Result of the sync gateway-authoritative writes, consumed by the mirror. */
+export interface GuardianBindingGatewayWrites {
+  contactId: string;
+  channelId: string;
+  channel: string;
+  address: string;
+  deliveryChatId: string;
+  displayName: string;
+  guardianPrincipalId: string;
+  /** Contact a claimed channel was re-parented away from (orphan-GC input). */
+  claimedFromContactId: string | null;
+}
+
 /**
- * Create or update a guardian contact + channel binding.
- *
- * Writes the gateway DB (authoritative) first, then mirrors identity to the
- * assistant DB (best-effort, via IPC proxy). Uses upsert semantics: looks up an existing contact by
- * principalId, then claims any preseeded channel for the same actor before
- * falling back to an existing guardian channel by (contactId, type).
+ * Gateway-authoritative writes for a guardian binding — fully synchronous so
+ * callers can compose it inside a single SQLite transaction (e.g. atomically
+ * with a verification-session consume). Runs the id resolution and the
+ * contact + channel upserts as plain statements; the caller owns the
+ * transaction boundary.
  */
-export async function createGuardianBinding(
+export function applyGuardianBindingGatewayWrites(
   params: CreateGuardianBindingParams,
-): Promise<CreateGuardianBindingResult> {
+): GuardianBindingGatewayWrites {
   const now = Date.now();
   const displayName = params.displayName ?? params.externalUserId;
   const verifiedVia = params.verifiedVia ?? "challenge";
@@ -249,156 +285,151 @@ export async function createGuardianBinding(
 
   const channelId = claimableChannel?.id ?? existingChannel?.id ?? uuid();
 
-  // --- Gateway DB write (authoritative, transactional) ---
+  // --- Gateway DB write (authoritative) ---
   // The gateway owns the guardian ACL; a failure here means the binding failed,
-  // so let it propagate.
+  // so let it propagate (rolling back the caller's transaction).
   const gwDb = getGatewayDb();
-  gwDb.transaction((tx) => {
-    tx.insert(gwContacts)
-      .values({
-        id: contactId,
+  gwDb
+    .insert(gwContacts)
+    .values({
+      id: contactId,
+      displayName,
+      role: "guardian",
+      principalId: params.guardianPrincipalId,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: gwContacts.id,
+      set: {
         displayName,
         role: "guardian",
         principalId: params.guardianPrincipalId,
-        createdAt: now,
         updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: gwContacts.id,
-        set: {
-          displayName,
-          role: "guardian",
-          principalId: params.guardianPrincipalId,
-          updatedAt: now,
-        },
-      })
-      .run();
+      },
+    })
+    .run();
 
-    const channelSet = {
-      contactId,
-      address: params.externalUserId,
-      externalChatId: params.deliveryChatId,
-      isPrimary: true,
-      status: "active",
-      policy: "allow",
-      verifiedAt: now,
-      verifiedVia,
-      revokedReason: null,
-      blockedReason: null,
-      updatedAt: now,
-    };
+  const channelSet = {
+    contactId,
+    address: params.externalUserId,
+    externalChatId: params.deliveryChatId,
+    isPrimary: true,
+    status: "active",
+    policy: "allow",
+    verifiedAt: now,
+    verifiedVia,
+    revokedReason: null,
+    blockedReason: null,
+    updatedAt: now,
+  };
 
-    // Heal a divergent (type,address) row (m0006): adopt it by its own id
-    // rather than insert and throw on idx_contact_channels_type_address_unique.
-    const existingGw = tx
-      .select({
-        id: gwContactChannels.id,
-        status: gwContactChannels.status,
-      })
-      .from(gwContactChannels)
-      .where(
-        and(
-          eq(gwContactChannels.type, params.channel),
-          sql`${gwContactChannels.address} = ${params.externalUserId} COLLATE NOCASE`,
-        ),
-      )
-      .get();
+  // Heal a divergent (type,address) row (m0006): adopt it by its own id
+  // rather than insert and throw on idx_contact_channels_type_address_unique.
+  const existingGw = gwDb
+    .select({
+      id: gwContactChannels.id,
+      status: gwContactChannels.status,
+    })
+    .from(gwContactChannels)
+    .where(
+      and(
+        eq(gwContactChannels.type, params.channel),
+        sql`${gwContactChannels.address} = ${params.externalUserId} COLLATE NOCASE`,
+      ),
+    )
+    .get();
 
-    if (existingGw) {
-      // Never reactivate a blocked gateway row by code-match — leave it
-      // intact (mirrors text-verification / contact-helpers guards).
-      if (existingGw.status !== "blocked") {
-        tx.update(gwContactChannels)
-          .set(channelSet)
-          .where(eq(gwContactChannels.id, existingGw.id))
-          .run();
-      }
-    } else {
-      tx.insert(gwContactChannels)
-        .values({
-          id: channelId,
-          type: params.channel,
-          interactionCount: 0,
-          createdAt: now,
-          ...channelSet,
-        })
-        .onConflictDoUpdate({
-          target: gwContactChannels.id,
-          set: channelSet,
-        })
+  if (existingGw) {
+    // Never reactivate a blocked gateway row by code-match — leave it
+    // intact (mirrors text-verification / contact-helpers guards).
+    if (existingGw.status !== "blocked") {
+      gwDb
+        .update(gwContactChannels)
+        .set(channelSet)
+        .where(eq(gwContactChannels.id, existingGw.id))
         .run();
     }
-  });
+  } else {
+    gwDb
+      .insert(gwContactChannels)
+      .values({
+        id: channelId,
+        type: params.channel,
+        interactionCount: 0,
+        createdAt: now,
+        ...channelSet,
+      })
+      .onConflictDoUpdate({
+        target: gwContactChannels.id,
+        set: channelSet,
+      })
+      .run();
+  }
 
-  // --- Assistant DB identity mirror (best-effort, via IPC proxy) ---
+  // The guardian row just written supersedes any cached missing-guardian
+  // state. Busting here covers every binding-commit path (createGuardianBinding
+  // and the outbound phone rebind in verification/session-service.ts).
+  bustGuardianIntegrityCache();
+
+  return {
+    contactId,
+    channelId,
+    channel: params.channel,
+    address: params.externalUserId,
+    deliveryChatId: params.deliveryChatId,
+    displayName,
+    guardianPrincipalId: params.guardianPrincipalId,
+    claimedFromContactId:
+      claimableChannel && claimableChannel.contactId !== contactId
+        ? claimableChannel.contactId
+        : null,
+  };
+}
+
+/**
+ * Post-commit assistant-side effects for a committed guardian binding:
+ * identity mirror, orphaned-stub GC, daemon cache invalidation. All
+ * best-effort — the gateway binding is already authoritative.
+ */
+export async function mirrorGuardianBinding(
+  writes: GuardianBindingGatewayWrites,
+): Promise<void> {
+  const {
+    contactId,
+    channelId,
+    channel,
+    address,
+    deliveryChatId,
+    displayName,
+  } = writes;
+
+  // --- Assistant DB identity mirror (best-effort, via typed transactional IPC) ---
   // A non-authoritative convenience copy; its failure must not undo or abort
-  // the committed gateway binding.
+  // the committed gateway binding. One atomic daemon-side transaction upserts
+  // the guardian contact + its primary channel under the gateway-minted ids,
+  // reusing the same channel-id alignment the gateway wrote. The upsert
+  // reparents a claimable channel that inbound seeding attached elsewhere and
+  // refreshes the display name to match this binding.
   try {
-    await assistantDbExec("BEGIN IMMEDIATE");
-    try {
-      if (existingGuardianContact || claimableChannel) {
-        await assistantDbRun(
-          `UPDATE contacts
-           SET display_name = ?, updated_at = ?
-           WHERE id = ?`,
-          [displayName, now, contactId],
-        );
-      } else {
-        await assistantDbRun(
-          `INSERT INTO contacts (id, display_name, notes, created_at, updated_at)
-           VALUES (?, ?, 'guardian', ?, ?)`,
-          [contactId, displayName, now, now],
-        );
-      }
-
-      if (claimableChannel || existingChannel) {
-        // Remove duplicate channels with the same address (defensive).
-        await assistantDbRun(
-          `DELETE FROM contact_channels
-           WHERE type = ? AND address = ? COLLATE NOCASE AND id != ?`,
-          [params.channel, params.externalUserId, channelId],
-        );
-
-        await assistantDbRun(
-          `UPDATE contact_channels
-           SET contact_id = ?, address = ?, external_chat_id = ?,
-               is_primary = 1,
-               updated_at = ?
-           WHERE id = ?`,
-          [
+    await ipcCallAssistant("contacts_mirror_apply", {
+      body: {
+        ops: [
+          {
+            op: "upsert_channel",
             contactId,
-            params.externalUserId,
-            params.deliveryChatId,
-            now,
             channelId,
-          ],
-        );
-      } else {
-        await assistantDbRun(
-          `INSERT INTO contact_channels
-             (id, contact_id, type, address, external_chat_id,
-              is_primary, interaction_count, created_at)
-           VALUES (?, ?, ?, ?, ?, 1, 0, ?)`,
-          [
-            channelId,
-            contactId,
-            params.channel,
-            params.externalUserId,
-            params.deliveryChatId,
-            now,
-          ],
-        );
-      }
-
-      await assistantDbExec("COMMIT");
-    } catch (err) {
-      try {
-        await assistantDbExec("ROLLBACK");
-      } catch {
-        // best effort
-      }
-      throw err;
-    }
+            type: channel,
+            address,
+            externalChatId: deliveryChatId,
+            displayName,
+            isPrimary: true,
+            refreshDisplayName: true,
+            reassignConflictingChannels: true,
+          },
+        ],
+      },
+    });
   } catch (mirrorErr) {
     log.warn(
       { err: mirrorErr },
@@ -406,12 +437,21 @@ export async function createGuardianBinding(
     );
   }
 
+  // The claim above can re-parent a channel that inbound seeding attached to
+  // a stub contact (first message from a then-unbound guardian identity).
+  // Garbage-collect that stub when the claim stripped its last channel, so
+  // the guardian doesn't end up with a duplicate of themselves in the
+  // Contacts pane (LUM-2672). Best-effort — never fails the binding.
+  if (writes.claimedFromContactId) {
+    await deleteContactIfOrphaned(writes.claimedFromContactId);
+  }
+
   log.info(
     {
       contactId,
       channelId,
-      channel: params.channel,
-      guardianPrincipalId: params.guardianPrincipalId,
+      channel,
+      guardianPrincipalId: writes.guardianPrincipalId,
     },
     "Created guardian binding",
   );
@@ -421,12 +461,31 @@ export async function createGuardianBinding(
   void ipcCallAssistant("emit_event", {
     body: { kind: "contacts_changed" },
   } as unknown as Record<string, unknown>).catch(() => {});
+}
+
+/**
+ * Create or update a guardian contact + channel binding.
+ *
+ * Writes the gateway DB (authoritative) first in its own transaction, then
+ * mirrors identity to the assistant DB (best-effort, via IPC proxy). Uses
+ * upsert semantics: looks up an existing contact by principalId, then claims
+ * any preseeded channel for the same actor before falling back to an existing
+ * guardian channel by (contactId, type).
+ */
+export async function createGuardianBinding(
+  params: CreateGuardianBindingParams,
+): Promise<CreateGuardianBindingResult> {
+  const writes = getGatewayDb().transaction(() =>
+    applyGuardianBindingGatewayWrites(params),
+  );
+
+  await mirrorGuardianBinding(writes);
 
   return {
-    contactId,
-    channelId,
-    guardianPrincipalId: params.guardianPrincipalId,
-    channel: params.channel,
+    contactId: writes.contactId,
+    channelId: writes.channelId,
+    guardianPrincipalId: writes.guardianPrincipalId,
+    channel: writes.channel,
   };
 }
 
@@ -715,10 +774,20 @@ async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
  *
  * Shared by ensureVellumGuardianBinding + bootstrapGuardian. `isNew` is true
  * only on the mint path.
+ *
+ * A gateway miss with evidence of a prior guardian (guardian-integrity.ts)
+ * means the guardian rows were lost, not that this is a fresh install — a
+ * mint there would permanently diverge from prior clients' tokens. Only the
+ * explicit operator-driven guardian init may mint over evidence
+ * (`allowMintWithEvidence`); implicit paths throw
+ * {@link VellumGuardianMintRefusedError} instead.
  */
-async function resolveOrCreateVellumGuardian(): Promise<{
+async function resolveOrCreateVellumGuardian(options: {
+  allowMintWithEvidence: boolean;
+}): Promise<{
   guardianPrincipalId: string;
   isNew: boolean;
+  mintedOverPriorEvidence: boolean;
 }> {
   const gw = await findVellumGuardian();
   if (gw) {
@@ -726,7 +795,38 @@ async function resolveOrCreateVellumGuardian(): Promise<{
       { guardianPrincipalId: gw.principalId },
       "Vellum guardian binding already exists",
     );
-    return { guardianPrincipalId: gw.principalId, isNew: false };
+    return {
+      guardianPrincipalId: gw.principalId,
+      isNew: false,
+      mintedOverPriorEvidence: false,
+    };
+  }
+
+  const priorEvidence = hasEvidenceOfPriorGuardian();
+  if (priorEvidence && !options.allowMintWithEvidence) {
+    // Fires the missing-guardian reporter (error log + telemetry,
+    // rate-limited there) when the DB is truly guardian-less. The state is
+    // `ok` when a guardian contact row survives with a lost/inactive vellum
+    // binding, so the refusal reports under its own check_name either way —
+    // clients see guardian_repair_required 401s and that must never be
+    // telemetry-silent. Best-effort: the refusal itself must not depend on
+    // the integrity check.
+    let integrityState = "unavailable";
+    try {
+      integrityState = guardianIntegrityState();
+    } catch {
+      // Reported as "unavailable"; refusal proceeds regardless.
+    }
+    reportGuardianMintRefused({ integrity_state: integrityState });
+    log.error(
+      "no active vellum guardian binding but the gateway DB carries evidence of prior onboarding — refusing to mint a divergent principal; re-pair via guardian init to recover",
+    );
+    throw new VellumGuardianMintRefusedError();
+  }
+  if (priorEvidence) {
+    log.warn(
+      "minting a fresh vellum guardian principal over evidence of a prior guardian — prior clients' tokens will not match",
+    );
   }
 
   // No gateway guardian — mint a fresh principal.
@@ -740,18 +840,29 @@ async function resolveOrCreateVellumGuardian(): Promise<{
     verifiedVia: "bootstrap",
     ...(displayName ? { displayName } : {}),
   });
-  return { guardianPrincipalId, isNew: true };
+  return {
+    guardianPrincipalId,
+    isNew: true,
+    mintedOverPriorEvidence: priorEvidence,
+  };
 }
 
 /**
  * Ensure a vellum guardian binding exists, returning its principalId.
- * Resolves from the gateway DB, minting a fresh principal on a miss (see
- * resolveOrCreateVellumGuardian).
+ * Resolves from the gateway DB, minting a fresh principal on a miss — unless
+ * the DB carries evidence of a prior guardian, in which case it throws
+ * {@link VellumGuardianMintRefusedError}. Every caller must handle that
+ * refusal explicitly: the startup backfill degrades boot non-fatally
+ * (post-assistant-ready), /auth/token maps it to a repairable 401
+ * (`guardian_repair_required`), and the remote-web pairing route to a 503
+ * (its 401 is claimed by invalid device codes).
  *
  * Called during gateway startup to backfill existing installations.
  */
 export async function ensureVellumGuardianBinding(): Promise<string> {
-  const { guardianPrincipalId } = await resolveOrCreateVellumGuardian();
+  const { guardianPrincipalId } = await resolveOrCreateVellumGuardian({
+    allowMintWithEvidence: false,
+  });
   return guardianPrincipalId;
 }
 
@@ -766,8 +877,11 @@ export async function bootstrapGuardian(params: {
   platform: string;
   deviceId: string;
 }): Promise<GuardianBootstrapResult> {
-  // 1. Resolve (or mint) the guardian principal.
-  const { guardianPrincipalId, isNew } = await resolveOrCreateVellumGuardian();
+  // 1. Resolve (or mint) the guardian principal. Guardian init is the
+  //    sanctioned operator-driven recovery path, so it may mint over evidence
+  //    of a prior guardian (loud warn inside).
+  const { guardianPrincipalId, isNew, mintedOverPriorEvidence } =
+    await resolveOrCreateVellumGuardian({ allowMintWithEvidence: true });
 
   // 2. Revoke existing credentials for this device and mint a fresh pair.
   const pair = mintAndRecordDeviceBoundTokenPair({
@@ -777,7 +891,12 @@ export async function bootstrapGuardian(params: {
   });
 
   log.info(
-    { platform: params.platform, guardianPrincipalId, isNew },
+    {
+      platform: params.platform,
+      guardianPrincipalId,
+      isNew,
+      mintedOverPriorEvidence,
+    },
     "Guardian bootstrap completed",
   );
 
@@ -789,5 +908,6 @@ export async function bootstrapGuardian(params: {
     refreshTokenExpiresAt: pair.refreshTokenExpiresAt,
     refreshAfter: pair.refreshAfter,
     isNew,
+    mintedOverPriorEvidence,
   };
 }

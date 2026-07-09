@@ -13,11 +13,15 @@ let backendToReturn: {
   embed: (inputs: string[]) => Promise<number[][]>;
 } | null = null;
 let breakerOpen = false;
+let selectBackendThrows = false;
 
-const selectEmbeddingBackendMock = mock(async () => ({
-  backend: backendToReturn,
-  reason: backendToReturn ? null : "no backend",
-}));
+const selectEmbeddingBackendMock = mock(async () => {
+  if (selectBackendThrows) throw new Error("credential store unavailable");
+  return {
+    backend: backendToReturn,
+    reason: backendToReturn ? null : "no backend",
+  };
+});
 // probeBackendDimension delegates the measurement to resolveBackendDimension;
 // the mock mirrors the real resolver's "embed → vector length, null on throw"
 // contract so these tests drive behavior through the stub backend's embed().
@@ -69,6 +73,7 @@ const { probeBackendDimension, readConceptPageCollectionDim } =
 describe("probeBackendDimension", () => {
   beforeEach(() => {
     breakerOpen = false;
+    selectBackendThrows = false;
     backendToReturn = {
       provider: "openai",
       model: "text-embedding-3-small",
@@ -108,6 +113,14 @@ describe("probeBackendDimension", () => {
         throw new Error("provider unreachable");
       },
     };
+    expect(await probeBackendDimension(CONFIG)).toBeNull();
+  });
+
+  test("returns null (does not reject) when backend selection rejects", async () => {
+    // `selectEmbeddingBackend` resolves provider credentials, which reject on a
+    // non-timeout credential-store error. The probe must uphold its never-throws
+    // contract so the reconcile defers instead of crashing.
+    selectBackendThrows = true;
     expect(await probeBackendDimension(CONFIG)).toBeNull();
   });
 });

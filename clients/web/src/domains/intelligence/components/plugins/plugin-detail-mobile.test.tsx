@@ -14,9 +14,11 @@
  * Mounted via `@testing-library/react` (happy-dom — see `clients/web/test-setup.ts`).
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen.js";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift.js";
@@ -35,6 +37,9 @@ function makePlugin(
     readme: "# Readme heading",
     ref: "main",
     artifact: null,
+    icon: null,
+    hasIcon: false,
+    iconVersion: null,
     ...overrides,
   };
 }
@@ -90,9 +95,34 @@ mock.module("@/domains/intelligence/plugins/use-plugin-detail", () => ({
   // `plugins/utils`, so the real helper runs.
 }));
 
-const { PluginDetailMobile } = await import(
-  "@/domains/intelligence/components/plugins/plugin-detail-mobile.js"
-);
+// Stub the toggle hook so the mobile detail doesn't require a QueryClient here.
+mock.module("@/domains/intelligence/plugins/use-plugin-toggle", () => ({
+  usePluginToggle: () => ({ toggle: () => {}, togglingName: null }),
+}));
+
+const { PluginDetailMobile } =
+  await import("@/domains/intelligence/components/plugins/plugin-detail-mobile.js");
+
+// The mobile detail renders the real `usePluginIconSrc`, whose `useQuery` needs
+// a client. These fixtures all ship `hasIcon: false`, so the icon query stays
+// disabled (no fetch) — the provider just satisfies the hook.
+let queryClient: QueryClient;
+
+function Wrapper({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+
+function renderMobile(ui: ReactElement) {
+  return render(ui, { wrapper: Wrapper });
+}
+
+beforeEach(() => {
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+});
 
 afterEach(() => {
   cleanup();
@@ -125,8 +155,12 @@ describe("PluginDetailMobile", () => {
   test("back button calls onBack", () => {
     const onBack = mock(() => {});
 
-    render(
-      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={onBack} />,
+    renderMobile(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={onBack}
+      />,
     );
 
     fireEvent.click(getButton("Back to plugins"));
@@ -140,8 +174,12 @@ describe("PluginDetailMobile", () => {
       description: "A long description that should not be clamped.",
     });
 
-    render(
-      <PluginDetailMobile assistantId="asst-1" name="My Plugin" onBack={() => {}} />,
+    renderMobile(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="My Plugin"
+        onBack={() => {}}
+      />,
     );
 
     // Title appears both in the action bar and the header block.
@@ -154,8 +192,12 @@ describe("PluginDetailMobile", () => {
   test("renders the README markdown", () => {
     hookState.plugin = makePlugin({ readme: "# Readme heading" });
 
-    render(
-      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
+    renderMobile(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={() => {}}
+      />,
     );
 
     expect(screen.getByText("Readme heading")).toBeTruthy();
@@ -164,8 +206,12 @@ describe("PluginDetailMobile", () => {
   test("uninstalled plugin: install action appears", () => {
     hookState.plugin = makePlugin({ installed: false });
 
-    render(
-      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
+    renderMobile(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={() => {}}
+      />,
     );
 
     expect(getActionButton("Install")).toBeTruthy();
@@ -176,11 +222,46 @@ describe("PluginDetailMobile", () => {
   test("installed plugin: remove action appears", () => {
     hookState.plugin = makePlugin({ installed: true });
 
-    render(
-      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
+    renderMobile(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={() => {}}
+      />,
     );
 
     expect(getActionButton("Remove")).toBeTruthy();
+  });
+
+  test("installed plugin: auto-include toggle appears when enabled is provided", () => {
+    hookState.plugin = makePlugin({ installed: true });
+
+    renderMobile(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={() => {}}
+        enabled={true}
+      />,
+    );
+
+    // The Auto-include Toggle renders a role="switch"; mobile detail must wire
+    // it so phone users can enable/disable, matching desktop detail.
+    expect(screen.getByRole("switch")).toBeTruthy();
+  });
+
+  test("installed plugin: no toggle when enabled is undefined", () => {
+    hookState.plugin = makePlugin({ installed: true });
+
+    renderMobile(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole("switch")).toBeNull();
   });
 
   test("while loading with no externalHint, the header shows a glyph-less placeholder (no 🧩, no 📦)", () => {
@@ -189,8 +270,12 @@ describe("PluginDetailMobile", () => {
     hookState.plugin = null;
     hookState.isLoading = true;
 
-    render(
-      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
+    renderMobile(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={() => {}}
+      />,
     );
 
     expect(document.body.textContent).not.toContain(PUZZLE);
@@ -201,7 +286,7 @@ describe("PluginDetailMobile", () => {
     hookState.plugin = null;
     hookState.isLoading = true;
 
-    render(
+    renderMobile(
       <PluginDetailMobile
         assistantId="asst-1"
         name="test-plugin"
@@ -219,11 +304,34 @@ describe("PluginDetailMobile", () => {
       source: { kind: "github", repo: "vellum-ai/level-up", ref: "main" },
     });
 
-    render(
-      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
+    renderMobile(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={() => {}}
+      />,
     );
 
     expect(document.body.textContent).toContain(PACKAGE);
+    expect(document.body.textContent).not.toContain(PUZZLE);
+  });
+
+  test("renders the author emoji when the plugin declares one, overriding the origin glyph", () => {
+    hookState.plugin = makePlugin({
+      icon: "\u{1F3A8}", // 🎨
+      source: { kind: "github", repo: "vellum-ai/level-up", ref: "main" },
+    });
+
+    renderMobile(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={() => {}}
+      />,
+    );
+
+    expect(document.body.textContent).toContain("\u{1F3A8}");
+    expect(document.body.textContent).not.toContain(PACKAGE);
     expect(document.body.textContent).not.toContain(PUZZLE);
   });
 
@@ -233,8 +341,12 @@ describe("PluginDetailMobile", () => {
     hookState.plugin = null;
     hookState.isLoading = true;
 
-    render(
-      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
+    renderMobile(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={() => {}}
+      />,
     );
 
     expect(screen.queryByText("Local")).toBeNull();
@@ -248,8 +360,12 @@ describe("PluginDetailMobile", () => {
     hookState.plugin = makePlugin({ installed: true });
     hookState.drift = UPDATE_DRIFT;
 
-    render(
-      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
+    renderMobile(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={() => {}}
+      />,
     );
 
     expect(getActionButton("Upgrade")).toBeTruthy();

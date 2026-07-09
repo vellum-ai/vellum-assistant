@@ -164,6 +164,19 @@ export function RemoteWebPairingPage() {
           setState({ kind: "expired" });
           return;
         }
+        if (
+          err instanceof RemoteWebPairingError &&
+          err.code === "GUARDIAN_REPAIR_REQUIRED"
+        ) {
+          // A new pairing would hit the same failure; the approved code stays
+          // exchangeable after guardian repair, so point at repair + retry.
+          setState({
+            kind: "error",
+            message:
+              "The assistant's trust database needs repair. Run guardian repair on the machine hosting the assistant, then retry this same pairing link — the code stays valid.",
+          });
+          return;
+        }
         setState({
           kind: "error",
           message:

@@ -23,6 +23,9 @@
  * `get_route_schema` so the gateway's IPC proxy stays in sync.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { z } from "zod";
 
 import {
@@ -40,6 +43,7 @@ import {
   PluginAlreadyInstalledError,
   PluginNotFoundError,
   PluginSourceUnavailableError,
+  sanitizePluginName,
 } from "../../cli/lib/install-from-github.js";
 import {
   type InstalledPluginInfo,
@@ -50,6 +54,7 @@ import {
   getPluginDetails,
   PluginDetailsNotFoundError,
 } from "../../cli/lib/plugin-details.js";
+import { readValidatedPluginIcon } from "../../cli/lib/plugin-icon-file.js";
 import {
   DEFAULT_PIN_HISTORY_LIMIT,
   listPinHistory,
@@ -64,6 +69,13 @@ import {
   type PluginSearchMatch,
 } from "../../cli/lib/search-plugins.js";
 import {
+  disablePlugin,
+  enablePlugin,
+  InvalidPluginNameError as InvalidTogglePluginNameError,
+  PluginAlreadyInStateException,
+  PluginDirectoryNotFoundError,
+} from "../../cli/lib/toggle-plugin.js";
+import {
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../../cli/lib/uninstall-plugin.js";
@@ -73,8 +85,14 @@ import {
   type PluginUpgradeStrategy,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
+import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
+import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import {
+  getOriginClientId,
+  publishPluginsChanged,
+} from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   ConflictError,
@@ -84,6 +102,7 @@ import {
   ServiceUnavailableError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { RouteResponse } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -96,6 +115,11 @@ const pluginInfoSchema = z.object({
       "Plugin's directory name (kebab-case). Matches `assistant plugins install <id>`.",
     ),
   name: z.string().describe("Display name. Equal to `id` today."),
+  enabled: z
+    .boolean()
+    .describe(
+      "Whether the plugin is active in this workspace. `false` when a `.disabled` sentinel is present under its directory; `true` otherwise.",
+    ),
   description: z
     .string()
     .nullable()
@@ -120,6 +144,24 @@ const pluginInfoSchema = z.object({
     .optional()
     .describe(
       "Marketplace category slug (Skills taxonomy); null when origin/category is unknown, e.g. non-marketplace installs.",
+    ),
+  icon: z
+    .string()
+    .optional()
+    .describe(
+      "Author-declared emoji icon from the plugin's package.json vellum.icon; absent when none.",
+    ),
+  hasIcon: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether the plugin ships a valid author-bundled `icon.png` (PNG magic + dimensions + size validated). Drives whether a client fetches the bundled icon.",
+    ),
+  iconVersion: z
+    .string()
+    .optional()
+    .describe(
+      "Content hash of the validated `icon.png`; present only when `hasIcon` is true. Use it as a cache-buster for the bundled-icon endpoint.",
     ),
 });
 
@@ -256,6 +298,23 @@ const pluginDetailsResponseSchema = z.object({
     .nullable()
     .describe(
       "Prebuilt client artifact from `package.json` `vellum.artifact`, or null when the plugin ships none or its descriptor is incomplete (e.g. a placeholder sha256).",
+    ),
+  icon: z
+    .string()
+    .nullable()
+    .describe(
+      "Author-declared emoji icon from the plugin's `package.json` `vellum.icon`, or null when none.",
+    ),
+  hasIcon: z
+    .boolean()
+    .describe(
+      "Whether the locally installed copy ships a valid author-bundled `icon.png` (PNG magic + dimensions + size validated). Always false when the plugin is not installed.",
+    ),
+  iconVersion: z
+    .string()
+    .nullable()
+    .describe(
+      "Content hash of the validated `icon.png`; null when `hasIcon` is false. Use it as a cache-buster for the bundled-icon endpoint.",
     ),
 });
 
@@ -635,11 +694,15 @@ const pluginDiffResponseSchema = z.object({
 interface PluginView {
   id: string;
   name: string;
+  enabled: boolean;
   description: string | null;
   version: string | null;
   path: string;
   issues?: string[];
   category?: string | null;
+  icon?: string;
+  hasIcon: boolean;
+  iconVersion?: string;
 }
 
 function projectPlugin(entry: InstalledPluginInfo): PluginView {
@@ -649,12 +712,21 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
   const view: PluginView = {
     id: entry.name,
     name: entry.name,
+    // `entry.name` is the plugin directory name, which is the sentinel key.
+    enabled: !isPluginDisabled(entry.name),
     description: entry.packageJson?.description ?? null,
     version: entry.packageJson?.version ?? null,
     path: entry.target,
+    hasIcon: entry.hasIcon,
   };
   if (entry.issues.length > 0) {
     view.issues = [...entry.issues];
+  }
+  if (entry.packageJson?.icon !== undefined) {
+    view.icon = entry.packageJson.icon;
+  }
+  if (entry.iconVersion !== undefined) {
+    view.iconVersion = entry.iconVersion;
   }
   return view;
 }
@@ -919,9 +991,10 @@ interface PluginUninstallResponse {
   target: string;
 }
 
-function handleUninstallPlugin({
+async function handleUninstallPlugin({
   pathParams = {},
-}: RouteHandlerArgs): PluginUninstallResponse {
+  headers,
+}: RouteHandlerArgs): Promise<PluginUninstallResponse> {
   // The HTTP router has already URL-decoded `:name` for us; pass it
   // through verbatim — `uninstallPlugin` runs the same
   // `sanitizePluginName` check the CLI uses, so attacker-supplied
@@ -929,7 +1002,8 @@ function handleUninstallPlugin({
   const rawName = pathParams.name ?? "";
 
   try {
-    const result = uninstallPlugin({ name: rawName });
+    const result = await uninstallPlugin({ name: rawName });
+    publishPluginsChanged(getOriginClientId(headers));
     return { name: result.name, target: result.target };
   } catch (err) {
     if (err instanceof InvalidPluginNameError) {
@@ -1001,7 +1075,7 @@ async function resolveInstallMarketplaceRef(
   return entry.marketplaceCommit;
 }
 
-async function handleInstallPlugin({ body = {} }: RouteHandlerArgs) {
+async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
   const name = typeof body.name === "string" ? body.name : "";
   if (!name) {
     throw new BadRequestError("`name` is required");
@@ -1025,6 +1099,7 @@ async function handleInstallPlugin({ body = {} }: RouteHandlerArgs) {
       { name, ref: marketplaceRef, force },
       { fetch: globalThis.fetch.bind(globalThis) },
     );
+    publishPluginsChanged(getOriginClientId(headers));
     return {
       ok: true as const,
       name: result.name,
@@ -1175,6 +1250,7 @@ async function handleDiffPlugin({ pathParams = {} }: RouteHandlerArgs) {
 async function handleUpgradePlugin({
   pathParams = {},
   body = {},
+  headers,
 }: RouteHandlerArgs) {
   const rawName = pathParams.name ?? "";
   const dryRun = typeof body.dryRun === "boolean" ? body.dryRun : undefined;
@@ -1192,6 +1268,7 @@ async function handleUpgradePlugin({
       { name: rawName, dryRun, strategy },
       { fetch: globalThis.fetch.bind(globalThis) },
     );
+    publishPluginsChanged(getOriginClientId(headers));
     return {
       name: result.name,
       outcome: result.outcome,
@@ -1238,6 +1315,102 @@ async function handleUpgradePlugin({
       err instanceof Error ? err.message : "plugin upgrade failed",
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Handler — enable / disable
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a `toggle-plugin` lib error onto the transport-agnostic route error.
+ * `enablePlugin` / `disablePlugin` throw their own taxonomy (distinct from the
+ * install/uninstall libs), which the branches below narrow to 400 / 404 / 409;
+ * anything unrecognized surfaces as an unexpected 500.
+ */
+function mapTogglePluginError(err: unknown): RouteError {
+  if (err instanceof InvalidTogglePluginNameError) {
+    return new BadRequestError(err.message);
+  }
+  if (err instanceof PluginDirectoryNotFoundError) {
+    return new NotFoundError(err.message);
+  }
+  if (err instanceof PluginAlreadyInStateException) {
+    return new ConflictError(err.message);
+  }
+  return new InternalError(
+    err instanceof Error ? err.message : "plugin toggle failed",
+  );
+}
+
+/**
+ * Toggle a plugin's `.disabled` sentinel through the shared toggle-plugin lib,
+ * then publish a generic `sync_changed(plugins:list)` so every client refetches
+ * `GET /v1/plugins`. Enable and disable emit the SAME invalidation — the tag
+ * names WHICH resource is stale, not the new value. The origin client id is
+ * threaded through for self-echo suppression.
+ */
+function handleEnablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
+  try {
+    enablePlugin(pathParams.name ?? "");
+    publishPluginsChanged(getOriginClientId(headers));
+    return { ok: true };
+  } catch (err) {
+    throw mapTogglePluginError(err);
+  }
+}
+
+function handleDisablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
+  try {
+    disablePlugin(pathParams.name ?? "");
+    publishPluginsChanged(getOriginClientId(headers));
+    return { ok: true };
+  } catch (err) {
+    throw mapTogglePluginError(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Handler — icon (bundled icon.png)
+// ---------------------------------------------------------------------------
+
+/**
+ * Serve an installed plugin's validated author-bundled `icon.png` as
+ * `image/png`. Side-effect-free: the on-disk icon is re-validated on read and
+ * never mutated. `sanitizePluginName` rejects a traversal name (`../escape`)
+ * with a 400 before it becomes a filesystem path. The content-hash
+ * `iconVersion` is the `ETag` and the bytes are immutable-cacheable, so a byte
+ * change yields a new hash — clients refetch off the `hasIcon` / `iconVersion`
+ * fields on the list / detail responses.
+ */
+function handleGetPluginIcon({
+  pathParams = {},
+}: RouteHandlerArgs): RouteResponse {
+  let name: string;
+  try {
+    name = sanitizePluginName(pathParams.name ?? "");
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
+
+  const v = readValidatedPluginIcon(join(getWorkspacePluginsDir(), name));
+  if (!v.hasIcon || !v.path) {
+    throw new NotFoundError("Plugin icon not found");
+  }
+
+  const bytes = readFileSync(v.path);
+  return new RouteResponse(new Uint8Array(bytes), {
+    "Content-Type": "image/png",
+    "Content-Length": String(bytes.length),
+    // `private`: the icon is an authenticated, workspace-specific resource, so
+    // no shared/proxy cache may reuse it across requests. The content-hash
+    // ETag + immutable still let the browser cache aggressively.
+    "Cache-Control": "private, max-age=31536000, immutable",
+    ETag: `"${v.iconVersion}"`,
+    "X-Content-Type-Options": "nosniff",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1313,7 +1486,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Install a plugin",
     description:
-      "Install a plugin by name from the canonical source — a whitelisted `plugins/marketplace.json` entry. Always resolves against the curated default git ref (no caller-supplied ref): installing from an unreviewed revision would bypass the marketplace curation boundary and let attacker-controlled code be loaded. Materializes the plugin under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing returns 404. Sibling to `POST /v1/skills/install`.",
+      "Install a plugin by name from the canonical source — a whitelisted `plugins/marketplace.json` entry. Always resolves against the curated default git ref (no caller-supplied ref): installing from an unreviewed revision would bypass the marketplace curation boundary and let attacker-controlled code be loaded. Materializes the plugin under `<workspaceDir>/plugins/<name>/`; the plugin is picked up live on the next read (no restart required). Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing returns 404. Sibling to `POST /v1/skills/install`.",
     tags: ["plugins"],
     requestBody: pluginInstallRequestSchema,
     responseBody: pluginInstallResponseSchema,
@@ -1375,6 +1548,36 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleGetPluginDetails,
   },
   {
+    operationId: "plugins_icon",
+    endpoint: "plugins/:name/icon",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Serve a plugin's bundled icon",
+    description:
+      "Serve the installed plugin's validated author-bundled `icon.png` as `image/png`. The PNG is re-validated on read (magic bytes + IHDR dimensions + size) and served with an immutable `Cache-Control` plus a content-hash `ETag` — the `iconVersion` reported by `GET /v1/plugins` and `GET /v1/plugins/:name` — so clients cache aggressively and only refetch when the hash changes. A plugin with no valid bundled icon returns 404; a malformed name returns 400. Pair with the `hasIcon` / `iconVersion` fields on the list and detail responses to decide whether to fetch.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description: "Install name (kebab-case).",
+      },
+    ],
+    responseBody: {
+      contentType: "image/png",
+      schema: { type: "string", format: "binary" },
+    },
+    additionalResponses: {
+      "404": {
+        description: "No installed plugin with the given name has an icon.",
+      },
+    },
+    handler: handleGetPluginIcon,
+  },
+  {
     operationId: "plugins_uninstall",
     endpoint: "plugins/:name",
     method: "DELETE",
@@ -1384,7 +1587,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Uninstall a plugin",
     description:
-      "Remove the directory at `<workspaceDir>/plugins/<name>/`. Mirrors the CLI's `assistant plugins uninstall <name>` (without the interactive confirmation — the API caller is responsible for any prompt). The plugin name is sanitized by the same regex the CLI uses; `../escape`-style values, hidden names, and absolute paths return 400. Missing plugins return 404. The assistant must be restarted to drop the plugin from the running runtime.",
+      "Remove the directory at `<workspaceDir>/plugins/<name>/`. Mirrors the CLI's `assistant plugins uninstall <name>` (without the interactive confirmation — the API caller is responsible for any prompt). The plugin name is sanitized by the same regex the CLI uses; `../escape`-style values, hidden names, and absolute paths return 400. Missing plugins return 404. The plugin is dropped from the running runtime live on the next read (no restart required).",
     tags: ["plugins"],
     pathParams: [
       {
@@ -1530,7 +1733,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Upgrade a plugin to the marketplace pin",
     description:
-      'Move an installed plugin to the marketplace\'s current pinned commit, re-materializing it under `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
+      'Move an installed plugin to the marketplace\'s current pinned commit, re-materializing it under `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The upgraded code is picked up live on the next read (no restart required). `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
     tags: ["plugins"],
     pathParams: [
       {
@@ -1561,5 +1764,76 @@ export const ROUTES: RouteDefinition[] = [
       },
     },
     handler: handleUpgradePlugin,
+  },
+  {
+    operationId: "plugins_enable",
+    endpoint: "plugins/:name/enable",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Enable a plugin",
+    description:
+      "Enable a plugin in this workspace by removing its `.disabled` sentinel, mirroring the CLI's `assistant plugins enable <name>`. The change is honored live at read time by every tool / injector / hook gate — no restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients refetch `GET /v1/plugins`. An already-enabled plugin returns 409; a name with no plugin directory returns 404 (prefix a default plugin with `default-`); a malformed name returns 400.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Directory name under `<workspaceDir>/plugins/`. Prefix a default plugin with `default-`. Must be kebab-case alphanumerics.",
+      },
+    ],
+    responseBody: z.object({ ok: z.boolean() }),
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed validation (not kebab-case alphanumerics).",
+      },
+      "404": {
+        description: "No plugin directory exists with the given name.",
+      },
+      "409": {
+        description: "The plugin is already enabled.",
+      },
+    },
+    handler: handleEnablePlugin,
+  },
+  {
+    operationId: "plugins_disable",
+    endpoint: "plugins/:name/disable",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Disable a plugin",
+    description:
+      "Disable a plugin in this workspace by dropping a `.disabled` sentinel, mirroring the CLI's `assistant plugins disable <name>`. The change is honored live at read time by every tool / injector / hook gate — no restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients refetch `GET /v1/plugins`. An already-disabled plugin returns 409; a user plugin with no directory returns 404 (default plugins are stubbed on demand via the `default-` prefix); a malformed name returns 400.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Directory name under `<workspaceDir>/plugins/`. Prefix a default plugin with `default-`. Must be kebab-case alphanumerics.",
+      },
+    ],
+    responseBody: z.object({ ok: z.boolean() }),
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed validation (not kebab-case alphanumerics).",
+      },
+      "404": {
+        description:
+          "No plugin directory exists with the given name (user plugins must already be installed).",
+      },
+      "409": {
+        description: "The plugin is already disabled.",
+      },
+    },
+    handler: handleDisablePlugin,
   },
 ];

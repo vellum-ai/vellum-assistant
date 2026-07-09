@@ -11,6 +11,16 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     expect("github-oauth" in ServicesSchema.shape).toBe(true);
   });
 
+  test("google base URL is host-only so relative paths select the product", () => {
+    // A host-only base URL (no product path) lets a relative request path pick
+    // the Google product — Gmail (/gmail/v1/...), Calendar (/calendar/v3/...),
+    // Drive (/drive/v3/...) — instead of pinning every relative request to one
+    // product's path prefix.
+    expect(PROVIDER_SEED_DATA.google.baseUrl).toBe(
+      "https://www.googleapis.com",
+    );
+  });
+
   test("every managedServiceConfigKey resolves to a ServicesSchema key", () => {
     // Cross-repo invariant: a provider with managedServiceConfigKey but no
     // matching ServicesSchema entry silently falls back to BYO mode in

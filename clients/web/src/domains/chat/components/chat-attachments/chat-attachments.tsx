@@ -1,5 +1,5 @@
 
-import { AlertCircle, Paperclip } from "lucide-react";
+import { AlertCircle, Folder, Paperclip, X } from "lucide-react";
 import type { ChangeEvent, FC } from "react";
 import { useCallback, useRef, useState } from "react";
 
@@ -9,7 +9,7 @@ import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attac
 import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip";
 import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
 import type { ChatAttachment, UploadedAttachment } from "@/domains/chat/composer-store";
-import { formatAttachmentSize, middleTruncate } from "@/domains/chat/components/chat-attachments/utils";
+import { middleTruncate } from "@/domains/chat/components/chat-attachments/utils";
 
 interface ChatAttachmentsStripProps {
   attachments: ChatAttachment[];
@@ -41,9 +41,35 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                 key={att.localId}
                 localId={att.localId}
                 filename={att.filename}
-                sizeBytes={att.sizeBytes}
                 onCancel={onRemove}
               />
+            );
+          }
+          if (att.kind === "path-reference") {
+            return (
+              <div
+                key={att.localId}
+                className="flex max-w-[280px] shrink-0 items-center gap-2 rounded-lg bg-[var(--surface-base)] py-1 pl-2 pr-1"
+                title={att.path}
+              >
+                <Folder className="h-4 w-4 shrink-0 text-[var(--content-secondary)]" />
+                <div className="flex min-w-0 flex-col">
+                  <span className="min-w-0 truncate text-body-small-default leading-4 text-[var(--content-secondary)]">
+                    {middleTruncate(att.filename)}
+                  </span>
+                  <span className="min-w-0 truncate text-label-small-default leading-3 text-[var(--content-tertiary)]">
+                    {middleTruncate(att.path)}
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  expandOnMobile={false}
+                  iconOnly={<X />}
+                  onClick={() => onRemove(att.localId)}
+                  aria-label={`Remove ${att.filename}`}
+                />
+              </div>
             );
           }
           if (att.kind === "failed") {
@@ -54,12 +80,8 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                 title={att.error}
               >
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                <span className="min-w-0 truncate text-body-small-default">
+                <span className="min-w-0 truncate text-body-small-default leading-4">
                   {middleTruncate(att.filename)}
-                </span>
-                <span className="shrink-0 text-body-small-default opacity-70">·</span>
-                <span className="shrink-0 text-body-small-default opacity-70">
-                  {formatAttachmentSize(att.sizeBytes)}
                 </span>
                 <Button
                   variant="ghost"
@@ -80,7 +102,6 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
               id={att.localId}
               filename={att.filename}
               mimeType={att.mimeType}
-              sizeBytes={att.sizeBytes}
               previewUrl={att.previewUrl}
               onRemove={onRemove}
               onPreview={() => setPreviewAttachment(att)}

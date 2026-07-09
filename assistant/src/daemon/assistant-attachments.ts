@@ -6,7 +6,6 @@
  */
 
 import { readFileSync, statSync } from "node:fs";
-import { basename } from "node:path";
 
 import { isPlaceholderSentinelText } from "../providers/placeholder-sentinels.js";
 import {
@@ -41,79 +40,45 @@ export interface AssistantAttachmentDraft {
 // ---------------------------------------------------------------------------
 
 /**
- * Estimate the decoded byte length of a base64-encoded string.
- * Accounts for trailing `=` padding characters.
+ * Decoded byte length of an image/file block's media payload.
+ *
+ * Given a raw base64 string, estimate the decoded length from its length and
+ * `=` padding. Given a media `source`, prefer its captured `sizeBytes`
+ * (`workspace_ref` blocks carry it) and otherwise estimate from inline `data`
+ * (legacy base64 blocks) — so callers get the byte size without caring which
+ * storage form the block uses.
  */
-export function estimateBase64Bytes(base64: string): number {
-  const trimmed = base64.replace(/\s/g, "");
+export function estimateBase64Bytes(base64: string): number;
+export function estimateBase64Bytes(
+  source: { data?: unknown; sizeBytes?: unknown } | null | undefined,
+): number;
+export function estimateBase64Bytes(
+  arg: string | { data?: unknown; sizeBytes?: unknown } | null | undefined,
+): number {
+  if (arg == null) return 0;
+  if (typeof arg !== "string") {
+    if (typeof arg.sizeBytes === "number") return arg.sizeBytes;
+    if (typeof arg.data === "string") return estimateBase64Bytes(arg.data);
+    return 0;
+  }
+  const trimmed = arg.replace(/\s/g, "");
   const padding = trimmed.endsWith("==") ? 2 : trimmed.endsWith("=") ? 1 : 0;
   return Math.max(0, Math.floor((trimmed.length * 3) / 4) - padding);
 }
 
 // ---------------------------------------------------------------------------
-// MIME inference
+// MIME inference / filename resolution (shared contract)
 // ---------------------------------------------------------------------------
 
-const EXTENSION_MIME_MAP: Record<string, string> = {
-  // Images
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  svg: "image/svg+xml",
-  ico: "image/x-icon",
-  bmp: "image/bmp",
-  heic: "image/heic",
-  heif: "image/heif",
+// The stored-filename rule is a contract with the web client (which resolves
+// clicked vellum:// links back to attachments by filename), so it lives in
+// @vellumai/service-contracts. Re-exported here for the daemon's callers.
+import {
+  inferMimeType,
+  resolveAttachmentFilename,
+} from "@vellumai/service-contracts/attachment-naming";
 
-  // Documents
-  pdf: "application/pdf",
-  json: "application/json",
-  xml: "application/xml",
-  csv: "text/csv",
-  txt: "text/plain",
-  md: "text/markdown",
-  html: "text/html",
-  css: "text/css",
-  js: "text/javascript",
-  ts: "text/typescript",
-
-  // Audio
-  mp3: "audio/mpeg",
-  wav: "audio/wav",
-  ogg: "audio/ogg",
-  flac: "audio/flac",
-  aac: "audio/aac",
-  m4a: "audio/x-m4a",
-  opus: "audio/opus",
-
-  // Video
-  mp4: "video/mp4",
-  webm: "video/webm",
-  mov: "video/quicktime",
-  mpeg: "video/mpeg",
-
-  // Archives
-  zip: "application/zip",
-  gz: "application/gzip",
-  tar: "application/x-tar",
-};
-
-/**
- * Infer a MIME type from a filename extension.
- * Returns `application/octet-stream` when the extension is unrecognised.
- */
-export function inferMimeType(filename: string): string {
-  const dot = filename.lastIndexOf(".");
-  if (dot === -1) return "application/octet-stream";
-  const ext = filename.slice(dot + 1).toLowerCase();
-  return EXTENSION_MIME_MAP[ext] ?? "application/octet-stream";
-}
-
-// ---------------------------------------------------------------------------
-// Kind classification
-// ---------------------------------------------------------------------------
+export { inferMimeType, resolveAttachmentFilename };
 
 export function classifyKind(mimeType: string): "image" | "video" | "document" {
   if (mimeType.startsWith("image/")) return "image";
@@ -169,6 +134,13 @@ export interface DirectiveRequest {
   path: string;
   filename: string | undefined;
   mimeType: string | undefined;
+  /**
+   * Where `filename` came from. `"explicit"` filenames (directive
+   * attributes) are authoritative and used verbatim. `"label"` filenames
+   * (markdown link display text) are cosmetic and only honored when they
+   * carry a recognized extension; otherwise the path basename wins.
+   */
+  filenameSource?: "explicit" | "label";
 }
 
 interface DirectiveParseResult {
@@ -241,6 +213,7 @@ export function parseDirectives(text: string): DirectiveParseResult {
       path: attrs["path"],
       filename: attrs["filename"] || undefined,
       mimeType: attrs["mime_type"] || undefined,
+      filenameSource: "explicit",
     });
 
     return "";
@@ -261,18 +234,21 @@ export function parseDirectives(text: string): DirectiveParseResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Match markdown links with `vellum://workspace/` or `vellum://host/` URLs.
+ * Match markdown links with `vellum://workspace/` or `vellum://host/` URLs,
+ * in both plain (`[text](vellum://…)`) and image (`![alt](vellum://…)`) form.
  *
  * Captures:
- *   [1] = link text (filename)
- *   [2] = scheme authority: "workspace" or "host"
- *   [3] = path after the authority
+ *   [1] = optional leading `!` marking the image form (empty for plain links)
+ *   [2] = link text / image alt text (may be empty)
+ *   [3] = scheme authority: "workspace" or "host"
+ *   [4] = path after the authority
  *
  * The link text is NOT stripped from the assistant's message — unlike
  * `<vellum-attachment />` tags, the markdown link is valid user-facing
- * content that renders as a clickable download link.
+ * content that renders as a clickable download link or inline image.
  */
-const VELLUM_LINK_RE = /\[([^\]]+)\]\(vellum:\/\/(workspace|host)(\/[^)]*)\)/g;
+const VELLUM_LINK_RE =
+  /(!?)\[([^\]]*)\]\(vellum:\/\/(workspace|host)(\/[^)]*)\)/g;
 
 interface VellumLinkExtractResult {
   directiveRequests: DirectiveRequest[];
@@ -303,9 +279,15 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
 
   let m: RegExpExecArray | null;
   while ((m = VELLUM_LINK_RE.exec(text)) != null) {
-    const linkText = m[1]!;
-    const authority = m[2]!;
-    const rawPath = m[3]!;
+    const isImage = m[1] === "!";
+    const linkText = m[2]!;
+    const authority = m[3]!;
+    const rawPath = m[4]!;
+
+    // For image links (`![alt](vellum://…)`) the bracket text is a
+    // description, not a filename, so it must not override the resolved
+    // basename. Plain links keep their text as the attachment filename.
+    const filename = isImage ? undefined : linkText || undefined;
 
     const decodedPath = safeDecodePath(rawPath);
     if (decodedPath === null) {
@@ -329,8 +311,9 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
       directiveRequests.push({
         source: "sandbox",
         path,
-        filename: linkText || undefined,
+        filename,
         mimeType: undefined,
+        filenameSource: "label",
       });
     } else {
       // host: decodedPath is already absolute (starts with /)
@@ -343,8 +326,9 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
       directiveRequests.push({
         source: "host",
         path: decodedPath,
-        filename: linkText || undefined,
+        filename,
         mimeType: undefined,
+        filenameSource: "label",
       });
     }
   }
@@ -353,12 +337,61 @@ export function extractVellumLinks(text: string): VellumLinkExtractResult {
 }
 
 /**
- * Replace `[text](vellum://...)` markdown links with their link text.
- * Used to sanitize text before channel delivery (Slack, Telegram, etc.)
- * where the `vellum://` scheme has no meaning.
+ * Replace `[text](vellum://...)` and `![alt](vellum://...)` markdown links with
+ * their bracket text. Used to sanitize text before channel delivery (Slack,
+ * Telegram, etc.) where the `vellum://` scheme has no meaning. The image form's
+ * leading `!` is dropped so the result is just the alt text (empty when the alt
+ * text is empty).
  */
 export function stripVellumLinks(text: string): string {
-  return text.replace(VELLUM_LINK_RE, "$1");
+  return text.replace(VELLUM_LINK_RE, "$2");
+}
+
+/** Regex fragment matching any prefix of `literal`, including empty and full. */
+function anyPrefixOf(literal: string): string {
+  let pattern = "";
+  for (let i = literal.length - 1; i >= 0; i--) {
+    pattern = `(?:${literal[i]}${pattern})?`;
+  }
+  return pattern;
+}
+
+/**
+ * A `[label](vellum://…)` or `![alt](vellum://…)` link still being assembled at
+ * the end of the text: an optional leading `!` and opening `[` whose remainder
+ * is a prefix of the full link grammar and has not reached its closing `)`.
+ * A lone trailing `!` also matches, since it may be the first character of an
+ * image link whose `[` has not yet streamed in — withholding it prevents a
+ * stray `!` leaking to append-only sinks ahead of the alt text. Matched only
+ * when it runs to the end of the string.
+ */
+const INCOMPLETE_VELLUM_LINK_TAIL_RE = new RegExp(
+  "(?:!?\\[[^\\]]*" +
+    "(?:\\]" +
+    "(?:\\(" +
+    anyPrefixOf("vellum://") +
+    "(?:" +
+    `(?:${anyPrefixOf("workspace")}|${anyPrefixOf("host")})` +
+    "(?:/[^)]*)?" +
+    ")?" +
+    ")?" +
+    ")?" +
+    "|!)$",
+);
+
+/**
+ * Length of the trailing run of `text` that is a `[label](vellum://…)` link
+ * still being assembled (see {@link INCOMPLETE_VELLUM_LINK_TAIL_RE}), or 0 when
+ * the text does not end mid-link.
+ *
+ * Callers that emit text to an append-only sink (e.g. Slack streaming) withhold
+ * this suffix until the link closes: {@link stripVellumLinks} only removes
+ * complete links, so a partially-emitted `vellum://` path would leak an internal
+ * workspace/host path that cannot be retracted once sent.
+ */
+export function incompleteVellumLinkSuffixLength(text: string): number {
+  const match = text.match(INCOMPLETE_VELLUM_LINK_TAIL_RE);
+  return match ? match[0].length : 0;
 }
 
 /**
@@ -541,7 +574,11 @@ export function resolveSandboxDirective(
     };
   }
 
-  const filename = directive.filename ?? basename(resolved);
+  const filename = resolveAttachmentFilename(
+    directive.filename,
+    resolved,
+    directive.filenameSource,
+  );
   const mimeType = directive.mimeType ?? inferMimeType(filename);
   const dataBase64 = data.toString("base64");
 
@@ -653,7 +690,11 @@ export async function resolveHostDirective(
     };
   }
 
-  const filename = directive.filename ?? basename(resolved);
+  const filename = resolveAttachmentFilename(
+    directive.filename,
+    resolved,
+    directive.filenameSource,
+  );
   const mimeType = directive.mimeType ?? inferMimeType(filename);
   const dataBase64 = data.toString("base64");
 

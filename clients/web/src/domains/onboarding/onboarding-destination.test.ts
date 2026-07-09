@@ -4,43 +4,24 @@ import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboardi
 import { routes } from "@/utils/routes";
 
 describe("onboardingDestinationAfterConsent", () => {
-  test("flag enabled on web routes to the research flow", () => {
+  test("platform/Vellum-Cloud routes straight to the research flow", () => {
     expect(
       onboardingDestinationAfterConsent({
-        researchOnboardingEnabled: true,
         isNative: false,
-        isLocalMode: false,
+        isLocalHatch: false,
       }),
     ).toBe(routes.onboarding.research);
   });
 
-  test("flag enabled on native keeps the hatching path (web-only guard)", () => {
+  test("local hosting routes to hatching first (foreground local hatch → research)", () => {
     expect(
-      onboardingDestinationAfterConsent({
-        researchOnboardingEnabled: true,
-        isNative: true,
-        isLocalMode: false,
-      }),
+      onboardingDestinationAfterConsent({ isNative: false, isLocalHatch: true }),
     ).toBe(routes.onboarding.hatching);
   });
 
-  test("flag enabled in local mode keeps the hatching path (research is managed-only)", () => {
+  test("native keeps the standard hatching path", () => {
     expect(
-      onboardingDestinationAfterConsent({
-        researchOnboardingEnabled: true,
-        isNative: false,
-        isLocalMode: true,
-      }),
-    ).toBe(routes.onboarding.hatching);
-  });
-
-  test("flag disabled on web keeps the hatching path", () => {
-    expect(
-      onboardingDestinationAfterConsent({
-        researchOnboardingEnabled: false,
-        isNative: false,
-        isLocalMode: false,
-      }),
+      onboardingDestinationAfterConsent({ isNative: true, isLocalHatch: false }),
     ).toBe(routes.onboarding.hatching);
   });
 });

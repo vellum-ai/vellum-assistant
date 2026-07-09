@@ -11,14 +11,6 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
-// -- Feature flag mock -----------------------------------------------------
-
-let mockFeatureFlagEnabled = true;
-
-mock.module("../../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: () => mockFeatureFlagEnabled,
-}));
-
 // -- Config mock -----------------------------------------------------------
 
 const mockConfig = {
@@ -44,16 +36,6 @@ mock.module("../../../tts/tts-config-resolver.js", () => ({
     provider: mockConfig.services.tts.provider,
     providerConfig: {},
   }),
-}));
-
-// -- Conversation history mock ---------------------------------------------
-
-let mockMessageContent: { text?: string } | null = {
-  text: "Hello, world!",
-};
-
-mock.module("../../../daemon/handlers/conversation-history.js", () => ({
-  getMessageContent: () => mockMessageContent,
 }));
 
 // -- TTS text sanitizer mock -----------------------------------------------
@@ -107,18 +89,6 @@ function getRoute(endpoint: string) {
   return route;
 }
 
-function makeMessageTtsArgs(
-  overrides: { messageId?: string; conversationId?: string | null } = {},
-): RouteHandlerArgs {
-  const messageId = overrides.messageId ?? "msg-123";
-  const conversationId = overrides.conversationId ?? "conv-456";
-  return {
-    pathParams: { messageId },
-    queryParams: conversationId !== null ? { conversationId } : {},
-    headers: {},
-  };
-}
-
 function makeSynthesizeArgs(body: Record<string, unknown>): RouteHandlerArgs {
   return { body, headers: {} };
 }
@@ -145,8 +115,6 @@ async function expectRouteError(
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  mockFeatureFlagEnabled = true;
-  mockMessageContent = { text: "Hello, world!" };
   mockSynthesizeResult = {
     audio: Buffer.from("fake-audio"),
     contentType: "audio/mpeg",
@@ -160,20 +128,16 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests — messages/:messageId/tts
+// Tests — route inventory
 // ---------------------------------------------------------------------------
 
 describe("tts-routes", () => {
-  test("exports route definitions for tts/providers, messages/:messageId/tts, tts/synthesize, and tts/synthesize-cli", () => {
-    expect(ROUTES).toHaveLength(4);
+  test("exports route definitions for tts/providers, tts/synthesize, and tts/synthesize-cli", () => {
+    expect(ROUTES).toHaveLength(3);
 
     const providers = getRoute("tts/providers");
     expect(providers.method).toBe("GET");
     expect(providers.policy?.requiredScopes).toContain("settings.read");
-
-    const msgTts = getRoute("messages/:messageId/tts");
-    expect(msgTts.method).toBe("POST");
-    expect(msgTts.policy?.requiredScopes).toContain("chat.read");
 
     const synthesize = getRoute("tts/synthesize");
     expect(synthesize.method).toBe("POST");
@@ -182,136 +146,6 @@ describe("tts-routes", () => {
     const synthesizeCli = getRoute("tts/synthesize-cli");
     expect(synthesizeCli.method).toBe("POST");
     expect(synthesizeCli.policy?.requiredScopes).toContain("chat.read");
-  });
-
-  // -- Feature flag gating --------------------------------------------------
-
-  test("throws 403 when message-tts flag is disabled", async () => {
-    mockFeatureFlagEnabled = false;
-
-    const { handler } = getRoute("messages/:messageId/tts");
-    const err = await expectRouteError(
-      () => handler(makeMessageTtsArgs()),
-      403,
-      "FORBIDDEN",
-    );
-    expect(err.message).toContain("not enabled");
-  });
-
-  // -- Message lookup -------------------------------------------------------
-
-  test("throws 404 when message is not found", async () => {
-    mockMessageContent = null;
-
-    const { handler } = getRoute("messages/:messageId/tts");
-    const err = await expectRouteError(
-      () => handler(makeMessageTtsArgs({ messageId: "missing-id" })),
-      404,
-      "NOT_FOUND",
-    );
-    expect(err.message).toContain("missing-id");
-  });
-
-  test("throws 400 when message has no text content", async () => {
-    mockMessageContent = { text: undefined };
-
-    const { handler } = getRoute("messages/:messageId/tts");
-    const err = await expectRouteError(
-      () => handler(makeMessageTtsArgs()),
-      400,
-      "BAD_REQUEST",
-    );
-    expect(err.message).toContain("no text content");
-  });
-
-  test("throws 400 when sanitized text is empty", async () => {
-    mockMessageContent = { text: "   " };
-
-    const { handler } = getRoute("messages/:messageId/tts");
-    const err = await expectRouteError(
-      () => handler(makeMessageTtsArgs()),
-      400,
-      "BAD_REQUEST",
-    );
-    expect(err.message).toContain("no speakable text");
-  });
-
-  // -- Success path ---------------------------------------------------------
-
-  test("returns Uint8Array with synthesized audio", async () => {
-    const { handler } = getRoute("messages/:messageId/tts");
-    const result = await handler(makeMessageTtsArgs());
-
-    expect(result).toBeInstanceOf(Uint8Array);
-    expect(lastSynthesizeOptions).not.toBeNull();
-    expect(lastSynthesizeOptions!.text).toBe("Hello, world!");
-    expect(lastSynthesizeOptions!.useCase).toBe("message-playback");
-  });
-
-  test("responseHeaders resolves Content-Type from config", () => {
-    const route = getRoute("messages/:messageId/tts");
-    expect(route.responseHeaders).toBeDefined();
-    const headers =
-      typeof route.responseHeaders === "function"
-        ? route.responseHeaders({ headers: {} })
-        : route.responseHeaders!;
-    expect(headers["Content-Type"]).toBe("audio/mpeg");
-  });
-
-  // -- Provider not configured ----------------------------------------------
-
-  test("throws 503 when TTS provider is not configured", async () => {
-    mockSynthesizeError = new MockTtsSynthesisError(
-      "TTS_PROVIDER_NOT_CONFIGURED",
-      "TTS provider not configured",
-    );
-
-    const { handler } = getRoute("messages/:messageId/tts");
-    const err = await expectRouteError(
-      () => handler(makeMessageTtsArgs()),
-      503,
-      "SERVICE_UNAVAILABLE",
-    );
-    expect(err.message).toContain("not configured");
-  });
-
-  // -- Synthesis failure ----------------------------------------------------
-
-  test("throws 502 when synthesis fails with generic error", async () => {
-    mockSynthesizeError = new MockTtsSynthesisError(
-      "TTS_SYNTHESIS_FAILED",
-      "upstream failure",
-    );
-
-    const { handler } = getRoute("messages/:messageId/tts");
-    await expectRouteError(
-      () => handler(makeMessageTtsArgs()),
-      502,
-      "BAD_GATEWAY",
-    );
-  });
-
-  test("propagates the underlying error message into the 502 response", async () => {
-    // Mimics what `synthesize-text.ts` re-throws when an ElevenLabs adapter
-    // raises ELEVENLABS_TTS_HTTP_ERROR with a parsed upstream message.
-    mockSynthesizeError = new MockTtsSynthesisError(
-      "TTS_SYNTHESIS_FAILED",
-      "TTS synthesis failed (provider: elevenlabs): Free users cannot use library voices via the API. Please upgrade your subscription to use this voice.",
-    );
-
-    const { handler } = getRoute("messages/:messageId/tts");
-    const err = await expectRouteError(
-      () => handler(makeMessageTtsArgs()),
-      502,
-      "BAD_GATEWAY",
-    );
-    expect(err.message).toContain("Free users cannot use library voices");
-    expect(err.message).toContain("Please upgrade your subscription");
-    // No double-prefix — message stays as the inner self-describing form.
-    expect(err.message.startsWith("TTS synthesis failed")).toBe(true);
-    expect(
-      err.message.startsWith("TTS synthesis failed: TTS synthesis failed"),
-    ).toBe(false);
   });
 });
 
@@ -437,5 +271,38 @@ describe("tts/synthesize", () => {
       502,
       "BAD_GATEWAY",
     );
+  });
+
+  test("propagates the underlying error message into the 502 response", async () => {
+    // Mimics what `synthesize-text.ts` re-throws when an ElevenLabs adapter
+    // raises ELEVENLABS_TTS_HTTP_ERROR with a parsed upstream message.
+    mockSynthesizeError = new MockTtsSynthesisError(
+      "TTS_SYNTHESIS_FAILED",
+      "TTS synthesis failed (provider: elevenlabs): Free users cannot use library voices via the API. Please upgrade your subscription to use this voice.",
+    );
+
+    const { handler } = getRoute("tts/synthesize");
+    const err = await expectRouteError(
+      () => handler(makeSynthesizeArgs({ text: "Say this" })),
+      502,
+      "BAD_GATEWAY",
+    );
+    expect(err.message).toContain("Free users cannot use library voices");
+    expect(err.message).toContain("Please upgrade your subscription");
+    // No double-prefix — message stays as the inner self-describing form.
+    expect(err.message.startsWith("TTS synthesis failed")).toBe(true);
+    expect(
+      err.message.startsWith("TTS synthesis failed: TTS synthesis failed"),
+    ).toBe(false);
+  });
+
+  test("responseHeaders resolves Content-Type from config", () => {
+    const route = getRoute("tts/synthesize");
+    expect(route.responseHeaders).toBeDefined();
+    const headers =
+      typeof route.responseHeaders === "function"
+        ? route.responseHeaders({ headers: {} })
+        : route.responseHeaders!;
+    expect(headers["Content-Type"]).toBe("audio/mpeg");
   });
 });

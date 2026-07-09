@@ -8,7 +8,16 @@
  * disabling thinking (e.g. Opus) keep their disabled config.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
+// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
+// llm-resolver-override-or-default.test.ts and its companion suites.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -79,6 +88,8 @@ describe("retry normalization: adaptive-only thinking models", () => {
         thinking: { enabled: false },
         effort: "high",
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
 
@@ -118,6 +129,8 @@ describe("retry normalization: adaptive-only thinking models", () => {
         model: "anthropic/claude-fable-5",
         thinking: { enabled: false },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
 
@@ -138,6 +151,8 @@ describe("retry normalization: adaptive-only thinking models", () => {
         model: "claude-fable-5",
         thinking: { enabled: true },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
 
@@ -158,6 +173,8 @@ describe("retry normalization: adaptive-only thinking models", () => {
         model: "claude-opus-4-7",
         thinking: { enabled: false },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
 
@@ -179,6 +196,8 @@ describe("retry normalization: adaptive-only thinking models", () => {
         thinking: { enabled: false },
         temperature: 0.7,
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
 

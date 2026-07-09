@@ -4,10 +4,11 @@
  * POST   /v1/conversations                 — create a new conversation
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * POST   /v1/conversations/fork           — fork an existing conversation
+ * POST   /v1/conversations/summarize      — summarize context up to a message
  * PUT    /v1/conversations/:id/inference-profile — set per-conversation inference profile
+ * PUT    /v1/conversations/:id/enabledplugins — set per-conversation plugin scope
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
- * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
  * DELETE /v1/conversations/:id            — delete a single conversation
  * POST   /v1/conversations/:id/archive    — archive a conversation
  * POST   /v1/conversations/:id/unarchive  — restore an archived conversation
@@ -20,7 +21,14 @@
 
 import { z } from "zod";
 
-import { destroyActiveConversation } from "../../daemon/conversation-store.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
+import { formatSummarizeUpToResult } from "../../daemon/conversation-process.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
+import {
+  destroyActiveConversation,
+  getOrCreateConversation as getOrCreateConversationInstance,
+} from "../../daemon/conversation-store.js";
 import {
   cancelGeneration,
   clearAllConversations,
@@ -37,10 +45,10 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
+  setConversationEnabledPlugins,
   setConversationSurfaced,
   unarchiveConversation,
   updateConversationTitle,
-  wipeConversation,
 } from "../../persistence/conversation-crud.js";
 import {
   getOrCreateConversation,
@@ -51,15 +59,25 @@ import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
+import { silentlyWithLog } from "../../util/silently.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import {
+  publishConversationEnabledPluginsChanged,
   publishConversationListAndMetadataChanged,
   publishConversationListChanged,
   publishConversationTitleChanged,
 } from "../sync/resource-sync-events.js";
+import { persistCannedAssistantCard } from "./canned-message-complete.js";
+import { buildChannelMetadata } from "./channel-metadata.js";
 import { conversationSummarySchema } from "./conversation-list-routes.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+} from "./errors.js";
 import { setInferenceProfileSession } from "./inference-profile-session-handler.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -73,6 +91,12 @@ function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
   if (!id) throw new NotFoundError(`Conversation ${rawId} not found`);
   return id;
+}
+
+const SUMMARIZE_UP_TO_HERE_FLAG = "summarize-up-to-here" as const;
+
+function isSummarizeUpToHereEnabled(): boolean {
+  return isAssistantFeatureFlagEnabled(SUMMARIZE_UP_TO_HERE_FLAG, getConfig());
 }
 
 async function cancelScheduleIfLast(conversationId: string): Promise<void> {
@@ -177,6 +201,102 @@ async function handleForkConversation({
   }
 }
 
+async function handleSummarizeConversation({
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  // Flag-off behaves as an unknown endpoint — same body shape as the
+  // router's 404 — so the surface is invisible until the flag ships.
+  if (!isSummarizeUpToHereEnabled()) {
+    throw new NotFoundError("Not found");
+  }
+  const rawConversationId = body.conversationId;
+  if (!rawConversationId || typeof rawConversationId !== "string") {
+    throw new BadRequestError("Missing conversationId");
+  }
+  const beforeMessageId = body.beforeMessageId;
+  if (!beforeMessageId || typeof beforeMessageId !== "string") {
+    throw new BadRequestError("Missing beforeMessageId");
+  }
+
+  const conversationId =
+    resolveConversationId(rawConversationId) ?? rawConversationId;
+  // Gate on DB existence first: `getOrCreateConversationInstance` would
+  // otherwise create a fresh conversation and mask the not-found case.
+  if (!getConversation(conversationId)) {
+    throw new NotFoundError(`Conversation ${rawConversationId} not found`);
+  }
+  const conversation = await getOrCreateConversationInstance(conversationId);
+
+  // Synchronous check-then-claim (no await between them) so a concurrent
+  // request cannot slip past the busy gate.
+  if (conversation.isProcessing()) {
+    throw new ConflictError(
+      "The assistant is currently responding — try again when it finishes",
+    );
+  }
+  conversation.setProcessing(true);
+
+  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+
+  // The summarize action only ships from the vellum web/desktop client; the
+  // interface id is omitted because this management route (unlike the send
+  // path) does not receive one from the client.
+  const channelMeta = buildChannelMetadata("vellum", undefined, {
+    trustContext: conversation.trustContext,
+  });
+  const persistCard = (text: string) =>
+    persistCannedAssistantCard({
+      conversation,
+      conversationId,
+      text,
+      metadata: channelMeta,
+      originClientId,
+    });
+
+  // Fire-and-forget: return 202 immediately, run summarization async. The
+  // summary LLM call can exceed the client's HTTP timeout on large contexts.
+  // The `context_compacted` SSE event, usage recording, and memory hooks are
+  // all emitted inside the shared compaction write path — only the result
+  // card is the route's responsibility.
+  (async () => {
+    try {
+      conversation.emitActivityState("thinking", "context_compacting", {
+        statusText: "Summarizing conversation",
+      });
+      const result = await conversation.summarizeUpToMessage(beforeMessageId);
+      await persistCard(formatSummarizeUpToResult(result));
+    } catch (err) {
+      // Boundary/mapping UserErrors are expected user-facing outcomes, not
+      // failures: surface them as a skipped card rather than an error event.
+      if (err instanceof UserError) {
+        try {
+          await persistCard(`Summarization skipped — ${err.message}`);
+          return;
+        } catch (cardErr) {
+          err = cardErr;
+        }
+      }
+      log.error({ err, conversationId }, "Summarize command failed");
+      broadcastMessage({
+        type: "conversation_error",
+        conversationId,
+        code: "UNKNOWN",
+        userMessage: `Summarization failed: ${err instanceof Error ? err.message : String(err)}`,
+        retryable: true,
+      });
+    } finally {
+      conversation.setProcessing(false);
+      silentlyWithLog(
+        conversation.drainQueue(),
+        "summarize-command queue drain",
+      );
+    }
+  })();
+
+  return { accepted: true as const, conversationId };
+}
+
 async function handleSwitchConversation({ body = {} }: RouteHandlerArgs) {
   const conversationId = body.conversationId as string | undefined;
   if (!conversationId || typeof conversationId !== "string") {
@@ -222,6 +342,49 @@ async function handleSetInferenceProfile({
   return result;
 }
 
+async function handleUpdateConversationEnabledPlugins({
+  pathParams = {},
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  const enabledPlugins = body.enabledPlugins as string[] | null | undefined;
+  // The field is required; `null` is the explicit "clear the scope" signal.
+  // A missing field (malformed/empty body) must not silently clear the scope.
+  if (enabledPlugins === undefined) {
+    throw new BadRequestError(
+      "enabledPlugins is required (use null to clear the scope)",
+    );
+  }
+  if (
+    enabledPlugins !== null &&
+    (!Array.isArray(enabledPlugins) ||
+      enabledPlugins.some((p) => typeof p !== "string"))
+  ) {
+    throw new BadRequestError(
+      "enabledPlugins must be an array of strings or null",
+    );
+  }
+
+  const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
+  const conversation = getConversation(resolvedId);
+  if (!conversation) {
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
+  }
+
+  // `null` clears the per-chat scope back to the default (all enabled
+  // plugins); a `string[]` scopes the chat to those plugin ids.
+  const nextEnabledPlugins = enabledPlugins;
+  setConversationEnabledPlugins(resolvedId, nextEnabledPlugins);
+  findConversation(resolvedId)?.setEnabledPlugins(nextEnabledPlugins);
+
+  publishConversationEnabledPluginsChanged(
+    resolvedId,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
+
+  return { conversationId: resolvedId, enabledPlugins: nextEnabledPlugins };
+}
+
 function handleRenameConversation({
   pathParams = {},
   body = {},
@@ -262,52 +425,6 @@ async function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
   return undefined;
 }
 
-async function handleWipeConversation({
-  pathParams = {},
-  headers,
-}: RouteHandlerArgs) {
-  const resolvedId = resolveOrThrow(pathParams.id!);
-
-  await cancelScheduleIfLast(resolvedId);
-
-  destroyActiveConversation(resolvedId);
-  const result = wipeConversation(resolvedId);
-  for (const segId of result.segmentIds) {
-    enqueueMemoryJob("delete_qdrant_vectors", {
-      targetType: "segment",
-      targetId: segId,
-    });
-  }
-  for (const summaryId of result.deletedSummaryIds) {
-    enqueueMemoryJob("delete_qdrant_vectors", {
-      targetType: "summary",
-      targetId: summaryId,
-    });
-  }
-  log.info(
-    {
-      conversationId: resolvedId,
-      summariesDeleted: result.deletedSummaryIds.length,
-      jobsCancelled: result.cancelledJobCount,
-    },
-    "Wiped conversation and reverted memory changes",
-  );
-  publishConversationListAndMetadataChanged(
-    "deleted",
-    resolvedId,
-    headers?.["x-vellum-client-id"]?.trim() || undefined,
-  );
-
-  void stripConversationIds(resolvedId);
-
-  return {
-    wiped: true,
-    unsupersededItems: 0,
-    deletedSummaries: result.deletedSummaryIds.length,
-    cancelledJobs: result.cancelledJobCount,
-  };
-}
-
 async function handleDeleteConversation({
   pathParams = {},
   headers,
@@ -330,6 +447,9 @@ async function handleDeleteConversation({
       targetId: summaryId,
     });
   }
+  // The lexical-index purge is fired by `deleteConversation` itself (via the
+  // `onConversationDeleted` persistence hook), so every delete caller cleans up
+  // — no route-level purge needed here.
   log.info({ conversationId: resolvedId }, "Deleted conversation");
 
   publishConversationListAndMetadataChanged(
@@ -590,6 +710,33 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleForkConversation,
   },
   {
+    operationId: "summarizeConversation",
+    endpoint: "conversations/summarize",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Summarize a conversation up to a message",
+    description:
+      "Replace the conversation's context before the given message with a generated summary. " +
+      "The boundary snaps to the start of the turn containing beforeMessageId; that turn and " +
+      "everything after stay verbatim. Messages are never deleted.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      conversationId: z.string(),
+      beforeMessageId: z
+        .string()
+        .describe("Summarize all messages before this one"),
+    }),
+    responseBody: z.object({
+      accepted: z.literal(true),
+      conversationId: z.string(),
+    }),
+    responseStatus: "202",
+    handler: handleSummarizeConversation,
+  },
+  {
     operationId: "switchConversation",
     endpoint: "conversations/switch",
     method: "POST",
@@ -651,6 +798,30 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleSetInferenceProfile,
   },
   {
+    operationId: "conversations_by_id_enabledplugins_put",
+    endpoint: "conversations/:id/enabledplugins",
+    method: "PUT",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Set conversation enabled plugins",
+    description:
+      "Scope a single conversation to a subset of installed plugins " +
+      "(first-party defaults are always available). Pass null to clear the " +
+      "scope back to the default (all enabled plugins).",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      enabledPlugins: z.array(z.string()).nullable(),
+    }),
+    responseBody: z.object({
+      conversationId: z.string(),
+      enabledPlugins: z.array(z.string()).nullable(),
+    }),
+    handler: handleUpdateConversationEnabledPlugins,
+  },
+  {
     operationId: "renameConversation",
     endpoint: "conversations/:id/name",
     method: "PATCH",
@@ -681,27 +852,6 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["conversations"],
     responseStatus: "204",
     handler: handleClearAllConversations,
-  },
-  {
-    operationId: "wipeConversation",
-    endpoint: "conversations/:id/wipe",
-    method: "POST",
-    policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
-    },
-    summary: "Wipe a conversation",
-    description:
-      "Delete all messages in a conversation and revert associated memory changes.",
-    tags: ["conversations"],
-    pathParams: [{ name: "id", type: "uuid" }],
-    responseBody: z.object({
-      wiped: z.boolean(),
-      unsupersededItems: z.number().int(),
-      deletedSummaries: z.number().int(),
-      cancelledJobs: z.number().int(),
-    }),
-    handler: handleWipeConversation,
   },
   {
     operationId: "deleteConversation",

@@ -4,11 +4,16 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
+import { useOpenUrlDirectives } from "@/hooks/use-open-url-directives";
 import { useGlobalDeepLinkConsumer } from "@/hooks/use-global-deep-link-consumer";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useVisibleViewport } from "@/hooks/use-visible-viewport";
+import {
+  useVisibleViewport,
+  KEYBOARD_OPEN_THRESHOLD_PX,
+} from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-setup-close-notify";
 import {
   useAuthStore,
   useIsSessionInitializing,
@@ -27,6 +32,7 @@ import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useBookmarksSync } from "@/hooks/use-bookmarks-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
+import { useNotificationTapNavigation } from "@/hooks/use-notification-tap-navigation";
 import { usePushRegistration } from "@/hooks/use-push-registration";
 import { useSoundEffects } from "@/hooks/use-sound-effects";
 import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
@@ -40,12 +46,14 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useAvatarAccentVar } from "@/hooks/use-avatar-accent-var";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
 import { useElectronIdentitySync } from "@/hooks/use-electron-identity-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { isElectron } from "@/runtime/is-electron";
+import { isPopoutWindow } from "@/runtime/popout-window";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
 import { TimezoneSync } from "@/components/timezone-sync";
 import { StatusBanner } from "@/components/status-banner";
@@ -61,13 +69,6 @@ const ShareFeedbackModal = lazy(() =>
     default: m.ShareFeedbackModal,
   })),
 );
-
-/**
- * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
- * is treated as the soft keyboard opening. Below this we assume incidental
- * drift from browser chrome / pinch-zoom and leave the layout alone.
- */
-const KEYBOARD_OPEN_THRESHOLD_PX = 100;
 
 /**
  * App-level layout route. Owns three cross-route concerns:
@@ -112,6 +113,11 @@ export function RootLayout() {
     sessionStatus,
     hasPlatformSession,
   });
+  // Channel-setup close auto-notify watcher. Mounted at this always-mounted
+  // layer (not the chat layout) so a wizard-visibility transition triggered
+  // from any route — including setMainView("chat") calls made while the chat
+  // layout is unmounted — still sends the close signal.
+  useChannelSetupCloseNotify();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantVersion = useAssistantIdentityStore.use.version();
@@ -132,6 +138,7 @@ export function RootLayout() {
   useFeatureFlagBusSync(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
   usePushRegistration(assistantId);
+  useNotificationTapNavigation();
   useSoundEffects(assistantId, isAssistantActive);
   useDocumentEditorSync();
   useBookmarksSync();
@@ -141,6 +148,9 @@ export function RootLayout() {
   // so the favicon persists when navigating between sibling layouts.
   const avatar = useAssistantAvatar(assistantId);
   useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
+  // Publish the avatar accent as `--avatar-accent` so chat loading shimmers
+  // (and any future accent-tinted UI) can read it from plain CSS.
+  useAvatarAccentVar(avatar.components, avatar.traits);
 
   // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
   // the live connection status to the menu-bar dot. Both no-op off Electron.
@@ -163,6 +173,10 @@ export function RootLayout() {
   // `useDeepLinkConsumer` because it owns `setInput`; the two
   // hand off via `pending-deep-link-store`.
   useGlobalDeepLinkConsumer();
+  // Conversationless `open_url` directives (CLI OAuth hand-offs). Mounted
+  // here so the browser opens even when no chat stream consumer exists —
+  // Settings/Logs routes, or a draft conversation that isn't persisted yet.
+  useOpenUrlDirectives();
 
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   // Id of the assistant a tray "Retire <assistant>…" command targets. The tray
@@ -282,11 +296,33 @@ export function RootLayout() {
   const keyboardOffsetTop =
     keyboardOpen && visibleViewport ? visibleViewport.offsetTop : 0;
   const electron = isElectron();
-  const isPopout = location.search.includes("popout=1");
+  const isPopout = isPopoutWindow(location.search);
   const suppressStatusBanner = shouldSuppressRootStatusBanner(
     location.pathname,
     location.search,
   );
+  // The app shell owns the top safe-area inset for the primary web/mobile
+  // surface: whatever renders topmost — the status banner when present, else
+  // the active route's own header — sits directly below the notch. Electron,
+  // popouts, and onboarding manage their own top inset, so the shell defers to
+  // them. This keeps a single owner of the top inset per context and avoids
+  // the banner and a route header both reserving it (a doubled gap).
+  const appShellOwnsTopInset =
+    !electron && !isPopout && !suppressStatusBanner;
+  // The notch inset and the keyboard scroll compensation are independent top
+  // offsets: the status bar is always present regardless of the keyboard, so
+  // when the shell owns the inset it must be reserved in both states and
+  // stacked on top of the keyboard offset when the keyboard is open.
+  const topSafeAreaInset =
+    "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))";
+  const shellPaddingTop =
+    keyboardOffsetTop > 0
+      ? appShellOwnsTopInset
+        ? `calc(${keyboardOffsetTop}px + ${topSafeAreaInset})`
+        : `${keyboardOffsetTop}px`
+      : appShellOwnsTopInset
+        ? topSafeAreaInset
+        : undefined;
 
   return (
     <div
@@ -298,7 +334,7 @@ export function RootLayout() {
           keyboardOpen && visibleViewport
             ? `${visibleViewport.height + keyboardOffsetTop}px`
             : "100dvh",
-        paddingTop: keyboardOffsetTop > 0 ? `${keyboardOffsetTop}px` : undefined,
+        paddingTop: shellPaddingTop,
         paddingBottom: keyboardOpen
           ? "0px"
           : "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
@@ -312,10 +348,11 @@ export function RootLayout() {
       }}
     >
       <UpdateToast />
-      {!electron && !isPopout && !suppressStatusBanner ? (
-        <StatusBanner placement="web" reserveTopSafeArea />
-      ) : null}
-      <div className="flex min-w-0 flex-col overflow-hidden w-full" style={{ flex: "1 1 0%", minHeight: 0 }}>
+      {appShellOwnsTopInset ? <StatusBanner placement="web" /> : null}
+      <div
+        className="flex min-w-0 flex-col overflow-hidden w-full"
+        style={{ flex: "1 1 0%", minHeight: 0 }}
+      >
         <Outlet />
       </div>
 

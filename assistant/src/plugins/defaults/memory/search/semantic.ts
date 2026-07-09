@@ -1,6 +1,5 @@
 import { inArray } from "drizzle-orm";
 
-import { getConfig } from "../../../../config/loader.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import type {
@@ -12,6 +11,7 @@ import {
   memorySegments,
   memorySummaries,
 } from "../../../../persistence/schema/index.js";
+import { getMemoryConfig } from "../config.js";
 import { mapCosineToUnit } from "../validation.js";
 // ── Types (inlined from deleted types.ts) ──────────────────────────
 
@@ -62,7 +62,7 @@ export async function semanticSearch(
   // v2 owns the read path when enabled; the v1 `memory` collection is in
   // active retirement, and routing semantic recall there would re-enter the
   // same corrupted sparse segments that can OOM-crash Qdrant.
-  if (getConfig().memory.v2.enabled) return [];
+  if (getMemoryConfig().v2.enabled) return [];
 
   const qdrant = getQdrantClient();
 

@@ -13,9 +13,14 @@ import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
-import { AcpResumeError } from "../../acp/session-manager.js";
+import {
+  AcpResumeError,
+  AcpSessionNotFoundError,
+} from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import { getConfig } from "../../config/loader.js";
+import type { ServerMessage } from "../../daemon/message-protocol.js";
+import { createCanonicalRequestForConfirmation } from "../../permissions/confirmation-canonical-request.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { rawChanges } from "../../persistence/raw-query.js";
@@ -29,6 +34,7 @@ import {
   ConflictError,
   FailedDependencyError,
   ForbiddenError,
+  InternalError,
   NotFoundError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -151,21 +157,25 @@ function awaitRouteApproval(args: {
         settle(decision, decision === "allow" ? "approved" : "rejected"),
     });
 
-    broadcastMessage(
-      {
-        type: "confirmation_request",
-        requestId,
-        toolName,
-        input,
-        riskLevel: "high",
-        executionTarget: "host",
-        allowlistOptions: [],
-        scopeOptions: [],
-        conversationId,
-        persistentDecisionsAllowed: false,
-      },
+    const confirmationMsg: ServerMessage & {
+      type: "confirmation_request";
+    } = {
+      type: "confirmation_request",
+      requestId,
+      toolName,
+      input,
+      riskLevel: "high",
+      executionTarget: "host",
+      allowlistOptions: [],
+      scopeOptions: [],
       conversationId,
-    );
+      persistentDecisionsAllowed: false,
+    };
+    broadcastMessage(confirmationMsg, conversationId);
+
+    // Promote the confirmation to a canonical guardian request so channel
+    // guardian decisions (reactions, buttons, text) can resolve it.
+    void createCanonicalRequestForConfirmation(confirmationMsg, conversationId);
   });
 }
 
@@ -387,8 +397,16 @@ async function cancelSession({ pathParams }: RouteHandlerArgs) {
   const manager = getAcpSessionManager();
   try {
     await manager.cancel(id);
-  } catch {
-    throw new NotFoundError("ACP session not found");
+  } catch (err) {
+    // Only a genuinely unknown session is a 404. A protocol-cancel failure on a
+    // still-live session is a real error, not a missing session, so it surfaces
+    // as a 500 rather than a misleading not-found.
+    if (err instanceof AcpSessionNotFoundError) {
+      throw new NotFoundError("ACP session not found");
+    }
+    throw new InternalError(
+      err instanceof Error ? err.message : "Failed to cancel ACP session",
+    );
   }
   return { acpSessionId: id, cancelled: true };
 }

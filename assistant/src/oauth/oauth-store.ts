@@ -19,6 +19,7 @@ import {
 import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { invalidateAssistantSuggestedPromptsCache } from "../home/suggested-prompts-cache.js";
 import { getDb } from "../persistence/db-connection.js";
 import { rawChanges } from "../persistence/raw-query.js";
 import {
@@ -264,6 +265,35 @@ export function seedProviders(
       })
       .run();
   }
+}
+
+/**
+ * Rewrite a provider's stored base URL, but only when it still holds a known
+ * stale default value. Existing installs are seeded with `COALESCE(baseUrl,
+ * seedValue)`, so a corrected seed base URL never propagates on its own — a row
+ * created with the old default keeps it forever. This targeted update advances
+ * that specific stale value to the current default while leaving user-customized
+ * base URLs (anything other than `staleBaseUrl`) untouched.
+ *
+ * Idempotent: once the row holds `nextBaseUrl` the WHERE clause matches nothing.
+ * Returns the number of rows updated.
+ */
+export function migrateProviderBaseUrl(params: {
+  provider: string;
+  staleBaseUrl: string;
+  nextBaseUrl: string;
+}): number {
+  const db = getDb();
+  db.update(oauthProviders)
+    .set({ baseUrl: params.nextBaseUrl, updatedAt: Date.now() })
+    .where(
+      and(
+        eq(oauthProviders.provider, params.provider),
+        eq(oauthProviders.baseUrl, params.staleBaseUrl),
+      ),
+    )
+    .run();
+  return rawChanges();
 }
 
 /** Look up a provider by its primary key. */
@@ -1104,17 +1134,9 @@ export async function disconnectOAuthProvider(
 
   deleteConnection(conn.id);
 
-  // Dynamic import: `suggested-prompts.ts` imports from this module, so a
-  // static import here would create a cycle. The cache invalidation is
-  // best-effort — failures must not block disconnect.
-  void import("../home/suggested-prompts.js")
-    .then((m) => m.invalidateAssistantSuggestedPromptsCache())
-    .catch((err) => {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        "Failed to invalidate suggested-prompts cache after disconnect",
-      );
-    });
+  // Best-effort cache invalidation so Home suggestions track the disconnect;
+  // the call swallows its own failures and never blocks disconnect.
+  invalidateAssistantSuggestedPromptsCache();
 
   return "disconnected";
 }

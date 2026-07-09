@@ -10,7 +10,11 @@
  * so a future gateway regression can't leak them into the UI.
  */
 
-import { client } from "@/generated/api/client.gen";
+import {
+  assistantChannelAdmissionPolicyList,
+  assistantChannelAdmissionPolicySet,
+} from "@/generated/gateway/sdk.gen";
+import type { AssistantChannelAdmissionPolicyListResponse } from "@/generated/gateway/types.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -27,14 +31,6 @@ import {
 
 export { ApiError };
 
-interface ListResponse {
-  policies: ChannelPolicyView[];
-}
-
-interface SingleResponse {
-  policy: ChannelPolicyView;
-}
-
 function isAdmissionPolicy(value: unknown): value is AdmissionPolicy {
   return (
     typeof value === "string" &&
@@ -47,27 +43,17 @@ export function isInternalChannel(channelType: string): boolean {
 }
 
 /**
- * List every client-controllable channel's admission floor.
- *
- * Channels in {@link INTERNAL_CHANNELS} and {@link isHiddenChannel} are
- * filtered out before returning, so callers can render the result directly
- * without re-filtering.
+ * Shape the raw admission-floor list response into client policy views:
+ * channels in {@link INTERNAL_CHANNELS} and {@link isHiddenChannel} are
+ * dropped, and unknown policy strings coerce to the default. Shared by
+ * {@link fetchChannelPolicies} and by the TanStack `select` in the hooks
+ * that spread the generated `assistantChannelAdmissionPolicyListOptions`
+ * (`useChannelTrustFloors`, `useChannelProvenance`), so every reader keys
+ * off the generated query key and one raw cache entry.
  */
-export async function fetchChannelPolicies(
-  assistantId: string,
-): Promise<ChannelPolicyView[]> {
-  const { data, error, response } = await client.get<ListResponse, unknown>({
-    url: "/v1/assistants/{assistant_id}/channel-admission-policy/",
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  });
-  assertHasResponse(response, error, "Failed to load channel policies.");
-  if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      extractErrorMessage(error, response, "Failed to load channel policies."),
-    );
-  }
+export function toChannelPolicyViews(
+  data: AssistantChannelAdmissionPolicyListResponse | undefined,
+): ChannelPolicyView[] {
   const policies = data?.policies ?? [];
   return policies
     .filter(
@@ -78,6 +64,29 @@ export async function fetchChannelPolicies(
       ...p,
       policy: isAdmissionPolicy(p.policy) ? p.policy : "trusted_contacts",
     }));
+}
+
+/**
+ * List every client-controllable channel's admission floor. Imperative
+ * accessor for non-query call sites; React hooks should spread the generated
+ * `assistantChannelAdmissionPolicyListOptions` with
+ * `select: toChannelPolicyViews` instead.
+ */
+export async function fetchChannelPolicies(
+  assistantId: string,
+): Promise<ChannelPolicyView[]> {
+  const { data, error, response } = await assistantChannelAdmissionPolicyList({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load channel policies.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to load channel policies."),
+    );
+  }
+  return toChannelPolicyViews(data);
 }
 
 export async function setChannelPolicy(
@@ -95,11 +104,9 @@ export async function setChannelPolicy(
       `Channel "${channelType}" is internal and is not user-configurable.`,
     );
   }
-  const { data, error, response } = await client.put<SingleResponse, unknown>({
-    url: "/v1/assistants/{assistant_id}/channel-admission-policy/{channel_type}",
+  const { data, error, response } = await assistantChannelAdmissionPolicySet({
     path: { assistant_id: assistantId, channel_type: channelType },
     body: { policy, note: note ?? null },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to save channel policy.");

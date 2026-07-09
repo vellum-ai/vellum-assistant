@@ -8,6 +8,7 @@ import {
   Copy,
   HardDrive,
   Loader2,
+  MessageSquareText,
   Shield,
   Wrench,
   XCircle,
@@ -34,7 +35,9 @@ export function MessageCopyButton({ text }: { text: string }) {
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
     };
   }, []);
 
@@ -43,7 +46,9 @@ export function MessageCopyButton({ text }: { text: string }) {
       .writeText(text)
       .then(() => {
         setCopied(true);
-        if (timerRef.current) clearTimeout(timerRef.current);
+        if (timerRef.current) {
+          clearTimeout(timerRef.current);
+        }
         timerRef.current = setTimeout(() => {
           setCopied(false);
           timerRef.current = null;
@@ -104,7 +109,9 @@ export function ToolCallBlock({
       <button
         type="button"
         onClick={() => {
-          if (canExpand) setExpanded(!expanded);
+          if (canExpand) {
+            setExpanded(!expanded);
+          }
         }}
         className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
           isError
@@ -352,6 +359,41 @@ export function BackupPromptBlock({
             onClick={() => onRespond("skip_backup")}
           >
             Skip
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function FeedbackPromptBlock({
+  onOpenFeedback,
+}: {
+  onOpenFeedback: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-disabled)]" />
+          <div className="flex flex-col gap-1">
+            <span className="text-body-medium-default text-[var(--content-default)]">
+              This sounds like feedback for the Vellum team.
+            </span>
+            <span className="text-body-small-default text-[var(--content-tertiary)]">
+              You can send it with logs while the Doctor keeps looking for a fix
+              or workaround here.
+            </span>
+          </div>
+        </div>
+
+        <div className="flex shrink-0">
+          <Button
+            variant="outlined"
+            onClick={onOpenFeedback}
+            leftIcon={<MessageSquareText />}
+          >
+            Share Feedback
           </Button>
         </div>
       </div>

@@ -4,19 +4,14 @@ import { z } from "zod";
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
-import type { SecretPromptResult } from "../permissions/secret-prompter.js";
+import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 import type { ContentBlock } from "../providers/types.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import type { TrustClass } from "../runtime/trust-class.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 import type {
   DiffInfo,
-  ExecutionTarget,
   ProxyApprovalCallback,
   SensitiveOutputBinding,
-  ToolExecutionErrorEvent as ContractsToolExecutionErrorEvent,
-  ToolExecutionStartEvent,
-  ToolPermissionDeniedEvent,
-  ToolPermissionPromptEvent,
 } from "./tool-types.js";
 import { RiskLevel } from "./tool-types.js";
 
@@ -36,45 +31,18 @@ export function isDiskPressureCleanupToolName(name: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Re-exports + concrete overlays for types that live in
-// ./tool-types.js.
+// Concrete overlays for types that live in ./tool-types.js.
 //
-// The canonical declarations live in the neutral leaf module
-// `./tool-types.js`. This file preserves existing import paths
-// (`"../tools/types.js"`) so all callers keep resolving.
-//
-// Pure re-exports below cover types the contracts package could declare
-// without any assistant-side references. The remaining interfaces (`Tool`,
-// `ToolContext`, `ToolExecutionResult`, `ToolExecutedEvent`,
-// `ToolLifecycleEvent`, `ToolLifecycleEventHandler`, `ProxyToolResolver`)
-// reference daemon-internal types (CES client, host-proxy classes,
-// `ContentBlock`, `ApprovalRequired`, `TrustClass`, `InterfaceId`,
+// The canonical declarations live in the neutral leaf module `./tool-types.js`.
+// The interfaces below (`Tool`, `ToolContext`, `ToolExecutionResult`,
+// `ProxyToolResolver`) reference daemon-internal types (CES client, host-proxy
+// classes, `ContentBlock`, `ApprovalRequired`, `TrustClass`, `InterfaceId`,
 // `SecretPromptResult`, `UsageAttributionSnapshot`) that can't move into a
-// neutral package. For those,
-// the contracts version uses opaque placeholders (`unknown`, broadened
-// `string`) and the assistant redeclares the interface here with the
-// concrete types. The two sides are structurally independent — no
-// inheritance, no intersection — which avoids TypeScript's contravariance
-// mismatches on lifecycle-event handlers.
-// `ToolExecutionErrorEvent` is the exception: its contracts fields are all
-// concrete, so the assistant overlay simply extends it with the
-// daemon-internal telemetry fields.
+// neutral package. For those, the contracts version uses opaque placeholders
+// (`unknown`, broadened `string`) and the assistant redeclares the interface
+// here with the concrete types. The two sides are structurally independent —
+// no inheritance, no intersection.
 // ---------------------------------------------------------------------------
-
-export type {
-  DiffInfo,
-  ErrorCategory,
-  ExecutionTarget,
-  ProxyApprovalCallback,
-  ProxyApprovalRequest,
-  ProxyEnvVars,
-  SensitiveOutputBinding,
-  SensitiveOutputKind,
-  ToolExecutionStartEvent,
-  ToolPermissionDeniedEvent,
-  ToolPermissionPromptEvent,
-} from "./tool-types.js";
-export { RiskLevel } from "./tool-types.js";
 
 // ---------------------------------------------------------------------------
 // Assistant-side concrete overlays
@@ -164,80 +132,8 @@ export type ProxyToolResolver = (
 ) => Promise<ToolExecutionResult>;
 
 /**
- * Telemetry fields stamped centrally by the executor's `emitLifecycleEvent`
- * on terminal (executed/error) lifecycle events.
- */
-export interface ExecutorTelemetryStamp {
-  /**
-   * Model attribution snapshot for the conversation at invocation time.
-   * Copied from {@link ToolContext.attribution} by the executor; `null` when
-   * resolution failed or no attribution was available.
-   */
-  attribution?: UsageAttributionSnapshot | null;
-  /**
-   * Serialized byte size of the RAW tool input, stamped by the executor
-   * before sensitive-field sanitization rewrites `input`. Only the size
-   * leaves the device, never the payload.
-   */
-  inputBytes?: number | null;
-  /**
-   * Byte size of the RAW tool result content, stamped by the executor
-   * before sensitive-output extraction rewrites `result.content`. Only
-   * stamped on `executed` events: error events carry no executor-side
-   * result — the audit listener sizes the error string it builds itself,
-   * which never goes through sanitization, so it is already raw. Only the
-   * size leaves the device, never the payload.
-   */
-  resultBytes?: number | null;
-}
-
-/**
- * `ToolExecutedEvent` carries a `result: ToolExecutionResult` field, so
- * the assistant re-declares it here to reference the assistant-side
- * `ToolExecutionResult` (which narrows `contentBlocks` to `ContentBlock[]`
- * and `cesApprovalRequired` to `ApprovalRequired`).
- */
-export interface ToolExecutedEvent extends ExecutorTelemetryStamp {
-  type: "executed";
-  toolName: string;
-  input: Record<string, unknown>;
-  workingDir: string;
-  conversationId: string;
-  requestId?: string;
-  executionTarget?: ExecutionTarget;
-  riskLevel: string;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  /** How the approval decision was reached. Copied from PermissionDecision for analytics consumers. */
-  approvalMode?: string;
-  /** Why the approval decision was reached (stable enum). Copied from PermissionDecision for analytics consumers. */
-  approvalReason?: string;
-  decision: string;
-  durationMs: number;
-  result: ToolExecutionResult;
-}
-
-/**
- * Extends the contracts declaration with the assistant-side telemetry
- * fields stamped centrally by the executor's `emitLifecycleEvent`.
- */
-export interface ToolExecutionErrorEvent
-  extends ContractsToolExecutionErrorEvent, ExecutorTelemetryStamp {}
-
-export type ToolLifecycleEvent =
-  | ToolExecutionStartEvent
-  | ToolPermissionPromptEvent
-  | ToolPermissionDeniedEvent
-  | ToolExecutedEvent
-  | ToolExecutionErrorEvent;
-
-export type ToolLifecycleEventHandler = (
-  event: ToolLifecycleEvent,
-) => void | Promise<void>;
-
-/**
  * Canonical serialization used for tool-input byte sizing. Shared by the
- * executor (raw pre-sanitization sizing) and the audit listener (stored
+ * executor (raw pre-sanitization sizing) and the audit terminals (stored
  * `input` column + fallback sizing) so the two always measure the same
  * serialization.
  */
@@ -297,11 +193,6 @@ export interface ToolContext {
    */
   attribution?: UsageAttributionSnapshot | null;
   /**
-   * Optional callback for tool lifecycle events (start/prompt/deny/execute/error).
-   * @legacy
-   */
-  onToolLifecycleEvent?: ToolLifecycleEventHandler;
-  /**
    * Optional resolver for proxy tools - delegates execution to an external client.
    * @legacy
    */
@@ -311,6 +202,13 @@ export interface ToolContext {
    * @legacy
    */
   allowedToolNames?: Set<string>;
+  /**
+   * When the conversation runs as a subagent, the parent-imposed tool
+   * allowlist (see `SubagentRoleConfig.allowedTools`). Carried so
+   * availability errors can name the allowlist as the gate instead of
+   * suggesting a skill load that cannot widen it.
+   */
+  subagentAllowedTools?: ReadonlySet<string>;
   /**
    * True when this turn is restricted to storage cleanup-safe tools.
    * @legacy
@@ -346,9 +244,9 @@ export interface ToolContext {
    * "Always Allow" rules, or non-interactive auto-approve shortcuts may
    * bypass the prompt. This flag is independently sufficient: it
    * promotes allow → prompt decisions on its own and suppresses
-   * temporary override options in the prompt UI. Used by
-   * `manage_secure_command_tool` to ensure a human reviews each secure
-   * bundle installation.
+   * temporary override options in the prompt UI. Used by the `run_workflow`
+   * launch path so a human consents to a run whose capability manifest grants
+   * side-effecting tools.
    * @legacy
    */
   requireFreshApproval?: boolean;
@@ -431,7 +329,17 @@ export interface ToolContext {
    */
   requesterDisplayName?: string;
   /**
-   * Slack channel ID for channel-scoped permission enforcement. When set, tools are checked against the channel's permission profile.
+   * Conversation type of the current channel chat on the permission-matrix
+   * axis (dm | private | public). Feeds the channel-type tier of matrix cell
+   * resolution; undefined when the chat type is unknown or ambiguous.
+   * @legacy
+   */
+  channelConversationType?: "dm" | "private" | "public";
+  /**
+   * External channel/conversation ID of the current chat (the binding's
+   * external chat id — Slack channel, Telegram chat, …). Keys the channel
+   * tier of permission-matrix cell resolution for every channel adapter;
+   * for Slack it also drives the legacy per-tool channel gate.
    * @legacy
    */
   channelPermissionChannelId?: string;
@@ -483,6 +391,18 @@ export interface ToolContext {
    * @legacy
    */
   sourceActorPrincipalId?: string;
+  /**
+   * The conversation's effective per-chat plugin scope, as produced by
+   * `getEffectiveEnabledPluginSet`: `null` means no per-chat restriction;
+   * otherwise a Set of allowed plugin ids (the user's selection unioned with
+   * the always-on first-party defaults). Skill-surface tools that resolve
+   * skills by id outside the per-turn projection — `skill_load` (body load)
+   * and `find_similar_skills` (discovery) — read this to drop skills owned by
+   * plugins outside the conversation's scope. Populated per tool call from the
+   * live conversation state.
+   * @legacy
+   */
+  enabledPluginSet?: Set<string> | null;
 }
 
 /**
@@ -580,16 +500,22 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 export type Tool = Required<Omit<ToolDefinition, "exclusive">> &
   Pick<ToolDefinition, "exclusive">;
 
-/** The kind of extension that owns a tool. Core tools have no owner. */
-export type OwnerKind = "skill" | "mcp" | "plugin" | "workspace";
+/**
+ * The kind of entity that owns a tool. `"default"` is the built-in tool set
+ * that ships with the assistant; the others are extension surfaces. Every
+ * *registered* tool has an owner — {@link ../tools/registry.getToolOwner}
+ * returns `undefined` only for a name that is not registered at all.
+ */
+export type OwnerKind = "default" | "skill" | "mcp" | "plugin" | "workspace";
 
 /**
- * Identifies which extension owns a tool (skill / plugin / MCP server).
- * Tracked by the tool registry keyed by tool name, not stored on the `Tool`
- * object itself — query via {@link ../tools/registry.getToolOwner}.
+ * Identifies what owns a tool: the built-in default set, or a skill / plugin /
+ * MCP server / workspace override. Tracked by the tool registry keyed by tool
+ * name, not stored on the `Tool` object itself — query via
+ * {@link ../tools/registry.getToolOwner}.
  */
 export interface OwnerInfo {
   kind: OwnerKind;
-  /** ID of the owning extension (skill id / plugin name / MCP server id / workspace path). */
+  /** ID of the owner: skill id / plugin name / MCP server id / workspace path, or `"default"` for built-ins. */
   id: string;
 }

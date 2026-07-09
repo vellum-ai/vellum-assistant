@@ -31,6 +31,7 @@ import {
   PluginNotFoundError,
   sanitizePluginName,
 } from "../lib/install-from-github.js";
+import { installPluginViaPlatform } from "../lib/install-from-platform.js";
 import {
   type AllPluginInfo,
   listAllPlugins,
@@ -84,7 +85,8 @@ export function registerPluginsCommand(program: Command): void {
   registerCommand(program, {
     name: "plugins",
     transport: "local",
-    description: "Manage external plugins",
+    description:
+      "List, search, install, and manage external plugins (`list` shows what is installed, `search` queries the marketplace)",
     build: (plugins) => {
       plugins.addHelpText(
         "after",
@@ -122,7 +124,7 @@ Examples:
       plugins
         .command("install <name-or-url>")
         .description(
-          "Install a plugin by name from the curated plugins/marketplace.json catalog, or directly from a GitHub URL (untrusted)",
+          "Install a plugin by name from the Vellum platform (content is served as a verified tarball from the plugin's pinned commit), or directly from a GitHub URL (untrusted)",
         )
         .option("--force", "Overwrite an existing install")
         .option(
@@ -169,22 +171,42 @@ Examples:
           ) => {
             try {
               const direct = looksLikeGitHubSpec(nameOrUrl);
-              const installOpts = direct
-                ? resolveDirectInstallOptions(nameOrUrl, opts)
-                : await resolveInstallOptions(nameOrUrl, opts);
-              if (installOpts === null) {
-                process.exitCode = 1;
-                return;
-              }
-              if (installOpts.directSource) {
-                printUntrustedPluginWarning(
-                  installOpts.name,
-                  installOpts.directSource,
+              // A plain marketplace install by name is platform-managed: the
+              // content flows through the platform install endpoint (which
+              // serves a verified `.tgz`), not a GitHub clone. The advanced
+              // pin/ref/allow-unreviewed selectors still resolve a specific
+              // reviewed revision through the marketplace-git path, and a
+              // GitHub URL installs directly (untrusted).
+              const usesMarketplaceGit =
+                !direct &&
+                Boolean(opts.pin || opts.ref || opts.allowUnreviewed);
+
+              let result;
+              let untrusted = false;
+              if (!direct && !usesMarketplaceGit) {
+                result = await installPluginViaPlatform(
+                  { name: nameOrUrl, force: opts.force },
+                  { fetch: globalThis.fetch.bind(globalThis) },
                 );
+              } else {
+                const installOpts = direct
+                  ? resolveDirectInstallOptions(nameOrUrl, opts)
+                  : await resolveInstallOptions(nameOrUrl, opts);
+                if (installOpts === null) {
+                  process.exitCode = 1;
+                  return;
+                }
+                if (installOpts.directSource) {
+                  printUntrustedPluginWarning(
+                    installOpts.name,
+                    installOpts.directSource,
+                  );
+                  untrusted = true;
+                }
+                result = await installPlugin(installOpts, {
+                  fetch: globalThis.fetch.bind(globalThis),
+                });
               }
-              const result = await installPlugin(installOpts, {
-                fetch: globalThis.fetch.bind(globalThis),
-              });
               log.info(
                 {
                   name: result.name,
@@ -192,16 +214,14 @@ Examples:
                   fileCount: result.fileCount,
                   ref: result.ref,
                   commit: result.commit,
-                  untrusted: Boolean(installOpts.directSource),
+                  untrusted,
                 },
                 "external plugin installed",
               );
               const pinned = result.commit
                 ? ` at ${result.commit.slice(0, 7)}`
                 : "";
-              const label = installOpts.directSource
-                ? "untrusted plugin"
-                : "plugin";
+              const label = untrusted ? "untrusted plugin" : "plugin";
               console.log(
                 `Installed ${label} "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
               );
@@ -620,7 +640,7 @@ $ assistant plugins publish --json`,
                 return;
               }
             }
-            const result = uninstallPlugin({ name });
+            const result = await uninstallPlugin({ name });
             log.info(
               { name: result.name, target: result.target },
               "external plugin uninstalled",
@@ -1177,7 +1197,7 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         }
         lines.push(
           "",
-          "Resolve the conflicts, then restart the assistant to pick up the upgrade.",
+          "Resolve the conflicts, then the upgrade will be picked up live on the next read (no restart required).",
         );
         if (provenanceNote) lines.push(provenanceNote);
         return lines;

@@ -5,7 +5,19 @@ import type {
 
 export type PluginStatus = "installed" | "available";
 
-export type PluginFilter = "all" | "installed" | "available";
+/**
+ * User-facing status filter. Orthogonal to `PluginStatus`: `active` and `off`
+ * both narrow the installed set by enablement (Active = installed & enabled,
+ * Off = installed & !enabled), `installed` is the whole installed set
+ * regardless of enablement (offered when the daemon can't toggle), and
+ * `available` is the not-installed catalog.
+ */
+export type PluginFilter =
+  | "all"
+  | "installed"
+  | "active"
+  | "off"
+  | "available";
 
 /**
  * Unified row model for the Plugins tab, populated from two independent
@@ -25,6 +37,29 @@ export interface PluginListItem {
   version?: string;
   path?: string;
   issues?: string[];
+  /**
+   * Whether the plugin is active in this workspace. Installed rows only —
+   * catalog/available rows carry no enablement. `undefined` on daemons that
+   * predate the enable/disable surface (version-skew safeguard).
+   */
+  enabled?: boolean;
+  /**
+   * Author-declared emoji (`package.json` `vellum.icon`), shown in the row
+   * icon. Installed rows only — the catalog endpoint carries none. `undefined`
+   * when the plugin declares no icon; the row falls back to 📦/🧩.
+   */
+  icon?: string;
+  /**
+   * Whether the installed copy ships a valid author-bundled `icon.png`.
+   * Installed rows only. `undefined` on the catalog and on daemons that
+   * predate the icon endpoint; the icon `<img>` renders only when this is true.
+   */
+  hasIcon?: boolean;
+  /**
+   * Content hash of the bundled `icon.png`, used as the icon endpoint's
+   * cache-buster. Present only when `hasIcon` is true.
+   */
+  iconVersion?: string;
 }
 
 /** Generated element type for an installed plugin (`pluginsGet`). */
@@ -49,6 +84,10 @@ interface InstalledPluginSource {
   version: string | null;
   path?: string;
   issues?: string[];
+  enabled?: boolean;
+  icon?: string;
+  hasIcon?: boolean;
+  iconVersion?: string;
 }
 
 interface CatalogPluginSource {

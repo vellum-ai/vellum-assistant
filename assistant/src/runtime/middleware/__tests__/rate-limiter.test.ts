@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { isLoopbackAddress } from "../auth.js";
 import {
   apiRateLimiter,
+  isRateLimitExemptEndpoint,
   loopbackApiRateLimiter,
   selectAuthenticatedRateLimiter,
 } from "../rate-limiter.js";
@@ -59,5 +60,26 @@ describe("selectAuthenticatedRateLimiter", () => {
     expect(loopback.limit).toBeGreaterThan(standard.limit);
     expect(loopback.limit).toBe(1200);
     expect(standard.limit).toBe(300);
+  });
+});
+
+describe("isRateLimitExemptEndpoint", () => {
+  test("exempts the SSE stream and liveness probes", () => {
+    // Streaming: 429-ing the events stream drops it and drives a client
+    // reconnect + re-bootstrap storm, so it bypasses the per-minute limiter.
+    expect(isRateLimitExemptEndpoint("events")).toBe(true);
+    // Liveness/readiness probes must always answer.
+    expect(isRateLimitExemptEndpoint("health")).toBe(true);
+    expect(isRateLimitExemptEndpoint("healthz")).toBe(true);
+    expect(isRateLimitExemptEndpoint("readyz")).toBe(true);
+  });
+
+  test("does not exempt ordinary data endpoints", () => {
+    expect(isRateLimitExemptEndpoint("messages")).toBe(false);
+    expect(isRateLimitExemptEndpoint("conversations")).toBe(false);
+    expect(isRateLimitExemptEndpoint("home/feed")).toBe(false);
+    // Match is exact on the normalized endpoint segment, not a prefix.
+    expect(isRateLimitExemptEndpoint("events/replay")).toBe(false);
+    expect(isRateLimitExemptEndpoint("")).toBe(false);
   });
 });

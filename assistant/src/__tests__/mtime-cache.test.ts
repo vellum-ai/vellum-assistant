@@ -1,11 +1,13 @@
 /**
- * Tests for the per-surface mtime cache — the pull-based replacement for
- * PluginSourceWatcher.
+ * Tests for the plugin cache orchestrator: boot discovery plus the
+ * source-versions reconcile that drives every steady-state change.
  *
  * Each test materializes a synthetic plugin directory under a per-file
- * tempdir, then exercises observable behavior: cache hit (same mtime),
- * cache miss (changed mtime → re-import), plugin deletion (eviction),
- * and hook collection across multiple plugins.
+ * tempdir. Changes are published the way production publishes them — by
+ * running the resource monitor's watcher pass over the same workspace — and
+ * observed the way production observes them: a hook dispatch, whose
+ * sentinel check applies the published diff. This makes the suite an
+ * end-to-end exercise of detector → sentinel → reconcile → redeploy.
  */
 import {
   existsSync,
@@ -28,12 +30,18 @@ import {
 
 import { _inspectHookCacheForTests } from "../hooks/hook-loader.js";
 import {
+  createSourceWatchState,
+  runSourceWatchPass,
+  type SourceWatchState,
+} from "../monitoring/plugin-source-watch.js";
+import {
   _inspectToolCacheForTests,
   getCachedUserTools,
   getUserHooksFor,
   populateCacheAtBoot,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
+import { getSourceVersionsPath } from "../plugins/source-versions.js";
 import {
   getAllToolDefinitions,
   getPluginToolDefinitions,
@@ -123,6 +131,33 @@ const SIMPLE_PKG = {
   peerDependencies: { "@vellumai/plugin-api": "*" },
 };
 
+/**
+ * Watcher state shared by a test's publishes, reset per test so each test's
+ * first publish takes a fresh baseline (adopting any sentinel on disk).
+ */
+let watchState: SourceWatchState | null = null;
+
+/** Strictly increasing mtime offset for sentinel touches within one test. */
+let sentinelTouchSeq = 0;
+
+/**
+ * Publish pending source changes exactly the way production does: one pass
+ * of the resource monitor's watcher over this workspace. When the pass
+ * rewrites the sentinel, its mtime is bumped to a strictly increasing
+ * timestamp so the daemon's one-stat gate observes every publish even when
+ * two land inside the same filesystem-timestamp granule.
+ */
+function publishSourceChanges(): boolean {
+  if (watchState === null) {
+    watchState = createSourceWatchState();
+  }
+  const wrote = runSourceWatchPass(watchState);
+  if (wrote) {
+    touchFile(getSourceVersionsPath(), (sentinelTouchSeq += 2));
+  }
+  return wrote;
+}
+
 // ─── Setup / teardown ────────────────────────────────────────────────────────
 
 beforeAll(() => {
@@ -132,6 +167,9 @@ beforeAll(() => {
 beforeEach(() => {
   ensurePluginsDir();
   ensureWorkspaceHooksDir();
+  rmSync(getSourceVersionsPath(), { force: true });
+  watchState = null;
+  sentinelTouchSeq = 0;
   resetPluginCacheForTests();
 });
 
@@ -157,53 +195,54 @@ describe("plugin mtime cache (per-surface)", () => {
     expect(hooks).toHaveLength(1);
   });
 
-  test("cache hit: same mtime does not re-import", async () => {
+  test("dispatch serves the cache and ignores disk changes until published", async () => {
     const dir = freshPluginDir("cached-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "cached-plugin" });
-    writeHook(
-      dir,
-      "user-prompt-submit",
-      `export default () => ({ count: 1 });`,
-    );
+    writeHook(dir, "user-prompt-submit", `export default () => "v1";`);
 
     await populateCacheAtBoot();
+    const first = (await getUserHooksFor("user-prompt-submit"))[0];
 
-    const cacheBefore = _inspectHookCacheForTests();
-    expect(cacheBefore).toHaveLength(1);
+    // Edit lands on disk but the watcher hasn't published — dispatch keeps
+    // serving the exact cached function, proving it never re-scans.
+    const hookFile = join(dir, "hooks", "user-prompt-submit.ts");
+    writeFileSync(hookFile, `export default () => "v2";`);
+    touchFile(hookFile);
 
-    // Read again — same mtime, no re-import.
-    await getUserHooksFor("user-prompt-submit");
-
-    const cacheAfter = _inspectHookCacheForTests();
-    expect(cacheAfter).toHaveLength(1);
-    expect(cacheAfter[0]?.sourceMtime).toBe(cacheBefore[0]?.sourceMtime);
+    const again = (await getUserHooksFor("user-prompt-submit"))[0];
+    expect(again).toBe(first!);
+    expect((again as unknown as () => string)()).toBe("v1");
   });
 
-  test("cache miss: editing a hook file triggers re-import", async () => {
+  test("an edited hook takes effect once the watcher publishes", async () => {
     const dir = freshPluginDir("rebuild-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "rebuild-plugin" });
     const hookFile = join(dir, "hooks", "user-prompt-submit.ts");
-    writeHook(
-      dir,
-      "user-prompt-submit",
-      `export default () => ({ count: 1 });`,
-    );
+    writeHook(dir, "user-prompt-submit", `export default () => "v1";`);
 
     await populateCacheAtBoot();
+    expect(
+      (
+        (
+          await getUserHooksFor("user-prompt-submit")
+        )[0] as unknown as () => string
+      )(),
+    ).toBe("v1");
 
-    const mtimeBefore = _inspectHookCacheForTests()[0]?.sourceMtime;
-
-    // Touch the hook file to bump its mtime.
+    writeFileSync(hookFile, `export default () => "v2";`);
     touchFile(hookFile);
+    expect(publishSourceChanges()).toBe(true);
 
-    // Read again — mtime changed, re-import.
-    await getUserHooksFor("user-prompt-submit");
-
-    const mtimeAfter = _inspectHookCacheForTests()[0]?.sourceMtime;
-    expect(mtimeAfter).not.toBe(mtimeBefore);
+    expect(
+      (
+        (
+          await getUserHooksFor("user-prompt-submit")
+        )[0] as unknown as () => string
+      )(),
+    ).toBe("v2");
   });
 
-  test("plugin deletion: removing directory evicts cache entries", async () => {
+  test("plugin deletion: a published removal evicts cache entries", async () => {
     const dir = freshPluginDir("deletable-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "deletable-plugin" });
     writeHook(
@@ -215,16 +254,16 @@ describe("plugin mtime cache (per-surface)", () => {
     await populateCacheAtBoot();
     expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(1);
 
-    // Delete the plugin directory.
     rmSync(dir, { recursive: true, force: true });
+    publishSourceChanges();
 
-    // Read again — plugin gone, hooks evicted.
     const hooks = await getUserHooksFor("user-prompt-submit");
     expect(hooks).toHaveLength(0);
 
-    const cacheState = _inspectHookCacheForTests();
     expect(
-      cacheState.find((c) => c.key.startsWith("deletable-plugin/")),
+      _inspectHookCacheForTests().find((key) =>
+        key.startsWith("plugin:deletable-plugin/"),
+      ),
     ).toBeUndefined();
   });
 
@@ -261,7 +300,7 @@ describe("plugin mtime cache (per-surface)", () => {
     expect(hooks).toHaveLength(0);
   });
 
-  test("getUserHooksFor detects newly added plugin without restart", async () => {
+  test("getUserHooksFor detects a newly added plugin once published", async () => {
     const dir1 = freshPluginDir("existing-plugin");
     writePackageJson(dir1, { ...SIMPLE_PKG, name: "existing-plugin" });
     writeHook(dir1, "user-prompt-submit", `export default () => ({ v: 1 });`);
@@ -269,12 +308,12 @@ describe("plugin mtime cache (per-surface)", () => {
     await populateCacheAtBoot();
     expect(await getUserHooksFor("user-prompt-submit")).toHaveLength(1);
 
-    // Add a new plugin directory after boot.
+    // Add a new plugin directory after boot and publish it.
     const dir2 = freshPluginDir("new-plugin");
     writePackageJson(dir2, { ...SIMPLE_PKG, name: "new-plugin" });
     writeHook(dir2, "user-prompt-submit", `export default () => ({ v: 2 });`);
+    publishSourceChanges();
 
-    // The next read should pick it up.
     const hooks = await getUserHooksFor("user-prompt-submit");
     expect(hooks).toHaveLength(2);
   });
@@ -295,32 +334,37 @@ describe("plugin mtime cache (per-surface)", () => {
     expect(tools[0]?.name).toBe("my-tool");
   });
 
-  test("editing a tool file triggers re-import on next scan", async () => {
+  test("an edited tool serves its new definition once published", async () => {
     const dir = freshPluginDir("tool-edit-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "tool-edit-plugin" });
-    const toolFile = join(dir, "tools", "my-tool.ts");
+    // Unique tool name: the global tool registry is process-wide state that
+    // survives the per-test cache reset, so a name shared with another test
+    // would resolve to that test's stale registration.
+    const toolFile = join(dir, "tools", "edited-tool.ts");
     writeTool(
       dir,
-      "my-tool",
-      `export default { name: "my-tool", description: "v1", parameters: { type: "object", properties: {} } };`,
+      "edited-tool",
+      `export default { name: "edited-tool", description: "v1", parameters: { type: "object", properties: {} } };`,
     );
 
     await populateCacheAtBoot();
+    expect(getCachedUserTools()[0]?.description).toBe("v1");
 
-    const mtimeBefore = _inspectToolCacheForTests()[0]?.sourceMtime;
-
-    // Edit the tool file and bump mtime.
     writeFileSync(
       toolFile,
-      `export default { name: "my-tool", description: "v2", parameters: { type: "object", properties: {} } };`,
+      `export default { name: "edited-tool", description: "v2", parameters: { type: "object", properties: {} } };`,
     );
     touchFile(toolFile);
-
-    // Trigger a scan by calling getUserHooksFor (which calls scanPlugins).
+    publishSourceChanges();
     await getUserHooksFor("user-prompt-submit");
 
-    const mtimeAfter = _inspectToolCacheForTests()[0]?.sourceMtime;
-    expect(mtimeAfter).not.toBe(mtimeBefore);
+    // Both the cache and the global registry serve the fresh definition —
+    // the redeploy unregistered the old tool and registered the new one.
+    expect(getCachedUserTools()[0]?.description).toBe("v2");
+    expect(
+      getAllToolDefinitions().find((t) => t.name === "edited-tool")
+        ?.description,
+    ).toBe("v2");
   });
 
   test("plugin with no package.json is skipped", async () => {
@@ -437,11 +481,41 @@ describe("workspace hooks (<workspace>/hooks/)", () => {
     expect(getCachedUserTools()).toHaveLength(0);
   });
 
+  test("a plugin named like the workspace owner does not collide with it", async () => {
+    // Load-time discovery doesn't reject a plugin whose manifest name equals
+    // the synthetic workspace owner. The cache key is scoped by owner kind, so
+    // `plugin:__workspace__/…` and `workspace:__workspace__/…` stay distinct
+    // and both hooks run. The install slug (directory basename) equals the
+    // manifest name, as the installer enforces — that's what makes the plugin's
+    // hooks resolve at `<plugins>/__workspace__/hooks` while the workspace
+    // owner's resolve at `<workspace>/hooks`, distinct directories.
+    const dir = freshPluginDir("__workspace__");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "__workspace__" });
+    writeHook(
+      dir,
+      "pre-model-call",
+      `export default () => ({ from: "plugin" });`,
+    );
+    writeWorkspaceHook(
+      "pre-model-call",
+      `export default () => ({ from: "workspace" });`,
+    );
+
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("pre-model-call");
+    expect(hooks).toHaveLength(2);
+    const froms = hooks.map(
+      (fn) => (fn as unknown as () => { from: string })().from,
+    );
+    // Plugin runs first (install-date order), workspace last.
+    expect(froms).toEqual(["plugin", "workspace"]);
+  });
+
   // NB: each test below uses a distinct hook event name so the workspace
-  // hook file path is unique. Bun caches dynamic import() by URL and does not
-  // bust on content change, so reusing `<workspace>/hooks/<name>.ts` across
-  // tests would return a stale module (the existing plugin tests dodge this
-  // by using a fresh plugin directory per test).
+  // hook file path is unique and each test stays independent of the cache
+  // state its siblings leave behind (the plugin tests get the same isolation
+  // from a fresh plugin directory per test).
   test("plugin hooks run before the workspace hook for the same event", async () => {
     const dir = freshPluginDir("ordering-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "ordering-plugin" });
@@ -466,27 +540,29 @@ describe("workspace hooks (<workspace>/hooks/)", () => {
     expect(results[1]!.tag).toBe("workspace");
   });
 
-  test("editing a workspace hook file triggers re-import", async () => {
+  test("an edited workspace hook takes effect once published", async () => {
     const hookFile = join(WORKSPACE_HOOKS_DIR, "post-model-call.ts");
-    writeWorkspaceHook("post-model-call", `export default () => ({ v: 1 });`);
+    writeWorkspaceHook("post-model-call", `export default () => "ws-v1";`);
 
     await populateCacheAtBoot();
+    expect(
+      (
+        (await getUserHooksFor("post-model-call"))[0] as unknown as () => string
+      )(),
+    ).toBe("ws-v1");
 
-    const before = _inspectHookCacheForTests().find((c) =>
-      c.key.startsWith("__workspace__/"),
-    );
-    expect(before).toBeDefined();
-
+    writeFileSync(hookFile, `export default () => "ws-v2";`);
     touchFile(hookFile);
-    await getUserHooksFor("post-model-call");
+    publishSourceChanges();
 
-    const after = _inspectHookCacheForTests().find((c) =>
-      c.key.startsWith("__workspace__/"),
-    );
-    expect(after?.sourceMtime).not.toBe(before?.sourceMtime);
+    expect(
+      (
+        (await getUserHooksFor("post-model-call"))[0] as unknown as () => string
+      )(),
+    ).toBe("ws-v2");
   });
 
-  test("deleting a workspace hook file evicts it on next read", async () => {
+  test("deleting a workspace hook file evicts it once published", async () => {
     const hookFile = join(WORKSPACE_HOOKS_DIR, "stop.ts");
     writeWorkspaceHook("stop", `export default () => ({ v: 1 });`);
 
@@ -494,16 +570,18 @@ describe("workspace hooks (<workspace>/hooks/)", () => {
     expect(await getUserHooksFor("stop")).toHaveLength(1);
 
     rmSync(hookFile, { force: true });
+    publishSourceChanges();
 
     const hooks = await getUserHooksFor("stop");
     expect(hooks).toHaveLength(0);
   });
 
-  test("a newly added workspace hook is picked up without restart", async () => {
+  test("a newly added workspace hook is picked up once published", async () => {
     await populateCacheAtBoot();
     expect(await getUserHooksFor("post-compact")).toHaveLength(0);
 
     writeWorkspaceHook("post-compact", `export default () => ({ v: 1 });`);
+    publishSourceChanges();
 
     expect(await getUserHooksFor("post-compact")).toHaveLength(1);
   });
@@ -550,17 +628,19 @@ const TOOL_SRC = (name: string) =>
   `export default { name: ${JSON.stringify(name)}, description: "test", parameters: { type: "object", properties: {} } };`;
 
 /**
- * Simulate the per-turn plugin hook dispatch that drives runtime reconciliation
- * in production: any `getUserHooksFor` call runs `scanPlugins`, which activates
- * newly present plugins and deactivates removed ones. The hook name is
- * irrelevant — the scan runs regardless of whether a plugin defines that hook.
+ * Publish pending source changes through the watcher, then dispatch — the
+ * production sequence: the monitor's pass rewrites the sentinel, and the
+ * next hook dispatch's one-stat gate applies the diff. The hook name is
+ * irrelevant — the reconcile runs regardless of whether a plugin defines
+ * that hook.
  */
-async function triggerScan(): Promise<void> {
+async function publishAndDispatch(): Promise<void> {
+  publishSourceChanges();
   await getUserHooksFor("user-prompt-submit");
 }
 
 describe("plugin runtime activation", () => {
-  test("a plugin installed after boot becomes live on the next scan", async () => {
+  test("a plugin installed after boot becomes live once published", async () => {
     await populateCacheAtBoot(); // empty plugins dir
     expect(getAllToolDefinitions().some((t) => t.name === "late-tool")).toBe(
       false,
@@ -572,7 +652,7 @@ describe("plugin runtime activation", () => {
     const initMarker = join(ROOT, "late-init.log");
     writeMarkerHook(dir, "init", initMarker, "init");
 
-    await triggerScan();
+    await publishAndDispatch();
 
     // Registered into the global registry as a plugin-owned tool, and exposed
     // to the per-turn resolver via getPluginToolDefinitions().
@@ -590,7 +670,7 @@ describe("plugin runtime activation", () => {
     expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
   });
 
-  test("activation is idempotent — repeated scans do not re-run init", async () => {
+  test("activation is idempotent — republishing without changes does not re-run init", async () => {
     const dir = freshPluginDir("idem-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "idem-plugin" });
     writeTool(dir, "idem-tool", TOOL_SRC("idem-tool"));
@@ -598,8 +678,8 @@ describe("plugin runtime activation", () => {
     writeMarkerHook(dir, "init", initMarker, "init");
 
     await populateCacheAtBoot();
-    await triggerScan();
-    await triggerScan();
+    await publishAndDispatch();
+    await publishAndDispatch();
 
     expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
     // Registered exactly once (no refcount inflation from re-registration).
@@ -609,7 +689,11 @@ describe("plugin runtime activation", () => {
     });
   });
 
-  test("removing a plugin directory deactivates it (unregister + shutdown)", async () => {
+  test("an out-of-band directory removal unregisters tools but runs no shutdown", async () => {
+    // A raw `rm` (bypassing the managed uninstall) is only noticed by the
+    // monitor after the files are gone, so there's no `shutdown` to resolve —
+    // the reconcile just evicts. A managed uninstall runs `shutdown` before
+    // removal (see uninstall-plugin.test.ts).
     const dir = freshPluginDir("temp-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "temp-plugin" });
     writeTool(dir, "temp-tool", TOOL_SRC("temp-tool"));
@@ -620,13 +704,13 @@ describe("plugin runtime activation", () => {
     expect(getToolOwner("temp-tool")?.kind).toBe("plugin");
 
     rmSync(dir, { recursive: true, force: true });
-    await triggerScan();
+    await publishAndDispatch();
 
     expect(getToolOwner("temp-tool")).toBeUndefined();
     expect(getPluginToolDefinitions().some((t) => t.name === "temp-tool")).toBe(
       false,
     );
-    expect(existsSync(shutdownMarker)).toBe(true);
+    expect(existsSync(shutdownMarker)).toBe(false);
   });
 
   test("a user plugin's shutdown hook is surfaced through the unified hook lookup", async () => {
@@ -648,17 +732,199 @@ describe("plugin runtime activation", () => {
     expect(existsSync(shutdownMarker)).toBe(true);
   });
 
-  test("disabling a plugin at runtime tears down its tools", async () => {
+  test("disabling a plugin at runtime tears down its tools and runs shutdown", async () => {
     const dir = freshPluginDir("disable-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "disable-plugin" });
     writeTool(dir, "disable-tool", TOOL_SRC("disable-tool"));
+    const shutdownMarker = join(ROOT, "disable-shutdown.log");
+    writeMarkerHook(dir, "shutdown", shutdownMarker, "disabled");
 
     await populateCacheAtBoot();
     expect(getToolOwner("disable-tool")?.kind).toBe("plugin");
 
     writeFileSync(join(dir, ".disabled"), "");
-    await triggerScan();
+    await publishAndDispatch();
 
     expect(getToolOwner("disable-tool")).toBeUndefined();
+    // Disable keeps the directory, so `shutdown` is resolved from disk and runs
+    // even though it was never pre-warmed.
+    expect(existsSync(shutdownMarker)).toBe(true);
+  });
+});
+
+// ─── Live reload (sentinel-driven redeploy) ──────────────────────────────────
+
+/** Write a helper module at `relPath` inside a plugin dir. */
+function writeLibFile(dir: string, relPath: string, body: string): string {
+  const path = join(dir, relPath);
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, body);
+  return path;
+}
+
+/** Dispatch `hookName` and return the single expected hook's result. */
+async function dispatchFirst(hookName: string): Promise<unknown> {
+  const hooks = await getUserHooksFor(hookName);
+  expect(hooks).toHaveLength(1);
+  return (hooks[0] as unknown as () => unknown)();
+}
+
+describe("live reload (sentinel-driven redeploy)", () => {
+  test("editing a helper imported by a hook redeploys the plugin, repeatably", async () => {
+    const dir = freshPluginDir("helper-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "helper-plugin" });
+    const helperPath = writeLibFile(
+      dir,
+      join("lib", "helper.ts"),
+      `export const value = "v1";`,
+    );
+    writeHook(
+      dir,
+      "helper-reload",
+      `import { value } from "../lib/helper.ts";\nexport default () => value;`,
+    );
+
+    await populateCacheAtBoot();
+    expect(await dispatchFirst("helper-reload")).toBe("v1");
+
+    // Only the helper changes — the hook file's own mtime never moves, so
+    // any per-entry-file scheme would keep serving v1 here. And a reloaded
+    // plugin must itself stay reloadable.
+    for (const marker of ["v2", "v3"]) {
+      writeFileSync(
+        helperPath,
+        `export const value = ${JSON.stringify(marker)};`,
+      );
+      touchFile(helperPath, sentinelTouchSeq + 2);
+      publishSourceChanges();
+      expect(await dispatchFirst("helper-reload")).toBe(marker);
+    }
+  });
+
+  test("editing a transitive helper (hook → a → b) redeploys consistently", async () => {
+    const dir = freshPluginDir("transitive-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "transitive-plugin" });
+    const bPath = writeLibFile(
+      dir,
+      join("lib", "b.ts"),
+      `export const leaf = "b1";`,
+    );
+    writeLibFile(
+      dir,
+      join("lib", "a.ts"),
+      `import { leaf } from "./b.ts";\nexport const mid = "a:" + leaf;`,
+    );
+    writeHook(
+      dir,
+      "transitive-reload",
+      `import { mid } from "../lib/a.ts";\nexport default () => mid;`,
+    );
+
+    await populateCacheAtBoot();
+    expect(await dispatchFirst("transitive-reload")).toBe("a:b1");
+
+    // The intermediate module `a` is untouched. Whole-plugin eviction is
+    // what keeps a re-imported hook from pairing with a's stale cached
+    // binding to the old `b`.
+    writeFileSync(bPath, `export const leaf = "b2";`);
+    touchFile(bPath, sentinelTouchSeq + 2);
+    publishSourceChanges();
+    expect(await dispatchFirst("transitive-reload")).toBe("a:b2");
+  });
+
+  test("a reload runs the plugin's shutdown (reason: reload) and the new init", async () => {
+    const dir = freshPluginDir("lifecycle-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "lifecycle-plugin" });
+    const helperPath = writeLibFile(
+      dir,
+      join("lib", "helper.ts"),
+      `export const value = 1;`,
+    );
+    const initMarker = join(ROOT, "reload-init.log");
+    const shutdownMarker = join(ROOT, "reload-shutdown.log");
+    rmSync(initMarker, { force: true });
+    rmSync(shutdownMarker, { force: true });
+    writeMarkerHook(dir, "init", initMarker, "init");
+    writeHook(
+      dir,
+      "shutdown",
+      `import { appendFileSync } from "node:fs";\nexport default (ctx: { reason: string }) => { appendFileSync(${JSON.stringify(shutdownMarker)}, ctx.reason + "\\n"); };`,
+    );
+
+    await populateCacheAtBoot();
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
+    expect(existsSync(shutdownMarker)).toBe(false);
+
+    // Edit a helper (not shutdown.ts) so the reload resolves the unchanged
+    // shutdown from disk and runs it, then brings the new version up through
+    // the same init path as boot.
+    writeFileSync(helperPath, `export const value = 2;`);
+    touchFile(helperPath, sentinelTouchSeq + 2);
+    await publishAndDispatch();
+
+    expect(readFileSync(shutdownMarker, "utf8").trim().split("\n")).toEqual([
+      "reload",
+    ]);
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(2);
+  });
+
+  test("boot adopts a pre-existing sentinel without spurious redeploys", async () => {
+    const dir = freshPluginDir("adopt-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "adopt-plugin" });
+    writeLibFile(dir, join("lib", "helper.ts"), `export const v = 1;`);
+    const initMarker = join(ROOT, "adopt-init.log");
+    rmSync(initMarker, { force: true });
+    writeMarkerHook(dir, "init", initMarker, "init");
+
+    // The watcher published before the daemon booted.
+    publishSourceChanges();
+
+    await populateCacheAtBoot();
+    await getUserHooksFor("user-prompt-submit");
+    await getUserHooksFor("user-prompt-submit");
+
+    // One init: the sentinel matching boot's own walk must not redeploy.
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
+  });
+});
+
+describe("sentinel path validation (ATL-983)", () => {
+  test("forged sentinel pointing outside plugins dir does not load arbitrary code", async () => {
+    // Create a directory outside the plugins dir that looks like a plugin.
+    const evilDir = join(ROOT, "evil-outside-plugins");
+    mkdirSync(evilDir, { recursive: true });
+    writePackageJson(evilDir, { ...SIMPLE_PKG, name: "evil-plugin" });
+    const evilMarker = join(ROOT, "evil-init.log");
+    rmSync(evilMarker, { force: true });
+    writeMarkerHook(evilDir, "init", evilMarker, "init");
+
+    // Forge a sentinel that claims the evil directory is a plugin.
+    const sentinelPath = getSourceVersionsPath();
+    const { snapshotPluginSource } =
+      await import("../plugins/source-fingerprint.js");
+    const snapshot = snapshotPluginSource(evilDir);
+    writeFileSync(
+      sentinelPath,
+      JSON.stringify({
+        format: 1,
+        generation: 1,
+        writtenAt: new Date().toISOString(),
+        plugins: {
+          [evilDir]: {
+            fingerprint: snapshot.fingerprint,
+            evictionPaths: snapshot.evictionPaths,
+            disabled: false,
+          },
+        },
+      }),
+    );
+    // Bump mtime so the sentinel check picks it up.
+    const future = new Date(Date.now() + 5000);
+    utimesSync(sentinelPath, future, future);
+
+    await getUserHooksFor("user-prompt-submit");
+
+    // The evil plugin's init hook must NOT have run.
+    expect(existsSync(evilMarker)).toBe(false);
   });
 });

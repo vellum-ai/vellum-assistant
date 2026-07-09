@@ -12,7 +12,7 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
-import { routes } from "@/utils/routes";
+import { isAboutAssistantPath, isConversationPath, routes } from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
@@ -21,7 +21,12 @@ import {
     useOpenAppFromChat,
 } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
+import {
+    DRAWER_SLIDE_MS,
+    useEdgeSwipeDrawer,
+} from "@/hooks/use-edge-swipe-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
@@ -43,7 +48,7 @@ import {
 import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { openPopoutWindow } from "@/runtime/popout-window";
+import { isPopoutWindow, openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
@@ -61,6 +66,11 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
+import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
+import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
+import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
+import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
+import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -118,7 +128,7 @@ export function ChatLayout() {
   // navigations (e.g. conversation switching via Cmd+Up/Down). ChatLayout is a
   // persistent layout route — it stays mounted when child routes change, so
   // this initial value remains stable for the window's lifetime.
-  const [isPopout] = useState(() => location.search.includes("popout=1"));
+  const [isPopout] = useState(() => isPopoutWindow(location.search));
 
   // SPIKE — research-onboarding focused presentation. When set, a full-viewport
   // overlay (rendered below, on top of this layout) covers the chrome so the
@@ -137,6 +147,16 @@ export function ChatLayout() {
     (s) => s.assistantState.kind,
   );
   const isAssistantActive = assistantStateKind === "active";
+
+  // Live-voice session controller. Owned at layout scope — not by the
+  // composer — so a session survives every chat-side navigation (thread
+  // switch, Home/Library, the fullscreen app viewer) with the title-bar
+  // pill as its control surface. The composer starts/stops sessions
+  // through the seams this registers in `useLiveVoiceStore`.
+  useLiveVoiceSessionController();
+  // Fold a live-voice turn into the transcript on a fresh/empty chat, where the
+  // unseeded draft snapshot would otherwise drop the turn's echo (JARVIS-1265).
+  useSeedLiveVoiceSnapshot();
 
   // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
@@ -242,11 +262,7 @@ export function ChatLayout() {
     location.pathname === routes.home ||
     location.pathname === routes.schedules.root ||
     location.pathname.startsWith(`${routes.schedules.root}/`);
-  const isIdentityActive =
-    location.pathname === routes.identity ||
-    location.pathname === routes.skills ||
-    location.pathname === routes.workspace ||
-    location.pathname.startsWith(routes.contacts.root);
+  const isIdentityActive = isAboutAssistantPath(location.pathname);
 
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
@@ -263,13 +279,20 @@ export function ChatLayout() {
 
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
+  // True while a left-edge swipe is dragging the drawer in from off-screen but
+  // has not yet committed open; keeps the panel mounted so its transform can
+  // track the finger before `drawerOpen` flips.
+  const [drawerDragging, setDrawerDragging] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!isMobile) setDrawerOpen(false);
+    if (!isMobile) {
+      setDrawerOpen(false);
+      setDrawerDragging(false);
+    }
   }, [isMobile]);
 
   useEffect(() => {
-    if (!sidebarCollapseRequested) return;
+    if (!sidebarCollapseRequested) {return;}
     // One-shot: research-onboarding asked us to open with the side panel
     // collapsed across the whole web experience (not just desktop). Collapse
     // the desktop sidebar — `setCollapsed(true)` flows through the persistence
@@ -279,6 +302,17 @@ export function ChatLayout() {
     setDrawerOpen(false);
     consumeSidebarCollapse();
   }, [sidebarCollapseRequested, consumeSidebarCollapse]);
+
+  // The full-screen voice room takes over the viewport, so the sidebar reads as
+  // collapsed and the chat body blurs while it is visible. This override is
+  // EPHEMERAL — it is OR'd into the rendered collapsed value (`sideMenuCollapsed`
+  // below) rather than routed through `setCollapsed`, so it never touches the
+  // persistence effect above. Keeping it out of the persisted `collapsed` state
+  // means a reload / tab-close while the room is open cannot write the forced
+  // value to `localStorage`: on exit the override drops and the sidebar returns
+  // to exactly the user's persisted value.
+  const voiceRoomVisible = useIsVoiceRoomVisible();
+  const sideMenuCollapsed = collapsed || voiceRoomVisible;
 
   const drawerVisible = isMobile && drawerOpen;
 
@@ -293,15 +327,39 @@ export function ChatLayout() {
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
+  const startNewConversation = useCallback(
+    (opts?: { silent?: boolean }) => {
+      navigateToNewConversation(navigate, opts);
+    },
+    [navigate],
+  );
+
   useChatLayoutShortcuts({
     toggleSidebar,
     onGoBack: handleGoBack,
     onGoForward: handleGoForward,
+    onNewConversation: startNewConversation,
   });
 
   const drawerRef = useChatLayoutDrawer({
     visible: drawerVisible,
     onClose: closeDrawer,
+  });
+
+  // Swipe-to-open-menu: track the drawer in from the left edge, committing open
+  // past threshold. Suppressed whenever a back-swipe owner is active (a pushed
+  // page under this layout) so a single left-edge swipe resolves to exactly one
+  // action — back-navigation on detail pages, open-menu at the stack root.
+  const backSwipeOwnerCount = useEdgeSwipeArbiterStore.use.backOwnerCount();
+  useEdgeSwipeDrawer({
+    panelRef: drawerRef,
+    enabled: isMobile && !drawerOpen && backSwipeOwnerCount === 0,
+    onDragStart: () => setDrawerDragging(true),
+    onOpen: () => {
+      setDrawerOpen(true);
+      setDrawerDragging(false);
+    },
+    onSettle: () => setDrawerDragging(false),
   });
 
   const activeConversationId = useConversationStore.use.activeConversationId();
@@ -325,13 +383,6 @@ export function ChatLayout() {
   // (home, library, contacts, identity) — not only inside a conversation
   // where ChatPage is mounted.
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
-
-  const startNewConversation = useCallback(
-    (opts?: { silent?: boolean }) => {
-      navigateToNewConversation(navigate, opts);
-    },
-    [navigate],
-  );
 
   const {
     handleArchiveConversation,
@@ -441,27 +492,27 @@ export function ChatLayout() {
     commandPalette: () => {
       void openCommandPaletteWindow()
         .then((opened) => {
-          if (!opened) useCommandPaletteStore.getState().toggle();
+          if (!opened) {useCommandPaletteStore.getState().toggle();}
         })
         .catch(() => {
           useCommandPaletteStore.getState().toggle();
         });
     },
     previousConversation: () => {
-      if (!activeConversationId || conversations.length === 0) return;
+      if (!activeConversationId || conversations.length === 0) {return;}
       const idx = conversations.findIndex(
         (c) => c.conversationId === activeConversationId,
       );
       const prev = conversations[idx - 1];
-      if (prev) handleSelectConversation(prev.conversationId);
+      if (prev) {handleSelectConversation(prev.conversationId);}
     },
     nextConversation: () => {
-      if (!activeConversationId || conversations.length === 0) return;
+      if (!activeConversationId || conversations.length === 0) {return;}
       const idx = conversations.findIndex(
         (c) => c.conversationId === activeConversationId,
       );
       const next = conversations[idx + 1];
-      if (next) handleSelectConversation(next.conversationId);
+      if (next) {handleSelectConversation(next.conversationId);}
     },
     openConversation: (command) => {
       if (command.kind === "openConversation") {
@@ -513,10 +564,7 @@ export function ChatLayout() {
   // is intentionally left intact — many other consumers (SSE streams,
   // attention tracking, message reconciliation) rely on it persisting
   // across route changes.
-  const isOnConversationRoute =
-    location.pathname === routes.assistant ||
-    location.pathname === `${routes.assistant}/` ||
-    location.pathname.startsWith(`${routes.conversations}/`);
+  const isOnConversationRoute = isConversationPath(location.pathname);
   const sidebarActiveConversationId = isOnConversationRoute
     ? (activeConversationId ?? undefined)
     : undefined;
@@ -537,7 +585,7 @@ export function ChatLayout() {
         location.pathname,
         activeConversationId,
       );
-      if (dest) void navigate(dest);
+      if (dest) {void navigate(dest);}
       await openAppFromChat(appId);
     },
     [location.pathname, navigate, activeConversationId, openAppFromChat],
@@ -615,17 +663,35 @@ export function ChatLayout() {
     />
   );
 
+  // Blur + freeze the chat body under the voice room. The room is an opaque
+  // overlay, so this mainly matters for the header strip peeking around it and
+  // to stop stray interaction with the covered chat.
+  const mainRoomClass = voiceRoomVisible
+    ? "pointer-events-none blur-sm opacity-40 transition-[filter,opacity]"
+    : "";
+
   return (
     <>
       {!isPopout && (
         <ChatLayoutHeader
           isMobile={isMobile}
           drawerOpen={drawerOpen}
-          collapsed={collapsed}
+          collapsed={sideMenuCollapsed}
           sidebarWidth={sidebarWidth}
           toggleSidebar={toggleSidebar}
           topBarCenter={topBarCenter}
-          topBarRightSlot={topBarRightSlot}
+          // The voice-session pill is composed here — NOT registered through
+          // useChatLayoutSlotsStore — because slot registration is owned by
+          // per-route hooks that unmount on navigation, exactly when the pill
+          // must persist. The host renders null when no session is active (or
+          // while viewing the owning thread's composer), so the header is
+          // unaffected otherwise.
+          topBarRightSlot={
+            <>
+              {topBarRightSlot}
+              <VoiceSessionPillHost />
+            </>
+          }
           canGoBack={canGoBack}
           canGoForward={canGoForward}
           onGoBack={handleGoBack}
@@ -645,13 +711,23 @@ export function ChatLayout() {
       ) : null}
 
       {isMobile ? (
-        <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
+        <main
+          className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
+        >
           <Outlet  />
-          {drawerVisible ? (
+          {/* A popout narrowed below the mobile breakpoint lands in this
+              branch — still headerless, so it still needs the floating
+              session surface (see the desktop popout branch below). */}
+          {isPopout ? <VoiceSessionPillHost variant="standalone" /> : null}
+          {drawerVisible || drawerDragging ? (
             <div
               ref={drawerRef}
               className="fixed inset-0"
-              style={{ zIndex: 40 }}
+              style={{
+                zIndex: 40,
+                transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
+                transition: `transform ${DRAWER_SLIDE_MS}ms ease-out`,
+              }}
               role="dialog"
               aria-modal="true"
               aria-label="Navigation"
@@ -682,8 +758,17 @@ export function ChatLayout() {
           ) : null}
         </main>
       ) : isPopout ? (
-        <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4">
+        <main
+          className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4 ${mainRoomClass}`}
+        >
           <Outlet />
+          {/* Pop-outs render no header, but they DO support in-window
+              conversation switching (Cmd+Up/Down) — so a live session started
+              here can lose its owning composer exactly like in the main
+              window. The standalone variant floats the pill (or the failed
+              chip) over the top-right corner; it renders nothing while the
+              on-screen composer owns the session. */}
+          <VoiceSessionPillHost variant="standalone" />
         </main>
       ) : (
         <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">
@@ -692,9 +777,11 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange })}
+            {renderSideMenu({ collapsed: sideMenuCollapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange })}
           </aside>
-          <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
+          <main
+            className={`flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
+          >
             <Outlet />
           </main>
         </div>
@@ -706,6 +793,12 @@ export function ChatLayout() {
           overlay; it never remounts the chat, so a suggestion click's
           navigate + `?prompt=` auto-send isn't raced by a remount. */}
       {isFocused ? <ResearchResultsOverlay /> : null}
+      {/* Full-screen live-voice room — a purely additive overlay mounted at
+          layout scope, next to the other full-viewport overlays. Self-gates on
+          `useIsVoiceRoomVisible()` (the exact complement of the title-bar
+          session pill); the composer's voice bar and transcript render
+          underneath, hidden by it. */}
+      <VoiceRoom />
       {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}

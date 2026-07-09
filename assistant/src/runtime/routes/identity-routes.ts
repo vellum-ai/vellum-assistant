@@ -8,16 +8,17 @@ import { availableParallelism, cpus, totalmem } from "node:os";
 import { z } from "zod";
 
 import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
-import { isDbReady, isStartupComplete } from "../../daemon/daemon-readiness.js";
+import { getDbMigrationReadiness } from "../../daemon/daemon-readiness.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getProfilerRuntimeStatus } from "../../daemon/profiler-run-store.js";
 import { getMaxRollbackVersion } from "../../persistence/migrations/run-migrations.js";
 import { migrationSteps } from "../../persistence/steps.js";
 import { getCesClient } from "../../security/secure-keys.js";
 import {
-  getDiskUsageInfo,
-  parseK8sMemoryBytes,
-} from "../../util/disk-usage.js";
+  getContainerMemoryLimitBytes,
+  getContainerMemoryUsageBytes,
+} from "../../util/cgroup-memory.js";
+import { getDiskUsageInfo } from "../../util/disk-usage.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
 import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
@@ -30,90 +31,6 @@ import type { RouteDefinition } from "./types.js";
 interface MemoryInfo {
   currentMb: number;
   maxMb: number;
-}
-
-/**
- * Read the memory limit from the VELLUM_MEMORY_LIMIT env var (K8s resource format),
- * then fall back to cgroups, then to os.totalmem().
- *
- * In platform mode the container runs under gVisor where cgroup files may report
- * the node's memory rather than the container limit. VELLUM_MEMORY_LIMIT is set
- * by the StatefulSet template to the exact K8s memory limit (e.g. "3Gi").
- */
-function getContainerMemoryLimitBytes(): number | null {
-  // 1. Prefer the explicit env var set by the platform StatefulSet template.
-  try {
-    const envLimit = process.env.VELLUM_MEMORY_LIMIT;
-    if (envLimit) {
-      const parsed = parseK8sMemoryBytes(envLimit);
-      if (parsed !== null) return parsed;
-    }
-  } catch {
-    /* env var parsing failed – fall through to cgroups */
-  }
-
-  // 2. Try cgroups v2.
-  try {
-    const v2 = readFileSync("/sys/fs/cgroup/memory.max", "utf-8").trim();
-    if (v2 !== "max") {
-      const bytes = parseInt(v2, 10);
-      if (!isNaN(bytes) && bytes > 0) return bytes;
-    }
-  } catch {
-    /* not available */
-  }
-
-  // 3. Try cgroups v1.
-  try {
-    const v1 = readFileSync(
-      "/sys/fs/cgroup/memory/memory.limit_in_bytes",
-      "utf-8",
-    ).trim();
-    const bytes = parseInt(v1, 10);
-    // cgroups v1 uses a near-INT64_MAX sentinel when no limit is set
-    if (!isNaN(bytes) && bytes > 0 && bytes < totalmem() * 1.5) return bytes;
-  } catch {
-    /* not available */
-  }
-  return null;
-}
-
-/**
- * Read the container's current memory usage from cgroup files.
- *
- * Tries cgroups v2 (`memory.current`) first, then cgroups v1
- * (`memory/memory.usage_in_bytes`), mirroring the v2-then-v1 fallback used by
- * `getContainerMemoryLimitBytes`. Returns null if neither file is available
- * or readable.
- *
- * Unlike the limit lookup, no env-var override is needed: the gVisor issue
- * that motivates VELLUM_MEMORY_LIMIT is specifically about the *limit* files
- * exposing the host node's memory instead of the sandbox limit. The *usage*
- * files (memory.current / memory.usage_in_bytes) reflect the sandbox's own
- * accounting and are accurate under gVisor.
- */
-function getContainerMemoryUsageBytes(): number | null {
-  // 1. Try cgroups v2.
-  try {
-    const v2 = readFileSync("/sys/fs/cgroup/memory.current", "utf-8").trim();
-    const bytes = parseInt(v2, 10);
-    if (!isNaN(bytes) && bytes > 0) return bytes;
-  } catch {
-    /* not available */
-  }
-
-  // 2. Try cgroups v1.
-  try {
-    const v1 = readFileSync(
-      "/sys/fs/cgroup/memory/memory.usage_in_bytes",
-      "utf-8",
-    ).trim();
-    const bytes = parseInt(v1, 10);
-    if (!isNaN(bytes) && bytes > 0) return bytes;
-  } catch {
-    /* not available */
-  }
-  return null;
 }
 
 function getMemoryInfo(): MemoryInfo {
@@ -335,6 +252,14 @@ function getDetailedHealth() {
   }
 
   const cesClient = getCesClient();
+  const dbMigrations = getDbMigrationReadiness();
+  const migrationHealthFields = dbMigrations.ready
+    ? {}
+    : {
+        status: dbMigrations.state === "failed" ? "ERROR" : "MIGRATING",
+        reason: dbMigrations.reason,
+        dbMigrations,
+      };
 
   return {
     status: "healthy",
@@ -355,6 +280,7 @@ function getDetailedHealth() {
       memoryOptOut: true,
     },
     ...(profiler ? { profiler } : {}),
+    ...migrationHealthFields,
   };
 }
 
@@ -362,28 +288,50 @@ export function handleDetailedHealth(): Response {
   return Response.json(getDetailedHealth());
 }
 
-/**
- * Strict readiness probe (`GET /readyz`).
- *
- * Reports whether the daemon can actually serve requests, gating on two
- * monotonic startup latches read SYNCHRONOUSLY (no `await`, DB query, or
- * subprocess) so the probe stays cheap on a ~10s interval. Returns 503 until
- * both latches are set, then a stable 200 for the rest of the process lifetime.
- *
- * CES is intentionally never consulted: it is informational only. Gating on it
- * would leave a pod permanently NotReady whenever CES never handshakes, even
- * though the daemon serves degraded with an encrypted-store fallback.
- */
-export function handleReadyz(): Response {
-  const notReady: string[] = [];
-  if (!isStartupComplete()) notReady.push("startup");
-  if (!isDbReady()) notReady.push("db");
-  const ready = notReady.length === 0;
+type UnreadyDbMigrationReadiness = Extract<
+  ReturnType<typeof getDbMigrationReadiness>,
+  { ready: false }
+>;
 
-  return Response.json(
-    { status: ready ? "ok" : "unready", ready, notReady },
-    { status: ready ? 200 : 503 },
-  );
+function dbMigrationUnavailableBody(dbMigrations: UnreadyDbMigrationReadiness) {
+  return {
+    status: dbMigrations.state === "failed" ? "error" : "starting",
+    ready: false,
+    reason: dbMigrations.reason,
+    dbMigrations,
+  };
+}
+
+export function dbMigrationUnavailableResponse(): Response | null {
+  const dbMigrations = getDbMigrationReadiness();
+  if (dbMigrations.ready) return null;
+
+  return Response.json(dbMigrationUnavailableBody(dbMigrations), {
+    status: 503,
+  });
+}
+
+export function handleReadyz(): Response {
+  const dbMigrations = getDbMigrationReadiness();
+  if (dbMigrations.state === "failed") {
+    return Response.json(dbMigrationUnavailableBody(dbMigrations), {
+      status: 503,
+    });
+  }
+
+  if (!dbMigrations.ready) {
+    // Probe contract: HTTP 200 keeps the k8s pod in service while migrations
+    // run (the per-route gates shield the DB), but the body carries the real
+    // state so programmatic callers — notably the CLI's readiness wait — can
+    // distinguish "still migrating" from "ready". Only the status code is the
+    // k8s contract; orchestrators never read the body.
+    return Response.json(
+      { status: "migrating", ready: false, dbMigrations },
+      { status: 200 },
+    );
+  }
+
+  return Response.json({ status: "ok", ready: true });
 }
 
 function getIdentity() {
@@ -475,6 +423,13 @@ const healthMigrationsSchema = z.object({
   lastWorkspaceMigrationId: z.string().nullable(),
 });
 
+const dbMigrationReadinessSchema = z.object({
+  ready: z.boolean(),
+  state: z.enum(["not_started", "running", "failed", "ready"]),
+  reason: z.string().optional(),
+  error: z.string().optional(),
+});
+
 const detailedHealthSchema = z.object({
   status: z.string(),
   timestamp: z.string(),
@@ -487,6 +442,8 @@ const detailedHealthSchema = z.object({
   ces: cesHealthSchema,
   capabilities: healthCapabilitiesSchema,
   profiler: profilerStatusSchema.optional(),
+  reason: z.string().optional(),
+  dbMigrations: dbMigrationReadinessSchema.optional(),
 });
 
 // ---------------------------------------------------------------------------

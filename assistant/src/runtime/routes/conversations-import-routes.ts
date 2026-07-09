@@ -12,6 +12,7 @@ import {
   setConversationKey,
 } from "../../persistence/conversation-key-store.js";
 import { getDb } from "../../persistence/db-connection.js";
+import { enqueueLexicalIndexForMessage } from "../../persistence/job-handlers/message-lexical.js";
 import {
   conversations as conversationsTable,
   messages as messagesTable,
@@ -59,7 +60,9 @@ function resolveTimestamps(
   const convCreatedAt = conv.createdAt ?? now;
   const convUpdatedAt = conv.updatedAt ?? conv.createdAt ?? now;
   const messageTimestamps = messages.map((msg, i) => {
-    if (msg.createdAt != null) return msg.createdAt;
+    if (msg.createdAt != null) {
+      return msg.createdAt;
+    }
     return convCreatedAt + i;
   });
   return { convCreatedAt, convUpdatedAt, messageTimestamps };
@@ -190,6 +193,10 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
             err instanceof Error ? err.message : String(err),
           );
         }
+        // Dual-write the imported message into the lexical index. Import inserts
+        // rows directly, bypassing the `addMessage` persist path, so enqueue
+        // here to keep the lexical index in lockstep with the segment index.
+        enqueueLexicalIndexForMessage(dbMessages[i].id);
       }
 
       if (conv.sourceKey) {

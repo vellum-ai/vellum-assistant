@@ -21,6 +21,10 @@ const base: NavigationState = {
   privacyConsent: true,
   analyticsConsentCurrent: true,
   diagnosticsConsentCurrent: true,
+  // Hydrated by default so the cases below describe settled-state behavior;
+  // the hydration-gating cases override these explicitly.
+  consentHydrated: true,
+  assistantsHydrated: true,
 };
 
 function s(overrides: Partial<NavigationState>): NavigationState {
@@ -304,6 +308,107 @@ describe("resolveNavigation", () => {
       expect(
         guard(s({ isLocalMode: false, tosAccepted: false, privacyConsent: false, hasAssistants: false })),
       ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+    });
+
+    // -- hydration gating ---------------------------------------------------
+
+    test("waits (not privacy) for a platform user when the assistants list has not hydrated", () => {
+      // Boot race: assistants and consent both start empty/false. Deciding
+      // here would dump an established user into the onboarding funnel.
+      expect(
+        guard(
+          s({
+            hasAssistants: false,
+            tosAccepted: false,
+            privacyConsent: false,
+            analyticsConsentCurrent: false,
+            diagnosticsConsentCurrent: false,
+            assistantsHydrated: false,
+            consentHydrated: false,
+          }),
+        ),
+      ).toEqual(WAIT);
+    });
+
+    test("waits for a platform user when assistants hydrated but consent has not", () => {
+      expect(
+        guard(
+          s({
+            hasAssistants: false,
+            tosAccepted: false,
+            privacyConsent: false,
+            assistantsHydrated: true,
+            consentHydrated: false,
+          }),
+        ),
+      ).toEqual(WAIT);
+    });
+
+    test("redirects to privacy once both hydrated and consent is genuinely false", () => {
+      expect(
+        guard(
+          s({
+            hasAssistants: false,
+            tosAccepted: false,
+            privacyConsent: false,
+            assistantsHydrated: true,
+            consentHydrated: true,
+          }),
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+    });
+
+    test("waits (not review-terms) when consent looks stale but has not hydrated", () => {
+      expect(
+        guard(
+          s({
+            hasAssistants: true,
+            analyticsConsentCurrent: false,
+            consentHydrated: false,
+          }),
+        ),
+      ).toEqual(WAIT);
+    });
+
+    test("redirects to review-terms once hydrated consent is genuinely stale", () => {
+      expect(
+        guard(
+          s({
+            hasAssistants: true,
+            analyticsConsentCurrent: false,
+            consentHydrated: true,
+          }),
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/review-terms?returnTo=%2Fassistant" });
+    });
+
+    test("local mode ignores hydration flags (lockfile-driven list, sync consent)", () => {
+      // The no-assistants fork keys off the platform probe, not hydration...
+      expect(
+        guard(
+          s({
+            isLocalMode: true,
+            hasAssistants: false,
+            platformSession: "absent",
+            assistantsHydrated: false,
+            consentHydrated: false,
+          }),
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/welcome" });
+      // ...and stale-consent enforcement decides immediately: the local paths
+      // that enforce consent hydrate synchronously during session init.
+      expect(
+        guard(
+          s({
+            isLocalMode: true,
+            hasAssistants: true,
+            platformSession: "present",
+            tosAccepted: false,
+            privacyConsent: false,
+            consentHydrated: false,
+          }),
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/review-terms?returnTo=%2Fassistant" });
     });
 
     // -- stale consent toggles --------------------------------------------

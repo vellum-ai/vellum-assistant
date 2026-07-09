@@ -227,10 +227,6 @@ mock.module("../workspace/turn-commit.js", () => ({
   commitTurnChanges: async () => {},
 }));
 
-mock.module("../apps/app-git-service.js", () => ({
-  commitAppTurnChanges: async () => {},
-}));
-
 // ---------------------------------------------------------------------------
 // AgentLoop mock — tracks whether run() was called
 // ---------------------------------------------------------------------------

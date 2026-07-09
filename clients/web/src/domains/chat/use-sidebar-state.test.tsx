@@ -69,8 +69,10 @@ describe("useSidebarState pagination", () => {
     expect(result.current.recents.items).toHaveLength(
       SIDEBAR_CONVERSATION_LIMIT * 2,
     );
+    // Mid-expansion offers only "Show more" — "Show less" waits until the
+    // section is fully revealed so the two never render stacked together.
     expect(result.current.recents.showMore).toBe(true);
-    expect(result.current.recents.showLess).toBe(true);
+    expect(result.current.recents.showLess).toBe(false);
 
     act(() => result.current.recents.onShowMore());
 
@@ -117,7 +119,7 @@ describe("useSidebarState pagination", () => {
 
     expect(slackSection().items).toHaveLength(SIDEBAR_CONVERSATION_LIMIT * 2);
     expect(slackSection().showMore).toBe(true);
-    expect(slackSection().showLess).toBe(true);
+    expect(slackSection().showLess).toBe(false);
   });
 
   test("exposes one paginated section per origin channel", () => {

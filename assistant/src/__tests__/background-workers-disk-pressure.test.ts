@@ -31,10 +31,8 @@ mock.module("../config/loader.js", () => ({
       },
       cleanup: {
         enabled: true,
-        enqueueIntervalMs: 60_000,
         conversationRetentionDays: 30,
         llmRequestLogRetentionMs: 60_000,
-        traceEventRetentionDays: 30,
       },
       v2: {
         enabled: false,
@@ -159,7 +157,6 @@ mock.module("../persistence/conversation-crud.js", () => ({
   updateConversationUsage: mock(() => {}),
   setLastNotifiedInferenceProfile: mock(() => {}),
   setConversationHistoryStrippedAt: mock(() => {}),
-  wipeConversation: mock(() => ({ memoryIds: [] })),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
   extractImageSourcePaths: () => undefined,
 }));
@@ -184,7 +181,6 @@ mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: mock(() => "job-1"),
   enqueuePruneOldConversationsJob: mock(() => "job-prune-conv"),
   enqueuePruneOldLlmRequestLogsJob: mock(() => "job-prune-llm"),
-  enqueuePruneOldTraceEventsJob: mock(() => "job-prune-trace"),
   enqueuePruneOldToolInvocationsJob: mock(() => "job-prune-tool"),
   failMemoryJob: mock(() => {}),
   failStalledJobs: mockFailStalledJobs,
@@ -195,6 +191,7 @@ mock.module("../persistence/jobs-store.js", () => ({
     automatic: "automatic",
     manual: "manual",
   },
+  MESSAGE_LEXICAL_JOB_TYPES: [],
   resetRunningJobsToPending: mock(() => 0),
   SLOW_LLM_JOB_TYPES: [],
   upsertAutoAnalysisJob: mock(() => "job-auto-analysis"),
@@ -212,9 +209,8 @@ mock.module("../persistence/cleanup-schedule-state.js", () => ({
   markScheduledCleanupEnqueued: mock(() => {}),
 }));
 
-const { runMemoryJobsOnce } = await import("../persistence/jobs-worker.js");
-const { FilingService } =
-  await import("../plugins/defaults/memory/filing-service.js");
+const { runMemoryJobsOnce } =
+  await import("../plugins/defaults/memory/jobs-worker.js");
 const { WorkspaceHeartbeatService } =
   await import("../workspace/heartbeat-service.js");
 
@@ -234,30 +230,6 @@ describe("background workers disk pressure gate", () => {
     expect(mockFailStalledJobs).not.toHaveBeenCalled();
     expect(mockClaimMemoryJobs).not.toHaveBeenCalled();
     expect(mockMaybeRunDbMaintenance).not.toHaveBeenCalled();
-  });
-
-  test("filing service skips background LLM work while locked", async () => {
-    const service = new FilingService();
-
-    const ran = await service.runOnce();
-    const compacted = await service.runCompactionOnce();
-
-    expect(ran).toBe(false);
-    expect(compacted).toBe(false);
-    expect(createdConversations).toHaveLength(0);
-    expect(mockProcessMessage).not.toHaveBeenCalled();
-  });
-
-  test("filing service allows forced user-initiated runs while locked", async () => {
-    const service = new FilingService();
-
-    const ran = await service.runOnce({ force: true });
-    const compacted = await service.runCompactionOnce({ force: true });
-
-    expect(ran).toBe(true);
-    expect(compacted).toBe(true);
-    expect(createdConversations).toHaveLength(2);
-    expect(mockProcessMessage).toHaveBeenCalledTimes(2);
   });
 
   test("workspace heartbeat skips auto-commit checks while locked", async () => {

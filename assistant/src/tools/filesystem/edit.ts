@@ -1,5 +1,4 @@
 import { RiskLevel } from "../../permissions/types.js";
-import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
@@ -158,5 +157,3 @@ export const fileEditTool = {
     };
   },
 } satisfies ToolDefinition;
-
-registerTool(fileEditTool);

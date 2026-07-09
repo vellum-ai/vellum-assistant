@@ -82,7 +82,7 @@ class FakeWebSocket {
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onerror: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { code: number; reason: string }) => void) | null = null;
 
   constructor(url: string) {
     this.url = url;
@@ -116,8 +116,8 @@ class FakeWebSocket {
   emitError(): void {
     this.onerror?.();
   }
-  emitClose(): void {
-    this.onclose?.();
+  emitClose(code = 1000, reason = ""): void {
+    this.onclose?.({ code, reason });
   }
 
   get sentText(): string[] {
@@ -143,9 +143,11 @@ function makeClient(connectTimeoutMs = 10_000) {
 /** Connect and return the underlying fake socket once constructed. */
 async function connectAndGetSocket(
   client: LiveVoiceChannelClientType,
-  args: { assistantId: string; conversationId?: string } = {
-    assistantId: "assistant-1",
-  },
+  args: {
+    assistantId: string;
+    conversationId?: string;
+    turnDetection?: "manual" | "server_vad";
+  } = { assistantId: "assistant-1" },
 ): Promise<FakeWebSocket> {
   await client.connect(args);
   const ws = FakeWebSocket.instances.at(-1);
@@ -205,13 +207,28 @@ describe("connect", () => {
     expect(ws.sentBinary).toHaveLength(0);
   });
 
-  test("omits conversationId from the start frame when not provided", async () => {
+  test("omits conversationId and turnDetection from the start frame when not provided", async () => {
     const ws = await connectAndGetSocket(makeClient());
     ws.open();
     expect(ws.sentJson[0]).toEqual({
       type: "start",
       audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
     });
+  });
+
+  test("includes turnDetection in the start frame when provided", async () => {
+    const ws = await connectAndGetSocket(makeClient(), {
+      assistantId: "assistant-1",
+      turnDetection: "server_vad",
+    });
+    ws.open();
+    expect(ws.sentJson).toEqual([
+      {
+        type: "start",
+        audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
+        turnDetection: "server_vad",
+      },
+    ]);
   });
 
   test("emits error when token minting fails", async () => {
@@ -263,13 +280,45 @@ describe("server frame dispatch", () => {
     ]);
   });
 
-  test("dispatches each transcript/text/tts/metrics/archived frame to its event", async () => {
-    const { client, ws } = await ready();
+  test("ready preserves the server's turnDetection echo", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
 
+    const seen: unknown[] = [];
+    client.on("ready", (f) => seen.push(f));
+    ws.receive({
+      type: "ready",
+      seq: 1,
+      sessionId: "sess-1",
+      conversationId: "conv-1",
+      turnDetection: "server_vad",
+    });
+
+    expect(seen).toEqual([
+      {
+        type: "ready",
+        seq: 1,
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      },
+    ]);
+  });
+
+  /** Per-test event recorder: `record(name)` handlers append into `got[name]`. */
+  function makeRecorder() {
     const got: Record<string, unknown[]> = {};
     const record = (name: string) => (f: unknown) => {
       (got[name] ??= []).push(f);
     };
+    return { got, record };
+  }
+
+  test("dispatches each transcript/text/tts/metrics/archived frame to its event", async () => {
+    const { client, ws } = await ready();
+
+    const { got, record } = makeRecorder();
     client.on("sttPartial", record("sttPartial"));
     client.on("sttFinal", record("sttFinal"));
     client.on("thinking", record("thinking"));
@@ -319,6 +368,54 @@ describe("server frame dispatch", () => {
     expect(got.archived).toHaveLength(1);
   });
 
+  test("dispatches speech_started / utterance_end / utterance_discarded / turn_cancelled to their events", async () => {
+    const { client, ws } = await ready();
+
+    const { got, record } = makeRecorder();
+    client.on("speechStarted", record("speechStarted"));
+    client.on("utteranceEnd", record("utteranceEnd"));
+    client.on("utteranceDiscarded", record("utteranceDiscarded"));
+    client.on("turnCancelled", record("turnCancelled"));
+
+    ws.receive({ type: "speech_started", seq: 2 });
+    ws.receive({ type: "utterance_end", seq: 3, reason: "silence" });
+    ws.receive({ type: "utterance_end", seq: 4, reason: "max-duration" });
+    ws.receive({ type: "utterance_discarded", seq: 5 });
+    ws.receive({ type: "turn_cancelled", seq: 6, turnId: "t1" });
+
+    expect(got.speechStarted).toEqual([{ type: "speech_started", seq: 2 }]);
+    expect(got.utteranceEnd).toEqual([
+      { type: "utterance_end", seq: 3, reason: "silence" },
+      { type: "utterance_end", seq: 4, reason: "max-duration" },
+    ]);
+    expect(got.utteranceDiscarded).toEqual([
+      { type: "utterance_discarded", seq: 5 },
+    ]);
+    expect(got.turnCancelled).toEqual([
+      { type: "turn_cancelled", seq: 6, turnId: "t1" },
+    ]);
+  });
+
+  test("ignores unknown server frame types without failing the session", async () => {
+    const { client, ws } = await ready();
+    const errors: unknown[] = [];
+    let closedCount = 0;
+    client.on("error", (e) => errors.push(e));
+    client.on("closed", () => closedCount++);
+
+    ws.receive({ type: "frame_from_the_future", seq: 2 });
+
+    expect(errors).toHaveLength(0);
+    expect(closedCount).toBe(0);
+    expect(ws.closed).toBe(false);
+
+    // The session stays live: later known frames still dispatch.
+    const seen: unknown[] = [];
+    client.on("sttPartial", (f) => seen.push(f));
+    ws.receive({ type: "stt_partial", seq: 3, text: "still here" });
+    expect(seen).toEqual([{ type: "stt_partial", seq: 3, text: "still here" }]);
+  });
+
   test("server error frame emits a protocol-error and closes", async () => {
     const { client, ws } = await ready();
     const errors: { reason: string; code?: string; message: string }[] = [];
@@ -331,6 +428,68 @@ describe("server frame dispatch", () => {
     expect(errors).toEqual([
       { reason: "protocol-error", code: "boom", message: "kaboom" },
     ]);
+    expect(closedCount).toBe(1);
+    expect(ws.closed).toBe(true);
+  });
+
+  test("recoverable error frame emits the error but keeps the session alive", async () => {
+    const { client, ws } = await ready();
+    const errors: {
+      reason: string;
+      code?: string;
+      message: string;
+      recoverable?: boolean;
+    }[] = [];
+    let closedCount = 0;
+    client.on("error", (e) => errors.push(e));
+    client.on("closed", () => closedCount++);
+
+    ws.receive({
+      type: "error",
+      seq: 10,
+      code: "invalid_field",
+      message: "transient blip",
+      recoverable: true,
+    });
+
+    expect(errors).toEqual([
+      {
+        reason: "protocol-error",
+        code: "invalid_field",
+        message: "transient blip",
+        recoverable: true,
+      },
+    ]);
+    expect(closedCount).toBe(0);
+    expect(ws.closed).toBe(false);
+
+    // The session stays live: later frames still dispatch.
+    const seen: unknown[] = [];
+    client.on("sttPartial", (f) => seen.push(f));
+    ws.receive({ type: "stt_partial", seq: 11, text: "still here" });
+    expect(seen).toEqual([{ type: "stt_partial", seq: 11, text: "still here" }]);
+  });
+
+  test("recoverable error before ready is still fatal", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+
+    const errors: { recoverable?: boolean }[] = [];
+    let closedCount = 0;
+    client.on("error", (e) => errors.push(e));
+    client.on("closed", () => closedCount++);
+
+    ws.receive({
+      type: "error",
+      seq: 1,
+      code: "invalid_field",
+      message: "startup failed",
+      recoverable: true,
+    });
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.recoverable).toBeUndefined();
     expect(closedCount).toBe(1);
     expect(ws.closed).toBe(true);
   });
@@ -569,5 +728,57 @@ describe("teardown", () => {
 
     expect(errors).toHaveLength(1);
     expect(errors[0]!.reason).toBe("connection-failed");
+  });
+
+  test("a retryable close before ready forwards the code instead of failing", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+
+    const errors: unknown[] = [];
+    const closes: { code: number | null; reason: string }[] = [];
+    client.on("error", (e) => errors.push(e));
+    client.on("closed", (info) => closes.push(info));
+
+    // velay closes a reconnect's socket before `ready` because its tunnel is
+    // still re-registering — retryable, so the controller must see the code
+    // (and keep its reconnect budget), not a connection-failed error.
+    ws.emitClose(1013, "assistant tunnel disconnected");
+
+    expect(errors).toHaveLength(0);
+    expect(closes).toEqual([
+      { code: 1013, reason: "assistant tunnel disconnected" },
+    ]);
+  });
+
+  test("forwards the far-side close code on the closed event", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+    ws.receive({ type: "ready", seq: 1, sessionId: "s", conversationId: "c" });
+
+    const closes: { code: number | null; reason: string }[] = [];
+    client.on("closed", (info) => closes.push(info));
+
+    // velay drops its tunnel to the assistant → retryable 1013 close.
+    ws.emitClose(1013, "assistant tunnel disconnected");
+
+    expect(closes).toEqual([
+      { code: 1013, reason: "assistant tunnel disconnected" },
+    ]);
+  });
+
+  test("a locally-initiated close reports a null code", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+    ws.receive({ type: "ready", seq: 1, sessionId: "s", conversationId: "c" });
+
+    const closes: { code: number | null; reason: string }[] = [];
+    client.on("closed", (info) => closes.push(info));
+
+    client.close();
+
+    expect(closes).toEqual([{ code: null, reason: "client closed" }]);
   });
 });

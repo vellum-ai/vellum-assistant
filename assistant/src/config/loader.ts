@@ -18,8 +18,6 @@ import { pruneSeededCallsiteDefaultsFromConfig } from "./prune-seeded-callsite-d
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
 
-export { API_KEY_PROVIDERS } from "../providers/provider-secret-catalog.js";
-
 const log = getLogger("config");
 
 let cached: AssistantConfig | null = null;
@@ -573,11 +571,22 @@ function emptyDefaultWorkspaceConfigMergeResult(): DefaultWorkspaceConfigMergeRe
  * Schema defaults are no longer materialized into the file on load — the
  * in-memory `loadConfig()` cache applies them at access time instead.
  */
-export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult {
+/**
+ * Whether an unconsumed onboarding overlay is waiting to be merged this boot.
+ * The overlay file is renamed away on merge, so this is true for at most the
+ * single boot that consumes it.
+ */
+export function hasPendingDefaultWorkspaceConfig(): boolean {
   const defaultConfigPath = process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
-  if (!defaultConfigPath || !existsSync(defaultConfigPath)) {
+  return Boolean(defaultConfigPath && existsSync(defaultConfigPath));
+}
+
+export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult {
+  if (!hasPendingDefaultWorkspaceConfig()) {
     return emptyDefaultWorkspaceConfigMergeResult();
   }
+  const defaultConfigPath = process.env
+    .VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH as string;
 
   let defaults: unknown;
   try {
@@ -779,6 +788,17 @@ export function loadConfig(): AssistantConfig {
         // Drop the deployment-context embedding provider so it is never
         // persisted (see above); the schema default re-applies in memory.
         delete (seed.memory.embeddings as { provider?: unknown }).provider;
+        // Memory-v3 tuning knobs are globally-shipped defaults, not per-assistant
+        // config: persist only `live` (genuine per-assistant state — some
+        // workspaces predate the v3 migration and must not be flipped on) and let
+        // every tuning knob resolve from the schema on load. This way a shipped
+        // schema-default change reaches all assistants (mirrors the
+        // embedding-provider strip above); migration
+        // 119-strip-persisted-memory-v3-tuning-defaults handles already-seeded
+        // configs.
+        seed.memory.v3 = {
+          live: seed.memory.v3.live,
+        } as (typeof seed.memory)["v3"];
         // Strip dataDir (runtime-derived) from the persisted config
         const { dataDir: _, ...persistable } = seed;
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");

@@ -1,4 +1,12 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import type { ToolContext } from "../tools/types.js";
 
@@ -33,8 +41,18 @@ mock.module("../calls/call-domain.js", () => ({
   },
 }));
 
-mock.module("../runtime/channel-verification-service.js", () => ({
-  findActiveSession: () => activeVoiceSession,
+// Process-global mock — spread the real module and delegate unless this
+// file's tests are active, so sibling test files keep real behavior.
+let findActiveSessionMockActive = false;
+const realGatewaySessionsModule = {
+  ...(await import("../channels/gateway-verification-sessions.js")),
+};
+mock.module("../channels/gateway-verification-sessions.js", () => ({
+  ...realGatewaySessionsModule,
+  findActiveSession: async (channel: string) =>
+    findActiveSessionMockActive
+      ? activeVoiceSession
+      : realGatewaySessionsModule.findActiveSession(channel),
 }));
 
 const { executeCallStart } = await import("../tools/calls/call-start.js");
@@ -49,6 +67,14 @@ function makeContext(): ToolContext {
 }
 
 describe("call_start guardian verification guard", () => {
+  beforeAll(() => {
+    findActiveSessionMockActive = true;
+  });
+
+  afterAll(() => {
+    findActiveSessionMockActive = false;
+  });
+
   beforeEach(() => {
     callsEnabled = true;
     startCallInputs.length = 0;

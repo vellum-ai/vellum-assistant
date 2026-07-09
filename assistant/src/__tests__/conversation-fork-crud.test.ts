@@ -55,7 +55,6 @@ import {
   memoryRetrospectiveState,
   toolInvocations,
 } from "../persistence/schema/index.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
@@ -101,7 +100,6 @@ function parseMetadata(metadata: string | null): unknown {
 describe("forkConversation", () => {
   beforeEach(() => {
     resetTables();
-    registerDefaultPluginPersistenceHooks();
   });
 
   test("forks a full transcript with copied history and lineage", async () => {
@@ -1316,6 +1314,7 @@ describe("forkConversation", () => {
       skipIndexing: true,
     });
     rawRun(
+      "test:setGroupId",
       "UPDATE conversations SET group_id = ? WHERE id = ?",
       "system:pinned",
       source.id,
@@ -1328,6 +1327,7 @@ describe("forkConversation", () => {
       .where(eq(conversations.id, fork.id))
       .get();
     const groupIdRow = rawGet<{ group_id: string | null }>(
+      "test:fetchForkGroupId",
       "SELECT group_id FROM conversations WHERE id = ?",
       fork.id,
     );
@@ -1354,6 +1354,7 @@ describe("forkConversation", () => {
       .where(eq(conversations.id, fork.id))
       .get();
     const groupIdRow = rawGet<{ group_id: string | null }>(
+      "test:fetchForkGroupId",
       "SELECT group_id FROM conversations WHERE id = ?",
       fork.id,
     );
@@ -1457,7 +1458,6 @@ describe("forkConversation", () => {
 describe("forkConversation + memory_retrospective_state", () => {
   beforeEach(() => {
     resetTables();
-    registerDefaultPluginPersistenceHooks();
   });
 
   test("does not seed state when the source has none", async () => {

@@ -32,6 +32,7 @@ const { ToolDetailPanel } = await import(
 const { useChatSessionStore } = await import(
   "@/domains/chat/chat-session-store"
 );
+const { useViewerStore } = await import("@/stores/viewer-store");
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
@@ -111,7 +112,7 @@ describe("ToolDetailPanel", () => {
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
-    // Activity renders in both the header title and the technical-details body.
+    // Activity renders in both the header title and the body.
     expect(
       getAllByText("Spawning subagent to research Toronto's location").length,
     ).toBeGreaterThan(0);
@@ -121,6 +122,70 @@ describe("ToolDetailPanel", () => {
     const text = container.textContent ?? "";
     expect(text).toContain('"toronto-location"');
     expect(text).toContain("Toronto is in Ontario, Canada.");
+  });
+
+  test("omits the Technical details label", () => {
+    const { queryByText } = render(
+      <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
+    );
+
+    expect(queryByText("Technical details")).toBeNull();
+  });
+
+  test("renders the Reasoning section with the risk badge but not the raw reason", () => {
+    const { getByTestId, getByText, queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ riskReason: "File edit (default)" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("Reasoning")).toBeDefined();
+    expect(getByTestId("risk-badge").getAttribute("data-risk-level")).toBe(
+      "low",
+    );
+    // The tolerance description renders under the chip.
+    expect(
+      getByText("Auto-approved at Conservative tolerance or higher"),
+    ).toBeDefined();
+    // The classifier's rule-match string is internal jargon — never shown.
+    expect(queryByText("File edit (default)")).toBeNull();
+    // The tool call isn't resolvable in the (empty) transcript, so the
+    // trust-rule affordance stays hidden — the editor would open on nothing.
+    expect(queryByText("Create Trust Rule")).toBeNull();
+  });
+
+  test("hides the Reasoning section when the call has no risk level", () => {
+    const { queryByText, queryByTestId } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ riskLevel: undefined })}
+        onClose={noop}
+      />,
+    );
+
+    expect(queryByText("Reasoning")).toBeNull();
+    expect(queryByTestId("risk-badge")).toBeNull();
+  });
+
+  test("Create Trust Rule requests the rule editor for the tool call", () => {
+    seedHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        toolCalls: [
+          { id: "tc-1", name: "subagent_spawn", riskLevel: "low" },
+        ],
+      } as DisplayMessage,
+    ]);
+    const { getByText } = render(
+      <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
+    );
+
+    const before = useViewerStore.getState().ruleEditorRequestSeq;
+    fireEvent.click(getByText("Create Trust Rule"));
+
+    expect(useViewerStore.getState().ruleEditorRequestSeq).toBe(before + 1);
+    expect(useViewerStore.getState().ruleEditorRequestToolCallId).toBe("tc-1");
   });
 
   test("hides the Output section when result is empty", () => {

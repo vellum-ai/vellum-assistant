@@ -20,7 +20,7 @@ import {
   unregisterSkillTools,
   unregisterWorkspaceTool,
 } from "../tools/registry.js";
-import { eagerModuleToolNames, explicitTools } from "../tools/tool-manifest.js";
+import { explicitTools } from "../tools/tool-manifest.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 // Clean up global registry after this file completes to prevent
@@ -110,10 +110,6 @@ describe("tool registry dynamic-tools tools", () => {
 });
 
 describe("tool manifest", () => {
-  test("eager module tool names list contains expected count", () => {
-    expect(eagerModuleToolNames.length).toBe(12);
-  });
-
   test("explicit tools list includes memory tools", () => {
     const names = explicitTools.map((t) => t.name);
     expect(names).toContain("recall");
@@ -121,10 +117,12 @@ describe("tool manifest", () => {
     expect(names).toContain("remember");
   });
 
-  test("registered tool count is at least eager + host", async () => {
+  test("initializeTools registers every explicit manifest tool", async () => {
     await initializeTools();
-    const tools = getAllTools();
-    expect(tools.length).toBeGreaterThanOrEqual(eagerModuleToolNames.length);
+    const registered = new Set(getAllTools().map((t) => t.name));
+    for (const tool of explicitTools) {
+      expect(registered.has(tool.name!), `expected "${tool.name}"`).toBe(true);
+    }
   });
 });
 
@@ -156,7 +154,7 @@ describe("baseline characterization: hardcoded tool loading", () => {
     }
   });
 
-  test("gmail tool names are NOT in eagerModuleToolNames manifest", () => {
+  test("gmail tool names are NOT in the explicit tool manifest", () => {
     const gmailTools = [
       "gmail_search",
       "gmail_list_messages",
@@ -169,8 +167,9 @@ describe("baseline characterization: hardcoded tool loading", () => {
       "gmail_send",
       "gmail_unsubscribe",
     ];
+    const explicitNames = explicitTools.map((t) => t.name);
     for (const name of gmailTools) {
-      expect(eagerModuleToolNames).not.toContain(name);
+      expect(explicitNames).not.toContain(name);
     }
   });
 });
@@ -229,22 +228,31 @@ describe("tool ownership metadata", () => {
     __resetRegistryForTesting();
   });
 
-  test("registerTool does not record ownership (bare-install path)", () => {
+  test("registerTool reports the default owner (bare-install path)", () => {
     registerTool(makeFakeTool("test-bare-tool"));
 
     expect(getTool("test-bare-tool")).toBeDefined();
-    // `registerTool` is the bare-install path used by tests + core
-    // bootstraps; it does not record ownership. Tools that need an owner
-    // must go through `registerSkillTools(skillId, ...)` or its sibling
-    // entry points so the registry populates `ownersByName`.
-    expect(getToolOwner("test-bare-tool")).toBeUndefined();
+    // `registerTool` is the bare-install path used by tests + built-in
+    // bootstraps; it records no explicit owner. A registered tool without an
+    // explicit owner is a built-in, so `getToolOwner` synthesizes the shared
+    // `default` owner. Tools that need an extension owner must go through
+    // `registerSkillTools(skillId, ...)` or its sibling entry points.
+    expect(getToolOwner("test-bare-tool")).toEqual({
+      kind: "default",
+      id: "default",
+    });
+    // An unregistered name has no owner at all.
+    expect(getToolOwner("never-registered")).toBeUndefined();
   });
 
-  test("core tools have no owner", async () => {
+  test("built-in tools report the default owner", async () => {
     await initializeTools();
 
     expect(getTool("host_file_read")).toBeDefined();
-    expect(getToolOwner("host_file_read")).toBeUndefined();
+    expect(getToolOwner("host_file_read")).toEqual({
+      kind: "default",
+      id: "default",
+    });
   });
 });
 
@@ -282,9 +290,9 @@ describe("dynamic skill tool registry", () => {
 
     // The colliding tool should be silently skipped
     expect(accepted).toHaveLength(0);
-    // The core tool should still be in place (not overwritten)
+    // The built-in tool should still be in place (not overwritten by the skill)
     expect(getTool("host_file_read")).toBeDefined();
-    expect(getToolOwner("host_file_read")).toBeUndefined();
+    expect(getToolOwner("host_file_read")?.kind).toBe("default");
   });
 
   test("allows replacement within the same owning skill", () => {
@@ -373,9 +381,9 @@ describe("dynamic skill tool registry", () => {
       kind: "skill",
       id: "atomic-skill",
     });
-    // The core tool should be untouched (no owner recorded)
+    // The built-in tool should be untouched (still default-owned, not the skill)
     expect(getTool("host_file_read")).toBeDefined();
-    expect(getToolOwner("host_file_read")).toBeUndefined();
+    expect(getToolOwner("host_file_read")?.kind).toBe("default");
   });
 });
 

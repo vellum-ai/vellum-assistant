@@ -1,9 +1,19 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 import type { GuardianDelivery } from "@vellumai/gateway-client";
+import { hashVerificationSecret } from "@vellumai/gateway-client";
 import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { startVerificationCall } from "../../calls/call-domain.js";
+import {
+  countRecentSendsToDestination,
+  createInboundVerificationSession,
+  createOutboundSession,
+  findActiveSession,
+  getPendingSession,
+  revokePendingSessions,
+  updateSessionDelivery,
+} from "../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../channels/types.js";
 import {
   findContactChannel,
@@ -27,16 +37,8 @@ import {
   createReadinessService,
 } from "../../runtime/channel-readiness-service.js";
 import {
-  countRecentSendsToDestination,
-  createInboundVerificationSession,
-  createOutboundSession,
-  findActiveSession,
   getGuardianBinding,
-  getPendingSession,
   isGuardianBoundForChannel,
-  revokeBinding,
-  revokePendingSessions,
-  updateSessionDelivery,
 } from "../../runtime/channel-verification-service.js";
 import {
   cancelOutbound,
@@ -130,7 +132,7 @@ export async function createInboundChallenge(
     };
   }
 
-  const result = createInboundVerificationSession(
+  const result = await createInboundVerificationSession(
     resolvedChannel,
     conversationId,
   );
@@ -175,11 +177,13 @@ export async function getVerificationStatus(
       guardianUsername = ext.username;
     }
   }
-  const hasPendingChallenge = getPendingSession(resolvedChannel) != null;
-
-  // Include active outbound session state so the UI can resume
-  // after app restart and detect bootstrap completion.
-  const activeOutboundSession = findActiveSession(resolvedChannel);
+  // Active outbound session state is included so the UI can resume after app
+  // restart and detect bootstrap completion.
+  const [pendingSession, activeOutboundSession] = await Promise.all([
+    getPendingSession(resolvedChannel),
+    findActiveSession(resolvedChannel),
+  ]);
+  const hasPendingChallenge = pendingSession != null;
   const outboundFields: Record<string, unknown> = {};
   if (activeOutboundSession) {
     outboundFields.verificationSessionId = activeOutboundSession.id;
@@ -215,12 +219,12 @@ export async function revokeVerificationForChannel(
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
-  // Session teardown stays assistant-side — it is session state, not the ACL
-  // outcome. Cancel any active outbound session and pending challenges first
-  // (the macOS app uses action: "revoke" to cancel an in-flight challenge even
-  // before a binding exists, e.g. during verification setup).
-  cancelOutbound({ channel: resolvedChannel });
-  revokePendingSessions(resolvedChannel);
+  // Session teardown relays to the gateway (session SoT). Cancel any active
+  // outbound session and pending challenges first (the macOS app uses
+  // action: "revoke" to cancel an in-flight challenge even before a binding
+  // exists, e.g. during verification setup).
+  await cancelOutbound({ channel: resolvedChannel });
+  await revokePendingSessions(resolvedChannel);
 
   // Capture binding before revoking so we can downgrade the guardian's
   // channel — without this, the guardian would still pass the ACL check.
@@ -263,18 +267,11 @@ export async function revokeVerificationForChannel(
       if (!parsed.ok) {
         throw new Error("mark_channel_revoked relay returned ok: false");
       }
-      // The gateway dual-write already set the assistant channel to "revoked",
-      // so the later revokeGuardianBinding lookup (active-only) finds nothing
-      // and won't fire the invalidation. Emit it here so open client views
-      // stop showing the channel as active.
+      // Emit the invalidation so open client views stop showing the channel
+      // as active after the gateway dual-writes it to "revoked".
       notifyContactsChanged();
     }
   }
-
-  // The guardian binding is assistant-owned state the gateway relay does not
-  // manage; tear it down here. The contact-change invalidation is emitted
-  // explicitly above on relay success.
-  revokeBinding(assistantId, resolvedChannel);
 
   return {
     success: true,
@@ -369,7 +366,7 @@ export async function verifyTrustedContact(
         ? (normalizePhoneNumber(destination) ?? destination)
         : destination;
 
-  const recentSendCount = countRecentSendsToDestination(
+  const recentSendCount = await countRecentSendsToDestination(
     verificationChannel,
     effectiveDestination,
     DESTINATION_RATE_WINDOW_MS,
@@ -386,7 +383,7 @@ export async function verifyTrustedContact(
   // --- Telegram verification ---
   if (verificationChannel === "telegram") {
     if (channel.externalChatId) {
-      const sessionResult = createOutboundSession({
+      const sessionResult = await createOutboundSession({
         channel: verificationChannel,
         expectedChatId: channel.externalChatId,
         expectedExternalUserId:
@@ -408,7 +405,12 @@ export async function verifyTrustedContact(
 
       const now = Date.now();
       const sendCount = 1;
-      updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
+      await updateSessionDelivery(
+        sessionResult.sessionId,
+        now,
+        sendCount,
+        null,
+      );
       deliverVerificationTelegram(
         channel.externalChatId,
         telegramBody,
@@ -438,11 +440,9 @@ export async function verifyTrustedContact(
     }
 
     const bootstrapToken = randomBytes(16).toString("hex");
-    const bootstrapTokenHash = createHash("sha256")
-      .update(bootstrapToken)
-      .digest("hex");
+    const bootstrapTokenHash = hashVerificationSecret(bootstrapToken);
 
-    const sessionResult = createOutboundSession({
+    const sessionResult = await createOutboundSession({
       channel: verificationChannel,
       identityBindingStatus: "pending_bootstrap",
       destinationAddress: effectiveDestination,
@@ -467,7 +467,7 @@ export async function verifyTrustedContact(
   if (verificationChannel === "slack") {
     const slackUserId = channel.address;
 
-    const sessionResult = createOutboundSession({
+    const sessionResult = await createOutboundSession({
       channel: verificationChannel,
       expectedExternalUserId:
         channel.address !== channel.externalChatId
@@ -489,7 +489,7 @@ export async function verifyTrustedContact(
 
     const now = Date.now();
     const sendCount = 1;
-    updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
+    await updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
     deliverVerificationSlack(slackUserId, slackBody, assistantId);
 
     return {
@@ -511,7 +511,7 @@ export async function verifyTrustedContact(
       };
     }
 
-    const sessionResult = createOutboundSession({
+    const sessionResult = await createOutboundSession({
       channel: verificationChannel,
       expectedPhoneE164: normalizedPhone,
       expectedExternalUserId: normalizedPhone,
@@ -522,7 +522,7 @@ export async function verifyTrustedContact(
 
     const now = Date.now();
     const sendCount = 1;
-    updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
+    await updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
 
     // Fire-and-forget: initiate Twilio verification call
     (async () => {
@@ -640,8 +640,8 @@ export async function handleChannelVerificationSession(
         ...result,
       });
     } else if (msg.action === "cancel_session") {
-      cancelOutbound({ channel });
-      revokePendingSessions(channel);
+      await cancelOutbound({ channel });
+      await revokePendingSessions(channel);
       broadcastMessage({
         type: "channel_verification_session_response",
         success: true,
@@ -654,7 +654,7 @@ export async function handleChannelVerificationSession(
         ...result,
       });
     } else if (msg.action === "resend_session") {
-      const result = resendOutbound({
+      const result = await resendOutbound({
         channel,
         originConversationId: msg.originConversationId,
       });

@@ -87,6 +87,43 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbExec: mock(async () => undefined),
 }));
 
+// resolveGatewayChannel now resolves the assistant channel's (type,address) via
+// the typed identity-lookup IPC instead of a raw SELECT. Mock the low-level
+// `ipcCallAssistant` (rather than the higher-level contacts-info-client export)
+// so this module mock stays isolated to the assistant transport and does not
+// leak over the real contacts-info-client module in other suites sharing the
+// Bun process. Serve the lookup from the same fake channel store.
+mock.module("../ipc/assistant-client.js", () => ({
+  ipcCallAssistant: mock(
+    async (method: string, params?: Record<string, unknown>) => {
+      if (method === "contact_channel_identity_lookup") {
+        const selector = (params?.body ?? {}) as {
+          channelId?: string;
+          type?: string;
+          address?: string;
+        };
+        if (selector.channelId != null) {
+          const row = fakeAssistantDb.channels.get(selector.channelId);
+          return {
+            channel: row
+              ? {
+                  id: row.id,
+                  contactId: row.contact_id,
+                  type: row.type,
+                  address: row.address,
+                  externalChatId: row.external_chat_id ?? null,
+                  displayName: null,
+                }
+              : null,
+          };
+        }
+        return { channel: null };
+      }
+      return {};
+    },
+  ),
+}));
+
 import { eq } from "drizzle-orm";
 
 import { ContactStore } from "../db/contact-store.js";

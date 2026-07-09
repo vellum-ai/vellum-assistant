@@ -75,21 +75,22 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // Mock Twilio provider
+class MockTwilioVoiceProvider {
+  static getAuthToken() {
+    return "mock-auth-token";
+  }
+  static verifyWebhookSignature() {
+    return true;
+  }
+  async initiateCall() {
+    return { callSid: "CA_mock_sid" };
+  }
+  async endCall() {
+    return;
+  }
+}
 mock.module("../calls/twilio-provider.js", () => ({
-  TwilioConversationRelayProvider: class {
-    static getAuthToken() {
-      return "mock-auth-token";
-    }
-    static verifyWebhookSignature() {
-      return true;
-    }
-    async initiateCall() {
-      return { callSid: "CA_mock_sid" };
-    }
-    async endCall() {
-      return;
-    }
-  },
+  TwilioVoiceProvider: MockTwilioVoiceProvider,
 }));
 
 mock.module("../security/secure-keys.js", () => ({
@@ -268,22 +269,6 @@ describe("gateway-only ingress enforcement", () => {
       expect(body.error.code).toBe("GONE");
     });
 
-    test("POST /webhooks/twilio/connect-action returns 410", async () => {
-      const res = await fetch(
-        `http://127.0.0.1:${port}/webhooks/twilio/connect-action`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: makeFormBody({ CallSid: "CA123" }),
-        },
-      );
-      expect(res.status).toBe(410);
-      const body = (await res.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("GONE");
-    });
-
     test("POST /v1/calls/twilio/voice-webhook returns 410", async () => {
       const res = await fetch(
         `http://127.0.0.1:${port}/v1/calls/twilio/voice-webhook`,
@@ -357,23 +342,6 @@ describe("gateway-only ingress enforcement", () => {
       expect(res.status).not.toBe(410);
     });
 
-    test("POST /v1/internal/twilio/connect-action is NOT blocked", async () => {
-      const res = await fetch(
-        `http://127.0.0.1:${port}/v1/internal/twilio/connect-action`,
-        {
-          method: "POST",
-          headers: {
-            ...GATEWAY_AUTH_HEADERS,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            params: { CallSid: "CA123" },
-          }),
-        },
-      );
-      expect(res.status).not.toBe(410);
-    });
-
     test("POST /v1/internal/oauth/callback is NOT blocked", async () => {
       const res = await fetch(
         `http://127.0.0.1:${port}/v1/internal/oauth/callback`,
@@ -391,69 +359,6 @@ describe("gateway-only ingress enforcement", () => {
       );
       // Should succeed or return a non-410 status
       expect(res.status).not.toBe(410);
-    });
-  });
-
-  // ── Relay WebSocket upgrade ───────────────────
-
-  describe("relay WebSocket upgrade", () => {
-    test("blocks non-private-network origin", async () => {
-      // The peer address (127.0.0.1) passes the private network check,
-      // but the external Origin header triggers the secondary defense-in-depth block.
-      const res = await fetch(
-        `http://127.0.0.1:${port}/v1/calls/relay?callSessionId=sess-123`,
-        {
-          headers: {
-            Upgrade: "websocket",
-            Connection: "Upgrade",
-            Origin: "https://external.example.com",
-            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-            "Sec-WebSocket-Version": "13",
-          },
-        },
-      );
-      expect(res.status).toBe(403);
-      const body = (await res.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("FORBIDDEN");
-      expect(body.error.message).toContain("Direct relay access disabled");
-    });
-
-    test("allows request with no origin header (private network peer)", async () => {
-      // Without an origin header, isPrivateNetworkOrigin returns true.
-      // The peer address (127.0.0.1) passes the private network peer check.
-      const res = await fetch(
-        `http://127.0.0.1:${port}/v1/calls/relay?callSessionId=sess-123`,
-        {
-          headers: {
-            Upgrade: "websocket",
-            Connection: "Upgrade",
-            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-            "Sec-WebSocket-Version": "13",
-          },
-        },
-      );
-      // Should NOT be 403 — WebSocket upgrade may or may not succeed
-      // depending on test environment, but the gateway guard should pass.
-      expect(res.status).not.toBe(403);
-    });
-
-    test("allows localhost origin from loopback peer", async () => {
-      const res = await fetch(
-        `http://127.0.0.1:${port}/v1/calls/relay?callSessionId=sess-123`,
-        {
-          headers: {
-            Upgrade: "websocket",
-            Connection: "Upgrade",
-            Origin: "http://127.0.0.1:3000",
-            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-            "Sec-WebSocket-Version": "13",
-          },
-        },
-      );
-      // Should NOT be 403
-      expect(res.status).not.toBe(403);
     });
   });
 

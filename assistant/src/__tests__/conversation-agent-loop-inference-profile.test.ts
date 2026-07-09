@@ -76,7 +76,12 @@ mock.module("../config/loader.js", () => ({
         },
       },
       profiles: {
+        // Complete (materialized) shape: override-or-default semantics skip
+        // profiles that don't carry their own provider+model.
         "quality-optimized": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-8",
           contextWindow: { maxInputTokens: 50000 },
         },
       },
@@ -213,10 +218,6 @@ mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
-}));
-
-mock.module("../apps/app-git-service.js", () => ({
-  commitAppTurnChanges: () => Promise.resolve(),
 }));
 
 mock.module("../daemon/conversation-memory.js", () => ({
@@ -472,13 +473,6 @@ function makeCtx(
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    traceEmitter: {
-      emit: () => {},
-    } as unknown as Conversation["traceEmitter"],
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,

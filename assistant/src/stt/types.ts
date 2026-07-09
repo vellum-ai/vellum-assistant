@@ -30,19 +30,15 @@ export type SttProviderId =
  * Telephony-specific STT capability class.
  *
  * Describes the provider's native audio-ingestion capability when used in
- * a telephony context. This is a **capability classification**, not a direct
- * Twilio strategy selector — the telephony routing resolver
- * (`telephony-stt-routing.ts`) maps capability classes plus catalog routing
- * metadata to concrete Twilio setup strategies (conversation-relay-native
- * vs media-stream-custom).
+ * a telephony context. This is a **capability classification** consumed by
+ * `resolveTelephonySttCapability` (providers/speech-to-text/resolve.ts) —
+ * every supported provider transcribes call audio server-side on the
+ * media-stream transport; this field describes how it ingests that audio.
  *
  * - `"realtime-ws"` — provider offers a WebSocket streaming endpoint suitable
  *   for low-latency telephony audio (e.g. Deepgram live transcription).
  * - `"batch-only"` — provider supports only REST batch transcription as its
- *   native capability. A `batch-only` provider may still participate in
- *   telephony via Twilio-native ConversationRelay (e.g. Google Gemini) or
- *   via the media-stream custom path — the routing strategy is determined
- *   by the catalog's telephony routing metadata, not this field alone.
+ *   native capability; call audio is transcribed in incremental batches.
  * - `"none"` — provider has no telephony support.
  */
 export type TelephonySttMode = "realtime-ws" | "batch-only" | "none";

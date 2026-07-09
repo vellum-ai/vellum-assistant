@@ -10,7 +10,7 @@
  */
 
 import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
-import type { SlackMessageLink } from "@/utils/slack-message-link";
+import type { ExternalSourceLink } from "@/utils/external-source-link";
 
 export interface Conversation {
   conversationId: string;
@@ -47,7 +47,8 @@ export interface Conversation {
    * `"phone"`, `"vellum"`, or `"notification:*"`. Sourced from the daemon's
    * `channelBinding.sourceChannel` (when present) and falling back to
    * `conversationOriginChannel`. Used by `isChannelConversation` to gate
-   * read-only behavior for externally-bound conversations.
+   * the native-only edit/undo/recall path on web (and read-only rendering
+   * on macOS/iOS) for externally-bound conversations.
    */
   originChannel?: string;
   /** True for optimistic stubs not yet confirmed by the server. */
@@ -66,18 +67,23 @@ export interface ConversationChannelBinding {
   username?: string;
   slackChannel?: ConversationSlackChannel;
   slackThread?: ConversationSlackThread;
+  /** Channel-neutral deep link back to the conversation's source — the
+   *  specific thread when the binding has one, otherwise the chat or
+   *  channel. Emitted per-channel by the daemon's binding-metadata builders
+   *  (currently Slack only); absent on older daemons. */
+  sourceLink?: ExternalSourceLink;
 }
 
 export interface ConversationSlackChannel {
   channelId?: string;
   name?: string;
-  link?: SlackMessageLink;
+  link?: ExternalSourceLink;
 }
 
 export interface ConversationSlackThread {
   channelId: string;
   threadTs: string;
-  link?: SlackMessageLink;
+  link?: ExternalSourceLink;
 }
 
 export type ConversationGroup = GroupsGetResponse["groups"][number];

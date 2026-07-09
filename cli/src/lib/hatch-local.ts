@@ -25,6 +25,7 @@ import type { Species } from "./constants.js";
 import { buildHatchConfigValues, writeInitialConfig } from "./config-utils.js";
 import {
   generateLocalSigningKey,
+  startCes,
   startLocalDaemon,
   startGateway,
   stopLocalProcesses,
@@ -225,10 +226,17 @@ export async function hatchLocal(
   reporter.progress(3, 6, "Starting assistant...");
   const signingKey = generateLocalSigningKey();
   const bootstrapSecret = generateLocalSigningKey();
-  await startLocalDaemon(watch, resources, {
-    defaultWorkspaceConfigPath,
-    signingKey,
-  });
+  // Launch the CES sibling alongside the daemon, in parallel — matching the
+  // Docker topology. The assistant does not spawn its own CES, so a freshly
+  // hatched instance would otherwise come up with CES unavailable.
+  // startCes always launches the CES sibling.
+  await Promise.all([
+    startCes(watch, resources),
+    startLocalDaemon(watch, resources, {
+      defaultWorkspaceConfigPath,
+      signingKey,
+    }),
+  ]);
 
   reporter.progress(4, 6, "Starting gateway...");
   let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;

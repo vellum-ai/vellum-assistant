@@ -215,6 +215,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/conversation-process.ts", // masked provider key display
       "daemon/handlers/config-model.ts", // masked provider key display
       "providers/speech-to-text/resolve.ts", // STT provider API key lookup
+      "calls/telephony-tts-capability.ts", // TTS provider API key availability check (presence only)
       "credential-execution/ces-runtime.ts", // CES runtime owns the daemon CES connection (setCesClient/onCesClientChanged/reconnect wiring at startup)
       "runtime/routes/credential-prompt-routes.ts", // Route for secure credential prompt (stores secret via setSecureKeyAsync)
       "runtime/routes/credential-routes.ts", // CLI credential management routes (CLI-migrated to IPC)
@@ -230,11 +231,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
       "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription OAuth token storage
       "runtime/routes/identity-routes.ts", // health/readyz endpoint checks CES connectivity via getCesClient
-      "tools/credential-execution/run-authenticated-command.ts", // resolves the CES RPC client via getCesClient
-      "tools/credential-execution/make-authenticated-request.ts", // resolves the CES RPC client via getCesClient
-      "tools/credential-execution/manage-secure-command-tool.ts", // resolves the CES RPC client via getCesClient
       "tools/executor.ts", // CES approval bridge resolves the CES RPC client via getCesClient
       "tools/network/web-fetch.ts", // Firecrawl /scrape BYOK fetch provider API key lookup (firecrawl provider key)
+      "workspace/default-provider-ensure.ts", // legacy anthropic echo disambiguation (vault key presence check)
+      "runtime/routes/default-provider-routes.ts", // default-provider availability status (credential presence check only; value never leaves the handler)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

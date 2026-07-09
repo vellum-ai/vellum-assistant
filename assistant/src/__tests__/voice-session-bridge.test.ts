@@ -45,10 +45,8 @@ mock.module("../daemon/conversation-store.js", () => ({
   },
 }));
 
-import {
-  setVoiceBridgeDeps,
-  startVoiceTurn,
-} from "../calls/voice-session-bridge.js";
+import { CALL_OPENING_MARKER } from "../calls/voice-control-protocol.js";
+import { startVoiceTurn } from "../calls/voice-session-bridge.js";
 import {
   createConversation,
   getMessages,
@@ -180,9 +178,6 @@ function parsePersistedMetadata(
  */
 function injectDeps(conversationFactory: () => Conversation): void {
   voiceConversationFactory = conversationFactory;
-  setVoiceBridgeDeps({
-    resolveAttachments: () => [],
-  });
 }
 
 describe("voice-session-bridge", () => {
@@ -518,9 +513,6 @@ describe("voice-session-bridge", () => {
     };
 
     voiceConversationFactory = () => session;
-    setVoiceBridgeDeps({
-      resolveAttachments: () => [],
-    });
 
     const textDeltaEvents: ServerMessage[] = [];
     const completeEvents: ServerMessage[] = [];
@@ -586,7 +578,9 @@ describe("voice-session-bridge", () => {
     const session = {
       ...makeStreamingSession(events),
       setTrustContext: (ctx: unknown) => {
-        if (ctx != null) capturedTrustContext = ctx;
+        if (ctx != null) {
+          capturedTrustContext = ctx;
+        }
       },
     } as unknown as Conversation;
 
@@ -627,7 +621,9 @@ describe("voice-session-bridge", () => {
     const session = {
       ...makeStreamingSession(events),
       setVoiceCallControlPrompt: (prompt: string | null) => {
-        if (prompt != null) capturedPrompt = prompt;
+        if (prompt != null) {
+          capturedPrompt = prompt;
+        }
       },
     } as unknown as Conversation;
 
@@ -647,8 +643,9 @@ describe("voice-session-bridge", () => {
     });
 
     await new Promise((r) => setTimeout(r, 50));
-    if (!capturedPrompt)
+    if (!capturedPrompt) {
       throw new Error("Expected voice call control prompt to be set");
+    }
     const prompt: string = capturedPrompt;
 
     expect(prompt).toContain(
@@ -691,7 +688,9 @@ describe("voice-session-bridge", () => {
     const session = {
       ...makeStreamingSession(events),
       setVoiceCallControlPrompt: (prompt: string | null) => {
-        if (prompt != null) capturedPrompt = prompt;
+        if (prompt != null) {
+          capturedPrompt = prompt;
+        }
       },
     } as unknown as Conversation;
 
@@ -711,8 +710,9 @@ describe("voice-session-bridge", () => {
     });
 
     await new Promise((r) => setTimeout(r, 50));
-    if (!capturedPrompt)
+    if (!capturedPrompt) {
       throw new Error("Expected voice call control prompt to be set");
+    }
     const prompt: string = capturedPrompt;
 
     expect(prompt).toContain(
@@ -1458,5 +1458,107 @@ describe("voice-session-bridge", () => {
     });
 
     expect(abortCalled).toBe(true);
+  });
+
+  test("broadcasts a user_message_echo before the assistant reply streams (JARVIS-1258)", async () => {
+    const conversation = createConversation(
+      "voice bridge user echo ordering test",
+    );
+    const events: ServerMessage[] = [
+      {
+        type: "assistant_text_delta",
+        text: "Hi ",
+        conversationId: conversation.id,
+      },
+      {
+        type: "assistant_text_delta",
+        text: "there",
+        conversationId: conversation.id,
+      },
+      { type: "message_complete", conversationId: conversation.id },
+    ];
+    const session = makeStreamingSession(events);
+    injectDeps(() => session);
+
+    const published: ServerMessage[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      filter: { conversationId: conversation.id },
+      callback: (event) => {
+        published.push(event.message);
+      },
+    });
+
+    try {
+      await startVoiceTurn({
+        conversationId: conversation.id,
+        content: "Hello from caller",
+        isInbound: true,
+        onTextDelta: () => {},
+        onComplete: () => {},
+        onError: () => {},
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const echoIndex = published.findIndex(
+        (m) => m.type === "user_message_echo",
+      );
+      const firstDeltaIndex = published.findIndex(
+        (m) => m.type === "assistant_text_delta",
+      );
+
+      // The user turn boundary must be broadcast, and must precede the
+      // assistant deltas — otherwise the web client folds the reply into the
+      // previous assistant bubble until a /messages reconcile splits them.
+      expect(echoIndex).toBeGreaterThanOrEqual(0);
+      expect(firstDeltaIndex).toBeGreaterThan(echoIndex);
+      expect(published[echoIndex]).toMatchObject({
+        type: "user_message_echo",
+        text: "Hello from caller",
+        conversationId: conversation.id,
+      });
+    } finally {
+      subscription.dispose();
+    }
+  });
+
+  test("suppresses the user_message_echo for synthetic opener prompts", async () => {
+    const conversation = createConversation(
+      "voice bridge opener echo suppression test",
+    );
+    const events: ServerMessage[] = [
+      { type: "message_complete", conversationId: conversation.id },
+    ];
+    const session = makeStreamingSession(events);
+    injectDeps(() => session);
+
+    const published: ServerMessage[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      filter: { conversationId: conversation.id },
+      callback: (event) => {
+        published.push(event.message);
+      },
+    });
+
+    try {
+      await startVoiceTurn({
+        conversationId: conversation.id,
+        content: CALL_OPENING_MARKER,
+        isInbound: true,
+        onTextDelta: () => {},
+        onComplete: () => {},
+        onError: () => {},
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      // The opener is internal scaffolding — it persists a row so the model
+      // wakes, but it is not user speech and must not render as a user bubble.
+      expect(published.some((m) => m.type === "user_message_echo")).toBe(false);
+    } finally {
+      subscription.dispose();
+    }
   });
 });

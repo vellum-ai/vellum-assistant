@@ -212,6 +212,16 @@ function frameTypes(frames: LiveVoiceServerFrame[]): string[] {
   return frames.map((frame) => frame.type);
 }
 
+function sessionInternals(session: LiveVoiceSession): {
+  currentUtterance: { userAudioChunks: Buffer[] } | null;
+  activeAssistantTurn: unknown;
+} {
+  return session as unknown as {
+    currentUtterance: { userAudioChunks: Buffer[] } | null;
+    activeAssistantTurn: unknown;
+  };
+}
+
 describe("LiveVoiceSession archive and metrics events", () => {
   test("archives user and assistant audio and emits completion and session metrics", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
@@ -316,21 +326,10 @@ describe("LiveVoiceSession archive and metrics events", () => {
       event: "session_ended",
       sessionId: "session-123",
     });
-    expect(
-      (
-        session as unknown as {
-          currentUserAudioChunks: Buffer[];
-          activeAssistantTurn: unknown;
-        }
-      ).currentUserAudioChunks,
-    ).toHaveLength(0);
-    expect(
-      (
-        session as unknown as {
-          activeAssistantTurn: unknown;
-        }
-      ).activeAssistantTurn,
-    ).toBeNull();
+    const internals = sessionInternals(session);
+    expect(internals.currentUtterance).not.toBeNull();
+    expect(internals.currentUtterance?.userAudioChunks).toHaveLength(0);
+    expect(internals.activeAssistantTurn).toBeNull();
   });
 
   test("uses the TTS chunk content type for socket frames and archive metadata", async () => {
@@ -413,11 +412,7 @@ describe("LiveVoiceSession archive and metrics events", () => {
       },
     });
     expect(
-      (
-        session as unknown as {
-          currentUserAudioChunks: Buffer[];
-        }
-      ).currentUserAudioChunks,
+      sessionInternals(session).currentUtterance?.userAudioChunks,
     ).toHaveLength(0);
   });
 
@@ -463,11 +458,7 @@ describe("LiveVoiceSession archive and metrics events", () => {
       },
     });
     expect(
-      (
-        session as unknown as {
-          currentUserAudioChunks: Buffer[];
-        }
-      ).currentUserAudioChunks,
+      sessionInternals(session).currentUtterance?.userAudioChunks,
     ).toHaveLength(0);
   });
 });

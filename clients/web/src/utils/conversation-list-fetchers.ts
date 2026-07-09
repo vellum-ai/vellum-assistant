@@ -262,6 +262,20 @@ export async function listConversations(
 }
 
 /**
+ * Whether the assistant has ANY active (non-archived) foreground conversation.
+ * One page answers existence, so this never walks the full list. Used by the
+ * onboarding established-assistant guard to detect a lived-in assistant before
+ * the flow fires anything at it. Throws on fetch failure — callers own the
+ * fail-open policy.
+ */
+export async function hasAnyActiveConversation(
+  assistantId: string,
+): Promise<boolean> {
+  const { conversations } = await fetchConversationListPage(assistantId, 0);
+  return conversations.length > 0;
+}
+
+/**
  * Fetch all active (non-archived) background conversations for a given
  * assistant, sorted newest-first.
  *

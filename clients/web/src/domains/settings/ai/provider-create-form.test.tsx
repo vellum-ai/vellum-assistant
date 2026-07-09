@@ -161,6 +161,23 @@ function getButton(label: string): HTMLButtonElement {
 }
 
 /**
+ * Display Name + Key live under a collapsed "Advanced" disclosure. Open it
+ * so those inputs mount before a test reads or edits them. Idempotent — a
+ * no-op when the section is already expanded.
+ */
+function openAdvancedFields(): void {
+  const button = Array.from(
+    document.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((b) => b.textContent?.includes("Display name"));
+  if (!button) {
+    throw new Error("expected the Advanced (Display name & key) disclosure");
+  }
+  if (button.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(button);
+  }
+}
+
+/**
  * Drive the design-library Dropdown (a custom combobox, not a native
  * <select>): click the trigger to open the listbox, then click the option
  * whose visible label matches.
@@ -224,6 +241,7 @@ describe("ProviderCreateForm submit sequence", () => {
 
     // Default provider is anthropic with platform auth — switch to API Key.
     // Type a Key (name) and an API key value.
+    openAdvancedFields();
     fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
       target: { value: "anthropic-personal" },
     });
@@ -278,6 +296,7 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
+    openAdvancedFields();
     fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
       target: { value: "anthropic-personal" },
     });
@@ -307,6 +326,7 @@ describe("ProviderCreateForm submit sequence", () => {
     // Inline variant drops the modal title.
     expect(document.body.textContent).not.toContain("New Provider Connection");
 
+    openAdvancedFields();
     fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
       target: { value: "anthropic-personal" },
     });
@@ -440,6 +460,7 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
+    openAdvancedFields();
     fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
       target: { value: "anthropic-personal" },
     });
@@ -470,6 +491,7 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
+    openAdvancedFields();
     fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
       target: { value: "anthropic-personal" },
     });
@@ -502,6 +524,7 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
+    openAdvancedFields();
     expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe(
       "Anthropic",
     );
@@ -523,6 +546,7 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
+    openAdvancedFields();
     expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe(
       "Anthropic",
     );
@@ -544,6 +568,7 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
+    openAdvancedFields();
     selectDropdownOption("Provider", "OpenAI");
 
     expect(getInputByPlaceholder("e.g. My Anthropic Key").value).toBe("OpenAI");
@@ -566,6 +591,7 @@ describe("ProviderCreateForm submit sequence", () => {
     );
 
     // User overrides the Name; the Key auto-follows the label edit.
+    openAdvancedFields();
     fireEvent.change(getInputByPlaceholder("e.g. My Anthropic Key"), {
       target: { value: "My Custom Name" },
     });
@@ -593,6 +619,7 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
+    openAdvancedFields();
     fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
       target: { value: "my-custom-key" },
     });
@@ -602,6 +629,72 @@ describe("ProviderCreateForm submit sequence", () => {
     expect(getInputByPlaceholder("e.g. anthropic-personal").value).toBe(
       "my-custom-key",
     );
+  });
+
+  test("Display Name + Key are collapsed by default and reveal on Advanced", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    // Collapsed: neither the Display Name nor Key input is mounted yet.
+    const isMounted = (placeholder: string) =>
+      Array.from(document.querySelectorAll<HTMLInputElement>("input")).some(
+        (el) => el.placeholder === placeholder,
+      );
+    expect(isMounted("e.g. My Anthropic Key")).toBe(false);
+    expect(isMounted("e.g. anthropic-personal")).toBe(false);
+
+    // Opening the disclosure mounts both.
+    openAdvancedFields();
+    expect(isMounted("e.g. My Anthropic Key")).toBe(true);
+    expect(isMounted("e.g. anthropic-personal")).toBe(true);
+  });
+
+  test("a duplicate Key keeps Advanced open even when the user collapses it", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={["anthropic"]}
+          defaultProviderType="anthropic"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    // The seeded Key dedupes to "anthropic-2", so type the colliding name.
+    openAdvancedFields();
+    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
+      target: { value: "anthropic" },
+    });
+
+    // Try to collapse the disclosure — the pending error must force it open,
+    // keeping the Key field and its validation message visible.
+    const disclosure = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((b) => b.textContent?.includes("Display name"));
+    if (!disclosure) {
+      throw new Error("expected the Advanced disclosure button");
+    }
+    fireEvent.click(disclosure);
+
+    expect(document.body.textContent).toContain(
+      'A connection named "anthropic" already exists.',
+    );
+    expect(
+      Array.from(document.querySelectorAll<HTMLInputElement>("input")).some(
+        (el) => el.placeholder === "e.g. anthropic-personal",
+      ),
+    ).toBe(true);
   });
 
   test("clicking Cancel invokes onCancel", () => {

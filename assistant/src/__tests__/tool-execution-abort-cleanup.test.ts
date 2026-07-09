@@ -224,9 +224,7 @@ describe("shell tool — process cleanup on AbortSignal", () => {
 
 describe("file tools — abort signal pre-check", () => {
   test("file_write tool: execute still succeeds when context has no signal", async () => {
-    const { getTool } = await import("../tools/registry.js");
-    await import("../tools/filesystem/write.js");
-    const fileWriteTool = getTool("file_write")!;
+    const { fileWriteTool } = await import("../tools/filesystem/write.js");
     const dir = makeTempDir();
 
     const result = await fileWriteTool.execute(
@@ -239,9 +237,7 @@ describe("file tools — abort signal pre-check", () => {
   });
 
   test("file_write tool: execute succeeds with a non-aborted signal", async () => {
-    const { getTool } = await import("../tools/registry.js");
-    await import("../tools/filesystem/write.js");
-    const fileWriteTool = getTool("file_write")!;
+    const { fileWriteTool } = await import("../tools/filesystem/write.js");
     const dir = makeTempDir();
     const ac = new AbortController();
 
@@ -255,9 +251,7 @@ describe("file tools — abort signal pre-check", () => {
   });
 
   test("file_read tool: execute succeeds when context has no signal", async () => {
-    const { getTool } = await import("../tools/registry.js");
-    await import("../tools/filesystem/read.js");
-    const fileReadTool = getTool("file_read")!;
+    const { fileReadTool } = await import("../tools/filesystem/read.js");
     const dir = makeTempDir();
     writeFileSync(join(dir, "read-me.txt"), "content to read");
 
@@ -271,9 +265,7 @@ describe("file tools — abort signal pre-check", () => {
   });
 
   test("file_read tool: execute succeeds with a non-aborted signal", async () => {
-    const { getTool } = await import("../tools/registry.js");
-    await import("../tools/filesystem/read.js");
-    const fileReadTool = getTool("file_read")!;
+    const { fileReadTool } = await import("../tools/filesystem/read.js");
     const dir = makeTempDir();
     writeFileSync(join(dir, "read-me2.txt"), "readable");
     const ac = new AbortController();
@@ -292,14 +284,11 @@ describe("file tools — abort signal pre-check", () => {
     // regardless of the signal. The ToolExecutor.execute() wrapper is
     // responsible for checking signal.aborted before dispatching; the tool
     // itself is not expected to check it. This test documents that contract.
-    const { getTool } = await import("../tools/registry.js");
-    await import("../tools/filesystem/write.js");
+    const { fileWriteTool } = await import("../tools/filesystem/write.js");
 
     const dir = makeTempDir();
     const ac = new AbortController();
     ac.abort(); // pre-aborted
-
-    const fileWriteTool = getTool("file_write")!;
 
     // When invoked directly (not through ToolExecutor), the sync write runs.
     const result = await fileWriteTool.execute(
@@ -516,13 +505,8 @@ describe("WorkspaceGitService — abort signal propagation", () => {
 
 describe("bash (sandboxed) shell tool — process cleanup on AbortSignal", () => {
   test("kills child process when signal fires mid-execution", async () => {
-    // Import shell.ts (registered as 'bash') after mocks are in place.
-    const { getTool } = await import("../tools/registry.js");
-    await import("../tools/terminal/shell.js");
-
-    // Assert registration — a missing tool signals a real regression, not a skip.
-    expect(getTool("bash")).toBeDefined();
-    const bashTool = getTool("bash")!;
+    // Import shell.ts (the 'bash' tool) after mocks are in place.
+    const { shellTool: bashTool } = await import("../tools/terminal/shell.js");
 
     const dir = makeTempDir();
     const ac = new AbortController();
@@ -540,11 +524,7 @@ describe("bash (sandboxed) shell tool — process cleanup on AbortSignal", () =>
   });
 
   test("kills child process immediately when signal is pre-aborted", async () => {
-    const { getTool } = await import("../tools/registry.js");
-    await import("../tools/terminal/shell.js");
-
-    expect(getTool("bash")).toBeDefined();
-    const bashTool = getTool("bash")!;
+    const { shellTool: bashTool } = await import("../tools/terminal/shell.js");
 
     const dir = makeTempDir();
     const ac = new AbortController();
@@ -559,11 +539,7 @@ describe("bash (sandboxed) shell tool — process cleanup on AbortSignal", () =>
   });
 
   test("short command completes normally with a non-aborted signal attached", async () => {
-    const { getTool } = await import("../tools/registry.js");
-    await import("../tools/terminal/shell.js");
-
-    expect(getTool("bash")).toBeDefined();
-    const bashTool = getTool("bash")!;
+    const { shellTool: bashTool } = await import("../tools/terminal/shell.js");
 
     const dir = makeTempDir();
     const ac = new AbortController();

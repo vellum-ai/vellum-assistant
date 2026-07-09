@@ -88,7 +88,7 @@ export async function executeContactMerge(
       ``,
       `Surviving contact (${merged.id}):`,
       `  Name: ${displayName}`,
-      `  Interactions: ${merged.interactionCount}`,
+      `  Interactions: ${merged.interactionCount ?? 0}`,
       merged.notes ? `  Notes: ${merged.notes}` : null,
       merged.channels.length > 0 ? `  Channels:\n${channelList}` : null,
       ``,

@@ -32,7 +32,13 @@ const conversationDiskViewRealSnapshot = {
   ) as Record<string, unknown>),
 };
 let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
-let mockLlmProfiles: Record<string, unknown> = {};
+// Disable the catalog default so resolution lands on llm.default.
+const disabledCatalogDefaultProfiles: Record<string, unknown> = {
+  balanced: { source: "managed", status: "disabled" },
+};
+let mockLlmProfiles: Record<string, unknown> = {
+  ...disabledCatalogDefaultProfiles,
+};
 let mockLlmActiveProfile: string | undefined;
 
 // ── Module mocks (must precede imports of the module under test) ─────
@@ -83,7 +89,29 @@ mock.module("../config/loader.js", () => ({
         },
       },
       profiles: mockLlmProfiles,
-      callSites: {},
+      // The call-site tweak applies under BOTH resolution semantics (the
+      // legacy cascade layers it over llm.default; override-or-default
+      // applies it over the winner), so the small context window that the
+      // overflow/compaction tests depend on holds regardless of the
+      // override-or-default-resolution flag.
+      callSites: {
+        mainAgent: {
+          contextWindow: {
+            enabled: true,
+            maxInputTokens: 100000,
+            targetBudgetRatio: 0.3,
+            compactThreshold: 0.8,
+            summaryBudgetRatio: 0.05,
+            overflowRecovery: {
+              enabled: true,
+              safetyMarginRatio: 0.05,
+              maxAttempts: 3,
+              interactiveLatestTurnCompression: "summarize",
+              nonInteractiveLatestTurnCompression: "truncate",
+            },
+          },
+        },
+      },
       activeProfile: mockLlmActiveProfile,
       pricingOverrides: [],
     },
@@ -134,7 +162,9 @@ const runMockReducer = async (
   cfg: unknown,
   state: unknown,
 ) => {
-  if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
+  if (mockReducerStepFn) {
+    return mockReducerStepFn(msgs, cfg, state);
+  }
   return {
     messages: msgs,
     tier: "forced_compaction",
@@ -181,7 +211,9 @@ function makeOverflowLadderStub(): {
 } {
   let state: unknown;
   const reduceOverflowOneRung = async (msgs: Message[], opts: unknown) => {
-    if (!state) state = makeInitialReducerState();
+    if (!state) {
+      state = makeInitialReducerState();
+    }
     const step = (await runMockReducer(msgs, opts, state)) as {
       state: unknown;
     };
@@ -377,10 +409,6 @@ mock.module("../apps/app-store.js", () => ({
   getAppsDir: () => "/tmp/apps",
 }));
 
-mock.module("../apps/app-git-service.js", () => ({
-  commitAppTurnChanges: () => Promise.resolve(),
-}));
-
 mock.module("../daemon/conversation-memory.js", () => ({
   prepareMemoryContext: async (
     _ctx: unknown,
@@ -437,7 +465,9 @@ const getSlackCompactionWatermarkForPrefixMock = mock(
     context: typeof mockSlackChronologicalContext,
     compactedRenderedMessages: number,
   ) => {
-    if (!context || compactedRenderedMessages <= 0) return null;
+    if (!context || compactedRenderedMessages <= 0) {
+      return null;
+    }
     const start = context.compactableStartIndex;
     const end = Math.min(
       context.renderedMessages.length,
@@ -575,9 +605,15 @@ mock.module("../daemon/conversation-error.js", () => ({
   classifyConversationError: (_err: unknown, _ctx: unknown) =>
     mockConversationErrorClassification,
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
-    if (!ctx.aborted) return false;
-    if (err instanceof DOMException && err.name === "AbortError") return true;
-    if (err instanceof Error && err.name === "AbortError") return true;
+    if (!ctx.aborted) {
+      return false;
+    }
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return true;
+    }
+    if (err instanceof Error && err.name === "AbortError") {
+      return true;
+    }
     return false;
   },
   buildConversationErrorMessage: (
@@ -740,13 +776,6 @@ function makeCtx(
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    traceEmitter: {
-      emit: () => {},
-    } as unknown as Conversation["traceEmitter"],
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -839,7 +868,7 @@ function makeCompactionResult(
 
 beforeEach(() => {
   mockUiConfig = {};
-  mockLlmProfiles = {};
+  mockLlmProfiles = { ...disabledCatalogDefaultProfiles };
   mockLlmActiveProfile = undefined;
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
@@ -1245,16 +1274,10 @@ describe("session-agent-loop", () => {
       };
       const events: ServerMessage[] = [];
       const activityStates: unknown[][] = [];
-      const traceEvents: unknown[][] = [];
       const ctx = makeCtx({
         emitActivityState: (...args: unknown[]) => {
           activityStates.push(args);
         },
-        traceEmitter: {
-          emit: (...args: unknown[]) => {
-            traceEvents.push(args);
-          },
-        } as unknown as Conversation["traceEmitter"],
       });
       const runSpy = spyOn(ctx.agentLoop, "run");
 
@@ -1266,19 +1289,6 @@ describe("session-agent-loop", () => {
         "idle",
         "error_terminal",
         { anchor: "global", requestId: "test-req" },
-      ]);
-      expect(traceEvents[0]).toEqual([
-        "request_error",
-        expect.stringContaining("Storage is critically low"),
-        expect.objectContaining({
-          requestId: "test-req",
-          status: "error",
-          attributes: expect.objectContaining({
-            errorCategory: "disk_pressure",
-            errorCode: "DISK_SPACE_CRITICAL",
-            diskPressureReason: "trusted-contact",
-          }),
-        }),
       ]);
       expect(events.find((event) => event.type === "error")).toMatchObject({
         type: "error",
@@ -1539,132 +1549,6 @@ describe("session-agent-loop", () => {
       const call = recordRequestLogMock.mock.calls[0] as unknown as unknown[];
       expect(call[1]).toBe(JSON.stringify(rawRequest));
       expect(call[2]).toBe(JSON.stringify(rawResponse));
-    });
-  });
-
-  describe("llm_call_started / llm_call_finished trace coherence", () => {
-    // Regression: the started event was emitted by emitLlmCallStartedIfNeeded
-    // using deps.ctx.provider.name (the default), while the finished event used
-    // event.actualProvider. For routed calls (e.g. gpt-5.5 via openai from an
-    // anthropic-default conversation) this caused started="anthropic" /
-    // finished="openai". The fix passes providerName explicitly from handleUsage
-    // so both events always agree, even when text_delta never fires (tool-only).
-
-    test("started and finished use the same provider name for a streaming response", async () => {
-      // In the real routing scenario, text_delta fires while
-      // CallSiteRoutingProvider's AsyncLocalStorage context holds the active
-      // transport name (covered by call-site-routing-provider.test.ts). Here we
-      // verify the loop wiring: when text_delta fires before usage, the started
-      // event reflects the provider that will also appear on finished.
-      const traceEvents: Array<{
-        label: string;
-        attrs: Record<string, unknown>;
-      }> = [];
-
-      const ctx = makeCtx({
-        // The loop replays the text block as a `text_delta` before `usage`.
-        providerResponses: [
-          {
-            content: [{ type: "text", text: "Hi." }],
-            model: "gpt-5.5-2026-04-23",
-            usage: { inputTokens: 10, outputTokens: 2 },
-            stopReason: "end_turn",
-            actualProvider: "openai",
-          },
-        ],
-        // Provider name matches actualProvider so both paths agree.
-        provider: {
-          name: "openai",
-          sendMessage: async () => ({
-            content: [{ type: "text", text: "title" }],
-            model: "mock",
-            usage: { inputTokens: 0, outputTokens: 0 },
-            stopReason: "end_turn",
-          }),
-        } as unknown as Conversation["provider"],
-        traceEmitter: {
-          emit: (
-            event: string,
-            label: string,
-            payload: { attributes?: Record<string, unknown> },
-          ) => {
-            if (event === "llm_call_started" || event === "llm_call_finished") {
-              traceEvents.push({ label, attrs: payload.attributes ?? {} });
-            }
-          },
-        } as unknown as Conversation["traceEmitter"],
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
-
-      const started = traceEvents.find(
-        (e) =>
-          e.label.startsWith("LLM call to") && !e.label.endsWith("finished"),
-      );
-      const finished = traceEvents.find((e) => e.label.endsWith("finished"));
-
-      expect(started).toBeDefined();
-      expect(finished).toBeDefined();
-      expect(started!.attrs["provider"]).toBe("openai");
-      expect(finished!.attrs["provider"]).toBe("openai");
-    });
-
-    test("started and finished use the same provider name for a tool-call-only response (no text_delta)", async () => {
-      // This is the harder case: no text_delta fires, so emitLlmCallStartedIfNeeded
-      // fires as a fallback inside handleUsage *after* the AsyncLocalStorage
-      // context in CallSiteRoutingProvider has already exited. Without passing
-      // providerName explicitly it would say "anthropic".
-      const traceEvents: Array<{
-        label: string;
-        attrs: Record<string, unknown>;
-      }> = [];
-
-      const ctx = makeCtx({
-        // An empty-content response: no text block fires `text_delta`, so the
-        // started event falls back to the resolved usage provider name.
-        providerResponses: [
-          {
-            content: [],
-            model: "gpt-5.5-2026-04-23",
-            usage: { inputTokens: 10, outputTokens: 2 },
-            stopReason: "end_turn",
-            actualProvider: "openai",
-          },
-        ],
-        provider: {
-          name: "anthropic",
-          sendMessage: async () => ({
-            content: [{ type: "text", text: "title" }],
-            model: "mock",
-            usage: { inputTokens: 0, outputTokens: 0 },
-            stopReason: "end_turn",
-          }),
-        } as unknown as Conversation["provider"],
-        traceEmitter: {
-          emit: (
-            event: string,
-            label: string,
-            payload: { attributes?: Record<string, unknown> },
-          ) => {
-            if (event === "llm_call_started" || event === "llm_call_finished") {
-              traceEvents.push({ label, attrs: payload.attributes ?? {} });
-            }
-          },
-        } as unknown as Conversation["traceEmitter"],
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
-
-      const started = traceEvents.find(
-        (e) =>
-          e.label.startsWith("LLM call to") && !e.label.endsWith("finished"),
-      );
-      const finished = traceEvents.find((e) => e.label.endsWith("finished"));
-
-      expect(started).toBeDefined();
-      expect(finished).toBeDefined();
-      expect(started!.attrs["provider"]).toBe("openai");
-      expect(finished!.attrs["provider"]).toBe("openai");
     });
   });
 
@@ -2407,6 +2291,44 @@ describe("session-agent-loop", () => {
         publishSyncInvalidationMock.mock.calls as unknown as Array<[string[]]>
       ).filter((args) => args[0]?.includes("conversation:test-conv:metadata"));
       expect(metadataPublishes).toHaveLength(1);
+    });
+
+    test("terminal message_complete is emitted before the deferred indexer runs (LUM-2654)", async () => {
+      // Regression guard for LUM-2654 ("long delay between last streaming token
+      // and send-button becoming available"). The terminal `message_complete`
+      // SSE — which the client uses to flip stop→send — is emitted before the
+      // non-critical finalize side-effects (memory segment indexing, lexical
+      // indexing, attention projection), which the orchestrator drains from its
+      // end-of-turn tail. The tail runs within the turn, so the indexer still
+      // fires exactly once; this test pins the ordering by asserting
+      // `message_complete` is already in the client stream when it does.
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const events: ServerMessage[] = [];
+      let messageCompleteSeenWhenIndexed: boolean | undefined;
+      indexMessageNowMock.mockImplementationOnce(async () => {
+        messageCompleteSeenWhenIndexed = events.some(
+          (event) => event.type === "message_complete",
+        );
+        return { indexedSegments: 0, enqueuedJobs: 0 };
+      });
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("indexed reply")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+
+      // The deferred indexer runs exactly once, within the turn…
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
+      // …and only after the terminal SSE that re-enables the composer.
+      expect(messageCompleteSeenWhenIndexed).toBe(true);
     });
 
     test("handleMessageComplete skips sync invalidation when attention state unchanged", async () => {

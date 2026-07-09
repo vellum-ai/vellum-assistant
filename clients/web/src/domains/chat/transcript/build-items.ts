@@ -3,6 +3,8 @@
 // messages + interaction state and emits a flat item array that the
 // Transcript component renders via a virtualised list.
 
+import type { ConversationContentBlock } from "@vellumai/assistant-api";
+
 import type {
   DisplayMessage,
   EphemeralMetaResult,
@@ -12,6 +14,7 @@ import type {
   PendingContactRequestItem,
   TranscriptItem,
 } from "@/domains/chat/transcript/types";
+import { filterMessageSurfaces } from "@/domains/chat/utils/map-message-surfaces";
 
 export interface BuildTranscriptItemsInput {
   messages: DisplayMessage[];
@@ -32,6 +35,18 @@ export interface BuildTranscriptItemsInput {
    *  the transcript tail. Not persisted; cleared on the next send/switch. */
   ephemeralMetaResults?: EphemeralMetaResult[];
   showOnboardingChoice?: boolean;
+  /**
+   * Client half of the `skill-creation-card` kill-switch (the assistant half
+   * gates card *insertion*). When false, `skill_card` surfaces are stripped
+   * from every message before projection: a mixed message just loses those
+   * surface blocks, and a message left with nothing renderable is skipped
+   * entirely. Gating here — rather than only returning `null` inside
+   * `SkillCreatedCard` — matters because the message row's surface wrapper
+   * and hover-action trailer render unconditionally, so a persisted
+   * card-only message would otherwise leave a blank ~24px assistant row.
+   * Omitted/undefined behaves as enabled.
+   */
+  skillCardsEnabled?: boolean;
 }
 
 /**
@@ -62,6 +77,74 @@ function toMessageItem(message: DisplayMessage): MessageItem {
 }
 
 /**
+ * Flag-off skill-card projection cache, keyed by the original message ref
+ * (same identity discipline as `messageItemCache` — see its comment for why
+ * reference stability matters at streaming rebuild rates). `null` marks
+ * "nothing left to render: skip the row". Only consulted while the
+ * skill-card flag is off, so a runtime flag flip can never serve a stale
+ * projection — the flag-on path bypasses this cache entirely.
+ */
+const skillCardStripCache = new WeakMap<
+  DisplayMessage,
+  DisplayMessage | null
+>();
+
+/**
+ * Strip `skill_card` surfaces from a message for the flag-off kill-switch.
+ * Returns the message untouched when it carries no skill cards, a stripped
+ * copy (surfaces / contentOrder / contentBlocks filtered in lockstep) when
+ * other renderable content remains, or `null` when the skill cards were the
+ * only renderable content — the caller drops the row entirely so no blank
+ * assistant row (empty surface wrapper + hover-action trailer) is left
+ * behind for persisted card-only messages.
+ */
+function withoutSkillCardSurfaces(
+  message: DisplayMessage,
+): DisplayMessage | null {
+  const cached = skillCardStripCache.get(message);
+  if (cached !== undefined) return cached;
+  const stripped = filterMessageSurfaces(
+    message,
+    (s) => s.surfaceType !== "skill_card",
+  );
+  const result =
+    stripped === message
+      ? message
+      : hasRenderableContent(stripped)
+        ? stripped
+        : null;
+  skillCardStripCache.set(message, result);
+  return result;
+}
+
+/**
+ * Whether the transcript row for this message would still visibly render
+ * anything. Checks the canonical `contentBlocks` projection (what
+ * `TranscriptMessageBody` renders), the attachment / Slack regions, and —
+ * defensively — the legacy positional arrays. Blank text/thinking runs do
+ * not count: the daemon strips the `_surfaceFallback` text for
+ * surface-capable clients, so a card-only message has none of these.
+ */
+function hasRenderableContent(message: DisplayMessage): boolean {
+  return Boolean(
+    message.contentBlocks?.some(isRenderableBlock) ||
+      message.surfaces?.length ||
+      message.attachments?.length ||
+      message.slackMessage ||
+      message.toolCalls?.length ||
+      message.textSegments?.some((s) => s.trim().length > 0) ||
+      message.thinkingSegments?.some((s) => s.trim().length > 0),
+  );
+}
+
+function isRenderableBlock(block: ConversationContentBlock): boolean {
+  if (block.type === "text") return block.text.trim().length > 0;
+  if (block.type === "thinking") return block.thinking.trim().length > 0;
+  // tool_use / surface / attachment blocks always carry visible content.
+  return true;
+}
+
+/**
  * Project the chat state into an ordered flat list of transcript items.
  *
  * Rules:
@@ -72,6 +155,9 @@ function toMessageItem(message: DisplayMessage): MessageItem {
  *      within the message body by `TranscriptMessageBody` via `contentOrder` —
  *      they are NOT separate transcript rows. Tool calls stay inside the
  *      `MessageItem` — the Transcript component flattens them at render time.
+ *      When `skillCardsEnabled` is false, `skill_card` surfaces are stripped
+ *      before projection and a message left with nothing renderable is
+ *      skipped (see `withoutSkillCardSurfaces`).
  *
  *   2. After the last message, emit trailers in this exact order:
  *        a. `ThinkingItem` when `isThinking`.
@@ -93,16 +179,16 @@ export function buildTranscriptItems(
   const items: TranscriptItem[] = [];
 
   for (const message of messages) {
-    // Daemon-injected run lifecycle notifications (subagent + ACP + backgrounded
-    // bash/host_bash completion, user-role messages carrying subagentNotification
-    // / acpNotification / backgroundToolNotification metadata) stay in `messages`
+    // Daemon-injected run lifecycle notifications (subagent + ACP + any wake
+    // trigger, i.e. user-role messages carrying subagentNotification /
+    // acpNotification / backgroundEventNotification metadata) stay in `messages`
     // state so the LLM transcript and store rehydration still see them, but they
     // are internal scaffolding and are never rendered in the transcript — the run
-    // surfaces through its inline progress card.
+    // surfaces through its inline card instead.
     if (
       message.isSubagentNotification ||
       message.isAcpNotification ||
-      message.isBackgroundToolNotification
+      message.isBackgroundEventNotification
     ) {
       continue;
     }
@@ -115,7 +201,18 @@ export function buildTranscriptItems(
       continue;
     }
 
-    items.push(toMessageItem(message));
+    // skill-creation-card kill-switch (see `skillCardsEnabled`). Like the
+    // notification suppression above this is projection-only — `messages`
+    // state keeps the original row.
+    const projected =
+      input.skillCardsEnabled === false
+        ? withoutSkillCardSurfaces(message)
+        : message;
+    if (projected === null) {
+      continue;
+    }
+
+    items.push(toMessageItem(projected));
   }
 
   for (const result of input.ephemeralMetaResults ?? []) {

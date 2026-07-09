@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// Legacy-shaped fixtures (llm.default-centric): pinned to the flag-off
+// cascade; see llm-resolver-override-or-default.test.ts for flag-on
+// resolution semantics.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import type { AssistantConfig } from "../config/types.js";
@@ -168,6 +177,11 @@ describe("ProviderCommitMessageGenerator", () => {
   // 3c. No resolvable provider despite keys
   test('no resolvable provider with keys present → returns deterministic, reason "provider_not_initialized"', async () => {
     mockSecureKeys = { anthropic: "sk-test-key" };
+    currentConfig.llm.profiles = {
+      ...currentConfig.llm.profiles,
+      // Disable the catalog default so resolution lands on llm.default.
+      "cost-optimized": { source: "managed", status: "disabled" },
+    };
     resolvedProvider = null;
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {

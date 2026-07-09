@@ -1,4 +1,9 @@
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { getEffectiveProfiles } from "../config/default-profile-catalog.js";
+import {
+  isOverrideOrDefaultResolutionEnabled,
+  resolveCallSiteConfig,
+  selectWinningProfile,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { safeStringSlice } from "../util/unicode.js";
@@ -135,14 +140,19 @@ export function resolveUsageAttribution(
   const callSiteProfile = normalizeProfileId(
     llm.callSites?.[callSite]?.profile,
   );
-  const profile = resolveAppliedProfile({
-    callSite,
-    profiles: llm.profiles ?? {},
-    activeProfile,
-    overrideProfile,
-    forceOverrideProfile: input.forceOverrideProfile === true,
-    callSiteProfile,
-  });
+  // Under override-or-default semantics the resolver's own winner selection
+  // is the single source of truth for which profile applied — attribution
+  // must never re-derive precedence and drift from dispatch.
+  const profile = isOverrideOrDefaultResolutionEnabled()
+    ? appliedProfileFromWinnerSelection(callSite, llm, overrideProfile, input)
+    : resolveAppliedProfile({
+        callSite,
+        profiles: getEffectiveProfiles(llm.profiles),
+        activeProfile,
+        overrideProfile,
+        forceOverrideProfile: input.forceOverrideProfile === true,
+        callSiteProfile,
+      });
 
   return {
     callSite,
@@ -157,6 +167,30 @@ export function resolveUsageAttribution(
       profile.appliedProfile != null
         ? (mixSelections.get(profile.appliedProfile) ?? null)
         : null,
+  };
+}
+
+function appliedProfileFromWinnerSelection(
+  callSite: LLMCallSite,
+  llm: Parameters<typeof selectWinningProfile>[1],
+  overrideProfile: string | null,
+  input: UsageAttributionInput,
+): Pick<UsageAttributionSnapshot, "appliedProfile" | "profileSource"> {
+  const selection = selectWinningProfile(callSite, llm, {
+    ...(overrideProfile != null ? { overrideProfile } : {}),
+    ...(input.selectionSeed != null
+      ? { selectionSeed: input.selectionSeed }
+      : {}),
+  });
+  const sourceBySelection = {
+    override: "conversation",
+    active: "active",
+    call_site: "call_site",
+    default: "default",
+  } as const;
+  return {
+    appliedProfile: selection.profileName,
+    profileSource: sourceBySelection[selection.source],
   };
 }
 

@@ -94,6 +94,9 @@ const realDbConnection = {
 };
 const realDense = { ...(await import("../dense.js")) };
 const realPageContent = { ...(await import("../page-content.js")) };
+const realConversationRegistry = {
+  ...(await import("../../../../../daemon/conversation-registry.js")),
+};
 
 let providerStub: Provider | null = null;
 mock.module("@vellumai/plugin-api", () => ({
@@ -118,6 +121,12 @@ mock.module("../dense.js", () => ({
   ...realDense,
   denseLane: async (...args: Parameters<typeof realDense.denseLane>) =>
     carryMockActive ? [] : realDense.denseLane(...args),
+  // Defensive: this fixture never sets denseK > 0, so orchestrate does not call
+  // the scored lane today — but mirror the delegation so a future denseK > 0
+  // test can't silently reach real Qdrant after the orchestrate swap.
+  denseLaneScored: async (
+    ...args: Parameters<typeof realDense.denseLaneScored>
+  ) => (carryMockActive ? [] : realDense.denseLaneScored(...args)),
 }));
 
 let testSqlite: Database;
@@ -212,6 +221,7 @@ mock.module("../page-content.js", () => ({
 // daemon module graph out of this test process — same call as injection.test.ts).
 const histories = new Map<string, Message[]>();
 mock.module("../../../../../daemon/conversation-registry.js", () => ({
+  ...realConversationRegistry,
   findConversationOrSubagent: (conversationId: string) => {
     const messages = histories.get(conversationId);
     return messages ? { messages } : undefined;

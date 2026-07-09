@@ -10,7 +10,7 @@ import {
   peekCachedGuardianDelivery,
 } from "../contacts/guardian-delivery-reader.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
@@ -91,7 +91,9 @@ function resolveGuardianUserFile(trustContext: TrustContext): string | null {
     }
   }
   const guardian = peekGuardianForChannel(trustContext.sourceChannel);
-  return guardian ? (guardianDeliveryUserFile(guardian) ?? "guardian.md") : null;
+  return guardian
+    ? (guardianDeliveryUserFile(guardian) ?? "guardian.md")
+    : null;
 }
 
 /**
@@ -103,10 +105,7 @@ function resolveGuardianUserFile(trustContext: TrustContext): string | null {
 function guardianDeliveryUserFile(
   guardian: GuardianDelivery,
 ): string | undefined {
-  const contact = findContactByAddress(
-    guardian.channelType,
-    guardian.address,
-  );
+  const contact = findContactByAddress(guardian.channelType, guardian.address);
   return contact?.userFile ?? undefined;
 }
 
@@ -147,13 +146,18 @@ function resolveUserFilename(
         trustContext.sourceChannel,
         trustContext.requesterExternalUserId,
       );
-      if (contactWithChannels) {
-        filename = contactWithChannels.userFile ?? null;
+      if (contactWithChannels?.userFile) {
+        filename = contactWithChannels.userFile;
       } else if (trustContext.trustClass === "guardian") {
         // Managed desktop: the JWT principal ID used as requesterExternalUserId
         // may differ from the contact channel's address (they are separate
-        // identity concepts). Read the guardian's user file keyed by the
-        // verdict-bound guardian identity.
+        // identity concepts) — OR the guardian's contact row exists but carries
+        // no explicit userFile yet (the normal post-hatch state, since the
+        // guardian contact is created with a null userFile and onboarding
+        // writes the file on disk, not the column). Either way, read the
+        // guardian's user file keyed by the verdict-bound guardian identity so
+        // the onboarding profile (written to guardian.md) loads instead of
+        // falling through to users/default.md.
         filename = resolveGuardianUserFile(trustContext);
       }
     } else if (trustContext.trustClass === "guardian") {

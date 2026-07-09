@@ -26,6 +26,17 @@ describe("MemoryV3ConfigSchema", () => {
       selectorPromptPath: null,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
       entity: { enabled: true, idfFloor: 4, cap: 8 },
+      gate: {
+        enabled: true,
+        denseThreshold: 0.66,
+        sparseThreshold: 0.35,
+        sparseOnlyThreshold: 0.75,
+        denseClusterThreshold: 0.6,
+        denseClusterMaxDelta: 0.02,
+        topK: 5,
+        bm25NormK: null,
+        bypassForCore: false,
+      },
     });
   });
 
@@ -120,5 +131,58 @@ describe("MemoryV3ConfigSchema", () => {
       MemoryV3ConfigSchema.parse({ edge: { perSeed: 0 } }),
     ).toThrow();
     expect(() => MemoryV3ConfigSchema.parse({ edge: { cap: -1 } })).toThrow();
+  });
+
+  test("accepts a partial gate override, defaulting the rest", () => {
+    const parsed = MemoryV3ConfigSchema.parse({
+      gate: { denseThreshold: 0.6 },
+    });
+    expect(parsed.gate).toEqual({
+      enabled: true,
+      denseThreshold: 0.6,
+      sparseThreshold: 0.35,
+      sparseOnlyThreshold: 0.75,
+      denseClusterThreshold: 0.6,
+      denseClusterMaxDelta: 0.02,
+      topK: 5,
+      bm25NormK: null,
+      bypassForCore: false,
+    });
+  });
+
+  test("gate.enabled defaults true, accepts false, rejects non-booleans", () => {
+    expect(MemoryV3ConfigSchema.parse({}).gate.enabled).toBe(true);
+    expect(
+      MemoryV3ConfigSchema.parse({ gate: { enabled: false } }).gate.enabled,
+    ).toBe(false);
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ gate: { enabled: "yes" } }),
+    ).toThrow();
+  });
+
+  test("gate.topK rejects zero and non-integers", () => {
+    expect(() => MemoryV3ConfigSchema.parse({ gate: { topK: 0 } })).toThrow();
+    expect(() => MemoryV3ConfigSchema.parse({ gate: { topK: 2.5 } })).toThrow();
+  });
+
+  test("gate thresholds reject out-of-range values", () => {
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ gate: { denseThreshold: 1.5 } }),
+    ).toThrow();
+  });
+
+  test("gate.bm25NormK accepts null and a positive number, rejects non-positive", () => {
+    expect(
+      MemoryV3ConfigSchema.parse({ gate: { bm25NormK: null } }).gate.bm25NormK,
+    ).toBe(null);
+    expect(
+      MemoryV3ConfigSchema.parse({ gate: { bm25NormK: 1.2 } }).gate.bm25NormK,
+    ).toBe(1.2);
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ gate: { bm25NormK: 0 } }),
+    ).toThrow();
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ gate: { bm25NormK: -1 } }),
+    ).toThrow();
   });
 });

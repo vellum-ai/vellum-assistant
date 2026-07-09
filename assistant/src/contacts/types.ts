@@ -1,3 +1,5 @@
+/** Gateway-sourced: carried on trust verdicts and stamped at the serve layer,
+ *  never persisted on the local {@link Contact}. */
 export type ContactRole = "guardian" | "contact";
 
 export type ContactType = "human" | "assistant";
@@ -30,9 +32,6 @@ export interface Contact {
   displayName: string;
   /** Free-text notes about this contact (e.g. relationship, communication preferences). */
   notes: string | null;
-  role: ContactRole;
-  lastInteraction: number | null;
-  interactionCount: number;
   createdAt: number;
   updatedAt: number;
   contactType: ContactType;
@@ -55,12 +54,6 @@ export interface ContactChannel {
   address: string;
   isPrimary: boolean;
   externalChatId: string | null;
-  inviteId: string | null;
-  // INFO telemetry (not ACL): interaction stats written locally by the gateway's
-  // handle-inbound mirror. Model-facing turn context reads these.
-  lastSeenAt: number | null;
-  interactionCount: number;
-  lastInteraction: number | null;
   updatedAt: number | null;
   createdAt: number;
 }

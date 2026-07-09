@@ -11,10 +11,14 @@ name: Deploy Web SPA (reusable)
 # a $GITHUB_ENV/$GITHUB_PATH/BASH_ENV hook (or a fake `gcloud`) that would fire
 # in the post-auth publish step and exfiltrate the short-lived GCP credentials.
 #
-# The caller matrixes over environments (fail-fast: false), so each environment
-# is an independent instance of this workflow — a failure building `dev` never
-# blocks `staging`/`production`. `production` gates at `build-and-package` if it
-# has required reviewers; `deploy` then inherits the gate via `needs`.
+# Three single-environment callers, one per environment: `deploy-web-spa` in
+# dev-release.yaml deploys `dev` on every hourly dev release (gated on ci-web +
+# register-release); release.yml's `deploy-web-spa-staging` deploys `staging`
+# on staging releases and `deploy-web-spa-production` deploys `production` when
+# a release goes live — last, after the GitHub Release is published and the
+# release is registered with the platform, so a failed go-live never leaves
+# the prod UI ahead of the backend. The `environment:` binding only resolves each
+# environment's secrets/vars; no environment gates on required reviewers.
 on:
   workflow_call:
     inputs:
@@ -45,18 +49,10 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/web
 
       - name: Generate API clients
         run: bun run openapi-ts
-
-      # clients/web's vite.config.ts imports vite-plugin-local-mode, which pulls in
-      # @vellumai/local-mode and its transitive @vellumai/environments file: dep.
-      # Both must have their own node_modules so the config loads at build time.
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
 
       # Build per environment so the bundle bakes in this environment's public
       # config — the Stripe publishable key differs per env (pk_test_ vs pk_live_)

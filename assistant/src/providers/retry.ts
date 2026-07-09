@@ -13,6 +13,10 @@ import {
   isRetryableNetworkError,
   sleep,
 } from "../util/retry.js";
+import {
+  isAnthropicDelegatingGateway,
+  isAnthropicModel,
+} from "./anthropic-gateway-shared.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
 import { isAdaptiveThinkingOnlyModel } from "./model-catalog.js";
 import {
@@ -43,6 +47,7 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "anthropic",
   "openai",
   "openrouter",
+  "vercel-ai-gateway",
   "fireworks",
   "together",
 ]);
@@ -54,15 +59,43 @@ const DISABLED_THINKING_USES_EFFORT_PROVIDERS = new Set([
   "openai",
   "fireworks",
   "together",
+  "openrouter",
+  "vercel-ai-gateway",
 ]);
+
+// Whether a disabled `thinking` config must be encoded as `effort: "none"`
+// for this provider/model. Gateway calls that delegate `anthropic/*` models
+// to the Anthropic Messages API are excluded: the delegate honors a disabled
+// `thinking` natively and `effort` keeps its Anthropic meaning there, so
+// forcing it would diverge from the direct `anthropic` provider.
+function disabledThinkingForcesEffortNone(
+  providerName: string,
+  model: unknown,
+): boolean {
+  if (!DISABLED_THINKING_USES_EFFORT_PROVIDERS.has(providerName)) {
+    return false;
+  }
+  return !(
+    isAnthropicDelegatingGateway(providerName) &&
+    typeof model === "string" &&
+    isAnthropicModel(model)
+  );
+}
 
 /**
  * Providers that consume the `thinking` config. Anthropic uses it directly on
- * the wire; OpenRouter either forwards it to its Anthropic-compatible path or
- * translates it into the unified `reasoning` parameter on OpenAI-compat calls;
- * Gemini reads `thinking.level` to populate `thinkingConfig.thinkingLevel`.
+ * the wire; OpenRouter forwards it on its Anthropic delegate path and
+ * translates it into `reasoning` for OpenAI-compat calls; the Vercel AI
+ * Gateway consumes it only on its `anthropic/*` delegate path (no wire effect
+ * for its other models); Gemini reads `thinking.level` to populate
+ * `thinkingConfig.thinkingLevel`.
  */
-const THINKING_AWARE_PROVIDERS = new Set(["anthropic", "openrouter", "gemini"]);
+const THINKING_AWARE_PROVIDERS = new Set([
+  "anthropic",
+  "openrouter",
+  "vercel-ai-gateway",
+  "gemini",
+]);
 
 /**
  * Providers that consume Gemini-only thinking extras (`level`,
@@ -169,6 +202,22 @@ function isRetryableError(error: unknown): boolean {
   if (isRetryableStreamError(error)) return true;
   if (isRetryableTransportAbort(error)) return true;
   return isRetryableNetworkError(error);
+}
+
+/**
+ * Whether the request lands on Anthropic's Messages API wire: direct Anthropic
+ * calls, plus OpenRouter / Vercel AI Gateway calls that delegate `anthropic/*`
+ * models to it. Anthropic's thinking wire constraints (forced tool_choice,
+ * temperature ≠ 1, top_p) apply exactly to these requests.
+ */
+function targetsAnthropicWire(providerName: string, model: string): boolean {
+  if (providerName === "anthropic") {
+    return true;
+  }
+  if (isAnthropicDelegatingGateway(providerName)) {
+    return isAnthropicModel(model);
+  }
+  return false;
 }
 
 /**
@@ -358,7 +407,7 @@ function normalizeSendMessageOptions(
 
   if (
     isThinkingConfigDisabled(nextConfig.thinking) &&
-    DISABLED_THINKING_USES_EFFORT_PROVIDERS.has(providerName)
+    disabledThinkingForcesEffortNone(providerName, nextConfig.model)
   ) {
     nextConfig.effort = "none";
   }
@@ -406,35 +455,31 @@ function normalizeSendMessageOptions(
     }
   }
 
-  // Anthropic (and OpenRouter fronting Anthropic) rejects requests that
+  // Anthropic (and the gateways fronting Anthropic) rejects requests that
   // combine extended thinking with forced tool use (`tool_choice.type` of
   // `"tool"` or `"any"`).  Strip thinking when both are present so the
   // request doesn't fail with a 400 "Thinking may not be enabled when
   // tool_choice forces tool use."  `tool_choice: { type: "auto" }` is
   // compatible with thinking and left untouched.
   //
-  // For OpenRouter, only strip when routing to an `anthropic/*` model —
-  // non-Anthropic reasoning models (e.g. xAI Grok) translate `thinking`
-  // into OpenRouter's `reasoning` parameter via `buildExtraCreateParams`
-  // and may support reasoning with forced tool_choice.
+  // For OpenRouter and the Vercel AI Gateway, only strip when routing to an
+  // `anthropic/*` model — non-Anthropic reasoning models don't share this
+  // wire constraint (e.g. OpenRouter translates `thinking` into its
+  // `reasoning` parameter via `buildExtraCreateParams` and may support
+  // reasoning with forced tool_choice).
   const isThinkingForcedToolConflict = (() => {
     if (nextConfig.thinking == null) return false;
     if (isThinkingConfigDisabled(nextConfig.thinking)) return false;
     const tc = nextConfig.tool_choice as Record<string, unknown> | undefined;
     if (tc == null || (tc.type !== "tool" && tc.type !== "any")) return false;
-    if (providerName === "anthropic") return true;
-    if (providerName === "openrouter") {
-      const model =
-        typeof nextConfig.model === "string" ? nextConfig.model : "";
-      return model.startsWith("anthropic/");
-    }
-    return false;
+    const model = typeof nextConfig.model === "string" ? nextConfig.model : "";
+    return targetsAnthropicWire(providerName, model);
   })();
   if (isThinkingForcedToolConflict) {
     delete nextConfig.thinking;
   }
 
-  // Anthropic (and OpenRouter fronting Anthropic) rejects requests that
+  // Anthropic (and the gateways fronting Anthropic) rejects requests that
   // combine extended thinking with `temperature` ≠ 1. From the API:
   //   "`temperature` may only be set to 1 when thinking is enabled or in
   //   adaptive mode."
@@ -451,9 +496,10 @@ function normalizeSendMessageOptions(
   //
   // Scope:
   // - Anthropic: always.
-  // - OpenRouter fronting `anthropic/*`: same wire constraint applies.
+  // - OpenRouter / Vercel AI Gateway fronting `anthropic/*`: same wire
+  //   constraint applies.
   // - Other providers: not our problem here (e.g. OpenAI reasoning models
-  //   strip `temperature` upstream; non-Anthropic OpenRouter reasoning
+  //   strip `temperature` upstream; non-Anthropic gateway reasoning
   //   models don't have this exact constraint).
   //
   // Anthropic applies the same constraint family to `top_p` (see the `top_p`
@@ -473,13 +519,7 @@ function normalizeSendMessageOptions(
         return false;
       }
     }
-    if (providerName === "anthropic") {
-      return true;
-    }
-    if (providerName === "openrouter") {
-      return model.startsWith("anthropic/");
-    }
-    return false;
+    return targetsAnthropicWire(providerName, model);
   })();
   const isThinkingTemperatureConflict = (() => {
     if (!isThinkingEnabledOnAnthropicWire) {
@@ -508,7 +548,7 @@ function normalizeSendMessageOptions(
     delete nextConfig.temperature;
   }
 
-  // Anthropic (and OpenRouter fronting Anthropic) also rejects requests that
+  // Anthropic (and the gateways fronting Anthropic) also rejects requests that
   // combine extended thinking with *any* `top_p` modification. Unlike
   // `temperature` there is no "=== 1 is fine" exception — when thinking is
   // enabled the request must not set `top_p` at all. Drop it with a warn log
@@ -713,6 +753,7 @@ export class RetryProvider implements Provider {
               retryAfterHeader: retryAfter !== undefined,
               errorType,
               provider: this.name,
+              message: error instanceof Error ? error.message : String(error),
             },
             "Retrying after transient error",
           );

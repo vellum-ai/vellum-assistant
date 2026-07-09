@@ -65,8 +65,10 @@ import type {
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import {
+  isOverrideOrDefaultResolutionEnabled,
   resolveDefaultProfileKey,
   resolveProfilelessModelKey,
+  selectWinningProfile,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -83,7 +85,7 @@ import type {
   SubagentToolGateMode,
   WakeToolContextPin,
 } from "../daemon/tool-setup-types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { resolveTurnCallSite } from "../daemon/turn-call-site.js";
 import {
   broadcastWakeSurface,
@@ -619,6 +621,18 @@ export async function wakeAgentForOpportunity(
   const startedAt = nowFn();
 
   return runSingleFlight(conversationId, async () => {
+    // Snapshot the conversation's resting trust before the resolver runs, so
+    // it can be restored after. The resolver leaves the wake's trust on the
+    // conversation, and a following no-trust wake would otherwise read it via
+    // tool setup's `currentTurnTrustContext ?? trustContext` fallback. Null
+    // when the conversation isn't resident yet (a fresh hydrate or a fork).
+    let priorPersistentTrust: TrustContext | null = null;
+    if (opts.trustContext) {
+      const { findConversation } =
+        await import("../daemon/conversation-registry.js");
+      priorPersistentTrust =
+        findConversation(conversationId)?.trustContext ?? null;
+    }
     const resolved = await resolveTarget(opts);
     if (resolved === "archived") {
       log.info(
@@ -640,6 +654,18 @@ export async function wakeAgentForOpportunity(
     }
     const conversation = resolved;
 
+    // Put the resting trust back on exit. The guard restores only our own
+    // elevation, so a trust re-set by another turn is left alone; it's also
+    // idempotent, so the several call sites below are safe.
+    const restorePersistentWakeTrust = (): void => {
+      if (
+        opts.trustContext &&
+        conversation.trustContext === opts.trustContext
+      ) {
+        conversation.setTrustContext(priorPersistentTrust);
+      }
+    };
+
     const { decision: diskPressureDecision, status: diskPressureStatus } =
       classifyWakeDiskPressurePolicy(opts);
     if (diskPressureDecision.action === "block") {
@@ -657,6 +683,7 @@ export async function wakeAgentForOpportunity(
         },
         "agent-wake: blocked by disk pressure cleanup mode",
       );
+      restorePersistentWakeTrust();
       return {
         invoked: false,
         producedToolCalls: false,
@@ -670,6 +697,7 @@ export async function wakeAgentForOpportunity(
         { conversationId, source },
         "agent-wake: conversation still processing after timeout; skipping",
       );
+      restorePersistentWakeTrust();
       return { invoked: false, producedToolCalls: false, reason: "timeout" };
     }
 
@@ -698,13 +726,21 @@ export async function wakeAgentForOpportunity(
       overrideProfile,
       forceOverrideProfile,
     });
+    // Same winner-selection sourcing as the agent loop's key: under
+    // override-or-default semantics a hand-mirrored chain would disagree
+    // with dispatch (a non-forced override now wins on every call site).
     const modelProfileKey =
-      (forceOverrideProfile || callSite === "mainAgent"
-        ? overrideProfile
-        : undefined) ??
-      resolveDefaultProfileKey(callSite, config.llm) ??
-      overrideProfile ??
-      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      (isOverrideOrDefaultResolutionEnabled()
+        ? selectWinningProfile(callSite, config.llm, {
+            ...(overrideProfile != null ? { overrideProfile } : {}),
+            selectionSeed: conversationId,
+          }).profileName
+        : ((forceOverrideProfile || callSite === "mainAgent"
+            ? overrideProfile
+            : undefined) ??
+          resolveDefaultProfileKey(callSite, config.llm) ??
+          overrideProfile ??
+          resolveDefaultProfileKey("mainAgent", config.llm))) ??
       resolveProfilelessModelKey(callSite, config.llm, {
         ...(overrideProfile != null ? { overrideProfile } : {}),
         ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
@@ -1424,6 +1460,8 @@ export async function wakeAgentForOpportunity(
 
       return { invoked: true, producedToolCalls };
     } finally {
+      // Put the conversation's resting trust back on every exit path.
+      restorePersistentWakeTrust();
       // The success path (above) already called setProcessing(false)
       // + drainQueue after tail persist. This catch-all handles the
       // error and early-return paths where no tail was produced — those

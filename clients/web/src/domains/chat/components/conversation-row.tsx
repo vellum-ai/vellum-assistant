@@ -1,9 +1,10 @@
 /**
- * A single conversation row in the assistant sidebar: a pin/processing
- * toggle, the title, an actions menu, an optional right-click context
- * menu, and optional drag-reorder. Action callbacks, active/processing
- * state, and the drag controller come from
- * {@link useConversationListContext}.
+ * A single conversation row in the assistant sidebar: the title, a
+ * trailing status indicator (attention / processing / unread), an
+ * actions menu, an optional right-click context menu, and optional
+ * drag-reorder. Pin/unpin lives in the actions and context menus.
+ * Action callbacks, active/processing state, and the drag controller
+ * come from {@link useConversationListContext}.
  *
  * Rendered in every list surface — Pinned, Recents, channel sections,
  * custom groups, and the collapsed-rail flyout. The flyout passes
@@ -18,7 +19,10 @@ import {
   renderConversationMenuItems,
   type ConversationMenuItemsProps,
 } from "@/domains/chat/components/conversation-actions-menu";
-import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
+import {
+  hasThreadStatus,
+  ThreadStatusIndicator,
+} from "@/domains/chat/components/thread-status-indicator";
 import type { DragReorderItemProps } from "@/domains/chat/hooks/use-drag-reorder";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { isConversationPinned } from "@/domains/chat/utils/group-conversations";
@@ -132,26 +136,32 @@ export function ConversationRow({
   const menuProps = buildMenuProps(ctx, conversation);
   const select = onSelect ?? ctx.onSelect;
 
+  const status = {
+    isProcessing,
+    needsAttention,
+    hasUnread: conversation.hasUnseenLatestAssistantMessage === true,
+  };
+  const dragProps = buildDragProps(ctx, conversation, dragSection, dragSiblings);
+
   const panelItem = (
     <PanelItem
-      leadingSlot={
-        <ThreadPinToggle
-          conversation={conversation}
-          isProcessing={isProcessing}
-          needsAttention={needsAttention}
-          onPinToggle={ctx.onPin ? () => ctx.onPin?.(conversation) : undefined}
-        />
-      }
       label={conversation.title ?? "Untitled"}
       marqueeOnHover={marquee}
       active={conversationId === ctx.activeConversationId}
       onSelect={() => select(conversationId)}
+      badge={hasThreadStatus(status) ? <ThreadStatusIndicator {...status} /> : undefined}
       trailingAction={<ConversationActionsMenu {...menuProps} />}
-      {...buildDragProps(ctx, conversation, dragSection, dragSiblings)}
+      {...dragProps}
+      className={cn(
+        "h-[30px] p-[6px] text-[var(--content-default)]",
+        dragProps.className,
+      )}
     />
   );
 
-  if (!withContextMenu) return panelItem;
+  if (!withContextMenu) {
+    return panelItem;
+  }
 
   return (
     <ContextMenu.Root>

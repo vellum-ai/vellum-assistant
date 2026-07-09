@@ -213,6 +213,7 @@ describe("countConversations", () => {
       createConversation("live-1");
       const archived = createConversation("archived-1");
       rawRun(
+        "test:archiveConversation",
         "UPDATE conversations SET archived_at = ? WHERE id = ?",
         Date.now(),
         archived.id,
@@ -226,6 +227,7 @@ describe("countConversations", () => {
       const a1 = createConversation("archived-1");
       const a2 = createConversation("archived-2");
       rawRun(
+        "test:archiveConversations",
         "UPDATE conversations SET archived_at = ? WHERE id IN (?, ?)",
         Date.now(),
         a1.id,
@@ -239,6 +241,7 @@ describe("countConversations", () => {
       createConversation("live-1");
       const archived = createConversation("archived-1");
       rawRun(
+        "test:archiveConversation",
         "UPDATE conversations SET archived_at = ? WHERE id = ?",
         Date.now(),
         archived.id,
@@ -301,6 +304,7 @@ describe("listConversations", () => {
     // GIVEN a conversation with group_id system:scheduled but conversationType standard
     const conv = createConversation("schedule-routed");
     rawRun(
+      "test:setGroupScheduled",
       "UPDATE conversations SET group_id = 'system:scheduled' WHERE id = ?",
       conv.id,
     );
@@ -335,6 +339,7 @@ describe("listConversations", () => {
     // GIVEN a standard conversation routed to system:scheduled
     const scheduledRouted = createConversation("schedule-routed");
     rawRun(
+      "test:setGroupScheduled",
       "UPDATE conversations SET group_id = 'system:scheduled' WHERE id = ?",
       scheduledRouted.id,
     );
@@ -342,6 +347,7 @@ describe("listConversations", () => {
     // AND a standard conversation routed to system:background
     const backgroundRouted = createConversation("background-routed");
     rawRun(
+      "test:setGroupBackground",
       "UPDATE conversations SET group_id = 'system:background' WHERE id = ?",
       backgroundRouted.id,
     );
@@ -375,6 +381,7 @@ describe("listConversations", () => {
       createConversation("live-1");
       const archived = createConversation("archived-1");
       rawRun(
+        "test:archiveConversation",
         "UPDATE conversations SET archived_at = ? WHERE id = ?",
         Date.now(),
         archived.id,
@@ -393,6 +400,7 @@ describe("listConversations", () => {
       createConversation("live-1");
       const archived = createConversation("archived-1");
       rawRun(
+        "test:archiveConversation",
         "UPDATE conversations SET archived_at = ? WHERE id = ?",
         Date.now(),
         archived.id,
@@ -411,6 +419,7 @@ describe("listConversations", () => {
       createConversation("live-1");
       const archived = createConversation("archived-1");
       rawRun(
+        "test:archiveConversation",
         "UPDATE conversations SET archived_at = ? WHERE id = ?",
         Date.now(),
         archived.id,
@@ -434,6 +443,7 @@ describe("listConversations", () => {
       });
       const archivedFg = createConversation("archived-fg");
       rawRun(
+        "test:archiveConversations",
         "UPDATE conversations SET archived_at = ? WHERE id IN (?, ?)",
         Date.now(),
         archivedBg.id,
@@ -490,9 +500,24 @@ describe("listConversationsBySource", () => {
       source: "memory_v2_consolidation",
     });
     // Force distinct createdAt regardless of ms-clock granularity.
-    rawRun("UPDATE conversations SET created_at = ? WHERE id = ?", 1000, a.id);
-    rawRun("UPDATE conversations SET created_at = ? WHERE id = ?", 3000, b.id);
-    rawRun("UPDATE conversations SET created_at = ? WHERE id = ?", 2000, c.id);
+    rawRun(
+      "test:setCreatedAt",
+      "UPDATE conversations SET created_at = ? WHERE id = ?",
+      1000,
+      a.id,
+    );
+    rawRun(
+      "test:setCreatedAt",
+      "UPDATE conversations SET created_at = ? WHERE id = ?",
+      3000,
+      b.id,
+    );
+    rawRun(
+      "test:setCreatedAt",
+      "UPDATE conversations SET created_at = ? WHERE id = ?",
+      2000,
+      c.id,
+    );
 
     const results = listConversationsBySource("memory_v2_consolidation");
 
@@ -518,6 +543,7 @@ describe("listConversationsBySource", () => {
       source: "memory_v2_consolidation",
     });
     rawRun(
+      "test:archiveConversation",
       "UPDATE conversations SET archived_at = ? WHERE id = ?",
       Date.now(),
       conv.id,
@@ -536,6 +562,7 @@ describe("listConversationsBySource", () => {
     });
     createConversation({ title: "live", source: "memory_v2_consolidation" });
     rawRun(
+      "test:archiveConversation",
       "UPDATE conversations SET archived_at = ? WHERE id = ?",
       Date.now(),
       archived.id,
@@ -562,112 +589,61 @@ describe("listConversationsBySource", () => {
   });
 });
 
+// Content-arm (lexical candidate) surfacing behavior is covered in
+// `persistence/__tests__/conversation-queries-search.test.ts`, which mocks the
+// lexical index; this suite covers the title arm's surfacing rules.
 describe("searchConversations · surfaced conversations", () => {
   beforeEach(() => {
     resetTables();
   });
 
-  function insertMessage(
-    conversationId: string,
-    content: string,
-    createdAt = 1000,
-  ): void {
-    rawRun(
-      "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
-      `msg-${conversationId}-${createdAt}`,
-      conversationId,
-      "user",
-      content,
-      createdAt,
-    );
-  }
-
   function setSurfaced(conversationId: string): void {
     rawRun(
+      "test:setSurfaced",
       "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
       Date.now(),
       conversationId,
     );
   }
 
-  test("a surfaced background conversation is found by title search", () => {
+  test("a surfaced background conversation is found by title search", async () => {
     const surfaced = createConversation({
       title: "Quarterly metrics rollup",
       conversationType: "background",
     });
     setSurfaced(surfaced.id);
 
-    const results = searchConversations("Quarterly metrics");
+    const results = await searchConversations("Quarterly metrics");
 
     expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
   });
 
-  test("a surfaced background conversation is found by content search", () => {
-    const surfaced = createConversation({
-      title: "bg-run",
-      conversationType: "background",
-    });
-    setSurfaced(surfaced.id);
-    insertMessage(surfaced.id, "the flux capacitor needs recalibration");
-
-    const results = searchConversations("flux capacitor");
-
-    expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
-    expect(results[0]!.matchingMessages).toHaveLength(1);
-  });
-
-  test("a non-surfaced background conversation stays excluded from search", () => {
-    const background = createConversation({
+  test("a non-surfaced background conversation stays excluded from title search", async () => {
+    createConversation({
       title: "Quarterly metrics rollup",
       conversationType: "background",
     });
-    insertMessage(background.id, "the flux capacitor needs recalibration");
 
-    expect(searchConversations("Quarterly metrics")).toEqual([]);
-    expect(searchConversations("flux capacitor")).toEqual([]);
+    expect(await searchConversations("Quarterly metrics")).toEqual([]);
   });
 
-  test("private conversations are never included, even with surfaced_at set", () => {
+  test("private conversations are never included, even with surfaced_at set", async () => {
     const priv = createConversation("Quarterly metrics rollup");
     setConversationType(priv.id, "private");
     setSurfaced(priv.id);
-    insertMessage(priv.id, "the flux capacitor needs recalibration");
 
-    expect(searchConversations("Quarterly metrics")).toEqual([]);
-    expect(searchConversations("flux capacitor")).toEqual([]);
+    expect(await searchConversations("Quarterly metrics")).toEqual([]);
   });
 
-  test("surfaced subagent runs stay excluded from search", () => {
+  test("surfaced subagent runs stay excluded from title search", async () => {
     const subagent = createConversation({
       title: "Quarterly metrics rollup",
       conversationType: "background",
       source: "subagent",
     });
     setSurfaced(subagent.id);
-    insertMessage(subagent.id, "the flux capacitor needs recalibration");
 
-    expect(searchConversations("Quarterly metrics")).toEqual([]);
-    expect(searchConversations("flux capacitor")).toEqual([]);
-  });
-
-  test("LIKE content fallback (non-FTS-tokenizable query) honors surfacing", () => {
-    // Single-char queries produce no FTS tokens, exercising the LIKE fallback.
-    const surfaced = createConversation({
-      title: "bg-run",
-      conversationType: "background",
-    });
-    setSurfaced(surfaced.id);
-    insertMessage(surfaced.id, "review the C§ draft");
-
-    const hidden = createConversation({
-      title: "bg-hidden",
-      conversationType: "background",
-    });
-    insertMessage(hidden.id, "another C§ mention", 2000);
-
-    const results = searchConversations("C§");
-
-    expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
+    expect(await searchConversations("Quarterly metrics")).toEqual([]);
   });
 });
 
@@ -678,6 +654,7 @@ describe("listPinnedConversations · surfaced conversations", () => {
 
   function setSurfaced(conversationId: string): void {
     rawRun(
+      "test:setSurfaced",
       "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
       Date.now(),
       conversationId,
@@ -686,6 +663,7 @@ describe("listPinnedConversations · surfaced conversations", () => {
 
   function setPinned(conversationId: string): void {
     rawRun(
+      "test:setPinned",
       "UPDATE conversations SET is_pinned = 1 WHERE id = ?",
       conversationId,
     );
@@ -747,6 +725,7 @@ describe("getMessageRoleStatsByConversation", () => {
     createdAt: number,
   ): void {
     rawRun(
+      "test:insertMessage",
       "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
       `msg-${conversationId}-${role}-${createdAt}`,
       conversationId,

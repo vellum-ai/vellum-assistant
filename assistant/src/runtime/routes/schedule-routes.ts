@@ -11,7 +11,10 @@ import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../persistence/conversation-bootstrap.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
-import { getUsageCostForRun } from "../../persistence/llm-usage-store.js";
+import {
+  getUsageCostForRun,
+  listRunConversationIds,
+} from "../../persistence/llm-usage-store.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import {
   describeRRuleExpression,
@@ -109,6 +112,20 @@ const scheduleRunSchema = z.object({
   conversationId: z.string().nullable(),
   conversationExists: z.boolean(),
   conversationArchivedAt: z.number().nullable(),
+  // Every real conversation this firing touched. Script runs store a
+  // synthetic "script:<jobId>" sentinel in the legacy `conversationId` field,
+  // so their real conversations are recovered from the usage ledger via
+  // `cron_run_id`. Execute and wake runs contribute their legacy pointer as
+  // well. A pruned conversation keeps its entry with `exists` set to false so
+  // the UI can label it as unavailable.
+  conversations: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string().nullable(),
+      exists: z.boolean(),
+      archivedAt: z.number().nullable(),
+    }),
+  ),
   estimatedCostUsd: z.number(),
   createdAt: z.number(),
 });
@@ -321,11 +338,11 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
         { id: job.id, name: job.name, workflowName },
         "Workflow schedule created",
       );
+      return { schedule: serializeSchedule(job, new Map()) };
     } catch (err) {
       if (err instanceof Error) throw new BadRequestError(err.message);
       throw err;
     }
-    return handleListSchedules({});
   }
 
   if (mode === "script") {
@@ -352,11 +369,11 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
         timeoutMs,
       });
       log.info({ id: job.id, name: job.name }, "Script schedule created");
+      return { schedule: serializeSchedule(job, new Map()) };
     } catch (err) {
       if (err instanceof Error) throw new BadRequestError(err.message);
       throw err;
     }
-    return handleListSchedules({});
   }
 
   try {
@@ -372,11 +389,11 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
       inferenceProfile,
     });
     log.info({ id: job.id, name: job.name }, "Schedule created");
+    return { schedule: serializeSchedule(job, new Map()) };
   } catch (err) {
     if (err instanceof Error) throw new BadRequestError(err.message);
     throw err;
   }
-  return handleListSchedules({});
 }
 
 async function handleToggleSchedule(id: string, body: Record<string, unknown>) {
@@ -584,6 +601,25 @@ function handleListScheduleRuns(
       const conversation = r.conversationId
         ? getConversation(r.conversationId)
         : null;
+      // The usage ledger supplies every conversation stamped with this run's
+      // cron_run_id. The legacy single pointer is added on top, which covers
+      // runs whose usage predates cron_run_id stamping. The synthetic
+      // "script:<jobId>" sentinel never resolves to a conversation, so it
+      // drops out here on its own.
+      const runConversationIds = new Set(listRunConversationIds(r.id));
+      if (r.conversationId && conversation) {
+        runConversationIds.add(r.conversationId);
+      }
+      const conversations = [...runConversationIds].map((cid) => {
+        const c =
+          cid === r.conversationId ? conversation : getConversation(cid);
+        return {
+          id: cid,
+          title: c?.title ?? null,
+          exists: c != null,
+          archivedAt: c?.archivedAt ?? null,
+        };
+      });
       return {
         id: r.id,
         jobId: r.jobId,
@@ -596,6 +632,7 @@ function handleListScheduleRuns(
         conversationId: r.conversationId,
         conversationExists: conversation != null,
         conversationArchivedAt: conversation?.archivedAt ?? null,
+        conversations,
         estimatedCostUsd: getUsageCostForRun({
           cronRunId: r.id,
           conversationId: r.conversationId ?? undefined,
@@ -762,7 +799,7 @@ export const ROUTES: RouteDefinition[] = [
         .optional(),
     }),
     responseBody: z.object({
-      schedules: z.array(scheduleSchema).describe("Updated schedule list"),
+      schedule: scheduleSchema.describe("The created schedule"),
     }),
     handler: ({ body }: RouteHandlerArgs) => handleCreateSchedule(body ?? {}),
   },

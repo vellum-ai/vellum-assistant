@@ -110,7 +110,7 @@ mock.module("../../../daemon/conversation-store.js", () => ({
 }));
 
 mock.module("../../../persistence/raw-query.js", () => ({
-  rawGet: (sql: string, ...params: unknown[]) => {
+  rawGet: (_label: string, sql: string, ...params: unknown[]) => {
     rawGetCalls.push({ sql, params });
     return rawGetReturn;
   },

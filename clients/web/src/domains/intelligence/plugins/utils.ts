@@ -27,6 +27,12 @@ export function mergePlugins(
     version: p.version ?? undefined,
     path: p.path,
     issues: p.issues,
+    // Installed rows carry enablement; older daemons omit it (undefined).
+    enabled: p.enabled,
+    icon: p.icon,
+    // Bundled-icon signals; absent on the catalog and on pre-icon daemons.
+    hasIcon: p.hasIcon,
+    iconVersion: p.iconVersion,
   }));
 
   const installedNames = new Set(installedItems.map((i) => i.name));
@@ -67,8 +73,28 @@ export function filterByStatus(
   items: PluginListItem[],
   filter: PluginFilter,
 ): PluginListItem[] {
-  if (filter === "all") return items;
-  return items.filter((i) => i.status === filter);
+  switch (filter) {
+    case "all":
+      return items;
+    case "available":
+      return items.filter((i) => i.status === "available");
+    // Every installed plugin, regardless of enablement — offered instead of
+    // Active/Off on daemons that predate enable/disable.
+    case "installed":
+      return items.filter((i) => i.status === "installed");
+    // Active = installed & enabled. Enablement `undefined` (older daemons) is
+    // treated as active, so a plugin never silently disappears when the daemon
+    // predates enable/disable.
+    case "active":
+      return items.filter(
+        (i) => i.status === "installed" && i.enabled !== false,
+      );
+    // Off = installed & explicitly disabled.
+    case "off":
+      return items.filter(
+        (i) => i.status === "installed" && i.enabled === false,
+      );
+  }
 }
 
 /** First 7 chars of a commit SHA, matching git's default short form. */

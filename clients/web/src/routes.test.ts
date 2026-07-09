@@ -108,6 +108,38 @@ describe("remote web pairing route", () => {
   });
 });
 
+describe("credential entry route", () => {
+  // The one-time credential entry page must stay outside the auth-protected
+  // assistant app tree: the link recipient may have no Vellum session, and
+  // the single-use token in the request body is the only authorization.
+  test("matches outside the auth-protected assistant app tree", () => {
+    const matches =
+      matchRoutes(routeTree as never, "/assistant/credentials/enter") ?? [];
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.at(-1)?.pathname).toBe("/assistant/credentials/enter");
+    expect(hasRouteMiddleware("/assistant/credentials/enter?token=abc")).toBe(
+      false,
+    );
+  });
+
+  test("matches under the remote-gateway public path prefix basename", () => {
+    window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
+    window.history.pushState(
+      null,
+      "",
+      "/assistant-123/assistant/credentials/enter",
+    );
+
+    expect(getRouterBasename()).toBe("/assistant-123");
+    expect(
+      hasRouteMiddleware(
+        "/assistant-123/assistant/credentials/enter",
+        "/assistant-123",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("schedules routes", () => {
   // The Schedules tab and per-schedule deep links render the same lazy
   // HomePageRoute as /home, inside the auth-protected assistant tree.
@@ -124,6 +156,28 @@ describe("schedules routes", () => {
   test("captures the schedule id as a route param", () => {
     const matches = matchRoutes(routeTree as never, "/assistant/schedules/sch_123") ?? [];
     expect(matches.at(-1)?.params.scheduleId).toBe("sch_123");
+  });
+});
+
+describe("skills routes", () => {
+  test("captures the skill id as a route param", () => {
+    const matches =
+      matchRoutes(routeTree as never, "/assistant/skills/my-skill") ?? [];
+    expect(matches.at(-1)?.params.skillId).toBe("my-skill");
+  });
+
+  // Round-trip for namespaced skills.sh catalog ids (`org/repo/skill`):
+  // `routes.skills.detail` percent-encodes the id into a single path segment
+  // so `skills/:skillId` matches, and React Router decodes the param back to
+  // the raw id — the detail page must NOT decode again.
+  test("round-trips slash-containing skill ids through detail URLs", async () => {
+    const { routes } = await import("@/utils/routes");
+    const url = routes.skills.detail("org/repo/shared-skill");
+    expect(url).toBe("/assistant/skills/org%2Frepo%2Fshared-skill");
+
+    const matches = matchRoutes(routeTree as never, url) ?? [];
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.at(-1)?.params.skillId).toBe("org/repo/shared-skill");
   });
 });
 

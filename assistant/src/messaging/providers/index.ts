@@ -88,6 +88,9 @@ export async function deliverDirect(
   }
 
   const ctx = callbackContext(callbackUrl);
+  if (payload.slackStream && transport.streamReply) {
+    return transport.streamReply(ctx, payload);
+  }
   if (payload.reaction && transport.sendReaction) {
     return transport.sendReaction(ctx, payload);
   }

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, mock, test } from "bun:test";
 
+import type { VoiceTurnOptions } from "../../calls/voice-session-bridge.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -88,6 +89,14 @@ function createContext(overrides: Partial<LiveVoiceClientStartFrame> = {}): {
   };
 }
 
+function loudPcmChunk(amplitude = 8_000, sampleCount = 240): Uint8Array {
+  const buffer = Buffer.alloc(sampleCount * 2);
+  for (let index = 0; index < sampleCount; index += 1) {
+    buffer.writeInt16LE(amplitude, index * 2);
+  }
+  return new Uint8Array(buffer);
+}
+
 function createSessionWithTranscriber(
   transcriber = new MockStreamingTranscriber(),
 ) {
@@ -97,6 +106,17 @@ function createSessionWithTranscriber(
     resolveTranscriber: resolver,
   });
   return { frames, resolver, session, transcriber };
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  message = "Timed out waiting for live voice STT test condition",
+): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(message);
 }
 
 describe("LiveVoiceSession STT", () => {
@@ -114,8 +134,88 @@ describe("LiveVoiceSession STT", () => {
         seq: 1,
         sessionId: "session-123",
         conversationId: "conversation-123",
+        turnDetection: "manual",
       },
     ]);
+  });
+
+  test("marks transient transcriber errors recoverable while the session continues", async () => {
+    const { frames, session, transcriber } = createSessionWithTranscriber();
+
+    await session.start();
+    transcriber.emit({
+      type: "error",
+      category: "provider-error",
+      message: "whisper poll failed",
+    });
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+
+    expect(frames.find((frame) => frame.type === "error")).toMatchObject({
+      type: "error",
+      code: "invalid_field",
+      message: "whisper poll failed",
+      recoverable: true,
+    });
+
+    // The session is still live: audio keeps streaming to the transcriber.
+    await session.handleBinaryAudio(new Uint8Array([1, 2, 3]));
+    expect(transcriber.audioChunks.map((chunk) => [...chunk])).toEqual([
+      [1, 2, 3],
+    ]);
+  });
+
+  test("marks timeout transcriber errors recoverable", async () => {
+    const { frames, session, transcriber } = createSessionWithTranscriber();
+
+    await session.start();
+    transcriber.emit({
+      type: "error",
+      category: "timeout",
+      message: "request timed out",
+    });
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+
+    expect(frames.find((frame) => frame.type === "error")).toMatchObject({
+      type: "error",
+      message: "request timed out",
+      recoverable: true,
+    });
+  });
+
+  test("marks terminal transcriber errors non-recoverable", async () => {
+    const { frames, session, transcriber } = createSessionWithTranscriber();
+
+    await session.start();
+    transcriber.emit({
+      type: "error",
+      category: "auth",
+      message: "invalid credentials",
+    });
+    transcriber.emit({
+      type: "error",
+      category: "rate-limit",
+      message: "rate limited",
+    });
+    transcriber.emit({
+      type: "error",
+      category: "invalid-audio",
+      message: "unsupported audio",
+    });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "error").length === 3,
+    );
+
+    const errorFrames = frames.flatMap((frame) =>
+      frame.type === "error" ? [frame] : [],
+    );
+    expect(errorFrames.map((frame) => frame.message)).toEqual([
+      "invalid credentials",
+      "rate limited",
+      "unsupported audio",
+    ]);
+    for (const frame of errorFrames) {
+      expect(frame).not.toHaveProperty("recoverable");
+    }
   });
 
   test("forwards binary audio to the transcriber and emits STT frames", async () => {
@@ -179,6 +279,180 @@ describe("LiveVoiceSession STT", () => {
     ]);
   });
 
+  test("manual mode does not re-arm after a completed turn and rejects later audio", async () => {
+    const transcribers: MockStreamingTranscriber[] = [];
+    const resolver = mock(async () => {
+      const transcriber = new MockStreamingTranscriber();
+      transcribers.push(transcriber);
+      return transcriber;
+    });
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-123",
+      });
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { context, frames } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    // Give any stray speculative re-arm a chance to run.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+    expect(resolver).toHaveBeenCalledTimes(1);
+    expect(transcribers).toHaveLength(1);
+
+    await session.handleBinaryAudio(new Uint8Array([2]));
+
+    expect(transcribers[0]?.audioChunks.map((chunk) => [...chunk])).toEqual([
+      [1],
+    ]);
+    const errors = frames.filter((frame) => frame.type === "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      code: "invalid_audio_payload",
+      message: "Live voice audio received after push-to-talk release.",
+    });
+  });
+
+  test("sends tts_done even when the next transcriber's startup never resolves (server_vad)", async () => {
+    const firstTranscriber = new MockStreamingTranscriber();
+    let resolverCalls = 0;
+    const resolver: LiveVoiceStreamingTranscriberResolver = mock(async () => {
+      resolverCalls += 1;
+      if (resolverCalls === 1) return firstTranscriber;
+      return new Promise<StreamingTranscriber | null>(() => {});
+    });
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-123",
+      });
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+    });
+
+    await session.start();
+    // No detector turn is open, so ptt_release releases the utterance
+    // directly; the mock transcriber's stop() supplies the transcript.
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    await waitFor(() => resolverCalls === 2);
+
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+
+    // Speech ahead of the still-starting transcriber buffers instead of erroring.
+    await session.handleBinaryAudio(loudPcmChunk());
+
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+    expect(firstTranscriber.audioChunks).toEqual([]);
+  });
+
+  test("surfaces a re-arm startup failure after tts_done without failing the completed turn (server_vad)", async () => {
+    let resolverCalls = 0;
+    const resolver: LiveVoiceStreamingTranscriberResolver = mock(async () => {
+      resolverCalls += 1;
+      if (resolverCalls === 1) return new MockStreamingTranscriber();
+      throw new Error("next stt unavailable");
+    });
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-123",
+      });
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+      emitMetrics: true,
+    });
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+
+    const frameTypes = frames.map((frame) => frame.type);
+    expect(frameTypes.indexOf("tts_done")).toBeGreaterThanOrEqual(0);
+    expect(frameTypes.indexOf("tts_done")).toBeLessThan(
+      frameTypes.indexOf("error"),
+    );
+    const errorFrame = frames.find((frame) => frame.type === "error");
+    if (errorFrame?.type !== "error") {
+      throw new Error("Expected a live voice error frame");
+    }
+    expect(errorFrame.message).toContain("next stt unavailable");
+    expect(
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+      ),
+    ).toBe(true);
+    expect(
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_cancelled",
+      ),
+    ).toBe(false);
+  });
+
+  test("stops the late transcriber when the session closes during re-arm (server_vad)", async () => {
+    const secondTranscriber = new MockStreamingTranscriber();
+    let resolveSecond:
+      | ((transcriber: StreamingTranscriber | null) => void)
+      | undefined;
+    let resolverCalls = 0;
+    const resolver: LiveVoiceStreamingTranscriberResolver = mock(() => {
+      resolverCalls += 1;
+      if (resolverCalls === 1) {
+        return Promise.resolve(new MockStreamingTranscriber());
+      }
+      return new Promise<StreamingTranscriber | null>((resolve) => {
+        resolveSecond = resolve;
+      });
+    });
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-123",
+      });
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+    });
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    await waitFor(() => resolveSecond !== undefined);
+
+    await session.close("websocket_close");
+    resolveSecond?.(secondTranscriber);
+    await waitFor(() => secondTranscriber.stopped);
+
+    expect(secondTranscriber.started).toBe(false);
+    expect(secondTranscriber.stopped).toBe(true);
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+  });
+
   test("returns a readable error frame when streaming STT is unavailable", async () => {
     const { context, frames } = createContext();
     const resolver = mock(async () => null);
@@ -193,7 +467,7 @@ describe("LiveVoiceSession STT", () => {
     expect(frames).toHaveLength(1);
     expect(frames[0]).toMatchObject({
       type: "error",
-      code: "invalid_field",
+      code: "credentials_unavailable",
     });
     const [errorFrame] = frames;
     if (errorFrame?.type !== "error") {

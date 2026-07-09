@@ -88,6 +88,7 @@ import {
 } from "@/domains/chat/api/messages";
 import { surfaceConversation } from "@/domains/chat/api/conversations";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
+import { resolveSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import {
   ConversationNotFoundError,
   fetchConversationDetail,
@@ -268,7 +269,7 @@ export function useSendMessage({
   // sendMessageViaStream — low-level POST + polling fallback
   // -------------------------------------------------------------------------
   const sendMessageViaStream = useCallback(
-    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string): Promise<SendStreamResult> => {
+    async (content: string, epoch: number, turnId: string, attachmentIds: string[] = [], isDraft = false, clientMessageId?: string, isHidden = false): Promise<SendStreamResult> => {
       if (!activeConversationId || !assistantId) {
         return {
           status: "failed",
@@ -316,14 +317,32 @@ export function useSendMessage({
       const inferenceProfileForSend = useConversationStore
         .getState()
         .pendingDraftProfiles.get(requestConversationId);
+      // A per-chat plugin set the user picked in the composer before this
+      // conversation's row existed — mirrors `inferenceProfileForSend`. Only an
+      // EXPLICIT selection (an entry in the map, including an empty set) is
+      // forwarded; an untouched default has no entry and sends `undefined`.
+      // Gated on resolved daemon support — older daemons silently drop the
+      // field, so the version must hydrate before deciding (see
+      // `use-supports-new-chat-plugins`).
+      const draftPlugins = useConversationStore
+        .getState()
+        .pendingDraftPlugins.get(requestConversationId);
+      const enabledPluginsForSend =
+        draftPlugins && (await resolveSupportsNewChatPlugins())
+          ? [...draftPlugins].sort()
+          : undefined;
       const postResult = await postChatMessage(
         requestAssistantId,
         useServerMint ? null : requestConversationId,
         content,
-        attachmentIds,
-        onboardingContext ?? undefined,
-        clientMessageId,
-        inferenceProfileForSend,
+        {
+          attachmentIds,
+          onboarding: onboardingContext ?? undefined,
+          clientMessageId,
+          inferenceProfile: inferenceProfileForSend,
+          enabledPlugins: enabledPluginsForSend,
+          hidden: isHidden,
+        },
       );
       if (
         useServerMint &&
@@ -368,6 +387,15 @@ export function useSendMessage({
         useConversationStore
           .getState()
           .clearPendingDraftProfile(requestConversationId);
+      }
+      // Same lifecycle as the profile stash: the draft's plugin selection has
+      // now been persisted on the minted conversation, so drop this draft's
+      // entry. Cleared only on success — a failed send keeps the stash so a
+      // retry still carries the chosen plugins.
+      if (draftPlugins) {
+        useConversationStore
+          .getState()
+          .clearPendingDraftPlugins(requestConversationId);
       }
       if (onboardingDraftConversationIdRef.current === activeConversationId) {
         onboardingDraftConversationIdRef.current = null;
@@ -455,6 +483,25 @@ export function useSendMessage({
         };
       }
       if (hasMatchingActiveStream) {
+        return {
+          status: "ok",
+          userMessageId: postResult.messageId,
+          resolvedConversationId: postResult.conversationId,
+        };
+      }
+
+      if (isHidden) {
+        // Hidden sends (e.g. the onboarding "Let's chat" kickoff) never
+        // materialize a user row in `/messages` — the daemon suppresses it
+        // (see `conversation-routes.ts`) — so `pollForResponse`'s causal
+        // boundary (find the user message, then the assistant reply after it)
+        // can never match: the poll would spin the full timeout and then
+        // fire a spurious "Assistant did not respond in time." error even
+        // though the proactive greeting streamed in fine over SSE. Skip the
+        // poll entirely and lean on the reconciliation loop, which pulls the
+        // latest snapshot without needing a user-message boundary and folds
+        // the greeting in if the SSE stream dropped it.
+        startReconciliationLoop(epoch);
         return {
           status: "ok",
           userMessageId: postResult.messageId,
@@ -637,7 +684,17 @@ export function useSendMessage({
   // sendMessage — high-level send with UI state, queuing, draft resolution
   // -------------------------------------------------------------------------
   const sendMessage = useCallback(
-    async (content: string, attachments: DisplayAttachment[] = []) => {
+    async (
+      content: string,
+      attachments: DisplayAttachment[] = [],
+      opts: { hidden?: boolean } = {},
+    ) => {
+      // A hidden send (e.g. the onboarding "Let's chat" kickoff) drives a turn
+      // and the assistant's reply, but renders NO user bubble: skip the
+      // optimistic row here and the daemon suppresses the echo. Hidden sends are
+      // always a fresh first message (conversation idle), so they never take the
+      // queue path below.
+      const isHidden = opts.hidden === true;
       if (!activeConversationId || !assistantId) {
         setError({ message: "No active conversation. Please try again." });
         return;
@@ -723,7 +780,7 @@ export function useSendMessage({
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(willQueue ? { queueStatus: "queued" as const, queuePosition: 0 } : {}),
       };
-      addOptimisticSend(userMessage);
+      if (!isHidden) addOptimisticSend(userMessage);
       void getSoundManager().play("message_sent");
 
       // Queue path: POST to assistant (it queues internally) but don't
@@ -736,9 +793,7 @@ export function useSendMessage({
             assistantId,
             activeConversationId,
             content,
-            attachmentIds,
-            undefined,
-            clientMessageId,
+            { attachmentIds, clientMessageId, hidden: isHidden },
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);
@@ -831,6 +886,7 @@ export function useSendMessage({
           attachments.map((att) => att.id),
           isDraft,
           clientMessageId,
+          isHidden,
         );
 
         if (result.status === "failed") {

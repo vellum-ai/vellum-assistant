@@ -1,9 +1,14 @@
+import { existsSync } from "node:fs";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+
 import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
 import { v4 as uuid } from "uuid";
 
 import { getQdrantHttpPortEnv, getQdrantUrlEnv } from "../../config/env.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
+import { getDataDir } from "../../util/platform.js";
 
 const log = getLogger("qdrant-client");
 
@@ -85,6 +90,57 @@ export function stripLegacySparseSuffix(sentinel: string): string {
   return sentinel.replace(/:sparse-v\d+$/, "");
 }
 
+/**
+ * Marker file written before the v1 collection's destructive dimension/model
+ * recreate, cleared by the startup lifecycle hook once the `rebuild_index` job
+ * has been enqueued.
+ *
+ * Closes a data-loss window in {@link VellumQdrantClient.ensureCollection}: the
+ * `migrated` signal that tells the lifecycle hook to enqueue `rebuild_index`
+ * otherwise lives only in a local variable returned after `deleteCollection` +
+ * `createCollection` both succeed. If Qdrant fails between the delete and the
+ * return — or the process crashes — that signal is lost: the next startup finds
+ * the collection missing, recreates it empty, reports `migrated: false`, and
+ * the v1 vectors stay dropped until each row is individually re-touched.
+ * Persisting the intent on disk *before* the delete lets it survive crashes and
+ * transient failures: every later `ensureCollection` reports `migrated: true`
+ * until the hook enqueues the rebuild and clears the sentinel. Mirrors the v2
+ * reembed sentinel in `plugins/defaults/memory/v2/qdrant.ts`.
+ *
+ * Distinct from the in-collection model-identity sentinel point handled by
+ * {@link VellumQdrantClient.readSentinel} / `writeSentinel` — that records the
+ * embedding model; this records "a rebuild is owed".
+ */
+const REBUILD_SENTINEL_FILENAME = ".memory-v1-rebuild-required";
+
+function rebuildSentinelPath(): string {
+  return join(getDataDir(), REBUILD_SENTINEL_FILENAME);
+}
+
+function rebuildSentinelExists(): boolean {
+  return existsSync(rebuildSentinelPath());
+}
+
+async function writeRebuildSentinel(): Promise<void> {
+  const path = rebuildSentinelPath();
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, "");
+}
+
+/**
+ * Remove the rebuild sentinel after the startup lifecycle hook has enqueued the
+ * `rebuild_index` job. Idempotent — a missing file is not an error.
+ */
+export async function clearRebuildSentinel(): Promise<void> {
+  try {
+    await unlink(rebuildSentinelPath());
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err;
+    }
+  }
+}
+
 let _instance: VellumQdrantClient | null = null;
 
 export function getQdrantClient(): VellumQdrantClient {
@@ -129,7 +185,11 @@ export class VellumQdrantClient {
   async ensureCollection(): Promise<{ migrated: boolean }> {
     if (this.collectionReady) return { migrated: false };
 
-    let migrated = false;
+    // A leftover sentinel means a prior boot deleted the collection but never
+    // got to enqueue the rebuild (createCollection threw, or the process died
+    // before the lifecycle hook ran). Carry that signal forward until the hook
+    // clears it, even when the collection now looks freshly created or intact.
+    let migrated = rebuildSentinelExists();
 
     try {
       const exists = await this.client.collectionExists(this.collection);
@@ -186,7 +246,7 @@ export class VellumQdrantClient {
               },
               "Qdrant collection uses unnamed vectors (legacy) — deleting and recreating with named vectors. Embeddings will be re-indexed.",
             );
-            await this.client.deleteCollection(this.collection);
+            await this.deleteCollectionForRebuild();
             migrated = true;
             // Fall through to collection creation below
           } else if (dimMismatch || modelMismatch) {
@@ -207,17 +267,22 @@ export class VellumQdrantClient {
               },
               "Qdrant collection incompatible (dimension/model change) — deleting and recreating. Embeddings will be regenerated on demand.",
             );
-            await this.client.deleteCollection(this.collection);
+            await this.deleteCollectionForRebuild();
             migrated = true;
             // Fall through to collection creation below
           } else {
+            await this.reconcileSparseIndexOnDisk(info);
             if (await this.ensurePayloadIndexesSafe()) {
               this.collectionReady = true;
             }
             if (needsSentinelRewrite && this.embeddingModel) {
               await this.writeSentinel(this.embeddingModel);
             }
-            return { migrated: false };
+            // `migrated` is false in steady state; it is only true here when a
+            // prior recreate wrote the sentinel but never cleared it, in which
+            // case the rebuild is still owed against this (possibly empty)
+            // collection.
+            return { migrated };
           }
         } catch (err) {
           log.warn(
@@ -227,7 +292,7 @@ export class VellumQdrantClient {
           if (await this.ensurePayloadIndexesSafe()) {
             this.collectionReady = true;
           }
-          return { migrated: false };
+          return { migrated };
         }
       }
     } catch {
@@ -249,7 +314,10 @@ export class VellumQdrantClient {
           },
         },
         sparse_vectors: {
-          sparse: {}, // Qdrant auto-infers sparse vector params
+          // The sparse inverted index lives in RAM unless placed on disk
+          // explicitly; it grows with every indexed point, so it follows the
+          // same on-disk setting as the dense vectors and payloads.
+          sparse: { index: { on_disk: this.onDisk } },
         },
         hnsw_config: {
           on_disk: this.onDisk,
@@ -300,6 +368,65 @@ export class VellumQdrantClient {
     }
 
     return { migrated };
+  }
+
+  /**
+   * Delete the collection as the first half of a destructive dimension/model
+   * recreate. Persists the rebuild sentinel BEFORE the delete so a crash or
+   * transient Qdrant failure between the delete and the recreate still triggers
+   * `rebuild_index` on the next ensure call. Callers set `migrated = true` and
+   * fall through to recreation.
+   */
+  private async deleteCollectionForRebuild(): Promise<void> {
+    await writeRebuildSentinel();
+    await this.client.deleteCollection(this.collection);
+  }
+
+  /**
+   * Align an existing collection's sparse-index placement with the configured
+   * `onDisk` flag. Qdrant keeps the sparse inverted index in RAM unless the
+   * collection explicitly opts into on-disk, and collections keep whatever
+   * they were created with — so long-lived installs hold the whole index in
+   * RAM even when `onDisk` is set. `updateCollection` moves it in place (the
+   * optimizer rewrites segments in the background) without a reembed.
+   *
+   * Best-effort: a failed update logs and leaves the collection serving from
+   * its current index — search keeps working either way.
+   */
+  private async reconcileSparseIndexOnDisk(
+    info: Awaited<ReturnType<QdrantRestClient["getCollection"]>>,
+  ): Promise<void> {
+    const sparseParams = (
+      info.config?.params as
+        | {
+            sparse_vectors?: Record<
+              string,
+              { index?: { on_disk?: boolean | null } | null } | undefined
+            >;
+          }
+        | undefined
+    )?.sparse_vectors;
+    // No sparse config in the probe — nothing to move. (A collection without
+    // the `sparse` named vector cannot accept an index update for it.)
+    if (!sparseParams || !("sparse" in sparseParams)) return;
+
+    const current = sparseParams.sparse?.index?.on_disk ?? false;
+    if (current === this.onDisk) return;
+
+    try {
+      await this.client.updateCollection(this.collection, {
+        sparse_vectors: { sparse: { index: { on_disk: this.onDisk } } },
+      });
+      log.info(
+        { collection: this.collection, onDisk: this.onDisk },
+        "Moved sparse index placement on existing Qdrant collection",
+      );
+    } catch (err) {
+      log.warn(
+        { err, collection: this.collection, onDisk: this.onDisk },
+        "Failed to update sparse index placement — continuing with current index",
+      );
+    }
   }
 
   async upsert(

@@ -14,22 +14,22 @@ All call-related settings can be managed via `assistant config`:
 | `calls.callerIdentity.allowPerCallOverride` | Allow per-call caller identity selection                                                                                                                                                                                                  | `true`                                                                                                   |
 | `calls.callerIdentity.userNumber`           | E.164 phone number for user-number mode                                                                                                                                                                                                   | _(empty)_                                                                                                |
 | `calls.voice.language`                      | Language code for TTS and transcription                                                                                                                                                                                                   | `en-US`                                                                                                  |
-| `services.stt.provider`                     | STT provider for transcription and telephony. Determines the Twilio integration path at call setup time (Deepgram/Google use native ConversationRelay; OpenAI Whisper and xAI use media-stream).                                          | `deepgram`                                                                                               |
+| `services.stt.provider`                     | STT provider for transcription and telephony. The assistant transcribes call audio itself over the Twilio media stream (streaming when the provider supports it, batch otherwise), so calls require a working API key for this provider.  | `deepgram`                                                                                               |
 | `services.tts.provider`                     | Active TTS provider for speech synthesis. Must be a provider ID from the catalog (`elevenlabs`, `fish-audio`, `deepgram`, `xai`). New providers can be added via the catalog without code changes to call routing.                        | `elevenlabs`                                                                                             |
 | `services.tts.providers.<id>.*`             | Provider-specific settings block. Each catalog provider has its own settings namespace under `services.tts.providers.<id>`. See voice settings in the desktop/iOS app or run `assistant config list` for available settings per provider. | _(per-provider defaults)_                                                                                |
 
 ## TTS provider call-path behavior
 
-Each TTS provider uses one of two call-path modes during phone calls:
+During phone calls the assistant synthesizes audio server-side via the configured provider's API, transcodes it to mu-law, and streams it to Twilio over the media stream. Each provider's catalog entry declares its playback format:
 
-| Provider     | Call mode          | Description                                                                                                                                                              |
-| ------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `elevenlabs` | `native-twilio`    | Text tokens are forwarded to Twilio's ConversationRelay, which synthesizes audio via its built-in ElevenLabs integration.                                                |
-| `fish-audio` | `synthesized-play` | The assistant synthesizes audio server-side via Fish Audio's HTTP API and streams chunks to Twilio via play messages.                                                    |
-| `deepgram`   | `synthesized-play` | The assistant synthesizes audio server-side via Deepgram's HTTP API and streams chunks to Twilio via play messages. Uses the same API key as Deepgram speech-to-text.    |
-| `xai`        | `synthesized-play` | The assistant synthesizes audio server-side via xAI's HTTP API and streams chunks to Twilio via play messages. No native Twilio fallback (`allowNativeFallback: false`). |
+| Provider     | Playback format | Description                                                                                                                       |
+| ------------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `elevenlabs` | `pcm`           | Synthesizes PCM audio via the ElevenLabs API.                                                                                     |
+| `fish-audio` | `wav`           | Synthesizes WAV audio via Fish Audio's HTTP API. Requires a configured `referenceId`.                                             |
+| `deepgram`   | `pcm`           | Synthesizes PCM audio via Deepgram's HTTP API. Uses the same API key as Deepgram speech-to-text.                                  |
+| `xai`        | `pcm`           | Streams PCM audio via xAI's WebSocket endpoint.                                                                                   |
 
-Providers using `synthesized-play` add a small amount of latency compared to `native-twilio` because audio must be synthesized server-side before playback. The assistant handles chunk buffering and streaming automatically.
+Calls require a media-stream-playable TTS provider with a working API key. When the configured provider is not playable (unsupported format or missing credentials), the assistant falls back to a credentialed playable provider rather than letting the call go silent; if none exists, calls are blocked up front with a setup-required message.
 
 ## Adjusting settings
 

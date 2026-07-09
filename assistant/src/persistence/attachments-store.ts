@@ -20,6 +20,11 @@ import { basename, dirname, extname, join } from "node:path";
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import {
+  jpegFilenameFor,
+  normalizeImageBase64,
+  normalizeImageBytes,
+} from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { getConversationAttachmentsDirPath } from "./conversation-directories.js";
@@ -98,6 +103,7 @@ interface AttachmentRow {
 function getAttachmentRow(attachmentId: string): AttachmentRow | null {
   return (
     rawGet<AttachmentRow>(
+      "attachments:getAttachmentRow",
       `SELECT
          id,
          original_filename AS originalFilename,
@@ -122,6 +128,7 @@ function getMessageConversationContext(
 ): { conversationId: string; conversationCreatedAt: number } | null {
   return (
     rawGet<{ conversationId: string; conversationCreatedAt: number }>(
+      "attachments:getMessageConversationContext",
       `SELECT
          m.conversation_id AS conversationId,
          c.created_at AS conversationCreatedAt
@@ -135,6 +142,7 @@ function getMessageConversationContext(
 
 function listLinkedConversationIds(attachmentId: string): string[] {
   return rawAll<{ conversationId: string }>(
+    "attachments:listLinkedConversationIds",
     `SELECT DISTINCT m.conversation_id AS conversationId
      FROM message_attachments ma
      JOIN messages m ON m.id = ma.message_id
@@ -165,6 +173,7 @@ function cloneAttachmentRow(row: AttachmentRow): AttachmentRow {
 
   if (row.sourcePath) {
     rawRun(
+      "attachments:cloneAttachmentRow",
       `UPDATE attachments SET source_path = ? WHERE id = ?`,
       row.sourcePath,
       clonedId,
@@ -202,6 +211,7 @@ function persistAttachmentFilePath(
 ): void {
   if (sourcePath) {
     rawRun(
+      "attachments:persistFilePath:withSource",
       `UPDATE attachments
        SET file_path = ?, data_base64 = '', source_path = COALESCE(source_path, ?)
        WHERE id = ?`,
@@ -213,6 +223,7 @@ function persistAttachmentFilePath(
   }
 
   rawRun(
+    "attachments:persistFilePath:plain",
     `UPDATE attachments SET file_path = ?, data_base64 = '' WHERE id = ?`,
     targetPath,
     attachmentId,
@@ -236,7 +247,11 @@ function materializeAttachmentIntoConversation(
     dirname(row.filePath) === attachDir
   ) {
     if (row.dataBase64) {
-      rawRun(`UPDATE attachments SET data_base64 = '' WHERE id = ?`, row.id);
+      rawRun(
+        "attachments:materialize:clearData",
+        `UPDATE attachments SET data_base64 = '' WHERE id = ?`,
+        row.id,
+      );
     }
     return;
   }
@@ -323,6 +338,38 @@ function scopeAttachmentToConversation(
     conversationCreatedAt,
   );
   return row.id;
+}
+
+/**
+ * Scope a pre-uploaded attachment into a conversation WITHOUT linking it to a
+ * message, returning the scoped row's metadata. Mirrors {@link createInlineAttachment}
+ * for the already-uploaded case: it gives the persist path the final attachment
+ * id and stored MIME/size before it serializes the message content into a
+ * workspace reference. The message link is written separately once the message
+ * id exists. Returns null when the attachment row cannot be read after scoping.
+ */
+export function scopeAttachmentToMessageConversation(
+  conversationId: string,
+  conversationCreatedAt: number,
+  attachmentId: string,
+): (StoredAttachment & { filePath: string | null }) | null {
+  const scopedId = scopeAttachmentToConversation(
+    attachmentId,
+    conversationId,
+    conversationCreatedAt,
+  );
+  const row = getAttachmentRow(scopedId);
+  if (!row) return null;
+  return {
+    id: row.id,
+    originalFilename: row.originalFilename,
+    mimeType: row.mimeType,
+    sizeBytes: row.sizeBytes,
+    kind: row.kind,
+    thumbnailBase64: null,
+    createdAt: row.createdAt,
+    filePath: row.filePath ?? null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -518,7 +565,8 @@ export function validateAttachmentUpload(
 /**
  * Write raw bytes to the staging directory and register as a file-backed
  * attachment. Used by the multipart/form-data and application/octet-stream
- * upload paths.
+ * upload paths. HEIF/HEIC images are stored as JPEG masters so every client
+ * surface can render them; other formats are stored verbatim.
  *
  * @param filename  Original filename from the client
  * @param mimeType  MIME type of the file
@@ -530,20 +578,26 @@ export function uploadAttachmentFromBytes(
   mimeType: string,
   bytes: Uint8Array,
 ): StoredAttachment {
+  let norm = normalizeImageBytes(mimeType, bytes);
+  if (norm.converted && norm.bytes.length > MAX_UPLOAD_BYTES) {
+    norm = { mimeType, bytes, converted: false };
+  }
+  const storedFilename = norm.converted ? jpegFilenameFor(filename) : filename;
+
   const dir = join(getWorkspaceDir(), "data", "attachments");
   mkdirSync(dir, { recursive: true });
 
-  const sanitized = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const sanitized = storedFilename.replace(/[^a-zA-Z0-9._-]/g, "_");
   const stagingFilename = `${Date.now()}-${uuid().slice(0, 8)}-${sanitized}`;
   const stagedPath = join(dir, stagingFilename);
 
-  writeFileSync(stagedPath, bytes);
+  writeFileSync(stagedPath, norm.bytes);
 
   return uploadFileBackedAttachment(
-    filename,
-    mimeType,
+    storedFilename,
+    norm.mimeType,
     stagedPath,
-    bytes.length,
+    norm.bytes.length,
   );
 }
 
@@ -583,7 +637,12 @@ export function uploadFileBackedAttachment(
     })
     .run();
 
-  rawRun(`UPDATE attachments SET source_path = ? WHERE id = ?`, filePath, id);
+  rawRun(
+    "attachments:uploadFileBacked:sourcePath",
+    `UPDATE attachments SET source_path = ? WHERE id = ?`,
+    filePath,
+    id,
+  );
 
   return {
     id,
@@ -621,6 +680,7 @@ export function getSourcePathsForAttachments(
   if (attachmentIds.length === 0) return new Map();
   const placeholders = attachmentIds.map(() => "?").join(", ");
   const rows = rawAll<{ id: string; source_path: string }>(
+    "attachments:getSourcePaths",
     `SELECT id, source_path FROM attachments WHERE id IN (${placeholders}) AND source_path IS NOT NULL`,
     ...attachmentIds,
   );
@@ -638,6 +698,7 @@ export function getFilePathBySourcePath(
 ): string | null {
   try {
     const row = rawGet<{ file_path: string | null }>(
+      "attachments:getFilePathBySourcePath",
       `SELECT a.file_path FROM attachments a
        JOIN message_attachments ma ON ma.attachment_id = a.id
        JOIN messages m ON m.id = ma.message_id
@@ -658,10 +719,13 @@ export function getFilePathBySourcePath(
 }
 
 /**
- * Return the raw binary content for an attachment by reading from its
- * on-disk file path.
+ * Return the raw binary content for a stored attachment by reading from its
+ * on-disk file path (or its inline base64, for legacy rows).
  *
- * Returns null if the attachment does not exist or the file is missing.
+ * Returns null if the attachment does not exist or the file is missing. To
+ * resolve an image/file block's `source` (base64 or workspace reference) to
+ * bytes, use `mediaSourceBytes` / `resolveMediaSourceData` in
+ * `providers/media-resolve.ts`, which delegates here for the attachment route.
  */
 export function getAttachmentContent(attachmentId: string): Buffer | null {
   const row = getAttachmentRow(attachmentId);
@@ -703,13 +767,45 @@ function validateAttachmentPayload(
   return sizeBytes;
 }
 
+/**
+ * HEIF/HEIC payloads are stored as JPEG masters (filename extension
+ * rewritten) so every client surface can render them; anything else — and any
+ * conversion whose output would break the upload size limit — passes through
+ * verbatim.
+ */
+function normalizeUploadedImageBase64(
+  filename: string,
+  mimeType: string,
+  dataBase64: string,
+): { filename: string; mimeType: string; dataBase64: string } {
+  const norm = normalizeImageBase64(mimeType, dataBase64);
+  if (
+    !norm.converted ||
+    computeSizeBytesFromBase64(norm.dataBase64) > MAX_UPLOAD_BYTES
+  ) {
+    return { filename, mimeType, dataBase64 };
+  }
+  return {
+    filename: jpegFilenameFor(filename),
+    mimeType: norm.mimeType,
+    dataBase64: norm.dataBase64,
+  };
+}
+
 export function uploadAttachment(
   filename: string,
   mimeType: string,
   dataBase64: string,
   sourcePath?: string,
 ): StoredAttachment {
-  const sizeBytes = validateAttachmentPayload(dataBase64);
+  validateAttachmentPayload(dataBase64);
+
+  ({ filename, mimeType, dataBase64 } = normalizeUploadedImageBase64(
+    filename,
+    mimeType,
+    dataBase64,
+  ));
+  const sizeBytes = computeSizeBytesFromBase64(dataBase64);
 
   const db = getDb();
   const now = Date.now();
@@ -731,6 +827,7 @@ export function uploadAttachment(
 
   if (sourcePath) {
     rawRun(
+      "attachments:uploadAttachment:sourcePath",
       `UPDATE attachments SET source_path = ? WHERE id = ?`,
       sourcePath,
       record.id,
@@ -748,25 +845,49 @@ export function uploadAttachment(
   };
 }
 
-export function attachInlineAttachmentToMessage(
-  messageId: string,
-  position: number,
+export interface CreateInlineAttachmentOptions {
+  sourcePath?: string;
+  skipSizeLimit?: boolean;
+  /**
+   * Store HEIF/HEIC content as a JPEG master (with the filename extension
+   * rewritten) so every client surface can render it. User-sourced ingress
+   * opts in; assistant-produced attachments are stored verbatim — if the
+   * assistant deliberately emits a HEIC, rewriting it would be wrong.
+   */
+  normalizeImage?: boolean;
+}
+
+/**
+ * Create an attachment row from inline base64, materialized into the
+ * conversation's attachments/ directory, WITHOUT linking it to a message. The
+ * caller links it separately (`insertMessageAttachmentLink`) once the message
+ * id exists — which lets the persist path create the row (and learn its id,
+ * normalized MIME type, and byte size) before it serializes the message
+ * content into a workspace reference.
+ */
+export function createInlineAttachment(
+  conversationId: string,
+  conversationCreatedAt: number,
   filename: string,
   mimeType: string,
   dataBase64: string,
-  options?: { sourcePath?: string; skipSizeLimit?: boolean },
-): StoredAttachment {
+  options?: CreateInlineAttachmentOptions,
+): StoredAttachment & { filePath: string } {
+  if (options?.normalizeImage) {
+    ({ filename, mimeType, dataBase64 } = normalizeUploadedImageBase64(
+      filename,
+      mimeType,
+      dataBase64,
+    ));
+  }
+
   const sizeBytes = validateAttachmentPayload(dataBase64, {
     skipSizeLimit: options?.skipSizeLimit,
   });
-  const ctx = getMessageConversationContext(messageId);
-  if (!ctx) {
-    throw new Error(`Message not found: ${messageId}`);
-  }
 
   const attachDir = getConversationAttachmentsDirPath(
-    ctx.conversationId,
-    ctx.conversationCreatedAt,
+    conversationId,
+    conversationCreatedAt,
   );
   mkdirSync(attachDir, { recursive: true });
   const resolvedName = resolveUniqueFilename(attachDir, filename);
@@ -794,13 +915,12 @@ export function attachInlineAttachmentToMessage(
 
   if (options?.sourcePath) {
     rawRun(
+      "attachments:createInline:sourcePath",
       `UPDATE attachments SET source_path = ? WHERE id = ?`,
       options.sourcePath,
       id,
     );
   }
-
-  insertMessageAttachmentLink(messageId, id, position);
 
   return {
     id,
@@ -810,7 +930,33 @@ export function attachInlineAttachmentToMessage(
     kind,
     thumbnailBase64: null,
     createdAt: now,
+    filePath: targetPath,
   };
+}
+
+export function attachInlineAttachmentToMessage(
+  messageId: string,
+  position: number,
+  filename: string,
+  mimeType: string,
+  dataBase64: string,
+  options?: CreateInlineAttachmentOptions,
+): StoredAttachment & { filePath: string } {
+  const ctx = getMessageConversationContext(messageId);
+  if (!ctx) {
+    throw new Error(`Message not found: ${messageId}`);
+  }
+
+  const stored = createInlineAttachment(
+    ctx.conversationId,
+    ctx.conversationCreatedAt,
+    filename,
+    mimeType,
+    dataBase64,
+    options,
+  );
+  insertMessageAttachmentLink(messageId, stored.id, position);
+  return stored;
 }
 
 export function attachFileBackedAttachmentToMessage(
@@ -854,6 +1000,7 @@ export function attachFileBackedAttachmentToMessage(
     .run();
 
   rawRun(
+    "attachments:attachFileBacked:source",
     `UPDATE attachments SET source_path = ? WHERE id = ?`,
     sourceFilePath,
     id,
@@ -1098,6 +1245,7 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
   // Identify truly orphaned attachment IDs first (not referenced by any message)
   const placeholders = candidateIds.map(() => "?").join(", ");
   const orphanIds = rawAll<{ id: string }>(
+    "attachments:deleteOrphan:select",
     `SELECT id FROM attachments WHERE id IN (${placeholders}) AND id NOT IN (SELECT attachment_id FROM message_attachments)`,
     ...candidateIds,
   ).map((row) => row.id);
@@ -1119,6 +1267,7 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
   // remain intact alongside their DB rows, so nothing is left inconsistent.
   const orphanPlaceholders = orphanIds.map(() => "?").join(", ");
   const deletedCount = rawRun(
+    "attachments:deleteOrphan:delete",
     `DELETE FROM attachments WHERE id IN (${orphanPlaceholders})`,
     ...orphanIds,
   );

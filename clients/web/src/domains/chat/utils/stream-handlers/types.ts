@@ -41,13 +41,11 @@ export interface StreamHandlerContext {
   // only the control-plane (turn/interaction stores, reconciliation, cache
   // patches) plus the unconfirmed optimistic sends below.
   /** Mutate the optimistic-send list — queue handlers retarget here (queue
-   *  position / status / removal of a not-yet-confirmed user send). */
+   *  position / status / removal of a not-yet-confirmed user send), and the
+   *  echo handler retires or upgrades the confirmed send. */
   setOptimisticSends: (
     updater: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[]),
   ) => void;
-  /** Drop the optimistic send correlated by `clientMessageId` once its
-   *  `user_message_echo` has folded the server row into the snapshot. */
-  clearOptimisticSend: (clientMessageId: string) => void;
 
   // --- Turn state ---
   turnActions: TurnActions;

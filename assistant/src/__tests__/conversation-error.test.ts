@@ -19,7 +19,12 @@ import {
   type AbortReasonKind,
   createAbortReason,
 } from "../util/abort-reasons.js";
-import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
+import {
+  ConfigError,
+  ProviderError,
+  ProviderNotConfiguredError,
+  VellumError,
+} from "../util/errors.js";
 
 describe("isUserCancellation", () => {
   it("returns false for non-AbortError even when abort flag is set", () => {
@@ -304,6 +309,32 @@ describe("classifyConversationError", () => {
       const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_API");
       expect(result.retryable).toBe(true);
+    });
+  });
+
+  describe("empty-request-messages errors", () => {
+    it("classifies Anthropic 400 'at least one message is required' with a friendly message", () => {
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages: at least one message is required"},"request_id":"req_011CcdT5QRtS4tapsQiAcJgz"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("empty_request_messages");
+      expect(result.userMessage).not.toMatch(
+        /at least one message is required/,
+      );
+      expect(result.userMessage.toLowerCase()).toContain("no content");
+    });
+
+    it("classifies an empty-messages ProviderError without a statusCode", () => {
+      const err = new ProviderError(
+        "Anthropic API error: messages: at least one message is required",
+        "anthropic",
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.errorCategory).toBe("empty_request_messages");
     });
   });
 
@@ -1001,20 +1032,96 @@ describe("ConnectionResolutionError classification", () => {
     );
     const result = classifyConversationError(err, errCtx);
     expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
-    expect(result.userMessage).toContain("No compatible provider connection");
+    expect(result.userMessage).toContain('"anthropic-managed"');
+    expect(result.userMessage).toContain("different provider");
     expect(result.userMessage).toContain("Settings");
     expect(result.userMessage).not.toContain("provider_connection");
     expect(result.connectionName).toBe("anthropic-managed");
+    expect(result.debugDetails).toContain(
+      "connection_resolution:provider_mismatch",
+    );
   });
 
-  it("classifies not_found as PROVIDER_NOT_CONFIGURED", () => {
+  it("classifies not_found as PROVIDER_NOT_CONFIGURED naming the connection and profile", () => {
     const err = new ConnectionResolutionError(
       "deleted-connection",
       "not_found",
       'provider_connection "deleted-connection" not found in DB',
+      { profileName: "custom-fast" },
     );
     const result = classifyConversationError(err, errCtx);
     expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.userMessage).toContain('"deleted-connection"');
+    expect(result.userMessage).toContain('profile "custom-fast"');
+    expect(result.userMessage).toContain("no longer exists");
     expect(result.userMessage).not.toContain("not found in DB");
+    expect(result.profileName).toBe("custom-fast");
+  });
+
+  it("classifies missing_connection with an add-a-key fix and no sentinel name", () => {
+    const err = new ConnectionResolutionError(
+      "<llm.default>",
+      "missing_connection",
+      "llm.default.provider_connection is unset",
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.userMessage).toContain(
+      "No provider connection is configured",
+    );
+    expect(result.userMessage).toContain("Add an API key or log in");
+    expect(result.userMessage).not.toContain("<llm.default>");
+    expect(result.connectionName).toBeUndefined();
+  });
+
+  it("classifies model_incompatible naming the model", () => {
+    const err = new ConnectionResolutionError(
+      "chatgpt-codex",
+      "model_incompatible",
+      "subscription connection only serves codex models",
+      { model: "claude-fable-5" },
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.userMessage).toContain('Model "claude-fable-5"');
+    expect(result.userMessage).toContain('"chatgpt-codex"');
+  });
+
+  it("classifies lookup_failed with a restart hint and preserves the cause", () => {
+    const cause = new Error("db locked");
+    const err = new ConnectionResolutionError(
+      "anthropic-personal",
+      "lookup_failed",
+      "lookup failed",
+      { cause },
+    );
+    expect(err.cause).toBe(cause);
+    const result = classifyConversationError(err, errCtx);
+    expect(result.userMessage).toContain("Restart the assistant");
+  });
+
+  it("is a structured VellumError (ConfigError) for logging/monitoring", () => {
+    const err = new ConnectionResolutionError("x", "not_found", "m");
+    expect(err).toBeInstanceOf(VellumError);
+    expect(err).toBeInstanceOf(ConfigError);
+    expect(err.name).toBe("ConnectionResolutionError");
+  });
+
+  it("prefers the error's own profileName over context attribution", () => {
+    const err = new ConnectionResolutionError("c", "not_found", "m", {
+      profileName: "from-error",
+    });
+    const result = classifyConversationError(err, {
+      ...errCtx,
+      profileName: "from-context",
+    });
+    expect(result.profileName).toBe("from-error");
+  });
+
+  it("falls back to context attribution when the error carries no profile", () => {
+    const err = new ConnectionResolutionError("c", "not_found", "m");
+    const result = classifyConversationError(err, {
+      ...errCtx,
+      profileName: "from-context",
+    });
+    expect(result.profileName).toBe("from-context");
   });
 });

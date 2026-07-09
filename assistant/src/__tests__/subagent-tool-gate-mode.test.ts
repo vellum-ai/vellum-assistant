@@ -15,7 +15,7 @@
  *   gating the resolved inner tool name.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillProjectionCache } from "../daemon/conversation-skill-tools.js";
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
@@ -101,6 +101,11 @@ import {
   type SkillProjectionContext,
   type ToolSetupContext,
 } from "../daemon/conversation-tool-setup.js";
+import {
+  __clearRegistryForTesting,
+  registerPluginTools,
+} from "../tools/registry.js";
+import type { Tool } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,7 +137,6 @@ function makeSetupCtx(
     currentRequestId: "req-1",
     workingDir: "/tmp/test",
     abortController: null,
-    traceEmitter: { emit: () => {} },
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
@@ -177,13 +181,7 @@ const noopSecretPrompter = {
 } as unknown as SecretPrompter;
 
 function makeToolFn(executor: ToolExecutor, ctx: ToolSetupContext) {
-  return createToolExecutor(
-    executor,
-    noopPrompter,
-    noopSecretPrompter,
-    ctx,
-    () => {},
-  );
+  return createToolExecutor(executor, noopPrompter, noopSecretPrompter, ctx);
 }
 
 // ---------------------------------------------------------------------------
@@ -469,6 +467,78 @@ describe("createToolExecutor — execution-layer allowlist gate", () => {
     );
 
     const result = await toolFn("bash", { command: "echo hi" });
+
+    expect(result).toEqual({ content: "ok", isError: false });
+    expect(calls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Executor — per-chat plugin scope guard on the skill_execute dispatch path
+// ---------------------------------------------------------------------------
+
+describe("createToolExecutor — per-chat plugin scope (skill_execute dispatch)", () => {
+  function pluginTool(name: string): Tool {
+    return {
+      name,
+      description: name,
+      input_schema: { type: "object" },
+    } as unknown as Tool;
+  }
+
+  afterEach(() => {
+    __clearRegistryForTesting();
+  });
+
+  test("rejects a skill_execute inner tool owned by a plugin outside the effective set; executor never invoked", async () => {
+    registerPluginTools("p", [pluginTool("p_tool")]);
+    const { executor, calls } = makeCapturingExecutor();
+    // Scope excludes plugin "p" (only "other" + first-party defaults).
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({ enabledPlugins: ["other"] }),
+    );
+
+    const result = await toolFn("skill_execute", {
+      tool: "p_tool",
+      input: {},
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Tool "p_tool" belongs to a plugin that is not enabled',
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  test("allows a skill_execute inner tool whose plugin is in the effective set", async () => {
+    registerPluginTools("p", [pluginTool("p_tool")]);
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({ enabledPlugins: ["p"] }),
+    );
+
+    const result = await toolFn("skill_execute", {
+      tool: "p_tool",
+      input: {},
+    });
+
+    expect(result).toEqual({ content: "ok", isError: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.name).toBe("p_tool");
+  });
+
+  test("null scope (no per-chat restriction) does not gate plugin tools", async () => {
+    registerPluginTools("p", [pluginTool("p_tool")]);
+    const { executor, calls } = makeCapturingExecutor();
+    // enabledPlugins absent → getEffectiveEnabledPluginSet returns null.
+    const toolFn = makeToolFn(executor, makeSetupCtx());
+
+    const result = await toolFn("skill_execute", {
+      tool: "p_tool",
+      input: {},
+    });
 
     expect(result).toEqual({ content: "ok", isError: false });
     expect(calls).toHaveLength(1);

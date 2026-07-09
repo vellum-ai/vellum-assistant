@@ -10,7 +10,7 @@
 import { z } from "zod";
 
 import { isHttpAuthDisabled } from "../../config/env.js";
-import type { TrustContext } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
@@ -181,7 +181,9 @@ async function handleSurfaceAction({
   // the SSE host-proxy client's registered principal; otherwise CU/app-control
   // same-actor checks reject the turn. Real principals pass through unchanged.
   const resolvedActorPrincipalId =
-    await resolveActorPrincipalIdForLocalGuardian(actorPrincipalId ?? undefined);
+    await resolveActorPrincipalIdForLocalGuardian(
+      actorPrincipalId ?? undefined,
+    );
 
   try {
     const raw = await conversation.handleSurfaceAction(

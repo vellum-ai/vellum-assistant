@@ -8,6 +8,7 @@ import {
 import { isLastUserMessageToolResult } from "../persistence/conversation-queries.js";
 import { withQdrantBreaker } from "../persistence/embeddings/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../persistence/embeddings/qdrant-client.js";
+import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import { relinkLlmRequestLogs } from "../persistence/llm-request-log-store.js";
 import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
@@ -29,7 +30,9 @@ export function isToolResultBlock(
 function isSystemNoticeBlock(
   block: ContentBlock | Record<string, unknown>,
 ): boolean {
-  if (block.type !== "text") return false;
+  if (block.type !== "text") {
+    return false;
+  }
   const text = (block as { text?: string }).text ?? "";
   return (
     text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
@@ -37,8 +40,12 @@ function isSystemNoticeBlock(
 }
 
 function isUndoableUserMessage(message: Message): boolean {
-  if (message.role !== "user") return false;
-  if (getSummaryFromContextMessage(message) != null) return false;
+  if (message.role !== "user") {
+    return false;
+  }
+  if (getSummaryFromContextMessage(message) != null) {
+    return false;
+  }
   // A user message is undoable if it contains user-authored content (non-tool_result
   // blocks). Messages that contain ONLY tool_result blocks (e.g. automated tool
   // responses) are not undoable. Messages that have both tool_result and text blocks
@@ -48,7 +55,9 @@ function isUndoableUserMessage(message: Message): boolean {
   const hasNonToolResultContent = message.content.some(
     (block) => !isToolResultBlock(block) && !isSystemNoticeBlock(block),
   );
-  if (!hasNonToolResultContent) return false;
+  if (!hasNonToolResultContent) {
+    return false;
+  }
   return true;
 }
 
@@ -79,7 +88,9 @@ async function cleanupQdrantVectors(
     return; // Qdrant not initialized — nothing to clean up.
   }
 
-  if (segmentIds.length === 0) return;
+  if (segmentIds.length === 0) {
+    return;
+  }
 
   const targets: Array<{ targetType: string; targetId: string }> = [];
   for (const segId of segmentIds) {
@@ -137,7 +148,9 @@ export function consolidateAssistantMessages(
 ): boolean {
   const allMessages = getMessages(conversationId);
   const userMsgIndex = allMessages.findIndex((m) => m.id === userMessageId);
-  if (userMsgIndex === -1) return false;
+  if (userMsgIndex === -1) {
+    return false;
+  }
 
   const messagesToConsolidate: typeof allMessages = [];
   const internalToolResultMessages: typeof allMessages = [];
@@ -280,6 +293,11 @@ export function consolidateAssistantMessages(
     firstAssistantMsg.id,
     JSON.stringify(consolidatedContent),
   );
+  // Consolidation changed the retained message's searchable text (merged in the
+  // other rows' blocks); `updateMessageContent` is CRUD-only, so reindex it into
+  // the lexical index. The merged-away rows' points are removed by
+  // `deleteMessageById` below.
+  enqueueLexicalIndexForMessage(firstAssistantMsg.id);
 
   // Re-link attachments and LLM request logs from messages about to be
   // deleted to the consolidated message. Without this, ON DELETE CASCADE on
@@ -353,10 +371,14 @@ export interface HistoryConversationContext {
  * Returns the number of messages removed.
  */
 export function undo(conversation: HistoryConversationContext): number {
-  if (conversation.isProcessing()) return 0;
+  if (conversation.isProcessing()) {
+    return 0;
+  }
 
   const lastUserIdx = findLastUndoableUserMessageIndex(conversation.messages);
-  if (lastUserIdx === -1) return 0;
+  if (lastUserIdx === -1) {
+    return 0;
+  }
 
   const removed = conversation.messages.length - lastUserIdx;
   conversation.messages = conversation.messages.slice(0, lastUserIdx);

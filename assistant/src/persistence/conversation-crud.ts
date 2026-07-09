@@ -17,25 +17,32 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { v4 as uuid } from "uuid";
+import { v4 as uuid, v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
+import type { ConversationDeletedInputContext } from "../hooks/types.js";
+import { HOOKS } from "../plugin-api/constants.js";
+import { forkConversationMemory } from "../plugins/defaults/memory/fork-conversation-memory.js";
+import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
+import { runHook } from "../plugins/pipeline.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import { trustClassSchema } from "../runtime/trust-class.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
-import { createRowMapper } from "../util/row-mapper.js";
+import { createRowMapper, parseJsonNullable } from "../util/row-mapper.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
@@ -60,6 +67,7 @@ import {
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
+import type { ConversationCreateType } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,
@@ -71,8 +79,14 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
-import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
 import {
+  clearMessagesLexicalIndex,
+  enqueueDeleteMessageLexical,
+  enqueueLexicalIndexForMessage,
+  enqueuePurgeConversationLexical,
+} from "./job-handlers/message-lexical.js";
+import {
+  rawAll,
   rawExec,
   rawGet,
   rawLogsRun,
@@ -85,12 +99,12 @@ import {
   llmRequestLogs,
   memoryEmbeddings,
   memorySegments,
-  memorySummaries,
   messageAttachments,
   messages,
   skillLoadedEvents,
   toolInvocations,
 } from "./schema/index.js";
+import { timeSyncSection } from "./slow-sync-log.js";
 
 const log = getLogger("conversation-store");
 
@@ -152,13 +166,18 @@ export const messageMetadataSchema = z
     userMessageInterface: interfaceIdSchema.optional(),
     assistantMessageInterface: interfaceIdSchema.optional(),
     /**
-     * Optional client-side metadata bag attached to user messages by HTTP
-     * header middleware (reads `x-vellum-browser-family`,
-     * `x-vellum-browser-version`, `x-vellum-client-os`,
-     * `x-vellum-interface-version`). Forwarded verbatim onto
-     * `TurnTelemetryEvent.client` for downstream analytics. Kept as a
-     * permissive `record` so adding a new client field doesn't require a
-     * migration -- dbt can unpack later via JSON_VALUE.
+     * Optional client-side metadata bag attached to user messages at persist
+     * time. `os` carries the client-reported OS surface ("web" | "ios" |
+     * "macos" | "android") from the request body's `clientOs` field, stamped
+     * by `persistQueuedMessageBody` — the transport `userMessageInterface` is
+     * "web" for the web, iOS, and macOS apps alike, so this is the only
+     * per-platform attribution. `browser_family` / `browser_version` /
+     * `interface_version` (and an `os` override) come from the sanitized
+     * `x-vellum-*` client-metadata headers read by `handleSendMessage`
+     * (see `@vellumai/service-contracts/client-metadata`). Forwarded
+     * verbatim onto `TurnTelemetryEvent.client` for downstream analytics.
+     * Kept as a permissive `record` so adding a new client field doesn't
+     * require a migration -- dbt can unpack later via JSON_VALUE.
      */
     client: z.record(z.string(), z.unknown()).optional(),
     subagentNotification: subagentNotificationSchema.optional(),
@@ -169,13 +188,21 @@ export const messageMetadataSchema = z
      * trust status changes later. Used by the memory write gate (indexer)
      * and read gate (conversation history loading) to enforce trust-aware access.
      */
-    provenanceTrustClass: z
-      .enum(["guardian", "trusted_contact", "unverified_contact", "unknown"])
-      .optional(),
+    provenanceTrustClass: trustClassSchema.optional(),
     provenanceSourceChannel: channelIdSchema.optional(),
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
     automated: z.boolean().optional(),
+    /**
+     * Transcript-suppression flag: the row is a machine signal (e.g. the
+     * channel-setup wizard-close marker, the onboarding greeting kickoff),
+     * persisted and LLM-visible but never rendered as a user message. Test
+     * with {@link isHiddenMessageMetadata} — hidden rows are filtered from
+     * list-messages and queued snapshots, skip the user_message_echo, and
+     * are excluded from search/memory indexing and other consumers that
+     * treat message text as organic user input.
+     */
+    hidden: z.boolean().optional(),
     /**
      * Structured terminal record stamped onto a `<background_event
      * source="background-tool">` wake so the web can rebuild the inline
@@ -185,6 +212,13 @@ export const messageMetadataSchema = z
     forkSourceMessageId: z.string().optional(),
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
+    /**
+     * Resolved paths of the canonical attachment copies in the conversation's
+     * attachments/ directory (name collisions get a -2/-3 suffix), keyed by
+     * `${position}:${filename}`. Written after the attachments are linked;
+     * reinjected into LLM-facing content on history reload.
+     */
+    attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
     /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
      *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
@@ -207,6 +241,44 @@ export const messageMetadataSchema = z
     nonInteractiveContextBlock: z.string().optional(),
   })
   .passthrough();
+
+/** Validated shape of a persisted message's `metadata` column. */
+export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
+
+/**
+ * Shared predicate for the transcript-suppression flag on user-message
+ * metadata (see the `hidden` field on {@link messageMetadataSchema}). One
+ * definition so the sites that must agree — echo suppression, list-messages
+ * filtering, queued-snapshot filtering, indexing exclusion, and downstream
+ * consumers of message text — cannot drift.
+ */
+export function isHiddenMessageMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.hidden === true;
+}
+
+/**
+ * Parse a persisted message's metadata JSON against {@link messageMetadataSchema}
+ * — the single source of truth for its shape — returning the validated fields,
+ * or `undefined` when the column is absent, not valid JSON, or fails validation.
+ * The single place the raw JSON.parse + safeParse dance lives, so callers read
+ * typed fields (e.g. `provenanceTrustClass`, `automated`, `subagentNotification`)
+ * instead of re-implementing it.
+ */
+export function parseMessageMetadata(
+  metadataJson: string | null,
+): MessageMetadata | undefined {
+  if (!metadataJson) {
+    return undefined;
+  }
+  try {
+    const parsed = messageMetadataSchema.safeParse(JSON.parse(metadataJson));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function cloneForkMessageMetadata(
   metadata: string | null,
@@ -245,7 +317,9 @@ function cloneForkMessageMetadata(
 export function provenanceFromTrustContext(
   ctx: TrustContext | null | undefined,
 ): Record<string, unknown> {
-  if (!ctx) return { provenanceTrustClass: "unknown" };
+  if (!ctx) {
+    return { provenanceTrustClass: "unknown" };
+  }
   return {
     provenanceTrustClass: ctx.trustClass,
     provenanceSourceChannel: ctx.sourceChannel,
@@ -267,6 +341,23 @@ export function extractImageSourcePaths(
     const a = attachments[i];
     if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
       paths[`${i}:${a.filename}`] = a.filePath;
+    }
+  }
+  return Object.keys(paths).length > 0 ? paths : undefined;
+}
+
+/** Extract resolved stored paths from linked attachments for message metadata. */
+export function extractAttachmentStoredPaths(
+  attachments: ReadonlyArray<{
+    filename: string;
+    storedPath?: string;
+  }>,
+): Record<string, string> | undefined {
+  const paths: Record<string, string> = {};
+  for (let i = 0; i < attachments.length; i++) {
+    const a = attachments[i];
+    if (a.storedPath) {
+      paths[`${i}:${a.filename}`] = a.storedPath;
     }
   }
   return Object.keys(paths).length > 0 ? paths : undefined;
@@ -299,6 +390,8 @@ export interface ConversationRow {
   archivedAt: number | null;
   surfacedAt: number | null;
   inferenceProfile: string | null;
+  /** Parsed plugin-id list scoping this chat; null = default (all globally-enabled). */
+  enabledPlugins: string[] | null;
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
   lastNotifiedInferenceProfile: string | null;
@@ -335,6 +428,10 @@ export const parseConversation = createRowMapper<
   archivedAt: "archivedAt",
   surfacedAt: "surfacedAt",
   inferenceProfile: "inferenceProfile",
+  enabledPlugins: {
+    from: "enabledPlugins",
+    transform: parseJsonNullable<string[]>(),
+  },
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
   lastNotifiedInferenceProfile: "lastNotifiedInferenceProfile",
@@ -363,8 +460,6 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
   metadata: "metadata",
   clientMessageId: "clientMessageId",
 });
-
-export type ConversationCreateType = "standard" | "background" | "scheduled";
 
 /**
  * Monotonic timestamp source for message ordering. Two messages saved within
@@ -400,6 +495,11 @@ interface InsertMessageCoreParams {
   content: string;
   metadata?: Record<string, unknown>;
   clientMessageId?: string;
+  /** Pre-assigned message ID. When omitted, a time-ordered `uuidv7()` is
+   *  generated. Callers that already have a correlation ID (e.g.
+   *  `requestId` for user turns) can pass it here so the persisted
+   *  row ID matches the runtime request ID. */
+  id?: string;
 }
 
 /**
@@ -426,9 +526,12 @@ interface InsertMessageCoreParams {
 async function insertMessageCore(
   params: InsertMessageCoreParams,
 ): Promise<InsertedMessage> {
-  const { conversationId, role, content, metadata, clientMessageId } = params;
+  const { conversationId, role, content, metadata, clientMessageId, id } =
+    params;
   const db = getDb();
-  const messageId = uuid();
+  // Time-ordered UUIDv7 so server-generated message ids append to the tail of
+  // the WITHOUT ROWID `messages` primary key instead of scattering (v4).
+  const messageId = id ?? uuidv7();
 
   if (metadata) {
     const result = messageMetadataSchema.safeParse(metadata);
@@ -449,105 +552,117 @@ async function insertMessageCore(
   // The timestamp is recomputed each attempt so a late retry doesn't persist a
   // stale `updatedAt`.
   return withSqliteRetry(
-    (): InsertedMessage => {
-      const now = monotonicNow();
-      const values = {
-        id: messageId,
-        conversationId,
-        role,
-        content,
-        createdAt: now,
-        ...(metadataStr ? { metadata: metadataStr } : {}),
-        ...(clientMessageId ? { clientMessageId } : {}),
-      };
+    (): InsertedMessage =>
+      timeSyncSection(
+        "messages:insert",
+        (): InsertedMessage => {
+          const now = monotonicNow();
+          const values = {
+            id: messageId,
+            conversationId,
+            role,
+            content,
+            createdAt: now,
+            ...(metadataStr ? { metadata: metadataStr } : {}),
+            ...(clientMessageId ? { clientMessageId } : {}),
+          };
 
-      if (clientMessageId) {
-        // Idempotent insert: skip silently if this clientMessageId was
-        // already persisted for the conversation.
-        const raw = getSqliteFrom(db);
-        raw.exec("SAVEPOINT insert_msg");
-        try {
-          db.insert(messages).values(values).run();
-          if (originChannelCandidate) {
-            db.update(conversations)
-              .set({ originChannel: originChannelCandidate })
-              .where(
-                and(
-                  eq(conversations.id, conversationId),
-                  isNull(conversations.originChannel),
-                ),
-              )
-              .run();
-          }
-          db.update(conversations)
-            .set({ updatedAt: now, lastMessageAt: now })
-            .where(eq(conversations.id, conversationId))
-            .run();
-          raw.exec("RELEASE insert_msg");
-        } catch (insertErr) {
-          raw.exec("ROLLBACK TO insert_msg");
-          raw.exec("RELEASE insert_msg");
-          const code = (insertErr as { code?: string }).code ?? "";
-          if (code === "SQLITE_CONSTRAINT_UNIQUE") {
-            // Duplicate clientMessageId — return the existing row.
-            const existing = db
-              .select()
-              .from(messages)
-              .where(
-                and(
-                  eq(messages.conversationId, conversationId),
-                  eq(messages.clientMessageId, clientMessageId),
-                ),
-              )
-              .get();
-            if (existing) {
-              return {
-                id: existing.id,
-                conversationId: existing.conversationId,
-                role: existing.role as MessageRole,
-                content: existing.content,
-                createdAt: existing.createdAt,
-                ...(existing.metadata ? { metadata: existing.metadata } : {}),
-                clientMessageId: existing.clientMessageId ?? undefined,
-                deduplicated: true,
-              };
+          if (clientMessageId) {
+            // Idempotent insert: skip silently if this clientMessageId was
+            // already persisted for the conversation.
+            const raw = getSqliteFrom(db);
+            raw.exec("SAVEPOINT insert_msg");
+            try {
+              db.insert(messages).values(values).run();
+              if (originChannelCandidate) {
+                db.update(conversations)
+                  .set({ originChannel: originChannelCandidate })
+                  .where(
+                    and(
+                      eq(conversations.id, conversationId),
+                      isNull(conversations.originChannel),
+                    ),
+                  )
+                  .run();
+              }
+              db.update(conversations)
+                .set({ updatedAt: now, lastMessageAt: now })
+                .where(eq(conversations.id, conversationId))
+                .run();
+              raw.exec("RELEASE insert_msg");
+            } catch (insertErr) {
+              raw.exec("ROLLBACK TO insert_msg");
+              raw.exec("RELEASE insert_msg");
+              const code = (insertErr as { code?: string }).code ?? "";
+              if (code === "SQLITE_CONSTRAINT_UNIQUE") {
+                // Duplicate clientMessageId — return the existing row.
+                const existing = db
+                  .select()
+                  .from(messages)
+                  .where(
+                    and(
+                      eq(messages.conversationId, conversationId),
+                      eq(messages.clientMessageId, clientMessageId),
+                    ),
+                  )
+                  .get();
+                if (existing) {
+                  return {
+                    id: existing.id,
+                    conversationId: existing.conversationId,
+                    role: existing.role as MessageRole,
+                    content: existing.content,
+                    createdAt: existing.createdAt,
+                    ...(existing.metadata
+                      ? { metadata: existing.metadata }
+                      : {}),
+                    clientMessageId: existing.clientMessageId ?? undefined,
+                    deduplicated: true,
+                  };
+                }
+              }
+              throw insertErr;
             }
+          } else {
+            // No clientMessageId — standard insert inside a transaction.
+            db.transaction((tx) => {
+              tx.insert(messages).values(values).run();
+              if (originChannelCandidate) {
+                tx.update(conversations)
+                  .set({ originChannel: originChannelCandidate })
+                  .where(
+                    and(
+                      eq(conversations.id, conversationId),
+                      isNull(conversations.originChannel),
+                    ),
+                  )
+                  .run();
+              }
+              tx.update(conversations)
+                .set({ updatedAt: now, lastMessageAt: now })
+                .where(eq(conversations.id, conversationId))
+                .run();
+            });
           }
-          throw insertErr;
-        }
-      } else {
-        // No clientMessageId — standard insert inside a transaction.
-        db.transaction((tx) => {
-          tx.insert(messages).values(values).run();
-          if (originChannelCandidate) {
-            tx.update(conversations)
-              .set({ originChannel: originChannelCandidate })
-              .where(
-                and(
-                  eq(conversations.id, conversationId),
-                  isNull(conversations.originChannel),
-                ),
-              )
-              .run();
-          }
-          tx.update(conversations)
-            .set({ updatedAt: now, lastMessageAt: now })
-            .where(eq(conversations.id, conversationId))
-            .run();
-        });
-      }
 
-      return {
-        id: messageId,
-        conversationId,
-        role,
-        content,
-        createdAt: now,
-        ...(metadataStr ? { metadata: metadataStr } : {}),
-        ...(clientMessageId ? { clientMessageId } : {}),
-        deduplicated: false,
-      };
-    },
+          return {
+            id: messageId,
+            conversationId,
+            role,
+            content,
+            createdAt: now,
+            ...(metadataStr ? { metadata: metadataStr } : {}),
+            ...(clientMessageId ? { clientMessageId } : {}),
+            deduplicated: false,
+          };
+        },
+        () => ({
+          conversationId,
+          role,
+          contentBytes:
+            typeof content === "string" ? content.length : undefined,
+        }),
+      ),
     { op: "insertMessageCore", context: { conversationId } },
   );
 }
@@ -556,6 +671,13 @@ export function createConversation(
   titleOrOpts?:
     | string
     | {
+        /**
+         * Adopt an explicit conversation id instead of minting a new uuid.
+         * Callers that already hold a client-provided id and want the row to
+         * carry it verbatim (e.g. {@link ensureConversationExists}) pass it
+         * here; everyone else omits it and gets a fresh uuid.
+         */
+        id?: string;
         title?: string;
         /**
          * Override the `is_auto_title` column (schema default 1). Pass
@@ -583,7 +705,8 @@ export function createConversation(
     requestedConversationType ?? "standard";
   const source = opts.source ?? "user";
   const groupId = opts.groupId;
-  const id = uuid();
+  // Time-ordered UUIDv7 for server-minted conversation ids (see message id).
+  const id = opts.id ?? uuidv7();
   const memoryScopeId = "default";
 
   // Ensure group_id column exists for deterministic schema readiness,
@@ -633,6 +756,7 @@ export function createConversation(
   try {
     db.insert(conversations).values(conversation).run();
     rawRun(
+      "conversation:create:setGroup",
       "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
       effectiveGroupId,
       effectiveGroupId === "system:pinned" ? 1 : 0,
@@ -648,6 +772,58 @@ export function createConversation(
   initConversationDir({ ...conversation, originChannel: null });
 
   return conversation;
+}
+
+/**
+ * A conversation id adopted verbatim from an untrusted source must be safe to
+ * embed as a single path component of the on-disk conversation dir
+ * (`<timestamp>_<id>/meta.json`). This pattern admits server uuids and the
+ * web client's `crypto.randomUUID()` / `draft-<ts>-<hex>` drafts while
+ * rejecting anything with path separators, `..`, or other traversal vectors.
+ */
+const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * Ensure a `conversations` row exists for `id`, creating one with default
+ * columns only when absent. Idempotent. Returns `true` iff this call inserted
+ * the row (so callers can emit a one-time creation side effect, e.g. a
+ * conversations-list invalidation).
+ *
+ * The normal text-send path persists the conversation row through the
+ * conversation-key store before the first message is written, so `messages`
+ * inserts always have their FK target. Entry points that adopt a
+ * client-provided conversation id directly — notably the live-voice session,
+ * which binds to the id from its start frame — have no such guarantee: on the
+ * first turn of a brand-new chat the row does not exist yet, and persisting
+ * the user message trips `FOREIGN KEY constraint failed`. Call this before the
+ * first persist to close that gap while keeping the adopted id verbatim.
+ *
+ * Because the id is adopted verbatim and reaches the filesystem via
+ * `createConversation` → `initConversationDir`, an id from an external client
+ * is validated first — a value like `../../tmp/x` would otherwise write
+ * `meta.json` outside the conversations directory.
+ */
+export function ensureConversationExists(id: string): boolean {
+  if (getConversation(id)) {
+    return false;
+  }
+  if (!ADOPTABLE_CONVERSATION_ID_RE.test(id)) {
+    throw new Error(
+      `Refusing to adopt unsafe conversation id: ${JSON.stringify(id)}`,
+    );
+  }
+  try {
+    createConversation({ id });
+    return true;
+  } catch (err) {
+    // A concurrent caller may have created the row between the check and the
+    // insert (UNIQUE(id) violation). That's the desired end state, so only
+    // rethrow if the row still isn't there.
+    if (!getConversation(id)) {
+      throw err;
+    }
+    return false;
+  }
 }
 
 export function getConversation(id: string): ConversationRow | null {
@@ -670,6 +846,7 @@ export function countConversationsByScheduleJobId(
 ): number {
   return (
     rawGet<{ c: number }>(
+      "conversation:countByScheduleJobId",
       "SELECT COUNT(*) AS c FROM conversations WHERE schedule_job_id = ?",
       scheduleJobId,
     )?.c ?? 0
@@ -730,6 +907,7 @@ export function getConversationSource(conversationId: string): string | null {
 function getConversationGroupId(conversationId: string): string | null {
   ensureGroupMigration();
   const row = rawGet<{ group_id: string | null }>(
+    "conversation:getGroupId",
     "SELECT group_id FROM conversations WHERE id = ?",
     conversationId,
   );
@@ -896,6 +1074,7 @@ export function forkConversation(params: {
           ? sourceHistoryStrippedAt
           : null,
         inferenceProfile: sourceConversation.inferenceProfile,
+        enabledPlugins: encodeEnabledPlugins(sourceConversation.enabledPlugins),
       })
       .where(eq(conversations.id, fc.id))
       .run();
@@ -907,7 +1086,7 @@ export function forkConversation(params: {
     } | null = null;
 
     const forkedMessageValues = messagesToCopy.map((message) => {
-      const forkedMessageId = uuid();
+      const forkedMessageId = uuidv7();
       forkedMessageIds.set(message.id, forkedMessageId);
 
       if (message.role === "assistant") {
@@ -1026,7 +1205,9 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
   const attachmentIdMap = new Map<string, string>();
   for (const message of messagesToCopy) {
     const forkedMessageId = forkedMessageIds.get(message.id);
-    if (!forkedMessageId) continue;
+    if (!forkedMessageId) {
+      continue;
+    }
 
     const attachmentLinks = db
       .select({
@@ -1040,7 +1221,8 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     const uncachedAttachmentLinks = attachmentLinks.filter(
       (link) => !attachmentIdMap.has(link.attachmentId),
     );
-    const stagingMessageId = uncachedAttachmentLinks.length > 0 ? uuid() : null;
+    const stagingMessageId =
+      uncachedAttachmentLinks.length > 0 ? uuidv7() : null;
 
     if (stagingMessageId) {
       db.insert(messages)
@@ -1109,7 +1291,7 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
   // Carry the parent's per-conversation memory state into the child (activation
   // and injection logs, graph state, retrospective state). Runs synchronously
   // inside the fork transaction; a no-op when memory is absent or disabled.
-  getMemoryPersistenceHooks().onConversationForked({
+  forkConversationMemory({
     db,
     sourceConversationId,
     forkId: fork.id,
@@ -1140,7 +1322,9 @@ function latestForkedAssistantFrom(
 ): { messageId: string; messageAt: number } | null {
   for (let i = messagesToCopy.length - 1; i >= 0; i--) {
     const message = messagesToCopy[i]!;
-    if (message.role !== "assistant") continue;
+    if (message.role !== "assistant") {
+      continue;
+    }
     const forkedMessageId = forkedMessageIds.get(message.id);
     if (forkedMessageId) {
       return { messageId: forkedMessageId, messageAt: message.createdAt };
@@ -1247,7 +1431,7 @@ export async function forkConversationForRetrospective(params: {
   // the in-process attachment relink that follows.
   const idPairs: ForkIdPair[] = messagesToCopy.map((message) => ({
     oldId: message.id,
-    newId: uuid(),
+    newId: uuidv7(),
   }));
   const forkedMessageIds = new Map<string, string>(
     idPairs.map((pair) => [pair.oldId, pair.newId]),
@@ -1284,6 +1468,9 @@ export async function forkConversationForRetrospective(params: {
               ? sourceHistoryStrippedAt
               : null,
             inferenceProfile: sourceConversation.inferenceProfile,
+            enabledPlugins: encodeEnabledPlugins(
+              sourceConversation.enabledPlugins,
+            ),
           })
           .where(eq(conversations.id, fc.id))
           .run();
@@ -1422,6 +1609,23 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
+  // Notify `conversation-deleted` hooks (e.g. the memory plugin failing its
+  // still-pending jobs for this conversation). Fire-and-forget from this
+  // synchronous primitive — the pipeline contains per-hook failures, and
+  // hooks carry no ordering guarantee relative to the cleanup below.
+  void runHook(HOOKS.CONVERSATION_DELETED, {
+    conversationId: id,
+  } satisfies ConversationDeletedInputContext);
+
+  // Purge the conversation's points from the lexical (Qdrant) index. Fired
+  // from the shared primitive so every delete caller — route, retrospective
+  // cleanup/GC — cleans up. Safe to enqueue while the hook chain runs: the
+  // memory plugin's job sweep is scoped to its own job types and cannot fail
+  // this host-owned purge job. The enqueue helper self-selects: enqueue a job
+  // when memory is enabled, run the delete inline (best-effort,
+  // breaker-wrapped) when it is disabled.
+  enqueuePurgeConversationLexical(id);
+
   return result;
 }
 
@@ -1528,66 +1732,20 @@ export async function deleteConversationGently(
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
+  // Notify `conversation-deleted` hooks — fire-and-forget, same contract as
+  // the synchronous delete primitive.
+  void runHook(HOOKS.CONVERSATION_DELETED, {
+    conversationId: id,
+  } satisfies ConversationDeletedInputContext);
+
+  // Purge the conversation's points from the lexical (Qdrant) index — the
+  // gentle path is the retrospective-GC caller, which would otherwise leak the
+  // conversation's lexical points. Safe to enqueue while the hook chain runs:
+  // the memory plugin's job sweep is scoped to its own job types and cannot
+  // fail this host-owned purge job.
+  enqueuePurgeConversationLexical(id);
+
   return result;
-}
-
-/**
- * Wipe a conversation and revert all memory changes it caused.
- *
- * Extends `deleteConversation` with:
- * - Cancelling pending memory jobs before deletion
- * - Deleting conversation-scoped memory summaries and their embeddings
- */
-export function wipeConversation(id: string): WipeConversationResult {
-  const db = getDb();
-  const deletedSummaryIds: string[] = [];
-
-  // Step A — Cancel pending memory jobs (before deleting messages, since
-  // the cancellation queries join on `messages`). Cleanup runs even while the
-  // memory plugin is disabled; returns 0 when memory is not present.
-  const cancelledJobCount = getMemoryPersistenceHooks().onConversationWiped(id);
-
-  // Step C — Delete conversation-scoped memory summaries and their embeddings.
-  const summaryRows = db
-    .select({ id: memorySummaries.id })
-    .from(memorySummaries)
-    .where(
-      and(
-        eq(memorySummaries.scope, "conversation"),
-        eq(memorySummaries.scopeKey, id),
-      ),
-    )
-    .all();
-  const summaryIds = summaryRows.map((r) => r.id);
-  if (summaryIds.length > 0) {
-    db.delete(memoryEmbeddings)
-      .where(
-        and(
-          eq(memoryEmbeddings.targetType, "summary"),
-          inArray(memoryEmbeddings.targetId, summaryIds),
-        ),
-      )
-      .run();
-    db.delete(memorySummaries)
-      .where(inArray(memorySummaries.id, summaryIds))
-      .run();
-  }
-  deletedSummaryIds.push(...summaryIds);
-
-  // Step D — Delegate to deleteConversation which handles messages (cascade
-  // segments, attachments), llmRequestLogs, toolInvocations,
-  // skillLoadedEvents, embeddings, and the conversation row.
-  const deletedMemoryIds = deleteConversation(id);
-
-  // Step E — Return the combined result.
-  return {
-    ...deletedMemoryIds,
-    deletedSummaryIds: [
-      ...deletedSummaryIds,
-      ...deletedMemoryIds.deletedSummaryIds,
-    ],
-    cancelledJobCount,
-  };
 }
 
 /** Options for {@link addMessage}. Only `skipIndexing` and `clientMessageId`
@@ -1599,6 +1757,10 @@ export interface AddMessageOptions {
    *  duplicate inserts for the same `(conversationId, clientMessageId)`
    *  pair are silently skipped. */
   clientMessageId?: string;
+  /** Pre-assigned message ID. When omitted, one is generated
+   *  internally. Pass the same value as `requestId` for user turns so
+   *  the persisted row ID matches the runtime correlation ID. */
+  id?: string;
 }
 
 /**
@@ -1612,13 +1774,14 @@ export async function addMessage(
   content: string,
   options?: AddMessageOptions,
 ) {
-  const { metadata, skipIndexing, clientMessageId } = options ?? {};
+  const { metadata, skipIndexing, clientMessageId, id } = options ?? {};
   const inserted = await insertMessageCore({
     conversationId,
     role,
     content,
     metadata,
     clientMessageId,
+    id,
   });
 
   if (inserted.deduplicated) {
@@ -1627,7 +1790,17 @@ export async function addMessage(
 
   const message = inserted;
 
-  if (!skipIndexing) {
+  // Hidden rows are machine signals suppressed from the transcript — they
+  // must not surface as search excerpts or be embedded into memory either.
+  if (!skipIndexing && !isHiddenMessageMetadata(metadata)) {
+    // Message-content lexical indexing is host infrastructure and must run
+    // even while the memory plugin is disabled (search indexing is not a
+    // memory-feature side effect), so it is enqueued unconditionally. The
+    // memory segment indexing below is the memory feature's own write path and
+    // self-gates on the memory config. The direct write seams (streaming
+    // finalize, import, edit) run both for themselves; this covers the plain
+    // addMessage path.
+    enqueueLexicalIndexForMessage(message.id);
     try {
       const parsed = metadata
         ? messageMetadataSchema.safeParse(metadata)
@@ -1636,15 +1809,19 @@ export async function addMessage(
         ? parsed.data.provenanceTrustClass
         : undefined;
       const automated = parsed?.success ? parsed.data.automated : undefined;
-      await getMemoryPersistenceHooks().onMessagePersisted({
-        messageId: message.id,
-        conversationId: message.conversationId,
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt,
-        provenanceTrustClass,
-        automated,
-      });
+      await indexMessageNow(
+        {
+          messageId: message.id,
+          conversationId: message.conversationId,
+          role: message.role,
+          content: message.content,
+          createdAt: message.createdAt,
+          scopeId: "default",
+          provenanceTrustClass,
+          automated,
+        },
+        getConfig().memory,
+      );
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },
@@ -1678,13 +1855,21 @@ export async function addMessage(
 
 export function getMessages(conversationId: string): MessageRow[] {
   const db = getDb();
-  return db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt))
-    .all()
-    .map(parseMessage);
+  // Synchronous read of every row for the conversation — the dominant
+  // per-turn main-thread cost on large conversations. Timed so a freeze the
+  // event-loop watchdog detects can be attributed here (see slow-sync-log).
+  return timeSyncSection(
+    "conversation-crud:get-messages",
+    () =>
+      db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, conversationId))
+        .orderBy(asc(messages.createdAt))
+        .all()
+        .map(parseMessage),
+    (rows) => ({ conversationId, rowCount: rows.length }),
+  );
 }
 
 /**
@@ -1763,7 +1948,9 @@ export function countMessagesAfter(
     .from(messages)
     .where(eq(messages.id, afterMessageId))
     .get();
-  if (!ref) return 0;
+  if (!ref) {
+    return 0;
+  }
   // Tie-breaker on `messages.id` so rows that share a millisecond timestamp
   // with the reference are not permanently skipped. Mirrors the
   // `(createdAt, id)` cursor pattern used by the backfill job-handler and
@@ -1816,7 +2003,9 @@ export function getMessagesAfter(
     .from(messages)
     .where(eq(messages.id, afterMessageId))
     .get();
-  if (!ref) return [];
+  if (!ref) {
+    return [];
+  }
   // Same `(createdAt, id)` cursor as `countMessagesAfter` — rows sharing
   // the reference's millisecond timestamp would otherwise be skipped.
   return db
@@ -1957,15 +2146,23 @@ export function getMessagesPaginated(
       .all()
       .map(parseMessage);
 
-    if (chunk.length === 0) break;
+    if (chunk.length === 0) {
+      break;
+    }
     rowsScanned += chunk.length;
 
     for (const row of chunk) {
-      if (!filter || filter(row)) visible.push(row);
-      if (visible.length >= limit + 1) break;
+      if (!filter || filter(row)) {
+        visible.push(row);
+      }
+      if (visible.length >= limit + 1) {
+        break;
+      }
     }
 
-    if (chunk.length < chunkSize) break;
+    if (chunk.length < chunkSize) {
+      break;
+    }
     const lastRow = chunk[chunk.length - 1];
     lastScanned = { createdAt: lastRow.createdAt, id: lastRow.id };
     cursorCreatedAt = lastRow.createdAt;
@@ -1977,7 +2174,9 @@ export function getMessagesPaginated(
   // the scanned window, so report `hasMore: true` to keep the client draining
   // — returning `false` here is the stall this loop exists to prevent.
   const hasMore = filledPage || scanCapTruncated;
-  if (filledPage) visible.splice(limit);
+  if (filledPage) {
+    visible.splice(limit);
+  }
   visible.reverse();
 
   // Only hand back a resume cursor when the cap (not DB exhaustion) cut the
@@ -2059,7 +2258,9 @@ export function updateConversationTitle(
 ): void {
   const db = getDb();
   const set: Record<string, unknown> = { title, updatedAt: Date.now() };
-  if (isAutoTitle !== undefined) set.isAutoTitle = isAutoTitle;
+  if (isAutoTitle !== undefined) {
+    set.isAutoTitle = isAutoTitle;
+  }
   db.update(conversations).set(set).where(eq(conversations.id, id)).run();
 
   // Update disk view meta.json with the new title
@@ -2148,9 +2349,12 @@ export function updateConversationSlackContextWatermark(
 
 export function archiveConversation(id: string): boolean {
   const conv = getConversation(id);
-  if (!conv) return false;
+  if (!conv) {
+    return false;
+  }
   const now = Date.now();
   rawRun(
+    "conversation:archive",
     "UPDATE conversations SET archived_at = ?, updated_at = ? WHERE id = ?",
     now,
     now,
@@ -2161,9 +2365,12 @@ export function archiveConversation(id: string): boolean {
 
 export function unarchiveConversation(id: string): boolean {
   const conv = getConversation(id);
-  if (!conv) return false;
+  if (!conv) {
+    return false;
+  }
   const now = Date.now();
   rawRun(
+    "conversation:unarchive",
     "UPDATE conversations SET archived_at = NULL, updated_at = ? WHERE id = ?",
     now,
     id,
@@ -2175,13 +2382,23 @@ export function unarchiveConversation(id: string): boolean {
  * Persist the processing-start timestamp for a conversation. Called by
  * `Conversation.setProcessing(true)` so out-of-process callers can detect
  * mid-turn state by reading the `conversations` row directly. Pass `null`
- * to clear (turn ended).
+ * to clear (turn ended); a clean turn end also closes any interruption
+ * streak, so the startup auto-resume budget refills.
  */
 export function setConversationProcessingStartedAt(
   id: string,
   startedAt: number | null,
 ): void {
+  if (startedAt == null) {
+    rawRun(
+      "conversation:setProcessingStartedAt",
+      "UPDATE conversations SET processing_started_at = NULL, processing_resume_attempts = 0 WHERE id = ?",
+      id,
+    );
+    return;
+  }
   rawRun(
+    "conversation:setProcessingStartedAt",
     "UPDATE conversations SET processing_started_at = ? WHERE id = ?",
     startedAt,
     id,
@@ -2197,7 +2414,45 @@ export function setConversationProcessingStartedAt(
  */
 export function clearStaleProcessingFlags(): number {
   return rawRun(
+    "conversation:clearStaleProcessingFlags",
     "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
+  );
+}
+
+export interface InterruptedConversationRow {
+  id: string;
+  /** Consecutive startup auto-resume attempts since the last clean turn end. */
+  resumeAttempts: number;
+}
+
+/**
+ * Conversations whose persisted processing flag is still set. Read at daemon
+ * startup before {@link clearStaleProcessingFlags} so the interrupted-turn
+ * reconciler knows which conversations were mid-turn when the previous
+ * process exited.
+ */
+export function listInterruptedConversations(): InterruptedConversationRow[] {
+  return rawAll<{ id: string; processing_resume_attempts: number }>(
+    "conversation:listInterrupted",
+    "SELECT id, processing_resume_attempts FROM conversations WHERE processing_started_at IS NOT NULL",
+  ).map((row) => ({
+    id: row.id,
+    resumeAttempts: row.processing_resume_attempts,
+  }));
+}
+
+/**
+ * Bump the persisted auto-resume counter for a conversation the startup
+ * reconciler is about to resume. Intentionally left set by
+ * {@link clearStaleProcessingFlags} — the counter must survive the flag clear
+ * so the resume cap holds across boots. Reset to 0 by the clean turn-end
+ * write in {@link setConversationProcessingStartedAt}.
+ */
+export function incrementProcessingResumeAttempts(id: string): void {
+  rawRun(
+    "conversation:incrementResumeAttempts",
+    "UPDATE conversations SET processing_resume_attempts = processing_resume_attempts + 1 WHERE id = ?",
+    id,
   );
 }
 
@@ -2211,8 +2466,11 @@ export function clearStaleProcessingFlags(): number {
  */
 export function isConversationProcessing(id: string): boolean {
   const inMemory = findConversation(id)?.isProcessing();
-  if (inMemory != null) return inMemory;
+  if (inMemory != null) {
+    return inMemory;
+  }
   const row = rawGet<{ processing_started_at: number | null }>(
+    "conversation:isProcessing",
     "SELECT processing_started_at FROM conversations WHERE id = ?",
     id,
   );
@@ -2232,6 +2490,7 @@ export function isConversationProcessing(id: string): boolean {
  */
 export function getConversationPersistedSeq(id: string): number | null {
   const row = rawGet<{ seq: number | null }>(
+    "conversation:getPersistedSeq",
     "SELECT seq FROM conversations WHERE id = ?",
     id,
   );
@@ -2249,8 +2508,11 @@ export function getConversationPersistedSeq(id: string): number | null {
  * Non-positive or non-finite `seq` values are ignored.
  */
 export function recordConversationPersistedSeq(id: string, seq: number): void {
-  if (!Number.isFinite(seq) || seq <= 0) return;
+  if (!Number.isFinite(seq) || seq <= 0) {
+    return;
+  }
   rawRun(
+    "conversation:recordPersistedSeq",
     "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
     seq,
     id,
@@ -2276,10 +2538,13 @@ export function setConversationSurfaced(
   surfaced: boolean,
 ): { surfacedAt: number | null } | null {
   const conv = getConversation(id);
-  if (!conv) return null;
+  if (!conv) {
+    return null;
+  }
   const now = Date.now();
   const surfacedAt = surfaced ? now : null;
   rawRun(
+    "conversation:setSurfaced",
     "UPDATE conversations SET surfaced_at = ?, updated_at = ? WHERE id = ?",
     surfacedAt,
     now,
@@ -2307,6 +2572,51 @@ export function setConversationInferenceProfile(
       inferenceProfile: profile,
       inferenceProfileSessionId: null,
       inferenceProfileExpiresAt: null,
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, conversationId))
+    .run();
+}
+
+/**
+ * Encode a plugin-id list for the `enabled_plugins` text column. Keeps a true
+ * SQL NULL for `null` (rather than the JSON literal `"null"`) so it reads back
+ * as "no per-chat restriction".
+ */
+function encodeEnabledPlugins(plugins: string[] | null): string | null {
+  return plugins === null ? null : JSON.stringify(plugins);
+}
+
+/**
+ * Read the per-conversation plugin scope. Returns the parsed `string[]` of
+ * plugin ids, or `null` when the column is unset/empty (= no per-chat
+ * restriction). Defensively returns `null` on a JSON parse failure.
+ */
+export function getConversationEnabledPlugins(
+  conversationId: string,
+): string[] | null {
+  const db = getDb();
+  const row = db
+    .select({ enabledPlugins: conversations.enabledPlugins })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  return parseJsonNullable<string[]>()(row?.enabledPlugins);
+}
+
+/**
+ * Set or clear the per-conversation plugin scope. Pass a `string[]` to scope
+ * the chat to those plugin ids, or `null` to clear the restriction and fall
+ * back to all globally-enabled plugins.
+ */
+export function setConversationEnabledPlugins(
+  conversationId: string,
+  plugins: string[] | null,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      enabledPlugins: encodeEnabledPlugins(plugins),
       updatedAt: Date.now(),
     })
     .where(eq(conversations.id, conversationId))
@@ -2358,7 +2668,9 @@ export function clearExpiredInferenceProfiles(
     )
     .all(now) as Array<{ conversationId: string; sessionId: string | null }>;
 
-  if (expired.length === 0) return [];
+  if (expired.length === 0) {
+    return [];
+  }
 
   const ids = expired.map((r) => r.conversationId);
   const placeholders = ids.map(() => "?").join(", ");
@@ -2483,6 +2795,7 @@ export function setLastNotifiedInferenceProfile(
   profileKey: string | null,
 ): void {
   rawRun(
+    "conversation:setLastNotifiedProfile",
     "UPDATE conversations SET last_notified_inference_profile = ? WHERE id = ?",
     profileKey,
     conversationId,
@@ -2506,9 +2819,15 @@ export async function clearAll(): Promise<{
   messages: number;
 }> {
   const msgCount =
-    rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM messages")?.c ?? 0;
+    rawGet<{ c: number }>(
+      "conversation:clearAll:countMessages",
+      "SELECT COUNT(*) AS c FROM messages",
+    )?.c ?? 0;
   const convCount =
-    rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM conversations")?.c ?? 0;
+    rawGet<{ c: number }>(
+      "conversation:clearAll:countConvs",
+      "SELECT COUNT(*) AS c FROM conversations",
+    )?.c ?? 0;
 
   // Each DELETE goes through `runAsyncSqlite`. The original code threw
   // on rawExec failure; mirror that here by throwing when the async
@@ -2528,71 +2847,45 @@ export async function clearAll(): Promise<{
   // Delete in dependency order. Cascades handle memory_segments and
   // tool_invocations, but we explicitly clear non-cascading memory
   // tables too.
-  //
-  // FTS virtual tables are cleared before their base tables. If an FTS
-  // table is corrupted, the DELETE will fail — we drop the associated
-  // triggers so that the subsequent base-table DELETEs don't also fail
-  // (SQLite triggers are atomic with the triggering statement, so a
-  // corrupted FTS table would roll back every base-table DELETE).
   await runOrThrow("DELETE FROM memory_segments");
   await runOrThrow("DELETE FROM memory_summaries");
   await runOrThrow("DELETE FROM memory_embeddings");
   // memory_jobs and llm_request_logs each live in their own dedicated
   // connection; clear them directly on those connections rather than through a
   // sqlite3 subprocess.
-  rawMemoryRun("DELETE FROM memory_jobs");
+  rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
   await runOrThrow("DELETE FROM memory_checkpoints");
-  rawLogsRun("DELETE FROM llm_request_logs");
+  rawLogsRun(
+    "conversation:clearAll:requestLogs",
+    "DELETE FROM llm_request_logs",
+  );
   await runOrThrow("DELETE FROM llm_usage_events");
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");
   await runOrThrow("DELETE FROM tool_invocations");
   await runOrThrow("DELETE FROM skill_loaded_events");
-  let messagesFtsCorrupted = false;
-  const ftsResult = await runAsyncSqlite(
-    "DELETE FROM messages_fts",
-    "clearAll:messages-fts",
-  );
-  if (!ftsResult.ok) {
-    log.warn(
-      { error: ftsResult.error, backend: ftsResult.backend },
-      "clearAll: failed to clear messages_fts — dropping triggers so base-table cleanup can proceed",
-    );
-    rawExec("DROP TRIGGER IF EXISTS messages_fts_ai");
-    rawExec("DROP TRIGGER IF EXISTS messages_fts_ad");
-    rawExec("DROP TRIGGER IF EXISTS messages_fts_au");
-    messagesFtsCorrupted = true;
-  }
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
 
   // Record audit event — lifecycle_events is NOT deleted by clearAll(),
   // so this survives the wipe and provides a permanent trail.
   rawRun(
+    "conversation:clearAll:auditEvent",
     `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
     uuid(),
     "conversations_clear_all",
     Date.now(),
   );
 
-  // Rebuild corrupted FTS tables and restore triggers after all base-table
-  // DELETEs have completed. Dropping the virtual table clears the corruption,
-  // and recreating it + triggers means subsequent writes maintain FTS
-  // consistency without requiring a daemon restart.
-  if (messagesFtsCorrupted) {
-    rawExec("DROP TABLE IF EXISTS messages_fts");
-    rawExec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, content)`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; END`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
-    );
+  // Drop the whole lexical (Qdrant) collection — a "delete all" leaves no ids
+  // to key per-message cleanup on. AWAITED so the drop completes before
+  // clear-all returns and writes resume — a message created right after must
+  // not upsert into a collection that is about to be dropped. Best-effort — a
+  // failure must not fail the whole clear-all.
+  try {
+    await clearMessagesLexicalIndex(getConfig());
+  } catch (err) {
+    log.warn({ err }, "clearAll: failed to clear messages lexical index");
   }
 
   // Clear the disk-view conversations directory and recreate it empty
@@ -2625,7 +2918,9 @@ export function deleteLastExchange(conversationId: string): number {
     .limit(1)
     .get();
 
-  if (!lastUserMsg) return 0;
+  if (!lastUserMsg) {
+    return 0;
+  }
 
   // Use rowid to identify the last user message and everything after it.
   // rowid is monotonically increasing for inserts, so this is safe even if
@@ -2641,7 +2936,9 @@ export function deleteLastExchange(conversationId: string): number {
     .from(messages)
     .where(condition)
     .all();
-  if (deleted === 0) return 0;
+  if (deleted === 0) {
+    return 0;
+  }
 
   // Collect attachment IDs linked to the messages being deleted so we can
   // scope orphan cleanup to only those candidates (not freshly uploaded ones).
@@ -2680,6 +2977,15 @@ export function deleteLastExchange(conversationId: string): number {
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
+  // Remove the undone messages' points from the lexical index. This bulk
+  // delete bypasses `deleteMessageById`, so enqueue the collected ids here —
+  // after the transaction and off the write path. The enqueue helper
+  // self-selects: enqueue a job when memory is enabled, run the delete inline
+  // (best-effort, breaker-wrapped) when it is disabled.
+  for (const deletedMessageId of messageIds) {
+    enqueueDeleteMessageLexical(deletedMessageId);
+  }
+
   return deleted;
 }
 
@@ -2691,10 +2997,6 @@ export function deleteLastExchange(conversationId: string): number {
 interface DeletedMemoryIds {
   segmentIds: string[];
   deletedSummaryIds: string[];
-}
-
-interface WipeConversationResult extends DeletedMemoryIds {
-  cancelledJobCount: number;
 }
 
 /**
@@ -2723,6 +3025,13 @@ export async function reserveMessage(
 /**
  * Update the content of an existing message. Used when consolidating
  * multiple assistant messages into one.
+ *
+ * This is a pure CRUD primitive: it does NOT enqueue a lexical reindex, because
+ * it is also driven by mid-stream partial flushes and high-frequency tool-timing
+ * stamps (`_startedAt`/`_previewStartedAt`) that either don't change searchable
+ * text or would spam reindex jobs. Callers on genuine content-change seams
+ * (streaming finalize, channel edits, consolidation) enqueue the reindex
+ * themselves via `enqueueLexicalIndexForMessage`.
  */
 export function updateMessageContent(
   messageId: string,
@@ -2798,7 +3107,9 @@ export function relinkAttachments(
   fromMessageIds: string[],
   toMessageId: string,
 ): number {
-  if (fromMessageIds.length === 0) return 0;
+  if (fromMessageIds.length === 0) {
+    return 0;
+  }
   const db = getDb();
 
   // Count how many links will be moved before updating.
@@ -2808,7 +3119,9 @@ export function relinkAttachments(
     .where(inArray(messageAttachments.messageId, fromMessageIds))
     .all();
 
-  if (total === 0) return 0;
+  if (total === 0) {
+    return 0;
+  }
 
   db.update(messageAttachments)
     .set({ messageId: toMessageId })
@@ -2900,6 +3213,14 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
+  // Remove the deleted message's point from the lexical index. Enqueued only
+  // when the row actually existed (`msgRow` set), after the transaction and
+  // off the write path. Covers single-message deletes (consolidation) that do
+  // not go through the conversation-level purge.
+  if (msgRow) {
+    enqueueDeleteMessageLexical(messageId);
+  }
+
   return result;
 }
 
@@ -2976,18 +3297,13 @@ export function getConversationRecentProvenanceTrustClass(
   | "unknown"
   | undefined {
   const row = rawGet<{ metadata: string | null }>(
+    "conversation:getProvenanceTrustClass",
     `SELECT metadata FROM messages
      WHERE conversation_id = ? AND role = 'user' AND metadata IS NOT NULL
      ORDER BY created_at DESC LIMIT 1`,
     conversationId,
   );
-  if (!row?.metadata) return undefined;
-  try {
-    const parsed = messageMetadataSchema.safeParse(JSON.parse(row.metadata));
-    return parsed.success ? parsed.data.provenanceTrustClass : undefined;
-  } catch {
-    return undefined;
-  }
+  return parseMessageMetadata(row?.metadata ?? null)?.provenanceTrustClass;
 }
 
 // ---------------------------------------------------------------------------
@@ -3018,6 +3334,7 @@ export function batchSetDisplayOrders(
           safeGroupId = "system:all";
         } else if (
           !rawGet<{ id: string }>(
+            "conversation:batchSetDisplayOrders:groupCheck",
             "SELECT id FROM conversation_groups WHERE id = ?",
             safeGroupId,
           )
@@ -3033,6 +3350,7 @@ export function batchSetDisplayOrders(
           safeGroupId === "system:background" ||
           safeGroupId === "system:scheduled";
         rawRun(
+          "conversation:batchSetDisplayOrders:group",
           `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
             clearsSurfaced ? ", surfaced_at = NULL" : ""
           } WHERE id = ?`,
@@ -3044,12 +3362,14 @@ export function batchSetDisplayOrders(
       } else if (update.isPinned === undefined) {
         // Only displayOrder provided — preserve existing pin state and group.
         rawRun(
+          "conversation:batchSetDisplayOrders:orderOnly",
           "UPDATE conversations SET display_order = ? WHERE id = ?",
           update.displayOrder,
           update.id,
         );
       } else if (update.isPinned) {
         rawRun(
+          "conversation:batchSetDisplayOrders:pin",
           "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
           update.displayOrder,
           update.id,
@@ -3058,6 +3378,7 @@ export function batchSetDisplayOrders(
         // Restore system group from source/conversationType when unpinning,
         // instead of clearing to NULL (which would lose provenance).
         rawRun(
+          "conversation:batchSetDisplayOrders:unpin",
           `UPDATE conversations SET display_order = ?, is_pinned = 0,
            group_id = CASE WHEN group_id = 'system:pinned' THEN
              CASE
@@ -3092,13 +3413,16 @@ export function getDisplayMetaForConversations(
     string,
     { displayOrder: number | null; isPinned: boolean; groupId: string | null }
   >();
-  if (conversationIds.length === 0) return result;
+  if (conversationIds.length === 0) {
+    return result;
+  }
   for (const id of conversationIds) {
     const row = rawGet<{
       display_order: number | null;
       is_pinned: number | null;
       group_id: string | null;
     }>(
+      "conversation:getDisplayMeta",
       "SELECT display_order, is_pinned, group_id FROM conversations WHERE id = ?",
       id,
     );
@@ -3121,10 +3445,14 @@ export function getDisplayMetaForConversations(
  * be treated as turn boundaries.
  */
 function isToolResultMessage(role: string, content: string): boolean {
-  if (role !== "user") return false;
+  if (role !== "user") {
+    return false;
+  }
   try {
     const parsed = JSON.parse(content);
-    if (!Array.isArray(parsed) || parsed.length === 0) return false;
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return false;
+    }
     return parsed.every(
       (block: unknown) =>
         block != null &&
@@ -3280,7 +3608,9 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   // Look up the target message to get its conversationId and createdAt.
   const target = getMessageById(messageId);
-  if (!target) return [messageId];
+  if (!target) {
+    return [messageId];
+  }
 
   // Walk backward from the target message to find the turn boundary.
   // Limit to 50 rows — sufficient for even aggressive tool-use loops.
@@ -3385,7 +3715,9 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   // Sort by createdAt to ensure stable ordering.
   // Re-fetch createdAt for all collected IDs so the sort is accurate.
-  if (assistantIds.length <= 1) return assistantIds;
+  if (assistantIds.length <= 1) {
+    return assistantIds;
+  }
 
   const idSet = new Set(assistantIds);
   const sorted = db

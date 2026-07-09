@@ -37,11 +37,19 @@ mock.module("../persistence/jobs-store.js", () => ({
   enqueuePruneOldConversationsJob: () => null,
 }));
 
+// Mock checkpoints (accesses DB) — worker startup seeds the cleanup throttle
+// from persisted checkpoints.
+mock.module("../persistence/checkpoints.js", () => ({
+  getMemoryCheckpoint: () => null,
+  setMemoryCheckpoint: () => {},
+  deleteMemoryCheckpoint: () => {},
+}));
+
 import {
   POLL_INTERVAL_MAX_MS,
   POLL_INTERVAL_MIN_MS,
   startMemoryJobsWorker,
-} from "../persistence/jobs-worker.js";
+} from "../plugins/defaults/memory/jobs-worker.js";
 
 describe("memory jobs worker adaptive poll interval", () => {
   test("exports expected poll interval constants", () => {

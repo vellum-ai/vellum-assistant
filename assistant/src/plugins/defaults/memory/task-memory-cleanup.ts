@@ -1,5 +1,4 @@
 import {
-  rawAll,
   rawGet,
   rawMemoryRun,
   rawRun,
@@ -7,47 +6,6 @@ import {
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("task-memory-cleanup");
-
-/**
- * Max id placeholders per `IN (...)` chunk when cancelling jobs by an id set
- * resolved on the main connection. SQLite's default bound-variable limit is
- * well above this, but chunking keeps a pathological conversation (tens of
- * thousands of messages/segments) from building one giant statement.
- */
-const ID_CHUNK_SIZE = 500;
-
-/**
- * Fail every pending/running `memory_jobs` row whose `json_extract(payload,
- * jsonPath)` matches one of `ids`. `memory_jobs` lives in the dedicated memory
- * connection while the id sets are resolved on the main connection, so the
- * cancellation can't be a single cross-DB subquery — bind the ids directly
- * (chunked) instead. Returns the total rows affected.
- */
-function cancelJobsByPayloadIds(
-  jsonPath: string,
-  ids: string[],
-  reason: string,
-  now: number,
-): number {
-  if (ids.length === 0) return 0;
-  let affected = 0;
-  for (let i = 0; i < ids.length; i += ID_CHUNK_SIZE) {
-    const chunk = ids.slice(i, i + ID_CHUNK_SIZE);
-    const placeholders = chunk.map(() => "?").join(", ");
-    affected += rawMemoryRun(
-      `UPDATE memory_jobs
-          SET status = 'failed',
-              last_error = ?,
-              updated_at = ?
-        WHERE status IN ('pending', 'running')
-          AND json_extract(payload, '${jsonPath}') IN (${placeholders})`,
-      reason,
-      now,
-      ...chunk,
-    );
-  }
-  return affected;
-}
 
 /**
  * Check whether a conversation belongs to a failed task run or failed
@@ -62,6 +20,7 @@ export function isConversationFailed(conversationId: string): boolean {
   // which is a monotonically increasing epoch timestamp) has an error status.
   // Note: cron_runs.id is a UUID v4 (random), so we cannot use MAX(id).
   const row = rawGet<{ found: number }>(
+    "taskMemory:isConversationFailed",
     `SELECT 1 AS found
        FROM (
          SELECT 1 FROM task_runs WHERE conversation_id = ? AND status = 'failed'
@@ -98,6 +57,7 @@ export function invalidateAssistantInferredItemsForConversation(
   cancelPendingExtractionJobsForConversation(conversationId);
 
   const affected = rawRun(
+    "taskMemory:invalidateInferredNodes",
     `UPDATE memory_graph_nodes
         SET fidelity = 'gone',
             last_accessed = ?
@@ -145,67 +105,51 @@ export function invalidateAssistantInferredItemsForConversation(
 }
 
 /**
- * Cancel all pending/running memory jobs referencing the given conversation.
- * Covers every job type: `embed_attachment` (keyed by messageId),
- * `embed_segment` (keyed by segmentId via memory_segments),
- * `graph_extract`, `build_conversation_summary` (keyed by conversationId),
- * and `embed_graph_node` (keyed by nodeId sourced from the conversation).
+ * Fail every pending/running job of one of `types` keyed to the given
+ * conversation (`json_extract(payload, '$.conversationId')` — e.g.
+ * `graph_extract`, `memory_retrospective`). Fired from the
+ * `conversation-deleted` hook, so the worker does not burn cycles (and error
+ * noise) on jobs whose conversation no longer exists.
+ *
+ * Two deliberate scope limits:
+ * - conversationId-keyed only — it runs after the conversation's rows are
+ *   deleted, and jobs for surviving multi-sourced graph nodes must stay
+ *   runnable;
+ * - restricted to the caller's own job types — the hook dispatch is
+ *   fire-and-forget, so the sweep runs concurrently with the host cleanup
+ *   jobs the delete primitive enqueues (the lexical purge is itself a
+ *   `conversationId`-keyed pending job) and must not be able to fail them.
  */
 export function cancelPendingJobsForConversation(
   conversationId: string,
-  reason: string = "conversation_wiped",
+  types: readonly string[],
+  reason: string = "conversation_deleted",
 ): number {
-  const now = Date.now();
-  let total = 0;
-
-  // The id sets live on the main connection; `memory_jobs` lives on the memory
-  // connection. Resolve each set on main first, then cancel by bound ids on the
-  // memory connection (the conversationId-keyed update needs no main lookup).
-
-  // Jobs keyed by messageId: embed_attachment
-  const messageIds = rawAll<{ id: string }>(
-    `SELECT id FROM messages WHERE conversation_id = ?`,
-    conversationId,
-  ).map((r) => r.id);
-  total += cancelJobsByPayloadIds("$.messageId", messageIds, reason, now);
-
-  // Jobs keyed by conversationId: graph_extract, build_conversation_summary
-  total += rawMemoryRun(
+  if (types.length === 0) return 0;
+  const placeholders = types.map(() => "?").join(", ");
+  const cancelled = rawMemoryRun(
+    "taskMemory:cancelJobs:byConversation",
     `UPDATE memory_jobs
         SET status = 'failed',
             last_error = ?,
             updated_at = ?
       WHERE status IN ('pending', 'running')
+        AND type IN (${placeholders})
         AND json_extract(payload, '$.conversationId') = ?`,
     reason,
-    now,
+    Date.now(),
+    ...types,
     conversationId,
   );
 
-  // Jobs keyed by segmentId: embed_segment (segments belong to the conversation)
-  const segmentIds = rawAll<{ id: string }>(
-    `SELECT id FROM memory_segments WHERE conversation_id = ?`,
-    conversationId,
-  ).map((r) => r.id);
-  total += cancelJobsByPayloadIds("$.segmentId", segmentIds, reason, now);
-
-  // Jobs keyed by nodeId: embed_graph_node (nodes sourced from this conversation)
-  const nodeIds = rawAll<{ id: string }>(
-    `SELECT mgn.id
-       FROM memory_graph_nodes mgn, json_each(mgn.source_conversations) jc
-      WHERE jc.value = ?`,
-    conversationId,
-  ).map((r) => r.id);
-  total += cancelJobsByPayloadIds("$.nodeId", nodeIds, reason, now);
-
-  if (total > 0) {
+  if (cancelled > 0) {
     log.info(
-      { conversationId, cancelled: total },
-      "Cancelled pending memory jobs for conversation",
+      { conversationId, cancelled },
+      "Cancelled pending memory jobs for deleted conversation",
     );
   }
 
-  return total;
+  return cancelled;
 }
 
 /**
@@ -219,6 +163,7 @@ function cancelPendingExtractionJobsForConversation(
 ): number {
   const now = Date.now();
   const cancelled = rawMemoryRun(
+    "taskMemory:cancelExtractionJobs",
     `UPDATE memory_jobs
         SET status = 'failed',
             last_error = 'conversation_failed',

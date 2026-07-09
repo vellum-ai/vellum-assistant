@@ -19,6 +19,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 
+import { MOBILE_INPUT_NO_ZOOM } from "@/domains/onboarding/onboarding-step-layout";
+
 export function ApiKeyScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -38,14 +40,24 @@ export function ApiKeyScreen() {
       ) ??
       "",
   );
+  const [baseUrl, setBaseUrl] = useState(
+    () => pendingProviderKey?.baseUrl ?? "",
+  );
+  const [customModels, setCustomModels] = useState(
+    () => pendingProviderKey?.customModels ?? "",
+  );
 
   const entry = onboardingProvider(provider) ?? DEFAULT_ONBOARDING_PROVIDER;
   const models = entry.models ?? [];
   const requiresKey = entry.requiresKey;
   const requiresModel = models.length > 0;
+  const isOpenAICompatible = provider === "openai-compatible";
+  const keyRequired = requiresKey && !isOpenAICompatible;
   const canContinue =
-    (!requiresKey || apiKey.trim().length > 0) &&
-    (!requiresModel || model.trim().length > 0);
+    (!keyRequired || apiKey.trim().length > 0) &&
+    (!requiresModel || model.trim().length > 0) &&
+    (!isOpenAICompatible ||
+      (baseUrl.trim().length > 0 && customModels.trim().length > 0));
 
   const onContinue = () => {
     if (!canContinue) return;
@@ -53,8 +65,14 @@ export function ApiKeyScreen() {
       model.trim() || defaultModelForOnboardingProvider(provider);
     setPendingProviderKey({
       provider,
-      key: requiresKey ? apiKey.trim() : "",
+      key: apiKey.trim(),
       ...(selectedModel ? { model: selectedModel } : {}),
+      ...(isOpenAICompatible
+        ? {
+            baseUrl: baseUrl.trim(),
+            customModels: customModels.trim(),
+          }
+        : {}),
     });
     void navigate(
       hosting
@@ -132,6 +150,38 @@ export function ApiKeyScreen() {
             </div>
           )}
 
+          {isOpenAICompatible && (
+            <>
+              <div className={`flex flex-col ${electron ? "gap-2" : "gap-1"}`}>
+                <label className="text-body-small-default text-[var(--content-tertiary)]">
+                  Base URL
+                </label>
+                <Input
+                  type="text"
+                  placeholder="http://localhost:1234/v1"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  fullWidth
+                />
+              </div>
+              <div className={`flex flex-col ${electron ? "gap-2" : "gap-1"}`}>
+                <label className="text-body-small-default text-[var(--content-tertiary)]">
+                  Models
+                </label>
+                <Input
+                  type="text"
+                  placeholder="model-1, model-2"
+                  value={customModels}
+                  onChange={(e) => setCustomModels(e.target.value)}
+                  fullWidth
+                />
+                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                  Comma-separated model identifiers exposed by your endpoint.
+                </p>
+              </div>
+            </>
+          )}
+
           {requiresKey && (
             <div className="flex flex-col gap-3">
               <Input
@@ -140,6 +190,7 @@ export function ApiKeyScreen() {
                 placeholder={entry.apiKeyPlaceholder ?? "Enter your API key"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
+                className={MOBILE_INPUT_NO_ZOOM}
                 fullWidth
               />
               {entry.docsUrl && (

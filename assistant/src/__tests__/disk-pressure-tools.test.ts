@@ -4,6 +4,7 @@ import type { SkillProjectionCache } from "../daemon/conversation-skill-tools.js
 import type { SkillProjectionContext } from "../daemon/conversation-tool-setup.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { DiskUsageInfo } from "../util/disk-usage.js";
+import * as realDiskUsage from "../util/disk-usage.js";
 
 let diskSample: DiskUsageInfo | null = null;
 
@@ -76,7 +77,12 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
+// Spread the real module and override only what we need: `mock.module` is
+// global across the test process, so a partial mock missing exports that
+// other modules in this graph import (e.g. cgroup-memory's
+// `parseK8sMemoryBytes`) would break them.
 mock.module("../util/disk-usage.js", () => ({
+  ...realDiskUsage,
   getDiskUsageInfo: () => diskSample,
 }));
 
@@ -190,10 +196,8 @@ describe("disk pressure cleanup tool restrictions", () => {
         allowedToolNames: new Set(["file_write"]),
         diskPressureCleanupModeActive: true,
       },
-      "sandbox",
       "low",
       Date.now(),
-      () => undefined,
     );
 
     expect(result.allowed).toBe(false);
@@ -217,10 +221,8 @@ describe("disk pressure cleanup tool restrictions", () => {
         allowedToolNames: new Set(["skill_load"]),
         diskPressureCleanupModeActive: true,
       },
-      "sandbox",
       "low",
       Date.now(),
-      () => undefined,
     );
 
     expect(result.allowed).toBe(true);

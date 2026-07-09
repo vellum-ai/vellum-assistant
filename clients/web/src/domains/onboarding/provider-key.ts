@@ -26,6 +26,10 @@ export interface PendingProviderKey {
   key: string;
   /** Selected model for the initial local assistant profile. */
   model?: string;
+  /** Base URL for openai-compatible providers. */
+  baseUrl?: string;
+  /** Comma-separated model identifiers for openai-compatible providers. */
+  customModels?: string;
 }
 
 export function setPendingProviderKey(value: PendingProviderKey | null): void {
@@ -48,7 +52,9 @@ function isPendingProviderKey(value: unknown): value is PendingProviderKey {
     typeof value.provider === "string" &&
     "key" in value &&
     typeof value.key === "string" &&
-    (!("model" in value) || typeof value.model === "string")
+    (!("model" in value) || typeof value.model === "string") &&
+    (!("baseUrl" in value) || typeof value.baseUrl === "string") &&
+    (!("customModels" in value) || typeof value.customModels === "string")
   );
 }
 
@@ -97,13 +103,33 @@ async function createProviderConnection(
   assistantId: string,
   provider: OnboardingProviderId,
   hasKey: boolean,
+  options?: { baseUrl?: string; customModels?: string },
 ): Promise<void> {
-  const auth = hasKey
+  const isOpenAICompatible = provider === "openai-compatible";
+  const useApiKeyAuth = hasKey || isOpenAICompatible;
+  const auth = useApiKeyAuth
     ? { type: "api_key" as const, credential: `credential/${provider}/api_key` }
     : { type: "none" as const };
+
+  const baseUrl = isOpenAICompatible && options?.baseUrl
+    ? options.baseUrl
+    : undefined;
+  const models = isOpenAICompatible && options?.customModels
+    ? options.customModels
+        .split(",")
+        .map((id) => ({ id: id.trim() }))
+        .filter((m) => m.id)
+    : undefined;
+
   const { response } = await inferenceProviderconnectionsPost({
     path: { assistant_id: assistantId },
-    body: { name: provider, provider, auth },
+    body: {
+      name: provider,
+      provider,
+      auth,
+      ...(baseUrl !== undefined ? { base_url: baseUrl } : {}),
+      ...(models !== undefined ? { models } : {}),
+    },
     throwOnError: false,
   });
   if (!response?.ok && response?.status !== 409) {
@@ -187,13 +213,21 @@ export async function applyPendingProviderKey(
   if (!pending) return;
   const trimmed = pending.key.trim();
   const hasKey = trimmed.length > 0;
-  if (hasKey) {
+  const isOpenAICompatible = pending.provider === "openai-compatible";
+  if (hasKey || isOpenAICompatible) {
     await writeApiKeySecret(assistantId, pending.provider, trimmed);
   }
-  await createProviderConnection(assistantId, pending.provider, hasKey);
+  await createProviderConnection(assistantId, pending.provider, hasKey, {
+    baseUrl: pending.baseUrl,
+    customModels: pending.customModels,
+  });
   const selectedModel = pending.model?.trim();
+  const firstCustomModel = pending.customModels
+    ?.split(",")
+    .map((s) => s.trim())
+    .find((s) => s);
   const model =
-    selectedModel || defaultModelForOnboardingProvider(pending.provider);
+    selectedModel || firstCustomModel || defaultModelForOnboardingProvider(pending.provider);
   if (model) {
     await replaceOnboardingProfile(assistantId, pending.provider, model);
     await activateOnboardingProfile(assistantId);

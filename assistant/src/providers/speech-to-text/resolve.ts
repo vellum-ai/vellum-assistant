@@ -260,6 +260,17 @@ export interface ResolveStreamingTranscriberOptions {
    * See {@link DiarizePreference} for semantics.
    */
   diarize?: DiarizePreference;
+  /**
+   * Emit `final` events only at utterance boundaries. Supported only by
+   * providers whose catalog `telephonyMode` is `"realtime-ws"` (Deepgram,
+   * where it also enables `utterance_end_ms` endpointing). All other
+   * providers resolve to `null` so the caller falls back to per-turn
+   * batch transcription — e.g. openai-whisper fires `final` only from
+   * `stop()` (end-of-stream, not end-of-utterance) and xAI emits a
+   * `final` per committed segment. Used by telephony call ingestion.
+   * Default: false.
+   */
+  utteranceBoundaryFinals?: boolean;
 }
 
 /**
@@ -277,6 +288,8 @@ export interface ResolveStreamingTranscriberOptions {
  * - No credentials are configured for the resolved provider.
  * - No streaming adapter exists for the configured provider.
  * - `diarize` is `"required"` but the configured provider cannot diarize.
+ * - `utteranceBoundaryFinals` is set but the configured provider's catalog
+ *   `telephonyMode` is not `"realtime-ws"`.
  */
 export async function resolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions = {},
@@ -296,6 +309,26 @@ export async function resolveStreamingTranscriber(
   // Verify the provider supports the daemon-streaming boundary.
   if (!supportsBoundary(provider as SttProviderId, "daemon-streaming")) {
     return null;
+  }
+
+  // Boundary-requiring callers (telephony) can only stream on providers
+  // whose catalog telephonyMode is "realtime-ws" (Deepgram gates finals on
+  // utterance boundaries). Everything else fires `final` either only from
+  // stop() — end-of-stream, not end-of-utterance (openai-whisper) — or per
+  // committed segment (xAI), so streaming would yield no replies until
+  // hangup, or mid-sentence replies. Resolve to null so the caller falls
+  // back to per-turn batch transcription.
+  if (options.utteranceBoundaryFinals) {
+    const telephonyMode = getProviderEntry(
+      provider as SttProviderId,
+    )?.telephonyMode;
+    if (telephonyMode !== "realtime-ws") {
+      log.warn(
+        { providerId: provider, telephonyMode },
+        "utterance-boundary finals requested but the configured STT provider has no realtime telephony streaming — falling back to batch transcription",
+      );
+      return null;
+    }
   }
 
   // Resolve diarization capability against the catalog. For `"required"`
@@ -323,8 +356,17 @@ export async function resolveStreamingTranscriber(
   return createStreamingTranscriber(apiKey, provider as SttProviderId, {
     sampleRate: options.sampleRate,
     diarize: enableDiarization,
+    utteranceBoundaryFinals: options.utteranceBoundaryFinals ?? false,
   });
 }
+
+/**
+ * Deepgram `utterance_end_ms` used when utterance-boundary finals are
+ * requested. Deepgram requires >= 1000 ms; this is the pause length after
+ * which an `UtteranceEnd` frame confirms the utterance is complete even
+ * when `speech_final` endpointing never fired (e.g. background noise).
+ */
+const UTTERANCE_BOUNDARY_END_MS = 1_000;
 
 /**
  * Options forwarded to individual streaming adapter constructors.
@@ -338,6 +380,13 @@ interface CreateStreamingTranscriberOptions {
    * support.
    */
   diarize?: boolean;
+  /**
+   * Whether `final` events should be gated on utterance boundaries.
+   * Only forwarded to Deepgram; the resolver never sets this for
+   * providers without realtime telephony streaming (they resolve to
+   * `null` instead).
+   */
+  utteranceBoundaryFinals?: boolean;
 }
 
 /**
@@ -361,6 +410,12 @@ async function createStreamingTranscriber(
       return new DeepgramRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
         ...(options.diarize ? { diarize: true } : {}),
+        ...(options.utteranceBoundaryFinals
+          ? {
+              utteranceBoundaryFinals: true,
+              utteranceEndMs: UTTERANCE_BOUNDARY_END_MS,
+            }
+          : {}),
       });
     }
     case "google-gemini": {
@@ -393,4 +448,16 @@ async function createStreamingTranscriber(
       return null;
     }
   }
+}
+
+/**
+ * True when an API key resolves for the given credential provider name.
+ *
+ * Centralized here (an authorized secure-keys importer) so callers that only
+ * need a key-existence check don't import secure-keys directly.
+ */
+export async function sttProviderKeyResolves(
+  credentialProviderName: string,
+): Promise<boolean> {
+  return (await getProviderKeyAsync(credentialProviderName)) !== undefined;
 }

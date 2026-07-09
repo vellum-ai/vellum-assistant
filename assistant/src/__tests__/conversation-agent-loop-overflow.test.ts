@@ -12,7 +12,24 @@
  * Tests 2, 8, 9, and 10 are now active and passing against current code.
  */
 import { createRequire } from "node:module";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
+// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
+// llm-resolver-override-or-default.test.ts and its companion suites.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 import type { LoopToolExecutor } from "../agent/loop.js";
 import type { LLMConfig } from "../config/schemas/llm.js";
@@ -163,7 +180,9 @@ const runMockReducer = async (
   cfg: unknown,
   state: unknown,
 ) => {
-  if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
+  if (mockReducerStepFn) {
+    return mockReducerStepFn(msgs, cfg, state);
+  }
   return {
     messages: msgs,
     tier: "forced_compaction",
@@ -210,7 +229,9 @@ function makeOverflowLadderStub(): {
 } {
   let state: unknown;
   const reduceOverflowOneRung = async (msgs: Message[], opts: unknown) => {
-    if (!state) state = makeInitialReducerState();
+    if (!state) {
+      state = makeInitialReducerState();
+    }
     const step = (await runMockReducer(msgs, opts, state)) as {
       state: unknown;
     };
@@ -325,10 +346,6 @@ mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
-}));
-
-mock.module("../apps/app-git-service.js", () => ({
-  commitAppTurnChanges: () => Promise.resolve(),
 }));
 
 mock.module("../daemon/conversation-memory.js", () => ({
@@ -459,9 +476,15 @@ mock.module("../daemon/conversation-error.js", () => ({
     };
   },
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
-    if (!ctx.aborted) return false;
-    if (err instanceof DOMException && err.name === "AbortError") return true;
-    if (err instanceof Error && err.name === "AbortError") return true;
+    if (!ctx.aborted) {
+      return false;
+    }
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return true;
+    }
+    if (err instanceof Error && err.name === "AbortError") {
+      return true;
+    }
     return false;
   },
   buildConversationErrorMessage: (
@@ -618,13 +641,6 @@ function makeCtx(
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    traceEmitter: {
-      emit: () => {},
-    } as unknown as Conversation["traceEmitter"],
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -1269,7 +1285,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       mockEstimateTokens = () => {
         estimateCallCount++;
         // First call: preflight check — below budget
-        if (estimateCallCount === 1) return 100_000;
+        if (estimateCallCount === 1) {
+          return 100_000;
+        }
         // Subsequent calls: mid-loop check — above 85% threshold
         return 170_000;
       };
@@ -1367,10 +1385,16 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       mockEstimateTokens = () => {
         estimateCallCount++;
         // First call: preflight — well below budget
-        if (estimateCallCount === 1) return 50_000;
+        if (estimateCallCount === 1) {
+          return 50_000;
+        }
         // Checkpoint calls grow with each tool round
-        if (estimateCallCount === 2) return 100_000; // tool 1
-        if (estimateCallCount === 3) return 140_000; // tool 2
+        if (estimateCallCount === 2) {
+          return 100_000;
+        } // tool 1
+        if (estimateCallCount === 3) {
+          return 140_000;
+        } // tool 2
         // Tool 3: exceeds 161_500 threshold
         return 175_000;
       };

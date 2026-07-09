@@ -12,12 +12,19 @@
  */
 
 import { answerCall } from "../calls/call-domain.js";
+import { createOutboundSession } from "../channels/gateway-verification-sessions.js";
 import {
   type CanonicalGuardianRequest,
+  type CanonicalRequestStatus,
   getCanonicalGuardianRequest,
+  resolveCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import { activateMemberChannel } from "../contacts/member-write-relay.js";
+import {
+  activateMemberChannel,
+  blockSenderChannel,
+  seedUnverifiedMemberChannel,
+} from "../contacts/member-write-relay.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import {
@@ -30,9 +37,16 @@ import type {
 } from "../notifications/trusted-contact-payloads.js";
 import type { UserDecision } from "../permissions/types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import type { ApprovalAction } from "../runtime/channel-approval-types.js";
-import { createOutboundSession } from "../runtime/channel-verification-service.js";
+import {
+  type ApprovalAction,
+  DENYING_ACTION_SET,
+} from "../runtime/channel-approval-types.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
+import {
+  introductionMode,
+  parseRequesterSignals,
+  resolveTrustBinding,
+} from "../runtime/introduction-policy.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { TC_GRANT_WAIT_MAX_MS } from "../tools/tool-approval-handler.js";
 import { getLogger } from "../util/logger.js";
@@ -61,6 +75,22 @@ function shouldUseEphemeral(sourceChannel: string, chatId: string): boolean {
 }
 
 /**
+ * Strip the `threadTs` query param from a reply callback URL. The param
+ * addresses the guardian's channel thread; reusing it for a DM delivery
+ * raises `thread_not_found`. Relative or malformed URLs are returned as-is —
+ * they carry no threadTs to strip.
+ */
+function stripThreadTsParam(replyCallbackUrl: string): string {
+  try {
+    const url = new URL(replyCallbackUrl);
+    url.searchParams.delete("threadTs");
+    return url.toString();
+  } catch {
+    return replyCallbackUrl;
+  }
+}
+
+/**
  * Deliver the verification code straight to the requester's Slack DM so the
  * guardian is never an out-of-band courier for the secret.
  *
@@ -82,15 +112,7 @@ async function deliverVerificationCodeToSlackRequester(params: {
   verificationCode: string;
   assistantId: string;
 }): Promise<boolean> {
-  let callbackUrl = params.replyCallbackUrl;
-  try {
-    const url = new URL(params.replyCallbackUrl);
-    url.searchParams.delete("threadTs");
-    callbackUrl = url.toString();
-  } catch {
-    // Relative path (e.g. the desktop "/deliver/slack" target) — use as-is;
-    // it carries no threadTs to strip.
-  }
+  const callbackUrl = stripThreadTsParam(params.replyCallbackUrl);
 
   try {
     await deliverChannelReply(callbackUrl, {
@@ -298,8 +320,9 @@ const pendingInteractionResolver: GuardianRequestResolver = {
 
     // Map action to the permission system's UserDecision type and notify session.
     // resolveConfirmation() owns pendingInteractions deregistration.
-    const userDecision: UserDecision =
-      decision.action === "reject" ? "deny" : "allow";
+    const userDecision: UserDecision = DENYING_ACTION_SET.has(decision.action)
+      ? "deny"
+      : "allow";
 
     // Route-owned confirmations (e.g. the ACP spawn/steer approval gate in
     // acp-routes.ts) carry a `directResolve` and are NOT owned by any
@@ -435,20 +458,226 @@ const pendingQuestionResolver: GuardianRequestResolver = {
 };
 
 /**
- * Resolves `access_request` requests — channel access request approvals.
+ * The four introduction-card outcomes for an access request. The generic
+ * decision pair maps onto them: `approve_once` → `verify_code` (handshake),
+ * `reject` → `leave_unverified`.
+ */
+type IntroductionOutcome =
+  | "verify_code"
+  | "trust"
+  | "leave_unverified"
+  | "block";
+
+/**
+ * Wire action → introduction outcome. Exhaustive over `ApprovalAction` so a
+ * future action addition fails to compile here instead of silently falling
+ * into a default outcome.
+ */
+const OUTCOME_BY_ACTION = {
+  approve_once: "verify_code",
+  verify_code: "verify_code",
+  trust: "trust",
+  reject: "leave_unverified",
+  leave_unverified: "leave_unverified",
+  block: "block",
+} as const satisfies Record<ApprovalAction, IntroductionOutcome>;
+
+/**
+ * Reopen an access request whose gateway-side persist failed after the CAS
+ * already committed a terminal status. Leaving the row terminal would lie
+ * about the ACL state: a `denied` row from a failed Block permanently
+ * suppresses re-prompts for the sender (isAccessRequestDenied) even though
+ * the revoke never landed, and an `approved` row from a failed activation
+ * suppresses re-prompts for the verification window. Reopening keeps the
+ * request decidable (the request code stays live) and lets the expiry sweep
+ * re-enable discovery if the guardian never retries.
  *
- * Access requests don't have pending interactions in the session tracker.
- * Instead, they create identity-bound verification sessions so the requester
- * can prove their identity.
+ * CAS-guarded on the status this decision committed, so a concurrent writer
+ * is never clobbered.
+ */
+function reopenAccessRequestAfterFailedPersist(
+  requestId: string,
+  fromStatus: CanonicalRequestStatus,
+): void {
+  const reopened = resolveCanonicalGuardianRequest(requestId, fromStatus, {
+    status: "pending",
+  });
+  if (!reopened) {
+    log.warn(
+      { event: "access_request_reopen_failed", requestId, fromStatus },
+      "Failed to reopen access request after gateway persist failure",
+    );
+  }
+}
+
+/**
+ * Deliver a requester-facing decision notice. On-channel decisions reply via
+ * the channel delivery context (ephemeral on Slack shared channels);
+ * off-channel (desktop) decisions post via the channel's deliver URL — on
+ * Slack routed to the requester's user ID so the notice opens a DM instead
+ * of posting into a shared channel. Delivery failures are logged, never
+ * thrown: the notice is best-effort and must not fail the decision.
+ */
+async function deliverRequesterNotice(params: {
+  channel: NotificationSourceChannel;
+  requesterChatId: string;
+  requesterExternalUserId: string;
+  assistantId: string;
+  channelDeliveryContext: ChannelDeliveryContext | undefined;
+  desktopDeliverUrl: string | null;
+  text: string;
+}): Promise<void> {
+  const {
+    channel,
+    requesterChatId,
+    requesterExternalUserId,
+    assistantId,
+    channelDeliveryContext,
+    desktopDeliverUrl,
+    text,
+  } = params;
+
+  if (channelDeliveryContext) {
+    try {
+      await deliverChannelReply(
+        channelDeliveryContext.replyCallbackUrl,
+        buildRequesterChannelNotice({
+          channel,
+          requesterChatId,
+          requesterExternalUserId,
+          text,
+          assistantId,
+        }),
+      );
+    } catch (err) {
+      log.error(
+        { err, requesterChatId },
+        "Failed to deliver requester decision notice",
+      );
+    }
+    return;
+  }
+
+  if (desktopDeliverUrl && requesterChatId) {
+    const targetChatId =
+      channel === "slack" && requesterExternalUserId
+        ? requesterExternalUserId
+        : requesterChatId;
+    try {
+      await deliverChannelReply(desktopDeliverUrl, {
+        chatId: targetChatId,
+        text,
+        assistantId,
+      });
+    } catch (err) {
+      log.error(
+        { err, requesterChatId },
+        "Failed to deliver requester decision notice (desktop decision path)",
+      );
+    }
+  }
+}
+
+/**
+ * Deliver the "denied" notice to the requester and emit the denial lifecycle
+ * signals. Shared by the `leave_unverified` and `block` outcomes — both look
+ * identical to the requester (the block is not revealed).
+ */
+async function notifyRequesterOfDenial(params: {
+  channel: NotificationSourceChannel;
+  requesterChatId: string;
+  requesterExternalUserId: string;
+  assistantId: string;
+  channelDeliveryContext: ChannelDeliveryContext | undefined;
+  desktopDeliverUrl: string | null;
+  deniedPayload: TrustedContactDecisionPayload;
+  requestId: string;
+  conversationId: string | null;
+  /**
+   * Admitted-mode introduction nudges never send the requester a denial
+   * text — the sender made no request and (for leave-unverified) keeps
+   * whatever access the floor grants. Guardian-facing decision signals
+   * still emit.
+   */
+  suppressRequesterNotice?: boolean;
+}): Promise<void> {
+  const {
+    channel,
+    requesterChatId,
+    requesterExternalUserId,
+    assistantId,
+    channelDeliveryContext,
+    desktopDeliverUrl,
+    deniedPayload,
+    requestId,
+    conversationId,
+    suppressRequesterNotice,
+  } = params;
+
+  if (!suppressRequesterNotice) {
+    await deliverRequesterNotice({
+      channel,
+      requesterChatId,
+      requesterExternalUserId,
+      assistantId,
+      channelDeliveryContext,
+      desktopDeliverUrl,
+      text: "Your access request has been denied.",
+    });
+  }
+
+  if (channelDeliveryContext) {
+    void emitNotificationSignal({
+      sourceEventName: "ingress.trusted_contact.guardian_decision",
+      sourceChannel: channel,
+      sourceContextId: conversationId ?? "",
+      attentionHints: {
+        requiresAction: false,
+        urgency: "medium",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: deniedPayload,
+      dedupeKey: `trusted-contact:guardian-decision:${requestId}`,
+    });
+
+    void emitNotificationSignal({
+      sourceEventName: "ingress.trusted_contact.denied",
+      sourceChannel: channel,
+      sourceContextId: conversationId ?? "",
+      attentionHints: {
+        requiresAction: false,
+        urgency: "low",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: deniedPayload,
+      dedupeKey: `trusted-contact:denied:${requestId}`,
+    });
+  }
+}
+
+/**
+ * Resolves `access_request` requests — the introduction card's trust-setting
+ * decision for a first-contact sender.
  *
- * On approve, the resolver mints the verification session directly.
+ * Four outcomes (see `introduction-policy.ts`):
+ * - `verify_code` (also reached via `approve_once`): mints an identity-bound
+ *   verification session so the requester proves control of the channel.
+ * - `trust`: activates the contact directly, no code. `verifiedVia` records
+ *   the binding strength: `manual` for a workspace-vouched identity,
+ *   `manual_channel_claim` for an external/stranger the platform is not
+ *   vouching for.
+ * - `leave_unverified` (also reached via `reject`): persists the sender as an
+ *   `unverified_contact` so discovery does not re-fire.
+ * - `block`: persists the sender's channel as `revoked` (gateway ACL is the
+ *   source of truth).
+ *
+ * A bot requester can never return a code, so handshake approvals are
+ * coerced to direct trust.
  *
  * When a `channelDeliveryContext` is provided (channel path), the resolver
- * also delivers the verification code to the guardian, notifies the requester,
- * and emits lifecycle notification signals.
- *
- * For deny: notifies the requester and emits denial lifecycle signals when
- * channelDeliveryContext is available.
+ * also delivers codes/notices on-channel and emits lifecycle signals.
  */
 const accessRequestResolver: GuardianRequestResolver = {
   kind: "access_request",
@@ -493,104 +722,144 @@ const accessRequestResolver: GuardianRequestResolver = {
     const decidedByDisplayName =
       decidedByContactResult?.contact.displayName ?? null;
 
-    if (decision.action === "reject") {
+    const signals = parseRequesterSignals(request.requesterSignals);
+    // Requester-facing lifecycle notices are mode-gated: an admitted-mode
+    // nudge's sender made no request. See introductionMode().
+    const mode = introductionMode(request.trigger);
+    let outcome: IntroductionOutcome = OUTCOME_BY_ACTION[decision.action];
+
+    // A bot cannot return a verification code, so a handshake approval on a
+    // bot requester can never complete. Coerce it to direct trust — the
+    // guardian's intent ("let it in") is unambiguous.
+    if (outcome === "verify_code" && signals.isBot === true) {
+      log.info(
+        {
+          event: "resolver_access_request_bot_coercion",
+          requestId: request.id,
+          action: decision.action,
+        },
+        "Access request resolver: handshake approval on a bot coerced to direct trust",
+      );
+      outcome = "trust";
+    }
+
+    const deniedPayload: TrustedContactDecisionPayload = {
+      sourceChannel: channel,
+      requesterExternalUserId,
+      requesterChatId,
+      decidedByExternalUserId,
+      requesterDisplayName,
+      decidedByDisplayName,
+      decision: "denied",
+    };
+
+    if (outcome === "leave_unverified") {
       log.info(
         { event: "resolver_access_request_denied", requestId: request.id },
-        "Access request resolver: deny",
+        "Access request resolver: leave unverified",
       );
 
-      // Deliver denial notification and lifecycle signals when channel context is available
-      if (channelDeliveryContext) {
-        try {
-          await deliverChannelReply(
-            channelDeliveryContext.replyCallbackUrl,
-            buildRequesterChannelNotice({
-              channel,
-              requesterChatId,
-              requesterExternalUserId,
-              text: "Your access request has been denied.",
-              assistantId,
-            }),
-          );
-        } catch (err) {
-          log.error(
-            { err, requesterChatId },
-            "Failed to notify requester of access request denial",
-          );
-        }
-
-        const deniedPayload: TrustedContactDecisionPayload = {
+      // Persist the denied sender as an unverified_contact (gateway-first).
+      // Denial is a terminal decision: the sender becomes a known, unverified
+      // contact so future inbound resolves as unverified_contact rather than
+      // re-triggering discovery. Paired with the denied-request suppression in
+      // notifyGuardianOfAccessRequest, this stops the prompt from re-firing on
+      // every subsequent DM. The guardian can still verify them later. Skipped
+      // for desktop-origin (vellum) requests, which carry no channel identity.
+      if (requesterExternalUserId && channel !== "vellum") {
+        await seedUnverifiedMemberChannel({
           sourceChannel: channel,
-          requesterExternalUserId,
-          requesterChatId,
-          decidedByExternalUserId,
-          requesterDisplayName,
-          decidedByDisplayName,
-          decision: "denied",
-        };
-
-        void emitNotificationSignal({
-          sourceEventName: "ingress.trusted_contact.guardian_decision",
-          sourceChannel: channel,
-          sourceContextId: request.conversationId ?? "",
-          attentionHints: {
-            requiresAction: false,
-            urgency: "medium",
-            isAsyncBackground: false,
-            visibleInSourceNow: false,
-          },
-          contextPayload: deniedPayload,
-          dedupeKey: `trusted-contact:guardian-decision:${request.id}`,
+          externalUserId: requesterExternalUserId,
+          ...(requesterDisplayName
+            ? { displayName: requesterDisplayName }
+            : {}),
         });
-
-        void emitNotificationSignal({
-          sourceEventName: "ingress.trusted_contact.denied",
-          sourceChannel: channel,
-          sourceContextId: request.conversationId ?? "",
-          attentionHints: {
-            requiresAction: false,
-            urgency: "low",
-            isAsyncBackground: false,
-            visibleInSourceNow: false,
-          },
-          contextPayload: deniedPayload,
-          dedupeKey: `trusted-contact:denied:${request.id}`,
-        });
-      } else if (desktopDeliverUrl && requesterChatId) {
-        // For Slack, route to DM via requesterExternalUserId (user ID) instead
-        // of requesterChatId (channel ID) to avoid posting in public channels.
-        const targetChatId =
-          channel === "slack" && requesterExternalUserId
-            ? requesterExternalUserId
-            : requesterChatId;
-        try {
-          await deliverChannelReply(desktopDeliverUrl, {
-            chatId: targetChatId,
-            text: "Your access request has been denied.",
-            assistantId,
-          });
-        } catch (err) {
-          log.error(
-            { err, requesterChatId },
-            "Failed to notify requester of access request denial (desktop decision path)",
-          );
-        }
       }
+
+      await notifyRequesterOfDenial({
+        channel,
+        requesterChatId,
+        requesterExternalUserId,
+        assistantId,
+        channelDeliveryContext,
+        desktopDeliverUrl,
+        deniedPayload,
+        requestId: request.id,
+        conversationId: request.conversationId,
+        suppressRequesterNotice: !mode.notifyRequesterOnDeny,
+      });
 
       return {
         ok: true,
         applied: true,
         // Desktop actors (vellum channel) receive inline reply text; channel
-        // actors get replies delivered via the channel delivery context.
+        // actors get replies delivered via the channel delivery context. An
+        // admitted sender keeps whatever access the floor grants.
         ...(ctx.actor.channel === "vellum"
-          ? { guardianReplyText: `Access denied for ${requesterLabel}.` }
+          ? {
+              guardianReplyText:
+                mode.leaveUnverifiedGuardianReply(requesterLabel),
+            }
+          : {}),
+      };
+    }
+
+    if (outcome === "block") {
+      log.info(
+        { event: "resolver_access_request_blocked", requestId: request.id },
+        "Access request resolver: block",
+      );
+
+      if (!requesterExternalUserId || channel === "vellum") {
+        // No channel identity to revoke — nothing landed on the gateway, so
+        // the request must not stay terminally denied.
+        reopenAccessRequestAfterFailedPersist(request.id, "denied");
+        return { ok: false, reason: "block_missing_channel_identity" };
+      }
+
+      // Gateway-first: persist the revoked verdict on the ACL source of
+      // truth. Fail closed — a block the gateway did not persist must not be
+      // reported as applied.
+      const blockResult = await blockSenderChannel({
+        sourceChannel: channel,
+        externalUserId: requesterExternalUserId,
+        ...(requesterDisplayName ? { displayName: requesterDisplayName } : {}),
+        reason: "introduction_block",
+      });
+      if (!blockResult.revoked) {
+        reopenAccessRequestAfterFailedPersist(request.id, "denied");
+        return { ok: false, reason: "block_persist_failed" };
+      }
+
+      // The requester sees the same denial notice as leave-unverified — the
+      // block itself is not revealed.
+      await notifyRequesterOfDenial({
+        channel,
+        requesterChatId,
+        requesterExternalUserId,
+        assistantId,
+        channelDeliveryContext,
+        desktopDeliverUrl,
+        deniedPayload,
+        requestId: request.id,
+        conversationId: request.conversationId,
+        suppressRequesterNotice: !mode.notifyRequesterOnDeny,
+      });
+
+      return {
+        ok: true,
+        applied: true,
+        ...(ctx.actor.channel === "vellum"
+          ? {
+              guardianReplyText: `Blocked ${requesterLabel}. Their messages will no longer reach the assistant.`,
+            }
           : {}),
       };
     }
 
     // Voice approvals: directly activate the trusted contact without minting
     // a verification session. The caller is already on the line and the
-    // relay server's in-call wait loop will detect the approved status.
+    // call setup flow's in-call wait loop will detect the approved status.
     if (channel === "phone") {
       let activation: Awaited<ReturnType<typeof activateMemberChannel>>;
       try {
@@ -606,6 +875,7 @@ const accessRequestResolver: GuardianRequestResolver = {
           { err, requesterExternalUserId },
           "Access request resolver: failed to activate voice caller as trusted contact",
         );
+        reopenAccessRequestAfterFailedPersist(request.id, "approved");
         return { ok: false, reason: "voice_activation_failed" };
       }
 
@@ -616,6 +886,7 @@ const accessRequestResolver: GuardianRequestResolver = {
           { requesterExternalUserId },
           "Access request resolver: gateway refused voice caller activation",
         );
+        reopenAccessRequestAfterFailedPersist(request.id, "approved");
         return { ok: false, reason: "voice_activation_refused" };
       }
 
@@ -643,9 +914,102 @@ const accessRequestResolver: GuardianRequestResolver = {
       };
     }
 
+    // Direct trust: activate the contact without a handshake. The binding
+    // strength is derived from the platform's identity signals — a
+    // workspace-vouched identity records `manual` (internal_workspace_match);
+    // an external/stranger records `manual_channel_claim`
+    // (inbound_channel_claim), never handshake-equivalent provenance.
+    if (outcome === "trust") {
+      // A trust without a channel identity cannot land on the gateway ACL —
+      // the local mirror alone would report a success the source of truth
+      // never recorded. Fail closed, mirroring the block guard.
+      if (!requesterExternalUserId || channel === "vellum") {
+        reopenAccessRequestAfterFailedPersist(request.id, "approved");
+        return { ok: false, reason: "trust_missing_channel_identity" };
+      }
+
+      const binding = resolveTrustBinding(channel, signals);
+
+      let activation: Awaited<ReturnType<typeof activateMemberChannel>>;
+      try {
+        activation = await activateMemberChannel({
+          sourceChannel: channel,
+          externalUserId: requesterExternalUserId,
+          externalChatId: requesterChatId,
+          ...(requesterDisplayName
+            ? { displayName: requesterDisplayName }
+            : {}),
+          verifiedVia: binding.verifiedVia,
+        });
+      } catch (err) {
+        log.error(
+          { err, requesterExternalUserId },
+          "Access request resolver: failed to activate directly-trusted contact",
+        );
+        reopenAccessRequestAfterFailedPersist(request.id, "approved");
+        return { ok: false, reason: "trust_activation_failed" };
+      }
+
+      // Fail-closed: a refused activation did not land on the gateway source
+      // of truth, so the sender is not actually trusted.
+      if (activation.status === "refused") {
+        log.error(
+          { requesterExternalUserId },
+          "Access request resolver: gateway refused direct-trust activation",
+        );
+        reopenAccessRequestAfterFailedPersist(request.id, "approved");
+        return { ok: false, reason: "trust_activation_refused" };
+      }
+
+      log.info(
+        {
+          event: "resolver_access_request_trusted",
+          requestId: request.id,
+          channel,
+          requesterExternalUserId,
+          verifiedVia: binding.verifiedVia,
+          bindingStrength: binding.bindingStrength,
+          isBot: signals.isBot === true,
+        },
+        "Access request resolver: direct trust — contact activated without handshake",
+      );
+
+      // Notify the requester they're in. Admitted-mode nudges skip this —
+      // the sender was already conversing and made no request.
+      if (mode.notifyRequesterOnTrust) {
+        await deliverRequesterNotice({
+          channel,
+          requesterChatId,
+          requesterExternalUserId,
+          assistantId,
+          channelDeliveryContext,
+          desktopDeliverUrl,
+          text: "Your access request has been approved. You can message the assistant here.",
+        });
+      }
+
+      return {
+        ok: true,
+        applied: true,
+        activatedContact: {
+          sourceChannel: channel,
+          externalUserId: requesterExternalUserId,
+          ...(requesterChatId ? { externalChatId: requesterChatId } : {}),
+          ...(requesterDisplayName
+            ? { displayName: requesterDisplayName }
+            : {}),
+        },
+        ...(ctx.actor.channel === "vellum"
+          ? {
+              guardianReplyText: `Trusted ${requesterLabel}. They can now message the assistant — no verification code needed.`,
+            }
+          : {}),
+      };
+    }
+
     // Non-voice approvals: mint an identity-bound verification session so the
     // requester can verify their identity.
-    const session = createOutboundSession({
+    const session = await createOutboundSession({
       channel,
       expectedExternalUserId: requesterExternalUserId,
       expectedChatId: requesterChatId,
@@ -713,16 +1077,9 @@ const accessRequestResolver: GuardianRequestResolver = {
         guardianUserId &&
         !channelDeliveryContext.guardianChatId.startsWith("D")
       ) {
-        // Strip threadTs from the callback URL — it belongs to the shared
-        // channel thread and would cause thread_not_found errors in the DM.
-        let dmCallbackUrl = channelDeliveryContext.replyCallbackUrl;
-        try {
-          const url = new URL(channelDeliveryContext.replyCallbackUrl);
-          url.searchParams.delete("threadTs");
-          dmCallbackUrl = url.toString();
-        } catch {
-          // Malformed URL — use as-is
-        }
+        const dmCallbackUrl = stripThreadTsParam(
+          channelDeliveryContext.replyCallbackUrl,
+        );
 
         try {
           await deliverChannelReply(dmCallbackUrl, {
@@ -739,18 +1096,10 @@ const accessRequestResolver: GuardianRequestResolver = {
         }
       }
 
-      // Strip threadTs from the requester reply URL — it belongs to the
-      // guardian's channel thread and would cause thread_not_found in a DM.
-      let requesterCallbackUrl = channelDeliveryContext.replyCallbackUrl;
-      if (channel === "slack" && requesterExternalUserId) {
-        try {
-          const url = new URL(channelDeliveryContext.replyCallbackUrl);
-          url.searchParams.delete("threadTs");
-          requesterCallbackUrl = url.toString();
-        } catch {
-          // Malformed URL — use as-is
-        }
-      }
+      const requesterCallbackUrl =
+        channel === "slack" && requesterExternalUserId
+          ? stripThreadTsParam(channelDeliveryContext.replyCallbackUrl)
+          : channelDeliveryContext.replyCallbackUrl;
 
       if (codeDelivered) {
         // On Slack, deliver the code straight to the requester's DM so the

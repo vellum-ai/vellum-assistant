@@ -7,16 +7,17 @@
 // ---------------------------------------------------------------------------
 
 import type { ContentBlock, ImageContent } from "@vellumai/plugin-api";
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import {
+  getConfiguredProvider,
+  resolveMediaSourceData,
+} from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
-import {
-  generateSparseEmbedding,
-  selectedBackendSupportsMultimodal,
-} from "../../../../persistence/embeddings/embedding-backend.js";
+import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
 import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdrant-client.js";
 import { getLogger } from "../../../../util/logger.js";
+import { selectedBackendSupportsMultimodal } from "../embeddings.js";
 import { extractToolUse, userMessage } from "../llm-helpers.js";
 import { searchGraphNodes } from "./graph-search.js";
 import type { InContextTracker } from "./injection.js";
@@ -973,7 +974,7 @@ export async function retrieveForTurn(
 
   if (imageBlocks.length > 0) {
     try {
-      const isMultimodal = await selectedBackendSupportsMultimodal(opts.config);
+      const isMultimodal = await selectedBackendSupportsMultimodal();
       if (isMultimodal) {
         const maxImageQueries = 2;
         for (
@@ -982,9 +983,13 @@ export async function retrieveForTurn(
           i++
         ) {
           const img = imageBlocks[i];
+          // Resolve the image bytes whether stored inline or as a workspace
+          // reference; skip when the bytes can't be read.
+          const resolved = resolveMediaSourceData(img.source);
+          if (!resolved) continue;
           const imageInput = {
             type: "image" as const,
-            data: Buffer.from(img.source.data, "base64"),
+            data: Buffer.from(resolved.data, "base64"),
             mimeType: img.source.media_type,
           };
           const imgResult = await embedWithRetry(opts.config, [imageInput], {

@@ -10,6 +10,12 @@
 
 import { z } from "zod";
 
+import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
+import {
+  getDefaultProviderFromConfig,
+  resolveDefaultConnectionName,
+} from "../../config/default-provider-resolution.js";
+import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../persistence/db-connection.js";
 import {
@@ -18,15 +24,16 @@ import {
   ConnectionModelSchema,
   ConnectionProviderSchema,
   ProviderConnectionSchema,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   VALID_CONNECTION_PROVIDERS,
 } from "../../providers/inference/auth.js";
 import {
   createConnection,
   deleteConnection,
   getConnection,
+  LEGACY_MANAGED_CONNECTION_NAMES,
   listConnections,
   MANAGED_CONNECTION_NAMES,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   updateConnection,
 } from "../../providers/inference/connections.js";
 import {
@@ -103,24 +110,29 @@ async function parseCustomProviderFields(
         );
       }
 
-      // SSRF protection: reject private IPs, localhost, cloud metadata endpoints.
-      const hostname = parsed.hostname;
-      if (isPrivateOrLocalHost(hostname)) {
-        throw new BadRequestError(
-          `Invalid base_url: must not point to a private or local network address.`,
-        );
-      }
+      // SSRF protection: reject private IPs, localhost, cloud metadata
+      // endpoints — but only for platform-hosted daemons where the container
+      // runs on Vellum infrastructure. Self-hosted daemons run on the user's
+      // own machine, so localhost/private addresses are the expected target
+      // (e.g. LM Studio, vLLM, text-generation-webui).
+      if (getIsPlatform()) {
+        const hostname = parsed.hostname;
+        if (isPrivateOrLocalHost(hostname)) {
+          throw new BadRequestError(
+            `Invalid base_url: must not point to a private or local network address.`,
+          );
+        }
 
-      // DNS resolution check: hostname may resolve to a private IP.
-      const resolved = await resolveRequestAddress(
-        hostname,
-        resolveHostAddresses,
-        /* allowPrivateNetwork */ false,
-      );
-      if (resolved.blockedAddress) {
-        throw new BadRequestError(
-          `Invalid base_url: hostname resolves to a private network address.`,
+        const resolved = await resolveRequestAddress(
+          hostname,
+          resolveHostAddresses,
+          /* allowPrivateNetwork */ false,
         );
+        if (resolved.blockedAddress) {
+          throw new BadRequestError(
+            `Invalid base_url: hostname resolves to a private network address.`,
+          );
+        }
       }
 
       out.baseUrl = raw;
@@ -156,7 +168,7 @@ function handleListConnections({ queryParams = {} }: RouteHandlerArgs) {
   const connections = listConnections(
     getDb(),
     provider ? { provider } : undefined,
-  );
+  ).filter((c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name));
   return { connections };
 }
 
@@ -344,8 +356,40 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
     );
   }
 
+  // llm.defaultProvider: guards both the resolved connection name (explicit
+  // `connectionName` or the `<provider>-personal` convention) and the case
+  // where the convention name is dangling but this is the last remaining
+  // connection for the default's provider — resolution treats a dangling
+  // default as an explainable error; this guard keeps UI deletes from
+  // orphaning it silently. The last-connection fallback only applies to
+  // convention resolution: an explicit `connectionName` pins exactly one row
+  // (protected above), so unrelated same-provider rows stay deletable. Legacy
+  // managed rows are excluded from the count for the same reason the list
+  // route hides them — they aren't user-manageable connections.
+  const dp = getDefaultProviderFromConfig(config);
+  if (dp) {
+    if (name === resolveDefaultConnectionName(dp)) {
+      throw new ConflictError(
+        `Connection "${name}" is referenced by llm.defaultProvider. Update llm.defaultProvider before deleting.`,
+        { referencedBy: ["llm.defaultProvider"] },
+      );
+    }
+    if (
+      !dp.connectionName &&
+      existing.provider === dp.provider &&
+      listConnections(getDb(), { provider: dp.provider }).filter(
+        (c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name),
+      ).length === 1
+    ) {
+      throw new ConflictError(
+        `Connection "${name}" is the only connection for provider "${dp.provider}", which llm.defaultProvider depends on. Update llm.defaultProvider or add another connection for provider "${dp.provider}" before deleting.`,
+        { referencedBy: ["llm.defaultProvider"] },
+      );
+    }
+  }
+
   // llm.profiles.*: only ProfileEntry has provider_connection.
-  const profiles = config.llm?.profiles ?? {};
+  const profiles = getEffectiveProfiles(config.llm?.profiles);
   const referencingProfiles = Object.entries(profiles)
     .filter(
       ([, p]) => (p as Record<string, unknown>).provider_connection === name,
@@ -455,7 +499,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Update a provider connection",
     description:
-      "Update an existing connection. Cannot rename or change the provider. For managed connections (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label remains editable.",
+      "Update an existing connection. Cannot rename or change the provider. For the Vellum-managed connection (vellum) the auth is locked to platform; label remains editable.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
     requestBody: z.object({
@@ -484,7 +528,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Delete a provider connection",
     description:
-      "Delete a provider connection. Fails with 400 for managed connections (anthropic-managed, openai-managed, gemini-managed) which are re-seeded on boot. Fails with 409 if any profile or call-site references the connection.",
+      "Delete a provider connection. Fails with 400 for the Vellum-managed connection (vellum) which is re-seeded on boot. Fails with 409 if any profile or call-site references the connection.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
     responseBody: z.object({ ok: z.literal(true) }),

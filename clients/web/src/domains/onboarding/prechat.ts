@@ -49,6 +49,13 @@ export interface PreChatOnboardingContext {
   cohort?: string;
   /** Auto-send this message on first load instead of waiting for user input. */
   initialMessage?: string;
+  /**
+   * When true, the auto-sent `initialMessage` is sent hidden: it drives the
+   * assistant's first reply but renders no user bubble, so the chat opens as a
+   * proactive greeting in the persona the user just configured. Used by the
+   * research-onboarding "Let's chat" handoff.
+   */
+  initialMessageHidden?: boolean;
   /** Bootstrap template filename for the daemon to use. */
   bootstrapTemplate?: string;
   /** Skills to eagerly load. */
@@ -266,6 +273,12 @@ function isPreChatOnboardingContext(
     return false;
   }
   if (candidate.initialMessage !== undefined && typeof candidate.initialMessage !== "string") {
+    return false;
+  }
+  if (
+    candidate.initialMessageHidden !== undefined &&
+    typeof candidate.initialMessageHidden !== "boolean"
+  ) {
     return false;
   }
   if (candidate.bootstrapTemplate !== undefined && typeof candidate.bootstrapTemplate !== "string") {

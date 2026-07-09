@@ -1,23 +1,23 @@
 /**
- * Unified inbound actor trust resolver.
+ * Residual synchronous actor-trust view.
  *
- * Produces a single trust-resolved actor context from raw inbound identity
- * fields. Normalizes sender identity via channel-agnostic canonicalization,
- * then resolves trust classification by checking contacts/contact_channels.
+ * The canonical classifier is the gateway's trust-verdict resolver
+ * (`gateway/src/risk/trust-verdict-resolver.ts`); inbound paths consume its
+ * stamped verdict via `trust-verdict-consumer.ts`. This module survives for
+ * two narrow jobs:
  *
- * Trust classifications:
- * - `guardian`: sender matches the guardian contact's channel for this channel type.
- * - `trusted_contact`: sender is an active contact channel (not the guardian).
- * - `unverified_contact`: sender matches a contact channel that is pending or
- *   unverified — known to the guardian but not yet through verification.
- *   Treated identically to `trusted_contact` downstream; the distinction only
- *   matters at the admission floor (see channel admission policy).
- * - `unknown`: sender has no matching contact, no identity could be
- *   established, or the contact's channel is blocked/revoked.
+ * - {@link resolveActorTrust}: a sync, IO-free guardian-or-unknown
+ *   classification read from the guardian-delivery cache snapshot. Its sole
+ *   production caller is the vellum reset-drift re-resolution
+ *   (`reResolveTrustOnResetDrift` via `resolveTrustContext`), which runs
+ *   exactly when the gateway verdict came back `unknown` and so cannot
+ *   consume a verdict. Member (contact) classification is verdict-only and
+ *   never happens here.
+ * - {@link toTrustContext}: the single canonical {@link ActorTrustContext} →
+ *   {@link TrustContext} conversion, shared with the verdict consumer.
  */
 
 import type { ChannelId } from "../channels/types.js";
-import { findContactByAddress } from "../contacts/contact-store.js";
 import {
   guardianForChannel,
   peekCachedGuardianDelivery,
@@ -30,41 +30,23 @@ import type {
   ContactRole,
   ContactWithChannels,
 } from "../contacts/types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
-import { getCachedMemberAcl } from "./member-verdict-cache.js";
+import type { TrustClass } from "./trust-class.js";
 
 const log = getLogger("actor-trust-resolver");
-
-export type { TrustContext } from "../daemon/trust-context.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 /**
- * Trust classification for an inbound actor.
- *
- * - `'guardian'`: The sender matches the active guardian binding for this
- *   (assistant, channel). Guardians have full control-plane access and
- *   self-approve tool invocations.
- * - `'trusted_contact'`: The sender is an active contact with a channel
- *   (not the guardian). Trusted contacts can invoke tools but require
- *   guardian approval for sensitive operations.
- * - `'unverified_contact'`: The sender matches a contact channel whose
- *   status is `pending` or `unverified` — known to the guardian but not yet
- *   verified. Treated identically to `trusted_contact` for every downstream
- *   capability/tool/approval decision; the distinction is admission-only.
- * - `'unknown'`: The sender has no contact record, no identity could be
- *   established, or the sender is a blocked/revoked contact. Unknown
- *   actors are fail-closed with no escalation path.
+ * Trust classification for an inbound actor. Defined once in `./trust-class.ts`
+ * (shared with the persistence metadata schema) and re-exported here, the
+ * canonical import site for the resolver's consumers.
  */
-export type TrustClass =
-  | "guardian"
-  | "trusted_contact"
-  | "unverified_contact"
-  | "unknown";
+export type { TrustClass };
 
 /**
  * Fully resolved trust context from the actor trust resolver.
@@ -89,8 +71,9 @@ export interface ActorTrustContext {
   /**
    * Resolved contact + channel for this sender, if any. The ACL view
    * (status/policy/role) is carried here rather than on the contact/channel
-   * objects, sourced from the gateway verdict — the verdict path reads it
-   * inline, the sync fallback from the in-memory member-verdict cache.
+   * objects, sourced from the gateway verdict. Populated only by the verdict
+   * consumer (`actorTrustContextFromVerdict`); always null from
+   * {@link resolveActorTrust}.
    */
   memberRecord: {
     contact: ContactWithChannels;
@@ -132,13 +115,13 @@ export interface ResolveActorTrustInput {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the inbound actor's trust context from raw identity fields.
+ * Resolve the inbound actor's trust context from raw identity fields,
+ * without IO.
  *
  * 1. Canonicalize the sender identity (E.164 for phone channels, trimmed ID otherwise).
- * 2. Look up the guardian binding for (assistantId, channel).
- * 3. Compare canonical sender identity to the guardian binding.
- * 4. Look up the contact record using the canonical identity.
- * 5. Classify: guardian > trusted_contact (active member) > unknown.
+ * 2. Read the guardian binding for the channel from the cached delivery snapshot.
+ * 3. Classify: guardian on an address match, otherwise unknown. Member
+ *    classification (trusted_contact / unverified_contact) is verdict-only.
  */
 export function resolveActorTrust(
   input: ResolveActorTrustInput,
@@ -211,106 +194,35 @@ export function resolveActorTrust(
     };
     guardianPrincipalId = guardianDelivery.principalId ?? undefined;
     isGuardian =
-      guardianDelivery.address.toLowerCase() === canonicalSenderId.toLowerCase();
+      guardianDelivery.address.toLowerCase() ===
+      canonicalSenderId.toLowerCase();
   }
 
   log.debug(
     {
       channel: input.sourceChannel,
-      source: "contacts",
+      source: "guardian-delivery-cache",
       found: !!guardianBindingMatch,
     },
     "trust-resolver guardian lookup",
   );
 
-  // --- Member lookup via contacts ---
-  let memberRecord: ActorTrustContext["memberRecord"] = null;
-  const byAddress = findContactByAddress(
-    input.sourceChannel,
-    canonicalSenderId,
-  );
-  const byAddressChannel = byAddress?.channels.find(
-    (ch) =>
-      ch.type === input.sourceChannel &&
-      ch.address.toLowerCase() === canonicalSenderId.toLowerCase(),
-  );
-  if (byAddress && byAddressChannel) {
-    const acl = getCachedMemberAcl(input.sourceChannel, canonicalSenderId);
-    if (acl) {
-      memberRecord = { contact: byAddress, channel: byAddressChannel, ...acl };
-    }
-    // Fail-closed: already in the sync fallback (no live verdict) and no cached
-    // verdict → leave memberRecord null so trustClass resolves to unknown.
-  }
-
-  log.debug(
-    {
-      channel: input.sourceChannel,
-      canonicalSenderId,
-      found: !!memberRecord,
-      via: memberRecord ? "address" : "none",
-    },
-    "trust-resolver member lookup",
-  );
-
-  // Only use member metadata when the record's channel identity matches the
-  // current sender to avoid misidentification in group chats.
-  const memberMatchesSender =
-    memberRecord?.channel.address.toLowerCase() ===
-    canonicalSenderId.toLowerCase();
-
-  const memberDisplayName =
-    memberMatchesSender &&
-    typeof memberRecord?.contact.displayName === "string" &&
-    memberRecord.contact.displayName.trim().length > 0
-      ? memberRecord.contact.displayName.trim()
-      : undefined;
-  // Prefer member profile metadata over transient sender metadata so guardian-
-  // curated contact details are canonical for assistant-facing identity —
-  // but only when the member record actually belongs to the current sender.
-  const resolvedUsername = senderUsername;
-  const resolvedDisplayName = memberDisplayName ?? senderDisplayName;
-  const resolvedIdentifier = resolvedUsername
-    ? `@${resolvedUsername}`
-    : (canonicalSenderId ?? undefined);
-
-  // Trust classification
-  let trustClass: TrustClass;
-  if (isGuardian) {
-    trustClass = "guardian";
-  } else if (memberMatchesSender && memberRecord) {
-    const status = memberRecord.status;
-    if (status === "active") {
-      trustClass = "trusted_contact";
-    } else if (status === "unverified" || status === "pending") {
-      // Pre-verification / awaiting-verification contacts get their own
-      // admission tier. Treated identically to trusted_contact for ALL
-      // downstream capability/tool/approval decisions; the distinction
-      // only matters at the channel admission floor.
-      trustClass = "unverified_contact";
-    } else {
-      // status === "blocked" or "revoked" → unknown. acl-enforcement
-      // re-checks resolvedMember.channel.status and emits the appropriate
-      // member_blocked / member_revoked reasons, so hard-deny semantics
-      // for these statuses are preserved end-to-end.
-      trustClass = "unknown";
-    }
-  } else {
-    trustClass = "unknown";
-  }
+  // Member classification is verdict-only (`actorTrustContextFromVerdict`):
+  // guardian-or-unknown is the only distinction this sync view can make.
+  const trustClass: TrustClass = isGuardian ? "guardian" : "unknown";
 
   return {
     canonicalSenderId,
     guardianBindingMatch,
     guardianPrincipalId,
-    memberRecord,
+    memberRecord: null,
     trustClass,
     actorMetadata: {
-      identifier: resolvedIdentifier,
-      displayName: resolvedDisplayName,
+      identifier,
+      displayName: senderDisplayName,
       senderDisplayName,
-      memberDisplayName,
-      username: resolvedUsername,
+      memberDisplayName: undefined,
+      username: senderUsername,
       channel: input.sourceChannel,
       trustStatus: trustClass,
     },
@@ -350,8 +262,7 @@ export function toTrustContext(
     requesterMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     requesterExternalUserId: ctx.canonicalSenderId ?? undefined,
     requesterChatId: conversationExternalId,
-    // Member grounding from the resolved memberRecord (voice + verdict paths
-    // both populate it).
+    // Member grounding from memberRecord (populated by the verdict consumer).
     requesterContactId: ctx.memberRecord?.contact.id,
     memberStatus: ctx.memberRecord
       ? channelStatusToMemberStatus(ctx.memberRecord.status)

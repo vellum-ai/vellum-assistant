@@ -38,7 +38,7 @@ await initializeDb();
 
 function resetTables(): void {
   const sqlite = getSqlite();
-  sqlite.run("DELETE FROM assistant_ingress_invites");
+  sqlite.run("DELETE FROM a2a_invites");
   sqlite.run("DELETE FROM assistant_contact_metadata");
   sqlite.run("DELETE FROM contact_channels");
   sqlite.run("DELETE FROM contacts");

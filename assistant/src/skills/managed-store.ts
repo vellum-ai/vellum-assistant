@@ -126,6 +126,8 @@ interface BuildSkillMarkdownInput {
   bodyMarkdown: string;
   emoji?: string;
   includes?: string[];
+  activationHints?: string[];
+  avoidWhen?: string[];
   category?: string;
 }
 
@@ -150,6 +152,16 @@ export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
   }
   if (input.includes && input.includes.length > 0) {
     vellum.includes = input.includes;
+  }
+  // Kebab-case keys match what parseFrontmatter reads back
+  // (config/skills.ts: vellum["activation-hints"] / vellum["avoid-when"]).
+  // These flow through stringifyYaml below, which escapes/quotes values, so no
+  // manual sanitization is needed here.
+  if (input.activationHints && input.activationHints.length > 0) {
+    vellum["activation-hints"] = input.activationHints;
+  }
+  if (input.avoidWhen && input.avoidWhen.length > 0) {
+    vellum["avoid-when"] = input.avoidWhen;
   }
   // The web Skills UI groups skills into a category sidebar by this value;
   // skip it when blank so an empty bucket assignment never lands in frontmatter.
@@ -199,10 +211,16 @@ interface CreateManagedSkillParams {
   emoji?: string;
   overwrite?: boolean;
   includes?: string[];
+  activationHints?: string[];
+  avoidWhen?: string[];
   category?: string;
   version?: string;
   contactId?: string;
   author?: "assistant" | "user";
+  // Conversation lineage for retrospective-authored skills — see the field
+  // docs on `SkillInstallMeta` (install-meta.ts).
+  sourceConversationId?: string;
+  retrospectiveConversationId?: string;
   files?: Array<{ path: string; content: string }>;
 }
 
@@ -281,6 +299,8 @@ export function createManagedSkill(
     bodyMarkdown: params.bodyMarkdown,
     emoji: params.emoji,
     includes: params.includes,
+    activationHints: params.activationHints,
+    avoidWhen: params.avoidWhen,
     category: params.category,
   });
 
@@ -299,6 +319,12 @@ export function createManagedSkill(
     ...(params.version ? { version: params.version } : {}),
     ...(params.contactId ? { installedBy: params.contactId } : {}),
     ...(params.author ? { author: params.author } : {}),
+    ...(params.sourceConversationId
+      ? { sourceConversationId: params.sourceConversationId }
+      : {}),
+    ...(params.retrospectiveConversationId
+      ? { retrospectiveConversationId: params.retrospectiveConversationId }
+      : {}),
   });
 
   // Clean up legacy version.json if present (superseded by install-meta.json)

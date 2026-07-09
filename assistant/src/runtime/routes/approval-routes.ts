@@ -13,9 +13,13 @@ import { findConversation } from "../../daemon/conversation-registry.js";
 import type {
   SecretDelivery,
   SecretPromptResult,
-} from "../../permissions/secret-prompter.js";
+} from "../../permissions/secret-prompt-types.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getConversationByKey } from "../../persistence/conversation-key-store.js";
+import {
+  hasInteriorWhitespace,
+  normalizeSecretValue,
+} from "../../security/secret-normalize.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import * as pendingInteractions from "../pending-interactions.js";
@@ -127,7 +131,22 @@ function handleSecret({ body }: RouteHandlerArgs) {
   // undefined) so the request settles cleanly rather than 400-ing and stranding
   // the pending interaction.
   const isCancel = delivery === "none";
-  const value = isCancel ? undefined : (body?.value as string | undefined);
+  const rawValue = isCancel ? undefined : (body?.value as string | undefined);
+
+  const value =
+    rawValue === undefined ? undefined : normalizeSecretValue(rawValue);
+  if (value !== undefined && value !== rawValue) {
+    log.info(
+      { hadEdgeWhitespace: true },
+      "Trimmed edge whitespace from submitted secret value",
+    );
+  }
+  if (value !== undefined && hasInteriorWhitespace(value)) {
+    log.warn(
+      { interiorWhitespace: true },
+      "Submitted secret contains interior whitespace — expected for multi-line secrets (e.g. PEM keys), unexpected for API tokens",
+    );
+  }
 
   if (
     delivery !== undefined &&
@@ -179,6 +198,10 @@ function handleSecret({ body }: RouteHandlerArgs) {
   (resolved?.rpcResolve as ((r: SecretPromptResult) => void) | undefined)?.({
     value: value ?? null,
     delivery: (effectiveDelivery as SecretDelivery) ?? "store",
+    // A missing value here is a deliberate user cancel (the client dismissed
+    // the prompt), distinct from the timeout path. Tag it so downstream callers
+    // can treat it as a valid outcome rather than a failure.
+    ...(value === undefined ? { reason: "cancelled" as const } : {}),
   });
   return { accepted: true };
 }

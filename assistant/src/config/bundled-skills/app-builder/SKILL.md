@@ -186,9 +186,9 @@ render(<App />, document.getElementById("app")!);
 
 ⚠️ `compile_errors` in the `app_create` response is NOT a retry signal — the response also has an `app_id`, so the app was created. Proceed. Calling `app_create` again makes a duplicate.
 
-#### `app_create` accepts EXACTLY these 7 keys — nothing else
+#### `app_create` accepts EXACTLY these 6 keys — nothing else
 
-`name` (optional — defaults to the `preview` title, else "New App"), `description`, `schema_json`, `source_files`, `preview`, `auto_open`, `change_summary`.
+`name` (optional — defaults to the `preview` title, else "New App"), `description`, `schema_json`, `source_files`, `preview`, `auto_open`.
 
 Anything else fails with `Invalid input for tool "app_create": Unknown parameter "X"`. The retired keys models still reach for:
 
@@ -212,7 +212,7 @@ app_create({                         app_create({
                                       })
 ```
 
-**Key notes:** `preview` — always include, `title` required (plus optional `subtitle`, `description`, `icon`, up to 3 `metrics`). `auto_open` — **always pass `false`** so you don't get a duplicate preview card (Step 5 owns surfacing). `change_summary` — conventional commit message.
+**Key notes:** `preview` — always include, `title` required (plus optional `subtitle`, `description`, `icon`, up to 3 `metrics`). `auto_open` — **always pass `false`** so you don't get a duplicate preview card (Step 5 owns surfacing).
 
 ### 4 — Compile
 

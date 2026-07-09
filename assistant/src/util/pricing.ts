@@ -1,4 +1,5 @@
 import type { ModelPricingOverride } from "../config/schema.js";
+import { isAnthropicDelegatingGateway } from "../providers/anthropic-gateway-shared.js";
 import type {
   CatalogModel,
   CatalogModelPricing,
@@ -141,17 +142,19 @@ function normalizeAnthropicModelId(model: string): string {
 /**
  * Whether Anthropic's pricing rules (cache-read/write multipliers, fast-mode
  * surcharge) apply for the given provider/model. True for direct Anthropic
- * calls and for Anthropic models routed through OpenRouter — OpenRouter
- * proxies to Anthropic's Messages API, so the usage response carries the
- * same cache and speed fields and is charged at Anthropic's rates.
+ * calls and for Anthropic models routed through OpenRouter or the Vercel AI
+ * Gateway — both gateways proxy `anthropic/*` to Anthropic's Messages API, so
+ * the usage response carries the same cache and speed fields and is charged
+ * at Anthropic's rates.
  */
 export function usesAnthropicPricingRules(
   provider: string,
   model: string,
 ): boolean {
-  if (provider === "anthropic") return true;
-  if (provider === "openrouter" && isAnthropicModelId(model)) return true;
-  return false;
+  if (provider === "anthropic") {
+    return true;
+  }
+  return isAnthropicDelegatingGateway(provider) && isAnthropicModelId(model);
 }
 
 /**
@@ -384,11 +387,11 @@ export function resolvePricingForUsage(
   model: string,
   usage: PricingUsage,
 ): PricingResult {
-  // Anthropic models routed through OpenRouter: look up against the Anthropic
-  // catalog using the normalized bare slug. OpenRouter bills these calls at
-  // Anthropic's rates and the underlying Messages API response includes
-  // Anthropic's cache- and speed-metadata fields.
-  if (provider === "openrouter" && isAnthropicModelId(model)) {
+  // Anthropic models routed through OpenRouter or the Vercel AI Gateway: look
+  // up against the Anthropic catalog using the normalized bare slug. Both
+  // gateways bill these calls at Anthropic's rates and the underlying Messages
+  // API response includes Anthropic's cache- and speed-metadata fields.
+  if (isAnthropicDelegatingGateway(provider) && isAnthropicModelId(model)) {
     const pricing = findPricing("anthropic", normalizeAnthropicModelId(model));
     if (pricing) {
       return {

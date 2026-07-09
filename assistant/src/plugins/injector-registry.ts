@@ -96,6 +96,11 @@ export function unregisterPluginInjectors(pluginName: string): void {
  * and tool registries honor. The order-sorted union is memoized across the
  * filter (rebuilt only on a registration change); only the small per-plugin
  * disabled check re-runs each call.
+ *
+ * The per-chat plugin scope (`getEffectiveEnabledPluginSet`) is intentionally
+ * NOT applied here: injectors run inside already-scoped plugin hooks, and every
+ * injector-contributing plugin today is a first-party default, which the
+ * per-chat scope never excludes.
  */
 export function getRegisteredInjectors(): Injector[] {
   if (cachedChain === null) {

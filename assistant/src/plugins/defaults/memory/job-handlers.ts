@@ -3,10 +3,9 @@
  *
  * Each entry pairs a job-queue `type` with the handler that processes it,
  * sourcing the implementation from the memory feature (`src/memory/*`) and the
- * v3 engine (`./v3/`). `defaultMemoryPlugin` exposes this array via its
- * `jobHandlers` field; bootstrap registers it into the global job-handler
- * registry, and the general job worker (`jobs/register-job-handlers.ts`)
- * forwards it into the worker dispatch table.
+ * v3 engine (`./v3/`). The memory plugin registers this array directly into the
+ * worker dispatch table from its `init` hook — see `job-handler-registration.ts`
+ * (and the standalone worker process, which self-registers it).
  *
  * Each handler is wrapped in an arrow that reads the imported binding at
  * dispatch time rather than capturing it eagerly, so a per-test `mock.module` of
@@ -17,6 +16,7 @@ import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import { getLogger } from "../../../util/logger.js";
 import type { JobHandlerEntry } from "../../types.js";
+import { pkbCompactionJob, pkbFilingJob } from "./filing-jobs.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
 import { runConsolidation } from "./graph/consolidation.js";
 import { runDecayTick } from "./graph/decay.js";
@@ -28,7 +28,6 @@ import {
 import { runNarrativeRefinement } from "./graph/narrative.js";
 import { runPatternScan } from "./graph/pattern-scan.js";
 import { backfillJob } from "./job-handlers/backfill.js";
-import { backfillLexicalIndexJob } from "./job-handlers/backfill-lexical-index.js";
 import {
   embedAttachmentJob,
   embedMediaJob,
@@ -39,10 +38,6 @@ import {
   deleteQdrantVectorsJob,
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
-import {
-  indexMessageLexicalJob,
-  purgeConversationLexicalJob,
-} from "./job-handlers/index-message-lexical.js";
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
@@ -115,17 +110,17 @@ async function graphNarrativeRefineJob(
 }
 
 /**
- * The memory feature's per-job-type handlers, contributed to the general job
- * worker via the `default-memory` plugin's `jobHandlers` field.
+ * The memory feature's per-job-type handlers, registered directly into the
+ * worker dispatch table by the memory plugin's `init` hook.
  */
 export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "embed_segment",
-    handler: (job, config) => embedSegmentJob(job, config),
+    handler: (job) => embedSegmentJob(job),
   },
   {
     type: "embed_summary",
-    handler: (job, config) => embedSummaryJob(job, config),
+    handler: (job) => embedSummaryJob(job),
   },
   { type: "backfill", handler: (job, config) => backfillJob(job, config) },
   { type: "rebuild_index", handler: () => rebuildIndexJob() },
@@ -133,14 +128,14 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
     type: "delete_qdrant_vectors",
     handler: (job) => deleteQdrantVectorsJob(job),
   },
-  { type: "embed_media", handler: (job, config) => embedMediaJob(job, config) },
+  { type: "embed_media", handler: (job) => embedMediaJob(job) },
   {
     type: "embed_attachment",
-    handler: (job, config) => embedAttachmentJob(job, config),
+    handler: (job) => embedAttachmentJob(job),
   },
   {
     type: "embed_graph_node",
-    handler: (job, config) => embedGraphNodeJob(job, config),
+    handler: (job) => embedGraphNodeJob(job),
   },
   {
     type: "embed_pkb_file",
@@ -155,7 +150,9 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
     handler: async (job, config) => {
       // Stale rows enqueued before v2 was enabled (or by any unguarded v1
       // path) must not consume embedding/extraction budget when v2 is on.
-      if (config.memory.v2.enabled) return;
+      if (config.memory.v2.enabled) {
+        return;
+      }
       await graphExtractJob(job, config);
     },
   },
@@ -186,6 +183,14 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
     handler: (job, config) => memoryV2ConsolidateJob(job, config),
   },
   {
+    type: "pkb_filing",
+    handler: (job) => pkbFilingJob(job),
+  },
+  {
+    type: "pkb_compaction",
+    handler: () => pkbCompactionJob(),
+  },
+  {
     type: "memory_v2_migrate",
     handler: (job, config) => memoryV2MigrateJob(job, config),
   },
@@ -204,17 +209,5 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "memory_retrospective",
     handler: (job, config) => memoryRetrospectiveJob(job, config),
-  },
-  {
-    type: "index_message_lexical",
-    handler: (job, config) => indexMessageLexicalJob(job, config),
-  },
-  {
-    type: "purge_conversation_lexical",
-    handler: (job, config) => purgeConversationLexicalJob(job, config),
-  },
-  {
-    type: "backfill_lexical_index",
-    handler: (job, config) => backfillLexicalIndexJob(job, config),
   },
 ];

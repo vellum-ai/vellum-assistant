@@ -25,18 +25,9 @@
  */
 
 import {
-  type MemoryPersistenceHooks,
-  registerMemoryPersistenceHooks,
-} from "../../persistence/memory-lifecycle-hooks.js";
-import { isPluginDisabled } from "../disabled-state.js";
-import {
   clearInjectorRegistry,
   registerPluginInjectors,
 } from "../injector-registry.js";
-import {
-  clearJobHandlerRegistry,
-  registerPluginJobHandlers,
-} from "../job-handler-registry.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
 import { channelInjectors } from "./channel/injectors.js";
@@ -57,7 +48,13 @@ import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
 import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
+import imageFallbackConversationDeleted from "./image-fallback/hooks/conversation-deleted.js";
+import imageFallbackInit from "./image-fallback/hooks/init.js";
+import imageFallbackPostCompact from "./image-fallback/hooks/post-compact.js";
+import imageFallbackPostModelCall from "./image-fallback/hooks/post-model-call.js";
 import imageFallbackPostToolUse from "./image-fallback/hooks/post-tool-use.js";
+import imageFallbackShutdown from "./image-fallback/hooks/shutdown.js";
+import imageFallbackStop from "./image-fallback/hooks/stop.js";
 import imageFallbackUserPromptSubmit from "./image-fallback/hooks/user-prompt-submit.js";
 import imageFallbackPkg from "./image-fallback/package.json" with { type: "json" };
 import { resetCaptionCacheForTests } from "./image-fallback/src/caption-cache.js";
@@ -69,14 +66,13 @@ import { resetMaxTokensContinueStoreForTests } from "./max-tokens-continue/conti
 import maxTokensContinuePostModelCall from "./max-tokens-continue/hooks/post-model-call.js";
 import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
 import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
+import memoryConversationDeleted from "./memory/hooks/conversation-deleted.js";
 import memoryInit from "./memory/hooks/init.js";
 import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryShutdown from "./memory/hooks/shutdown.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
 import { memoryInjectors } from "./memory/injectors.js";
-import { memoryJobHandlers } from "./memory/job-handlers.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
-import { memoryPersistenceHooks } from "./memory/persistence-hooks.js";
 import {
   memoryV3Injector,
   memoryV3SpotlightInjector,
@@ -107,11 +103,23 @@ import workspacePkg from "./workspace/package.json" with { type: "json" };
  * `image-fallback` — captions image blocks via a vision-capable profile when
  * the active model is text-only, substituting the caption as an `[Image …]`
  * text block so the model can still reason about the image's content. The
- * `user-prompt-submit` hook handles user-attached images; the `post-tool-use`
- * hook handles images a tool returns (e.g. a browser screenshot) nested in the
- * tool result's `contentBlocks`. Fail-open with a placeholder when no vision
- * profile is configured or captioning fails. An in-memory content-hash cache
- * avoids re-captioning the same image across turns.
+ * `user-prompt-submit` hook deep-sweeps the turn's history at turn start; the
+ * `post-tool-use` hook handles images a tool returns (e.g. a browser
+ * screenshot) nested in the tool result's `contentBlocks`; the `post-compact`
+ * hook re-sweeps the rebuilt history after a mid-turn compaction, whose
+ * retained images and persistence-restored tool results land after the
+ * turn-start sweep. The `post-model-call` hook backstops raw images that
+ * reach the provider anyway (messages joining an in-flight turn, catalog
+ * entries that call a model vision-capable when its serving endpoint rejects
+ * images): on a vision-not-supported rejection it captions the working
+ * history and retries, bounded to one pass per turn, with the `stop` hook
+ * clearing the recovery bound on a terminal stop. Fail-open with a
+ * placeholder when no vision profile is configured or captioning fails. A
+ * read-through content-hash cache (in-memory LRU over a plugin-owned SQLite
+ * file, opened by `init` in the plugin's storage dir and closed by
+ * `shutdown`) avoids re-captioning the same image across turns, compactions,
+ * and restarts; `conversation-deleted` removes the deleted conversation's
+ * cache rows.
  */
 export const defaultImageFallbackPlugin: Plugin = {
   manifest: {
@@ -119,8 +127,14 @@ export const defaultImageFallbackPlugin: Plugin = {
     version: imageFallbackPkg.version,
   },
   hooks: {
+    init: imageFallbackInit,
+    shutdown: imageFallbackShutdown,
     "user-prompt-submit": imageFallbackUserPromptSubmit,
     "post-tool-use": imageFallbackPostToolUse,
+    "post-compact": imageFallbackPostCompact,
+    "post-model-call": imageFallbackPostModelCall,
+    stop: imageFallbackStop,
+    "conversation-deleted": imageFallbackConversationDeleted,
   },
 };
 
@@ -160,9 +174,11 @@ export const defaultEmptyResponsePlugin: Plugin = {
  * runtime injections (the unified `<turn_context>` block, Slack chronological
  * transcript, NOW.md / PKB / memory-v2 / workspace blocks) and houses the
  * memory-v3 orchestration engine (`memory/v3/`) and its injectors. Two hooks
- * drive it: `user-prompt-submit` runs memory-graph retrieval and the initial
- * injection, and `post-compact` re-applies the injections onto the compacted
- * history after a mid-turn compaction. It contributes its personal-memory
+ * drive its turn work: `user-prompt-submit` runs memory-graph retrieval and
+ * the initial injection, and `post-compact` re-applies the injections onto
+ * the compacted history after a mid-turn compaction; a `conversation-deleted`
+ * hook fails the plugin's pending background jobs when a conversation is
+ * deleted. It contributes its personal-memory
  * runtime injectors (PKB context/reminder and the memory-v2 static block, plus
  * the two memory-v3 injectors) to the global injector registry via the
  * `injectors` field; the registry unions them with the domain plugins'
@@ -181,9 +197,9 @@ export const defaultMemoryPlugin: Plugin = {
     shutdown: memoryShutdown,
     "user-prompt-submit": memoryUserPromptSubmit,
     "post-compact": memoryPostCompact,
+    "conversation-deleted": memoryConversationDeleted,
   },
   injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
-  jobHandlers: memoryJobHandlers,
 };
 
 /**
@@ -486,87 +502,6 @@ export function registerDefaultPluginInjectors(): void {
 }
 
 /**
- * Register every default plugin's background-job handlers into the global
- * job-handler registry — the job-handler analog of
- * {@link registerDefaultPluginInjectors}. `bootstrapPlugins` calls this before
- * the per-plugin init loop so a default plugin's handlers are present
- * regardless of its disabled-state. The standalone memory-worker process does
- * not run plugin bootstrap, so `registerMemoryJobHandlers`
- * (`jobs/register-job-handlers.ts`) calls this directly before forwarding the
- * registry union into the worker dispatch table. Idempotent:
- * `registerPluginJobHandlers` replaces a plugin's prior set, so the per-plugin
- * re-registration in `initializePlugin` is a harmless no-op replace.
- */
-export function registerDefaultPluginJobHandlers(): void {
-  for (const plugin of getAllDefaultPlugins()) {
-    if (plugin.jobHandlers && plugin.jobHandlers.length > 0) {
-      registerPluginJobHandlers(plugin.manifest.name, plugin.jobHandlers);
-    }
-  }
-}
-
-/**
- * Wrap a plugin's persistence hooks so its ACTIVE side-effect hooks no-op while
- * that plugin is disabled (`assistant plugins disable <name>`), mirroring the
- * read-time disabled-state filtering the injector/hook/job-handler/tool surfaces
- * apply. The sentinel is checked per call, so enable/disable takes effect on the
- * next write without a daemon restart. CLEANUP hooks (`onConversationWiped`,
- * `onWorkerStartup`) are intentionally NOT gated — they must run even when the
- * plugin is disabled so state created while it was enabled is not orphaned.
- */
-export function guardPersistenceHooksByDisabledState(
-  pluginName: string,
-  hooks: MemoryPersistenceHooks,
-): MemoryPersistenceHooks {
-  return {
-    onMessagePersisted(event) {
-      if (isPluginDisabled(pluginName)) return;
-      return hooks.onMessagePersisted(event);
-    },
-    onConversationForked(event) {
-      if (isPluginDisabled(pluginName)) return;
-      return hooks.onConversationForked(event);
-    },
-    // Gated like the active side effects above: a disabled plugin reports an
-    // empty buffer, so the maintenance scheduler treats it as "no buffered
-    // work" and skips consolidation — matching how disabled injectors/hooks go
-    // inert.
-    countMemoryBufferLines() {
-      if (isPluginDisabled(pluginName)) return 0;
-      return hooks.countMemoryBufferLines();
-    },
-    // Cleanup hooks are NOT gated on disabled-state: they must run even while
-    // the plugin is disabled, or jobs/conversations created while it was
-    // enabled would be orphaned.
-    onConversationWiped(conversationId) {
-      return hooks.onConversationWiped(conversationId);
-    },
-    onWorkerStartup() {
-      return hooks.onWorkerStartup();
-    },
-  };
-}
-
-/**
- * Install the memory feature's persistence-lifecycle handlers into the
- * persistence seam — the persistence-hooks analog of
- * {@link registerDefaultPluginJobHandlers}. `bootstrapPlugins` calls this
- * before the per-plugin init loop so the seam is wired up front; the handlers
- * are guarded by {@link guardPersistenceHooksByDisabledState} so a disabled
- * memory plugin drives no persistence side effects and re-enabling it takes
- * effect on the next write. The seam holds a single handler set, so this
- * replaces any prior registration.
- */
-export function registerDefaultPluginPersistenceHooks(): void {
-  registerMemoryPersistenceHooks(
-    guardPersistenceHooksByDisabledState(
-      memoryPkg.name,
-      memoryPersistenceHooks,
-    ),
-  );
-}
-
-/**
  * Test-only helper: clear the hook registry and re-register every default
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
@@ -589,7 +524,4 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   registerDefaultPlugins();
   clearInjectorRegistry();
   registerDefaultPluginInjectors();
-  clearJobHandlerRegistry();
-  registerDefaultPluginJobHandlers();
-  registerDefaultPluginPersistenceHooks();
 }

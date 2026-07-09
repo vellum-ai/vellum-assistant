@@ -175,6 +175,55 @@ describe("Velay HTTP bridge", () => {
     expect(response.status_code).toBe(502);
   });
 
+  test("forwards /v1/audio/ paths to the loopback listener (Twilio TTS fetch)", async () => {
+    fetchMock = mock(async () => new Response("audio-bytes", { status: 200 }));
+
+    const response = await bridgeVelayHttpRequest(
+      makeFrame({
+        path: "/v1/audio/550e8400-e29b-41d4-a716-446655440000",
+        method: "GET",
+      }),
+      "http://127.0.0.1:7830",
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(response.status_code).toBe(200);
+    expect(decodeBase64(response.body_base64)).toBe("audio-bytes");
+  });
+
+  test("forwards the credential entry page and its API paths to the loopback listener", async () => {
+    for (const path of [
+      "/assistant/credentials/enter",
+      "/v1/credential-requests/peek",
+      "/v1/credential-requests/submit",
+    ]) {
+      fetchMock = mock(async () => new Response("ok", { status: 200 }));
+      const response = await bridgeVelayHttpRequest(
+        makeFrame({ path, method: path.endsWith("enter") ? "GET" : "POST" }),
+        "http://127.0.0.1:7830",
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(response.status_code).toBe(200);
+    }
+  });
+
+  test("rejects near-miss credential paths without contacting the loopback listener", async () => {
+    for (const path of [
+      "/assistant/credentials/enterX",
+      "/v1/credential-requests",
+      "/v1/credential-requests/other",
+    ]) {
+      fetchMock = mock(async () => {
+        throw new Error("should not fetch");
+      });
+      const response = await bridgeVelayHttpRequest(
+        makeFrame({ path }),
+        "http://127.0.0.1:7830",
+      );
+      expect(response.status_code).toBe(502);
+    }
+  });
+
   test("rejects unsafe absolute paths without contacting the loopback listener", async () => {
     fetchMock = mock(async () => {
       throw new Error("should not fetch");

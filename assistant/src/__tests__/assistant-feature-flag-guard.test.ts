@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
  * Guard tests for assistant feature flags.
  *
  * 1. Key format validation: ensure production code uses the canonical
- *    simple kebab-case format (e.g., "browser", "ces-tools"), not the
+ *    simple kebab-case format (e.g., "browser", "voice-mode"), not the
  *    legacy `skills.<id>.enabled` format.
  *
  * 2. Declaration coverage: ensure all assistant-scope flag keys in the
@@ -123,7 +123,7 @@ describe("assistant feature flag guard", () => {
     if (violations.length > 0) {
       const message = [
         "Found production files using the legacy `skills.<id>.enabled` key format.",
-        'New code must use the canonical simple kebab-case format (e.g., "browser", "ces-tools").',
+        'New code must use the canonical simple kebab-case format (e.g., "browser", "voice-mode").',
         'See AGENTS.md "Assistant Feature Flags" for the convention.',
         "",
         "Violations:",
@@ -153,7 +153,7 @@ describe("assistant feature flag guard", () => {
     if (violations.length > 0) {
       const message = [
         "Found assistant-scope keys in the unified registry that do not match the canonical format.",
-        'Expected format: simple kebab-case (e.g., "browser", "ces-tools")',
+        'Expected format: simple kebab-case (e.g., "browser", "voice-mode")',
         "",
         "Violations:",
         ...violations.map((k) => `  - ${k}`),

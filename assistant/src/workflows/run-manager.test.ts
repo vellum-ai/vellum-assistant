@@ -9,7 +9,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import type { AssistantConfig } from "../config/schema.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { ExecuteWorkflowOptions } from "./engine.js";
 import { WorkflowNotFoundError } from "./engine.js";
 import type {

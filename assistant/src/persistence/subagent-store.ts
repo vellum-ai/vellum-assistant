@@ -7,7 +7,7 @@
  * layer decoupled from the subagent domain types.
  */
 
-import { rawAll, rawRun } from "./raw-query.js";
+import { rawAll, rawGet, rawRun } from "./raw-query.js";
 
 /** A durable subagent lifecycle record (camelCase mirror of the row). */
 export interface SubagentRecord {
@@ -79,6 +79,7 @@ function rowToRecord(r: SubagentRow): SubagentRecord {
  */
 export function upsertSubagentRecord(rec: SubagentRecord): void {
   rawRun(
+    "subagent:upsertRecord",
     `INSERT INTO subagents (
        id, parent_conversation_id, conversation_id, label, objective, role,
        is_fork, send_result_to_user, status, error, created_at, started_at,
@@ -113,10 +114,30 @@ export function upsertSubagentRecord(rec: SubagentRecord): void {
 
 /** Load every persisted subagent record. Used once at startup to rehydrate. */
 export function loadAllSubagentRecords(): SubagentRecord[] {
-  return rawAll<SubagentRow>(`SELECT * FROM subagents`).map(rowToRecord);
+  return rawAll<SubagentRow>("subagent:loadAll", `SELECT * FROM subagents`).map(
+    rowToRecord,
+  );
+}
+
+/**
+ * Look up the subagent record whose child conversation is `conversationId`,
+ * or `undefined` when the conversation is not a subagent. `conversation_id` is
+ * the child's own id, so this resolves the child → parent relation (and the
+ * current lifecycle status) from durable storage without consulting the live
+ * SubagentManager.
+ */
+export function getSubagentRecordByConversationId(
+  conversationId: string,
+): SubagentRecord | undefined {
+  const row = rawGet<SubagentRow>(
+    "subagent:getByConversationId",
+    `SELECT * FROM subagents WHERE conversation_id = ?`,
+    conversationId,
+  );
+  return row ? rowToRecord(row) : undefined;
 }
 
 /** Delete a subagent record once the manager is fully done with it. */
 export function deleteSubagentRecord(id: string): void {
-  rawRun(`DELETE FROM subagents WHERE id = ?`, id);
+  rawRun("subagent:deleteRecord", `DELETE FROM subagents WHERE id = ?`, id);
 }

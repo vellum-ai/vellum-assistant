@@ -24,11 +24,22 @@ let connectivityStateMock: "online" | "device-offline" | "backend-unreachable" =
 let retryConnectivityMock = mock(async () => connectivityStateMock);
 let isElectronMock = false;
 let activeAssistantIdMock: string | null = "assistant-123";
+let selectedAssistantIdMock: string | null = null;
+let assistantsMock: Array<{
+  id: string;
+  isLocal: boolean;
+  isPlatformHosted: boolean;
+  organizationId?: string | null;
+}> = [];
+let currentOrganizationIdMock: string | null = "org-1";
 let operationalStatusAssistantIdMock: string | null = null;
 let assistantStateMock:
   | { kind: "loading" }
-  | { kind: "active"; isLocal: boolean; maintenanceMode?: { enabled: boolean } } =
-  { kind: "active", isLocal: false };
+  | {
+      kind: "active";
+      isLocal: boolean;
+      maintenanceMode?: { enabled: boolean };
+    } = { kind: "active", isLocal: false };
 let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
   data:
@@ -49,6 +60,7 @@ let localHealthMock:
   | "healthy"
   | "unhealthy"
   | "unreachable"
+  | "migrating"
   | "sleeping"
   | "starting"
   | "crashed"
@@ -115,7 +127,8 @@ mock.module("@/assistant/operational-status", () => ({
     requestedOperationalStatusAssistantId = assistantId;
     return {
       ...operationalStatusQueryMock,
-      refetch: operationalStatusQueryMock.refetch ?? refetchOperationalStatusMock,
+      refetch:
+        operationalStatusQueryMock.refetch ?? refetchOperationalStatusMock,
     };
   },
 }));
@@ -144,9 +157,29 @@ mock.module("@/assistant/lifecycle-store", () => ({
 }));
 
 mock.module("@/stores/resolved-assistants-store", () => ({
+  assistantsValidForOrg: (
+    assistants: typeof assistantsMock,
+    activeOrgId: string | null,
+  ) =>
+    assistants.filter(
+      (assistant) =>
+        assistant.isLocal ||
+        assistant.organizationId == null ||
+        assistant.organizationId === activeOrgId,
+    ),
   useResolvedAssistantsStore: {
     use: {
       activeAssistantId: () => activeAssistantIdMock,
+      selectedAssistantId: () => selectedAssistantIdMock,
+      assistants: () => assistantsMock,
+    },
+  },
+}));
+
+mock.module("@/stores/organization-store", () => ({
+  useOrganizationStore: {
+    use: {
+      currentOrganizationId: () => currentOrganizationIdMock,
     },
   },
 }));
@@ -180,6 +213,16 @@ beforeEach(() => {
   retryConnectivityMock = mock(async () => connectivityStateMock);
   isElectronMock = false;
   activeAssistantIdMock = "assistant-123";
+  selectedAssistantIdMock = null;
+  assistantsMock = [
+    {
+      id: "assistant-123",
+      isLocal: false,
+      isPlatformHosted: true,
+      organizationId: "org-1",
+    },
+  ];
+  currentOrganizationIdMock = "org-1";
   operationalStatusAssistantIdMock = null;
   assistantStateMock = { kind: "active", isLocal: false };
   requestedOperationalStatusAssistantId = undefined;
@@ -270,9 +313,79 @@ describe("StatusBanner", () => {
     expect(requestedOperationalStatusAssistantId).toBe("assistant-operation");
   });
 
+  test("uses selected platform assistant id while lifecycle is loading", () => {
+    activeAssistantIdMock = null;
+    assistantStateMock = { kind: "loading" };
+    selectedAssistantIdMock = "assistant-selected";
+    assistantsMock = [
+      {
+        id: "assistant-selected",
+        isLocal: false,
+        isPlatformHosted: true,
+        organizationId: "org-1",
+      },
+    ];
+    operationalStatusQueryMock = {
+      data: { state: "migrating" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(requestedOperationalStatusAssistantId).toBe("assistant-selected");
+    expect(html).toContain("Assistant is migrating");
+    expect(html).toContain('data-tone="info"');
+  });
+
+  test("falls back to the org's platform assistant when nothing is selected", () => {
+    activeAssistantIdMock = null;
+    assistantStateMock = { kind: "loading" };
+    selectedAssistantIdMock = null;
+    assistantsMock = [
+      {
+        id: "assistant-only",
+        isLocal: false,
+        isPlatformHosted: true,
+        organizationId: "org-1",
+      },
+    ];
+
+    renderToStaticMarkup(<StatusBanner />);
+
+    expect(requestedOperationalStatusAssistantId).toBe("assistant-only");
+  });
+
+  test("falls back to the org's platform assistant even when a local assistant is selected", () => {
+    // The fallback is deliberately unconditional — gating it on selection
+    // semantics hides the migrating/crash-loop banner for the org's real
+    // platform assistant in hydration, cross-org, and store-population
+    // edge cases.
+    activeAssistantIdMock = null;
+    assistantStateMock = { kind: "loading" };
+    selectedAssistantIdMock = "assistant-local";
+    assistantsMock = [
+      {
+        id: "assistant-local",
+        isLocal: true,
+        isPlatformHosted: false,
+        organizationId: "org-1",
+      },
+      {
+        id: "assistant-platform",
+        isLocal: false,
+        isPlatformHosted: true,
+        organizationId: "org-1",
+      },
+    ];
+
+    renderToStaticMarkup(<StatusBanner />);
+
+    expect(requestedOperationalStatusAssistantId).toBe("assistant-platform");
+  });
+
   test("renders operational error states with error tone and Doctor action for platform assistants", () => {
     for (const [state, title] of [
-      ["crash_loop", "Assistant is crash looping"],
+      ["crash_loop", "Assistant fatal error"],
       ["unreachable", "Assistant is unreachable"],
       ["not_found", "Assistant was not found"],
     ] as const) {
@@ -298,6 +411,7 @@ describe("StatusBanner", () => {
       "resizing_machine",
       "resizing_storage",
       "initializing",
+      "migrating",
       "provisioning",
     ] as const) {
       operationalStatusQueryMock = {
@@ -429,7 +543,7 @@ describe("StatusBanner", () => {
 
     const html = renderToStaticMarkup(<StatusBanner />);
 
-    expect(html).toContain("Assistant is crash looping");
+    expect(html).toContain("Assistant fatal error");
     expect(html).not.toContain("Go to Doctor");
   });
 
@@ -444,7 +558,7 @@ describe("StatusBanner", () => {
     const html = renderToStaticMarkup(<StatusBanner />);
 
     expect(requestedOperationalStatusAssistantId).toBe("assistant-operation");
-    expect(html).toContain("Assistant is crash looping");
+    expect(html).toContain("Assistant fatal error");
     expect(html).not.toContain("Go to Doctor");
   });
 
@@ -544,6 +658,18 @@ describe("StatusBanner", () => {
       expect(html).toBe("");
     });
 
+    test("renders an info migrating banner while local DB migrations run", () => {
+      localHealthMock = "migrating";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      // In-progress info treatment, not the unhealthy warning — a migrating
+      // daemon must not invite a mid-migration restart.
+      expect(html).toContain("Assistant is migrating");
+      expect(html).toContain('data-tone="info"');
+      expect(html).not.toContain("Wake up");
+    });
+
     test("renders an asleep banner with a wake action when the local assistant is sleeping", () => {
       localHealthMock = "sleeping";
 
@@ -607,7 +733,9 @@ describe("StatusBanner", () => {
       fireEvent.click(screen.getByRole("button", { name: "Wake up" }));
 
       await waitFor(() => {
-        expect(wakeLocalAssistantHostMock).toHaveBeenCalledWith("assistant-123");
+        expect(wakeLocalAssistantHostMock).toHaveBeenCalledWith(
+          "assistant-123",
+        );
       });
       expect(refetchOperationalStatusMock).toHaveBeenCalledTimes(1);
       expect(retryConnectivityMock).toHaveBeenCalledTimes(1);
@@ -740,7 +868,7 @@ describe("StatusBanner", () => {
 
       expect(html).toContain("offline");
       expect(html).toContain('data-tone="error"');
-      expect(html).not.toContain("crash looping");
+      expect(html).not.toContain("Assistant fatal error");
     });
   });
 
@@ -764,7 +892,7 @@ describe("StatusBanner", () => {
 
       expect(html).toContain("offline");
       expect(html).toContain('data-tone="error"');
-      expect(html).not.toContain("crash looping");
+      expect(html).not.toContain("Assistant fatal error");
     });
 
     test("renders backend-unreachable banner before operational status", () => {
@@ -781,7 +909,7 @@ describe("StatusBanner", () => {
       expect(html).toContain("Retry now");
       expect(html).toContain('data-tone="error"');
       expect(html).toContain("lucide-cloud-off");
-      expect(html).not.toContain("crash looping");
+      expect(html).not.toContain("Assistant fatal error");
     });
 
     test("does not render backend-unreachable connectivity state outside Electron", () => {

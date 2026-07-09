@@ -44,6 +44,7 @@ import { buildEdgeGraph } from "./edge.js";
 import type { EntityIndex } from "./entity-lane.js";
 import { buildEntityIndex } from "./entity-lane.js";
 import { computeFreshSet } from "./fresh-set.js";
+import { isMemoryV3InjectionGateEnabled } from "./gate-flag.js";
 import { computeHotSet } from "./hot-set.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
 import type { OrchestrateResult } from "./orchestrate.js";
@@ -586,6 +587,10 @@ export async function observeTurn(
     if (cfg.memory.enabled === false) return null;
     const lanes = await getLanes(cfg);
     const v3 = cfg.memory.v3;
+    // Resolve the effective gate enable once for the turn: the feature flag
+    // AND the `memory.v3.gate.enabled` config kill-switch. Tuning lives in
+    // `memory.v3.gate`.
+    const gateEnabled = isMemoryV3InjectionGateEnabled(cfg);
     // Re-resolve the corpus-adaptive tuning each turn from the CURRENT config
     // (with the lane-build corpus-size signal) so a live config.json edit to a
     // per-turn knob (selectorEnabled, denseK, replyQueryK, edge.*) takes effect
@@ -619,6 +624,11 @@ export async function observeTurn(
         v3.selectorPromptPath,
         getWorkspaceDir(),
       ),
+      // Per-turn injection gate: the `memory.v3.gate` tuning with the raw
+      // config `enabled` overwritten by the effective enable (flag AND config).
+      // The spread is the compile-time drift guard — if the gate schema and
+      // `V3GateConfig` diverge, this stops typechecking.
+      gateConfig: { ...v3.gate, enabled: gateEnabled },
     });
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be

@@ -57,11 +57,18 @@ keeps replay, resync, and rebuild equivalent.
 
 `use-send-message` adds the user's row to `optimisticSends` (`addOptimisticSend`)
 the instant they hit send; the overlay renders it immediately. There is **no**
-id-swap against the server id — the assistant echoes the `clientMessageId` back on
-the persisted row, the overlay collapses the two on that nonce, and
-`user_message_echo` clears the optimistic copy (`clearOptimisticSend`). Queued
-sends live here too, with `queueStatus`/`queuePosition` maintained by the queue
-handlers via `setOptimisticSends`.
+id-swap against the server id on POST resolve — the assistant echoes the
+`clientMessageId` back on the persisted row and the overlay collapses the two on
+that nonce. `user_message_echo` retires the optimistic copy of a text-only send;
+a send that carries attachments is kept (upgraded to the server id, queue fields
+cleared) because the echo has no attachment payload — the optimistic row holds
+the only copy of the user's previews (blob URLs for pasted images) until the
+turn-end reseed pulls the hydrated server row and
+`pruneConfirmedOptimisticSends` retires it. While the snapshot is unseeded (the
+first message of a freshly minted conversation) the echo retires nothing — the
+paired fold has nowhere to land, so the reseed prune owns retirement there too.
+Queued sends live here too, with `queueStatus`/`queuePosition` maintained by
+the queue handlers via `setOptimisticSends`.
 
 Nonce-less echoes (the field is optional; pre-idempotency assistants omit it)
 have no shared key for the overlay to collapse on, so `handleUserMessageEcho`
@@ -75,8 +82,17 @@ later can't be ring-replayed. The recovery path is a refetch:
 - Every committed `/messages` fetch **reseeds** the snapshot (`seedSnapshot`):
   it replays the buffered event tail with `seq > snapshot.seq` onto the fresh
   server snapshot (`resolveSnapshot`), so events that raced the fetch aren't
-  lost. A buffer gap (eviction, or no anchor) falls back to the fetched snapshot
-  alone.
+  lost. A buffer gap (eviction) falls back to the fetched snapshot alone.
+  An **anchor-less** fetch (`seq: null` — the daemon has persisted no stream
+  content yet, e.g. a fresh conversation's first turn racing the 1s
+  partial-persist debounce) is **dropped** when the live view has already
+  folded seq-stamped events: with no cursor to replay from, taking it
+  wholesale would wipe the streamed turn (the mid-turn "vanishing prefix"
+  flicker) until the turn-end reseed restored it. A **stale-anchored** fetch
+  (`seq` strictly below the live view's) whose gap the ring can't bridge is
+  dropped for the same reason: it was in flight before newer events folded
+  in, and taking it wholesale would regress the view — e.g. erase a just-sent
+  user row whose echo already retired the optimistic copy (the send flicker).
 - The reseed also **prunes** any optimistic send the snapshot now represents
   (`pruneConfirmedOptimisticSends`), keyed by the same identity
   `selectTranscriptMessages` overlays on. Without this, a send whose echo/dequeue

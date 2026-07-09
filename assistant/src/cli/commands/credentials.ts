@@ -20,18 +20,6 @@ function writeError(cmd: Command, message: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// CES shell lockdown guard
-// ---------------------------------------------------------------------------
-
-function isUntrustedShell(): boolean {
-  return process.env.VELLUM_UNTRUSTED_SHELL === "1";
-}
-
-const UNTRUSTED_SHELL_ERROR =
-  "This command is not available in untrusted shell mode. " +
-  "Raw secret access is restricted when running under CES shell lockdown.";
-
-// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -39,34 +27,43 @@ function printCredentialHuman(output: Record<string, unknown>): void {
   log.info(`  ${output.service}:${output.field}`);
   log.info(`    ID:          ${output.credentialId}`);
   log.info(`    Value:       ${output.scrubbedValue}`);
-  if (output.alias) log.info(`    Label:       ${output.alias}`);
-  if (output.usageDescription)
+  if (output.alias) {
+    log.info(`    Label:       ${output.alias}`);
+  }
+  if (output.usageDescription) {
     log.info(`    Description: ${output.usageDescription}`);
+  }
   if (
     Array.isArray(output.allowedTools) &&
     (output.allowedTools as string[]).length > 0
-  )
+  ) {
     log.info(
       `    Tools:       ${(output.allowedTools as string[]).join(", ")}`,
     );
+  }
   if (
     Array.isArray(output.allowedDomains) &&
     (output.allowedDomains as string[]).length > 0
-  )
+  ) {
     log.info(
       `    Domains:     ${(output.allowedDomains as string[]).join(", ")}`,
     );
+  }
   log.info(`    Created:     ${output.createdAt}`);
   log.info(`    Updated:     ${output.updatedAt}`);
-  if ((output.injectionTemplateCount as number) > 0)
+  if ((output.injectionTemplateCount as number) > 0) {
     log.info(`    Templates:   ${output.injectionTemplateCount}`);
+  }
 
   // OAuth connection enrichment
   if (output.oauthStatus) {
     log.info(`    OAuth:       ${output.oauthStatus}`);
-    if (output.oauthAccountInfo)
+    if (output.oauthAccountInfo) {
       log.info(`    Account:     ${output.oauthAccountInfo}`);
-    if (output.oauthLabel) log.info(`    OAuth Label: ${output.oauthLabel}`);
+    }
+    if (output.oauthLabel) {
+      log.info(`    OAuth Label: ${output.oauthLabel}`);
+    }
     log.info(`    Refresh:     ${output.oauthHasRefreshToken ? "yes" : "no"}`);
   }
 }
@@ -75,14 +72,17 @@ function printManagedCredentialHuman(output: Record<string, unknown>): void {
   log.info(`  [platform-managed] ${output.provider}`);
   log.info(`    Handle:      ${output.handle}`);
   log.info(`    Status:      ${output.status}`);
-  if (output.accountInfo) log.info(`    Account:     ${output.accountInfo}`);
+  if (output.accountInfo) {
+    log.info(`    Account:     ${output.accountInfo}`);
+  }
   if (
     Array.isArray(output.grantedScopes) &&
     (output.grantedScopes as string[]).length > 0
-  )
+  ) {
     log.info(
       `    Scopes:      ${(output.grantedScopes as string[]).join(", ")}`,
     );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -530,13 +530,6 @@ Examples:
             opts: { service?: string; field?: string },
             cmd: Command,
           ) => {
-            // CES shell lockdown: deny raw secret reveal in untrusted shells.
-            if (isUntrustedShell()) {
-              writeError(cmd, UNTRUSTED_SHELL_ERROR);
-              process.exitCode = 1;
-              return;
-            }
-
             if (!opts.service && !opts.field && !id) {
               writeError(
                 cmd,
@@ -689,6 +682,40 @@ Examples:
             }
 
             if (!ipc.result?.ok) {
+              // A pending one-time collection link is not success (nothing is
+              // stored yet) and not an error. Exit 75 (EX_TEMPFAIL) so setup
+              // skills that chain on exit 0 = stored do not proceed with a
+              // missing credential, while the message hands the model the
+              // link to relay in-channel.
+              if (ipc.result?.pending) {
+                if (shouldOutputJson(cmd)) {
+                  writeOutput(cmd, ipc.result);
+                } else {
+                  log.info(
+                    ipc.result.message ??
+                      "A one-time credential link was generated — the value is not stored yet",
+                  );
+                }
+                process.exitCode = 75;
+                return;
+              }
+              // An explicit user cancel is a valid outcome, not a failure.
+              // Surface it as an informational message and exit 130 — the
+              // conventional "user interrupt" (SIGINT) code — so callers and
+              // setup skills can tell a deliberate cancel apart from a genuine
+              // error (which stays exit 1). Nothing was stored either way.
+              if (ipc.result?.cancelled) {
+                if (shouldOutputJson(cmd)) {
+                  writeOutput(cmd, ipc.result);
+                } else {
+                  log.info(
+                    ipc.result.error ??
+                      "Credential prompt cancelled by the user",
+                  );
+                }
+                process.exitCode = 130;
+                return;
+              }
               writeError(cmd, ipc.result?.error ?? "Credential prompt failed");
               process.exitCode = 1;
               return;

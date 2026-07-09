@@ -1,30 +1,17 @@
 /**
  * Contacts write module.
  *
- * All mutations (member upserts, guardian bindings, revocations) write
- * directly to the contacts table, the single authoritative source for
- * identity and access-control state.
+ * Best-effort local mirror of contact identity/INFO fields. The gateway owns
+ * the ACL verdict (status, policy, verification); these writes never carry or
+ * mutate ACL state.
  */
 
 import {
   findContactChannel,
-  getChannelById,
   getContact,
-  getContactInternal,
   upsertContact,
 } from "./contact-store.js";
-import type { ContactWriteResult } from "./types.js";
-
-// ── Guardian operations ──────────────────────────────────────────────
-
-/**
- * No-op shim: the guardian channel ACL revoke is gateway-owned (relayed via
- * mark_channel_revoked). Retained while callers still invoke it; the return is
- * discarded.
- */
-export function revokeGuardianBinding(_channel: string): boolean {
-  return false;
-}
+import type { ContactType, ContactWriteResult } from "./types.js";
 
 // ── Member operations ────────────────────────────────────────────────
 
@@ -40,8 +27,33 @@ export function upsertContactChannel(params: {
   externalChatId?: string;
   displayName?: string;
   username?: string;
-  inviteId?: string;
   contactId?: string;
+  /** Explicit channel id for a NEW channel (identity-mirror path): reuse the
+   *  gateway-minted id so both stores key the channel identically. */
+  channelId?: string;
+  /** Classification for a newly created contact (e.g. 'assistant' for bots). */
+  contactType?: ContactType;
+  /** Notes seeded onto a newly created contact (e.g. bot/app provenance). */
+  notes?: string | null;
+  /** userFile to seed on contact CREATE only (identity-mirror stubs pass null
+   *  for a faithful null-user_file replica); ignored on update. */
+  userFileOnCreate?: string | null;
+  /** Refresh the contact display name from the supplied identity even when a
+   *  contactId is given. Used by the inbound identity-seed mirror, whose intent
+   *  is to keep the mirror name in sync with the platform profile. Defaults to
+   *  false: the invite-binding path preserves the guardian-curated name. */
+  refreshDisplayName?: boolean;
+  /** Reparent a conflicting existing channel (same (type,address) owned by a
+   *  DIFFERENT contact) to this contact. Invite-binding only. The inbound
+   *  identity-seed mirror must pass false so it matches the gateway insert's
+   *  onConflictDoNothing and never steals a channel from its existing contact.
+   *  Defaults to `!!contactId` to preserve the invite-binding callers that
+   *  don't set it explicitly. */
+  reassignConflictingChannels?: boolean;
+  /** Mark the channel primary. Omit to leave an existing channel's flag intact
+   *  and default a new channel to non-primary; the guardian-bootstrap mirror
+   *  passes true so the guardian's sole channel stays primary. */
+  isPrimary?: boolean;
 }): ContactWriteResult | null {
   let address: string;
 
@@ -57,9 +69,10 @@ export function upsertContactChannel(params: {
   let displayName = params.displayName ?? address;
 
   // When binding a channel to a specific contact (invite redemption), preserve
-  // the target contact's curated displayName instead of overwriting it
-  // with the raw platform identity.
-  if (params.contactId) {
+  // the target contact's curated displayName instead of overwriting it with the
+  // raw platform identity. The inbound identity-seed mirror opts out
+  // (refreshDisplayName) so a changed platform profile name refreshes the row.
+  if (params.contactId && !params.refreshDisplayName) {
     const targetContact = getContact(params.contactId);
     if (targetContact?.displayName?.trim().length) {
       displayName = targetContact.displayName;
@@ -69,18 +82,28 @@ export function upsertContactChannel(params: {
   upsertContact({
     id: params.contactId,
     displayName,
+    contactType: params.contactType,
+    notes: params.notes,
+    userFileOnCreate: params.userFileOnCreate,
     channels: [
       {
+        id: params.channelId,
         type: params.sourceChannel,
         address,
-        externalChatId: params.externalChatId ?? null,
-        inviteId: params.inviteId ?? null,
+        // Pass through undefined so syncChannels preserves an existing
+        // external_chat_id (COALESCE semantics); a new channel still defaults
+        // to null. An explicit value overwrites.
+        externalChatId: params.externalChatId,
+        isPrimary: params.isPrimary,
       },
     ],
-    // When a specific contactId is provided, reassign conflicting channels from
-    // other contacts. This enables invite redemption to bind a redeemer's
-    // existing channel identity to the invite's target contact.
-    reassignConflictingChannels: !!params.contactId,
+    // Reassign a conflicting channel from another contact only when the caller
+    // explicitly asks (invite redemption binding a redeemer's existing channel
+    // to the invite's target). Defaults to `!!contactId` for legacy callers;
+    // the inbound-seed mirror passes false so a first-seen race does not steal
+    // the channel from the contact the gateway insert kept.
+    reassignConflictingChannels:
+      params.reassignConflictingChannels ?? !!params.contactId,
   });
 
   // NOTE: We intentionally do NOT seed `users/<slug>.md` here. This is the
@@ -100,24 +123,4 @@ export function upsertContactChannel(params: {
   }
 
   return null;
-}
-
-/**
- * Resolve the native contact/channel for a member id. The ACL downgrade is
- * gateway-owned (relayed via mark_channel_revoked); this no longer mutates
- * local status. The memberId may be a plain channel ID (internal callers) or a
- * composite contactId:channelId (from the API response format).
- */
-export function revokeMember(memberId: string): ContactWriteResult | null {
-  const channelId = memberId.includes(":") ? memberId.split(":")[1] : memberId;
-
-  const channelRow = getChannelById(channelId);
-  if (!channelRow) return null;
-
-  const contact = getContactInternal(channelRow.contactId);
-  if (!contact) return null;
-  const channel = contact.channels.find((ch) => ch.id === channelId);
-  if (!channel) return null;
-
-  return { contact, channel };
 }

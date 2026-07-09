@@ -95,17 +95,14 @@ import {
   type CreateScopedApprovalGrantParams,
   revokeScopedApprovalGrantsForContext,
 } from "../approvals/scoped-approval-grants.js";
-import {
-  setVoiceBridgeDeps,
-  startVoiceTurn,
-} from "../calls/voice-session-bridge.js";
+import { startVoiceTurn } from "../calls/voice-session-bridge.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { scopedApprovalGrants } from "../persistence/schema/index.js";
 
 const { createScopedApprovalGrant } = _internal;
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
 await initializeDb();
@@ -204,9 +201,6 @@ function setupBridgeDeps(
   sessionFactory: () => ReturnType<typeof createMockSession>["session"],
 ) {
   scopedGrantConversationFactory = () => sessionFactory();
-  setVoiceBridgeDeps({
-    resolveAttachments: () => [],
-  });
 }
 
 // ---------------------------------------------------------------------------

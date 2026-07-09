@@ -47,12 +47,6 @@ const CallsVoiceConfigSchema = z
       .string({ error: "calls.voice.language must be a string" })
       .default("en-US")
       .describe("BCP-47 language code for speech recognition and synthesis"),
-    hints: z
-      .array(z.string({ error: "calls.voice.hints values must be strings" }))
-      .default([])
-      .describe(
-        "Static vocabulary hints for speech recognition — proper nouns, domain terms, and other words the STT provider should prioritize",
-      ),
     interruptSensitivity: z
       .enum(["low", "medium", "high"], {
         error:
@@ -61,6 +55,14 @@ const CallsVoiceConfigSchema = z
       .default("low")
       .describe(
         "How aggressively the STT provider detects the start of caller speech — low reduces false interrupts from background noise",
+      ),
+    telephonyStreaming: z
+      .boolean({
+        error: "calls.voice.telephonyStreaming must be a boolean",
+      })
+      .default(true)
+      .describe(
+        "Whether phone-call audio is streamed to the STT provider in real time; disable to fall back to per-turn batch transcription",
       ),
   })
   .describe("Voice and speech settings for phone calls");

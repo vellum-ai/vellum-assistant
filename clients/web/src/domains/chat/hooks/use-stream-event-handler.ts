@@ -14,6 +14,7 @@ import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import {
   handleOpenUrl,
   handleNavigateSettings,
+  handleOpenPanel,
 } from "@/domains/chat/utils/stream-handlers/navigation-handlers";
 import {
   handleAssistantTextDelta,
@@ -207,7 +208,10 @@ export function useStreamEventHandler(
       const isStreamingDelta =
         event.type === "assistant_text_delta" ||
         event.type === "assistant_thinking_delta";
-      if (!isStreamingDelta || !tailIsAssistant(store.snapshot?.messages ?? [])) {
+      if (
+        !isStreamingDelta ||
+        !tailIsAssistant(store.snapshot?.messages ?? [])
+      ) {
         recordDiagnostic(
           event.type === "assistant_text_delta"
             ? "sse_assistant_text_delta_start"
@@ -231,7 +235,6 @@ export function useStreamEventHandler(
         streamContext: streamState.streamContext,
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
         setOptimisticSends: store.setOptimisticSends,
-        clearOptimisticSend: store.clearOptimisticSend,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
@@ -262,6 +265,9 @@ export function useStreamEventHandler(
           break;
         case "navigate_settings":
           handleNavigateSettings(event, ctx);
+          break;
+        case "open_panel":
+          handleOpenPanel(event, ctx);
           break;
         case "assistant_turn_start":
           handleAssistantTurnStart(event, ctx);
@@ -453,10 +459,9 @@ export function useStreamEventHandler(
         case "interaction_resolved":
           handleInteractionResolved(event);
           break;
-        // Diagnostic timeline events. The logs domain fetches these from
-        // the daemon's trace-events endpoint on demand; the chat stream
-        // handler ignores them.
-        case "trace_event":
+        // Transient, best-effort progress signals from lifecycle hooks
+        // (e.g. user-prompt-submit). No web UI renders them yet.
+        case "hook_event":
           break;
         case "unknown":
           break;

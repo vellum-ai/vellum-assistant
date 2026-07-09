@@ -9,7 +9,11 @@
  * values from the context payload.
  */
 
-import { buildAccessRequestContractText } from "./access-request-copy.js";
+import {
+  accessRequestCardTitle,
+  buildAccessRequestContractText,
+  isAdmittedIntroduction,
+} from "./access-request-copy.js";
 import {
   buildAccessRequestSeedContentBlocks,
   buildToolApprovalSeedContentBlocks,
@@ -151,7 +155,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   },
 
   "ingress.access_request": (payload) => ({
-    title: "Access Request",
+    title: accessRequestCardTitle(isAdmittedIntroduction(payload)),
     body: buildAccessRequestContractText(payload),
     seedContentBlocks: buildAccessRequestSeedContentBlocks(payload),
   }),

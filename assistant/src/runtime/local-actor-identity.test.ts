@@ -36,6 +36,7 @@ import { __resetGuardianDeliveryCacheForTest } from "../contacts/guardian-delive
 import {
   findLocalGuardianPrincipalIdFromStore,
   resolveActorPrincipalIdForLocalGuardianSync,
+  resolveDecidableGuardianPrincipalId,
   warmLocalGuardianPrincipalCache,
 } from "./local-actor-identity.js";
 
@@ -104,5 +105,42 @@ describe("warmLocalGuardianPrincipalCache", () => {
     ipcHandlers.set(METHOD, () => ({ guardians: [vellumGuardian] }));
     await warmLocalGuardianPrincipalCache();
     expect(findLocalGuardianPrincipalIdFromStore()).toBe("principal-abc");
+  });
+});
+
+describe("resolveDecidableGuardianPrincipalId", () => {
+  beforeEach(() => {
+    __resetGuardianDeliveryCacheForTest();
+    ipcHandlers.clear();
+  });
+
+  afterEach(() => {
+    __resetGuardianDeliveryCacheForTest();
+  });
+
+  test("a present binding principal is returned without an anchor read", async () => {
+    // No IPC handler registered: an anchor read would resolve undefined, so a
+    // "binding-1" result proves the binding principal short-circuits.
+    expect(await resolveDecidableGuardianPrincipalId("binding-1")).toBe(
+      "binding-1",
+    );
+  });
+
+  test("a null binding principal adopts the vellum anchor principal", async () => {
+    ipcHandlers.set(METHOD, () => ({ guardians: [vellumGuardian] }));
+
+    expect(await resolveDecidableGuardianPrincipalId(null)).toBe(
+      "principal-abc",
+    );
+  });
+
+  test("an empty-string binding principal is unresolved, never returned", async () => {
+    ipcHandlers.set(METHOD, () => ({ guardians: [vellumGuardian] }));
+
+    expect(await resolveDecidableGuardianPrincipalId("")).toBe("principal-abc");
+  });
+
+  test("unresolvable everywhere → undefined (caller fails closed)", async () => {
+    expect(await resolveDecidableGuardianPrincipalId(null)).toBeUndefined();
   });
 });
