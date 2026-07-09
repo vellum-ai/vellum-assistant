@@ -3,16 +3,23 @@
  * SQLite insert-scaling benchmark: sequential vs. random primary key.
  *
  * Demonstrates how write performance depends on where a new row lands in the
- * table's B-tree. Two databases are built to the same on-disk size:
+ * table's B-tree. Two `messages` tables are built to the same on-disk size,
+ * differing only in their primary key:
  *
- *   - sequential.db  INTEGER PRIMARY KEY rowid table. New rows always sort to
- *                    the rightmost leaf, so inserts append to one "hot" page.
- *   - random.db      16-byte BLOB PRIMARY KEY, WITHOUT ROWID. New rows sort to
- *                    random positions, scattering writes across the whole tree
- *                    (page splits, cache misses) as the model for a UUIDv4 PK.
+ *   - sequential  INTEGER PRIMARY KEY. Monotonic ids always sort to the
+ *                 rightmost leaf, so inserts append to one "hot" page.
+ *   - random      TEXT PRIMARY KEY holding a UUID, WITHOUT ROWID so the UUID
+ *                 clusters the table. New rows sort to random positions,
+ *                 scattering writes across the tree (page splits, cache misses).
+ *                 This mirrors the real `messages` table, which is keyed by a
+ *                 UUID.
  *
- * Both are filled to TARGET_BYTES with variable-size random rows first, then we
- * time BATCH_COUNT transactions of BATCH_ROWS inserts against each and compare.
+ * Both store `content` as JSON text in the same shape as the real
+ * `messages.content` column: a stringified array of content blocks
+ * (`[{ "type": "text", "text": ... }]`), sized between MIN_ROW and MAX_ROW.
+ *
+ * Both are filled to TARGET_BYTES first, then we time BATCH_COUNT transactions
+ * of BATCH_ROWS inserts against each and compare.
  *
  * Usage:
  *   bun run benchmarking/sqlite/bench-insert-scaling.ts
@@ -20,11 +27,11 @@
  * Options (env vars):
  *   OUT_DIR         - Directory for the .db files (default: cwd)
  *   TARGET_BYTES    - Fill each DB to this size    (default: 5 GiB)
- *   MIN_ROW_BYTES   - Smallest row payload         (default: 5 KiB)
- *   MAX_ROW_BYTES   - Largest row payload          (default: 50 KiB)
- *   BATCH_ROWS      - Rows per measured batch       (default: 50)
- *   BATCH_COUNT     - Measured batches per DB       (default: 10)
- *   FILL_TX_ROWS    - Rows per fill transaction     (default: 500)
+ *   MIN_ROW_BYTES   - Smallest content payload      (default: 5 KiB)
+ *   MAX_ROW_BYTES   - Largest content payload       (default: 50 KiB)
+ *   BATCH_ROWS      - Rows per measured batch        (default: 50)
+ *   BATCH_COUNT     - Measured batches per DB        (default: 10)
+ *   FILL_TX_ROWS    - Rows per fill transaction      (default: 500)
  */
 
 import { Database } from "bun:sqlite";
@@ -41,23 +48,26 @@ const FILL_TX_ROWS = Number(process.env.FILL_TX_ROWS ?? 500);
 
 type Kind = "sequential" | "random";
 
-// One shared pool of random bytes; each payload is a variable-length slice of
-// it. Content is irrelevant to the benchmark (SQLite does not dedupe), only the
-// size distribution and the resulting page fill matter — so this avoids paying
-// for gigabytes of CSPRNG output during the fill.
-const POOL = new Uint8Array(MAX_ROW * 4);
-crypto.getRandomValues(POOL);
+// A pool of JSON-safe characters to draw content-block text from. Content is
+// irrelevant to the benchmark (SQLite does not dedupe); only the size and shape
+// of the JSON matter, so we slice this pool instead of generating fresh text.
+const CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,";
+const POOL_LEN = MAX_ROW * 2;
+const poolBytes = new Uint8Array(POOL_LEN);
+crypto.getRandomValues(poolBytes);
+let TEXT_POOL = "";
+for (let i = 0; i < POOL_LEN; i++) TEXT_POOL += CHARS[poolBytes[i] % CHARS.length];
 
-function randomPayload(): Uint8Array {
-  const len = MIN_ROW + Math.floor(Math.random() * (MAX_ROW - MIN_ROW + 1));
-  const offset = Math.floor(Math.random() * (POOL.length - len));
-  return POOL.subarray(offset, offset + len);
-}
+// Overhead of the JSON wrapper around the text, so a payload lands near target.
+const WRAP = JSON.stringify([{ type: "text", text: "" }]).length;
 
-function randomKey(): Uint8Array {
-  const k = new Uint8Array(16);
-  crypto.getRandomValues(k);
-  return k;
+/** A JSON content-block payload, matching the `messages.content` schema. */
+function randomContent(): string {
+  const target = MIN_ROW + Math.floor(Math.random() * (MAX_ROW - MIN_ROW + 1));
+  const textLen = Math.max(0, target - WRAP);
+  const offset = Math.floor(Math.random() * (TEXT_POOL.length - textLen));
+  const text = TEXT_POOL.slice(offset, offset + textLen);
+  return JSON.stringify([{ type: "text", text }]);
 }
 
 function fmtBytes(n: number): string {
@@ -76,9 +86,13 @@ function fmtMs(n: number): string {
 }
 
 function ddl(kind: Kind): string {
+  // Both key `messages` by its primary key. Sequential uses a monotonic integer
+  // rowid; random uses a UUID TEXT key with WITHOUT ROWID so the UUID (not a
+  // hidden rowid) determines physical row placement — otherwise the table would
+  // still append by rowid and the scatter effect would not show.
   return kind === "sequential"
-    ? "CREATE TABLE t (id INTEGER PRIMARY KEY, payload BLOB)"
-    : "CREATE TABLE t (id BLOB PRIMARY KEY, payload BLOB) WITHOUT ROWID";
+    ? "CREATE TABLE messages (id INTEGER PRIMARY KEY, content TEXT NOT NULL)"
+    : "CREATE TABLE messages (id TEXT PRIMARY KEY, content TEXT NOT NULL) WITHOUT ROWID";
 }
 
 /** Fill a fresh DB to TARGET_BYTES. Uses fast, non-durable pragmas — the fill
@@ -95,10 +109,10 @@ function fill(kind: Kind, path: string): { rows: number; bytes: number } {
   db.exec("PRAGMA cache_size = -1048576"); // 1 GiB cache to keep the fill quick
   db.exec(ddl(kind));
 
-  const insert = db.prepare("INSERT INTO t (id, payload) VALUES (?, ?)");
+  const insert = db.prepare("INSERT INTO messages (id, content) VALUES (?, ?)");
   const insertTx = db.transaction((n: number) => {
     for (let i = 0; i < n; i++) {
-      insert.run(kind === "sequential" ? nextSeq++ : randomKey(), randomPayload());
+      insert.run(kind === "sequential" ? nextSeq++ : crypto.randomUUID(), randomContent());
     }
   });
 
@@ -133,17 +147,17 @@ function benchmark(kind: Kind, path: string, startSeq: number): number[] {
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
 
-  const insert = db.prepare("INSERT INTO t (id, payload) VALUES (?, ?)");
-  const insertTx = db.transaction((batch: Array<[number | Uint8Array, Uint8Array]>) => {
-    for (const [id, payload] of batch) insert.run(id, payload);
+  const insert = db.prepare("INSERT INTO messages (id, content) VALUES (?, ?)");
+  const insertTx = db.transaction((batch: Array<[number | string, string]>) => {
+    for (const [id, content] of batch) insert.run(id, content);
   });
 
   let seq = startSeq;
   const times: number[] = [];
   for (let b = 0; b < BATCH_COUNT; b++) {
-    const batch: Array<[number | Uint8Array, Uint8Array]> = [];
+    const batch: Array<[number | string, string]> = [];
     for (let i = 0; i < BATCH_ROWS; i++) {
-      batch.push([kind === "sequential" ? seq++ : randomKey(), randomPayload()]);
+      batch.push([kind === "sequential" ? seq++ : crypto.randomUUID(), randomContent()]);
     }
     const t0 = performance.now();
     insertTx(batch);
@@ -195,8 +209,11 @@ function main() {
   console.log(line("sequential", seq));
   console.log(line("random", rand));
 
-  const ratio = rand.avg / seq.avg;
-  console.log(`\nRandom-key inserts were ${ratio.toFixed(2)}× the sequential time on average.`);
+  const ratioAvg = rand.avg / seq.avg;
+  const ratioMed = rand.median / seq.median;
+  console.log(
+    `\nRandom-key inserts were ${ratioAvg.toFixed(2)}× the sequential time on average (${ratioMed.toFixed(2)}× by median).`,
+  );
 
   // GitHub Actions job summary
   const summaryFile = process.env.GITHUB_STEP_SUMMARY;
@@ -207,15 +224,15 @@ function main() {
     const md = `## SQLite insert-scaling benchmark
 
 Each DB filled to **${fmtBytes(seqFill.bytes)}** (sequential, ${seqFill.rows.toLocaleString()} rows) /
-**${fmtBytes(randFill.bytes)}** (random, ${randFill.rows.toLocaleString()} rows) with ${fmtBytes(MIN_ROW)}–${fmtBytes(MAX_ROW)} rows,
+**${fmtBytes(randFill.bytes)}** (random, ${randFill.rows.toLocaleString()} rows) with JSON \`content\` rows of ${fmtBytes(MIN_ROW)}–${fmtBytes(MAX_ROW)},
 then timed **${BATCH_COUNT} × ${BATCH_ROWS}-row** insert batches.
 
 | Key type | Avg | Median | Min | Max |
 |----------|-----|--------|-----|-----|
 | Sequential (INTEGER PK) | ${fmtMs(seq.avg)} | ${fmtMs(seq.median)} | ${fmtMs(seq.min)} | ${fmtMs(seq.max)} |
-| Random (BLOB PK, WITHOUT ROWID) | ${fmtMs(rand.avg)} | ${fmtMs(rand.median)} | ${fmtMs(rand.min)} | ${fmtMs(rand.max)} |
+| Random (UUID TEXT PK, WITHOUT ROWID) | ${fmtMs(rand.avg)} | ${fmtMs(rand.median)} | ${fmtMs(rand.min)} | ${fmtMs(rand.max)} |
 
-**Random-key inserts were ${ratio.toFixed(2)}× the sequential time on average.**
+**Random-key inserts were ${ratioAvg.toFixed(2)}× the sequential time on average (${ratioMed.toFixed(2)}× by median).**
 
 <details><summary>Per-batch times (ms)</summary>
 
