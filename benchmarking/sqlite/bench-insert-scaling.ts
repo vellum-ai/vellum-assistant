@@ -1,18 +1,17 @@
 #!/usr/bin/env bun
 /**
- * SQLite insert-scaling benchmark: sequential vs. random primary key.
+ * SQLite insert-scaling benchmark: UUIDv7 vs. UUIDv4 primary key.
  *
  * Demonstrates how write performance depends on where a new row lands in the
- * table's B-tree. Two `messages` tables are built to the same on-disk size,
- * differing only in their primary key:
+ * table's B-tree. Two `messages` tables are built to the same on-disk size with
+ * identical schema — `id TEXT PRIMARY KEY ... WITHOUT ROWID` so the UUID
+ * clusters the table — differing only in how the id is generated:
  *
- *   - sequential  INTEGER PRIMARY KEY. Monotonic ids always sort to the
- *                 rightmost leaf, so inserts append to one "hot" page.
- *   - random      TEXT PRIMARY KEY holding a UUID, WITHOUT ROWID so the UUID
- *                 clusters the table. New rows sort to random positions,
- *                 scattering writes across the tree (page splits, cache misses).
- *                 This mirrors the real `messages` table, which is keyed by a
- *                 UUID.
+ *   - uuidv7  Time-ordered (RFC 9562). The 48-bit millisecond timestamp in the
+ *             high bits makes ids monotonic, so inserts append to the rightmost
+ *             leaf, hitting one "hot" page.
+ *   - uuidv4  Fully random. Ids sort to random positions, scattering writes
+ *             across the whole tree (page splits, cache misses).
  *
  * Both store `content` as JSON text in the same shape as the real
  * `messages.content` column: a stringified array of content blocks
@@ -46,7 +45,51 @@ const BATCH_ROWS = Number(process.env.BATCH_ROWS ?? 50);
 const BATCH_COUNT = Number(process.env.BATCH_COUNT ?? 10);
 const FILL_TX_ROWS = Number(process.env.FILL_TX_ROWS ?? 500);
 
-type Kind = "sequential" | "random";
+type Kind = "uuidv7" | "uuidv4";
+
+function toUuid(b: Uint8Array): string {
+  let h = "";
+  for (let i = 0; i < 16; i++) h += b[i].toString(16).padStart(2, "0");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+// Monotonic UUIDv7 (RFC 9562): 48-bit ms timestamp, then a 12-bit per-ms
+// counter in rand_a so ids stay strictly increasing even within a single
+// millisecond (a fast insert burst), then a random tail. Bun/Node have no
+// native v7 generator, so we build it here rather than pull in a dependency.
+let v7LastMs = 0;
+let v7Seq = 0;
+function uuidv7(): string {
+  let ts = Date.now();
+  if (ts <= v7LastMs) {
+    ts = v7LastMs;
+    v7Seq += 1;
+    if (v7Seq > 0xfff) {
+      ts = v7LastMs + 1; // borrow into the next ms if the counter overflows
+      v7Seq = 0;
+    }
+  } else {
+    v7Seq = 0;
+  }
+  v7LastMs = ts;
+
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  b[0] = Math.floor(ts / 2 ** 40) % 256;
+  b[1] = Math.floor(ts / 2 ** 32) % 256;
+  b[2] = Math.floor(ts / 2 ** 24) % 256;
+  b[3] = Math.floor(ts / 2 ** 16) % 256;
+  b[4] = Math.floor(ts / 2 ** 8) % 256;
+  b[5] = ts % 256;
+  b[6] = 0x70 | ((v7Seq >> 8) & 0x0f); // version 7 + high nibble of counter
+  b[7] = v7Seq & 0xff; // low byte of counter
+  b[8] = 0x80 | (b[8] & 0x3f); // variant
+  return toUuid(b);
+}
+
+function keyFor(kind: Kind): string {
+  return kind === "uuidv7" ? uuidv7() : crypto.randomUUID(); // randomUUID() is v4
+}
 
 // A pool of JSON-safe characters to draw content-block text from. Content is
 // irrelevant to the benchmark (SQLite does not dedupe); only the size and shape
@@ -85,15 +128,10 @@ function fmtMs(n: number): string {
   return `${n.toFixed(2)} ms`;
 }
 
-function ddl(kind: Kind): string {
-  // Both key `messages` by its primary key. Sequential uses a monotonic integer
-  // rowid; random uses a UUID TEXT key with WITHOUT ROWID so the UUID (not a
-  // hidden rowid) determines physical row placement — otherwise the table would
-  // still append by rowid and the scatter effect would not show.
-  return kind === "sequential"
-    ? "CREATE TABLE messages (id INTEGER PRIMARY KEY, content TEXT NOT NULL)"
-    : "CREATE TABLE messages (id TEXT PRIMARY KEY, content TEXT NOT NULL) WITHOUT ROWID";
-}
+// Identical schema for both tables — `id` is a UUID TEXT primary key and
+// WITHOUT ROWID makes that UUID (not a hidden rowid) determine physical row
+// placement. The only variable is how the UUID is generated.
+const DDL = "CREATE TABLE messages (id TEXT PRIMARY KEY, content TEXT NOT NULL) WITHOUT ROWID";
 
 /** Fill a fresh DB to TARGET_BYTES. Uses fast, non-durable pragmas — the fill
  *  is setup, not part of the measurement. */
@@ -107,16 +145,13 @@ function fill(kind: Kind, path: string): { rows: number; bytes: number } {
   db.exec("PRAGMA journal_mode = OFF");
   db.exec("PRAGMA synchronous = OFF");
   db.exec("PRAGMA cache_size = -1048576"); // 1 GiB cache to keep the fill quick
-  db.exec(ddl(kind));
+  db.exec(DDL);
 
   const insert = db.prepare("INSERT INTO messages (id, content) VALUES (?, ?)");
   const insertTx = db.transaction((n: number) => {
-    for (let i = 0; i < n; i++) {
-      insert.run(kind === "sequential" ? nextSeq++ : crypto.randomUUID(), randomContent());
-    }
+    for (let i = 0; i < n; i++) insert.run(keyFor(kind), randomContent());
   });
 
-  let nextSeq = 1;
   let rows = 0;
   let bytes = 0;
   let nextLog = 512 * 1024 * 1024;
@@ -142,23 +177,20 @@ function fill(kind: Kind, path: string): { rows: number; bytes: number } {
 /** Time BATCH_COUNT transactions of BATCH_ROWS inserts against an already-filled
  *  DB. Reopened with default (small) cache and realistic durability pragmas so
  *  the page-locality effect is visible. */
-function benchmark(kind: Kind, path: string, startSeq: number): number[] {
+function benchmark(kind: Kind, path: string): number[] {
   const db = new Database(path);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
 
   const insert = db.prepare("INSERT INTO messages (id, content) VALUES (?, ?)");
-  const insertTx = db.transaction((batch: Array<[number | string, string]>) => {
+  const insertTx = db.transaction((batch: Array<[string, string]>) => {
     for (const [id, content] of batch) insert.run(id, content);
   });
 
-  let seq = startSeq;
   const times: number[] = [];
   for (let b = 0; b < BATCH_COUNT; b++) {
-    const batch: Array<[number | string, string]> = [];
-    for (let i = 0; i < BATCH_ROWS; i++) {
-      batch.push([kind === "sequential" ? seq++ : crypto.randomUUID(), randomContent()]);
-    }
+    const batch: Array<[string, string]> = [];
+    for (let i = 0; i < BATCH_ROWS; i++) batch.push([keyFor(kind), randomContent()]);
     const t0 = performance.now();
     insertTx(batch);
     times.push(performance.now() - t0);
@@ -180,64 +212,65 @@ function summary(times: number[]) {
 }
 
 function main() {
-  console.log("SQLite insert-scaling benchmark");
+  console.log("SQLite insert-scaling benchmark — UUIDv7 vs UUIDv4");
   console.log(`  Output dir:   ${OUT_DIR}`);
   console.log(`  Target size:  ${fmtBytes(TARGET_BYTES)} per DB`);
   console.log(`  Row size:     ${fmtBytes(MIN_ROW)} – ${fmtBytes(MAX_ROW)}`);
   console.log(`  Benchmark:    ${BATCH_COUNT} batches × ${BATCH_ROWS} rows\n`);
 
-  const seqPath = join(OUT_DIR, "sequential.db");
-  const randPath = join(OUT_DIR, "random.db");
+  const v7Path = join(OUT_DIR, "uuidv7.db");
+  const v4Path = join(OUT_DIR, "uuidv4.db");
 
-  console.log("Filling sequential.db ...");
-  const seqFill = fill("sequential", seqPath);
-  console.log("Filling random.db ...");
-  const randFill = fill("random", randPath);
+  console.log("Filling uuidv7.db ...");
+  const v7Fill = fill("uuidv7", v7Path);
+  console.log("Filling uuidv4.db ...");
+  const v4Fill = fill("uuidv4", v4Path);
   console.log("");
 
   console.log("Benchmarking inserts ...");
-  const seqTimes = benchmark("sequential", seqPath, seqFill.rows + 1);
-  const randTimes = benchmark("random", randPath, 0);
+  const v7Times = benchmark("uuidv7", v7Path);
+  const v4Times = benchmark("uuidv4", v4Path);
 
-  const seq = summary(seqTimes);
-  const rand = summary(randTimes);
+  const v7 = summary(v7Times);
+  const v4 = summary(v4Times);
 
   const line = (label: string, s: ReturnType<typeof summary>) =>
-    `  ${label.padEnd(12)} avg ${fmtMs(s.avg).padStart(11)} | median ${fmtMs(s.median).padStart(11)} | min ${fmtMs(s.min).padStart(11)} | max ${fmtMs(s.max).padStart(11)}`;
+    `  ${label.padEnd(8)} avg ${fmtMs(s.avg).padStart(11)} | median ${fmtMs(s.median).padStart(11)} | min ${fmtMs(s.min).padStart(11)} | max ${fmtMs(s.max).padStart(11)}`;
 
   console.log("\nPer-batch insert time (50 rows/batch):");
-  console.log(line("sequential", seq));
-  console.log(line("random", rand));
+  console.log(line("uuidv7", v7));
+  console.log(line("uuidv4", v4));
 
-  const ratioAvg = rand.avg / seq.avg;
-  const ratioMed = rand.median / seq.median;
+  const ratioAvg = v4.avg / v7.avg;
+  const ratioMed = v4.median / v7.median;
   console.log(
-    `\nRandom-key inserts were ${ratioAvg.toFixed(2)}× the sequential time on average (${ratioMed.toFixed(2)}× by median).`,
+    `\nUUIDv4 (random) inserts were ${ratioAvg.toFixed(2)}× the UUIDv7 time on average (${ratioMed.toFixed(2)}× by median).`,
   );
 
   // GitHub Actions job summary
   const summaryFile = process.env.GITHUB_STEP_SUMMARY;
   if (summaryFile) {
-    const rowsTable = seqTimes
-      .map((t, i) => `| ${i + 1} | ${t.toFixed(2)} | ${randTimes[i].toFixed(2)} |`)
+    const rowsTable = v7Times
+      .map((t, i) => `| ${i + 1} | ${t.toFixed(2)} | ${v4Times[i].toFixed(2)} |`)
       .join("\n");
-    const md = `## SQLite insert-scaling benchmark
+    const md = `## SQLite insert-scaling benchmark — UUIDv7 vs UUIDv4
 
-Each DB filled to **${fmtBytes(seqFill.bytes)}** (sequential, ${seqFill.rows.toLocaleString()} rows) /
-**${fmtBytes(randFill.bytes)}** (random, ${randFill.rows.toLocaleString()} rows) with JSON \`content\` rows of ${fmtBytes(MIN_ROW)}–${fmtBytes(MAX_ROW)},
-then timed **${BATCH_COUNT} × ${BATCH_ROWS}-row** insert batches.
+Each DB filled to **${fmtBytes(v7Fill.bytes)}** (uuidv7, ${v7Fill.rows.toLocaleString()} rows) /
+**${fmtBytes(v4Fill.bytes)}** (uuidv4, ${v4Fill.rows.toLocaleString()} rows) with JSON \`content\` rows of ${fmtBytes(MIN_ROW)}–${fmtBytes(MAX_ROW)}.
+Identical \`messages\` schema (\`id TEXT PRIMARY KEY ... WITHOUT ROWID\`); only the id generator differs.
+Then timed **${BATCH_COUNT} × ${BATCH_ROWS}-row** insert batches.
 
 | Key type | Avg | Median | Min | Max |
 |----------|-----|--------|-----|-----|
-| Sequential (INTEGER PK) | ${fmtMs(seq.avg)} | ${fmtMs(seq.median)} | ${fmtMs(seq.min)} | ${fmtMs(seq.max)} |
-| Random (UUID TEXT PK, WITHOUT ROWID) | ${fmtMs(rand.avg)} | ${fmtMs(rand.median)} | ${fmtMs(rand.min)} | ${fmtMs(rand.max)} |
+| UUIDv7 (time-ordered) | ${fmtMs(v7.avg)} | ${fmtMs(v7.median)} | ${fmtMs(v7.min)} | ${fmtMs(v7.max)} |
+| UUIDv4 (random) | ${fmtMs(v4.avg)} | ${fmtMs(v4.median)} | ${fmtMs(v4.min)} | ${fmtMs(v4.max)} |
 
-**Random-key inserts were ${ratioAvg.toFixed(2)}× the sequential time on average (${ratioMed.toFixed(2)}× by median).**
+**UUIDv4 inserts were ${ratioAvg.toFixed(2)}× the UUIDv7 time on average (${ratioMed.toFixed(2)}× by median).**
 
 <details><summary>Per-batch times (ms)</summary>
 
-| Batch | Sequential | Random |
-|-------|-----------|--------|
+| Batch | UUIDv7 | UUIDv4 |
+|-------|--------|--------|
 ${rowsTable}
 
 </details>
