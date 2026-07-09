@@ -45,6 +45,24 @@ export function canActOnPrivilegedDocuments(actor: {
 }
 
 /**
+ * Whether the untrusted shell lockdown applies to this actor. Active when the
+ * actor's trust class cannot run an unsandboxed shell (i.e. any non-guardian
+ * actor). The lockdown is unconditional — the former `ces-shell-lockdown`
+ * feature flag was never enabled and has been removed, so the protection is
+ * always active for untrusted actors.
+ *
+ * When active, the bash and host_bash tools inject `VELLUM_UNTRUSTED_SHELL=1`
+ * into the child process environment so nested `assistant` CLI commands can
+ * self-deny raw secret/token reveal flows. The bash tool also blocks proxied
+ * credential sessions and credential-id references for untrusted actors.
+ */
+export function isUntrustedShellActive(actor: {
+  trustClass: RawTrustClass;
+}): boolean {
+  return !resolveCapabilities(actor.trustClass).canRunUnsandboxedShell;
+}
+
+/**
  * Whether an archive-by-sender invocation is authorized. Any one of a surface
  * action, a task-batch authorization, or an explicit prompt approval suffices.
  * Absent those, the actor's own `user_approved` flag only counts when its trust

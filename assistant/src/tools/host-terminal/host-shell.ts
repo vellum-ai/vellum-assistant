@@ -20,6 +20,7 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../../runtime/assistant-event-hub.js";
+import { isUntrustedShellActive } from "../../runtime/effective-capabilities.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import type { CompletedBackgroundTool } from "../background-tool-registry.js";
@@ -71,7 +72,10 @@ function buildHostShellEnv(): Record<string, string> {
   return env;
 }
 
-function buildHostBashProxyEnv(conversationId: string): Record<string, string> {
+function buildHostBashProxyEnv(
+  conversationId: string,
+  untrustedShell: boolean,
+): Record<string, string> {
   const env: Record<string, string> = {};
 
   for (const key of HOST_BASH_PROXY_ENV_KEYS) {
@@ -84,6 +88,11 @@ function buildHostBashProxyEnv(conversationId: string): Record<string, string> {
   // Keep nested `assistant` CLI calls in host_bash aligned with the
   // originating conversation so browser IPC can resolve live proxy context.
   env.__CONVERSATION_ID = conversationId;
+  // Inject VELLUM_UNTRUSTED_SHELL=1 so nested assistant CLI commands on the
+  // proxied host can self-deny raw secret/token reveal flows.
+  if (untrustedShell) {
+    env.VELLUM_UNTRUSTED_SHELL = "1";
+  }
   return env;
 }
 
@@ -238,7 +247,10 @@ export const hostShellTool = {
       // Forward instance-routing env vars so nested `assistant` CLI commands
       // executed on a proxied host machine can still resolve the correct
       // daemon IPC socket and workspace.
-      const proxyEnv = buildHostBashProxyEnv(context.conversationId);
+      const proxyEnv = buildHostBashProxyEnv(
+        context.conversationId,
+        isUntrustedShellActive({ trustClass: context.trustClass }),
+      );
 
       if (background) {
         // Check the registry limit BEFORE starting the proxy request so we
@@ -438,6 +450,11 @@ export const hostShellTool = {
     // Match `bash` tool behavior so nested assistant CLI calls can bind to
     // the active conversation when running through host_bash.
     hostEnv.__CONVERSATION_ID = context.conversationId;
+    // Inject VELLUM_UNTRUSTED_SHELL=1 so assistant CLI commands can self-deny
+    // raw-token/secret reveal flows when invoked from an untrusted shell.
+    if (isUntrustedShellActive({ trustClass: context.trustClass })) {
+      hostEnv.VELLUM_UNTRUSTED_SHELL = "1";
+    }
 
     if (background) {
       // Check the registry limit BEFORE spawning so we never leak an

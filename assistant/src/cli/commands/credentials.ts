@@ -20,6 +20,18 @@ function writeError(cmd: Command, message: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Untrusted shell guard
+// ---------------------------------------------------------------------------
+
+function isUntrustedShell(): boolean {
+  return process.env.VELLUM_UNTRUSTED_SHELL === "1";
+}
+
+const UNTRUSTED_SHELL_ERROR =
+  "This command is not available in untrusted shell mode. " +
+  "Raw secret access is restricted when running under an untrusted shell.";
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
@@ -530,6 +542,13 @@ Examples:
             opts: { service?: string; field?: string },
             cmd: Command,
           ) => {
+            // Untrusted shell guard: deny raw secret reveal in untrusted shells.
+            if (isUntrustedShell()) {
+              writeError(cmd, UNTRUSTED_SHELL_ERROR);
+              process.exitCode = 1;
+              return;
+            }
+
             if (!opts.service && !opts.field && !id) {
               writeError(
                 cmd,

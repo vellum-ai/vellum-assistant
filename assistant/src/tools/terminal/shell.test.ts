@@ -203,3 +203,64 @@ describe("foreground stdin handling", () => {
     expect(result.content).not.toContain("ENXIO");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Untrusted shell lockdown
+// ---------------------------------------------------------------------------
+
+describe("untrusted shell lockdown", () => {
+  test("rejects proxied credential sessions for untrusted actors", async () => {
+    const result = await shellTool.execute(
+      {
+        command: "echo test",
+        activity: "test",
+        network_mode: "proxied",
+      },
+      { ...makeContext(), trustClass: "trusted_contact" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("untrusted shell mode");
+  });
+
+  test("rejects credential_ids for untrusted actors even in off mode", async () => {
+    const result = await shellTool.execute(
+      {
+        command: "echo test",
+        activity: "test",
+        network_mode: "off",
+        credential_ids: ["some-credential-id"],
+      },
+      { ...makeContext(), trustClass: "unknown" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("untrusted shell mode");
+  });
+
+  test("allows proxied mode for guardian", async () => {
+    // Guardian should not be rejected by the lockdown guard. The command may
+    // still fail downstream (no proxy session in test), but the rejection
+    // must not be the lockdown message.
+    const result = await shellTool.execute(
+      {
+        command: "echo test",
+        activity: "test",
+        network_mode: "proxied",
+      },
+      makeContext(), // trustClass: "guardian"
+    );
+
+    expect(result.content).not.toContain("untrusted shell mode");
+  });
+
+  test("allows plain off-mode command without credentials for untrusted actors", async () => {
+    const result = await shellTool.execute(
+      { command: "echo ok", activity: "test" },
+      { ...makeContext(), trustClass: "trusted_contact" },
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("ok");
+  });
+});

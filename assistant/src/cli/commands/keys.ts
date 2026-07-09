@@ -10,6 +10,24 @@ import {
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
+// ---------------------------------------------------------------------------
+// Untrusted shell guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when the current process is running inside an untrusted shell.
+ * CLI commands that store, delete, or reveal API keys must check this and fail
+ * deterministically to prevent secret exfiltration by non-guardian actors.
+ */
+function isUntrustedShell(): boolean {
+  return process.env.VELLUM_UNTRUSTED_SHELL === "1";
+}
+
+/** Error message for commands blocked by the untrusted shell guard. */
+const UNTRUSTED_SHELL_ERROR =
+  "This command is not available in untrusted shell mode. " +
+  "API key management is restricted when running under an untrusted shell.";
+
 export function registerKeysCommand(program: Command): void {
   registerCommand(program, {
     name: "keys",
@@ -80,6 +98,12 @@ Examples:
   $ assistant keys set fireworks fw-abc123`,
         )
         .action(async (provider: string, key: string) => {
+          // Untrusted shell guard: deny key storage in untrusted shells.
+          if (isUntrustedShell()) {
+            log.error(UNTRUSTED_SHELL_ERROR);
+            process.exit(1);
+          }
+
           const setResult = await setSecureKeyViaDaemon(
             "api_key",
             provider,
@@ -111,6 +135,12 @@ Examples:
   $ assistant keys delete anthropic`,
         )
         .action(async (provider: string) => {
+          // Untrusted shell guard: deny key deletion in untrusted shells.
+          if (isUntrustedShell()) {
+            log.error(UNTRUSTED_SHELL_ERROR);
+            process.exit(1);
+          }
+
           const delResult = await deleteSecureKeyViaDaemon("api_key", provider);
           if (delResult.result === "deleted") {
             log.info(`Deleted API key for "${provider}"`);

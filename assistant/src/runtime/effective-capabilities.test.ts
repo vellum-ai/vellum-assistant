@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   canActOnPrivilegedDocuments,
   isArchiveBySenderAuthorized,
+  isUntrustedShellActive,
 } from "./effective-capabilities.js";
 
 describe("canActOnPrivilegedDocuments", () => {
@@ -39,6 +40,36 @@ describe("canActOnPrivilegedDocuments", () => {
       }),
     ).toBe(true);
     expect(canActOnPrivilegedDocuments({ trustClass: "unknown" })).toBe(false);
+  });
+});
+
+describe("isUntrustedShellActive", () => {
+  test("inactive for guardians", () => {
+    expect(isUntrustedShellActive({ trustClass: "guardian" })).toBe(false);
+  });
+
+  test("active for trusted contacts", () => {
+    expect(isUntrustedShellActive({ trustClass: "trusted_contact" })).toBe(
+      true,
+    );
+  });
+
+  test("active for unverified contacts", () => {
+    expect(isUntrustedShellActive({ trustClass: "unverified_contact" })).toBe(
+      true,
+    );
+  });
+
+  test("active for unknown actors", () => {
+    expect(isUntrustedShellActive({ trustClass: "unknown" })).toBe(true);
+  });
+
+  test("active for undefined (fail-closed)", () => {
+    expect(isUntrustedShellActive({ trustClass: undefined })).toBe(true);
+  });
+
+  test("active for unrecognized values (fail-closed)", () => {
+    expect(isUntrustedShellActive({ trustClass: "non_guardian" })).toBe(true);
   });
 });
 

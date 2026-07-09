@@ -4,6 +4,24 @@ import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
 // ---------------------------------------------------------------------------
+// Untrusted shell guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when the current process is running inside an untrusted shell.
+ * CLI commands that reveal raw tokens must check this and fail deterministically
+ * to prevent secret exfiltration by non-guardian actors.
+ */
+function isUntrustedShell(): boolean {
+  return process.env.VELLUM_UNTRUSTED_SHELL === "1";
+}
+
+/** Error message for commands blocked by the untrusted shell guard. */
+const UNTRUSTED_SHELL_ERROR =
+  "This command is not available in untrusted shell mode. " +
+  "Raw token access is restricted when running under an untrusted shell.";
+
+// ---------------------------------------------------------------------------
 // Command registration
 // ---------------------------------------------------------------------------
 
@@ -40,7 +58,7 @@ Platform-managed providers handle tokens internally — use
 authenticated requests.
 
 Use 'assistant oauth status <provider>' to find account identifiers for
---account.
+--account. Blocked when VELLUM_UNTRUSTED_SHELL=1.
 
 Examples:
   $ assistant oauth token google
@@ -55,6 +73,13 @@ Examples:
         cmd: Command,
       ) => {
         try {
+          // Untrusted shell guard: deny raw token reveal in untrusted shells.
+          if (isUntrustedShell()) {
+            writeOutput(cmd, { ok: false, error: UNTRUSTED_SHELL_ERROR });
+            process.exitCode = 1;
+            return;
+          }
+
           const body: Record<string, unknown> = { provider };
           if (opts.account) body.account = opts.account;
           if (opts.clientId) body.client_id = opts.clientId;
