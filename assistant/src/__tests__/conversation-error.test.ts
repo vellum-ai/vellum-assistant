@@ -1108,7 +1108,7 @@ describe("ConnectionResolutionError classification", () => {
     const result = classifyConversationError(err, errCtx);
     expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
     expect(result.userMessage).toContain('"anthropic-personal"');
-    expect(result.userMessage).toContain("no API key stored");
+    expect(result.userMessage).toContain("no stored credential");
     expect(result.userMessage).toContain('profile "custom-fast"');
   });
 

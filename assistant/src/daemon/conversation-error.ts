@@ -315,7 +315,10 @@ function connectionResolutionUserMessage(
     case "missing_connection":
       return `No provider connection is configured${usedBy}. Add an API key or log in via ${fixPath}.`;
     case "missing_credential":
-      return `${connection}${usedBy} has no API key stored. Add one in ${fixPath}.`;
+      // Provider-neutral: api_key connections store keys, oauth_subscription
+      // connections store login tokens — the fix differs but the location
+      // doesn't.
+      return `${connection}${usedBy} has no stored credential. Add an API key or reconnect it in ${fixPath}.`;
     case "platform_unauthenticated":
       return `${connection}${usedBy} requires a Vellum platform login. Log in, or pick a different provider in ${fixPath}.`;
     case "model_incompatible":
