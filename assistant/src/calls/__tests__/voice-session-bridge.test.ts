@@ -4,7 +4,10 @@
  * The bridge waits on `conversation.waitForIdle` (event-driven, resolved
  * from `setProcessing(false)`) instead of polling `isProcessing()` every
  * 50 ms, so a barge-in turn starts on the same tick the prior turn releases
- * the lock. The call-controller re-prompt path matches on the exact error
+ * the lock. Because the same transition hands the lock to the prior turn's
+ * queued-message drain, the bridge also re-checks the lock when queued work
+ * is visible and retries a busy persist once — covered by the drain-race
+ * suite below. The call-controller re-prompt path matches on the exact error
  * strings, so those are pinned here too. `waitForIdle`'s own semantics are
  * covered by `src/__tests__/conversation-wait-for-idle.test.ts`.
  */
@@ -54,6 +57,7 @@ interface FakeConversation {
   forcePromptSideEffects: boolean;
   currentRequestId: string | undefined;
   isProcessing: () => boolean;
+  hasQueuedMessages?: () => boolean;
   waitForIdle: (options: WaitForIdleCall) => Promise<boolean>;
   setAssistantId: (id: string) => void;
   setTrustContext: (ctx: unknown) => void;
@@ -76,6 +80,10 @@ function makeFakeConversation(opts: {
   waitForIdle?: (options: WaitForIdleCall) => Promise<boolean>;
   runAgentLoop?: () => Promise<void>;
   events?: string[];
+  /** Mirrors `Conversation.hasQueuedMessages`; undefined models an empty queue. */
+  hasQueuedMessages?: () => boolean;
+  /** Runs before each persist resolves; throw to script a persist failure. */
+  onPersist?: (attempt: number) => void;
 }) {
   const waitForIdleCalls: WaitForIdleCall[] = [];
   let persistCount = 0;
@@ -85,6 +93,7 @@ function makeFakeConversation(opts: {
     forcePromptSideEffects: false,
     currentRequestId: undefined,
     isProcessing: () => opts.processing,
+    hasQueuedMessages: opts.hasQueuedMessages,
     waitForIdle: (options) => {
       waitForIdleCalls.push(options);
       if (!opts.waitForIdle) {
@@ -101,6 +110,7 @@ function makeFakeConversation(opts: {
     setVoiceCallControlPrompt: () => {},
     persistUserMessage: async () => {
       persistCount += 1;
+      opts.onPersist?.(persistCount);
       opts.events?.push("persist");
       return { id: `msg-${persistCount}` };
     },
@@ -355,6 +365,137 @@ describe("startVoiceTurn prior-turn teardown barrier", () => {
     await flushMicrotasks();
     controller.abort();
     await expect(turn2).rejects.toThrow(
+      "Turn aborted while waiting for conversation",
+    );
+    expect(fake.persistCount()).toBe(1);
+  });
+});
+
+describe("startVoiceTurn queued-message drain race", () => {
+  test("a drain that retakes the lock on the idle transition is waited out", async () => {
+    // Models a prior NON-voice turn (no teardown entry) finishing with a
+    // queued text message: the same `finally` that resolves the idle wait
+    // hands the lock straight to `drainQueue`. The barge-in must wait the
+    // drained turn out within its budget — not race the drain's persist or
+    // throw the terminal busy error.
+    let waitCount = 0;
+    const fake = makeFakeConversation({
+      processing: true,
+      hasQueuedMessages: () => waitCount < 2,
+      waitForIdle: async () => {
+        waitCount += 1;
+        if (waitCount === 1) {
+          // The prior turn released, and its queued-message drain retook
+          // the lock in the same window — isProcessing() stays true.
+          return true;
+        }
+        // The drained turn completed; the lock releases for real.
+        fake.setProcessingFlag(false);
+        return true;
+      },
+    });
+    fakeConversation = fake.conversation;
+
+    const handle = await startVoiceTurn(makeTurnOptions());
+
+    expect(handle.turnId).toBeString();
+    expect(fake.waitForIdleCalls.length).toBe(2);
+    expect(fake.persistCount()).toBe(1);
+  });
+
+  test("a persist that loses the lock race to the drain waits and retries once", async () => {
+    // TOCTOU: the wait loop saw an idle conversation with no visible queued
+    // work, but the drain's persist took the lock before this turn's persist
+    // ran. The first persist throws the exact busy error; the bridge waits
+    // for idle again and retries the persist once.
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: async () => {
+        // The drained turn completes during the retry wait.
+        fake.setProcessingFlag(false);
+        return true;
+      },
+      onPersist: (attempt) => {
+        if (attempt === 1) {
+          fake.setProcessingFlag(true);
+          throw new Error("Conversation is already processing a message");
+        }
+      },
+    });
+    fakeConversation = fake.conversation;
+
+    const persistedIds: string[] = [];
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      callbacks: {
+        persisted_user_message_id: (id) => persistedIds.push(id),
+      },
+    });
+
+    expect(handle.turnId).toBeString();
+    expect(fake.persistCount()).toBe(2);
+    expect(fake.waitForIdleCalls.length).toBe(1);
+    // The retried persist's row id is the one reported to the client.
+    expect(persistedIds).toEqual(["msg-2"]);
+  });
+
+  test("a busy persist whose retry wait exhausts the budget throws the exact busy error", async () => {
+    const fake = makeFakeConversation({
+      processing: false,
+      // The retry wait times out — the drained turn holds the lock past
+      // the remaining budget.
+      waitForIdle: async () => false,
+      onPersist: () => {
+        fake.setProcessingFlag(true);
+        throw new Error("Conversation is already processing a message");
+      },
+    });
+    fakeConversation = fake.conversation;
+
+    await expect(startVoiceTurn(makeTurnOptions())).rejects.toThrow(
+      "Conversation is already processing a message",
+    );
+    expect(fake.persistCount()).toBe(1);
+    expect(fake.waitForIdleCalls.length).toBe(1);
+  });
+
+  test("the busy-persist retry happens at most once", async () => {
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: async () => true,
+      onPersist: () => {
+        throw new Error("Conversation is already processing a message");
+      },
+    });
+    fakeConversation = fake.conversation;
+
+    await expect(startVoiceTurn(makeTurnOptions())).rejects.toThrow(
+      "Conversation is already processing a message",
+    );
+    expect(fake.persistCount()).toBe(2);
+    expect(fake.waitForIdleCalls.length).toBe(1);
+  });
+
+  test("an abort during the busy-persist retry wait throws the turn-aborted error", async () => {
+    const controller = new AbortController();
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: ({ signal }) =>
+        new Promise<boolean>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        }),
+      onPersist: () => {
+        throw new Error("Conversation is already processing a message");
+      },
+    });
+    fakeConversation = fake.conversation;
+
+    const turnPromise = startVoiceTurn(makeTurnOptions(controller.signal));
+    await flushMicrotasks();
+    controller.abort();
+    await expect(turnPromise).rejects.toThrow(
       "Turn aborted while waiting for conversation",
     );
     expect(fake.persistCount()).toBe(1);
