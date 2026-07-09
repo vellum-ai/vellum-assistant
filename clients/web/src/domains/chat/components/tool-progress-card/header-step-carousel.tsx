@@ -120,6 +120,7 @@ export function HeaderStepCarousel({
   bypassDwell = false,
   animationKey,
   shimmer = false,
+  inline = false,
 }: {
   currentStepTitle: string;
   currentStepInfo: ReactNode;
@@ -150,6 +151,16 @@ export function HeaderStepCarousel({
    * subtext stays plain.
    */
   shimmer?: boolean;
+  /**
+   * Inline (bare-header) mode, passed through from the shell's `bare`
+   * variant. The primary label mirrors the inline `SingleActivity` link —
+   * 13px medium in `--content-secondary`, flush left (no `ml-1`, since bare
+   * headers render no leading status icon) — so the multi-activity header
+   * reads as the same affordance family and left-aligns with the links
+   * around it. Boxed cards (web search, subagent) keep the Typography
+   * emphasised title.
+   */
+  inline?: boolean;
 }) {
   const reduce = useReducedMotion();
   const tuple = useMemo(
@@ -216,20 +227,42 @@ export function HeaderStepCarousel({
         className="flex min-w-0 flex-1 items-center gap-1"
       >
         {hasTitle ? (
-          <Typography
-            variant="body-medium-default"
-            className={
-              hasInfo
-                ? "ml-1 shrink-0 whitespace-nowrap text-[var(--content-emphasised)]"
-                : "ml-1 block min-w-0 flex-1 truncate text-left text-[var(--content-emphasised)]"
-            }
-          >
-            {shimmer ? (
-              <StreamingShimmerText>{displayed.title}</StreamingShimmerText>
-            ) : (
-              displayed.title
-            )}
-          </Typography>
+          inline ? (
+            // typography: off-scale — pixel-matches the inline
+            // `SingleActivity` label (13px medium, secondary) so the bare
+            // multi-activity header reads as the same affordance.
+            // `leading-[16px]` overrides the Button's `label-medium-default`
+            // line-height of 1, which clips descenders (the "g" in
+            // "Working") behind the shimmer/truncate overflow clipping.
+            <span
+              className={
+                hasInfo
+                  ? "shrink-0 whitespace-nowrap text-[13px] font-medium leading-[16px] text-[var(--content-secondary)]"
+                  : "block min-w-0 flex-1 truncate text-left text-[13px] font-medium leading-[16px] text-[var(--content-secondary)]"
+              }
+            >
+              {shimmer ? (
+                <StreamingShimmerText>{displayed.title}</StreamingShimmerText>
+              ) : (
+                displayed.title
+              )}
+            </span>
+          ) : (
+            <Typography
+              variant="body-medium-default"
+              className={
+                hasInfo
+                  ? "ml-1 shrink-0 whitespace-nowrap text-[var(--content-emphasised)]"
+                  : "ml-1 block min-w-0 flex-1 truncate text-left text-[var(--content-emphasised)]"
+              }
+            >
+              {shimmer ? (
+                <StreamingShimmerText>{displayed.title}</StreamingShimmerText>
+              ) : (
+                displayed.title
+              )}
+            </Typography>
+          )
         ) : null}
         {hasInfo ? (
           <>
@@ -245,35 +278,53 @@ export function HeaderStepCarousel({
               />
             ) : null}
             {isTextInfo ? (
-              <Typography
-                // With a title present, the info is subtext (small, tertiary).
-                // With no title it IS the header label, so it takes the
-                // title's emphasis (medium, emphasised) instead.
-                variant={
-                  hasTitle ? "body-small-default" : "body-medium-default"
-                }
-                // `body-small-default` ships line-height: 1, which clips
-                // descenders (e.g. the "g" in "subagent") once `truncate`
-                // adds overflow:hidden. Bump to 16px — the same ~1.3 ratio
-                // the title's `body-medium-default` (18/14) uses — so the
-                // glyphs get vertical breathing room while staying centered.
-                // `ml-1` adds 4px on top of the row's `gap-1` (also 4px) so
-                // the descriptor sits ~8px clear of the `|` separator (or, when
-                // title-less, aligns where the title would have sat).
-                className={`ml-1 block min-w-0 flex-1 truncate text-left leading-[16px] ${
-                  hasTitle
-                    ? "text-[var(--content-tertiary)]"
-                    : "text-[var(--content-emphasised)]"
-                }`}
-              >
-                {/* When the info IS the primary label (title-less headers,
-                    e.g. bash), the shimmer applies to it instead. */}
-                {shimmer && !hasTitle && typeof displayed.info === "string" ? (
-                  <StreamingShimmerText>{displayed.info}</StreamingShimmerText>
-                ) : (
-                  displayed.info
-                )}
-              </Typography>
+              inline && !hasTitle ? (
+                // Title-less inline header: the info IS the primary label, so
+                // it takes the same off-scale `SingleActivity`-matched style
+                // as the inline title above (13px medium, secondary, flush
+                // left — no `ml-1` since it's the row's first element).
+                <span className="block min-w-0 flex-1 truncate text-left text-[13px] font-medium leading-[16px] text-[var(--content-secondary)]">
+                  {shimmer && typeof displayed.info === "string" ? (
+                    <StreamingShimmerText>
+                      {displayed.info}
+                    </StreamingShimmerText>
+                  ) : (
+                    displayed.info
+                  )}
+                </span>
+              ) : (
+                <Typography
+                  // With a title present, the info is subtext (small, tertiary).
+                  // With no title it IS the header label, so it takes the
+                  // title's emphasis (medium, emphasised) instead.
+                  variant={
+                    hasTitle ? "body-small-default" : "body-medium-default"
+                  }
+                  // `body-small-default` ships line-height: 1, which clips
+                  // descenders (e.g. the "g" in "subagent") once `truncate`
+                  // adds overflow:hidden. Bump to 16px — the same ~1.3 ratio
+                  // the title's `body-medium-default` (18/14) uses — so the
+                  // glyphs get vertical breathing room while staying centered.
+                  // `ml-1` adds 4px on top of the row's `gap-1` (also 4px) so
+                  // the descriptor sits ~8px clear of the `|` separator (or, when
+                  // title-less, aligns where the title would have sat).
+                  className={`ml-1 block min-w-0 flex-1 truncate text-left leading-[16px] ${
+                    hasTitle
+                      ? "text-[var(--content-tertiary)]"
+                      : "text-[var(--content-emphasised)]"
+                  }`}
+                >
+                  {/* When the info IS the primary label (title-less headers,
+                      e.g. bash), the shimmer applies to it instead. */}
+                  {shimmer &&
+                  !hasTitle &&
+                  typeof displayed.info === "string" ? (
+                    <StreamingShimmerText>{displayed.info}</StreamingShimmerText>
+                  ) : (
+                    displayed.info
+                  )}
+                </Typography>
+              )
             ) : (
               <span className="ml-1 block min-w-0 flex-1">
                 {displayed.info}

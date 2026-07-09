@@ -237,7 +237,30 @@ describe("buildTranscriptItems", () => {
 
     // message, thinking — thinking is the FIRST trailer.
     expect(items.map((i) => i.kind)).toEqual(["message", "thinking"]);
-    expect(items[1]).toEqual({ kind: "thinking", key: "thinking" });
+    expect(items[1]).toEqual({ kind: "thinking", key: "thinking", active: true });
+  });
+
+  test("turnActive keeps an inactive ThinkingItem mounted when isThinking is false", () => {
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      isThinking: false,
+      turnActive: true,
+    });
+
+    // The slot exists for the whole in-flight turn (fixed height, no reflow)
+    // but is inactive — the render layer fades the label out.
+    expect(items).toHaveLength(1);
+    expect(items[0]).toEqual({ kind: "thinking", key: "thinking", active: false });
+  });
+
+  test("no ThinkingItem when neither isThinking nor turnActive", () => {
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      isThinking: false,
+      turnActive: false,
+    });
+
+    expect(items).toHaveLength(0);
   });
 
   test("ThinkingItem includes label when thinkingLabel is provided", () => {
@@ -251,6 +274,7 @@ describe("buildTranscriptItems", () => {
     expect(items[0]).toEqual({
       kind: "thinking",
       key: "thinking",
+      active: true,
       label: "Processing bash results",
     });
   });
@@ -263,7 +287,7 @@ describe("buildTranscriptItems", () => {
     });
 
     expect(items).toHaveLength(1);
-    expect(items[0]).toEqual({ kind: "thinking", key: "thinking" });
+    expect(items[0]).toEqual({ kind: "thinking", key: "thinking", active: true });
   });
 
   test("ThinkingItem omits label when thinkingLabel is empty string", () => {
@@ -274,7 +298,7 @@ describe("buildTranscriptItems", () => {
     });
 
     expect(items).toHaveLength(1);
-    expect(items[0]).toEqual({ kind: "thinking", key: "thinking" });
+    expect(items[0]).toEqual({ kind: "thinking", key: "thinking", active: true });
   });
 
   test("pendingSecret comes before pendingConfirmation", () => {

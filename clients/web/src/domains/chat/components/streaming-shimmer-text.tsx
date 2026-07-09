@@ -45,8 +45,21 @@ export interface StreamingShimmerTextProps {
  * carries the "working on it" signal.
  *
  * Motion niceties come from `gradient-shimmer`: the sweep pauses off-screen
- * and while scrolling, and renders a static gradient under
- * `prefers-reduced-motion`.
+ * and renders a static gradient under `prefers-reduced-motion`.
+ *
+ * `pauseOnScroll` is explicitly OFF: the library's default pauses the sweep on
+ * every capture-phase window scroll event and only resumes after 120ms of
+ * scroll idle. While a response streams, the transcript re-pins to the bottom
+ * (and an open detail drawer auto-scrolls) continuously — scroll events fire
+ * faster than the idle window, so the sweep would sit paused (parked off-text,
+ * i.e. invisible) for exactly the duration it exists to signal.
+ *
+ * `baseColor` is pinned to a DIMMED version of the context text color rather
+ * than the library's `currentColor` default. The sweep is only perceivable as
+ * the contrast between band and base — with the base at full `currentColor`,
+ * a light label (e.g. the active chip's near-white text) meets a near-white
+ * band and the shimmer vanishes entirely. Dimming the base guarantees the
+ * band reads as a bright glint in every tone and theme.
  */
 export function StreamingShimmerText({
   children,
@@ -64,6 +77,8 @@ export function StreamingShimmerText({
       spread={6}
       angle={106}
       pauseBetween={0}
+      pauseOnScroll={false}
+      baseColor="color-mix(in srgb, currentColor 45%, transparent)"
       className={className}
       data-testid={dataTestId}
     >
