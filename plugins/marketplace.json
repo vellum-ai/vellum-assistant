@@ -294,6 +294,30 @@
       "license": "MIT"
     },
     {
+      "name": "family-briefing",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/family-briefing",
+        "ref": "145f341db7d06ffa81e2052033f187679b8bda4d"
+      },
+      "description": "Daily morning briefing for parents: merges family calendars, triages school emails, and detects scheduling conflicts.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/family-briefing",
+      "license": "MIT"
+    },
+    {
+      "name": "personal-finance",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/personal-finance",
+        "ref": "1cf0054fa652a0b981f871e389136fbc22b02cf9"
+      },
+      "description": "Track expenses, income, recurring bills, and savings funds from your assistant. Multi-currency, receipt OCR, Plaid bank sync, and financial summaries. All data stored locally in SQLite.",
+      "category": "finance",
+      "homepage": "https://github.com/AnitaKirkovska/personal-finance",
+      "license": "MIT"
+    },
+    {
       "name": "proactive-slacks",
       "source": {
         "source": "github",
