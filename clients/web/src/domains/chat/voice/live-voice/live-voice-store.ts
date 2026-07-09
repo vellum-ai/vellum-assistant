@@ -170,6 +170,16 @@ export interface LiveVoiceState {
   assistantTranscript: string;
   /** Smoothed RMS mic amplitude in [0, 1] for UI / barge-in. */
   inputAmplitude: number;
+  /**
+   * Provider for the assistant's TTS *output* amplitude in [0, 1], registered
+   * by the controller from the active session's {@link LiveVoiceAudioPlayer}
+   * (its output-bus analyser). `null` when there is no session, or on a context
+   * that can't meter. Read via {@link getLiveVoiceOutputAmplitude}; the room
+   * avatar routes between this and the mic amplitude by phase — see
+   * {@link getLiveVoiceAvatarAmplitude}. A registered provider (like `controls`)
+   * so a non-`speaking` read costs nothing and it clears on session reset.
+   */
+  outputAmplitudeProvider: (() => number) | null;
   /** Human-readable error message when `state === "failed"`, `null` otherwise. */
   error: string | null;
 }
@@ -209,6 +219,8 @@ export interface LiveVoiceActions {
    */
   clearUserTranscripts: () => void;
   setInputAmplitude: (amplitude: number) => void;
+  /** Register (or clear) the active player's output-amplitude provider. */
+  setOutputAmplitudeProvider: (provider: (() => number) | null) => void;
   /** Transition to `failed` with a message. */
   fail: (message: string) => void;
   /**
@@ -302,6 +314,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   finalTranscript: "",
   assistantTranscript: "",
   inputAmplitude: 0,
+  outputAmplitudeProvider: null,
   error: null,
 };
 
@@ -323,6 +336,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   clearAssistantTranscript: () => set({ assistantTranscript: "" }),
   clearUserTranscripts: () => set({ partialTranscript: "", finalTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
+  setOutputAmplitudeProvider: (outputAmplitudeProvider) =>
+    set({ outputAmplitudeProvider }),
   fail: (message) => set({ state: "failed", error: message }),
   reset: () => set({ ...INITIAL_SESSION_STATE }),
 }));
@@ -337,6 +352,18 @@ export const useLiveVoiceStore = createSelectors(useLiveVoiceStoreBase);
  */
 export function getLiveVoiceInputAmplitude(): number {
   return useLiveVoiceStore.getState().inputAmplitude;
+}
+
+/**
+ * Assistant TTS *output* amplitude in [0, 1] — the smoothed RMS of the audio the
+ * assistant is speaking right now, read from the active player's output-bus
+ * analyser via the controller-registered provider. Returns 0 when nothing is
+ * playing (or the audio context can't meter). The counterpart to
+ * {@link getLiveVoiceInputAmplitude}: mic pulse for `listening`, output pulse
+ * for `responding`.
+ */
+export function getLiveVoiceOutputAmplitude(): number {
+  return useLiveVoiceStore.getState().outputAmplitudeProvider?.() ?? 0;
 }
 
 /**

@@ -452,6 +452,11 @@ export function useLiveVoice(
       // (its lazy creation point) lands outside any gesture, so the browser
       // starts it suspended and the first turn's audio is silently dropped.
       player.prewarm();
+      // Route the room avatar's `responding` pulse to real TTS output. The mic
+      // amplitude (the only prior source) is near-silent while the assistant
+      // speaks, so the avatar looked inverted — pulsing on the user's voice, not
+      // the assistant's. Cleared by the store reset in teardown()/stop().
+      store.setOutputAmplitudeProvider(() => player.getOutputAmplitude());
 
       const session: SessionContext = {
         assistantId,

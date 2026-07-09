@@ -25,13 +25,19 @@ import { X } from "lucide-react";
 import {
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
+  getLiveVoiceOutputAmplitude,
   liveVoiceStateLabel,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+
+import { resolveWaveAccentHex } from "./wave-accent";
 
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
 import { VoiceAvatar } from "./voice-avatar";
+import { VoiceListeningWaves } from "./voice-listening-waves";
 import { AVATAR_ENTER_SPRING } from "./voice-motion";
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
 import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
@@ -74,6 +80,15 @@ function VoiceRoomOverlay() {
   const visual = toVoiceAvatarVisual(state, reconnecting);
   const stateLabel = liveVoiceStateLabel(state, reconnecting);
 
+  // Publish the session assistant's avatar accent on the room itself (not just
+  // the html-level var, which tracks the *active* assistant) so the listening
+  // waves tint to the avatar shown here even if a session outlives navigating
+  // away. Shares the cached avatar query with VoiceAvatar; null for
+  // custom-image / "none" / still-loading avatars, where the waves fall back to
+  // the aurora indigo via the CSS var fallback.
+  const { components, traits } = useAssistantAvatar(assistantId);
+  const accentHex = resolveWaveAccentHex(components, traits);
+
   // Global Escape exit, live only while the room is mounted. It fires even when
   // the composer textarea (or any other focused element) still holds focus as
   // the room opens, so it is intentionally not guarded by the event target.
@@ -104,6 +119,7 @@ function VoiceRoomOverlay() {
         paddingBottom: SAFE_AREA_BOTTOM,
         paddingLeft: SAFE_AREA_LEFT,
         paddingRight: SAFE_AREA_RIGHT,
+        ...(accentHex ? { [AVATAR_ACCENT_CSS_VAR]: accentHex } : {}),
       }}
       initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -111,6 +127,17 @@ function VoiceRoomOverlay() {
       transition={{ duration: reduce ? 0 : 0.4 }}
     >
       <VoiceRoomAmbientBackground />
+
+      {/* Listening waves: the user's voice arriving as energy coming in, rising
+          from the bottom edge with live mic amplitude. Only while listening;
+          responding expresses itself through the avatar's own emanation. Sits
+          above the void, behind the centered avatar (later in DOM, z-0). */}
+      {visual === "listening" ? (
+        <VoiceListeningWaves
+          getAmplitude={getLiveVoiceInputAmplitude}
+          palette="accent"
+        />
+      ) : null}
 
       {/* Optional muted echo of the live transcript, floating above (user) and
           below (assistant) the centered avatar. Pref-gated and absolutely
@@ -148,7 +175,11 @@ function VoiceRoomOverlay() {
         <VoiceAvatar
           assistantId={assistantId}
           visual={visual}
-          getAmplitude={getLiveVoiceInputAmplitude}
+          // Only the `responding` avatar is audio-reactive, and it always rides
+          // TTS output — so the output amplitude is the sole source here. The
+          // user's voice is expressed by the bottom waves in `listening`, not
+          // by the avatar.
+          getAmplitude={getLiveVoiceOutputAmplitude}
           size={AVATAR_SIZE}
         />
       </motion.div>
