@@ -314,6 +314,10 @@ function connectionResolutionUserMessage(
       return `${connection}${usedBy} is bound to a different provider than the profile declares. Update the profile's connection in ${fixPath}.`;
     case "missing_connection":
       return `No provider connection is configured${usedBy}. Add an API key or log in via ${fixPath}.`;
+    case "missing_credential":
+      return `${connection}${usedBy} has no API key stored. Add one in ${fixPath}.`;
+    case "platform_unauthenticated":
+      return `${connection}${usedBy} requires a Vellum platform login. Log in, or pick a different provider in ${fixPath}.`;
     case "model_incompatible":
       return `${error.model ? `Model "${error.model}"` : "The requested model"} isn't available on ${connectionName ? `connection "${connectionName}"` : "the configured connection"}${usedBy}. Pick a different model or connection in ${fixPath}.`;
   }

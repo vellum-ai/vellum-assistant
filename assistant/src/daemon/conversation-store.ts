@@ -12,10 +12,17 @@
  * `conversation-evictor`.
  */
 
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import {
+  isOverrideOrDefaultResolutionEnabled,
+  resolveCallSiteConfig,
+  selectWinningProfile,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
-import { resolveDefaultProvider } from "../providers/connection-resolution.js";
+import {
+  preflightResolvedConfig,
+  resolveDefaultProvider,
+} from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { listProviders } from "../providers/registry.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -124,6 +131,16 @@ export async function getOrCreateConversation(
       const baseProvider = await resolveDefaultProvider(config);
       if (!baseProvider) {
         const resolved = resolveCallSiteConfig("mainAgent", config.llm);
+        if (isOverrideOrDefaultResolutionEnabled()) {
+          // Statically pinpoint the breakage (missing credential, platform
+          // login, deleted connection) so the banner names the fix; falls
+          // through to the generic retryable error when indeterminate.
+          await preflightResolvedConfig(resolved, {
+            profileName:
+              selectWinningProfile("mainAgent", config.llm, {}).profileName ??
+              undefined,
+          });
+        }
         throw new ProviderNotConfiguredError(
           resolved.provider,
           listProviders(),
