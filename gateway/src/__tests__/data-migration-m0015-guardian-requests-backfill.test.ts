@@ -30,7 +30,7 @@ import "./test-preload.js";
 type FakeRequest = {
   id: string;
   kind: string;
-  source_type: string;
+  source_type: string | null;
   source_channel: string | null;
   conversation_id: string | null;
   requester_external_user_id: string | null;
@@ -327,6 +327,36 @@ describe("m0015-guardian-requests-backfill", () => {
     // The gateway derives source type from source_channel; no column exists.
     expect("source_type" in row).toBe(false);
     expect("conversation_id" in row).toBe(false);
+  });
+
+  test("null-channel desktop/voice rows get the sentinel channel that derives back to their source type", async () => {
+    seedAssistantRequest({
+      id: "req-desktop",
+      source_type: "desktop",
+      source_channel: null,
+    });
+    seedAssistantRequest({
+      id: "req-voice",
+      source_type: "voice",
+      source_channel: null,
+    });
+    seedAssistantRequest({
+      id: "req-channel",
+      source_type: "channel",
+      source_channel: null,
+    });
+    seedAssistantRequest({
+      id: "req-explicit",
+      source_type: "desktop",
+      source_channel: "slack",
+    });
+
+    expect(await m0015Up()).toBe("done");
+    expect(gatewayRequest("req-desktop")!.source_channel).toBe("vellum");
+    expect(gatewayRequest("req-voice")!.source_channel).toBe("phone");
+    expect(gatewayRequest("req-channel")!.source_channel).toBeNull();
+    // An explicit source_channel always wins over the stored source_type.
+    expect(gatewayRequest("req-explicit")!.source_channel).toBe("slack");
   });
 
   test("copies every request and delivery row with the FK intact", async () => {

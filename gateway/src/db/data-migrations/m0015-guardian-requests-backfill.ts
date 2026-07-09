@@ -6,7 +6,9 @@
  * win. Requests insert before deliveries so the request_id FK is satisfied.
  * Column mapping: assistant `conversation_id` → gateway
  * `source_conversation_id`; assistant `source_type` has no gateway column
- * (derived from source_channel at read time); everything else copies 1:1.
+ * (derived from source_channel at read time), so legacy desktop/voice rows
+ * with a null source_channel get the sentinel channel (vellum/phone) that
+ * derives back to the same source type; everything else copies 1:1.
  *
  * Copy, not move: never writes to the assistant DB (the drop migration is
  * gated on this migration's checkpoint). Returns "done" when the assistant
@@ -28,9 +30,28 @@ function getRawGatewayDb(): Database {
   return (getGatewayDb() as unknown as { $client: Database }).$client;
 }
 
+// The gateway derives sourceType from source_channel alone (phone → voice,
+// vellum → desktop, else channel). Legacy desktop/voice rows can carry a null
+// source_channel; give them the sentinel channel that derives back to the
+// stored source_type so they keep matching desktop/voice filters.
+const SENTINEL_CHANNEL_BY_SOURCE_TYPE: Record<string, string> = {
+  desktop: "vellum",
+  voice: "phone",
+};
+
+function sourceChannelFor(row: {
+  source_type: string | null;
+  source_channel: string | null;
+}): string | null {
+  if (row.source_channel !== null) return row.source_channel;
+  if (row.source_type === null) return null;
+  return SENTINEL_CHANNEL_BY_SOURCE_TYPE[row.source_type] ?? null;
+}
+
 interface AssistantRequestRow {
   id: string;
   kind: string;
+  source_type: string | null;
   source_channel: string | null;
   conversation_id: string | null;
   requester_external_user_id: string | null;
@@ -93,7 +114,7 @@ export async function up(): Promise<MigrationResult> {
 
     // ── 2. Read the assistant rows ──────────────────────────────────────────
     const requestRows = await assistantDbQuery<AssistantRequestRow>(
-      `SELECT id, kind, source_channel, conversation_id,
+      `SELECT id, kind, source_type, source_channel, conversation_id,
               requester_external_user_id, requester_chat_id,
               guardian_external_user_id, guardian_principal_id,
               call_session_id, pending_question_id, question_text,
@@ -146,7 +167,7 @@ export async function up(): Promise<MigrationResult> {
         requestsInserted += insertRequest.run(
           row.id,
           row.kind,
-          row.source_channel,
+          sourceChannelFor(row),
           row.conversation_id,
           row.requester_external_user_id,
           row.requester_chat_id,
