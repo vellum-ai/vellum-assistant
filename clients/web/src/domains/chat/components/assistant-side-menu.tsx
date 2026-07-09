@@ -86,12 +86,17 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onInspect?: (conversation: Conversation) => void;
 }
 
-function SearchButton({ onClose }: { onClose?: () => void }) {
+function SearchButton() {
   const toggle = useCommandPaletteStore.use.toggle();
+  // Intentionally does NOT close the drawer. On mobile the command palette
+  // renders full-screen at z-50 (see command-palette.tsx), painting above the
+  // navigation drawer (fixed z-40 in chat-layout) so it fully covers the menu
+  // while open. Leaving the drawer mounted underneath means dismissing the
+  // palette (✕ / Escape / backdrop) returns to the menu the user opened search
+  // from, instead of falling through to the chat view (Figma 6788:6749).
   const handleClick = useCallback(() => {
-    onClose?.();
     toggle();
-  }, [onClose, toggle]);
+  }, [toggle]);
   return (
     <Button
       variant="ghost"
@@ -341,14 +346,17 @@ export function AssistantSideMenu({
       >
         <SideMenu.Header>
           {variant === "overlay" ? (
-            <div className="flex items-center gap-2">
+            /* Close on the left, Search pinned to the right so it stays put
+               and always reads as the persistent search affordance
+               (Figma 6788:6749). */
+            <div className="flex items-center justify-between gap-2">
               <Button
                 variant="ghost"
                 iconOnly={<X />}
                 aria-label="Close navigation"
                 onClick={() => onClose?.()}
               />
-              <SearchButton onClose={onClose} />
+              <SearchButton />
             </div>
           ) : (
             builtInNav
