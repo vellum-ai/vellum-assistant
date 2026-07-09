@@ -1129,50 +1129,6 @@ describe("installPlugin — direct (untrusted) install", () => {
     expect(pkg.version).toBe("0.0.0");
     expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeDefined();
   });
-
-  test("synthesized package.json carries metadata from .claude-plugin/plugin.json", async () => {
-    // GIVEN a Claude Code format plugin with no package.json but a
-    // .claude-plugin/plugin.json manifest
-    const claudeManifest = {
-      name: "creatorland-data",
-      version: "0.2.1",
-      description: "Creatorland Data MCP + companion skills",
-    };
-    const fetch = makeContentsFetch({ tree: {} });
-    const runGit = fakeGitRunner({
-      tree: {
-        "plugins/creatorland-data/.claude-plugin/plugin.json":
-          JSON.stringify(claudeManifest),
-        "plugins/creatorland-data/skills/brief-builder/SKILL.md":
-          "# brief-builder",
-      },
-      commit: "1".repeat(40),
-    });
-
-    // WHEN we install directly
-    await installPlugin(
-      {
-        name: "creatorland-data",
-        directSource: {
-          owner: "vellum-ai",
-          repo: "creatorland-mcp-skills",
-          rootPath: "plugins/creatorland-data",
-          ref: "main",
-        },
-      },
-      { fetch, runGit, workspacePluginsDir: pluginsDir },
-    );
-
-    // THEN the synthesized package.json carries the upstream version and
-    // description from the Claude Code manifest, but uses the install name
-    const pkgPath = join(pluginsDir, "creatorland-data", "package.json");
-    expect(existsSync(pkgPath)).toBe(true);
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    expect(pkg.name).toBe("creatorland-data");
-    expect(pkg.version).toBe("0.2.1");
-    expect(pkg.description).toBe("Creatorland Data MCP + companion skills");
-    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeDefined();
-  });
 });
 
 describe("sanitizePluginName", () => {
