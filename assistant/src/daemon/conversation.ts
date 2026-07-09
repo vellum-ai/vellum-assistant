@@ -2150,7 +2150,7 @@ export class Conversation {
     }
   }
 
-  setTurnChannelContext(ctx: TurnChannelContext): void {
+  setTurnChannelContext(ctx: TurnChannelContext | null): void {
     this.currentTurnChannelContext = ctx;
   }
 
@@ -2158,7 +2158,7 @@ export class Conversation {
     return this.currentTurnChannelContext;
   }
 
-  setTurnInterfaceContext(ctx: TurnInterfaceContext): void {
+  setTurnInterfaceContext(ctx: TurnInterfaceContext | null): void {
     this.currentTurnInterfaceContext = ctx;
   }
 
