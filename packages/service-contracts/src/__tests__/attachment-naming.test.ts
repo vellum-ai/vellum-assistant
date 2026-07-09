@@ -40,7 +40,7 @@ describe("resolveAttachmentFilename", () => {
     expect(
       resolveAttachmentFilename(
         "desktop",
-        "C:\\Users\\jason\\Pictures\\shot.png",
+        "C:\\Users\\user1\\Pictures\\shot.png",
         "label",
       ),
     ).toBe("desktop.png");
