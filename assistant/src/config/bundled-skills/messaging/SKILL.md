@@ -38,6 +38,14 @@ When a platform is connected (auth test succeeds), always use the messaging API 
 
 Before using any messaging tool, verify that the platform is connected by calling `messaging_auth_test` with the appropriate `platform` parameter. If the call fails with a token/authorization error, follow the steps below.
 
+### Answering "is my email connected / working / being monitored"
+
+When the user asks whether their email or messaging accounts are connected, working, or being monitored, never answer from memory, `recall`, or prior conversation state — that reflects past state, not present, and is often stale.
+
+1. **Verify live.** Run `messaging_auth_test` per platform+account for every account in question. Take the exact account addresses from a live source (`assistant oauth status <provider>` or the connection listings), not from memory — a misspelled address produces a false "not connected" error.
+2. **For "is X being monitored" questions**, also check `assistant watchers list` for the relevant enabled watchers.
+3. **Report per-account results.** If any check fails, say which account failed and go straight into the reconnection flow in **Error Recovery** below.
+
 ### Public Ingress (required for Telegram)
 
 Telegram setup requires webhook routing, but it does **not** always require ngrok. Before suggesting public ingress for Telegram, check managed callback availability with `assistant platform status --json`. If that reports `isPlatform: true` with a non-empty `assistantId` and `available: true`, use the platform callback route flow and do not prompt for ngrok. Only use the **public-ingress** skill for local assistants that genuinely need a public gateway URL. Slack uses Socket Mode and does not require public ingress. Gmail/Outlook on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the vellum-oauth-integrations skill) handles public ingress internally when needed.

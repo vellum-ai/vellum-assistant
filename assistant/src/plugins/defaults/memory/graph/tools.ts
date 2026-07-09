@@ -18,7 +18,7 @@ const RECALL_DEPTHS = ["fast", "standard", "deep"] as const;
 export const graphRecallDefinition = {
   name: "recall",
   description:
-    'Search local information the moment you feel uncertain. Use recall for memory, past conversations, and workspace files — before you guess, before you ask, before you hedge. Auto-injection is incomplete by design; it surfaces patterns, not the specifics you need to answer well. If you catch yourself reaching for "I think", "I believe", "if I remember", "didn\'t we", "last time" — that\'s the signal. Recall. If a turn references someone, a place, a decision, a document, or prior work you should be able to find locally — recall. Call it multiple times per conversation if the turn warrants it. Be specific in your query for best results.',
+    'Search local information the moment you feel uncertain. Use recall for memory, past conversations, and workspace files — before you guess, before you ask, before you hedge. Auto-injection is incomplete by design; it surfaces patterns, not the specifics you need to answer well. If you catch yourself reaching for "I think", "I believe", "if I remember", "didn\'t we", "last time" — that\'s the signal. Recall. If a turn references someone, a place, a decision, a document, or prior work you should be able to find locally — recall. Call it multiple times per conversation if the turn warrants it. Be specific in your query for best results. Results reflect what was true when the memory was written — do not use recall alone to answer questions about current system state (account connections, watchers, service health); verify those with live checks.',
   input_schema: {
     type: "object",
     properties: {
