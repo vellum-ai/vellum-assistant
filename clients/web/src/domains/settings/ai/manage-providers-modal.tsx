@@ -22,6 +22,8 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
+import { useSupportsDefaultProvider } from "@/lib/backwards-compat/default-provider-routes";
+import { captureError } from "@/lib/sentry/capture-error";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal";
 // ---------------------------------------------------------------------------
 // Helpers
@@ -100,11 +102,15 @@ export function ManageProvidersModal({
     ...queryOpts,
     enabled: isOpen,
   });
+  // Older installed assistants predate the default-provider routes; hide
+  // the marker surface entirely rather than render actions that can only
+  // fail (see the gate's docstring).
+  const supportsDefaultProvider = useSupportsDefaultProvider();
   const { data: defaultProvider } = useQuery({
     ...configLlmDefaultproviderGetOptions({
       path: { assistant_id: assistantId },
     }),
-    enabled: isOpen,
+    enabled: isOpen && supportsDefaultProvider,
   });
 
   const connections = useMemo(() => data?.connections ?? [], [data]);
@@ -184,7 +190,10 @@ export function ManageProvidersModal({
                 }),
               });
             }}
-            defaultProvider={defaultProvider}
+            defaultProvider={
+              supportsDefaultProvider ? defaultProvider : undefined
+            }
+            supportsDefaultProvider={supportsDefaultProvider}
             onDefaultChanged={() => {
               void queryClient.invalidateQueries({
                 queryKey: configLlmDefaultproviderGetQueryKey({
@@ -218,6 +227,7 @@ interface ManageProvidersModalInnerProps {
   onNewClick: () => void;
   onConnectionDeleted: (name: string) => void;
   defaultProvider: DefaultProviderStatus | undefined;
+  supportsDefaultProvider: boolean;
   onDefaultChanged: () => void;
 }
 
@@ -231,6 +241,7 @@ function ManageProvidersModalInner({
   onNewClick,
   onConnectionDeleted,
   defaultProvider,
+  supportsDefaultProvider,
   onDefaultChanged,
 }: ManageProvidersModalInnerProps) {
   const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
@@ -257,7 +268,11 @@ function ManageProvidersModalInner({
         body: { provider: conn.provider, connectionName: conn.name },
       });
       onDefaultChanged();
-    } catch {
+    } catch (error) {
+      captureError(error, {
+        context: "manage-providers-modal.set-default-provider",
+        bestEffort: true,
+      });
       setDeleteErrors((prev) => ({
         ...prev,
         [conn.name]: "Failed to set the default provider. Please try again.",
@@ -396,7 +411,7 @@ function ManageProvidersModalInner({
 
                     {/* Actions */}
                     <div className="flex shrink-0 items-center gap-2">
-                      {!isDefaultConnection && (
+                      {supportsDefaultProvider && !isDefaultConnection && (
                         <Button
                           variant="ghost"
                           size="compact"

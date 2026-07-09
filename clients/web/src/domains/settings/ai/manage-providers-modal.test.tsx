@@ -18,6 +18,12 @@ import type {
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
 
+let assistantSupportsDefaultProvider = true;
+mock.module("@/lib/backwards-compat/default-provider-routes", () => ({
+  MIN_VERSION: "0.10.8",
+  useSupportsDefaultProvider: () => assistantSupportsDefaultProvider,
+}));
+
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { success: () => {}, error: () => {} },
   Toaster: () => null,
@@ -58,7 +64,10 @@ function makeConnection(
 ): ProviderConnection {
   return {
     label: null,
-    auth: { type: "api_key", credential: `credential/${overrides.provider}/api_key` },
+    auth: {
+      type: "api_key",
+      credential: `credential/${overrides.provider}/api_key`,
+    },
     baseUrl: null,
     models: null,
     createdAt: 0,
@@ -86,6 +95,7 @@ function renderModal() {
 }
 
 beforeEach(() => {
+  assistantSupportsDefaultProvider = true;
   putBodies = [];
   putShouldFail = false;
   defaultProviderGetCalls = 0;
@@ -158,6 +168,14 @@ describe("default-provider marker", () => {
     const buttons = await findAllByText("Set as default");
     fireEvent.click(buttons[0]!);
     await findByText("Failed to set the default provider. Please try again.");
+  });
+
+  test("the marker surface is hidden entirely on assistants that predate the routes", async () => {
+    assistantSupportsDefaultProvider = false;
+    const { queryByText, findByText } = renderModal();
+    await findByText("anthropic");
+    expect(queryByText("Default")).toBeNull();
+    expect(queryByText("Set as default")).toBeNull();
   });
 
   test("no Default tag renders when the default's connection is not in the list", async () => {
