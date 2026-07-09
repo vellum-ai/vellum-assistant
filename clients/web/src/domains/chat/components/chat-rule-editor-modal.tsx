@@ -12,7 +12,14 @@
  * `RuleEditorContext` from `rule-editor-store`.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { Lock } from "lucide-react";
 
@@ -106,7 +113,7 @@ export interface ChatRuleEditorModalProps {
 // Shared section pieces
 // ---------------------------------------------------------------------------
 
-/** Section heading above each option group. */
+/** Section heading above each option group — regular body text. */
 function SectionHeading({
   children,
   className = "",
@@ -116,12 +123,40 @@ function SectionHeading({
 }) {
   return (
     <Typography
-      variant="label-medium-default"
+      variant="body-medium-default"
       as="div"
-      className={`text-[var(--content-secondary)] ${className}`}
+      className={`text-[var(--content-default)] ${className}`}
     >
       {children}
     </Typography>
+  );
+}
+
+/**
+ * Overlay-toned card matching the tool detail drawer's section containers
+ * (`--surface-overlay` on `--border-base`). Every section's content sits in
+ * one; radio options get one each. `onClick` makes the whole card the radio's
+ * hit target (the inner Radix item stays the accessible control).
+ */
+function OverlayCard({
+  children,
+  className = "",
+  onClick,
+}: {
+  children: ReactNode;
+  className?: string;
+  onClick?: () => void;
+}) {
+  return (
+    <Card
+      padding="sm"
+      onClick={onClick}
+      className={`bg-[var(--surface-overlay)] ${
+        onClick ? "cursor-pointer transition-colors hover:bg-[var(--surface-active)]" : ""
+      } ${className}`}
+    >
+      {children}
+    </Card>
   );
 }
 
@@ -384,7 +419,7 @@ export function ChatRuleEditorModal({
           <div className="flex flex-col gap-5">
             {/* The tool call this rule generalizes from */}
             {(context.commandText || context.commandDescription) && (
-              <Card padding="sm">
+              <OverlayCard>
                 <div className="flex flex-col gap-1">
                   {context.commandText && (
                     <Typography
@@ -403,7 +438,7 @@ export function ChatRuleEditorModal({
                     </Typography>
                   )}
                 </div>
-              </Card>
+              </OverlayCard>
             )}
 
             {/* Apply to — pattern options */}
@@ -412,7 +447,7 @@ export function ChatRuleEditorModal({
               {isEditMode && existingRule ? (
                 <>
                   {/* Edit mode: the existing rule pattern is locked */}
-                  <Card padding="sm">
+                  <OverlayCard>
                     <div className="flex items-center gap-2">
                       <Lock
                         aria-hidden="true"
@@ -425,105 +460,130 @@ export function ChatRuleEditorModal({
                         {existingRule.pattern}
                       </Typography>
                     </div>
-                  </Card>
+                  </OverlayCard>
                   {/* Narrower scope options for Save As New */}
                   {showSaveAsNew && (
                     <>
                       <SectionHeading className="mt-1">
                         Or narrow the scope:
                       </SectionHeading>
-                      <Card padding="sm">
-                        <RadioGroup
-                          aria-label="Narrower scope"
-                          value={String(selectedPatternIndex)}
-                          onValueChange={(next) =>
-                            handleUserInteraction(() =>
-                              setSelectedPatternIndex(Number(next)),
-                            )
+                      <RadioGroup
+                        aria-label="Narrower scope"
+                        className="gap-2"
+                        value={String(selectedPatternIndex)}
+                        onValueChange={(next) =>
+                          handleUserInteraction(() =>
+                            setSelectedPatternIndex(Number(next)),
+                          )
+                        }
+                      >
+                        {narrowerOptions.map((option) => {
+                          const scopeIdx = effectiveOptions.findIndex(
+                            (o) => o.pattern === option.pattern,
+                          );
+                          if (scopeIdx < 0) {
+                            return null;
                           }
-                        >
-                          {narrowerOptions.map((option) => {
-                            const scopeIdx = effectiveOptions.findIndex(
-                              (o) => o.pattern === option.pattern,
-                            );
-                            if (scopeIdx < 0) {
-                              return null;
-                            }
-                            return (
+                          return (
+                            <OverlayCard
+                              key={option.pattern}
+                              onClick={() =>
+                                handleUserInteraction(() =>
+                                  setSelectedPatternIndex(scopeIdx),
+                                )
+                              }
+                            >
                               <Radio
-                                key={option.pattern}
                                 value={String(scopeIdx)}
                                 label={<OptionLabel mono>{option.label}</OptionLabel>}
                               />
-                            );
-                          })}
-                        </RadioGroup>
-                      </Card>
+                            </OverlayCard>
+                          );
+                        })}
+                      </RadioGroup>
                     </>
                   )}
                 </>
               ) : pipelineCollapsed || generalizedOptions.length === 1 ? (
-                <Card padding="sm">
+                <OverlayCard>
                   <Typography
                     variant="body-small-default"
                     className="block whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere] text-[var(--content-default)]"
                   >
                     {generalizedOptions[0]?.label ?? ""}
                   </Typography>
-                </Card>
+                </OverlayCard>
               ) : generalizedOptions.length > 1 ? (
-                <Card padding="sm">
-                  <RadioGroup
-                    aria-label="Apply to"
-                    value={String(selectedPatternIndex)}
-                    onValueChange={(next) =>
-                      handleUserInteraction(() =>
-                        setSelectedPatternIndex(Number(next)),
-                      )
-                    }
-                  >
-                    {generalizedOptions.map((option, i) => {
-                      const targetIndex = i + generalizationOffset;
-                      return (
+                <RadioGroup
+                  aria-label="Apply to"
+                  className="gap-2"
+                  value={String(selectedPatternIndex)}
+                  onValueChange={(next) =>
+                    handleUserInteraction(() =>
+                      setSelectedPatternIndex(Number(next)),
+                    )
+                  }
+                >
+                  {generalizedOptions.map((option, i) => {
+                    const targetIndex = i + generalizationOffset;
+                    return (
+                      <OverlayCard
+                        key={option.pattern}
+                        onClick={() =>
+                          handleUserInteraction(() =>
+                            setSelectedPatternIndex(targetIndex),
+                          )
+                        }
+                      >
                         <Radio
-                          key={option.pattern}
                           value={String(targetIndex)}
                           label={<OptionLabel mono>{option.label}</OptionLabel>}
                         />
-                      );
-                    })}
-                  </RadioGroup>
-                </Card>
+                      </OverlayCard>
+                    );
+                  })}
+                </RadioGroup>
               ) : null}
             </section>
 
-            {/* Where — directory scope */}
+            {/* Where — directory scope, one card per option */}
             {directoryScopeFiltered.length > 0 && (
               <section className="flex flex-col gap-2">
                 <SectionHeading>Where</SectionHeading>
-                <Card padding="sm">
-                  <RadioGroup
-                    aria-label="Where"
-                    value={String(selectedDirScopeIndex)}
-                    onValueChange={(next) =>
-                      handleUserInteraction(() =>
-                        setSelectedDirScopeIndex(Number(next)),
-                      )
-                    }
-                  >
-                    {directoryScopeFiltered.map((option, i) => (
+                <RadioGroup
+                  aria-label="Where"
+                  className="gap-2"
+                  value={String(selectedDirScopeIndex)}
+                  onValueChange={(next) =>
+                    handleUserInteraction(() =>
+                      setSelectedDirScopeIndex(Number(next)),
+                    )
+                  }
+                >
+                  {directoryScopeFiltered.map((option, i) => (
+                    <OverlayCard
+                      key={option.scope}
+                      onClick={() =>
+                        handleUserInteraction(() => setSelectedDirScopeIndex(i))
+                      }
+                    >
                       <Radio
-                        key={option.scope}
                         value={String(i)}
                         label={<OptionLabel>{option.label}</OptionLabel>}
                       />
-                    ))}
+                    </OverlayCard>
+                  ))}
+                  <OverlayCard
+                    onClick={() =>
+                      handleUserInteraction(() => setSelectedDirScopeIndex(-1))
+                    }
+                  >
                     <Radio
                       value="-1"
                       label={<OptionLabel>Everywhere</OptionLabel>}
                     />
-                  </RadioGroup>
-                </Card>
+                  </OverlayCard>
+                </RadioGroup>
               </section>
             )}
 
