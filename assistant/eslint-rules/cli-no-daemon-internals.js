@@ -44,7 +44,9 @@ const ALLOWED_PREFIXES = {
     // before issuing IPC calls (e.g. email, domain).
     "../../config/env",
     // Browser command's operation metadata (drives subcommand generation).
-    "../../browser/operations",
+    // Deliberately the meta-only module: `../../browser/operations` would
+    // pull the Playwright-backed execution stack into every CLI start.
+    "../../browser/operation-meta",
   ],
   local: [
     "node:",
