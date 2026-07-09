@@ -178,13 +178,7 @@ export function ManageProvidersModal({
       {isOpen ? (
         editorOpen ? (
           <ProviderEditorContent
-            mode={
-              !editingConnection
-                ? "create"
-                : editingConnection.isManaged
-                  ? "managed-edit"
-                  : "edit"
-            }
+            mode={!editingConnection ? "create" : "edit"}
             connection={editingConnection ?? undefined}
             assistantId={assistantId}
             existingNames={existingNames}
@@ -451,13 +445,18 @@ function ManageProvidersModalInner({
                           Set as default
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="compact"
-                        onClick={() => onEditClick(conn)}
-                      >
-                        Edit
-                      </Button>
+                      {/* Managed (Vellum) connections are platform-owned:
+                          auth is locked and there is nothing user-editable,
+                          so they expose no edit affordance. */}
+                      {!isManaged && (
+                        <Button
+                          variant="ghost"
+                          size="compact"
+                          onClick={() => onEditClick(conn)}
+                        >
+                          Edit
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="compact"
