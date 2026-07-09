@@ -230,3 +230,12 @@ export {
   syncMessageToDisk,
   updateMessageMetadata,
 } from "../persistence/conversation-plugin-facade.js";
+// Synthesize text to speech through the assistant's globally configured TTS
+// provider (ElevenLabs, Fish Audio, etc.). Plugins that need voice output —
+// e.g. a meeting bot speaking into a live call — use this instead of managing
+// TTS credentials and provider config themselves. Returns a Buffer + MIME type.
+// Text is sanitized internally (markdown/URLs/emoji stripped) so callers can
+// pass raw model output directly.
+export type { SynthesizeTextOptions } from "../tts/synthesize-text.js";
+export { synthesizeText, TtsSynthesisError } from "../tts/synthesize-text.js";
+export type { TtsSynthesisResult } from "../tts/types.js";
