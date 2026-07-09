@@ -6,12 +6,12 @@ import { useState, type ReactNode } from "react";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { HeaderStepCarousel } from "@/domains/chat/components/tool-progress-card/header-step-carousel";
-import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 
 /**
  * Visual state that drives the shell's leading status indicator.
  *
- * - `loading`  → animated `ThreeDotIndicator`
+ * - `loading`  → NO leading icon; the header title itself carries the
+ *   in-flight signal via the avatar-tinted `StreamingShimmerText` sweep
  * - `complete` → green `CheckCircle2`
  * - `warning`  → amber `AlertTriangle` (a PARTIAL failure — some steps failed
  *   but not all, so the run still produced useful work)
@@ -63,13 +63,19 @@ export interface ToolProgressCardShellProps {
    */
   headerAnimationKey?: string;
   /**
-   * When `true`, the leading status indicator is omitted from the header. Used
-   * by the expanded unified card: its timeline below carries per-phase status
-   * (including the running `ThreeDotIndicator`), so repeating a status icon —
-   * especially the animated loading dots — in the header is redundant noise.
-   * The collapsed header still shows it, since there's no timeline to carry it.
+   * When `true`, the leading status indicator is omitted from the header even
+   * for terminal states. The `loading` state never renders an indicator —
+   * the shimmering title is the in-flight signal — so this only affects the
+   * terminal check / alert icons.
    */
   hideStatusIndicator?: boolean;
+  /**
+   * Paints the header with the persistent active surface (the same treatment
+   * as hover) — used when the panel this header opens (e.g. the activity
+   * steps drawer) is currently showing this group, so the header reads as
+   * the selected/open affordance. Bare layout only.
+   */
+  headerActive?: boolean;
   /** Pre-formatted step count for the toggle pill, e.g. "2 steps". */
   stepCount: string;
   /** Whether the card starts expanded. Uncontrolled by default. */
@@ -100,9 +106,11 @@ export interface ToolProgressCardShellProps {
   /**
    * The expanded body. Rendered inside the height-animated region beneath
    * the header. Consumers own the spacing inside (the shell only adds the
-   * divider above and the rounded-bottom-corner clipping).
+   * divider above and the rounded-bottom-corner clipping). Omit for headers
+   * with no in-place body (e.g. the unified activity header, which opens its
+   * steps in the side panel instead).
    */
-  children: ReactNode;
+  children?: ReactNode;
   /**
    * `data-testid` for the outer card wrapper. Defaults to
    * `tool-progress-card-shell`.
@@ -154,7 +162,9 @@ function StatusIndicator({
 }) {
   switch (state) {
     case "loading":
-      return <ThreeDotIndicator data-testid={testId} className="shrink-0" />;
+      // Loading carries no leading icon — the shimmering header title is the
+      // in-flight signal (the caller also skips rendering this slot).
+      return null;
     case "complete":
       return (
         <CheckCircle2
@@ -209,6 +219,7 @@ export function ToolProgressCardShell({
   currentStepInfo,
   headerAnimationKey,
   hideStatusIndicator = false,
+  headerActive = false,
   stepCount,
   defaultExpanded = false,
   expanded: controlledExpanded,
@@ -271,9 +282,21 @@ export function ToolProgressCardShell({
           shared title cluster and step-count pill below are rendered in one of
           two header layouts depending on whether an action slot is present. */}
       {(() => {
+        // Bare mode hugs its content (the pill sits right after the label,
+        // per the left-aligned inline header); boxed mode keeps the
+        // full-width `flex-1` cluster with the pill pushed to the right edge.
         const titleCluster = (
-          <span className="flex min-w-0 flex-1 items-center gap-1">
-            {hideStatusIndicator ? null : (
+          <span
+            className={
+              bare
+                ? "flex min-w-0 items-center gap-1"
+                : "flex min-w-0 flex-1 items-center gap-1"
+            }
+          >
+            {/* Loading renders no leading indicator at all — the shimmering
+                title carries the in-flight signal — so the empty slot doesn't
+                add a phantom gap before the label. */}
+            {hideStatusIndicator || state === "loading" ? null : (
               <AnimatePresence mode="wait" initial={false}>
                 <motion.span
                   key={state}
@@ -313,6 +336,13 @@ export function ToolProgressCardShell({
               // leave stale loading-state header text on-screen for up to
               // 400ms after the green check appears.
               bypassDwell={state !== "loading"}
+              // While loading, the primary header label renders through the
+              // avatar-tinted shimmer — it IS the loading indicator.
+              shimmer={state === "loading"}
+              // Bare headers style the primary label to pixel-match the
+              // inline `SingleActivity` links (13px medium secondary, flush
+              // left) so the transcript's activity affordances all align.
+              inline={bare}
             />
           </span>
         );
@@ -381,14 +411,16 @@ export function ToolProgressCardShell({
           );
         }
 
-        // Default layout (web search, skills): the whole row is the toggle,
-        // with the pill rendered inside it at the right end.
+        // Default layout: the whole row is the toggle, with the pill rendered
+        // inside it after the label cluster.
         //
-        // - Default (boxed): card padding `p-3` and conditional card rounding
-        //   so the ghost hover paints into the right corners.
-        // - Bare: a lighter inline style (`rounded-md px-2 py-1.5`) — the
-        //   `variant="ghost"` Button still provides the `--ghost-hover`
-        //   background on hover, matching the inline links.
+        // - Default (boxed): full-width card padding `p-3`, pill pushed to the
+        //   right edge, and conditional card rounding so the ghost hover
+        //   paints into the right corners.
+        // - Bare: a lighter inline style that HUGS its content — the label
+        //   cluster and the step-count pill sit together on the left rather
+        //   than spanning the row — so the header reads like the inline
+        //   `SingleActivity` links around it.
         return (
           <Button
             {...toggleProps}
@@ -396,17 +428,23 @@ export function ToolProgressCardShell({
               bare
                 ? // Flush-left to match the inline `SingleActivity` link
                   // (which uses `-mx-1.5 px-1.5`): pull the
-                  // header 6px left and add 6px back to the width so the
-                  // status icon lines up exactly with the inline link's
-                  // glyph while the right-edge step pill stays put.
+                  // header 6px left, and cap the width at container + 6px so
+                  // a long label still truncates instead of overflowing.
                   // `hover:bg-[var(--surface-hover)]` overrides the ghost
                   // Button's default `--surface-active` hover so the header
                   // shares the exact same translucent surface-hover as the
                   // inline `SingleActivity` (consistent across light/dark).
-                  // When expanded, that same surface-hover stays painted so the
-                  // header reads as the active/open summary above the timeline.
-                  `h-auto min-w-0 justify-between gap-2 rounded-md px-1.5 py-1.5 -ml-1.5 w-[calc(100%+0.375rem)] hover:bg-[var(--surface-hover)]${
-                    expanded ? " bg-[var(--surface-hover)]" : ""
+                  // While this header's panel is open (`headerActive`) or its
+                  // body is expanded, that same surface-hover stays painted so
+                  // the header reads as the active/open affordance.
+                  // `border-0` drops the ghost Button's transparent 1px
+                  // border so the label lands at exactly the same x as the
+                  // inline `SingleActivity` links (border + px-1.5 − ml-1.5
+                  // otherwise leaves it 1px right of flush).
+                  `h-auto w-fit min-w-0 max-w-[calc(100%+0.375rem)] justify-start gap-2 rounded-md border-0 px-1.5 py-1.5 -ml-1.5 hover:bg-[var(--surface-hover)]${
+                    expanded || headerActive
+                      ? " bg-[var(--surface-hover)]"
+                      : ""
                   }`
                 : `h-auto w-full min-w-0 justify-between gap-2 p-3 ${
                     expanded
@@ -424,7 +462,7 @@ export function ToolProgressCardShell({
       {/* Expanded body — divider + children. Animated height-collapse honors
           prefers-reduced-motion (snap when reduced via 0-duration transition). */}
       <AnimatePresence initial={false}>
-        {expanded ? (
+        {expanded && children != null ? (
           <motion.div
             key="expanded-body"
             initial={{ height: 0, opacity: 0 }}

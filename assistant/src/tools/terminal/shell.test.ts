@@ -25,12 +25,6 @@ mock.module("../../config/loader.js", () => ({
     }) as unknown as ReturnType<typeof realLoader.getConfig>,
 }));
 
-const realGates = await import("../../credential-execution/feature-gates.js");
-mock.module("../../credential-execution/feature-gates.js", () => ({
-  ...realGates,
-  isCesShellLockdownEnabled: () => false,
-}));
-
 // Capture lifecycle events broadcast by the tool.
 type CapturedEvent = { type: string } & Record<string, unknown>;
 const events: CapturedEvent[] = [];

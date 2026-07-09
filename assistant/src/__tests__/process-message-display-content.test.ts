@@ -26,6 +26,9 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
+let createInlineShouldThrow = false;
+let validateShouldFail = false;
+
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
   getSourcePathsForAttachments: () => new Map<string, string>(),
@@ -37,19 +40,27 @@ mock.module("../persistence/attachments-store.js", () => ({
     _conversationCreatedAt: number,
     filename: string,
     mimeType: string,
-  ) => ({
-    id: "att-stored",
-    originalFilename: filename,
-    mimeType,
-    sizeBytes: 9,
-    kind: "file",
-    thumbnailBase64: null,
-    createdAt: 0,
-    filePath: "/tmp/att-stored.pdf",
-  }),
+  ) => {
+    if (createInlineShouldThrow) {
+      throw new Error("simulated attachment store failure");
+    }
+    return {
+      id: "att-stored",
+      originalFilename: filename,
+      mimeType,
+      sizeBytes: 9,
+      kind: "file",
+      thumbnailBase64: null,
+      createdAt: 0,
+      filePath: "/tmp/att-stored.pdf",
+    };
+  },
   getAttachmentContent: () => null,
   getFilePathForAttachment: () => "/tmp/att-stored.pdf",
-  validateAttachmentUpload: () => ({ ok: true }),
+  validateAttachmentUpload: () =>
+    validateShouldFail
+      ? { ok: false, error: "unsupported type" }
+      : { ok: true },
   AttachmentUploadError: class extends Error {},
 }));
 
@@ -404,6 +415,70 @@ describe("processMessage displayContent", () => {
       },
       extracted_text: undefined,
     });
+  });
+
+  test("falls back to inline base64 when the attachment store write fails", async () => {
+    const conversation = makeTestConversation();
+    createInlineShouldThrow = true;
+    try {
+      await conversation.persistUserMessage({
+        content: "here is a file",
+        attachments: [
+          {
+            filename: "attachment.pdf",
+            mimeType: "application/pdf",
+            data: Buffer.from("pdf bytes").toString("base64"),
+          },
+        ],
+        requestId: "req-store-failure",
+      });
+    } finally {
+      createInlineShouldThrow = false;
+    }
+
+    // The upload is preserved as inline base64 rather than dropped, so it
+    // survives a reload even though the attachment row could not be written.
+    expect(addMessageCalls).toHaveLength(1);
+    const persistedBlocks = JSON.parse(addMessageCalls[0]!.content);
+    expect(persistedBlocks).toEqual([
+      { type: "text", text: "here is a file" },
+      {
+        type: "file",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          data: Buffer.from("pdf bytes").toString("base64"),
+          filename: "attachment.pdf",
+        },
+      },
+    ]);
+  });
+
+  test("drops a validation-rejected attachment instead of inlining it", async () => {
+    const conversation = makeTestConversation();
+    validateShouldFail = true;
+    try {
+      await conversation.persistUserMessage({
+        content: "here is a file",
+        attachments: [
+          {
+            filename: "payload.exe",
+            mimeType: "application/x-msdownload",
+            data: Buffer.from("MZ...").toString("base64"),
+          },
+        ],
+        requestId: "req-rejected",
+      });
+    } finally {
+      validateShouldFail = false;
+    }
+
+    // A rejected attachment must NOT reach messages.content — only the text
+    // block is persisted, no base64 file block.
+    expect(addMessageCalls).toHaveLength(1);
+    expect(JSON.parse(addMessageCalls[0]!.content)).toEqual([
+      { type: "text", text: "here is a file" },
+    ]);
   });
 
   test("empty displayContent is honored for unknown slash results", async () => {

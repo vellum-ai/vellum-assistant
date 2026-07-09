@@ -76,7 +76,12 @@ mock.module("../config/loader.js", () => ({
         },
       },
       profiles: {
+        // Complete (materialized) shape: override-or-default semantics skip
+        // profiles that don't carry their own provider+model.
         "quality-optimized": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-8",
           contextWindow: { maxInputTokens: 50000 },
         },
       },

@@ -25,7 +25,7 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
   resolveCallTtsProvider: jest.fn(() => ({
     provider: mockProvider,
     useSynthesizedPath: false,
-    audioFormat: "wav" as const,
+    audioFormat: "pcm" as const,
   })),
 }));
 
@@ -196,7 +196,7 @@ function useProvider(provider: unknown): void {
   mockResolveCallTtsProvider.mockImplementation(() => ({
     provider,
     useSynthesizedPath: false,
-    audioFormat: "wav" as const,
+    audioFormat: "pcm" as const,
   }));
 }
 
@@ -230,7 +230,7 @@ afterEach(() => {
   mockResolveCallTtsProvider.mockImplementation(() => ({
     provider: mockProvider,
     useSynthesizedPath: false,
-    audioFormat: "wav" as const,
+    audioFormat: "pcm" as const,
   }));
 });
 

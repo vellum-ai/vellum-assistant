@@ -473,6 +473,12 @@ export function useLiveVoice(
       const store = useLiveVoiceStore.getState();
       store.reset();
       store.setState("connecting");
+      // A retry re-enters here via the backoff timer with `reconnectAttemptRef`
+      // already bumped (> 0) by the transport `closed` handler, so relabel the
+      // connect as a reconnect; a fresh `start()` (attempt 0) clears it. The
+      // `store.reset()` above already cleared `reconnecting`, so this only needs
+      // to (re)assert true on the reconnect path.
+      store.setReconnecting(reconnectAttemptRef.current > 0);
       store.setSessionContext(assistantId, conversationId ?? null);
       // Registered here (not on `ready`) so a globally mounted surface can
       // drive the session from the moment it exists; cleared by the store
@@ -535,8 +541,10 @@ export function useLiveVoice(
             session.handsFree = false;
           }
           // A `ready` means the (re)connection succeeded — clear the reconnect
-          // budget so a later, unrelated tunnel drop gets its full retry set.
+          // budget so a later, unrelated tunnel drop gets its full retry set,
+          // and drop the reconnect label so the surface stops showing a retry.
           reconnectAttemptRef.current = 0;
+          useLiveVoiceStore.getState().setReconnecting(false);
           // When started from a new/empty conversation, `conversationId` was
           // undefined at start() and the store published `null`. The server
           // assigns (or confirms) the attached conversation on `ready`, so
@@ -755,6 +763,10 @@ export function useLiveVoice(
             disposeSessionPrimitives(session);
             const s = useLiveVoiceStore.getState();
             s.setState("connecting");
+            // Hold the reconnect label through the backoff gap (before the
+            // timer re-enters `connectSession`) so the surface shows a
+            // reconnect, not a fresh connect. Cleared on `ready`/teardown.
+            s.setReconnecting(true);
             s.setControls({ stop: () => void stop(), release, interrupt });
             console.warn(
               `live-voice: transport closed (code ${info.code}); reconnecting ` +

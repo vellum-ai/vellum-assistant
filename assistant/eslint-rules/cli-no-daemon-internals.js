@@ -44,7 +44,9 @@ const ALLOWED_PREFIXES = {
     // before issuing IPC calls (e.g. email, domain).
     "../../config/env",
     // Browser command's operation metadata (drives subcommand generation).
-    "../../browser/operations",
+    // Deliberately the meta-only module: `../../browser/operations` would
+    // pull the Playwright-backed execution stack into every CLI start.
+    "../../browser/operation-meta",
   ],
   local: [
     "node:",
@@ -67,6 +69,10 @@ const ALLOWED_PREFIXES = {
     // commands/memory/ nesting.
     "../../plugins/defaults/memory/memory-retrospective-job",
     "../../../plugins/defaults/memory/memory-retrospective-job",
+    // Memory nodes CRUD — `memory nodes list/delete/update` invoke the graph
+    // tool-handlers directly in-process (no IPC, no daemon dependency).
+    // Depth-3 for commands/memory/ nesting.
+    "../../../plugins/defaults/memory/graph/tool-handlers",
     // Standalone tool execution — `tools run` executes a single tool
     // in-process from the filesystem (no daemon, no IPC), so it imports the
     // standalone runner directly. Depth-2 for commands/ nesting.

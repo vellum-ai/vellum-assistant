@@ -1,3 +1,4 @@
+import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
 import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
 
@@ -23,7 +24,6 @@ import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { enqueueAutoAnalysisIfEnabled } from "../../../runtime/services/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../../../runtime/services/auto-analysis-guard.js";
 import { getLogger } from "../../../util/logger.js";
-import { selectedBackendSupportsMultimodal } from "./embeddings.js";
 import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
 import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
 import { segmentText } from "./segmenter.js";
@@ -60,7 +60,9 @@ export async function indexMessageNow(
   input: IndexMessageInput,
   config: MemoryConfig,
 ): Promise<IndexMessageResult> {
-  if (!config.enabled) return { indexedSegments: 0, enqueuedJobs: 0 };
+  if (!config.enabled) {
+    return { indexedSegments: 0, enqueuedJobs: 0 };
+  }
 
   // Provenance-based trust gating: only guardian and legacy (undefined) actors
   // are trusted for extraction.
@@ -394,12 +396,16 @@ export async function indexMessageNow(
 }
 
 export function enqueueBackfillJob(force = false): string {
-  if (!isMemoryEnabled()) return "";
+  if (!isMemoryEnabled()) {
+    return "";
+  }
   return enqueueMemoryJob("backfill", { force });
 }
 
 export function enqueueRebuildIndexJob(): string {
-  if (!isMemoryEnabled()) return "";
+  if (!isMemoryEnabled()) {
+    return "";
+  }
   return enqueueMemoryJob("rebuild_index", {});
 }
 

@@ -15,6 +15,7 @@ import {
   isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
+  liveVoiceStateLabel,
   releaseLiveVoiceTurn,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
@@ -87,6 +88,34 @@ describe("useLiveVoiceStore — session starter", () => {
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().reset();
     expect(useLiveVoiceStore.getState().starter).toBe(starter);
+  });
+});
+
+describe("useLiveVoiceStore — reconnecting", () => {
+  test("defaults to false when idle", () => {
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+  });
+
+  test("setReconnecting toggles the flag", () => {
+    useLiveVoiceStore.getState().setReconnecting(true);
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(true);
+    useLiveVoiceStore.getState().setReconnecting(false);
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+  });
+
+  test("reset clears the reconnecting flag", () => {
+    useLiveVoiceStore.getState().setReconnecting(true);
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+  });
+});
+
+describe("liveVoiceStateLabel", () => {
+  test("relabels only the connecting phase while reconnecting", () => {
+    expect(liveVoiceStateLabel("connecting", true)).toBe("Reconnecting…");
+    expect(liveVoiceStateLabel("connecting", false)).toBe("Connecting…");
+    // reconnecting is ignored for every other phase.
+    expect(liveVoiceStateLabel("listening", true)).toBe("Listening…");
   });
 });
 

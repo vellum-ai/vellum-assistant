@@ -1,46 +1,12 @@
+import { existsSync } from "node:fs";
+
 import { getLogger } from "../util/logger.js";
+import { getDbPath } from "../util/platform.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import { getDb } from "./db-connection.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
 import { migrationSteps } from "./steps.js";
-
-// ---------------------------------------------------------------------------
-// Test DB migration-template cache seam
-// ---------------------------------------------------------------------------
-
-/**
- * A test-only accelerator that swaps the full migration chain for a cached,
- * pre-migrated template DB. The implementation lives entirely in the test
- * harness — `src/__tests__/db-template-helpers.ts`, installed via
- * `src/__tests__/db-template-cache.ts` — and is registered on the shared
- * `globalThis.vellumAssistant.dbTemplateCache` slot that this module reads.
- *
- * It is NEVER present in production: nothing outside the test preload installs
- * it, so `getDbTemplateCache()` returns null and `initializeDb()` always runs
- * the real migrations. The slot shape is intentionally duplicated on the test
- * side (see `db-template-cache.ts`) — matching the `dbSingletons` /
- * `featureFlagCache` pattern — so neither side imports the other.
- */
-type DbTemplateCache = {
-  /**
-   * Restore a pre-migrated template into the current workspace and open the
-   * connections. Returns true on a cache hit (migrations already applied),
-   * false on a miss (the caller must run the full chain, then call `save()`).
-   */
-  tryRestore(): boolean;
-  /** Capture the freshly-migrated DBs as the template for later restores. */
-  save(): void;
-};
-
-function getDbTemplateCache(): DbTemplateCache | null {
-  const g = globalThis as {
-    vellumAssistant?: { dbTemplateCache?: DbTemplateCache | null };
-  };
-  return g.vellumAssistant?.dbTemplateCache ?? null;
-}
-
-// ---------------------------------------------------------------------------
 
 /**
  * Off-thread WAL checkpoint, run *before* the first in-process DB open.
@@ -63,12 +29,17 @@ function getDbTemplateCache(): DbTemplateCache | null {
  *
  * Best-effort and non-fatal: on any failure (no `sqlite3` binary, lock
  * contention, timeout) we return and let the caller open normally — a blocking
- * recovery, i.e. exactly the prior behavior, never worse. The caller skips
- * this entirely in tests (see `initializeDb`): un-awaited test callers rely on
- * the synchronous prefix of `initializeDb` creating the DB file before the
- * first yield, so no `await` may precede `getDb()` there.
+ * recovery, i.e. exactly the prior behavior, never worse.
+ *
+ * Returns immediately when there is no `-wal` sidecar: with nothing to fold,
+ * spawning the `sqlite3` subprocess would be pure overhead. This is the common
+ * case on a clean boot and in tests, whose seeded fixture DB is checkpointed and
+ * WAL-free.
  */
 export async function checkpointWalBeforeOpen(): Promise<void> {
+  if (!existsSync(`${getDbPath()}-wal`)) {
+    return;
+  }
   const log = getLogger("db-init");
   try {
     const result = await runAsyncSqlite(
@@ -102,27 +73,12 @@ export async function checkpointWalBeforeOpen(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
-  // Under the test harness a migration-template cache is installed (see the
-  // DbTemplateCache seam above); a cache hit restores a pre-migrated DB and
-  // skips the whole chain. In production the slot is empty, so this is a no-op
-  // and migrations always run.
-  const templateCache = getDbTemplateCache();
-  if (templateCache?.tryRestore()) {
-    // A restored template is fully migrated.
-    return { migrationsOk: true };
-  }
-
   // Fold any post-crash WAL back into the database off the main event loop
   // before the first open, so a large WAL can't block /healthz through a
-  // synchronous in-process WAL recovery and trip the liveness probe.
-  //
-  // Skipped whenever the template cache is installed — i.e. under the test
-  // harness. Those callers may invoke initializeDb() un-awaited and depend on
-  // getDb() (below) creating the DB file during the synchronous prefix, before
-  // the first yield. Any await ahead of getDb() would defer that and break them.
-  if (!templateCache) {
-    await checkpointWalBeforeOpen();
-  }
+  // synchronous in-process WAL recovery and trip the liveness probe. Returns
+  // immediately when there is no WAL to fold — the case on a clean boot and for
+  // the WAL-free fixture DB test workspaces are seeded with.
+  await checkpointWalBeforeOpen();
 
   const log = getLogger("db-init");
   const database = getDb();
@@ -162,8 +118,6 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
     validationOk = false;
     log.error({ err }, "validateMigrationState failed");
   }
-
-  templateCache?.save();
 
   // migrationsOk reflects BOTH no failed migration steps AND a passing
   // post-run validation, so an inconsistent schema keeps /readyz at 503.

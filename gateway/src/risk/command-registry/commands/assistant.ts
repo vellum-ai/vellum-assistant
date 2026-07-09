@@ -107,14 +107,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "conversations export",
   "conversations clear",
   "conversations wake",
-  "credential-execution",
-  "credential-execution grants",
-  "credential-execution grants list",
   "pending",
   "pending list",
-  "credential-execution grants revoke",
-  "credential-execution audit",
-  "credential-execution audit list",
   "credentials",
   "credentials list",
   "credentials prompt",
@@ -157,6 +151,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "mcp auth",
   "mcp remove",
   "memory",
+  "memory nodes",
+  "memory nodes list",
+  "memory nodes delete",
+  "memory nodes update",
   "memory items",
   "memory items list",
   "memory items get",
@@ -432,7 +430,6 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "conversations new", risk: "low" },
   { path: "conversations rename", risk: "low" },
   { path: "conversations wake", risk: "low" },
-  { path: "credential-execution grants revoke", risk: "medium" },
   {
     path: "db repair",
     risk: "medium",
@@ -499,6 +496,18 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "mcp add", risk: "high" },
   { path: "mcp auth", risk: "medium" },
   { path: "mcp remove", risk: "low" },
+  {
+    path: "memory nodes delete",
+    risk: "medium",
+    reason:
+      "Permanently deletes a memory graph node by content match and removes it from the recall index",
+  },
+  {
+    path: "memory nodes update",
+    risk: "medium",
+    reason:
+      "Rewrites a memory graph node's content by content match and re-embeds it for recall",
+  },
   {
     path: "memory items create",
     risk: "medium",

@@ -18,7 +18,7 @@ interface IntelligenceTab {
 
 const BASE_INTELLIGENCE_TABS: readonly IntelligenceTab[] = [
   { label: "Identity", to: routes.identity },
-  { label: "Skills", to: routes.skills },
+  { label: "Skills", to: routes.skills.root },
   { label: "Workspace", to: routes.workspace },
   { label: "Contacts", to: routes.contacts.root },
 ];

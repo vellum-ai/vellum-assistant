@@ -47,13 +47,12 @@ import { Input, Textarea } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Tooltip } from "@vellumai/design-library/components/tooltip";
-
-type Reason = "bug_report" | "feature_request" | "other";
+import type { FeedbackReason } from "@/components/share-feedback-types";
 
 type TimeRange = "past_hour" | "past_24_hours" | "all_time";
 
 interface ReasonOption {
-  value: Reason;
+  value: FeedbackReason;
   label: string;
   icon: LucideIcon;
   includesLogsByDefault: boolean;
@@ -123,7 +122,7 @@ const ALLOWED_EXTENSIONS = new Set([
 const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
-const CLASSIFICATION_MAP: Record<Reason, ClassificationEnum> = {
+const CLASSIFICATION_MAP: Record<FeedbackReason, ClassificationEnum> = {
   bug_report: "bug_report",
   feature_request: "feature_request",
   other: "other",
@@ -138,14 +137,23 @@ function getFeedbackClient(): "electron" | "ios" | "web" {
 
 type FeedbackDiagnosticsProvider = () => Record<string, unknown> | null;
 
+interface ExtraLogFile {
+  filename: string;
+  contents: string;
+}
+
 interface LogExportWindow {
   startTime: number | null;
   endTime: number;
 }
 
 function isAllowedFile(file: File): boolean {
-  if (file.size > MAX_ATTACHMENT_BYTES) return false;
-  if (file.type && ALLOWED_MIME_TYPES.has(file.type)) return true;
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    return false;
+  }
+  if (file.type && ALLOWED_MIME_TYPES.has(file.type)) {
+    return true;
+  }
   if (!file.type) {
     const ext = file.name.split(".").pop()?.toLowerCase();
     return ext ? ALLOWED_EXTENSIONS.has(ext) : false;
@@ -174,13 +182,17 @@ function buildTarEntry(filename: string, data: Uint8Array): Uint8Array {
   writeOctal(0, 116, 8);
   writeOctal(data.length, 124, 12);
   writeOctal(Math.floor(Date.now() / 1000), 136, 12);
-  for (let i = 148; i < 156; i++) buffer[i] = 0x20;
+  for (let i = 148; i < 156; i++) {
+    buffer[i] = 0x20;
+  }
   buffer[156] = 0x30;
   writeAscii("ustar\0", 257, 6);
   writeAscii("00", 263, 2);
 
   let checksum = 0;
-  for (let i = 0; i < blockSize; i++) checksum += buffer[i]!;
+  for (let i = 0; i < blockSize; i++) {
+    checksum += buffer[i]!;
+  }
   writeOctal(checksum, 148, 7);
   buffer[155] = 0x20;
 
@@ -230,11 +242,16 @@ async function buildClientLogsFile(
   timeRange: TimeRange,
   assistantId: string | null,
   activeConversationId: string | null,
-  diagnosticsProvider?: FeedbackDiagnosticsProvider,
+  options: {
+    diagnosticsProvider?: FeedbackDiagnosticsProvider;
+    doctorSessionId?: string | null;
+    extraLogFiles?: readonly ExtraLogFile[];
+  } = {},
 ): Promise<File | null> {
   if (typeof CompressionStream === "undefined") {
     return null;
   }
+  const { diagnosticsProvider, doctorSessionId, extraLogFiles = [] } = options;
   const now = new Date();
   const range = TIME_RANGES.find((t) => t.value === timeRange);
   const endTime = now.getTime();
@@ -257,6 +274,7 @@ async function buildClientLogsFile(
     },
     assistant_id: assistantId,
     active_conversation_id: activeConversationId,
+    doctor_session_id: doctorSessionId ?? null,
     user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     language: typeof navigator !== "undefined" ? navigator.language : "",
     platform: typeof navigator !== "undefined" ? navigator.platform : "",
@@ -285,10 +303,9 @@ async function buildClientLogsFile(
     hardwareConcurrency:
       typeof navigator !== "undefined" ? navigator.hardwareConcurrency : null,
   };
-  const contextBytes = new TextEncoder().encode(
-    JSON.stringify(payload, null, 2),
-  );
-  const diagnosticsBytes = new TextEncoder().encode(
+  const encoder = new TextEncoder();
+  const contextBytes = encoder.encode(JSON.stringify(payload, null, 2));
+  const diagnosticsBytes = encoder.encode(
     JSON.stringify(chatDiagnostics, null, 2),
   );
   const tarParts: Uint8Array[] = [
@@ -304,6 +321,13 @@ async function buildClientLogsFile(
     JSON.stringify(buildDebugFlagSnapshot(), null, 2),
   );
   tarParts.push(buildTarEntry("web-debug-flags.json", debugFlagBytes));
+
+  for (const file of extraLogFiles) {
+    const contents = file.contents.trim();
+    if (contents) {
+      tarParts.push(buildTarEntry(file.filename, encoder.encode(contents)));
+    }
+  }
 
   // Capture the live chat debug API state for indicator-stuck and
   // stuck-prompt reports. This is a separate file so support can diff it
@@ -438,11 +462,14 @@ async function buildClientLogsFile(
 export interface ShareFeedbackModalProps {
   open: boolean;
   onClose: () => void;
-  initialReason?: Reason;
+  initialReason?: FeedbackReason;
+  initialMessage?: string;
   onSubmitted?: () => void;
   assistantId?: string | null;
   assistantVersion?: string | null;
   activeConversationId?: string | null;
+  doctorSessionId?: string | null;
+  doctorSessionLog?: string | null;
   getDiagnosticsSnapshot?: FeedbackDiagnosticsProvider;
 }
 
@@ -450,10 +477,13 @@ export function ShareFeedbackModal({
   open,
   onClose,
   initialReason,
+  initialMessage,
   onSubmitted,
   assistantId,
   assistantVersion,
   activeConversationId,
+  doctorSessionId,
+  doctorSessionLog,
   getDiagnosticsSnapshot,
 }: ShareFeedbackModalProps) {
   const authUser = useAuthStore.use.user();
@@ -465,7 +495,7 @@ export function ShareFeedbackModal({
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
 
-  const [selectedReason, setSelectedReason] = useState<Reason>(
+  const [selectedReason, setSelectedReason] = useState<FeedbackReason>(
     initialReason ?? "bug_report",
   );
   const [message, setMessage] = useState("");
@@ -495,10 +525,12 @@ export function ShareFeedbackModal({
   );
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     const reason = initialReason ?? "bug_report";
     setSelectedReason(reason);
-    setMessage("");
+    setMessage(initialMessage ?? "");
     setEmail(authEmail ?? "");
     setIncludeLogs(
       REASON_OPTIONS.find((r) => r.value === reason)?.includesLogsByDefault ??
@@ -523,7 +555,9 @@ export function ShareFeedbackModal({
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
@@ -531,7 +565,7 @@ export function ShareFeedbackModal({
     };
   }, [open]);
 
-  const handleSelectReason = (reason: Reason) => {
+  const handleSelectReason = (reason: FeedbackReason) => {
     setSelectedReason(reason);
     if (!hasManuallyToggledLogs) {
       setIncludeLogs(
@@ -545,6 +579,10 @@ export function ShareFeedbackModal({
     setIncludeLogs((v) => !v);
     setHasManuallyToggledLogs(true);
   };
+
+  const doctorLogFiles: ExtraLogFile[] = doctorSessionLog?.trim()
+    ? [{ filename: "doctor-session.txt", contents: doctorSessionLog }]
+    : [];
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -567,14 +605,22 @@ export function ShareFeedbackModal({
   const addFiles = useCallback((files: File[]) => {
     setAttachments((current) => {
       const remaining = MAX_ATTACHMENTS - current.length;
-      if (remaining <= 0) return current;
+      if (remaining <= 0) {
+        return current;
+      }
       const existingKeys = new Set(current.map((f) => `${f.name}:${f.size}`));
       const accepted: File[] = [];
       for (const file of files) {
-        if (accepted.length >= remaining) break;
-        if (!isAllowedFile(file)) continue;
+        if (accepted.length >= remaining) {
+          break;
+        }
+        if (!isAllowedFile(file)) {
+          continue;
+        }
         const key = `${file.name}:${file.size}`;
-        if (existingKeys.has(key)) continue;
+        if (existingKeys.has(key)) {
+          continue;
+        }
         existingKeys.add(key);
         accepted.push(file);
       }
@@ -583,15 +629,18 @@ export function ShareFeedbackModal({
   }, []);
 
   const onFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) addFiles(Array.from(e.target.files));
+    if (e.target.files) {
+      addFiles(Array.from(e.target.files));
+    }
     e.target.value = "";
   };
 
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files?.length)
+    if (e.dataTransfer.files?.length) {
       addFiles(Array.from(e.dataTransfer.files));
+    }
   };
 
   const onDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -600,7 +649,9 @@ export function ShareFeedbackModal({
   };
   const onDragLeave = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (e.currentTarget === e.target) setIsDragging(false);
+    if (e.currentTarget === e.target) {
+      setIsDragging(false);
+    }
   };
 
   const removeAttachment = (index: number) => {
@@ -620,7 +671,11 @@ export function ShareFeedbackModal({
               logTimeRange,
               assistantId ?? null,
               isElectron() ? (includeConversation ? (activeConversationId ?? null) : null) : (activeConversationId ?? null),
-              getDiagnosticsSnapshot,
+              {
+                diagnosticsProvider: getDiagnosticsSnapshot,
+                doctorSessionId,
+                extraLogFiles: doctorLogFiles,
+              },
             )
           : null;
       await mutation.mutateAsync({
@@ -633,6 +688,7 @@ export function ShareFeedbackModal({
           client_version: import.meta.env.VITE_APP_VERSION ?? undefined,
           ...(assistantId ? { assistant_id: assistantId } : {}),
           ...(assistantVersion ? { assistant_version: assistantVersion } : {}),
+          ...(doctorSessionId ? { doctor_session_id: doctorSessionId } : {}),
           ...(logsFile ? { logs_file: logsFile } : {}),
           ...(attachments.length ? { attachments } : {}),
         },
@@ -641,10 +697,13 @@ export function ShareFeedbackModal({
           for (const [key, value] of Object.entries(
             body as Record<string, unknown>,
           )) {
-            if (value == null) continue;
+            if (value == null) {
+              continue;
+            }
             if (key === "attachments" && Array.isArray(value)) {
-              for (const file of value)
+              for (const file of value) {
                 form.append("attachments", file as Blob);
+              }
               continue;
             }
             if (value instanceof Blob) {
@@ -687,7 +746,11 @@ export function ShareFeedbackModal({
             ? (activeConversationId ?? null)
             : null
           : (activeConversationId ?? null),
-        getDiagnosticsSnapshot,
+        {
+          diagnosticsProvider: getDiagnosticsSnapshot,
+          doctorSessionId,
+          extraLogFiles: doctorLogFiles,
+        },
       );
       if (!logsFile) {
         setSubmitError(
@@ -715,7 +778,9 @@ export function ShareFeedbackModal({
     }
   };
 
-  if (!open) return null;
+  if (!open) {
+    return null;
+  }
 
   return createPortal(
     <div
@@ -1079,7 +1144,9 @@ function AttachmentThumbnail({
   );
 
   useEffect(() => {
-    if (!previewUrl) return;
+    if (!previewUrl) {
+      return;
+    }
     return () => URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
 

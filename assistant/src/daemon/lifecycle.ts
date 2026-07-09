@@ -4,7 +4,11 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
-import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
+import {
+  hasPendingDefaultWorkspaceConfig,
+  loadConfig,
+  mergeDefaultWorkspaceConfig,
+} from "../config/loader.js";
 import { seedInferenceProfiles } from "../config/seed-inference-profiles.js";
 import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
@@ -17,7 +21,6 @@ import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startMonitoring } from "../monitoring/control.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
-import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
@@ -42,7 +45,6 @@ import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
-import { syncFlagGatedTools } from "../tools/registry.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
@@ -56,6 +58,7 @@ import {
 } from "../work-items/work-item-store.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
+import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
 import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
@@ -75,6 +78,11 @@ import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
+import {
+  MAX_RESUME_ATTEMPTS,
+  reconcileInterruptedConversations,
+  resumeInterruptedConversations,
+} from "./interrupted-turn-reconciler.js";
 import { startOrphanReaper } from "./orphan-reaper.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
@@ -147,6 +155,28 @@ export async function runDaemon(): Promise<void> {
 
   setDbMigrating();
 
+  // Materialize partial custom profiles BEFORE any transport binds: routes
+  // are gated on DB readiness, not on the config-shaping steps further down,
+  // so a fast-reconnecting client could otherwise resolve a turn against a
+  // partial profile in the window between readiness and the post-overlay
+  // ensure call below. Sync, DB-free, and idempotent. Skipped when an
+  // unconsumed onboarding overlay is pending: the overlay can rewrite
+  // llm.default later this boot, and baking against the pre-overlay default
+  // would pin the wrong baseline — on that single boot (a fresh hatch, with
+  // no established clients to race the window) the post-overlay pass owns
+  // materialization; the overlay file is consumed on merge, so every
+  // subsequent boot takes this early pass.
+  if (!hasPendingDefaultWorkspaceConfig()) {
+    try {
+      ensureCompleteCustomProfiles(getWorkspaceDir());
+    } catch (err) {
+      log.warn(
+        { err },
+        "Pre-transport custom profile materialization failed — continuing startup",
+      );
+    }
+  }
+
   // Start the runtime HTTP server early so /healthz answers ASAP. A bind
   // failure is non-fatal — the daemon falls back to IPC-only operation.
   await startRuntimeHttpServer();
@@ -156,24 +186,19 @@ export async function runDaemon(): Promise<void> {
   // so a slow or unreachable gateway doesn't delay daemon startup (the
   // IPC call has a 3s connect + 5s call timeout that would otherwise
   // stall the critical path).
-  // After the async fetch resolves, (re)register any flag-gated tools
-  // (`workflows`, `ces-tools`): `initializeTools()` runs during startup before
-  // this fetch completes, so without this follow-up sync a flag-enabled
-  // assistant would not expose the gated tools until a restart (which can lose
-  // the same race). Enable-direction only; chained so it sees the fresh cache.
-  // Then reconcile flag-gated managed profiles (OS Beta): `seedInferenceProfiles()`
-  // runs synchronously earlier in boot before flags are available, so this lands
-  // the profile on the same boot once the flag cache is populated. When this
-  // reconcile is the call that mutates config (it raced ahead of the gateway
-  // flag listener), publish the config invalidation so any client that already
-  // fetched `GET /v1/config` refreshes its profile picker.
+  // After the async fetch resolves, reconcile flag-gated managed profiles
+  // (OS Beta): `seedInferenceProfiles()` runs synchronously earlier in boot
+  // before flags are available, so this lands the profile on the same boot once
+  // the flag cache is populated. When this reconcile is the call that mutates
+  // config (it raced ahead of the gateway flag listener), publish the config
+  // invalidation so any client that already fetched `GET /v1/config` refreshes
+  // its profile picker.
   // Profiles are reconciled only when flags actually loaded from the gateway:
   // a failed fetch leaves the cache unset and resolves `os-beta` to its
   // registry default `false`, which would remove the user's profile and reset
-  // their selection. Tool sync tolerates the default and stays unconditional.
+  // their selection.
   void initFeatureFlagOverrides()
-    .then(async (loaded) => {
-      await syncFlagGatedTools();
+    .then((loaded) => {
       if (loaded && reconcileFlagGatedProfiles()) {
         publishConfigChanged();
       }
@@ -460,31 +485,60 @@ export async function runDaemon(): Promise<void> {
     );
   }
 
+  // Runs on every boot, after the overlay merge and profile seeding and
+  // before the first loadConfig(), so no resolution ever sees a partial
+  // custom profile. See workspace/custom-profile-ensure.ts for why this is
+  // an ensure pass rather than a workspace migration.
+  try {
+    ensureCompleteCustomProfiles(getWorkspaceDir());
+    log.info("Custom profile materialization ensure pass complete");
+  } catch (err) {
+    log.warn(
+      { err },
+      "Custom profile materialization ensure pass failed — continuing startup",
+    );
+  }
+
   log.info("Daemon startup: loading config");
   const config = loadConfig();
 
   // Reconcile conversations left mid-turn by the previous shutdown. Their
   // `processing_started_at` is still set even though the in-memory agent loop
-  // that owned the turn is gone.
+  // that owned the turn is gone. Stale flags are always cleared so no
+  // conversation stays visibly stuck "processing"; when
+  // `conversations.resumeProcessingOnStartup` is enabled the reconciler also
+  // selects conversations to resume once startup completes (the wakes need
+  // providers/CES, so they are kicked off next to `setStartupComplete()`).
+  let conversationsToResume: string[] = [];
   if (dbReady) {
-    if (config.conversations.resumeProcessingOnStartup) {
-      // TODO: automatically resume the interrupted turn for each conversation
-      // whose processing flag is still set instead of clearing it.
-    } else {
-      try {
-        const cleared = clearStaleProcessingFlags();
-        if (cleared > 0) {
-          log.info(
-            { count: cleared },
-            "Cleared stale conversation processing flags from previous process",
-          );
-        }
-      } catch (err) {
-        log.warn(
-          { err },
-          "Failed to clear stale conversation processing flags — continuing startup",
+    try {
+      const reconciled = reconcileInterruptedConversations(
+        config.conversations.resumeProcessingOnStartup,
+      );
+      conversationsToResume = reconciled.resume;
+      if (reconciled.cleared > 0) {
+        log.info(
+          {
+            count: reconciled.cleared,
+            resuming: reconciled.resume.length,
+          },
+          "Cleared stale conversation processing flags from previous process",
         );
       }
+      if (reconciled.capped.length > 0) {
+        log.warn(
+          {
+            conversationIds: reconciled.capped,
+            maxAttempts: MAX_RESUME_ATTEMPTS,
+          },
+          "Left interrupted conversations un-resumed after repeated interruptions",
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to reconcile interrupted conversations — continuing startup",
+      );
     }
   }
 
@@ -669,6 +723,19 @@ export async function runDaemon(): Promise<void> {
   // signal handlers installed at the top of startup from their minimal
   // early-exit mode to the full graceful shutdown.
   setStartupComplete();
+
+  // Resume conversations whose turn the previous process interrupted. Kicked
+  // off only now — the wakes run full agent-loop turns and need providers and
+  // CES, which the startup sequence above just brought up. Fire-and-forget:
+  // the resumes run sequentially in the background while the daemon serves
+  // requests; per-conversation failures are logged inside.
+  if (conversationsToResume.length > 0) {
+    log.info(
+      { count: conversationsToResume.length },
+      "Resuming conversations interrupted by the previous process",
+    );
+    void resumeInterruptedConversations(conversationsToResume);
+  }
 
   log.info(
     {

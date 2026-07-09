@@ -257,6 +257,66 @@ describe("renderHistoryContent", () => {
     ]);
   });
 
+  test("emits the attachment id for a workspace_ref tool-result image", () => {
+    // "aGVsbG8=" = "hello" — a stand-in for screenshot bytes.
+    const stored = uploadAttachment("shot.png", "image/png", "aGVsbG8=");
+    const output = renderHistoryContent([
+      { type: "tool_use", id: "tu_1", name: "browser_screenshot", input: {} },
+      {
+        type: "tool_result",
+        tool_use_id: "tu_1",
+        content: "captured",
+        is_error: false,
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "workspace_ref",
+              media_type: "image/png",
+              attachmentId: stored.id,
+              sizeBytes: 5,
+            },
+          },
+        ],
+      },
+    ]);
+
+    // Referenced media emits its attachment id so clients fetch the bytes by
+    // id on render instead of inlining base64 into the history wire; the
+    // base64 fields stay empty for referenced images.
+    expect(output.toolCalls[0].imageAttachmentIds).toEqual([stored.id]);
+    expect(output.toolCalls[0].imageDataList).toBeUndefined();
+    expect(output.toolCalls[0].imageData).toBeUndefined();
+  });
+
+  test("resolves an inline base64 tool-result image without an id", () => {
+    const output = renderHistoryContent([
+      { type: "tool_use", id: "tu_1", name: "browser_screenshot", input: {} },
+      {
+        type: "tool_result",
+        tool_use_id: "tu_1",
+        content: "captured",
+        is_error: false,
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: "aGVsbG8=",
+            },
+          },
+        ],
+      },
+    ]);
+
+    // Legacy inline base64 (no workspace reference) still resolves to the
+    // base64 wire fields and carries no attachment id.
+    expect(output.toolCalls[0].imageDataList).toEqual(["aGVsbG8="]);
+    expect(output.toolCalls[0].imageData).toBe("aGVsbG8=");
+    expect(output.toolCalls[0].imageAttachmentIds).toBeUndefined();
+  });
+
   test("marks error tool results", () => {
     const output = renderHistoryContent([
       { type: "tool_use", id: "tu_1", name: "bash", input: { command: "bad" } },

@@ -2,14 +2,15 @@
  * Tests for the inline `SingleActivity` link — the lone affordance for one step
  * of agent work, in its two variants:
  *
- *   - `variant="thinking"` — an assistant reasoning run. Covers the brain +
- *     chevron glyphs, the "Thought process" label, the drawer-open/toggle click
- *     contract, the streaming loading state (three-dot indicator + "Thinking",
- *     still clickable), and the empty-content render rules.
- *   - `variant="tool"` — a lone renderable tool call. Covers the derived tool
- *     icon + label, the risk badge, the toggle-drawer click contract (via the
- *     shared `toolDetailPayloadFromToolCall` payload), and the active state when
- *     the store's `activeToolDetail` matches this call.
+ *   - `variant="thinking"` — an assistant reasoning run. Covers the glyph-less
+ *     two-state "Thinking" label (static settled / shimmering streamed) with
+ *     its trailing chevron, the drawer-open/toggle click contract, and the
+ *     empty-content render rules.
+ *   - `variant="tool"` — a lone renderable tool call. Covers the bare derived
+ *     label (no leading glyph, no inline risk badge — risk lives in the detail
+ *     drawer), the toggle-drawer click contract (via the shared
+ *     `toolDetailPayloadFromToolCall` payload), and the active state when the
+ *     store's `activeToolDetail` matches this call.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -62,15 +63,15 @@ afterEach(() => {
 });
 
 describe("SingleActivity — thinking variant", () => {
-  test("renders the label, brain icon, and trailing chevron", () => {
+  test("renders the label and trailing chevron, with no leading glyph", () => {
     const { getByTestId, getByText, container } = render(
       <SingleActivity variant="thinking" content={CONTENT} />,
     );
 
     expect(getByTestId("thought-process-link")).toBeTruthy();
-    expect(getByText("Thought process")).toBeTruthy();
-    // Brain (leading) + ChevronRight (trailing) lucide glyphs.
-    expect(container.querySelectorAll("svg").length).toBe(2);
+    expect(getByText("Thinking")).toBeTruthy();
+    // ChevronRight (trailing) is the only lucide glyph — no leading icon.
+    expect(container.querySelectorAll("svg").length).toBe(1);
   });
 
   test("clicking opens the thinking detail drawer with the full reasoning", () => {
@@ -101,33 +102,18 @@ describe("SingleActivity — thinking variant", () => {
     expect(useViewerStore.getState().mainView).toBe("chat");
   });
 
-  test("while streaming, shows the three-dot loader + reasoning preview (no brain)", () => {
+  test("while streaming, shimmers the same 'Thinking' label", () => {
     const { getByTestId, getByText, queryByText, container } = render(
       <SingleActivity variant="thinking" content={CONTENT} isStreaming />,
     );
 
-    expect(getByText(CONTENT)).toBeTruthy();
-    expect(queryByText("Thought process")).toBeNull();
-    // The brain glyph is swapped for the three-dot indicator, so only the
-    // trailing chevron remains as an svg.
+    // The label stays "Thinking" — never the reasoning text itself.
+    expect(getByText("Thinking")).toBeTruthy();
+    expect(queryByText(CONTENT)).toBeNull();
+    // The label renders through the streaming shimmer; the trailing chevron
+    // is the only svg (no leading glyph).
     expect(getByTestId("thought-process-loading")).toBeTruthy();
     expect(container.querySelectorAll("svg").length).toBe(1);
-  });
-
-  test("while streaming, labels with the first sentence from the latest paragraph", () => {
-    const { getByText, queryByText } = render(
-      <SingleActivity
-        variant="thinking"
-        content={
-          "Earlier paragraph should not show. It has details.\n\nI should inspect the route first. Then write the fix."
-        }
-        isStreaming
-      />,
-    );
-
-    expect(getByText("I should inspect the route first.")).toBeTruthy();
-    expect(queryByText("Thinking")).toBeNull();
-    expect(queryByText("Earlier paragraph should not show.")).toBeNull();
   });
 
   test("stays clickable while streaming — opens the live reasoning in the drawer", () => {
@@ -237,29 +223,18 @@ describe("SingleActivity — thinking variant", () => {
 });
 
 describe("SingleActivity — tool variant", () => {
-  test("renders the derived label, tool icon, chevron, and risk badge", () => {
-    const { getByTestId, getByText, container } = render(
+  test("renders the derived label and chevron — no leading glyph, no risk badge", () => {
+    const { getByTestId, getByText, queryByTestId, container } = render(
       <SingleActivity variant="tool" toolCall={makeToolCall()} />,
     );
 
     expect(getByTestId("inline-tool-link")).toBeTruthy();
     // `activity` wins as the label.
     expect(getByText("Checking the current time")).toBeTruthy();
-    // "Low" risk badge.
-    expect(getByTestId("risk-badge")).toBeTruthy();
-    expect(getByText("Low")).toBeTruthy();
-    // Tool glyph (leading) + ChevronRight (trailing).
-    expect(container.querySelectorAll("svg").length).toBe(2);
-  });
-
-  test("renders the risk badge only when riskLevel is supplied", () => {
-    const { queryByTestId } = render(
-      <SingleActivity
-        variant="tool"
-        toolCall={makeToolCall({ riskLevel: undefined })}
-      />,
-    );
+    // The risk assessment lives in the detail drawer, not on the inline link.
     expect(queryByTestId("risk-badge")).toBeNull();
+    // ChevronRight (trailing) is the only svg.
+    expect(container.querySelectorAll("svg").length).toBe(1);
   });
 
   test("clicking toggles the tool-detail drawer with the shared payload", () => {

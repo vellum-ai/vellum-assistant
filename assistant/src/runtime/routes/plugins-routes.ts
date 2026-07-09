@@ -37,7 +37,6 @@ import {
   PluginInspectNotFoundError,
 } from "../../cli/lib/inspect-plugin.js";
 import {
-  DEFAULT_PLUGIN_REF,
   installPlugin,
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
@@ -51,12 +50,16 @@ import {
 } from "../../cli/lib/list-installed-plugins.js";
 import { getPluginCatalog } from "../../cli/lib/plugin-catalog-cache.js";
 import {
+  DEFAULT_PIN_HISTORY_LIMIT,
+  DEFAULT_PLUGIN_REF,
+  type PluginUpgradeStrategy,
+} from "../../cli/lib/plugin-constants.js";
+import {
   getPluginDetails,
   PluginDetailsNotFoundError,
 } from "../../cli/lib/plugin-details.js";
 import { readValidatedPluginIcon } from "../../cli/lib/plugin-icon-file.js";
 import {
-  DEFAULT_PIN_HISTORY_LIMIT,
   listPinHistory,
   PluginPinHistoryError,
   resolvePinToMarketplaceCommit,
@@ -82,7 +85,6 @@ import {
 import {
   PluginMergeBaselineError,
   PluginNotUpgradableError,
-  type PluginUpgradeStrategy,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
@@ -753,9 +755,13 @@ export function normalizeMarketplaceCategory(
   raw: string | null | undefined,
   validSlugs: Set<string>,
 ): string | null {
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   const slug = raw.trim().toLowerCase();
-  if (!slug) return null;
+  if (!slug) {
+    return null;
+  }
   const aliased = MARKETPLACE_CATEGORY_ALIASES[slug] ?? slug;
   return validSlugs.has(aliased) ? aliased : null;
 }
@@ -812,8 +818,12 @@ function projectMatch(
 
 function matchesQuery(plugin: PluginView, needle: string): boolean {
   const q = needle.toLowerCase();
-  if (plugin.id.toLowerCase().includes(q)) return true;
-  if (plugin.name.toLowerCase().includes(q)) return true;
+  if (plugin.id.toLowerCase().includes(q)) {
+    return true;
+  }
+  if (plugin.name.toLowerCase().includes(q)) {
+    return true;
+  }
   if (plugin.description && plugin.description.toLowerCase().includes(q)) {
     return true;
   }
@@ -857,12 +867,16 @@ export async function loadCategoryMapBounded(
         timer = setTimeout(() => resolve(null), timeoutMs);
       }),
     ]);
-    if (!catalog) return new Map();
+    if (!catalog) {
+      return new Map();
+    }
     return new Map(catalog.matches.map((m) => [m.name, m.category]));
   } catch {
     return new Map();
   } finally {
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }
 
@@ -991,10 +1005,10 @@ interface PluginUninstallResponse {
   target: string;
 }
 
-function handleUninstallPlugin({
+async function handleUninstallPlugin({
   pathParams = {},
   headers,
-}: RouteHandlerArgs): PluginUninstallResponse {
+}: RouteHandlerArgs): Promise<PluginUninstallResponse> {
   // The HTTP router has already URL-decoded `:name` for us; pass it
   // through verbatim — `uninstallPlugin` runs the same
   // `sanitizePluginName` check the CLI uses, so attacker-supplied
@@ -1002,7 +1016,7 @@ function handleUninstallPlugin({
   const rawName = pathParams.name ?? "";
 
   try {
-    const result = uninstallPlugin({ name: rawName });
+    const result = await uninstallPlugin({ name: rawName });
     publishPluginsChanged(getOriginClientId(headers));
     return { name: result.name, target: result.target };
   } catch (err) {
@@ -1062,7 +1076,9 @@ async function resolveInstallMarketplaceRef(
   name: string,
   pin: string | undefined,
 ): Promise<string> {
-  if (!pin) return DEFAULT_PLUGIN_REF;
+  if (!pin) {
+    return DEFAULT_PLUGIN_REF;
+  }
   const entry = await resolvePinToMarketplaceCommit(name, pin, {
     fetch: globalThis.fetch.bind(globalThis),
   });

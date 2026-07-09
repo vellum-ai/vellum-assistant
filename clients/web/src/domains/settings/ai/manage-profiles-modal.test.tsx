@@ -135,7 +135,9 @@ function getButton(label: string): HTMLButtonElement {
   const match = Array.from(
     document.querySelectorAll<HTMLButtonElement>("button"),
   ).find((b) => b.textContent?.trim() === label);
-  if (!match) throw new Error(`expected a "${label}" button`);
+  if (!match) {
+    throw new Error(`expected a "${label}" button`);
+  }
   return match;
 }
 
@@ -143,7 +145,9 @@ function getSaveBtn(): HTMLButtonElement {
   const btn = document.querySelector<HTMLButtonElement>(
     '[data-testid="modal-save-btn"]',
   );
-  if (!btn) throw new Error("expected a modal-save-btn");
+  if (!btn) {
+    throw new Error("expected a modal-save-btn");
+  }
   return btn;
 }
 
@@ -151,7 +155,9 @@ function providerTrigger(): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
     'button[role="combobox"][aria-labelledby="profile-editor-provider-label"]',
   );
-  if (!trigger) throw new Error("expected the Provider dropdown trigger");
+  if (!trigger) {
+    throw new Error("expected the Provider dropdown trigger");
+  }
   return trigger;
 }
 
@@ -171,7 +177,9 @@ function selectModel(label: string): void {
   for (const trigger of Array.from(
     document.querySelectorAll<HTMLButtonElement>('button[role="combobox"]'),
   )) {
-    if (trigger === provTrigger) continue;
+    if (trigger === provTrigger) {
+      continue;
+    }
     fireEvent.click(trigger);
     const option = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -337,7 +345,10 @@ describe("ManageProfilesModal — invariant managed profiles in the list", () =>
     const row = deleteBtn!.closest("div.relative")!;
     const actionBtn = Array.from(
       row.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((b) => b.textContent?.trim() === "View" || b.textContent?.trim() === "Edit");
+    ).find(
+      (b) =>
+        b.textContent?.trim() === "View" || b.textContent?.trim() === "Edit",
+    );
     expect(actionBtn?.textContent?.trim()).toBe("Edit");
   });
 
@@ -367,5 +378,91 @@ describe("ManageProfilesModal — invariant managed profiles in the list", () =>
       document.querySelectorAll<HTMLButtonElement>("button"),
     ).find((b) => b.textContent?.trim() === "Save As New");
     expect(saveAsNew).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M7 PR 5 — read-only default profiles stay locked; complete custom profiles
+// round-trip with their stored (snapshot) values.
+// ---------------------------------------------------------------------------
+
+describe("ManageProfilesModal — read-only defaults and complete-override round-trip", () => {
+  test("managed profiles are not draggable and their delete stays disabled", () => {
+    profilesState = {
+      balanced: {
+        label: "Balanced",
+        source: "managed",
+        invariant: true,
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+      },
+      "my-custom": {
+        label: "My Custom",
+        source: "user",
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+        provider_connection: "anthropic-personal",
+      },
+    };
+    render(
+      <Wrapper>
+        <ManageProfilesModal isOpen assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+
+    const managedDelete = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Delete Balanced"]',
+    );
+    expect(managedDelete?.disabled).toBe(true);
+    expect(managedDelete?.title).toContain("cannot be deleted");
+
+    const customDelete = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Delete My Custom"]',
+    );
+    expect(customDelete?.disabled).toBe(false);
+
+    // Drag-reorder is a user-profile affordance only.
+    const rows = Array.from(
+      document.querySelectorAll<HTMLElement>("[draggable]"),
+    );
+    const managedRow = rows.find((r) => r.textContent?.includes("Balanced"));
+    const customRow = rows.find((r) => r.textContent?.includes("My Custom"));
+    expect(managedRow?.getAttribute("draggable")).toBe("false");
+    expect(customRow?.getAttribute("draggable")).toBe("true");
+  });
+
+  test("a complete custom profile opens in edit with its stored values, not blanks", async () => {
+    // Post-M6, stored custom profiles are complete overrides — the editor
+    // must show the baked values rather than empty inherit placeholders.
+    profilesState = {
+      "my-custom": {
+        label: "My Custom",
+        source: "user",
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+        provider_connection: "anthropic-personal",
+        maxTokens: 12345,
+      },
+    };
+    render(
+      <Wrapper>
+        <ManageProfilesModal isOpen assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+
+    fireEvent.click(getButton("Edit"));
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("Max Output Tokens");
+    });
+
+    // The stored explicit budget renders as the field value — not as an
+    // empty input reading "Default".
+    const maxTokensInput = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[type="number"]'),
+    ).find((el) => el.value === "12345");
+    expect(maxTokensInput).toBeDefined();
+
+    // Fields the stored profile genuinely lacks still read as defaults.
+    expect(document.body.textContent).toContain("Default · 200K");
   });
 });

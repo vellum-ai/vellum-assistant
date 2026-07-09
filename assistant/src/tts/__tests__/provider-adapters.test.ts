@@ -389,7 +389,7 @@ describe("ElevenLabs TTS provider adapter", () => {
     expect(capturedUrl).toContain("output_format=pcm_16000");
   });
 
-  test("pcm output with unmatched sampleRateHz falls back to pcm_16000", async () => {
+  test("pcm output clamps an unsupported sampleRateHz hint to the nearest supported rate", async () => {
     const audioPayload = new Uint8Array([0x00, 0x01]);
     let capturedUrl = "";
 
@@ -402,8 +402,30 @@ describe("ElevenLabs TTS provider adapter", () => {
     await provider.synthesize(
       makeRequest({ outputFormat: "pcm", sampleRateHz: 8000 }),
     );
-
     expect(capturedUrl).toContain("output_format=pcm_16000");
+
+    // 48 kHz clamps to 24 kHz, not the Pro-tier-gated pcm_44100.
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 48000 }),
+    );
+    expect(capturedUrl).toContain("output_format=pcm_24000");
+  });
+
+  test("pcm output uses Pro-tier pcm_44100 only on an exact 44100 hint", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 44100 }),
+    );
+
+    expect(capturedUrl).toContain("output_format=pcm_44100");
   });
 
   test("resolveOutputSampleRateHz reports the actual PCM rate without synthesis", () => {
@@ -418,7 +440,12 @@ describe("ElevenLabs TTS provider adapter", () => {
       provider.resolveOutputSampleRateHz!(
         makeRequest({ outputFormat: "pcm", sampleRateHz: 48000 }),
       ),
-    ).toBe(16000);
+    ).toBe(24000);
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ outputFormat: "pcm", sampleRateHz: 44100 }),
+      ),
+    ).toBe(44100);
     expect(provider.resolveOutputSampleRateHz!(makeRequest())).toBeUndefined();
   });
 

@@ -61,8 +61,7 @@ const execFileAsync = promisify(execFile);
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";
 const PLUGIN_SOURCE_PATH_PREFIX = "plugins";
-/** Default git ref to fetch from when callers don't override. */
-export const DEFAULT_PLUGIN_REF = "main";
+import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 
 /** Full Git commit SHA — 40 hex chars (SHA-1) or 64 (SHA-256). */
 const FULL_COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;

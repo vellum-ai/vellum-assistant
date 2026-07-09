@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 
+import { embedAndUpsert } from "@vellumai/plugin-api";
 import { eq } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
@@ -13,18 +14,21 @@ import {
   memorySummaries,
   messages,
 } from "../../../../persistence/schema/index.js";
-import { embedAndUpsert } from "../embeddings.js";
 
 export async function embedSegmentJob(job: MemoryJob): Promise<void> {
   const segmentId = asString(job.payload.segmentId);
-  if (!segmentId) return;
+  if (!segmentId) {
+    return;
+  }
   const db = getDb();
   const segment = db
     .select()
     .from(memorySegments)
     .where(eq(memorySegments.id, segmentId))
     .get();
-  if (!segment) return;
+  if (!segment) {
+    return;
+  }
   await embedAndUpsert("segment", segment.id, segment.text, {
     conversation_id: segment.conversationId,
     message_id: segment.messageId,
@@ -35,14 +39,18 @@ export async function embedSegmentJob(job: MemoryJob): Promise<void> {
 
 export async function embedSummaryJob(job: MemoryJob): Promise<void> {
   const summaryId = asString(job.payload.summaryId);
-  if (!summaryId) return;
+  if (!summaryId) {
+    return;
+  }
   const db = getDb();
   const summary = db
     .select()
     .from(memorySummaries)
     .where(eq(memorySummaries.id, summaryId))
     .get();
-  if (!summary) return;
+  if (!summary) {
+    return;
+  }
   await embedAndUpsert(
     "summary",
     summary.id,
@@ -58,7 +66,9 @@ export async function embedSummaryJob(job: MemoryJob): Promise<void> {
 
 export async function embedMediaJob(job: MemoryJob): Promise<void> {
   const assetId = asString(job.payload.assetId);
-  if (!assetId) return;
+  if (!assetId) {
+    return;
+  }
 
   const db = getDb();
   const asset = db
@@ -66,7 +76,9 @@ export async function embedMediaJob(job: MemoryJob): Promise<void> {
     .from(mediaAssets)
     .where(eq(mediaAssets.id, assetId))
     .get();
-  if (!asset || asset.status !== "indexed") return;
+  if (!asset || asset.status !== "indexed") {
+    return;
+  }
 
   // Read the media file from disk
   const fileData = await readFile(asset.filePath);
@@ -89,7 +101,9 @@ export async function embedMediaJob(job: MemoryJob): Promise<void> {
 export async function embedAttachmentJob(job: MemoryJob): Promise<void> {
   const messageId = asString(job.payload.messageId);
   const blockIndex = job.payload.blockIndex as number;
-  if (!messageId || typeof blockIndex !== "number") return;
+  if (!messageId || typeof blockIndex !== "number") {
+    return;
+  }
 
   const db = getDb();
   const message = db
@@ -97,11 +111,15 @@ export async function embedAttachmentJob(job: MemoryJob): Promise<void> {
     .from(messages)
     .where(eq(messages.id, messageId))
     .get();
-  if (!message) return;
+  if (!message) {
+    return;
+  }
 
   const mediaBlocks = extractMediaBlocks(message.content);
   const block = mediaBlocks.find((b) => b.index === blockIndex);
-  if (!block) return;
+  if (!block) {
+    return;
+  }
 
   const input: EmbeddingInput = {
     type: block.type,

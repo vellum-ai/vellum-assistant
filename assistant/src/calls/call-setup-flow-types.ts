@@ -19,7 +19,7 @@ import type { TrustContext } from "../daemon/trust-context-types.js";
 export interface SetupFlowTransport {
   sendTextToken(token: string, last: boolean): void;
   endSession(reason?: string): void;
-  readonly requiresWavAudio?: boolean;
+  readonly requiresPcmAudio?: boolean;
 }
 
 // ── Flow state ───────────────────────────────────────────────────────

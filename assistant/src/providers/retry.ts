@@ -4,7 +4,7 @@ import {
   resolveUsageAttribution,
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
-import { ProviderError } from "../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   computeRetryDelay,
@@ -59,7 +59,28 @@ const DISABLED_THINKING_USES_EFFORT_PROVIDERS = new Set([
   "openai",
   "fireworks",
   "together",
+  "openrouter",
+  "vercel-ai-gateway",
 ]);
+
+// Whether a disabled `thinking` config must be encoded as `effort: "none"`
+// for this provider/model. Gateway calls that delegate `anthropic/*` models
+// to the Anthropic Messages API are excluded: the delegate honors a disabled
+// `thinking` natively and `effort` keeps its Anthropic meaning there, so
+// forcing it would diverge from the direct `anthropic` provider.
+function disabledThinkingForcesEffortNone(
+  providerName: string,
+  model: unknown,
+): boolean {
+  if (!DISABLED_THINKING_USES_EFFORT_PROVIDERS.has(providerName)) {
+    return false;
+  }
+  return !(
+    isAnthropicDelegatingGateway(providerName) &&
+    typeof model === "string" &&
+    isAnthropicModel(model)
+  );
+}
 
 /**
  * Providers that consume the `thinking` config. Anthropic uses it directly on
@@ -139,6 +160,13 @@ const RETRYABLE_TRANSPORT_ABORT_PATTERNS = [
   /^anthropic api error:\s*request was aborted/i,
 ];
 
+/** Semantic provider-error reasons that are safe to retry. */
+const RETRYABLE_PROVIDER_ERROR_REASONS = new Set<ProviderErrorReason>([
+  "rate_limited",
+  "overloaded",
+  "server_error",
+]);
+
 function isRetryableStreamError(error: unknown): boolean {
   if (!(error instanceof ProviderError)) return false;
   if (error.statusCode !== undefined) return false; // has a real HTTP status — not a stream error
@@ -173,6 +201,16 @@ function isRetryableError(error: unknown): boolean {
   // caller-cancels both surface as "Request was aborted" from the SDK.
   if (error instanceof ProviderError && error.abortReason !== undefined) {
     return false;
+  }
+  // Prefer the provider-stamped semantic reason: a known reason decides
+  // retryability outright, superseding the status/regex fallback below. Only
+  // `unknown` (and a reason-less error) falls through.
+  if (
+    error instanceof ProviderError &&
+    error.reason &&
+    error.reason !== "unknown"
+  ) {
+    return RETRYABLE_PROVIDER_ERROR_REASONS.has(error.reason);
   }
   if (error instanceof ProviderError && error.statusCode !== undefined) {
     if (error.statusCode === 429 || error.statusCode >= 500) return true;
@@ -386,7 +424,7 @@ function normalizeSendMessageOptions(
 
   if (
     isThinkingConfigDisabled(nextConfig.thinking) &&
-    DISABLED_THINKING_USES_EFFORT_PROVIDERS.has(providerName)
+    disabledThinkingForcesEffortNone(providerName, nextConfig.model)
   ) {
     nextConfig.effort = "none";
   }

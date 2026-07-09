@@ -731,6 +731,14 @@ export async function getSkill(
     category: slim.category,
     owner: slim.owner,
   };
+  if (detail.origin === "assistant-memory") {
+    // Retrospective-authored skills carry conversation lineage in install-meta;
+    // surface the durable source-conversation id so clients can link back.
+    const meta = readInstallMeta(found.summary.directoryPath);
+    if (meta?.sourceConversationId) {
+      detail.sourceConversationId = meta.sourceConversationId;
+    }
+  }
   return { skill: detail };
 }
 

@@ -51,6 +51,13 @@ export interface CompactionContext {
   /** Trust class of the actor whose turn triggered compaction. */
   actorTrustClass?: TrustClass;
   /**
+   * Summarize everything before this in-memory history index ("summarize up
+   * to here"). Single-attempt; bypasses the auto-threshold gate and the
+   * token-budget forward-cut. Mutually exclusive with `overflowSignal` —
+   * overflow recovery never targets a user-chosen boundary.
+   */
+  fixedTailStartIndex?: number;
+  /**
    * Set when this compaction is recovering from a provider context-overflow
    * rejection rather than the ordinary auto-threshold trip. Its presence
    * routes the request through the manager's reduction ladder (which escalates
@@ -75,6 +82,12 @@ export async function defaultCompact(
 ): Promise<ContextWindowResult> {
   const { conversationId, messages, signal, overflowSignal, ...options } =
     context;
+  if (overflowSignal && options.fixedTailStartIndex != null) {
+    throw new PluginExecutionError(
+      `default-compaction: overflowSignal and fixedTailStartIndex are mutually exclusive — overflow recovery never targets a user-chosen boundary (conversation ${conversationId})`,
+      DEFAULT_COMPACTION_PLUGIN_NAME,
+    );
+  }
   const manager = getContextWindowManager(conversationId);
   if (manager == null) {
     throw new PluginExecutionError(

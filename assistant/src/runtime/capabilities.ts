@@ -86,8 +86,8 @@ export interface CapabilitySet {
 
   // --- Execution environment ---
   /**
-   * May run the shell WITHOUT the untrusted sandbox / CES lockdown (no
-   * `VELLUM_UNTRUSTED_SHELL`, no credential-secrecy confinement).
+   * May run the shell WITHOUT the untrusted sandbox (no credential-secrecy
+   * confinement).
    */
   canRunUnsandboxedShell: boolean;
 

@@ -172,3 +172,29 @@ export { resolveMediaSourceData } from "../providers/media-resolve.js";
 // hook reads it off `PostModelCallContext.stopReason` to decide whether to
 // continue a cut-off reply.
 export { isMaxTokensStopReason } from "../providers/stop-reasons.js";
+// Identity reads — "who is the assistant and the user." A plugin that builds
+// its own prompts (e.g. for its own inference) names the actor via these.
+// Backed by the workspace `IDENTITY.md` / user profile; each returns null when
+// unset. `resolveUserName` reads the profile under the given workspace dir.
+export {
+  getAssistantName,
+  resolveUserName,
+} from "../daemon/identity-helpers.js";
+// Embeddings — self-contained operations on the host's shared embedding /
+// vector-store subsystem. Host-resolved: each reads the live workspace config
+// internally, so plugins hold no config. Async because the facade loads the
+// embed graph lazily on first call.
+export {
+  embedAndUpsert,
+  selectedBackendSupportsMultimodal,
+} from "../persistence/embeddings/plugin-facade.js";
+// Skills — the installed skill catalog with resolved states, and the remote
+// skill catalog. Host-resolved: catalog load, install-state resolution,
+// feature-flag gating, and install-meta reads are composed internally, so
+// plugins hold no config and run no flag checks. Async because the facade
+// loads the catalog/flag graph lazily on first call.
+export type { ResolvedSkillEntry } from "../skills/available-skills.js";
+export {
+  listCatalogSkills,
+  listInstalledSkills,
+} from "../skills/available-skills.js";

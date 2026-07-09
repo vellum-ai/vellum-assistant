@@ -5,35 +5,24 @@ import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
-import { syncFlagGatedTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("gateway-flag-listener");
 
 /**
- * Refresh the flag-overrides cache from the gateway, then register any
- * registry-gated tools whose flag gate has since opened. Both the
- * `feature_flags_changed` event and a reconnect only refresh the cache;
- * `syncFlagGatedTools` registers the CES tools whose flag is enabled so that
- * enabling a CES-gating flag at runtime surfaces them without a daemon restart.
- * Workflow tools (`run_workflow` / `manage_workflows`) are not registry-gated:
- * they live in a flag-gated bundled skill surfaced via `skill_load` against the
- * live flag cache, so they need no registry sync here. `syncFlagGatedTools` is
- * idempotent and enable-only, so re-running it on every refresh is safe; it also
- * never throws (it logs internally). After tools sync, `reconcileFlagGatedProfiles`
- * adds or removes the flag-gated managed profile (OS Beta); when it reports a
- * change a `config_changed` broadcast refreshes the profile picker on clients.
- * The profile reconcile runs only when the refresh confirmed flags loaded from
- * the gateway — a transient IPC failure leaves the cache unset and resolves
- * `os-beta` to its registry default `false`, which would remove the user's
- * profile and reset their selection. Tool sync tolerates the default and stays
- * unconditional.
+ * Refresh the flag-overrides cache from the gateway, then reconcile the
+ * flag-gated managed profile (OS Beta). Both the `feature_flags_changed` event
+ * and a reconnect refresh the cache; `reconcileFlagGatedProfiles` then adds or
+ * removes the managed profile and, when it reports a change, a `config_changed`
+ * broadcast refreshes the profile picker on clients. The reconcile runs only
+ * when the refresh confirmed flags loaded from the gateway — a transient IPC
+ * failure leaves the cache unset and resolves `os-beta` to its registry default
+ * `false`, which would remove the user's profile and reset their selection.
  */
-function refreshFlagsAndSyncTools(context: string): void {
+function refreshFlagsAndReconcileProfiles(context: string): void {
   refreshOverridesFromGateway()
-    .then(async (loaded) => {
-      await syncFlagGatedTools();
+    .then((loaded) => {
       if (loaded && reconcileFlagGatedProfiles()) {
         // Reuse the config-changed broadcast clients already consume so the
         // profile picker reflects the added/removed managed profile.
@@ -69,7 +58,7 @@ function handleData(chunk: Buffer): void {
       const msg = JSON.parse(trimmed) as { event?: string };
       if (msg.event === "feature_flags_changed") {
         log.info("Received feature_flags_changed event — refreshing overrides");
-        refreshFlagsAndSyncTools("flags-changed event");
+        refreshFlagsAndReconcileProfiles("flags-changed event");
         // Fan out to every connected web client so React Query caches
         // for `/v1/feature-flags/client-flag-values/` and
         // `/v1/assistants/:id/feature-flags` invalidate immediately
@@ -110,9 +99,9 @@ function connectToGateway(): void {
     log.info("Connected to gateway IPC for flag events");
     currentBackoffMs = INITIAL_BACKOFF_MS;
     socket = conn;
-    // A reconnect may have missed a flag flip while disconnected, so sync the
-    // gated tools too — not just the cache.
-    refreshFlagsAndSyncTools("reconnect");
+    // A reconnect may have missed a flag flip while disconnected, so reconcile
+    // the managed profile too — not just the cache.
+    refreshFlagsAndReconcileProfiles("reconnect");
   });
 
   let buffer = "";

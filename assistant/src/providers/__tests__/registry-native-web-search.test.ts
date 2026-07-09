@@ -65,7 +65,7 @@ function makeConfig(): ProvidersConfig {
       default: {
         ...baseLlm.default,
         provider: "openrouter" as LLMConfigBase["provider"],
-        model: "x-ai/grok-4.20-beta",
+        model: "x-ai/grok-4.20",
       },
     },
   };
@@ -103,7 +103,7 @@ describe("resolveProviderFromConnection native web search selection", () => {
 
   test("keeps OpenRouter native web search model-specific across cached connections", async () => {
     await resolveProviderFromConnection(openRouterConnection, makeConfig(), {
-      model: "x-ai/grok-4.20-beta",
+      model: "x-ai/grok-4.20",
     });
     await resolveProviderFromConnection(openRouterConnection, makeConfig(), {
       model: "anthropic/claude-opus-4-7",
@@ -111,7 +111,7 @@ describe("resolveProviderFromConnection native web search selection", () => {
 
     expect(adapterCalls.map((call) => call.opts)).toEqual([
       expect.objectContaining({
-        model: "x-ai/grok-4.20-beta",
+        model: "x-ai/grok-4.20",
         useNativeWebSearch: false,
       }),
       expect.objectContaining({
@@ -134,10 +134,7 @@ describe("isNativeWebSearchCapableProvider gateway anthropic routing", () => {
 
   test("vercel-ai-gateway non-Anthropic models are not capable", () => {
     expect(
-      isNativeWebSearchCapableProvider(
-        "vercel-ai-gateway",
-        "x-ai/grok-4.20-beta",
-      ),
+      isNativeWebSearchCapableProvider("vercel-ai-gateway", "x-ai/grok-4.20"),
     ).toBe(false);
   });
 });

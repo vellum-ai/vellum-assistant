@@ -4506,6 +4506,60 @@ paths:
                   - domains
                   - callSites
                 additionalProperties: false
+  /v1/config/llm/default-provider:
+    get:
+      operationId: config_llm_defaultprovider_get
+      summary: Get the default provider and its availability
+      description:
+        Returns `llm.defaultProvider`, the connection name it resolves to, and whether that connection is currently
+        usable (connection exists, credential stored, Vellum authenticated). Availability is informational — a broken
+        default is a valid persisted state that surfaces explainable errors at resolution time.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DefaultProviderStatus"
+    put:
+      operationId: config_llm_defaultprovider_put
+      summary: Set the default provider
+      description:
+        Replaces `llm.defaultProvider`. Strict-validates the body (unlike the generic config write paths, which
+        silently drop invalid values). Does not require the referenced connection to exist — a dangling name is allowed
+        by design and reported via the availability status.
+      tags:
+        - config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  enum:
+                    - anthropic
+                    - openai
+                    - gemini
+                    - fireworks
+                    - openrouter
+                    - vellum
+                connectionName:
+                  type: string
+                  minLength: 1
+              required:
+                - provider
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DefaultProviderStatus"
   /v1/config/llm/profiles:
     get:
       operationId: config_llm_profiles_get
@@ -9248,6 +9302,48 @@ paths:
                 required:
                   - ok
                   - updated
+                additionalProperties: false
+  /v1/conversations/summarize:
+    post:
+      operationId: conversations_summarize_post
+      summary: Summarize a conversation up to a message
+      description:
+        Replace the conversation's context before the given message with a generated summary. The boundary snaps to
+        the start of the turn containing beforeMessageId; that turn and everything after stay verbatim. Messages are
+        never deleted.
+      tags:
+        - conversations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                beforeMessageId:
+                  type: string
+                  description: Summarize all messages before this one
+              required:
+                - conversationId
+                - beforeMessageId
+      responses:
+        "202":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                    const: true
+                  conversationId:
+                    type: string
+                required:
+                  - accepted
+                  - conversationId
                 additionalProperties: false
   /v1/conversations/switch:
     post:
@@ -17446,6 +17542,10 @@ paths:
                                 type: array
                                 items:
                                   type: string
+                              imageAttachmentIds:
+                                type: array
+                                items:
+                                  type: string
                               startedAt:
                                 type: number
                               previewStartedAt:
@@ -17875,6 +17975,10 @@ paths:
                                       imageData:
                                         type: string
                                       imageDataList:
+                                        type: array
+                                        items:
+                                          type: string
+                                      imageAttachmentIds:
                                         type: array
                                         items:
                                           type: string
@@ -24826,6 +24930,29 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        conversations:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              title:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                              exists:
+                                type: boolean
+                              archivedAt:
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
+                            required:
+                              - id
+                              - title
+                              - exists
+                              - archivedAt
+                            additionalProperties: false
                         estimatedCostUsd:
                           type: number
                         createdAt:
@@ -24842,6 +24969,7 @@ paths:
                         - conversationId
                         - conversationExists
                         - conversationArchivedAt
+                        - conversations
                         - estimatedCostUsd
                         - createdAt
                       additionalProperties: false
@@ -26641,6 +26769,11 @@ paths:
                           origin:
                             type: string
                             const: assistant-memory
+                          sourceConversationId:
+                            description:
+                              Conversation whose trace the retrospective distilled this skill from. Present only when recorded in
+                              install-meta.
+                            type: string
                         required:
                           - id
                           - name
@@ -29029,12 +29162,12 @@ paths:
       summary: List registered tools with metadata and schemas
       description:
         "Return registered tools. Without `conversationId`, returns every tool in the global registry; `tools`
-        carries per-tool metadata (description, author-asserted risk level, category, and contributing source: core,
-        skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present
-        but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools
-        available to that conversation as of its most recent turn (including skill/MCP tools registered over its
-        lifecycle); 404 if no such conversation is active. With `agent`, simulates the subagent tool projection for a
-        given role or resolves a live subagent's conversation."
+        carries per-tool metadata (description, author-asserted risk level, category, and contributing source: default
+        (built-in), skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests
+        are present but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result
+        to the tools available to that conversation as of its most recent turn (including skill/MCP tools registered
+        over its lifecycle); 404 if no such conversation is active. With `agent`, simulates the subagent tool projection
+        for a given role or resolves a live subagent's conversation."
       tags:
         - tools
       parameters:
@@ -29089,8 +29222,8 @@ paths:
                         source:
                           type: string
                           description:
-                            'Tool origin: "core" for built-ins, otherwise "<kind>:<id>" (e.g. "plugin:echo", "skill:my-skill",
-                            "mcp:server").'
+                            Tool origin as "<kind>:<id>" (e.g. "default:default" for built-ins, "plugin:echo", "skill:my-skill",
+                            "mcp:server").
                       required:
                         - name
                         - description
@@ -32117,6 +32250,24 @@ components:
                 provider_connection:
                   type: string
               additionalProperties: false
+            defaultProvider:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  enum:
+                    - anthropic
+                    - openai
+                    - gemini
+                    - fireworks
+                    - openrouter
+                    - vellum
+                connectionName:
+                  type: string
+                  minLength: 1
+              required:
+                - provider
+              additionalProperties: false
             profiles:
               type: object
               propertyNames:
@@ -32471,6 +32622,50 @@ components:
         invariant:
           type: boolean
       additionalProperties: {}
+    DefaultProviderStatus:
+      type: object
+      properties:
+        provider:
+          anyOf:
+            - type: string
+              enum:
+                - anthropic
+                - openai
+                - gemini
+                - fireworks
+                - openrouter
+                - vellum
+            - type: "null"
+        connectionName:
+          type: string
+        resolvedConnectionName:
+          anyOf:
+            - type: string
+            - type: "null"
+        availability:
+          type: object
+          properties:
+            status:
+              type: string
+              enum:
+                - ok
+                - missing_default
+                - missing_connection
+                - missing_credential
+                - provider_mismatch
+                - unsupported_auth
+                - vellum_unauthenticated
+                - unknown
+            message:
+              type: string
+          required:
+            - status
+          additionalProperties: false
+      required:
+        - provider
+        - resolvedConnectionName
+        - availability
+      additionalProperties: false
     ProviderConnection:
       type: object
       properties:

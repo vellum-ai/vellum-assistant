@@ -58,7 +58,7 @@ function createFakeTransport() {
     endSession: (reason) => {
       endReasons.push(reason);
     },
-    requiresWavAudio: true,
+    requiresPcmAudio: true,
   };
   return { transport, spokenTokens, endReasons };
 }

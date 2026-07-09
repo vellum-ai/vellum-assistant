@@ -46,6 +46,26 @@ class BackgroundJobTimeoutError extends Error {
   override name = "BackgroundJobTimeoutError";
 }
 
+/**
+ * Internal-only sentinel for a turn that failed without throwing. When an LLM
+ * call fails (e.g. an invalid provider), `processMessage` resolves normally
+ * after persisting a synthetic error message — the failure is reported via
+ * `turnFailure` on its result rather than a rejection. We rethrow it as this
+ * error so it flows through the same failure path (logging + `activity.failed`
+ * emission) as any other background-job failure and the caller gets
+ * `ok: false`.
+ */
+class BackgroundJobTurnFailureError extends Error {
+  override name = "BackgroundJobTurnFailureError";
+  readonly failureCode: string | undefined;
+  constructor(failureCode: string | undefined) {
+    super(
+      failureCode ? `Agent turn failed (${failureCode})` : "Agent turn failed",
+    );
+    this.failureCode = failureCode;
+  }
+}
+
 export type BackgroundJobErrorKind = "timeout" | "model_provider" | "exception";
 
 export interface RunBackgroundJobOptions {
@@ -173,6 +193,9 @@ export interface RunBackgroundJobResult {
 
 function classifyError(err: unknown): BackgroundJobErrorKind {
   if (err instanceof BackgroundJobTimeoutError) return "timeout";
+  // A non-throwing turn failure is dominated by LLM-call failures (invalid
+  // provider, auth, rate limit); bucket it with other provider failures.
+  if (err instanceof BackgroundJobTurnFailureError) return "model_provider";
   if (!(err instanceof Error)) return "exception";
 
   const ctorName = err.constructor?.name ?? "";
@@ -312,12 +335,22 @@ export async function runBackgroundJob(
       }, opts.timeoutMs);
     });
 
-    await Promise.race([work, timeout]);
+    const runResult = await Promise.race([work, timeout]);
     // Symmetric with the `work.catch` above: once `work` has won the race,
     // the orphan timeout promise can still reject during the await below
     // (commitDeferredConversation). Swallow so it doesn't surface as an
     // unhandled rejection that Bun can use to terminate the process.
     timeout.catch(() => {});
+    // The turn completed but its LLM call failed (e.g. an invalid provider):
+    // `processMessage` reports this via `turnFailure` instead of throwing.
+    // Rethrow so it flows through the shared failure path below (which
+    // discards any deferred notifications) rather than committing them and
+    // returning `ok: true`.
+    if (runResult.turnFailure) {
+      throw new BackgroundJobTurnFailureError(
+        runResult.turnFailure.failureCode,
+      );
+    }
     if (opts.deferNotifications) {
       await commitDeferredConversation(conversation.id);
     }

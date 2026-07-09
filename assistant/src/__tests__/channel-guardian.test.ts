@@ -161,7 +161,7 @@ import {
   seedVerificationSession,
 } from "./helpers/verification-sessions-ipc-sim.js";
 
-initializeDb();
+await initializeDb();
 
 afterAll(() => {
   resetDbForTesting();
@@ -244,7 +244,12 @@ describe("guardian service challenge validation", () => {
   test("validateAndConsumeVerification does not create a guardian binding (caller responsibility)", async () => {
     const { secret } = await createInboundVerificationSession("telegram");
 
-    await validateAndConsumeVerification("telegram", secret, "user-42", "chat-42");
+    await validateAndConsumeVerification(
+      "telegram",
+      secret,
+      "user-42",
+      "chat-42",
+    );
 
     const binding = await getGuardianBinding("asst-1", "telegram");
     expect(binding).toBeNull();
@@ -341,7 +346,8 @@ describe("guardian service challenge validation", () => {
   });
 
   test("voice and telegram guardian challenges are independent", async () => {
-    const telegramChallenge = await createInboundVerificationSession("telegram");
+    const telegramChallenge =
+      await createInboundVerificationSession("telegram");
     const voiceChallenge = await createInboundVerificationSession("phone");
 
     // Validate voice challenge against telegram channel should fail
@@ -543,13 +549,25 @@ describe("guardian service rate limiting", () => {
 
   test("valid challenge still succeeds when under threshold", async () => {
     // Record a couple invalid attempts
-    const { secret: _secret } = await createInboundVerificationSession("telegram");
-    await validateAndConsumeVerification("telegram", "wrong-1", "user-42", "chat-42");
-    await validateAndConsumeVerification("telegram", "wrong-2", "user-42", "chat-42");
+    const { secret: _secret } =
+      await createInboundVerificationSession("telegram");
+    await validateAndConsumeVerification(
+      "telegram",
+      "wrong-1",
+      "user-42",
+      "chat-42",
+    );
+    await validateAndConsumeVerification(
+      "telegram",
+      "wrong-2",
+      "user-42",
+      "chat-42",
+    );
 
     // Valid attempt should still succeed (under the 5-attempt threshold)
     // Need a new challenge since the old one is still pending but the secret was never consumed
-    const { secret: secret2 } = await createInboundVerificationSession("telegram");
+    const { secret: secret2 } =
+      await createInboundVerificationSession("telegram");
     const result = await validateAndConsumeVerification(
       "telegram",
       secret2,
@@ -717,7 +735,8 @@ describe("channel-scoped guardian resolution", () => {
     const { secret: secretTelegram } =
       await createInboundVerificationSession("telegram");
     // Create challenge on voice
-    const { secret: secretVoice } = await createInboundVerificationSession("phone");
+    const { secret: secretVoice } =
+      await createInboundVerificationSession("phone");
 
     // Attempting to consume telegram challenge on voice should fail
     const crossResult = await validateAndConsumeVerification(
@@ -1095,7 +1114,8 @@ describe("voice guardian challenge validation", () => {
 
   test("voice and telegram guardian challenges are independent", async () => {
     const voiceChallenge = await createInboundVerificationSession("phone");
-    const telegramChallenge = await createInboundVerificationSession("telegram");
+    const telegramChallenge =
+      await createInboundVerificationSession("telegram");
 
     // Voice secret against telegram channel should fail
     const crossResult = await validateAndConsumeVerification(

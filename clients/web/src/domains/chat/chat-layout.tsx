@@ -1,29 +1,43 @@
 import {
-    lazy,
-    useCallback,
-    useEffect,
-    useRef,
-    useState,
-    type ReactNode,
+  lazy,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
 } from "react";
-import { Outlet, useLocation, useNavigate, useNavigationType } from "react-router";
+import {
+  Outlet,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+} from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
-import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
-import { isAboutAssistantPath, isConversationPath, routes } from "@/utils/routes";
+import {
+  getLocalBool,
+  getLocalNumber,
+  setLocalBool,
+  setLocalNumber,
+} from "@/utils/local-settings";
+import {
+  isAboutAssistantPath,
+  isConversationPath,
+  routes,
+} from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import {
-    chooseSidebarOpenAppDestination,
-    useOpenAppFromChat,
+  chooseSidebarOpenAppDestination,
+  useOpenAppFromChat,
 } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import {
-    DRAWER_SLIDE_MS,
-    useEdgeSwipeDrawer,
+  DRAWER_SLIDE_MS,
+  useEdgeSwipeDrawer,
 } from "@/hooks/use-edge-swipe-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
@@ -36,14 +50,14 @@ import { useConversationActions } from "@/domains/chat/hooks/use-conversation-ac
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
-    navigateToConversation,
-    navigateToNewConversation,
+  navigateToConversation,
+  navigateToNewConversation,
 } from "@/utils/conversation-navigation";
 import { haptic } from "@/utils/haptics";
 
 import {
-    useConversationGroupsQuery,
-    useConversationListQuery,
+  useConversationGroupsQuery,
+  useConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
 import { isElectron } from "@/runtime/is-electron";
@@ -68,6 +82,9 @@ import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overla
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
+import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
+import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
+import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -151,6 +168,9 @@ export function ChatLayout() {
   // pill as its control surface. The composer starts/stops sessions
   // through the seams this registers in `useLiveVoiceStore`.
   useLiveVoiceSessionController();
+  // Fold a live-voice turn into the transcript on a fresh/empty chat, where the
+  // unseeded draft snapshot would otherwise drop the turn's echo (JARVIS-1265).
+  useSeedLiveVoiceSnapshot();
 
   // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
@@ -179,11 +199,10 @@ export function ChatLayout() {
   // create/rename/delete affordances are rendered here, not in ChatPage.
   // The hook is self-sufficient (cache invalidation handles rollback), so
   // it can live wherever the sidebar lives.
-  const { handleRenameGroup, handleDeleteGroup } =
-    useConversationGroupActions({
-      assistantId,
-      conversationGroups,
-    });
+  const { handleRenameGroup, handleDeleteGroup } = useConversationGroupActions({
+    assistantId,
+    conversationGroups,
+  });
 
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header.
@@ -230,7 +249,9 @@ export function ChatLayout() {
     setHistoryIndex(idx);
     // Only PUSH clears forward entries (pushState). REPLACE (replaceState)
     // and POP preserve them, so max must not reset.
-    setMaxHistoryIndex(navigationType === "PUSH" ? idx : (prev) => Math.max(prev, idx));
+    setMaxHistoryIndex(
+      navigationType === "PUSH" ? idx : (prev) => Math.max(prev, idx),
+    );
   }
 
   const canGoBack = historyIndex > 0;
@@ -285,8 +306,19 @@ export function ChatLayout() {
     }
   }, [isMobile]);
 
+  // Close the drawer on any navigation, covering sources that don't manage
+  // drawer state themselves (e.g. command palette results). `location.key`
+  // changes on every navigation — including query-only changes and same-URL
+  // history moves that `pathname` misses. Opening the drawer never navigates,
+  // so this can't fight it.
   useEffect(() => {
-    if (!sidebarCollapseRequested) {return;}
+    setDrawerOpen(false);
+  }, [location.key]);
+
+  useEffect(() => {
+    if (!sidebarCollapseRequested) {
+      return;
+    }
     // One-shot: research-onboarding asked us to open with the side panel
     // collapsed across the whole web experience (not just desktop). Collapse
     // the desktop sidebar — `setCollapsed(true)` flows through the persistence
@@ -296,6 +328,17 @@ export function ChatLayout() {
     setDrawerOpen(false);
     consumeSidebarCollapse();
   }, [sidebarCollapseRequested, consumeSidebarCollapse]);
+
+  // The full-screen voice room takes over the viewport, so the sidebar reads as
+  // collapsed and the chat body blurs while it is visible. This override is
+  // EPHEMERAL — it is OR'd into the rendered collapsed value (`sideMenuCollapsed`
+  // below) rather than routed through `setCollapsed`, so it never touches the
+  // persistence effect above. Keeping it out of the persisted `collapsed` state
+  // means a reload / tab-close while the room is open cannot write the forced
+  // value to `localStorage`: on exit the override drops and the sidebar returns
+  // to exactly the user's persisted value.
+  const voiceRoomVisible = useIsVoiceRoomVisible();
+  const sideMenuCollapsed = collapsed || voiceRoomVisible;
 
   const drawerVisible = isMobile && drawerOpen;
 
@@ -346,8 +389,10 @@ export function ChatLayout() {
   });
 
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const processingConversationIds = useConversationStore.use.processingConversationIds();
-  const attentionConversationIds = useConversationStore.use.attentionConversationIds();
+  const processingConversationIds =
+    useConversationStore.use.processingConversationIds();
+  const attentionConversationIds =
+    useConversationStore.use.attentionConversationIds();
 
   const handleSelectConversation = useCallback(
     (key: string) => {
@@ -400,20 +445,22 @@ export function ChatLayout() {
       isAssistantActive,
     ) ?? null;
 
-  const topBarCenter = topBarCenterSlot ?? (headerSupplements ? (
-    <ChatConversationHeader
-      assistantId={assistantId}
-      activeConversation={activeConversation}
-      headerSupplements={headerSupplements}
-      showLlmInspector={showLlmInspector}
-      onArchive={handleArchiveConversation}
-      onUnarchive={handleUnarchiveConversation}
-      onMarkUnread={handleMarkConversationUnread}
-      onMarkRead={handleMarkConversationRead}
-      onPinToggle={handleTogglePinConversation}
-      onRename={handleRenameConversation}
-    />
-  ) : null);
+  const topBarCenter =
+    topBarCenterSlot ??
+    (headerSupplements ? (
+      <ChatConversationHeader
+        assistantId={assistantId}
+        activeConversation={activeConversation}
+        headerSupplements={headerSupplements}
+        showLlmInspector={showLlmInspector}
+        onArchive={handleArchiveConversation}
+        onUnarchive={handleUnarchiveConversation}
+        onMarkUnread={handleMarkConversationUnread}
+        onMarkRead={handleMarkConversationRead}
+        onPinToggle={handleTogglePinConversation}
+        onRename={handleRenameConversation}
+      />
+    ) : null);
 
   // -------------------------------------------------------------------------
   // Command palette — sections, item dispatch
@@ -475,27 +522,37 @@ export function ChatLayout() {
     commandPalette: () => {
       void openCommandPaletteWindow()
         .then((opened) => {
-          if (!opened) {useCommandPaletteStore.getState().toggle();}
+          if (!opened) {
+            useCommandPaletteStore.getState().toggle();
+          }
         })
         .catch(() => {
           useCommandPaletteStore.getState().toggle();
         });
     },
     previousConversation: () => {
-      if (!activeConversationId || conversations.length === 0) {return;}
+      if (!activeConversationId || conversations.length === 0) {
+        return;
+      }
       const idx = conversations.findIndex(
         (c) => c.conversationId === activeConversationId,
       );
       const prev = conversations[idx - 1];
-      if (prev) {handleSelectConversation(prev.conversationId);}
+      if (prev) {
+        handleSelectConversation(prev.conversationId);
+      }
     },
     nextConversation: () => {
-      if (!activeConversationId || conversations.length === 0) {return;}
+      if (!activeConversationId || conversations.length === 0) {
+        return;
+      }
       const idx = conversations.findIndex(
         (c) => c.conversationId === activeConversationId,
       );
       const next = conversations[idx + 1];
-      if (next) {handleSelectConversation(next.conversationId);}
+      if (next) {
+        handleSelectConversation(next.conversationId);
+      }
     },
     openConversation: (command) => {
       if (command.kind === "openConversation") {
@@ -568,7 +625,9 @@ export function ChatLayout() {
         location.pathname,
         activeConversationId,
       );
-      if (dest) {void navigate(dest);}
+      if (dest) {
+        void navigate(dest);
+      }
       await openAppFromChat(appId);
     },
     [location.pathname, navigate, activeConversationId, openAppFromChat],
@@ -640,11 +699,19 @@ export function ChatLayout() {
           assistantId={assistantId}
           assistantVersion={assistantVersion}
           activeConversationId={activeConversationId}
+          triggerVariant={args.variant === "overlay" ? "pill" : "item"}
         />
       }
       onClose={args.onClose}
     />
   );
+
+  // Blur + freeze the chat body under the voice room. The room is an opaque
+  // overlay, so this mainly matters for the header strip peeking around it and
+  // to stop stray interaction with the covered chat.
+  const mainRoomClass = voiceRoomVisible
+    ? "pointer-events-none blur-sm opacity-40 transition-[filter,opacity]"
+    : "";
 
   return (
     <>
@@ -652,7 +719,7 @@ export function ChatLayout() {
         <ChatLayoutHeader
           isMobile={isMobile}
           drawerOpen={drawerOpen}
-          collapsed={collapsed}
+          collapsed={sideMenuCollapsed}
           sidebarWidth={sidebarWidth}
           toggleSidebar={toggleSidebar}
           topBarCenter={topBarCenter}
@@ -687,8 +754,10 @@ export function ChatLayout() {
       ) : null}
 
       {isMobile ? (
-        <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
-          <Outlet  />
+        <main
+          className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
+        >
+          <Outlet />
           {/* A popout narrowed below the mobile breakpoint lands in this
               branch — still headerless, so it still needs the floating
               session surface (see the desktop popout branch below). */}
@@ -732,7 +801,9 @@ export function ChatLayout() {
           ) : null}
         </main>
       ) : isPopout ? (
-        <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4">
+        <main
+          className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4 ${mainRoomClass}`}
+        >
           <Outlet />
           {/* Pop-outs render no header, but they DO support in-window
               conversation switching (Cmd+Up/Down) — so a live session started
@@ -749,9 +820,16 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange })}
+            {renderSideMenu({
+              collapsed: sideMenuCollapsed,
+              variant: "rail",
+              width: sidebarWidth,
+              onWidthChange: handleSidebarWidthChange,
+            })}
           </aside>
-          <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
+          <main
+            className={`flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
+          >
             <Outlet />
           </main>
         </div>
@@ -763,6 +841,12 @@ export function ChatLayout() {
           overlay; it never remounts the chat, so a suggestion click's
           navigate + `?prompt=` auto-send isn't raced by a remount. */}
       {isFocused ? <ResearchResultsOverlay /> : null}
+      {/* Full-screen live-voice room — a purely additive overlay mounted at
+          layout scope, next to the other full-viewport overlays. Self-gates on
+          `useIsVoiceRoomVisible()` (the exact complement of the title-bar
+          session pill); the composer's voice bar and transcript render
+          underneath, hidden by it. */}
+      <VoiceRoom />
       {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}

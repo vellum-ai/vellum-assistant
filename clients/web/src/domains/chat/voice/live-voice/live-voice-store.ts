@@ -75,6 +75,24 @@ export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> = {
 };
 
 /**
+ * User-facing activity label for a session, factoring in the orthogonal
+ * `reconnecting` signal. Drives the room's aria-live label. During a retry of a
+ * dropped connection the base `connecting` phase relabels to "Reconnecting…" so
+ * surfaces distinguish it from the initial connect (the JARVIS-1255 gap);
+ * `reconnecting` is ignored for every other phase. {@link LIVE_VOICE_STATE_LABELS}
+ * stays the single source of base labels.
+ */
+export function liveVoiceStateLabel(
+  state: LiveVoiceSessionState,
+  reconnecting: boolean,
+): string {
+  if (reconnecting && state === "connecting") {
+    return "Reconnecting…";
+  }
+  return LIVE_VOICE_STATE_LABELS[state];
+}
+
+/**
  * Imperative controls for the active session, registered by the
  * {@link useLiveVoice} controller instance that owns it. Lets a globally
  * mounted component (e.g. the title-bar session pill) drive a session owned by
@@ -133,6 +151,12 @@ export type LiveVoiceSessionStarter = (
 export interface LiveVoiceState {
   /** Current phase of the session lifecycle. */
   state: LiveVoiceSessionState;
+  /**
+   * True while the controller is retrying a dropped connection (attempt > 0),
+   * so surfaces can distinguish it from the initial-connect `connecting`.
+   * Orthogonal to `state`, which stays a 1:1 mirror of the macOS enum.
+   */
+  reconnecting: boolean;
   /** Assistant the active session was started for, `null` when idle. */
   assistantId: string | null;
   /**
@@ -181,6 +205,8 @@ export interface LiveVoiceState {
 export interface LiveVoiceActions {
   /** Replace the session phase. */
   setState: (state: LiveVoiceSessionState) => void;
+  /** Set whether the controller is retrying a dropped connection. */
+  setReconnecting: (reconnecting: boolean) => void;
   /**
    * Record which assistant/conversation the session was started for. Sets
    * both `conversationId` and `startedConversationId`; called once per
@@ -300,6 +326,7 @@ export function isLiveVoiceSessionOwnedBy(
 /** Session-scoped fields restored by `reset()`. Excludes `starter` (mount-scoped). */
 const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   state: "idle",
+  reconnecting: false,
   assistantId: null,
   conversationId: null,
   startedConversationId: null,
@@ -317,6 +344,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   starter: null,
 
   setState: (state) => set({ state }),
+  setReconnecting: (reconnecting) => set({ reconnecting }),
   setSessionContext: (assistantId, conversationId) =>
     set({ assistantId, conversationId, startedConversationId: conversationId }),
   setConversationId: (conversationId) => set({ conversationId }),

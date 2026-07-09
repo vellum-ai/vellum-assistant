@@ -16,7 +16,7 @@
  * but disabled, so this control never needs a stop affordance.
  */
 
-import { Mic } from "lucide-react";
+import { AudioLines } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
 
@@ -40,7 +40,7 @@ export function LiveVoiceButton({
   return (
     <Button
       variant="ghost"
-      iconOnly={<Mic strokeWidth={2} />}
+      iconOnly={<AudioLines strokeWidth={2} />}
       onClick={onStart}
       disabled={disabled}
       aria-label="Start voice mode"

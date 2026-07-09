@@ -1,3 +1,4 @@
+import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
 import { eq, isNotNull, like, ne } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
@@ -22,7 +23,6 @@ import {
   messages,
 } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../../../../util/logger.js";
-import { selectedBackendSupportsMultimodal } from "../embeddings.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -99,7 +99,9 @@ export async function rebuildIndexJob(): Promise<void> {
 export async function deleteQdrantVectorsJob(job: MemoryJob): Promise<void> {
   const targetType = asString(job.payload.targetType);
   const targetId = asString(job.payload.targetId);
-  if (!targetType || !targetId) return;
+  if (!targetType || !targetId) {
+    return;
+  }
 
   let qdrant;
   try {

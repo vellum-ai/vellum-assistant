@@ -30,13 +30,14 @@ import WebKit
 /// `capacitor-plugin-safe-area` and writes them to `--safe-area-inset-*`
 /// CSS custom properties.
 ///
-/// 4. Injects a "Reply" item into the WKWebView text-selection edit menu
-///    (iOS 16+) so highlighting assistant message text offers quote-and-reply
-///    natively, mirroring the web floating chip. The item is gated to
-///    assistant-message selections via a `canReply` flag the web layer pushes
-///    through the `vellumTextSelection` script-message handler on every
-///    `selectionchange`; tapping it calls back into the web bridge
-///    (`window.__vellumQuoteReplyFromSelection`) which opens the reply bubble.
+/// 4. Substitutes `QuoteReplyWebView` (below) as the bridge's web view so
+///    highlighting assistant message text offers a native "Reply" item in the
+///    text-selection edit menu (iOS 16+), mirroring the web floating chip.
+///    Eligibility is pushed by the web layer as a `{ canReply }` flag through
+///    the `vellumTextSelection` script-message handler (primed on
+///    `pointerdown`, kept in sync on `selectionchange`); tapping the item
+///    calls back into the web bridge (`window.__vellumQuoteReplyFromSelection`)
+///    which opens the reply bubble.
 ///    See `clients/web/src/domains/chat/hooks/use-native-quote-reply.ts`.
 ///
 /// `Main.storyboard`'s single scene uses this class instead of the stock
@@ -46,22 +47,13 @@ class MyViewController: CAPBridgeViewController {
     /// context to. Must match `NATIVE_SELECTION_HANDLER` on the web side.
     private static let textSelectionHandlerName = "vellumTextSelection"
 
-    /// Identifier for the injected "Reply" edit-menu command.
-    private static let quoteReplyMenuIdentifier = UIMenu.Identifier(
-        "ai.vellum.assistant.quoteReply"
-    )
-
-    /// Whether the current web selection is inside an assistant message and
-    /// therefore eligible for quote-and-reply. Kept in sync by the web layer
-    /// via the `vellumTextSelection` handler. Toggling it rebuilds the edit
-    /// menu so the "Reply" item appears/disappears with the selection.
-    private var canQuoteReply = false {
-        didSet {
-            guard canQuoteReply != oldValue else { return }
-            if #available(iOS 16.0, *) {
-                UIMenuSystem.main.setNeedsRebuild()
-            }
-        }
+    /// Substitute the quote-and-reply-aware web view subclass. This is the
+    /// Capacitor-supported hook for providing a custom `WKWebView` class.
+    override open func webView(
+        with frame: CGRect,
+        configuration: WKWebViewConfiguration
+    ) -> WKWebView {
+        return QuoteReplyWebView(frame: frame, configuration: configuration)
     }
 
     override open func capacitorDidLoad() {
@@ -102,25 +94,6 @@ class MyViewController: CAPBridgeViewController {
             WeakScriptMessageHandler(self),
             name: Self.textSelectionHandlerName
         )
-    }
-
-    override open func buildMenu(with builder: UIMenuBuilder) {
-        super.buildMenu(with: builder)
-        guard #available(iOS 16.0, *), canQuoteReply else { return }
-        let replyAction = UIAction(title: "Reply") { [weak self] _ in
-            self?.webView?.evaluateJavaScript(
-                "window.__vellumQuoteReplyFromSelection && window.__vellumQuoteReplyFromSelection()"
-            )
-        }
-        let replyMenu = UIMenu(
-            title: "",
-            identifier: Self.quoteReplyMenuIdentifier,
-            options: .displayInline,
-            children: [replyAction]
-        )
-        // Insert before the standard Cut/Copy/Paste group so "Reply" is the
-        // leading item, matching the reference selection-menu placement.
-        builder.insertSibling(replyMenu, beforeMenu: .standardEdit)
     }
 
     // MARK: - Rotation zoom reset
@@ -199,7 +172,55 @@ extension MyViewController: WKScriptMessageHandler {
               let body = message.body as? [String: Any],
               let canReply = body["canReply"] as? Bool
         else { return }
-        canQuoteReply = canReply
+        (webView as? QuoteReplyWebView)?.canQuoteReply = canReply
+    }
+}
+
+// MARK: - QuoteReplyWebView
+
+/// `WKWebView` subclass that hosts the "Reply" text-selection edit-menu item.
+///
+/// The item MUST live on the web view itself — not on the containing view
+/// controller. WebKit's internal first responder (`WKContentView`) forwards
+/// UIKit's action validation (`canPerformAction(_:withSender:)` and
+/// `targetForAction(_:withSender:)`) directly to the `WKWebView` instance
+/// rather than letting it bubble up the responder chain (see
+/// `WKContentViewInteraction.mm`), so a selector-based command hung off the
+/// view controller is stripped from the edit menu before the view
+/// controller's overrides are ever consulted. A block-based `UIAction`
+/// sidesteps action validation entirely: its visibility is decided solely by
+/// whether `buildMenu(with:)` inserts it, and UIKit rebuilds the edit menu
+/// through `buildMenu` on every presentation, so the `canQuoteReply` flag —
+/// primed by the web layer on `pointerdown`, before the long-press builds the
+/// menu — is always current by the time it is read here.
+final class QuoteReplyWebView: WKWebView {
+    /// Identifier for the injected "Reply" edit-menu group.
+    private static let quoteReplyMenuIdentifier = UIMenu.Identifier(
+        "ai.vellum.assistant.quoteReply"
+    )
+
+    /// Whether the current (or imminent) web selection is inside an assistant
+    /// message and therefore eligible for quote-and-reply. Pushed by the web
+    /// layer via the `vellumTextSelection` script-message handler.
+    var canQuoteReply = false
+
+    override func buildMenu(with builder: UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        guard #available(iOS 16.0, *), canQuoteReply else { return }
+        let replyAction = UIAction(title: "Reply") { [weak self] _ in
+            self?.evaluateJavaScript(
+                "window.__vellumQuoteReplyFromSelection && window.__vellumQuoteReplyFromSelection()"
+            )
+        }
+        let replyMenu = UIMenu(
+            title: "",
+            identifier: Self.quoteReplyMenuIdentifier,
+            options: .displayInline,
+            children: [replyAction]
+        )
+        // Insert before the standard Cut/Copy/Paste group so "Reply" is the
+        // leading item, matching the reference selection-menu placement.
+        builder.insertSibling(replyMenu, beforeMenu: .standardEdit)
     }
 }
 

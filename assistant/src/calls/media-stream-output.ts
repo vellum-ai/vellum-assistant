@@ -40,6 +40,7 @@ import type { ServerWebSocket } from "bun";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { synthesizeAndEmit } from "../tts/synthesis-stream.js";
 import { getLogger } from "../util/logger.js";
+import type { CallAudioFormat } from "./audio-store.js";
 import type { CallTransport } from "./call-transport.js";
 import {
   chunkMulawToBase64Frames,
@@ -335,10 +336,10 @@ export class MediaStreamOutput implements CallTransport {
   private audioStartCallback: (() => void) | null = null;
 
   /**
-   * The media-stream transport requires WAV (PCM) audio because its
+   * The media-stream transport requires raw PCM audio because its
    * mu-law transcoder cannot decode compressed formats (mp3, opus).
    */
-  readonly requiresWavAudio = true;
+  readonly requiresPcmAudio = true;
 
   constructor(ws: ServerWebSocket<unknown>, streamSid: string) {
     this.ws = ws;
@@ -392,7 +393,9 @@ export class MediaStreamOutput implements CallTransport {
    * PCM, and re-encode as mu-law frames for Twilio.
    */
   sendPlayUrl(url: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.enqueuePlayback({ type: "fetch-url", url });
   }
 
@@ -431,7 +434,9 @@ export class MediaStreamOutput implements CallTransport {
    * closes.
    */
   endSession(reason?: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.state = "closed";
 
     // Cancel any in-flight playback
@@ -458,7 +463,9 @@ export class MediaStreamOutput implements CallTransport {
    * Send a base64-encoded audio frame to Twilio for playback.
    */
   sendAudioPayload(base64Payload: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     const command: MediaStreamSendMediaCommand = {
       event: "media",
@@ -483,7 +490,9 @@ export class MediaStreamOutput implements CallTransport {
    * back a `mark` event when the caller reaches this point in playback.
    */
   sendMark(name: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     const command: MediaStreamSendMarkCommand = {
       event: "mark",
@@ -517,7 +526,9 @@ export class MediaStreamOutput implements CallTransport {
    * when it actually aborts the turn.
    */
   clearAudio(): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     // Flush our internal playback queue and abort in-flight work.
     this.flushPlaybackQueue();
@@ -537,7 +548,9 @@ export class MediaStreamOutput implements CallTransport {
    * (initial greeting, setup handoff prompt) survives to play after.
    */
   clearBufferedAudio(): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.sendClearCommand();
   }
 
@@ -631,7 +644,9 @@ export class MediaStreamOutput implements CallTransport {
    * before sending.
    */
   private async drainPlaybackQueue(): Promise<void> {
-    if (this.draining) return;
+    if (this.draining) {
+      return;
+    }
     this.draining = true;
 
     try {
@@ -659,7 +674,9 @@ export class MediaStreamOutput implements CallTransport {
 
         // If the playback version changed (clearAudio was called), stop
         // processing stale items.
-        if (version !== this.playbackVersion) break;
+        if (version !== this.playbackVersion) {
+          break;
+        }
       }
     } finally {
       this.draining = false;
@@ -677,7 +694,9 @@ export class MediaStreamOutput implements CallTransport {
    * the one-shot audio-start signal before the first frame goes out.
    */
   private sendFrames(frames: string[]): void {
-    if (frames.length === 0) return;
+    if (frames.length === 0) {
+      return;
+    }
     const audioStartCallback = this.audioStartCallback;
     if (audioStartCallback) {
       this.audioStartCallback = null;
@@ -703,11 +722,11 @@ export class MediaStreamOutput implements CallTransport {
     this.activePlaybackAbort = abortController;
 
     try {
-      // Request WAV so audioBufferToFrames gets PCM it can transcode
+      // Request PCM so audioBufferToFrames gets raw PCM it can transcode
       // to mu-law. Compressed formats (mp3, opus) would be sent as raw
       // bytes and produce garbled audio.
       const { provider, audioFormat } = await resolveCallTtsProvider({
-        preferWav: true,
+        requiresPcmAudio: true,
       });
       if (!provider) {
         log.warn(
@@ -789,9 +808,11 @@ export class MediaStreamOutput implements CallTransport {
 
       // Derive the format from the provider's actual content type rather
       // than the declared audioFormat. The declared format may not match
-      // reality (e.g. preferWav requests WAV but the provider returns mp3).
-      // audioBufferToFrames also sniffs magic bytes as a safety net.
-      const actualFormat: "mp3" | "wav" | "opus" | "pcm" =
+      // reality (e.g. requiresPcmAudio requests PCM but the provider
+      // returns mp3). For unknown content types, fall back to the declared
+      // format (PCM on this path — the bytes were requested as raw PCM,
+      // and audioBufferToFrames sniffs magic bytes as a safety net).
+      const actualFormat: CallAudioFormat =
         result.contentType.includes("wav") ||
         result.contentType.includes("x-wav")
           ? "wav"
@@ -860,10 +881,13 @@ export class MediaStreamOutput implements CallTransport {
         return;
       }
 
-      if (version !== this.playbackVersion || this.isClosed()) return;
+      if (version !== this.playbackVersion || this.isClosed()) {
+        return;
+      }
+
 
       const contentType = response.headers.get("content-type") ?? "audio/mpeg";
-      const format: "mp3" | "wav" | "opus" | "pcm" = contentType.includes("wav")
+      const format: CallAudioFormat = contentType.includes("wav")
         ? "wav"
         : contentType.includes("opus")
           ? "opus"
@@ -889,7 +913,9 @@ export class MediaStreamOutput implements CallTransport {
       if (version !== this.playbackVersion || this.isClosed()) return;
 
       const frames = this.audioBufferToFrames(buffer, format);
-      if (version !== this.playbackVersion || this.isClosed()) return;
+      if (version !== this.playbackVersion || this.isClosed()) {
+        return;
+      }
 
       this.sendFrames(frames);
     } catch (err) {
@@ -992,9 +1018,9 @@ export class MediaStreamOutput implements CallTransport {
    * base64-encoded mu-law frames.
    *
    * Rather than trusting the declared `format` parameter (which may not
-   * match the actual bytes — e.g. when a provider is asked for WAV but
-   * returns mp3), this method **sniffs the magic bytes** to detect the
-   * real format:
+   * match the actual bytes — e.g. the declared format may be pcm while
+   * the provider returned mp3), this method **sniffs the magic bytes**
+   * to detect the real format:
    *
    * - **WAV** (`RIFF` header, bytes `0x52 0x49 0x46 0x46`): extracts
    *   raw PCM data from the WAV container, converts it to 8 kHz using the
@@ -1008,7 +1034,7 @@ export class MediaStreamOutput implements CallTransport {
    */
   private audioBufferToFrames(
     audio: Buffer,
-    format: "mp3" | "wav" | "opus" | "pcm",
+    format: CallAudioFormat,
   ): string[] {
     // Sniff the actual bytes rather than trusting the declared format.
     const isWav = audio.length >= WAV_HEADER_BYTES && hasRiffMagic(audio);
@@ -1021,7 +1047,9 @@ export class MediaStreamOutput implements CallTransport {
       const sampleRate = audio.readUInt32LE(24);
       const bitsPerSample = audio.readUInt16LE(34);
       let pcmData: Buffer = audio.subarray(WAV_HEADER_BYTES);
-      if (pcmData.length < 2) return [];
+      if (pcmData.length < 2) {
+        return [];
+      }
 
       if (bitsPerSample !== 16 || channels > 2 || channels === 0) {
         // Limitation: only 16-bit mono/stereo PCM is decoded here.
@@ -1042,8 +1070,9 @@ export class MediaStreamOutput implements CallTransport {
 
     // When the declared format is "wav" but the RIFF check failed, the
     // bytes might be either:
-    // (a) Raw PCM stored under audio/wav content-type (when
-    //     outputFormat: "pcm" is used with createStreamingEntry("wav"))
+    // (a) Raw PCM served under a wav content-type (declared "wav" only
+    //     arrives via content-type sniffing; some providers label raw
+    //     PCM streams audio/wav)
     // (b) Compressed audio (mp3/opus) from a provider that ignores
     //     outputFormat (e.g. Fish Audio defaults to mp3)
     //
@@ -1086,7 +1115,9 @@ export class MediaStreamOutput implements CallTransport {
     // ElevenLabs pcm_16000 produces 16-bit signed LE at 16 kHz. Twilio
     // needs 8 kHz mu-law, so we downsample by taking every other sample.
     if (format === "pcm" || format === "wav") {
-      if (audio.length < 2) return [];
+      if (audio.length < 2) {
+        return [];
+      }
       // Headerless PCM carries no declared rate; assume the 16 kHz that
       // ElevenLabs pcm_16000 produces and downsample to 8 kHz.
       const downsampled = decimatePcm16(audio, 2);
@@ -1135,7 +1166,9 @@ export class MediaStreamOutput implements CallTransport {
    * assumption with a warning.
    */
   private pcm16ToTelephonyRate(pcm: Buffer, sampleRate: number): Buffer {
-    if (sampleRate === TELEPHONY_SAMPLE_RATE_HZ) return pcm;
+    if (sampleRate === TELEPHONY_SAMPLE_RATE_HZ) {
+      return pcm;
+    }
     if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
       log.warn(
         { streamSid: this.streamSid, sampleRate },

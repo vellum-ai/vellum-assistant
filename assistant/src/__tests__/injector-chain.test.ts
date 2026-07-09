@@ -39,6 +39,18 @@ mock.module("../config/loader.js", () => ({
   },
 }));
 
+// Memory code resolves its config through the plugin's own accessor, not
+// getConfig(); mirror the v2-disabled override there.
+const realMemoryConfigModule =
+  await import("../plugins/defaults/memory/config.js");
+const realGetMemoryConfig = realMemoryConfigModule.getMemoryConfig;
+mock.module("../plugins/defaults/memory/config.js", () => ({
+  getMemoryConfig: () => {
+    const real = realGetMemoryConfig();
+    return { ...real, v2: { ...real.v2, enabled: false } };
+  },
+}));
+
 // `applyRuntimeInjections` computes the `<turn_context>` `current_time` live
 // via `formatTurnTimestamp`; pin it so the rendered block matches the
 // deterministic `buildUnifiedTurnContextBlock` expectations below. The rest of

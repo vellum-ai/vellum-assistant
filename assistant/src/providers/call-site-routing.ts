@@ -257,6 +257,7 @@ export class CallSiteRoutingProvider implements Provider {
           "<resolved-callsite>",
           "model_incompatible",
           incompatMsg,
+          { model: resolved.model },
         );
       }
     }

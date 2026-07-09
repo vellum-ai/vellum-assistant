@@ -28,9 +28,12 @@
 //   - `lastProcessedMessageId` advances ONLY on `result.invoked === true`.
 //     Wake failures keep it unchanged so the next attempt re-processes the
 //     same messages. This is the load-bearing correctness invariant.
-//   - `lastRunAt` advances on EVERY job end (success or failure) via a
-//     `try/finally` write, so the per-conversation cooldown gate applies to
-//     subsequent trigger-driven enqueues.
+//   - `lastRunAt` advances at the end of every job that actually attempted a
+//     run (success or wake failure), so the per-conversation cooldown gate
+//     applies to subsequent trigger-driven enqueues. The mid-turn skip
+//     deliberately leaves it untouched — see the guard in
+//     `runForkBasedRetrospective` — so the turn-end trigger check can
+//     requeue the run immediately instead of burning it.
 //
 // Daemon crash recovery: `resetRunningJobsToPending` (in jobs-store.ts) flips
 // crashed `running` rows back to `pending` at startup. The orphan background
@@ -42,6 +45,7 @@ import {
   isInteractiveInterface,
   parseInterfaceId,
 } from "../../../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { isProcToSkillsActive } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
@@ -59,7 +63,6 @@ import {
   deleteConversationGently,
   forkConversationForRetrospective,
   getConversation,
-  getMessagesAfter,
   isConversationProcessing,
   resolveOverrideProfile,
 } from "../../../persistence/conversation-crud.js";
@@ -67,12 +70,14 @@ import {
   enqueueMemoryJob,
   type MemoryJob,
   type MemoryJobType,
+  upsertMemoryRetrospectiveJob,
 } from "../../../persistence/jobs-store.js";
 import { resolveUserSlug } from "../../../prompts/persona-resolver.js";
 import type { SystemPromptPersonaOverride } from "../../../prompts/system-prompt.js";
 import { wakeAgentForOpportunity } from "../../../runtime/agent-wake.js";
 import { getLogger } from "../../../util/logger.js";
 import { findMostRecentRetrospectiveFor } from "./find-most-recent-retrospective-for.js";
+import { getRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_GROUP_ID,
@@ -81,6 +86,11 @@ import {
   MEMORY_RETROSPECTIVE_SOURCE,
 } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
+import {
+  extractRetrospectiveRunSkillScaffolds,
+  insertSkillCardMessage,
+  SKILL_CREATION_CARD_FLAG,
+} from "./memory-retrospective-skill-card.js";
 import {
   appendToRememberedLog,
   bumpRetrospectiveLastRunAt,
@@ -96,6 +106,17 @@ const log = getLogger("memory-retrospective-job");
  * touching the handler body.
  */
 const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = [] as const;
+
+/**
+ * Fallback delay for re-upserting a run that was skipped because the source
+ * conversation was mid-turn. The PRIMARY requeue is event-driven: the
+ * mid-turn skip leaves `lastRunAt` unbumped, so the message-indexing pass on
+ * the turn's final assistant message re-enqueues immediately. This timed row
+ * only covers a turn that aborts without ever persisting another message.
+ * Each retried attempt re-checks the processing flag and re-upserts at the
+ * same cadence, so the loop self-resolves when the turn ends.
+ */
+export const SOURCE_PROCESSING_REQUEUE_DELAY_MS = 60_000;
 
 export type MemoryRetrospectiveOutcome =
   | { kind: "disabled" }
@@ -155,23 +176,52 @@ export async function runForkBasedRetrospective(
   // agent loop is still running. Check the persisted `processing_started_at`
   // column (the cross-process source of truth) instead of the in-memory
   // registry, so this guard works even when running in a separate CLI
-  // process with an empty conversation registry. Bump `lastRunAt` so the
-  // cooldown gate applies, leave `lastProcessedMessageId` untouched so the
-  // next interval/message-count trigger re-processes the same messages —
-  // nothing is lost. Returning (not throwing) keeps the jobs-worker from
+  // process with an empty conversation registry.
+  //
+  // The skipped run is RETRIED, not burned. `lastRunAt` is deliberately not
+  // bumped: the message-indexing hook runs the trigger check on every
+  // persisted message — including the turn's final assistant message — so an
+  // unbumped `lastRunAt` lets that turn-end pass re-enqueue with no cooldown
+  // suppression. That is the primary, event-driven requeue: the retrospective
+  // runs right after the colliding turn completes. Mid-turn attempts are
+  // cheap no-ops (existence + processing check) that recur at most once per
+  // persisted message and coalesce into a single pending row via the upsert.
+  // The timed re-upsert below is a fallback for a turn that aborts without
+  // ever indexing another message (the lifecycle/disposal enqueue remains
+  // the last-resort net). Both state pointers stay untouched, so nothing is
+  // lost. Returning (not throwing) keeps the jobs-worker from
   // retry-with-backoff.
   if (isConversationProcessing(sourceConversationId)) {
-    await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
-    log.info(
-      { sourceConversationId },
-      "memory-retrospective (fork): source conversation is mid-turn; skipping",
-    );
+    try {
+      upsertMemoryRetrospectiveJob(
+        { conversationId: sourceConversationId },
+        Date.now() + SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+      );
+      log.info(
+        {
+          sourceConversationId,
+          requeueDelayMs: SOURCE_PROCESSING_REQUEUE_DELAY_MS,
+        },
+        "memory-retrospective (fork): source conversation is mid-turn; requeued",
+      );
+    } catch (err) {
+      log.warn(
+        { err, sourceConversationId },
+        "memory-retrospective (fork): mid-turn fallback requeue failed; relying on the turn-end trigger check",
+      );
+    }
     return { kind: "source_processing" };
   }
 
   const state = getRetrospectiveState(sourceConversationId);
   const lastProcessedMessageId = state?.lastProcessedMessageId ?? null;
-  const newMessages = getMessagesAfter(
+  // Kind-aware slice: a prior run's own `skill-authored-card` message lands
+  // AFTER the cursor that run persisted, so the raw slice would treat the
+  // card as new work — a card-only tail must be `no_new_messages`, and a
+  // mixed tail's cutoff must land on the last REAL message (never blindly
+  // past the card, so an interleaved real message is never skipped). See
+  // `memory-retrospective-accounting.ts`.
+  const newMessages = getRetrospectiveMessagesAfter(
     sourceConversationId,
     lastProcessedMessageId,
   );
@@ -626,6 +676,52 @@ async function finalizeSuccessfulRetrospective(args: {
     lastRunAt: Date.now(),
     rememberedLog: appendToRememberedLog(priorRemembers, runRemembers),
   });
+
+  // Surface newly created skills as a `skill_card` ui_surface message on the
+  // source conversation. Gated on proc-to-skills being active (the run can
+  // only author skills when it is) AND the `skill-creation-card` flag.
+  // `insertSkillCardMessage` is best-effort — a card failure never fails the
+  // job — and defers delivery through a durable `skill_card_insert` job when
+  // the source is mid-turn, so the card still always lands once the turn
+  // ends. Every gate outcome logs at info level so a missing card is
+  // one-grep diagnosable in the field ("skill-card:" / "skill card:").
+  const procToSkillsActive = isProcToSkillsActive(config);
+  const skillCardFlagEnabled = isAssistantFeatureFlagEnabled(
+    SKILL_CREATION_CARD_FLAG,
+    config,
+  );
+  if (procToSkillsActive && skillCardFlagEnabled) {
+    const authoredSkills = extractRetrospectiveRunSkillScaffolds(
+      retrospectiveConversationId,
+    );
+    log.info(
+      {
+        sourceConversationId,
+        retrospectiveConversationId,
+        scaffoldCount: authoredSkills.length,
+      },
+      "skill-card: gate passed; extracted skill scaffolds from the run",
+    );
+    if (authoredSkills.length > 0) {
+      await insertSkillCardMessage(
+        sourceConversationId,
+        retrospectiveConversationId,
+        authoredSkills,
+      );
+    }
+  } else {
+    log.info(
+      {
+        sourceConversationId,
+        retrospectiveConversationId,
+        procToSkillsActive,
+        skillCardFlagEnabled,
+      },
+      procToSkillsActive
+        ? "skill-card: skipped — skill-creation-card flag off"
+        : "skill-card: skipped — proc-to-skills inactive",
+    );
+  }
 
   await deleteSupersededPriorRetrospective(config, prior, sourceConversationId);
 
