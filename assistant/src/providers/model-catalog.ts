@@ -1008,6 +1008,11 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       // xAI
+      // OpenRouter lists an `input_cache_read` rate for xAI models but its
+      // xAI endpoints report `supports_implicit_caching: false`, and observed
+      // usage never includes cached tokens. `supportsCaching` therefore stays
+      // false; the `cacheReadPer1mTokens` rates below only apply if OpenRouter
+      // starts reporting cached tokens in usage.
       {
         id: "x-ai/grok-4.5",
         displayName: "Grok 4.5",
@@ -1019,7 +1024,11 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 2, outputPer1mTokens: 6 },
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 6,
+          cacheReadPer1mTokens: 0.5,
+        },
       },
       {
         id: "x-ai/grok-4.3",
@@ -1030,7 +1039,11 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 1.25, outputPer1mTokens: 2.5 },
+        pricing: {
+          inputPer1mTokens: 1.25,
+          outputPer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
       },
       {
         id: "x-ai/grok-4.20",
@@ -1041,7 +1054,11 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 1.25, outputPer1mTokens: 2.5 },
+        pricing: {
+          inputPer1mTokens: 1.25,
+          outputPer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
       },
       // DeepSeek
       {
