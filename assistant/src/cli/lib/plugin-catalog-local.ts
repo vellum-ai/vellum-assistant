@@ -31,7 +31,7 @@ export function buildBundledPluginCatalog(
   const matches = [];
   const seen = new Set<string>();
   for (const entry of plugins) {
-    if (seen.has(entry.name)) continue;
+    if (seen.has(entry.name)) {continue;}
     matches.push(marketplaceMatch(entry));
     seen.add(entry.name);
   }

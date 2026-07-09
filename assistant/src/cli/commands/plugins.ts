@@ -645,7 +645,7 @@ $ assistant plugins publish --json`,
             category?: string;
           }) => {
             const ok = await runPublish(opts, { confirmPrompt });
-            if (!ok) process.exitCode = 1;
+            if (!ok) {process.exitCode = 1;}
           },
         );
 
@@ -1037,9 +1037,9 @@ function shortSha(sha: string | null): string {
  * fall back to `unknown`, with the SHA still shown alongside as the precise id.
  */
 function formatTimestamp(iso: string | null): string {
-  if (!iso) return "unknown";
+  if (!iso) {return "unknown";}
   const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return "unknown";
+  if (!Number.isFinite(ms)) {return "unknown";}
   return new Date(ms).toISOString().slice(0, 19);
 }
 
@@ -1049,9 +1049,9 @@ function formatTimestamp(iso: string | null): string {
  */
 function formatAllPluginStatus(p: AllPluginInfo): string {
   const parts: string[] = [];
-  if (p.disabled) parts.push("disabled");
-  if (p.issues.length > 0) parts.push(p.issues.join("; "));
-  if (parts.length === 0) parts.push("enabled");
+  if (p.disabled) {parts.push("disabled");}
+  if (p.issues.length > 0) {parts.push(p.issues.join("; "));}
+  if (parts.length === 0) {parts.push("enabled");}
   return parts.join(", ");
 }
 
@@ -1081,8 +1081,8 @@ function statusLine(status: PluginInspection["status"]): string {
  */
 function driftLine(changes: FingerprintComparison | null): string {
   if (!changes)
-    return "unknown (no recorded baseline; reinstall to record one)";
-  if (changes.clean) return "none";
+    {return "unknown (no recorded baseline; reinstall to record one)";}
+  if (changes.clean) {return "none";}
   const parts = [
     `${changes.modified.length} modified`,
     `${changes.added.length} added`,
@@ -1114,9 +1114,9 @@ function formatInspection(inspection: PluginInspection): string[] {
   // under it. Omitted entirely when the plugin contributes none of that type,
   // so the listing only ever shows what the plugin actually contributes.
   const surfaceBlock = (label: string, items: readonly string[]) => {
-    if (items.length === 0) return;
+    if (items.length === 0) {return;}
     lines.push(label);
-    for (const item of items) lines.push(`  ${item}`);
+    for (const item of items) {lines.push(`  ${item}`);}
   };
 
   topRow("status", statusLine(status));
@@ -1142,15 +1142,15 @@ function formatInspection(inspection: PluginInspection): string[] {
   }
 
   const pkgVersion = local?.version ?? null;
-  if (pkgVersion) topRow("pkg version", pkgVersion);
+  if (pkgVersion) {topRow("pkg version", pkgVersion);}
 
   const license = remote?.license ?? null;
   const homepage = remote?.homepage ?? null;
-  if (license) topRow("license", license);
-  if (homepage) topRow("homepage", homepage);
+  if (license) {topRow("license", license);}
+  if (homepage) {topRow("homepage", homepage);}
 
   const description = remote?.description ?? local?.description ?? null;
-  if (description) topRow("description", description);
+  if (description) {topRow("description", description);}
 
   if (surfaces) {
     surfaceBlock("skills", surfaces.skills);
@@ -1158,7 +1158,7 @@ function formatInspection(inspection: PluginInspection): string[] {
     surfaceBlock("tools", surfaces.tools);
   }
 
-  for (const issue of local?.issues ?? []) topRow("issue", issue);
+  for (const issue of local?.issues ?? []) {topRow("issue", issue);}
 
   return lines;
 }
@@ -1188,7 +1188,7 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         "",
         "dry run; no changes made.",
       ];
-      if (provenanceNote) lines.push(provenanceNote);
+      if (provenanceNote) {lines.push(provenanceNote);}
       return lines;
     }
     case "upgraded": {
@@ -1229,7 +1229,7 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
           "",
           "Resolve the conflicts, then the upgrade will be picked up live on the next read (no restart required).",
         );
-        if (provenanceNote) lines.push(provenanceNote);
+        if (provenanceNote) {lines.push(provenanceNote);}
         return lines;
       }
 
@@ -1245,8 +1245,8 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         `${count}→ ${result.target}`,
         "Restart the assistant to pick up the upgrade.",
       ];
-      if (mergeNote) lines.push(mergeNote);
-      if (provenanceNote) lines.push(provenanceNote);
+      if (mergeNote) {lines.push(mergeNote);}
+      if (provenanceNote) {lines.push(provenanceNote);}
       return lines;
     }
   }
