@@ -3493,6 +3493,115 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  // ── Eager first segment (synthesized-play path) ─────────────────────
+
+  test("synthesized provider: the turn's first segment flushes eagerly at a clause boundary before any sentence ends", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    const { relay, controller } = setupController();
+
+    let segmentsBeforeSentenceEnd = -1;
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        opts.onTextDelta("Let me take a look at that, ");
+        // The clause-bounded prefix must reach synthesis while no sentence
+        // has ended yet — full-sentence rules would still be buffering.
+        await pollUntil(() => synthesizedTexts.length > 0);
+        segmentsBeforeSentenceEnd = synthesizedTexts.length;
+        opts.onTextDelta("and get right back to you.");
+        opts.onComplete();
+        return { turnId: "run-eager", abort: () => {} };
+      },
+    );
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(segmentsBeforeSentenceEnd).toBe(1);
+    expect(synthesizedTexts).toEqual([
+      "Let me take a look at that,",
+      "and get right back to you.",
+    ]);
+    expect(relay.sentPlayUrls.length).toBe(2);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: eager mode applies only to the first segment — later clauses wait for sentence ends", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn([
+        "Let me take a look at that, and then, after checking, I will confirm.",
+      ]),
+    );
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(synthesizedTexts).toEqual([
+      "Let me take a look at that,",
+      "and then, after checking, I will confirm.",
+    ]);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: a long unpunctuated opening flushes at the eager 60-char cap; the force-flushed tail is unaffected", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn([
+        "The quick brown fox jumps over the lazy dog near the quiet river bank",
+      ]),
+    );
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // First segment splits at the last whitespace under the 60-char eager
+    // cap (the default cap is 180); the short remainder never reaches a
+    // boundary and force-flushes at turn completion.
+    expect(synthesizedTexts).toEqual([
+      "The quick brown fox jumps over the lazy dog near the quiet",
+      "river bank",
+    ]);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: a short reply below every eager threshold only force-flushes at turn completion", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(["Quick note"]));
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(synthesizedTexts).toEqual(["Quick note"]);
+    expect(relay.sentPlayUrls.length).toBe(1);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: each turn's first segment is eager again", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Let me take a look at that, one moment."]),
+    );
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+    await controller.handleCallerUtterance("Thanks");
+
+    expect(synthesizedTexts).toEqual([
+      "Let me take a look at that,",
+      "one moment.",
+      "Let me take a look at that,",
+      "one moment.",
+    ]);
+
+    controller.destroy();
+  });
+
   // ── Per-segment fallback on WAV-requiring transports ────────────────
 
   /**

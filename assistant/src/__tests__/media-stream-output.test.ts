@@ -1055,6 +1055,124 @@ describe("MediaStreamOutput", () => {
     });
   });
 
+  describe("eager first segment", () => {
+    function usePlayableWav(): void {
+      mockSynthesize.mockResolvedValue({
+        audio: makeWavBuffer([1000, 2000, 3000, 4000]),
+        contentType: "audio/wav",
+      });
+    }
+
+    test("the turn's first segment synthesizes at a clause boundary before any sentence ends", async () => {
+      usePlayableWav();
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      // No sentence has ended yet — full-sentence rules would still be
+      // buffering, but the clause-bounded prefix synthesizes immediately.
+      output.sendTextToken("Let me take a look at that, ", false);
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      expect(mockSynthesize).toHaveBeenCalledTimes(1);
+      expect(mockSynthesize.mock.calls[0][0].text).toBe(
+        "Let me take a look at that,",
+      );
+
+      output.sendTextToken("and get right back to you.", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      expect(mockSynthesize).toHaveBeenCalledTimes(2);
+      expect(mockSynthesize.mock.calls[1][0].text).toBe(
+        "and get right back to you.",
+      );
+    });
+
+    test("eager mode applies only to the first segment — later clauses wait for sentence ends", async () => {
+      usePlayableWav();
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      output.sendTextToken(
+        "Let me take a look at that, and then, after checking, I will confirm.",
+        false,
+      );
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      expect(mockSynthesize.mock.calls.map((c) => c[0].text)).toEqual([
+        "Let me take a look at that,",
+        "and then, after checking, I will confirm.",
+      ]);
+    });
+
+    test("a long unpunctuated opening flushes at the eager 60-char cap", async () => {
+      usePlayableWav();
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      // 69 chars, no punctuation: below the default 180-char cap but past
+      // the eager 60-char cap, so the opening splits at the last whitespace
+      // under 60 chars.
+      output.sendTextToken(
+        "The quick brown fox jumps over the lazy dog near the quiet river bank",
+        false,
+      );
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      expect(mockSynthesize).toHaveBeenCalledTimes(1);
+      expect(mockSynthesize.mock.calls[0][0].text).toBe(
+        "The quick brown fox jumps over the lazy dog near the quiet",
+      );
+
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      // The short remainder never reaches a boundary and force-flushes on
+      // last: true.
+      expect(mockSynthesize).toHaveBeenCalledTimes(2);
+      expect(mockSynthesize.mock.calls[1][0].text).toBe("river bank");
+    });
+
+    test("the next turn's first segment is eager again", async () => {
+      usePlayableWav();
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      output.sendTextToken("Let me take a look at that, one moment.", true);
+      await drain(() => countEvents(sent, "mark") >= 1);
+
+      output.sendTextToken("Here is the second answer, coming right up.", true);
+      await drain(() => countEvents(sent, "mark") >= 2);
+
+      expect(mockSynthesize.mock.calls.map((c) => c[0].text)).toEqual([
+        "Let me take a look at that,",
+        "one moment.",
+        "Here is the second answer,",
+        "coming right up.",
+      ]);
+    });
+
+    test("discardPendingText re-arms eager segmentation for the next turn", async () => {
+      usePlayableWav();
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      output.sendTextToken("Let me take a look at that, plus extra", false);
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      // Turn aborted: the unsegmented remainder is dropped and the next
+      // turn's first segment is eager again.
+      output.discardPendingText();
+      output.sendTextToken("Here is the second answer, plus more", false);
+      await drain(() => mockSynthesize.mock.calls.length > 1);
+
+      expect(mockSynthesize.mock.calls.map((c) => c[0].text)).toEqual([
+        "Let me take a look at that,",
+        "Here is the second answer,",
+      ]);
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // Streaming PCM synthesis (incremental transcode)
   // ---------------------------------------------------------------------------
