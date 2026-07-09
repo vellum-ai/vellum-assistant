@@ -15,34 +15,38 @@ import {
   type ResolvedPluginSource,
   resolveMarketplaceSource,
 } from "./plugin-marketplace.js";
-import { marketplaceMatch, type PluginCatalog } from "./search-plugins.js";
+import {
+  type PluginCatalog,
+  projectMarketplaceEntries,
+} from "./search-plugins.js";
 
 // Re-exported so `local`-tagged CLI commands can gate on platform features
 // without importing `platform/` directly (cli/no-daemon-internals allows lib).
 export { arePlatformFeaturesEnabled } from "../../platform/feature-gate.js";
 
+let memoizedEntries: readonly MarketplaceEntry[] | undefined;
+
+/** Validated bundled manifest entries, parsed once and reused. */
+function bundledEntries(): readonly MarketplaceEntry[] {
+  memoizedEntries ??= marketplaceManifestSchema.parse(bundledManifest).plugins;
+  return memoizedEntries;
+}
+
 /**
- * Validate and project the bundled manifest into a {@link PluginCatalog}:
- * every entry deduped by name, mapped via {@link marketplaceMatch}, sorted
- * alphabetically. A malformed bundled manifest is a build defect, so parsing
- * throws rather than silently degrading.
+ * Validate and project a marketplace manifest into a {@link PluginCatalog}:
+ * every entry deduped by name, projected, and sorted alphabetically. A
+ * malformed bundled manifest is a build defect, so parsing throws rather than
+ * silently degrading. Defaults to the bundled manifest (parsed once); tests
+ * pass an override to assert it throws on invalid input.
  */
 export function buildBundledPluginCatalog(
   rawManifest: unknown = bundledManifest,
 ): PluginCatalog {
-  const { plugins } = marketplaceManifestSchema.parse(rawManifest);
-
-  const matches = [];
-  const seen = new Set<string>();
-  for (const entry of plugins) {
-    if (seen.has(entry.name)) {continue;}
-    matches.push(marketplaceMatch(entry));
-    seen.add(entry.name);
-  }
-
-  matches.sort((a, b) => a.name.localeCompare(b.name));
-
-  return { ref: "bundled", matches };
+  const plugins =
+    rawManifest === bundledManifest
+      ? bundledEntries()
+      : marketplaceManifestSchema.parse(rawManifest).plugins;
+  return { ref: "bundled", matches: projectMarketplaceEntries(plugins) };
 }
 
 let memoized: PluginCatalog | undefined;
@@ -51,14 +55,6 @@ let memoized: PluginCatalog | undefined;
 export function readBundledPluginCatalog(): PluginCatalog {
   memoized ??= buildBundledPluginCatalog();
   return memoized;
-}
-
-let memoizedEntries: readonly MarketplaceEntry[] | undefined;
-
-/** Validated bundled manifest entries, parsed once and reused. */
-function bundledEntries(): readonly MarketplaceEntry[] {
-  memoizedEntries ??= marketplaceManifestSchema.parse(bundledManifest).plugins;
-  return memoizedEntries;
 }
 
 /**

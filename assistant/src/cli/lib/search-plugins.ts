@@ -15,17 +15,6 @@
 import type { FetchLike } from "./fetch-like.js";
 import type { MarketplaceEntry } from "./plugin-marketplace.js";
 
-/** Options that control the search. */
-export interface SearchPluginsOptions {
-  /**
-   * ECMAScript regex pattern. Matched case-insensitively against directory
-   * names. Empty string matches everything.
-   */
-  readonly query: string;
-  /** Git ref to list from. */
-  readonly ref?: string;
-}
-
 /** Dependencies injected by the caller. */
 export interface SearchPluginsDeps {
   /** HTTP client. Production callers pass `globalThis.fetch.bind(globalThis)`. */
@@ -138,6 +127,28 @@ export function marketplaceMatch(entry: MarketplaceEntry): PluginSearchMatch {
     category: entry.category ?? null,
     source: { kind: "github", repo, path, ref },
   };
+}
+
+/**
+ * Project raw marketplace entries onto catalog matches: dedupe by name
+ * (first occurrence wins), map via {@link marketplaceMatch}, and return
+ * sorted alphabetically by name.
+ *
+ * Shared by every catalog source (platform fetcher, bundled reader) so they
+ * dedupe, project, and order entries identically.
+ */
+export function projectMarketplaceEntries(
+  entries: Iterable<MarketplaceEntry>,
+): PluginSearchMatch[] {
+  const matches: PluginSearchMatch[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (seen.has(entry.name)) continue;
+    seen.add(entry.name);
+    matches.push(marketplaceMatch(entry));
+  }
+  matches.sort((a, b) => a.name.localeCompare(b.name));
+  return matches;
 }
 
 function buildMatcher(query: string): (name: string) => boolean {

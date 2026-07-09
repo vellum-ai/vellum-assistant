@@ -15,11 +15,11 @@
 import { z } from "zod";
 
 import { getPlatformBaseUrl } from "../../config/env.js";
+import type { MarketplaceEntry } from "./plugin-marketplace.js";
 import {
-  marketplaceMatch,
   type PluginCatalog,
   PluginCatalogUnavailableError,
-  type PluginSearchMatch,
+  projectMarketplaceEntries,
   type SearchPluginsDeps,
 } from "./search-plugins.js";
 
@@ -49,7 +49,7 @@ export async function fetchPluginCatalogFromPlatform(
   deps: SearchPluginsDeps,
   opts?: { ref?: string },
 ): Promise<PluginCatalog> {
-  const url = `${getPlatformBaseUrl()}/v1/plugins/`;
+  const url = `${getPlatformBaseUrl().replace(/\/+$/, "")}/v1/plugins/`;
 
   let res: Response;
   try {
@@ -91,28 +91,21 @@ export async function fetchPluginCatalogFromPlatform(
     );
   }
 
-  const matches: PluginSearchMatch[] = [];
-  const seen = new Set<string>();
+  const entries: MarketplaceEntry[] = [];
   for (const row of parsed.data.plugins) {
     if (!row.repo || !row.ref) continue;
-    if (seen.has(row.name)) continue;
-    seen.add(row.name);
-    matches.push(
-      marketplaceMatch({
-        name: row.name,
-        source: {
-          source: "github",
-          repo: row.repo,
-          ref: row.ref,
-          path: row.path ?? undefined,
-        },
-        description: row.description ?? undefined,
-        category: row.category ?? undefined,
-      }),
-    );
+    entries.push({
+      name: row.name,
+      source: {
+        source: "github",
+        repo: row.repo,
+        ref: row.ref,
+        path: row.path ?? undefined,
+      },
+      description: row.description ?? undefined,
+      category: row.category ?? undefined,
+    });
   }
 
-  matches.sort((a, b) => a.name.localeCompare(b.name));
-
-  return { ref: opts?.ref ?? "platform", matches };
+  return { ref: opts?.ref ?? "platform", matches: projectMarketplaceEntries(entries) };
 }
