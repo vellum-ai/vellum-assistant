@@ -628,9 +628,24 @@ function toContactPayload(c: ContactWithInfo): Record<string, unknown> {
  */
 const GUARDIAN_LABEL_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * Bound on the best-effort label IPC so a wedged daemon cannot add a long
+ * stall to contact reads just to decorate a cosmetic label.
+ */
+const GUARDIAN_LABEL_IPC_TIMEOUT_MS = 1500;
+
+/**
+ * Short TTL on fallback (failed/timed-out) resolutions so a wedged daemon is
+ * not re-probed on every read, but recovers quickly once healthy.
+ */
+const GUARDIAN_LABEL_FALLBACK_TTL_MS = 30 * 1000;
+
+const GUARDIAN_LABEL_IPC_TIMED_OUT = Symbol("guardian-label-ipc-timed-out");
+
 let guardianLabelCache: {
   storedDisplayName: string | null;
-  label: string;
+  label: string | null;
+  ttlMs: number;
   at: number;
 } | null = null;
 
@@ -642,9 +657,9 @@ export function bustGuardianLabelCache(): void {
 /**
  * Resolve the guardian's display label via the `resolve_guardian_label`
  * daemon IPC (persona preferred name → stored displayName → default
- * reference), cached with a short TTL. Best-effort: any IPC failure or
- * malformed response serves the stored displayName unchanged — a contact
- * read never fails because the daemon is unreachable.
+ * reference), cached with a short TTL. Best-effort: any IPC failure, slow
+ * response, or malformed response serves the stored displayName unchanged —
+ * a contact read never fails or stalls because the daemon is unreachable.
  */
 async function resolveGuardianLabelCached(
   storedDisplayName: string | null,
@@ -653,27 +668,60 @@ async function resolveGuardianLabelCached(
   if (
     guardianLabelCache &&
     guardianLabelCache.storedDisplayName === storedDisplayName &&
-    now - guardianLabelCache.at < GUARDIAN_LABEL_TTL_MS
+    now - guardianLabelCache.at < guardianLabelCache.ttlMs
   ) {
     return guardianLabelCache.label;
   }
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const result = (await ipcCallAssistant("resolve_guardian_label", {
+    const ipc = ipcCallAssistant("resolve_guardian_label", {
       body: { storedDisplayName },
-    })) as { label?: unknown } | null;
-    if (typeof result?.label === "string" && result.label.trim()) {
-      guardianLabelCache = { storedDisplayName, label: result.label, at: now };
-      return result.label;
+    });
+    // The timeout may win the race; never let the losing IPC promise reject
+    // unhandled.
+    ipc.catch(() => {});
+    const raced = await Promise.race([
+      ipc,
+      new Promise<typeof GUARDIAN_LABEL_IPC_TIMED_OUT>((resolve) => {
+        timer = setTimeout(
+          () => resolve(GUARDIAN_LABEL_IPC_TIMED_OUT),
+          GUARDIAN_LABEL_IPC_TIMEOUT_MS,
+        );
+      }),
+    ]);
+    if (raced === GUARDIAN_LABEL_IPC_TIMED_OUT) {
+      log.warn(
+        "resolve_guardian_label: daemon resolve timed out (best-effort)",
+      );
+    } else {
+      const result = raced as { label?: unknown } | null;
+      if (typeof result?.label === "string" && result.label.trim()) {
+        guardianLabelCache = {
+          storedDisplayName,
+          label: result.label,
+          ttlMs: GUARDIAN_LABEL_TTL_MS,
+          at: now,
+        };
+        return result.label;
+      }
+      log.warn(
+        "resolve_guardian_label: daemon response missing label (best-effort)",
+      );
     }
-    log.warn(
-      "resolve_guardian_label: daemon response missing label (best-effort)",
-    );
   } catch (err) {
     log.warn(
       { err },
       "resolve_guardian_label: daemon resolve failed (best-effort)",
     );
+  } finally {
+    if (timer) clearTimeout(timer);
   }
+  guardianLabelCache = {
+    storedDisplayName,
+    label: storedDisplayName,
+    ttlMs: GUARDIAN_LABEL_FALLBACK_TTL_MS,
+    at: now,
+  };
   return storedDisplayName;
 }
 

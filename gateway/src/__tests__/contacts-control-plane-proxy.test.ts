@@ -2,6 +2,7 @@ import {
   describe,
   test,
   expect,
+  jest,
   mock,
   afterEach,
   beforeAll,
@@ -1106,6 +1107,39 @@ describe("guardian label overlay (gateway-native reads)", () => {
     const body = await res.json();
     expect(body.contact.displayName).toBe("Preferred Name");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("list: slow IPC is bounded — the stored displayName is served promptly", async () => {
+    contactStoreListMock = mock(async () => [GUARDIAN_CONTACT]);
+    ipcCallAssistantMock = mock(() => new Promise<never>(() => {}));
+
+    jest.useFakeTimers();
+    try {
+      const handler = createContactsControlPlaneProxyHandler(makeConfig());
+      const resPromise = handler.handleListContacts(
+        new Request("http://localhost:7830/v1/contacts"),
+      );
+      // Flush microtasks so the bounded lookup registers its timeout, then
+      // fire it — the never-resolving IPC must not stall the response.
+      for (let i = 0; i < 50; i++) await Promise.resolve();
+      jest.advanceTimersByTime(2_000);
+      const res = await resPromise;
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.contacts[0].displayName).toBe("Stored Guardian");
+
+      // The fallback is negative-cached: a follow-up read serves the stored
+      // name without re-probing the wedged daemon.
+      const res2 = await handler.handleListContacts(
+        new Request("http://localhost:7830/v1/contacts"),
+      );
+      const body2 = await res2.json();
+      expect(body2.contacts[0].displayName).toBe("Stored Guardian");
+      expect(ipcCallAssistantMock).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test("get: IPC failure soft-fails to the stored displayName (no proxy fallback)", async () => {
