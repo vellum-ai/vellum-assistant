@@ -45,6 +45,7 @@ import {
   LiveVoiceSessionStartupError,
 } from "./live-voice-session-manager.js";
 import type {
+  LiveVoiceTtsAudioChunk,
   LiveVoiceTtsOptions,
   LiveVoiceTtsResult,
 } from "./live-voice-tts.js";
@@ -80,6 +81,12 @@ const FINALIZE_GRACE_MS = 1_000;
 // cannot kill a reply mid-sentence. Mirrors the liveVoice.vad.bargeInMinSpeechMs
 // schema default; 0 disables the guard for instant barge-in.
 const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 60;
+// At most this many TTS segment jobs are open (provider stream started,
+// frames not yet fully emitted) per turn: the emitting job plus one
+// prefetching job. The prefetch buffers its chunks in memory until promoted;
+// a segment is at most ~180 chars of speech (~10 s of 24 kHz mono PCM
+// ≈ 480 KB), so one buffered segment is an acceptable bound.
+const TTS_MAX_OPEN_SYNTHESIS_JOBS = 2;
 
 export type LiveVoiceStreamingTranscriberResolver = (
   options: ResolveStreamingTranscriberOptions,
@@ -204,6 +211,27 @@ type UtteranceStartResult =
   | { status: "unavailable"; message: string }
   | { status: "error"; message: string };
 
+// One TTS segment flowing through the turn's synthesis pipeline. Synthesis
+// may run ahead of the emission slot (prefetch), but frames only reach the
+// client in job-list order.
+interface TtsSegmentJob {
+  readonly text: string;
+  // The provider stream was started (the job holds an open-job slot).
+  started: boolean;
+  // Emission finished; the slot is free for the next queued segment.
+  settled: boolean;
+  // The job owns the emission slot: provider chunks forward to the client
+  // live instead of buffering.
+  emitting: boolean;
+  // Chunks received while prefetching, flushed in order on promotion.
+  // Dropped with the turn on cancellation.
+  bufferedChunks: LiveVoiceTtsAudioChunk[];
+  // Settles when the provider stream ends; rejects on synthesis failure.
+  synthesis: Promise<void> | null;
+  // Ordered tts_audio frame writes for this job.
+  frames: Promise<void>;
+}
+
 interface ActiveAssistantTurn {
   token: symbol;
   turnId: string;
@@ -220,6 +248,11 @@ interface ActiveAssistantTurn {
   // A non-empty speakable segment reached the TTS queue — gates the eager
   // first-segment flush that trades clause quality for speech onset.
   ttsSegmentEnqueued: boolean;
+  // Ordered TTS segment jobs for the turn; synthesis runs ahead of emission
+  // by at most one job (TTS_MAX_OPEN_SYNTHESIS_JOBS).
+  ttsJobs: TtsSegmentJob[];
+  // Serial emission chain: one job's frames fully precede the next's, and
+  // the tts_done finale runs only after every job has drained.
   ttsQueue: Promise<void>;
   assistantMessageId: string | null;
   assistantAudioChunks: Buffer[];
@@ -1346,6 +1379,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       finalized: false,
       ttsBuffer: "",
       ttsSegmentEnqueued: false,
+      ttsJobs: [],
       ttsQueue: Promise.resolve(),
       assistantMessageId: null,
       assistantAudioChunks: [],
@@ -1623,90 +1657,184 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   private enqueueTtsSegment(token: symbol, segment: string): void {
     const activeTurn = this.activeAssistantTurn;
-    const streamTtsAudio = this.streamTtsAudio;
-    if (activeTurn?.token !== token || !streamTtsAudio) {
+    if (activeTurn?.token !== token || !this.streamTtsAudio) {
       return;
     }
 
     activeTurn.ttsSegmentEnqueued = true;
+    const job: TtsSegmentJob = {
+      text: segment,
+      started: false,
+      settled: false,
+      emitting: false,
+      bufferedChunks: [],
+      synthesis: null,
+      frames: Promise.resolve(),
+    };
+    activeTurn.ttsJobs.push(job);
+    this.pumpTtsSynthesis(token);
     activeTurn.ttsQueue = activeTurn.ttsQueue
       .catch(() => {})
-      .then(async () => {
-        const currentTurn = this.activeAssistantTurn;
-        if (
-          currentTurn?.token !== token ||
-          currentTurn.abortController.signal.aborted
-        ) {
-          return;
-        }
+      .then(() => this.emitTtsJob(token, job));
+  }
 
-        try {
-          let ttsAudioFrames: Promise<void> = Promise.resolve();
-          await streamTtsAudio({
-            text: segment,
-            signal: currentTurn.abortController.signal,
-            outputFormat: "pcm",
-            sampleRate: this.context.startFrame.audio.sampleRate,
-            onAudioChunk: (chunk) => {
-              if (!this.isForwardingTts(token)) {
-                return;
-              }
-              const activeTurn = this.activeAssistantTurn;
-              if (activeTurn?.token !== token) {
-                return;
-              }
-              activeTurn.assistantAudioChunks.push(
-                Buffer.from(chunk.dataBase64, "base64"),
-              );
-              activeTurn.assistantAudioMimeType = chunk.contentType;
-              activeTurn.assistantAudioSampleRate = chunk.sampleRate;
-              ttsAudioFrames = ttsAudioFrames.then(async () => {
-                const sent = await this.sendFrame(
-                  {
-                    type: "tts_audio",
-                    mimeType: chunk.contentType,
-                    sampleRate: chunk.sampleRate,
-                    dataBase64: chunk.dataBase64,
-                  },
-                  () => this.isForwardingTts(token),
-                );
-                // Arm the barge-in gate only once a tts_audio frame was
-                // actually written — a backed-up outbound queue must not
-                // let speech cancel a still-unspoken reply. Token match
-                // keeps a stale turn's late send from arming a newer turn.
-                if (!sent) {
-                  return;
-                }
-                const turnAfterSend = this.activeAssistantTurn;
-                if (
-                  turnAfterSend?.token !== token ||
-                  turnAfterSend.ttsAudioStarted
-                ) {
-                  return;
-                }
-                turnAfterSend.ttsAudioStarted = true;
-                this.metrics.markFirstTtsAudio(turnAfterSend.turnId);
-              });
-            },
-          });
-          await ttsAudioFrames;
-        } catch (err) {
-          if (!this.isForwardingTts(token)) {
-            return;
-          }
-          // Per-segment failure: the turn (and session) continue, so the
-          // error is recoverable for the client.
-          await this.sendFrame(
-            {
-              type: "error",
-              code: LiveVoiceProtocolErrorCode.InvalidField,
-              message: `Live voice TTS failed: ${errorMessage(err)}`,
-              recoverable: true,
-            },
-            () => this.isForwardingTts(token),
-          );
-        }
-      });
+  // Starts provider streams for queued jobs, in list order, while an
+  // open-job slot is free. The prefetching job's chunks buffer in memory
+  // until the emission chain promotes it, so the next segment's provider
+  // first-chunk latency overlaps the current segment's playback.
+  private pumpTtsSynthesis(token: symbol): void {
+    const activeTurn = this.activeAssistantTurn;
+    const streamTtsAudio = this.streamTtsAudio;
+    if (
+      activeTurn?.token !== token ||
+      !streamTtsAudio ||
+      activeTurn.abortController.signal.aborted ||
+      this.isClosed
+    ) {
+      return;
+    }
+
+    while (
+      activeTurn.ttsJobs.filter((job) => job.started && !job.settled).length <
+      TTS_MAX_OPEN_SYNTHESIS_JOBS
+    ) {
+      const job = activeTurn.ttsJobs.find((candidate) => !candidate.started);
+      if (!job) {
+        return;
+      }
+      job.started = true;
+      let synthesis: Promise<void>;
+      try {
+        synthesis = streamTtsAudio({
+          text: job.text,
+          signal: activeTurn.abortController.signal,
+          outputFormat: "pcm",
+          sampleRate: this.context.startFrame.audio.sampleRate,
+          onAudioChunk: (chunk) => {
+            if (!this.isForwardingTts(token)) {
+              return;
+            }
+            if (job.emitting) {
+              this.forwardTtsChunk(token, job, chunk);
+            } else {
+              job.bufferedChunks.push(chunk);
+            }
+          },
+        }).then(() => undefined);
+      } catch (err) {
+        synthesis = Promise.reject(err);
+      }
+      // The job's emission step observes the rejection; this handler only
+      // keeps a failure on an already-cancelled turn from surfacing as an
+      // unhandled rejection.
+      synthesis.catch(() => {});
+      job.synthesis = synthesis;
+    }
+  }
+
+  // Emission slot for one job, run in strict segment order on the turn's
+  // ttsQueue chain: promotes the job from prefetch to live, flushes what it
+  // buffered, and returns only once every frame write for the job is ordered
+  // ahead of the next segment's.
+  private async emitTtsJob(token: symbol, job: TtsSegmentJob): Promise<void> {
+    try {
+      const currentTurn = this.activeAssistantTurn;
+      if (
+        currentTurn?.token !== token ||
+        currentTurn.abortController.signal.aborted
+      ) {
+        // The turn is gone: release the prefetched audio immediately rather
+        // than holding it until the turn object drops.
+        job.bufferedChunks.length = 0;
+        return;
+      }
+
+      // Both slots can be busy when a job is enqueued; every earlier job has
+      // settled once it reaches the head of the chain, so a slot is free.
+      if (!job.started) {
+        this.pumpTtsSynthesis(token);
+      }
+
+      // Promote synchronously: no provider callback can land between the
+      // flag flip and the buffered flush, so flushed and live chunks stay in
+      // provider order on the job's frame chain.
+      job.emitting = true;
+      for (const chunk of job.bufferedChunks.splice(0)) {
+        this.forwardTtsChunk(token, job, chunk);
+      }
+
+      let failed = false;
+      let synthesisError: unknown;
+      try {
+        await job.synthesis;
+      } catch (err) {
+        failed = true;
+        synthesisError = err;
+      }
+      // The provider stream has settled, so the frame chain is complete;
+      // awaiting it puts every frame of this segment ahead of the next.
+      await job.frames;
+
+      if (failed && this.isForwardingTts(token)) {
+        // Per-segment failure: the turn (and session) continue, so the
+        // error is recoverable for the client.
+        await this.sendFrame(
+          {
+            type: "error",
+            code: LiveVoiceProtocolErrorCode.InvalidField,
+            message: `Live voice TTS failed: ${errorMessage(synthesisError)}`,
+            recoverable: true,
+          },
+          () => this.isForwardingTts(token),
+        );
+      }
+    } finally {
+      job.settled = true;
+      this.pumpTtsSynthesis(token);
+    }
+  }
+
+  private forwardTtsChunk(
+    token: symbol,
+    job: TtsSegmentJob,
+    chunk: LiveVoiceTtsAudioChunk,
+  ): void {
+    if (!this.isForwardingTts(token)) {
+      return;
+    }
+    const activeTurn = this.activeAssistantTurn;
+    if (activeTurn?.token !== token) {
+      return;
+    }
+    activeTurn.assistantAudioChunks.push(
+      Buffer.from(chunk.dataBase64, "base64"),
+    );
+    activeTurn.assistantAudioMimeType = chunk.contentType;
+    activeTurn.assistantAudioSampleRate = chunk.sampleRate;
+    job.frames = job.frames.then(async () => {
+      const sent = await this.sendFrame(
+        {
+          type: "tts_audio",
+          mimeType: chunk.contentType,
+          sampleRate: chunk.sampleRate,
+          dataBase64: chunk.dataBase64,
+        },
+        () => this.isForwardingTts(token),
+      );
+      // Arm the barge-in gate only once a tts_audio frame was actually
+      // written — a backed-up outbound queue must not let speech cancel a
+      // still-unspoken reply. Token match keeps a stale turn's late send
+      // from arming a newer turn.
+      if (!sent) {
+        return;
+      }
+      const turnAfterSend = this.activeAssistantTurn;
+      if (turnAfterSend?.token !== token || turnAfterSend.ttsAudioStarted) {
+        return;
+      }
+      turnAfterSend.ttsAudioStarted = true;
+      this.metrics.markFirstTtsAudio(turnAfterSend.turnId);
+    });
   }
 
   private collectUserAudio(utterance: UtteranceCycle, chunk: Buffer): void {
