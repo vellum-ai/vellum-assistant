@@ -363,26 +363,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     }
 
-    const result = await this.beginUtterance();
-    switch (result.status) {
-      case "stale":
-        return;
-      case "unavailable":
-        return await this.failStartup(
-          result.message,
-          LiveVoiceProtocolErrorCode.CredentialsUnavailable,
-        );
-      case "error":
-        return await this.failStartup(result.message);
-      case "started":
-        this.metrics.markReady();
-        await this.sendFrame({
-          type: "ready",
-          sessionId: this.context.sessionId,
-          conversationId: this.conversationId,
-          turnDetection: this.turnDetector ? "server_vad" : "manual",
-        });
+    // The session may have been closed while the preflight was awaited.
+    if (this.isClosed) {
+      return;
     }
+
+    // Ready goes out as soon as the preflight passes so the client's mic
+    // acquisition overlaps the STT provider handshake. The session is active
+    // immediately: audio arriving before the first utterance arms buffers
+    // through the pending/pre-roll paths and flushes on arm. An arm failure
+    // surfaces as a non-recoverable error frame instead of a start rejection.
+    this.state = "active";
+    void this.armUtterance().catch(() => {});
+    this.metrics.markReady();
+    await this.sendFrame({
+      type: "ready",
+      sessionId: this.context.sessionId,
+      conversationId: this.conversationId,
+      turnDetection: this.turnDetector ? "server_vad" : "manual",
+    });
   }
 
   async handleClientFrame(frame: LiveVoiceClientFrame): Promise<void> {
@@ -429,9 +428,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   // Creates the next utterance record and arms a streaming transcriber for
   // it: the session-shared instance when persistent mode is active (a
-  // synchronous re-arm), otherwise a freshly resolved one. Called once from
-  // start() and, in server_vad mode, again after every finalized turn
-  // (per-utterance phase tracks the cycle).
+  // synchronous re-arm), otherwise a freshly resolved one. Called once at
+  // session start (without blocking the ready frame) and, in server_vad
+  // mode, again after every finalized turn (per-utterance phase tracks the
+  // cycle).
   private async beginUtterance(): Promise<UtteranceStartResult> {
     const utterance: UtteranceCycle = {
       phase: "pending",
@@ -603,9 +603,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.state = "failed";
     await this.sendFrame({
       type: "error",
-      code: LiveVoiceProtocolErrorCode.InvalidField,
+      code:
+        result.status === "unavailable"
+          ? LiveVoiceProtocolErrorCode.CredentialsUnavailable
+          : LiveVoiceProtocolErrorCode.InvalidField,
       message: result.message,
     });
+    // The manager only observes failures thrown from start(); an arm that
+    // fails after the early `ready` must release the session slot itself,
+    // or the next start frame on this (or a reconnecting) socket gets
+    // `busy` until the client tears the WebSocket down.
+    await this.context.releaseAfterFailure?.();
   }
 
   private async handleAudio(chunk: Buffer): Promise<void> {
@@ -624,13 +632,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    if (this.state === "initializing") {
-      return;
-    }
-
     this.collectUserAudio(utterance, chunk);
     if (utterance.phase === "pending") {
-      utterance.pendingAudioChunks.push(Buffer.from(chunk));
+      // The transcriber is still arming (session start overlaps the STT
+      // handshake with client mic startup); buffer until it flushes on arm.
+      this.bufferPendingUtteranceAudio(utterance, chunk);
       return;
     }
     await this.forwardAudioToTranscriber(utterance, chunk);
@@ -2104,7 +2110,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   private async failStartup(
     message: string,
-    code: LiveVoiceProtocolErrorCode = LiveVoiceProtocolErrorCode.InvalidField,
+    code: LiveVoiceProtocolErrorCode,
   ): Promise<never> {
     this.state = "failed";
     await this.sendFrame({

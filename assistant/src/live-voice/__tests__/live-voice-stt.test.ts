@@ -10,10 +10,7 @@ import {
   LiveVoiceSession,
   type LiveVoiceStreamingTranscriberResolver,
 } from "../live-voice-session.js";
-import {
-  type LiveVoiceSessionFactoryContext,
-  LiveVoiceSessionStartupError,
-} from "../live-voice-session-manager.js";
+import type { LiveVoiceSessionFactoryContext } from "../live-voice-session-manager.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientStartFrame,
@@ -98,6 +95,27 @@ class FinalizingMockStreamingTranscriber extends MockStreamingTranscriber {
     });
     this.emit({ type: "finalized" });
   }
+}
+
+// A transcriber whose start() (the provider WS handshake) resolves only when
+// the test releases it, holding the session in the ready→arm gap.
+function createGatedStartTranscriber(): {
+  transcriber: MockStreamingTranscriber;
+  releaseStart: () => void;
+} {
+  let releaseStart: () => void = () => {};
+  const startGate = new Promise<void>((resolve) => {
+    releaseStart = resolve;
+  });
+  class GatedStartTranscriber extends MockStreamingTranscriber {
+    override async start(
+      onEvent: (event: SttStreamServerEvent) => void,
+    ): Promise<void> {
+      await startGate;
+      await super.start(onEvent);
+    }
+  }
+  return { transcriber: new GatedStartTranscriber(), releaseStart };
 }
 
 function completingVoiceTurnStarter() {
@@ -500,33 +518,95 @@ describe("LiveVoiceSession STT", () => {
     expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
   });
 
-  test("returns a readable error frame when streaming STT is unavailable", async () => {
+  test("sends ready before the transcriber arm completes and transcribes gap audio after arm (server_vad)", async () => {
+    const { transcriber, releaseStart } = createGatedStartTranscriber();
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: mock(async () => transcriber),
+    });
+
+    await session.start();
+
+    // Ready went out while the STT provider handshake is still in flight.
+    expect(transcriber.started).toBe(false);
+    expect(frames).toEqual([
+      {
+        type: "ready",
+        seq: 1,
+        sessionId: "session-123",
+        conversationId: "conversation-123",
+        turnDetection: "server_vad",
+      },
+    ]);
+
+    // Speech in the ready→arm gap buffers instead of dropping or erroring.
+    await session.handleBinaryAudio(loudPcmChunk());
+    expect(transcriber.audioChunks).toEqual([]);
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+
+    releaseStart();
+    await waitFor(() => transcriber.audioChunks.length === 1);
+
+    expect(transcriber.started).toBe(true);
+    expect(transcriber.audioChunks.map((chunk) => [...chunk])).toEqual([
+      [...loudPcmChunk()],
+    ]);
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+  });
+
+  test("buffers manual-mode audio sent in the ready→arm gap and flushes it on arm", async () => {
+    const { transcriber, releaseStart } = createGatedStartTranscriber();
+    const { frames, session } = createSessionWithTranscriber(transcriber);
+
+    await session.start();
+
+    expect(transcriber.started).toBe(false);
+    expect(frames.map((frame) => frame.type)).toEqual(["ready"]);
+
+    await session.handleBinaryAudio(new Uint8Array([1, 2]));
+    await session.handleBinaryAudio(new Uint8Array([3]));
+    expect(transcriber.audioChunks).toEqual([]);
+
+    releaseStart();
+    await waitFor(() => transcriber.audioChunks.length === 2);
+
+    expect(transcriber.audioChunks.map((chunk) => [...chunk])).toEqual([
+      [1, 2],
+      [3],
+    ]);
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+  });
+
+  test("sends ready then a non-recoverable error frame when streaming STT is unavailable", async () => {
     const { context, frames } = createContext();
     const resolver = mock(async () => null);
     const session = new LiveVoiceSession(context, {
       resolveTranscriber: resolver,
     });
 
-    await expect(session.start()).rejects.toBeInstanceOf(
-      LiveVoiceSessionStartupError,
-    );
+    await session.start();
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
 
-    expect(frames).toHaveLength(1);
-    expect(frames[0]).toMatchObject({
-      type: "error",
-      code: "credentials_unavailable",
-    });
-    const [errorFrame] = frames;
+    expect(frames[0]).toMatchObject({ type: "ready", seq: 1 });
+    const errorFrame = frames.find((frame) => frame.type === "error");
     if (errorFrame?.type !== "error") {
       throw new Error("Expected a live voice error frame");
     }
+    expect(errorFrame.code).toBe("credentials_unavailable");
     expect(errorFrame.message).toContain(
       "Live voice transcription is unavailable",
     );
     expect(errorFrame.message).toContain("credentials configured");
+    expect(errorFrame).not.toHaveProperty("recoverable");
+
+    // The failed session ignores further frames instead of silently hanging.
+    const frameCount = frames.length;
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    expect(frames).toHaveLength(frameCount);
   });
 
-  test("returns a readable error frame when provider setup throws", async () => {
+  test("sends ready then a non-recoverable error frame when provider setup throws", async () => {
     const { context, frames } = createContext();
     const resolver: LiveVoiceStreamingTranscriberResolver = mock(async () => {
       throw new Error("provider credentials rejected");
@@ -535,14 +615,20 @@ describe("LiveVoiceSession STT", () => {
       resolveTranscriber: resolver,
     });
 
-    await expect(session.start()).rejects.toBeInstanceOf(
-      LiveVoiceSessionStartupError,
-    );
+    await session.start();
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
 
     expect(frames).toEqual([
       {
-        type: "error",
+        type: "ready",
         seq: 1,
+        sessionId: "session-123",
+        conversationId: "conversation-123",
+        turnDetection: "manual",
+      },
+      {
+        type: "error",
+        seq: 2,
         code: "invalid_field",
         message:
           "Live voice transcription could not be started: provider credentials rejected",
