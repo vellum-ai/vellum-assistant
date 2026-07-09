@@ -256,6 +256,18 @@
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/plant-doctor",
       "license": "MIT"
+    },
+    {
+      "name": "tennis-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/tennis-companion",
+        "ref": "7ff65ce9ee10e84aaf44d541522bb83b767a445a"
+      },
+      "description": "Tennis journal, drill sessions, court finder, and progress tracking. Log matches with opponent tendencies, generate 30-minute practice sessions with progressions, find nearby courts via OpenStreetMap, and track win rate by surface and conditions.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/tennis-companion",
+      "license": "MIT"
     }
   ]
 }
