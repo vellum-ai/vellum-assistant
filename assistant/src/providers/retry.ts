@@ -96,6 +96,11 @@ const RETRYABLE_STREAM_PATTERNS = [
   "stream ended without producing",
   "request ended without sending any chunks",
   "stream has ended, this shouldn't happen",
+  // The SDK's stream accumulator throws this when the model emits tool-call
+  // arguments that don't parse as JSON (e.g. a raw control character inside a
+  // string). It's a stochastic model degeneration, not a request problem — a
+  // resend almost always succeeds.
+  "Unable to parse tool parameter JSON",
 ];
 
 /**
