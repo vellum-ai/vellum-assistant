@@ -75,6 +75,11 @@ const SERVER_VAD_PRE_ROLL_MAX_CHUNKS = 25;
 // strict upper bound on the release→turn-start tail in persistent mode (the
 // provider keeps its own, longer, finalize fallback).
 const FINALIZE_GRACE_MS = 1_000;
+// Consecutive speech (ms) required before speech during assistant playback
+// flushes it (speech_started) and cancels the turn, so a cough or noise blip
+// cannot kill a reply mid-sentence. Mirrors the liveVoice.vad.bargeInMinSpeechMs
+// schema default; 0 disables the guard for instant barge-in.
+const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 60;
 
 export type LiveVoiceStreamingTranscriberResolver = (
   options: ResolveStreamingTranscriberOptions,
@@ -135,6 +140,13 @@ export interface LiveVoiceSessionOptions {
    * `DEFAULT_SPEECH_ENERGY_THRESHOLD`.
    */
   speechEnergyThreshold?: number;
+  /**
+   * Sustained speech (ms) required before speech during assistant playback
+   * interrupts it (barge-in); 0 disables the guard. The production factory
+   * seeds this from `liveVoice.vad.bargeInMinSpeechMs` config when unset;
+   * defaults to `DEFAULT_BARGE_IN_MIN_SPEECH_MS`.
+   */
+  bargeInMinSpeechMs?: number;
   /**
    * Overrides the bounded wait for the shared transcriber's finalize
    * flush in persistent mode (test hook). Defaults to `FINALIZE_GRACE_MS`.
@@ -236,6 +248,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Energy gate for server-VAD speech classification; undefined defers to
   // DEFAULT_SPEECH_ENERGY_THRESHOLD.
   private readonly speechEnergyThreshold: number | undefined;
+  private readonly bargeInMinSpeechMs: number;
+  // Sustained-speech barge-in guard, armed at speech onset while the
+  // assistant turn is audibly speaking: consecutive speech-chunk duration
+  // accumulates until it reaches bargeInMinSpeechMs, then the deferred
+  // speech_started + barge-in fire (at most once per onset). A non-speech
+  // chunk zeroes the run; the detector's utterance end discards the guard.
+  private pendingBargeIn: {
+    turn: ActiveAssistantTurn;
+    speechMs: number;
+  } | null = null;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -297,6 +319,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ...(options.metricsClock ? { clock: options.metricsClock } : {}),
     });
     this.speechEnergyThreshold = options.speechEnergyThreshold;
+    this.bargeInMinSpeechMs =
+      options.bargeInMinSpeechMs ?? DEFAULT_BARGE_IN_MIN_SPEECH_MS;
     this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
     this.turnDetector =
       context.startFrame.turnDetection === "server_vad"
@@ -624,6 +648,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.speechEnergyThreshold,
     );
     detector.onMediaChunk(hasSpeech);
+    this.trackBargeInGuard(hasSpeech, chunk);
 
     // Idle mic: hold silent chunks in the bounded pre-roll instead of
     // collecting or streaming them; flushed on speech onset so the
@@ -767,20 +792,60 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
-  // VAD speech onset. Contract: speech_started always goes out (the client
-  // flushes tail playback immediately); barge-in then cancels the active
-  // turn only once its first tts_audio chunk was forwarded — speech during
-  // a pre-TTS "thinking" turn never kills the unspoken reply.
+  // VAD speech onset. Contract: speech_started tells the client to flush
+  // tail playback immediately; barge-in then cancels the active turn only
+  // once its first tts_audio chunk was forwarded — speech during a pre-TTS
+  // "thinking" turn never kills the unspoken reply. While a turn is audibly
+  // speaking, both are deferred behind the sustained-speech guard so a
+  // cough or noise blip cannot kill the reply; onset while listening keeps
+  // the instant speech_started (turn-taking latency is untouched).
   private handleVadSpeechStart(): void {
     if (this.isClosed || this.state === "failed") {
       return;
     }
 
-    void this.sendFrame({ type: "speech_started" });
     this.vadSpeechStartPending = true;
 
     const turn = this.activeAssistantTurn;
-    if (turn && !turn.finalized && turn.ttsAudioStarted) {
+    const speakingTurn =
+      turn && !turn.finalized && turn.ttsAudioStarted ? turn : null;
+
+    if (speakingTurn && this.bargeInMinSpeechMs > 0) {
+      // Onset audio keeps flowing into the cycle/pre-roll while the guard
+      // accumulates (trackBargeInGuard), so no speech is lost either way.
+      this.pendingBargeIn = { turn: speakingTurn, speechMs: 0 };
+      return;
+    }
+
+    this.pendingBargeIn = null;
+    void this.sendFrame({ type: "speech_started" });
+    if (speakingTurn) {
+      this.bargeIn(speakingTurn);
+    }
+  }
+
+  // Advances the sustained-speech barge-in guard by one server-VAD chunk:
+  // consecutive speech accumulates toward bargeInMinSpeechMs (a non-speech
+  // chunk zeroes the run) and, once met, the deferred speech_started +
+  // barge-in fire.
+  private trackBargeInGuard(hasSpeech: boolean, chunk: Buffer): void {
+    const guard = this.pendingBargeIn;
+    if (!guard) {
+      return;
+    }
+    if (!hasSpeech) {
+      guard.speechMs = 0;
+      return;
+    }
+    guard.speechMs +=
+      (chunk.byteLength / 2 / this.context.startFrame.audio.sampleRate) * 1_000;
+    if (guard.speechMs < this.bargeInMinSpeechMs) {
+      return;
+    }
+    this.pendingBargeIn = null;
+    void this.sendFrame({ type: "speech_started" });
+    const { turn } = guard;
+    if (turn === this.activeAssistantTurn && !turn.finalized) {
       this.bargeIn(turn);
     }
   }
@@ -811,6 +876,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return;
       }
       this.vadSpeechStartPending = false;
+      // The detector turn is over: an untripped guard was noise, not
+      // barge-in — leave playback untouched.
+      this.pendingBargeIn = null;
       const utterance = this.currentUtterance;
       if (!utterance || utterance.released || utterance.completed) {
         // The ended turn's speech sits parked in the pre-roll ring (the
@@ -2033,7 +2101,8 @@ export function createLiveVoiceSession(
 ): LiveVoiceSession {
   // Workspace-tunable server-VAD thresholds. The `liveVoice.vad` schema
   // defaults match the code defaults (800 energy / 800 ms silence / 30 s max
-  // turn), so an unset config leaves behavior unchanged. Optional-chained
+  // turn / 60 ms barge-in guard), so an unset config leaves behavior
+  // unchanged. Optional-chained
   // because hand-built test configs may predate the liveVoice namespace;
   // absent config falls through to the in-code defaults.
   const vadConfig = getConfig().liveVoice?.vad;
@@ -2049,6 +2118,8 @@ export function createLiveVoiceSession(
         : {}),
     speechEnergyThreshold:
       options.speechEnergyThreshold ?? vadConfig?.speechEnergyThreshold,
+    bargeInMinSpeechMs:
+      options.bargeInMinSpeechMs ?? vadConfig?.bargeInMinSpeechMs,
     resolveCredentialReadiness:
       options.resolveCredentialReadiness === undefined
         ? defaultResolveLiveVoiceCredentialReadiness

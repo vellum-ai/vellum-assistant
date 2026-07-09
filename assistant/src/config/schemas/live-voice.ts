@@ -32,6 +32,16 @@ export const LiveVoiceVadConfigSchema = z
       .describe(
         "Maximum duration (ms) of a single user turn before it is force-ended",
       ),
+    bargeInMinSpeechMs: z
+      .number({ error: "liveVoice.vad.bargeInMinSpeechMs must be a number" })
+      .int("liveVoice.vad.bargeInMinSpeechMs must be an integer")
+      .nonnegative(
+        "liveVoice.vad.bargeInMinSpeechMs must be a nonnegative integer",
+      )
+      .default(60)
+      .describe(
+        "Sustained speech (ms) required before speech during assistant playback interrupts it; 0 disables the guard",
+      ),
   })
   .describe(
     "Voice-activity-detection tuning for live voice sessions (open-mic turn segmentation)",

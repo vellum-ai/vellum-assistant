@@ -918,6 +918,7 @@ describe("AssistantConfigSchema", () => {
         speechEnergyThreshold: 800,
         silenceThresholdMs: 800,
         maxTurnDurationMs: 30000,
+        bargeInMinSpeechMs: 60,
       },
       maxSessionDurationSeconds: 1800,
     });
@@ -927,16 +928,42 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({
       liveVoice: {
         mode: "ptt",
-        vad: { speechEnergyThreshold: 1500, silenceThresholdMs: 1000 },
+        vad: {
+          speechEnergyThreshold: 1500,
+          silenceThresholdMs: 1000,
+          bargeInMinSpeechMs: 120,
+        },
         maxSessionDurationSeconds: 900,
       },
     });
     expect(result.liveVoice.mode).toBe("ptt");
     expect(result.liveVoice.vad.speechEnergyThreshold).toBe(1500);
     expect(result.liveVoice.vad.silenceThresholdMs).toBe(1000);
+    expect(result.liveVoice.vad.bargeInMinSpeechMs).toBe(120);
     // Unspecified vad fields still get defaults
     expect(result.liveVoice.vad.maxTurnDurationMs).toBe(30000);
     expect(result.liveVoice.maxSessionDurationSeconds).toBe(900);
+  });
+
+  test("accepts a liveVoice.vad.bargeInMinSpeechMs of 0 (guard disabled)", () => {
+    const result = AssistantConfigSchema.parse({
+      liveVoice: { vad: { bargeInMinSpeechMs: 0 } },
+    });
+    expect(result.liveVoice.vad.bargeInMinSpeechMs).toBe(0);
+  });
+
+  test("rejects negative liveVoice.vad.bargeInMinSpeechMs", () => {
+    const result = AssistantConfigSchema.safeParse({
+      liveVoice: { vad: { bargeInMinSpeechMs: -1 } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects non-integer liveVoice.vad.bargeInMinSpeechMs", () => {
+    const result = AssistantConfigSchema.safeParse({
+      liveVoice: { vad: { bargeInMinSpeechMs: 60.5 } },
+    });
+    expect(result.success).toBe(false);
   });
 
   test("accepts partial calls config with defaults for missing fields", () => {

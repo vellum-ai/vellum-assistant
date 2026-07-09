@@ -61,7 +61,11 @@ function pcm(amplitude: number, sampleCount = 240): Uint8Array {
   return new Uint8Array(buffer);
 }
 
+// 10 ms of speech at 24 kHz.
 const LOUD_CHUNK = pcm(8_000);
+// 60 ms of speech at 24 kHz — meets the default sustained-speech barge-in
+// guard (bargeInMinSpeechMs) in a single chunk.
+const SUSTAINED_LOUD_CHUNK = pcm(8_000, 1_440);
 const SILENT_CHUNK = pcm(0);
 
 class MockStreamingTranscriber implements StreamingTranscriber {
@@ -112,6 +116,7 @@ function createHarness(options: {
   archiveAudio?: LiveVoiceSessionAudioArchiver;
   turnDetectorConfig?: TurnDetectorConfig;
   speechEnergyThreshold?: number;
+  bargeInMinSpeechMs?: number;
   emitMetrics?: boolean;
   metricsClock?: () => number;
   // Return a promise to hold a frame's transport write open (a backed-up
@@ -172,6 +177,7 @@ function createHarness(options: {
       options.turnDetectorConfig ??
       (options.viaFactory ? undefined : { silenceThresholdMs: 40 }),
     speechEnergyThreshold: options.speechEnergyThreshold,
+    bargeInMinSpeechMs: options.bargeInMinSpeechMs,
   };
   const session = options.viaFactory
     ? createLiveVoiceSession(context, {
@@ -335,8 +341,8 @@ describe("LiveVoiceSession server VAD", () => {
     callbacks?.assistant_text_delta?.(makeTextDelta("It is sunny today."));
     await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
 
-    // User speaks over the assistant's audio.
-    await session.handleBinaryAudio(LOUD_CHUNK);
+    // Sustained speech over the assistant's audio meets the default guard.
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
     await waitFor(() =>
       frames.some((frame) => frame.type === "turn_cancelled"),
     );
@@ -423,9 +429,9 @@ describe("LiveVoiceSession server VAD", () => {
     expect(countType(frames, "turn_cancelled")).toBe(0);
     expect(abort).not.toHaveBeenCalled();
 
-    // Once audio has genuinely gone out, a new speech onset barge-ins.
+    // Once audio has genuinely gone out, new sustained speech barge-ins.
     await waitFor(() => countType(frames, "utterance_end") === 2);
-    await session.handleBinaryAudio(LOUD_CHUNK);
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
     await waitFor(() =>
       frames.some((frame) => frame.type === "turn_cancelled"),
     );
@@ -720,7 +726,7 @@ describe("LiveVoiceSession server VAD", () => {
     // The LLM finishes just as the user barges in: message_complete queues
     // the completion continuation and the abort fires before it runs.
     firstTurnCallbacks?.message_complete?.(makeMessageComplete());
-    await session.handleBinaryAudio(LOUD_CHUNK);
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
     await waitFor(() =>
       frames.some((frame) => frame.type === "turn_cancelled"),
     );
@@ -1111,6 +1117,7 @@ describe("LiveVoiceSession VAD threshold configuration", () => {
       speechEnergyThreshold: 800,
       silenceThresholdMs: 800,
       maxTurnDurationMs: 30_000,
+      bargeInMinSpeechMs: 60,
     });
 
     const { frames, session } = createHarness({ viaFactory: true });
@@ -1164,5 +1171,175 @@ describe("LiveVoiceSession VAD threshold configuration", () => {
     } finally {
       saveRawConfig(originalRaw);
     }
+  });
+});
+
+describe("LiveVoiceSession sustained-speech barge-in guard", () => {
+  // Boots a session whose first turn is audibly speaking (its tts_audio
+  // frame reached the client) — the state the guard protects. Utterance
+  // boundaries are driven by ptt_release under a long silence threshold, so
+  // detector timers stay out of the guard's audio-duration accounting.
+  function createSpeakingTurnHarness(options: {
+    bargeInMinSpeechMs: number;
+    finals?: string[];
+  }) {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const abort = mock();
+    const startVoiceTurn = mock(async (turnOptions: VoiceTurnOptions) => {
+      callbacks ??= turnOptions.callbacks;
+      return { turnId: "bridge-turn", abort };
+    });
+    const streamTtsAudio = mock(async (ttsOptions: LiveVoiceTtsOptions) => {
+      ttsOptions.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const harness = createHarness({
+      finals: options.finals ?? ["what's the weather", "actually never mind"],
+      startVoiceTurn,
+      streamTtsAudio,
+      bargeInMinSpeechMs: options.bargeInMinSpeechMs,
+      turnDetectorConfig: { silenceThresholdMs: 5_000 },
+    });
+
+    async function speakFirstReply(): Promise<void> {
+      await harness.session.start();
+      await harness.session.handleBinaryAudio(LOUD_CHUNK);
+      await harness.session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() =>
+        harness.frames.some((frame) => frame.type === "thinking"),
+      );
+      callbacks?.assistant_text_delta?.(makeTextDelta("It is sunny today."));
+      await waitFor(() =>
+        harness.frames.some((frame) => frame.type === "tts_audio"),
+      );
+    }
+
+    function completeFirstReply(): void {
+      callbacks?.message_complete?.(makeMessageComplete());
+    }
+
+    return { ...harness, abort, speakFirstReply, completeFirstReply };
+  }
+
+  test("speech shorter than the guard leaves the speaking turn untouched", async () => {
+    const { frames, session, abort, speakFirstReply, completeFirstReply } =
+      createSpeakingTurnHarness({
+        bargeInMinSpeechMs: 60,
+        finals: ["what's the weather", "   "],
+      });
+    await speakFirstReply();
+
+    // 30 ms of speech then silence: never reaches the 60 ms guard.
+    for (let index = 0; index < 3; index += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+    }
+    await session.handleBinaryAudio(SILENT_CHUNK);
+    await flushAsyncCallbacks();
+
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(countType(frames, "speech_started")).toBe(1);
+    expect(abort).not.toHaveBeenCalled();
+
+    // The reply completes in full; the noise utterance then dies via the
+    // empty-transcript discard path, never having flushed playback.
+    await session.handleClientFrame({ type: "ptt_release" });
+    completeFirstReply();
+    await waitFor(() => countType(frames, "utterance_discarded") === 1);
+    expect(
+      frames.some(
+        (frame) => frame.type === "tts_done" && frame.turnId === "live-turn-1",
+      ),
+    ).toBe(true);
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(countType(frames, "speech_started")).toBe(1);
+    expect(abort).not.toHaveBeenCalled();
+  });
+
+  test("sustained speech reaching the guard flushes playback and cancels the turn", async () => {
+    const { frames, session, abort, speakFirstReply } =
+      createSpeakingTurnHarness({ bargeInMinSpeechMs: 60 });
+    await speakFirstReply();
+
+    // 50 ms of consecutive speech: one chunk short of the 60 ms guard.
+    for (let index = 0; index < 5; index += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+    }
+    await flushAsyncCallbacks();
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(countType(frames, "speech_started")).toBe(1);
+    expect(abort).not.toHaveBeenCalled();
+
+    // The 6th consecutive chunk reaches 60 ms: the deferred speech_started
+    // flushes playback and the turn cancels.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+
+    const types = frameTypes(frames);
+    expect(countType(frames, "speech_started")).toBe(2);
+    expect(types.lastIndexOf("speech_started")).toBeLessThan(
+      types.indexOf("turn_cancelled"),
+    );
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ type: "turn_cancelled", turnId: "live-turn-1" });
+    await waitFor(() => abort.mock.calls.length === 1);
+  });
+
+  test("a non-speech chunk resets the sustained-speech run", async () => {
+    const { frames, session, speakFirstReply } = createSpeakingTurnHarness({
+      bargeInMinSpeechMs: 60,
+    });
+    await speakFirstReply();
+
+    // 50 ms of speech, a silence blip, then 50 ms more: neither run reaches
+    // the guard because the blip zeroes the accumulator.
+    for (let index = 0; index < 5; index += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+    }
+    await session.handleBinaryAudio(SILENT_CHUNK);
+    for (let index = 0; index < 5; index += 1) {
+      await session.handleBinaryAudio(LOUD_CHUNK);
+    }
+    await flushAsyncCallbacks();
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+
+    // A 6th consecutive speech chunk completes a full 60 ms run.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+  });
+
+  test("bargeInMinSpeechMs 0 restores instant barge-in", async () => {
+    const { frames, session, abort, speakFirstReply } =
+      createSpeakingTurnHarness({ bargeInMinSpeechMs: 0 });
+    await speakFirstReply();
+
+    // A single 10 ms onset chunk cancels immediately — no accumulation.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+
+    const types = frameTypes(frames);
+    expect(types.lastIndexOf("speech_started")).toBeLessThan(
+      types.indexOf("turn_cancelled"),
+    );
+    await waitFor(() => abort.mock.calls.length === 1);
+  });
+
+  test("onset while listening is instant regardless of the guard", async () => {
+    // A guard no amount of speech in this test could satisfy: any
+    // speech_started at all proves the instant listening path.
+    const { frames, session } = createHarness({
+      finals: ["hello world"],
+      bargeInMinSpeechMs: 10_000,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => countType(frames, "speech_started") === 1);
   });
 });
