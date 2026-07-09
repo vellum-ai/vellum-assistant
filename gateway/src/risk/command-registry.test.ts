@@ -639,8 +639,11 @@ describe("command-registry", () => {
       expect(re.test("services.outlook-oauth.mode")).toBe(true);
       expect(re.test("services")).toBe(true);
       expect(re.test("gateway.publicBaseUrl")).toBe(true);
+      expect(re.test("ingress.publicBaseUrl")).toBe(true);
+      expect(re.test("ingress")).toBe(true);
       expect(re.test("ui.theme")).toBe(false);
       expect(re.test("llmfoo")).toBe(false);
+      expect(re.test("ingressfoo")).toBe(false);
     });
 
     test("assistant schedules update escalates to high for script payloads", () => {

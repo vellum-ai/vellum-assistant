@@ -987,6 +987,14 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("high");
   });
 
+  test("assistant config set ingress.publicBaseUrl → high", async () => {
+    const result = await classifier.classify({
+      command: "assistant config set ingress.publicBaseUrl https://example.com",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
   test("assistant conversations clear → medium", async () => {
     const result = await classifier.classify({
       command: "assistant conversations clear --confirm",
