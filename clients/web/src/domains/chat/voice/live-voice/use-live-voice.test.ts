@@ -48,12 +48,25 @@ const { useLiveVoiceStore } = await import(
 // Harness
 // ---------------------------------------------------------------------------
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Drain all pending microtasks (e.g. the wrapped capture-promise chain). */
+const flushMicrotasks = () => sleep(0);
+
 function renderController(
   extraOptions: {
     observeAudioState?: boolean;
     reconnectBackoffMs?: number[];
+    /**
+     * Configure each FakeCapture at creation — before the controller calls
+     * `capture.start()`, which happens synchronously at connect time (so
+     * mutating the capture after `start()` returns is too late for
+     * `deferStart`/`startResult`).
+     */
+    onCaptureCreated?: (capture: FakeCapture) => void;
   } = {},
 ) {
+  const { onCaptureCreated, ...hookOptions } = extraOptions;
   const client = new FakeClient();
   const player = new FakePlayer();
   let capture!: FakeCapture;
@@ -66,9 +79,10 @@ function renderController(
       createPlayer: () => player as unknown as LiveVoiceAudioPlayer,
       createCapture: (options) => {
         capture = new FakeCapture(options);
+        onCaptureCreated?.(capture);
         return capture as unknown as LiveVoiceAudioCapture;
       },
-      ...extraOptions,
+      ...hookOptions,
     });
   });
 
@@ -89,7 +103,8 @@ async function startListening(
   await act(async () => {
     await h.view.result.current.start("assistant-1", "conv-1", options);
   });
-  // `ready` kicks off capture; await the microtask that resolves capture.start.
+  // Capture started at connect time; `ready` awaits its (already settled)
+  // result — flush that microtask.
   // A current daemon echoes the session's turn-detection mode.
   await act(async () => {
     h.client.emit("ready", {
@@ -944,17 +959,21 @@ describe("failure", () => {
     );
   });
 
-  test("capture failure fails the session", async () => {
-    const h = renderController();
+  test("mic denial before ready fails the session and closes the socket", async () => {
+    // Capture starts at connect time, so the denial must be configured at
+    // creation — it resolves while the server's `ready` is still in flight.
+    const h = renderController({
+      onCaptureCreated: (capture) => {
+        capture.startResult = { ok: false, error: "permission-denied" };
+      },
+    });
     await act(async () => {
       await h.view.result.current.start("assistant-1");
     });
+    // The denial resolved pre-`ready`; the failure surfaces when `ready`
+    // processes the capture result (same user-facing error as before).
+    expect(h.view.result.current.state).toBe("connecting");
     await act(async () => {
-      // The capture instance exists once start() ran; make its start fail.
-      h.getCapture().startResult = {
-        ok: false,
-        error: "permission-denied",
-      };
       h.client.emit("ready", {
         type: "ready",
         seq: 1,
@@ -965,7 +984,202 @@ describe("failure", () => {
     });
 
     expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe(
+      "Microphone capture could not start.",
+    );
     expect(h.client.closed).toBe(true);
+    // No audio frame was ever sent on the failed session.
+    expect(h.client.sentAudio).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrent mic acquisition (capture overlaps the connect / ready chain)
+// ---------------------------------------------------------------------------
+
+describe("concurrent mic acquisition", () => {
+  test("capture starts at connect time, before the server sends ready, and no audio is forwarded pre-ready", async () => {
+    const h = renderController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+      });
+    });
+
+    // Mic acquisition already kicked off, concurrent with the connect...
+    expect(h.getCapture().startCount).toBe(1);
+    expect(h.view.result.current.state).toBe("connecting");
+
+    // ...but forwarding is held: a chunk produced pre-`ready` is never sent.
+    act(() => {
+      h.getCapture().pushChunk(pcmChunk(20));
+    });
+    expect(h.client.sentAudio).toHaveLength(0);
+
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    // `ready` did not start a second acquisition; forwarding is now on.
+    expect(h.getCapture().startCount).toBe(1);
+    act(() => {
+      h.getCapture().pushChunk(pcmChunk(20));
+    });
+    expect(h.client.sentAudio).toHaveLength(1);
+  });
+
+  test("ready arriving before the capture resolves still ends in listening with forwarding on", async () => {
+    const h = renderController({
+      onCaptureCreated: (capture) => {
+        capture.deferStart = true;
+      },
+    });
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+      });
+    });
+    expect(h.getCapture().startCount).toBe(1);
+
+    // `ready` lands while getUserMedia is still pending: the session waits in
+    // `connecting` and nothing is sent.
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await flushMicrotasks();
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+    expect(h.client.sentAudio).toHaveLength(0);
+
+    // The mic resolves → the ready handler's await completes → listening.
+    await act(async () => {
+      h.getCapture().resolveStart();
+      await flushMicrotasks();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    act(() => {
+      h.getCapture().pushChunk(pcmChunk(20));
+    });
+    expect(h.client.sentAudio).toHaveLength(1);
+  });
+
+  test("mic denial resolving after ready fails the session and closes the socket", async () => {
+    const h = renderController({
+      onCaptureCreated: (capture) => {
+        capture.deferStart = true;
+        capture.startResult = { ok: false, error: "permission-denied" };
+      },
+    });
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+      });
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await flushMicrotasks();
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+
+    await act(async () => {
+      h.getCapture().resolveStart();
+      await flushMicrotasks();
+    });
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe(
+      "Microphone capture could not start.",
+    );
+    expect(h.client.closed).toBe(true);
+    expect(h.client.sentAudio).toHaveLength(0);
+  });
+
+  test("teardown during acquisition stops tracks once the capture resolves (leak-free)", async () => {
+    const h = renderController({
+      onCaptureCreated: (capture) => {
+        capture.deferStart = true;
+      },
+    });
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+      });
+    });
+    const capture = h.getCapture();
+    expect(capture.startCount).toBe(1);
+
+    // Teardown (unmount) while getUserMedia is still pending: shutdown() runs
+    // before there are tracks to stop.
+    act(() => {
+      h.view.unmount();
+    });
+    expect(capture.shutdownCount).toBe(1);
+    expect(capture.stopCount).toBe(0);
+
+    // The acquisition resolves after the session died — the settle hook must
+    // release the MediaStream it just opened.
+    await act(async () => {
+      capture.resolveStart();
+      await flushMicrotasks();
+    });
+    expect(capture.stopCount).toBe(1);
+    // Nothing was ever forwarded on the dead session.
+    expect(h.client.sentAudio).toHaveLength(0);
+  });
+
+  test("a hands-free reconnect attempt starts its fresh capture exactly once (no double-start)", async () => {
+    const h = renderController({ reconnectBackoffMs: [20, 40, 60] });
+    await startListening(h, { handsFree: true });
+    const firstCapture = h.getCapture();
+    expect(firstCapture.startCount).toBe(1);
+
+    // Retryable tunnel drop → the dead session's capture is disposed and a
+    // reconnect is scheduled.
+    await act(async () => {
+      h.client.emit("closed", { code: 1013, reason: "tunnel disconnected" });
+    });
+    expect(firstCapture.shutdownCount).toBe(1);
+
+    // Backoff elapses → the fresh attempt acquires its own mic concurrently
+    // with the reconnect, before its `ready`.
+    await act(async () => {
+      await sleep(40);
+    });
+    const secondCapture = h.getCapture();
+    expect(secondCapture).not.toBe(firstCapture);
+    expect(secondCapture.startCount).toBe(1);
+
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    // `ready` awaited the connect-time acquisition instead of starting again.
+    expect(secondCapture.startCount).toBe(1);
+    expect(firstCapture.startCount).toBe(1);
   });
 });
 
@@ -1381,7 +1595,6 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
   // The reconnect backoff uses real timers; inject a tiny schedule so specs
   // don't wait real seconds, and sleep just past the first delay (20ms).
   const FAST_BACKOFF = [20, 40, 60];
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   test("reconnects to the same conversation on a retryable close (1013) instead of ending", async () => {
     const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });

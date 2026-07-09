@@ -49,8 +49,14 @@
  * `idle`/`failed`.
  *
  * ## Mic forwarding
- * The mic capture graph runs for the entire active session so amplitude keeps
- * flowing for barge-in even while the assistant is thinking/speaking. Audio
+ * The mic is *acquired* at connect time — `capture.start()` (getUserMedia +
+ * worklet load) is kicked off inside the mic-button gesture, concurrently with
+ * the token mint / WS connect / server `ready` chain, so permission and device
+ * spin-up overlap the network handshake instead of serializing after it. The
+ * `ready` handler awaits that acquisition before flipping forwarding on, so no
+ * audio is ever sent pre-`ready`. Once running, the capture graph stays open
+ * for the entire active session so amplitude keeps flowing for barge-in even
+ * while the assistant is thinking/speaking. Audio
  * *forwarding* (`session.forwardingAudio`) is gated to the user's turn in
  * manual mode: captured PCM is streamed only while forwarding is on.
  * Push-to-talk release flips forwarding off (without stopping the mic); it is
@@ -81,6 +87,7 @@ import {
 import {
   LiveVoiceAudioCapture,
   LIVE_VOICE_AUDIO_FORMAT,
+  type LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
 import {
   LiveVoiceAudioPlayer,
@@ -213,6 +220,14 @@ interface SessionContext {
    * to `listening` instead of tearing down.
    */
   handsFree: boolean;
+  /**
+   * In-flight (or settled) mic acquisition — `capture.start()` kicked off at
+   * connect time by {@link beginCaptureStartup} so getUserMedia + the worklet
+   * load overlap the WS connect / server `ready` chain. The `ready` handler
+   * awaits it ({@link finishCaptureStartup}) before flipping
+   * `forwardingAudio` on, so no audio is ever sent pre-`ready`.
+   */
+  capturePromise: Promise<LiveVoiceCaptureResult>;
   /** Whether the mic capture graph is running (open for the whole session). */
   captureRunning: boolean;
   /**
@@ -451,6 +466,7 @@ export function useLiveVoice(
         assistantId,
         client,
         capture: undefined as unknown as LiveVoiceAudioCapture,
+        capturePromise: undefined as unknown as Promise<LiveVoiceCaptureResult>,
         player,
         unsubscribes: [],
         generation: 0,
@@ -471,6 +487,9 @@ export function useLiveVoice(
       });
       session.capture = capture;
       sessionRef.current = session;
+      // Mic acquisition overlaps the WS connect below (still inside the
+      // mic-button gesture); forwarding stays gated on the `ready` handler.
+      beginCaptureStartup(session);
 
       const generation = session.generation;
       const live = () =>
@@ -497,7 +516,7 @@ export function useLiveVoice(
           // start-time value — session ownership for a draft-started session
           // hinges on it (see `isLiveVoiceSessionOwnedBy`).
           useLiveVoiceStore.getState().setConversationId(frame.conversationId);
-          void startCapture(session, teardown);
+          void finishCaptureStartup(session, teardown);
         }),
         client.on("speechStarted", () => {
           if (!live() || !session.handsFree) return;
@@ -752,18 +771,44 @@ function disposeSessionPrimitives(session: SessionContext): void {
   void session.capture.shutdown();
 }
 
-/** Open the mic and begin streaming PCM. Failure transitions to `failed`. */
-async function startCapture(
+/**
+ * Kick off mic acquisition (getUserMedia + worklet load) without awaiting it,
+ * so it runs concurrently with the WS connect / server `ready` chain. The
+ * result is only *applied* by {@link finishCaptureStartup} on `ready`, so no
+ * audio is forwarded early. Each (re)connect attempt owns a fresh session
+ * context — and `ready` no longer starts the capture — so this runs exactly
+ * once per attempt (no double-start on reconnect).
+ *
+ * The settle hook releases a MediaStream that resolves after the session died
+ * (stop()/teardown/reconnect bumped the generation, so `ready` may never
+ * come): `disposeSessionPrimitives`'s `shutdown()` ran before there were
+ * tracks to stop. The real capture also self-cancels an in-flight start via
+ * its cancel epoch; the explicit stop keeps the contract independent of that.
+ */
+function beginCaptureStartup(session: SessionContext): void {
+  const generation = session.generation;
+  session.capturePromise = session.capture.start().then((result) => {
+    if (result.ok && session.generation !== generation) {
+      void session.capture.stop();
+    }
+    return result;
+  });
+}
+
+/**
+ * Await the concurrently-started mic acquisition and begin streaming PCM —
+ * runs from the `ready` handler (fast when the mic already resolved during
+ * connect). Failure transitions to `failed`.
+ */
+async function finishCaptureStartup(
   session: SessionContext,
   teardown: () => void,
 ): Promise<void> {
   const generation = session.generation;
-  const result = await session.capture.start();
-  // A stop()/teardown that raced our await replaced or advanced the session.
-  if (session.generation !== generation) {
-    if (result.ok) void session.capture.stop();
-    return;
-  }
+  const result = await session.capturePromise;
+  // A stop()/teardown that raced our await replaced or advanced the session;
+  // beginCaptureStartup's settle hook already released any acquired tracks.
+  if (session.generation !== generation) return;
   if (!result.ok) {
     finishWithError(session, teardown, "Microphone capture could not start.");
     return;
