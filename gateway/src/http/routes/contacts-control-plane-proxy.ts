@@ -640,106 +640,11 @@ const GUARDIAN_LABEL_IPC_TIMEOUT_MS = 1500;
  */
 const GUARDIAN_LABEL_FALLBACK_TTL_MS = 30 * 1000;
 
-const GUARDIAN_LABEL_IPC_TIMED_OUT = Symbol("guardian-label-ipc-timed-out");
-
-let guardianLabelCache: {
+interface GuardianLabelCacheEntry {
   storedDisplayName: string | null;
-  label: string | null;
+  label: Promise<string | null>;
   ttlMs: number;
   at: number;
-} | null = null;
-
-/** Drop the cached label so the next read re-resolves over IPC. */
-export function bustGuardianLabelCache(): void {
-  guardianLabelCache = null;
-}
-
-/**
- * Resolve the guardian's display label via the `resolve_guardian_label`
- * daemon IPC (persona preferred name → stored displayName → default
- * reference), cached with a short TTL. Best-effort: any IPC failure, slow
- * response, or malformed response serves the stored displayName unchanged —
- * a contact read never fails or stalls because the daemon is unreachable.
- */
-async function resolveGuardianLabelCached(
-  storedDisplayName: string | null,
-): Promise<string | null> {
-  const now = Date.now();
-  if (
-    guardianLabelCache &&
-    guardianLabelCache.storedDisplayName === storedDisplayName &&
-    now - guardianLabelCache.at < guardianLabelCache.ttlMs
-  ) {
-    return guardianLabelCache.label;
-  }
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const ipc = ipcCallAssistant("resolve_guardian_label", {
-      body: { storedDisplayName },
-    });
-    // The timeout may win the race; never let the losing IPC promise reject
-    // unhandled.
-    ipc.catch(() => {});
-    const raced = await Promise.race([
-      ipc,
-      new Promise<typeof GUARDIAN_LABEL_IPC_TIMED_OUT>((resolve) => {
-        timer = setTimeout(
-          () => resolve(GUARDIAN_LABEL_IPC_TIMED_OUT),
-          GUARDIAN_LABEL_IPC_TIMEOUT_MS,
-        );
-      }),
-    ]);
-    if (raced === GUARDIAN_LABEL_IPC_TIMED_OUT) {
-      log.warn(
-        "resolve_guardian_label: daemon resolve timed out (best-effort)",
-      );
-    } else {
-      const result = raced as { label?: unknown } | null;
-      if (typeof result?.label === "string" && result.label.trim()) {
-        guardianLabelCache = {
-          storedDisplayName,
-          label: result.label,
-          ttlMs: GUARDIAN_LABEL_TTL_MS,
-          at: now,
-        };
-        return result.label;
-      }
-      log.warn(
-        "resolve_guardian_label: daemon response missing label (best-effort)",
-      );
-    }
-  } catch (err) {
-    log.warn(
-      { err },
-      "resolve_guardian_label: daemon resolve failed (best-effort)",
-    );
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-  guardianLabelCache = {
-    storedDisplayName,
-    label: storedDisplayName,
-    ttlMs: GUARDIAN_LABEL_FALLBACK_TTL_MS,
-    at: now,
-  };
-  return storedDisplayName;
-}
-
-/**
- * Overlay the resolved guardian label onto a serialized contact payload so
- * gateway-native reads present the same guardian displayName as the daemon's
- * read relay. Non-guardian rows pass through untouched.
- */
-async function withGuardianLabelOverlay(
-  payload: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  if (payload.role !== "guardian") {
-    return payload;
-  }
-  const stored =
-    typeof payload.displayName === "string" ? payload.displayName : null;
-  const label = await resolveGuardianLabelCached(stored);
-  return label == null ? payload : { ...payload, displayName: label };
 }
 
 const VALID_ASSISTANT_SPECIES = ["vellum"] as const;
@@ -977,6 +882,78 @@ function extractContactsArray(
 }
 
 export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
+  let guardianLabelCache: GuardianLabelCacheEntry | null = null;
+
+  /**
+   * Resolve the guardian's display label via the `resolve_guardian_label`
+   * daemon IPC (persona preferred name → stored displayName → default
+   * reference), cached with a short TTL. The in-flight promise is cached, so
+   * concurrent cold reads share one IPC call. Best-effort: any IPC failure,
+   * timeout, or malformed response serves the stored displayName unchanged —
+   * a contact read never fails or stalls because the daemon is unreachable.
+   */
+  function resolveGuardianLabelCached(
+    storedDisplayName: string | null,
+  ): Promise<string | null> {
+    const now = Date.now();
+    if (
+      guardianLabelCache &&
+      guardianLabelCache.storedDisplayName === storedDisplayName &&
+      now - guardianLabelCache.at < guardianLabelCache.ttlMs
+    ) {
+      return guardianLabelCache.label;
+    }
+    async function resolveLabel(): Promise<string | null> {
+      try {
+        const result = (await ipcCallAssistant(
+          "resolve_guardian_label",
+          { body: { storedDisplayName } },
+          { timeoutMs: GUARDIAN_LABEL_IPC_TIMEOUT_MS },
+        )) as { label?: unknown } | null;
+        if (typeof result?.label === "string" && result.label.trim()) {
+          entry.ttlMs = GUARDIAN_LABEL_TTL_MS;
+          return result.label;
+        }
+        log.warn(
+          "resolve_guardian_label: daemon response missing label (best-effort)",
+        );
+      } catch (err) {
+        log.warn(
+          { err },
+          "resolve_guardian_label: daemon resolve failed (best-effort)",
+        );
+      }
+      return storedDisplayName;
+    }
+    // Fallback TTL until a positive resolution upgrades it, so a wedged
+    // daemon is not re-probed on every read but recovers quickly.
+    const entry: GuardianLabelCacheEntry = {
+      storedDisplayName,
+      ttlMs: GUARDIAN_LABEL_FALLBACK_TTL_MS,
+      at: now,
+      label: resolveLabel(),
+    };
+    guardianLabelCache = entry;
+    return entry.label;
+  }
+
+  /**
+   * Overlay the resolved guardian label onto a serialized contact payload so
+   * gateway-native reads present the same guardian displayName as the daemon's
+   * read relay. Non-guardian rows pass through untouched.
+   */
+  async function withGuardianLabelOverlay(
+    payload: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (payload.role !== "guardian") {
+      return payload;
+    }
+    const stored =
+      typeof payload.displayName === "string" ? payload.displayName : null;
+    const label = await resolveGuardianLabelCached(stored);
+    return label == null ? payload : { ...payload, displayName: label };
+  }
+
   async function forward(
     req: Request,
     upstreamPath: string,
