@@ -352,6 +352,18 @@
       "category": "marketing",
       "homepage": "https://github.com/ZeebBoyBlue/influencer",
       "license": "MIT"
+    },
+    {
+      "name": "twitch",
+      "source": {
+        "source": "github",
+        "repo": "garrison-faridi/vellum-twitch-plugin",
+        "ref": "38b052ae0565747b0c38e8afd56a81b6a8c16e70"
+      },
+      "description": "Twitch chat + stream tooling. Send chat, check live status, read buffered inbound messages.",
+      "category": "hobby",
+      "homepage": "https://github.com/garrison-faridi/vellum-twitch-plugin",
+      "license": "MIT"
     }
   ]
 }
