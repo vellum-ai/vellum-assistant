@@ -99,6 +99,55 @@ describe("memory config file parity", () => {
     expect(memory.embeddings.provider).toBe("openai");
   });
 
+  test("cross-field invariant: segmentation overlap >= target falls back like the loader", () => {
+    writeConfig({
+      memory: {
+        enabled: false,
+        segmentation: { targetTokens: 100, overlapTokens: 200 },
+      },
+    });
+    const memory = expectParity();
+    expect(memory.enabled).toBe(false); // valid sibling survives
+    expect(memory.segmentation.overlapTokens).toBeLessThan(
+      memory.segmentation.targetTokens,
+    );
+  });
+
+  test("cross-field invariant: dynamicBudget min > max falls back like the loader", () => {
+    writeConfig({
+      memory: {
+        retrieval: {
+          dynamicBudget: { minInjectTokens: 5000, maxInjectTokens: 100 },
+        },
+      },
+    });
+    const memory = expectParity();
+    expect(memory.retrieval.dynamicBudget.minInjectTokens).toBeLessThanOrEqual(
+      memory.retrieval.dynamicBudget.maxInjectTokens,
+    );
+  });
+
+  test("cross-field invariant: injection reserves >= maxNodes fall back like the loader", () => {
+    writeConfig({
+      memory: {
+        retrieval: {
+          injection: {
+            contextLoad: {
+              capabilityReserve: 10,
+              serendipitySlots: 10,
+              maxNodes: 5,
+            },
+          },
+        },
+      },
+    });
+    const memory = expectParity();
+    const ctxLoad = memory.retrieval.injection.contextLoad;
+    expect(ctxLoad.capabilityReserve + ctxLoad.serendipitySlots).toBeLessThan(
+      ctxLoad.maxNodes,
+    );
+  });
+
   test("the cache serves the same object until the file changes", () => {
     writeConfig({ memory: { enabled: false } });
     const first = getMemoryConfig();

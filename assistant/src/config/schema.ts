@@ -194,55 +194,6 @@ export const AssistantConfigSchema = z
           "llm.default.contextWindow.targetBudgetRatio must be greater than llm.default.contextWindow.summaryBudgetRatio",
       });
     }
-    const segmentation = config.memory?.segmentation;
-    if (
-      segmentation &&
-      segmentation.overlapTokens >= segmentation.targetTokens
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["memory", "segmentation", "overlapTokens"],
-        message:
-          "memory.segmentation.overlapTokens must be less than memory.segmentation.targetTokens",
-      });
-    }
-    const dynamicBudget = config.memory?.retrieval?.dynamicBudget;
-    if (
-      dynamicBudget &&
-      dynamicBudget.minInjectTokens > dynamicBudget.maxInjectTokens
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["memory", "retrieval", "dynamicBudget"],
-        message:
-          "memory.retrieval.dynamicBudget.minInjectTokens must be <= memory.retrieval.dynamicBudget.maxInjectTokens",
-      });
-    }
-    const injection = config.memory?.retrieval?.injection;
-    const ctxLoad = injection?.contextLoad;
-    if (
-      ctxLoad &&
-      ctxLoad.capabilityReserve + ctxLoad.serendipitySlots >= ctxLoad.maxNodes
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["memory", "retrieval", "injection", "contextLoad"],
-        message:
-          "memory.retrieval.injection.contextLoad.capabilityReserve + serendipitySlots must be less than maxNodes",
-      });
-    }
-    const perTurn = injection?.perTurn;
-    if (
-      perTurn &&
-      perTurn.capabilityReserve + perTurn.serendipitySlots >= perTurn.maxNodes
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["memory", "retrieval", "injection", "perTurn"],
-        message:
-          "memory.retrieval.injection.perTurn.capabilityReserve + serendipitySlots must be less than maxNodes",
-      });
-    }
   });
 
 export type AssistantConfig = z.infer<typeof AssistantConfigSchema>;

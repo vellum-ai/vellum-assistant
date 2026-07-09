@@ -66,6 +66,62 @@ export const MemoryConfigSchema = z
   })
   .describe(
     "Long-term memory system — stores, retrieves, and manages persistent knowledge across conversations",
-  );
+  )
+  // Cross-field memory invariants live on this schema (not the assistant
+  // schema's refinement) so every parse of the memory slice enforces them —
+  // the full-config parse via AssistantConfigSchema and the memory plugin's
+  // own slice parse alike. Parent parses prefix issue paths with "memory",
+  // preserving the loader's per-field fallback paths.
+  .superRefine((config, ctx) => {
+    const segmentation = config.segmentation;
+    if (
+      segmentation &&
+      segmentation.overlapTokens >= segmentation.targetTokens
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["segmentation", "overlapTokens"],
+        message:
+          "memory.segmentation.overlapTokens must be less than memory.segmentation.targetTokens",
+      });
+    }
+    const dynamicBudget = config.retrieval?.dynamicBudget;
+    if (
+      dynamicBudget &&
+      dynamicBudget.minInjectTokens > dynamicBudget.maxInjectTokens
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["retrieval", "dynamicBudget"],
+        message:
+          "memory.retrieval.dynamicBudget.minInjectTokens must be <= memory.retrieval.dynamicBudget.maxInjectTokens",
+      });
+    }
+    const injection = config.retrieval?.injection;
+    const ctxLoad = injection?.contextLoad;
+    if (
+      ctxLoad &&
+      ctxLoad.capabilityReserve + ctxLoad.serendipitySlots >= ctxLoad.maxNodes
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["retrieval", "injection", "contextLoad"],
+        message:
+          "memory.retrieval.injection.contextLoad.capabilityReserve + serendipitySlots must be less than maxNodes",
+      });
+    }
+    const perTurn = injection?.perTurn;
+    if (
+      perTurn &&
+      perTurn.capabilityReserve + perTurn.serendipitySlots >= perTurn.maxNodes
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["retrieval", "injection", "perTurn"],
+        message:
+          "memory.retrieval.injection.perTurn.capabilityReserve + serendipitySlots must be less than maxNodes",
+      });
+    }
+  });
 
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
