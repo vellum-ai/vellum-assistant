@@ -681,7 +681,9 @@ async function finalizeSuccessfulRetrospective(args: {
   // source conversation. Gated on proc-to-skills being active (the run can
   // only author skills when it is) AND the `skill-creation-card` flag.
   // `insertSkillCardMessage` is best-effort — a card failure never fails the
-  // job. Every gate outcome logs at info level so a missing card is
+  // job — and defers delivery through a durable `skill_card_insert` job when
+  // the source is mid-turn, so the card still always lands once the turn
+  // ends. Every gate outcome logs at info level so a missing card is
   // one-grep diagnosable in the field ("skill-card:" / "skill card:").
   const procToSkillsActive = isProcToSkillsActive(config);
   const skillCardFlagEnabled = isAssistantFeatureFlagEnabled(

@@ -41,6 +41,7 @@ import {
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
+import { skillCardInsertJob } from "./memory-retrospective-skill-card.js";
 import {
   memoryV2ActivationRecomputeJob,
   memoryV2MigrateJob,
@@ -209,5 +210,9 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "memory_retrospective",
     handler: (job, config) => memoryRetrospectiveJob(job, config),
+  },
+  {
+    type: "skill_card_insert",
+    handler: (job) => skillCardInsertJob(job),
   },
 ];
