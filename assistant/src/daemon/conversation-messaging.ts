@@ -537,6 +537,14 @@ export interface PersistMessageOptions {
 
 // ── persistUserMessage ───────────────────────────────────────────────
 
+/**
+ * Thrown by user-message persistence when the conversation's processing
+ * lock is held. Callers (voice bridge retry, queue-drain requeue) match on
+ * this exact string — keep it byte-stable.
+ */
+export const CONVERSATION_BUSY_MESSAGE =
+  "Conversation is already processing a message";
+
 export async function persistUserMessage(
   ctx: MessagingConversationContext,
   options: PersistMessageOptions,
@@ -544,7 +552,7 @@ export async function persistUserMessage(
   const { content, attachments = [] } = options;
 
   if (ctx.isProcessing()) {
-    throw new Error("Conversation is already processing a message");
+    throw new Error(CONVERSATION_BUSY_MESSAGE);
   }
 
   if (!content.trim() && attachments.length === 0) {
