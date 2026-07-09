@@ -34,6 +34,12 @@ import { Glob } from "bun";
  * almost always arrives as a new host file. The failure message prints the
  * offending specifiers for context.
  *
+ * The scan sees string-literal module references only: `import`/`export from`
+ * clauses, `import()`/`require()`/`import.meta.resolve()` calls, bare
+ * side-effect imports, and `new URL("...", import.meta.url)` process/worker
+ * entry points. A reference built from a non-literal string is invisible to
+ * it.
+ *
  * Tests run from `assistant/`, so paths are resolved against `process.cwd()`.
  */
 
@@ -97,6 +103,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/permissions/checker.ts",
     "src/persistence/conversation-crud.ts",
     "src/persistence/steps.ts",
+    "src/persistence/worker-control.ts",
     "src/plugins/types.ts",
     "src/prompts/system-prompt.ts",
     "src/runtime/routes/consolidation-routes.ts",
@@ -124,7 +131,7 @@ const BASELINE: Record<string, readonly string[]> = {
 };
 
 function importSpecifierRegex(): RegExp {
-  return /(?:import|export)\b[^'"]*?from\s*['"]([^'"]+)['"]|(?:import\.meta\.resolve|import|require)\(\s*['"]([^'"]+)['"]\s*\)|^\s*import\s+['"]([^'"]+)['"]/gm;
+  return /(?:import|export)\b[^'"]*?from\s*['"]([^'"]+)['"]|(?:import\.meta\.resolve|import|require)\(\s*['"]([^'"]+)['"]\s*\)|^\s*import\s+['"]([^'"]+)['"]|new\s+URL\(\s*['"]([^'"]+)['"]\s*,\s*import\.meta\.url/gm;
 }
 
 interface HostFile {
@@ -192,7 +199,7 @@ function collectReaches(files: HostFile[]): Reach[] {
     const regex = importSpecifierRegex();
     let match: RegExpExecArray | null;
     while ((match = regex.exec(file.source)) !== null) {
-      const specifier = match[1] ?? match[2] ?? match[3];
+      const specifier = match[1] ?? match[2] ?? match[3] ?? match[4];
       // Only relative specifiers can resolve into a plugin directory.
       if (!specifier || !specifier.startsWith(".")) {
         continue;
