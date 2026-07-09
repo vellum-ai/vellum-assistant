@@ -3,6 +3,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -12,6 +13,7 @@ import { getLogger } from "../util/logger.js";
 import {
   ensureDataDir,
   getConfigQuarantineNoticePath,
+  getConfigValidationResetNoticePath,
   getWorkspaceConfigPath,
 } from "../util/platform.js";
 import { pruneSeededCallsiteDefaultsFromConfig } from "./prune-seeded-callsite-defaults.js";
@@ -288,12 +290,83 @@ function writeQuarantineNotice(
 }
 
 /**
+ * Record a "config was reset to full defaults by schema validation" event so
+ * the per-turn `config-validation-reset-notice` injector can surface it to the
+ * agent. Unlike {@link writeQuarantineNotice} (JSON-corrupt file, quarantined),
+ * this fires when `config.json` parses as valid JSON but fails schema validation
+ * hard enough that {@link validateWithSchema} falls back to {@link
+ * cloneDefaultConfig} — e.g. an unknown key that masks a `superRefine`
+ * violation until the strip unmasks it, forcing a whole-config reset that
+ * silently reverts unrelated settings (managed service modes, model choices,
+ * API keys). The on-disk file is left intact, so the user's values are still
+ * present but inactive until the invalid entries are fixed.
+ *
+ * Gated on `suppressConfigDiskWritesDepth`: the transient `getConfig()` re-parse
+ * during a `config set`/`patch` write runs under suppression, and that in-memory
+ * validation must not write a user-facing notice. Best-effort — any failure is
+ * logged and swallowed; the `log.warn` reset lines remain the authoritative
+ * record. `invalidPaths` is capped so a pathological config cannot bloat the
+ * sentinel.
+ */
+function recordConfigValidationReset(invalidPaths: string[]): void {
+  if (suppressConfigDiskWritesDepth !== 0) return;
+  try {
+    const noticePath = getConfigValidationResetNoticePath();
+    const dir = dirname(noticePath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const dedupedPaths = [...new Set(invalidPaths.filter(Boolean))].slice(
+      0,
+      50,
+    );
+    const notice = {
+      resetAt: new Date().toISOString(),
+      invalidPaths: dedupedPaths,
+    };
+    writeFileSync(noticePath, JSON.stringify(notice, null, 2) + "\n", "utf-8");
+    log.warn(
+      `Wrote config-validation-reset notice to ${noticePath}; config.json ` +
+        `failed schema validation and was reset to defaults (${
+          dedupedPaths.length
+        } invalid path(s): ${dedupedPaths.join(", ") || "top-level"}).`,
+    );
+  } catch (noticeErr) {
+    log.warn(
+      { noticeErr },
+      `Failed to write config-validation-reset notice; the reset is still ` +
+        `recorded in the assistant logs.`,
+    );
+  }
+}
+
+/**
+ * Clear any stale config-validation-reset sentinel once the config validates
+ * cleanly again — a validation reset is recoverable (fix the invalid entry and
+ * the values come back), so the notice must stop as soon as the config parses,
+ * not linger until age-out like a quarantine. Runs only on genuine (re)loads
+ * (`loadConfig` short-circuits on a fresh cache before reaching validation) and
+ * is gated on suppression for the same reason as {@link
+ * recordConfigValidationReset}. Best-effort.
+ */
+function clearConfigValidationResetNotice(): void {
+  if (suppressConfigDiskWritesDepth !== 0) return;
+  try {
+    rmSync(getConfigValidationResetNoticePath(), { force: true });
+  } catch {
+    // Best-effort — a failed delete just means the injector re-checks (and the
+    // sentinel ages out) next turn.
+  }
+}
+
+/**
  * Validate a raw config object with Zod. Invalid fields are logged as warnings
  * and replaced with defaults (matching prior behavior of per-field fallback).
  */
 function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   const result = AssistantConfigSchema.safeParse(raw);
   if (result.success) {
+    clearConfigValidationResetNotice();
     return applyNestedDefaults(result.data);
   }
 
@@ -318,7 +391,11 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   const cleaned = structuredClone(raw);
   for (const issue of result.error.issues) {
     if (issue.path.length === 0) {
-      // Top-level error — return full defaults
+      // Top-level error — return full defaults. Surface the reset so the agent
+      // can explain settings that silently reverted (see recordConfigValidationReset).
+      recordConfigValidationReset(
+        result.error.issues.map((i) => i.path.join(".")),
+      );
       return cloneDefaultConfig();
     }
     deleteNestedKey(cleaned, issue.path as (string | number)[], true);
@@ -326,11 +403,21 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
 
   const retry = AssistantConfigSchema.safeParse(cleaned);
   if (retry.success) {
+    clearConfigValidationResetNotice();
     return applyNestedDefaults(retry.data);
   }
 
-  // If still failing, fall back to full defaults
+  // If still failing, fall back to full defaults. This is the case that
+  // silently reverts unrelated settings (e.g. a stripped unknown `llm.callSites`
+  // key unmasks a `superRefine` violation, wiping managed service modes back to
+  // their `your-own` schema default). Record BOTH the first-parse paths (what
+  // was stripped) and the retry paths (what still failed) so the notice can name
+  // what went wrong — the retry issues are otherwise never logged.
   log.warn("Config validation failed after cleanup. Using full defaults.");
+  recordConfigValidationReset([
+    ...result.error.issues.map((i) => i.path.join(".")),
+    ...retry.error.issues.map((i) => i.path.join(".")),
+  ]);
   return cloneDefaultConfig();
 }
 

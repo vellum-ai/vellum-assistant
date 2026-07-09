@@ -96,6 +96,25 @@ export function getConfigQuarantineNoticePath(): string {
 }
 
 /**
+ * Returns the path to the config-validation-reset notice sentinel
+ * (`<workspace>/data/config-validation-reset-notice.json`).
+ *
+ * Written by the config loader when `config.json` parses as JSON but fails
+ * schema validation so hard that the loader falls back to *full* defaults
+ * (e.g. an unknown key that masks a `superRefine` violation until the offending
+ * key is stripped). Unlike a quarantine, the on-disk file is left untouched —
+ * the user's customized values are still present but inactive until the invalid
+ * entries are fixed. Read by the per-turn `config-validation-reset-notice`
+ * injector so the agent can explain a settings/connection change the user did
+ * not make. Lives beside the quarantine sentinel under the internal data dir
+ * for the same reasons (daemon-written bookkeeping; resolves without loading
+ * config, so it is safe during early-boot config load).
+ */
+export function getConfigValidationResetNoticePath(): string {
+  return join(getDataDir(), "config-validation-reset-notice.json");
+}
+
+/**
  * Returns the embedding models directory ($VELLUM_WORKSPACE_DIR/embedding-models).
  * Downloaded embedding runtime (onnxruntime-node, transformers bundle, model weights)
  * is stored here, downloaded post-hatch rather than shipped with the app.
