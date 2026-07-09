@@ -27,10 +27,12 @@ import {
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
 import {
+  isOverrideOrDefaultResolutionEnabled,
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
   resolveEffectiveProfileKey,
   resolveProfilelessModelKey,
+  selectWinningProfile,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -930,10 +932,21 @@ export async function runAgentLoopImpl(
     // `modelProfileKey` is the actual profile used for this turn. The
     // notice key is narrower: it only marks turns where runtime context should
     // remind the model that the profile changed.
+    // Under override-or-default semantics the reported key must come from
+    // the same winner selection dispatch used — a hand-rolled chain would
+    // credit profiles the resolver never consulted (e.g. activeProfile on a
+    // non-mainAgent turn).
     const effectiveProfileKey =
-      turnOverrideProfile ??
-      config.llm.activeProfile ??
-      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      (isOverrideOrDefaultResolutionEnabled()
+        ? selectWinningProfile(turnCallSite, config.llm, {
+            ...(turnOverrideProfile != null
+              ? { overrideProfile: turnOverrideProfile }
+              : {}),
+            selectionSeed: ctx.conversationId,
+          }).profileName
+        : (turnOverrideProfile ??
+          config.llm.activeProfile ??
+          resolveDefaultProfileKey("mainAgent", config.llm))) ??
       resolveProfilelessModelKey(turnCallSite, config.llm, {
         ...(turnOverrideProfile != null
           ? { overrideProfile: turnOverrideProfile }
