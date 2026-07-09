@@ -215,6 +215,65 @@ describe("runWatchersOnce — auth-failure notifications", () => {
     expect(reconnectNotifications(notifications)).toHaveLength(2);
   });
 
+  test("alternating credential-health and auth-error paths notify only once per outage", async () => {
+    fakeWatchers = [makeWatcher()];
+    const notifications: Notification[] = [];
+    const notify = (n: Notification) => notifications.push(n);
+
+    // Tick 1: credential health reports the account revoked → skip gate
+    // path raises the episode under "credential-unhealthy".
+    credentialHealthImpl = async () => ({
+      status: "revoked",
+      details:
+        "outlook token was rejected (401/403). Re-authorization required.",
+      canAutoRecover: false,
+    });
+    await runWatchersOnce(notify);
+
+    // Tick 2: the health check itself throws (so the skip gate is bypassed
+    // and the poll proceeds), then the poll fails with an auth-shaped error
+    // → catch-block path under a different status key ("auth-error").
+    credentialHealthImpl = async () => {
+      throw new Error("health check unavailable");
+    };
+    providerFetchImpl = async () => {
+      throw authError;
+    };
+    await runWatchersOnce(notify);
+
+    // The status key flipped between ticks, but suppression is per watcher
+    // outage: exactly one reconnect notification total.
+    expect(reconnectNotifications(notifications)).toHaveLength(1);
+  });
+
+  test("circuit-breaker disable clears the episode so a re-enabled watcher notifies again", async () => {
+    fakeWatchers = [makeWatcher()];
+    providerFetchImpl = async () => {
+      throw authError;
+    };
+
+    const notifications: Notification[] = [];
+    const notify = (n: Notification) => notifications.push(n);
+
+    // Drive to the circuit-breaker disable (consecutiveErrors 0→4 over five
+    // failing ticks). One reconnect notification fires; disable clears the
+    // episode entry.
+    for (let i = 0; i < 5; i++) {
+      await runWatchersOnce(notify);
+    }
+    expect(reconnectNotifications(notifications)).toHaveLength(1);
+    expect(disableNotifications(notifications)).toHaveLength(1);
+
+    // Simulate the user re-enabling the still-broken watcher: it becomes
+    // claimable again with a fresh error counter. Because disable cleared
+    // the episode, the next auth failure raises a brand-new notification
+    // rather than being suppressed by a stale entry.
+    fakeWatchers = [makeWatcher()];
+    await runWatchersOnce(notify);
+
+    expect(reconnectNotifications(notifications)).toHaveLength(2);
+  });
+
   test("non-auth poll failure does not produce a reconnect notification", async () => {
     fakeWatchers = [makeWatcher()];
     providerFetchImpl = async () => {

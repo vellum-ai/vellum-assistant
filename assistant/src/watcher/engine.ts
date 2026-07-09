@@ -57,10 +57,12 @@ function isAuthConnectionError(err: unknown): boolean {
 
 /**
  * Per-process record of watchers already notified about an ongoing auth
- * problem, keyed by watcher id. The value is a status key identifying the
- * episode ("credential-unhealthy" / "auth-error"). An entry means the user
- * has been told once; it is cleared when the watcher's poll succeeds so a
- * later new outage notifies again.
+ * problem, keyed by watcher id. The value is the status key of the tick that
+ * first raised the episode ("credential-unhealthy" / "auth-error"), retained
+ * for diagnostics only. The presence of an entry — regardless of its value —
+ * means the user has been told once for this outage; it is cleared when the
+ * watcher's poll succeeds or the circuit breaker disables it, so a later new
+ * outage notifies again.
  */
 const authNotifiedEpisodes = new Map<string, string>();
 
@@ -71,8 +73,11 @@ export function _resetAuthNotificationStateForTests(): void {
 
 /**
  * Send an auth-reconnect notification for a watcher at most once per
- * episode. Returns true if a notification was sent, false if suppressed
- * because the same episode was already reported.
+ * outage. Suppression is keyed on watcher id alone: once any auth
+ * notification has been sent for an ongoing episode, no more are sent until
+ * the episode is cleared (by a successful poll or by circuit-breaker
+ * disable), even if a later tick classifies the failure under a different
+ * status key. Returns true if a notification was sent, false if suppressed.
  */
 function notifyAuthEpisodeOnce(
   notify: WatcherNotifier,
@@ -80,7 +85,7 @@ function notifyAuthEpisodeOnce(
   statusKey: string,
   notification: { title: string; body: string },
 ): boolean {
-  if (authNotifiedEpisodes.get(watcherId) === statusKey) {
+  if (authNotifiedEpisodes.has(watcherId)) {
     return false;
   }
   authNotifiedEpisodes.set(watcherId, statusKey);
@@ -254,6 +259,11 @@ export async function runWatchersOnce(
       if (watcher.consecutiveErrors + 1 >= MAX_CONSECUTIVE_ERRORS) {
         const reason = `Disabled after ${MAX_CONSECUTIVE_ERRORS} consecutive errors. Last: ${message}`;
         disableWatcher(watcher.id, reason);
+        // Close out the auth episode: the disable notification below is the
+        // final word for this outage. Clearing lets a fresh episode (and a
+        // fresh reconnect notification) start if the user re-enables the
+        // watcher while the account is still broken.
+        authNotifiedEpisodes.delete(watcher.id);
         // Do NOT call provider.cleanup() here — auto-disable is reversible.
         // If the watcher is re-enabled later, it must diff against the same
         // baseline to avoid missing events that occurred while disabled.
