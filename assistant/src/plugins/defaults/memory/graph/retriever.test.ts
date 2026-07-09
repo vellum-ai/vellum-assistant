@@ -30,7 +30,9 @@ mock.module("../../../../persistence/embeddings/embed.js", () => ({
     _opts?: unknown,
   ) => {
     embedCallCount++;
-    if (embedShouldThrow) throw new Error("embedding backend down");
+    if (embedShouldThrow) {
+      throw new Error("embedding backend down");
+    }
     const vectors = texts.map((t) => {
       const text = typeof t === "string" ? t : "";
       return embedRouter ? embedRouter(text) : embedVector;
@@ -54,7 +56,9 @@ let searchRouter: ((vector: number[]) => SearchHit[]) | null = null;
 
 mock.module("./graph-search.js", () => ({
   searchGraphNodes: async (vector: number[]) => {
-    if (searchRouter) return searchRouter(vector);
+    if (searchRouter) {
+      return searchRouter(vector);
+    }
     return [];
   },
 }));
@@ -62,7 +66,9 @@ mock.module("./graph-search.js", () => ({
 // Returning `null` from getConfiguredProvider causes rerankAndDedup and
 // dedupCrossCategory to fall back to the candidate list without calling an
 // LLM, keeping these tests fully offline.
+const realPluginApi = await import("@vellumai/plugin-api");
 mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async () => null,
 }));
 
@@ -258,8 +264,12 @@ describe("retrieveForTurn — topic-pivot recovery", () => {
     const lowered = text.toLowerCase();
     const cakeHits = (lowered.match(/cake/g) ?? []).length;
     const shirtHits = (lowered.match(/shirt/g) ?? []).length;
-    if (cakeHits > shirtHits) return [0, 1, 0];
-    if (shirtHits > cakeHits) return [1, 0, 0];
+    if (cakeHits > shirtHits) {
+      return [0, 1, 0];
+    }
+    if (shirtHits > cakeHits) {
+      return [1, 0, 0];
+    }
     return [0.1, 0.1, 0.1];
   }
 
@@ -268,8 +278,12 @@ describe("retrieveForTurn — topic-pivot recovery", () => {
 
   function vectorSearchRouter(vector: number[]): SearchHit[] {
     const [a = 0, b = 0] = vector;
-    if (a === 1 && b === 0) return [{ nodeId: shirtNodeId, score: 0.9 }];
-    if (a === 0 && b === 1) return [{ nodeId: cakeNodeId, score: 0.9 }];
+    if (a === 1 && b === 0) {
+      return [{ nodeId: shirtNodeId, score: 0.9 }];
+    }
+    if (a === 0 && b === 1) {
+      return [{ nodeId: cakeNodeId, score: 0.9 }];
+    }
     return [];
   }
 
@@ -416,11 +430,15 @@ describe("loadContextMemory — dual-query capability ranking", () => {
   // driving the capability-reserve decision.
   function keywordEmbedRouter(text: string): number[] {
     const lowered = text.toLowerCase();
-    if (lowered.includes("inbox")) return [1, 0, 0];
-    if (lowered.includes("heartbeat") || lowered.includes("readiness"))
+    if (lowered.includes("inbox")) {
+      return [1, 0, 0];
+    }
+    if (lowered.includes("heartbeat") || lowered.includes("readiness")) {
       return [0, 1, 0];
-    if (lowered.includes("bridgerton") || lowered.includes("watch"))
+    }
+    if (lowered.includes("bridgerton") || lowered.includes("watch")) {
       return [0, 0, 1];
+    }
     return [0.1, 0.1, 0.1];
   }
 

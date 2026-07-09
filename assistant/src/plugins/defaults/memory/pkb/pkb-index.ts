@@ -15,9 +15,10 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 
+import { embedAndUpsert } from "@vellumai/plugin-api";
+
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
-import { embedAndUpsert } from "../embeddings.js";
 import type { PkbIndexEntry } from "./types.js";
 import { PKB_TARGET_TYPE } from "./types.js";
 
@@ -74,8 +75,12 @@ export async function scanPkbFiles(
         await walk(absPath);
         continue;
       }
-      if (!dirent.isFile()) continue;
-      if (!dirent.name.toLowerCase().endsWith(".md")) continue;
+      if (!dirent.isFile()) {
+        continue;
+      }
+      if (!dirent.name.toLowerCase().endsWith(".md")) {
+        continue;
+      }
 
       let content: string;
       let mtimeMs: number;
@@ -134,7 +139,9 @@ export function chunkPkbFile(content: string): string[] {
       continue;
     }
     const nextNewline = content.indexOf("\n## ", cursor);
-    if (nextNewline === -1) break;
+    if (nextNewline === -1) {
+      break;
+    }
     headingIndices.push(nextNewline + 1);
     cursor = nextNewline + 1;
   }
@@ -223,8 +230,12 @@ export async function indexPkbFile(
   // did not regenerate (e.g. the file shrunk from 4 chunks to 2).
   for (const point of existing) {
     const staleTargetId = point.payload.target_id;
-    if (typeof staleTargetId !== "string") continue;
-    if (newTargetIds.has(staleTargetId)) continue;
+    if (typeof staleTargetId !== "string") {
+      continue;
+    }
+    if (newTargetIds.has(staleTargetId)) {
+      continue;
+    }
     await withQdrantBreaker(() =>
       qdrant.deleteByTarget(PKB_TARGET_TYPE, staleTargetId),
     );

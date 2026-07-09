@@ -180,3 +180,11 @@ export {
   getAssistantName,
   resolveUserName,
 } from "../daemon/identity-helpers.js";
+// Embeddings — self-contained operations on the host's shared embedding /
+// vector-store subsystem. Host-resolved: each reads the live workspace config
+// internally, so plugins hold no config. Async because the facade loads the
+// embed graph lazily on first call.
+export {
+  embedAndUpsert,
+  selectedBackendSupportsMultimodal,
+} from "../persistence/embeddings/plugin-facade.js";

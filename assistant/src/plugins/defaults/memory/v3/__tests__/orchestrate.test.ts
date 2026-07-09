@@ -36,7 +36,9 @@ import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 let providerStub: Provider | null = null;
 
+const realPluginApi = await import("@vellumai/plugin-api");
 mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async () => providerStub,
 }));
 
@@ -60,7 +62,9 @@ let denseCalls: Array<{ query: string; k: number }> = [];
 mock.module("../dense.js", () => ({
   ...realDense,
   denseLane: async (...args: Parameters<typeof realDense.denseLane>) => {
-    if (!denseMockActive) return realDense.denseLane(...args);
+    if (!denseMockActive) {
+      return realDense.denseLane(...args);
+    }
     denseCalls.push({ query: args[1], k: args[2] });
     return args[2] <= 0 ? [] : denseHits;
   },
@@ -71,7 +75,9 @@ mock.module("../dense.js", () => ({
   denseLaneScored: async (
     ...args: Parameters<typeof realDense.denseLaneScored>
   ) => {
-    if (!denseMockActive) return realDense.denseLaneScored(...args);
+    if (!denseMockActive) {
+      return realDense.denseLaneScored(...args);
+    }
     denseCalls.push({ query: args[1], k: args[2] });
     return args[2] <= 0
       ? []
@@ -228,7 +234,9 @@ function parsePool(messages: Message[]): {
   let prefixBlock: string | null = null;
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type !== "text") continue;
+      if (block.type !== "text") {
+        continue;
+      }
       const cards = /<candidate_cards>\n([\s\S]*?)\n<\/candidate_cards>/.exec(
         block.text,
       );
@@ -246,7 +254,9 @@ function parsePool(messages: Message[]): {
       if (finder) {
         for (const line of finder[1].split("\n")) {
           const m = /^\[(\d+)\] (?:\([^)]*\) )?(\S+)(?: — |$)/.exec(line);
-          if (m) entries.push({ id: Number(m[1]), slug: m[2]!, line });
+          if (m) {
+            entries.push({ id: Number(m[1]), slug: m[2]!, line });
+          }
         }
       }
     }
@@ -280,8 +290,12 @@ function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
       const ids: number[] = [];
       const pinned_ids: number[] = [];
       parsed.slugs.forEach((slug, i) => {
-        if (keep.includes(slug)) ids.push(i + 1);
-        if (pin.includes(slug)) pinned_ids.push(i + 1);
+        if (keep.includes(slug)) {
+          ids.push(i + 1);
+        }
+        if (pin.includes(slug)) {
+          pinned_ids.push(i + 1);
+        }
       });
       return toolUseResponse({ ids, pinned_ids });
     },
