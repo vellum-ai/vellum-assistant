@@ -500,6 +500,103 @@ export const channelDenialReplyLog = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Guardian requests (gateway-owned)
+// ---------------------------------------------------------------------------
+//
+// Unified guardian approval requests across all kinds (access_request,
+// tool_approval, tool_grant_request, pending_question). There is no
+// source_type column: it is derived from source_channel at read time
+// (phone → voice, vellum → desktop, else channel). Accessed via
+// db/guardian-request-store.ts.
+
+export const guardianRequests = sqliteTable(
+  "guardian_requests",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull(),
+    sourceChannel: text("source_channel"),
+    sourceConversationId: text("source_conversation_id"),
+    requesterExternalUserId: text("requester_external_user_id"),
+    requesterChatId: text("requester_chat_id"),
+    guardianExternalUserId: text("guardian_external_user_id"),
+    guardianPrincipalId: text("guardian_principal_id"),
+    callSessionId: text("call_session_id"),
+    pendingQuestionId: text("pending_question_id"),
+    questionText: text("question_text"),
+    requestCode: text("request_code"),
+    toolName: text("tool_name"),
+    inputDigest: text("input_digest"),
+    commandPreview: text("command_preview"),
+    riskLevel: text("risk_level"),
+    activityText: text("activity_text"),
+    executionTarget: text("execution_target"),
+    // JSON-encoded RequesterIdentitySignals ({isBot,isStranger,isRestricted})
+    // captured at creation so decision-time policy reads the same identity
+    // facts the introduction card was rendered from.
+    requesterSignals: text("requester_signals"),
+    // What prompted an access request: 'denied' (refused sender awaiting a
+    // let-them-in decision) or 'admitted' (floor-admitted sender nudged for
+    // trust assignment). NULL means 'denied'. Column name avoids the SQL
+    // TRIGGER keyword.
+    requestTrigger: text("request_trigger"),
+    status: text("status").notNull().default("pending"),
+    answerText: text("answer_text"),
+    decidedByExternalUserId: text("decided_by_external_user_id"),
+    decidedByPrincipalId: text("decided_by_principal_id"),
+    followupState: text("followup_state"),
+    expiresAt: integer("expires_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_gw_guardian_requests_status").on(table.status),
+    index("idx_gw_guardian_requests_guardian").on(
+      table.guardianExternalUserId,
+      table.status,
+    ),
+    index("idx_gw_guardian_requests_conversation").on(
+      table.sourceConversationId,
+      table.status,
+    ),
+    index("idx_gw_guardian_requests_source").on(
+      table.sourceChannel,
+      table.status,
+    ),
+    index("idx_gw_guardian_requests_kind").on(table.kind, table.status),
+    index("idx_gw_guardian_requests_request_code").on(table.requestCode),
+  ],
+);
+
+export const guardianRequestDeliveries = sqliteTable(
+  "guardian_request_deliveries",
+  {
+    id: text("id").primaryKey(),
+    requestId: text("request_id")
+      .notNull()
+      .references(() => guardianRequests.id, { onDelete: "cascade" }),
+    destinationChannel: text("destination_channel").notNull(),
+    destinationConversationId: text("destination_conversation_id"),
+    destinationChatId: text("destination_chat_id"),
+    destinationMessageId: text("destination_message_id"),
+    status: text("status").notNull().default("pending"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_gw_guardian_request_deliveries_request_id").on(table.requestId),
+    index("idx_gw_guardian_request_deliveries_status").on(table.status),
+    index("idx_gw_guardian_request_deliveries_dest_message").on(
+      table.destinationChannel,
+      table.destinationChatId,
+      table.destinationMessageId,
+    ),
+    index("idx_gw_guardian_request_deliveries_dest_conversation").on(
+      table.destinationConversationId,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Credential requests (one-time credential-collection links)
 // ---------------------------------------------------------------------------
 
