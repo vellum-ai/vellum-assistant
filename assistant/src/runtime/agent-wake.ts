@@ -482,23 +482,13 @@ async function runSingleFlight<T>(
 }
 
 /**
- * Small helper: if a conversation reports `isProcessing()`, poll briefly
- * so we don't try to start a second agent loop concurrently. We rely
- * primarily on the single-flight chain above to serialize *wakes*; this
- * extra check catches the case where a user turn started independently
- * while our wake was queued.
+ * How long a wake waits for an in-flight turn to release the conversation's
+ * processing lock before skipping with reason "timeout". We rely primarily
+ * on the single-flight chain above to serialize *wakes*; the pre-run
+ * `waitForIdle` gate catches the case where a user turn started
+ * independently while our wake was queued.
  */
-async function waitUntilIdle(
-  conversation: Conversation,
-  nowFn: () => number,
-  timeoutMs = 30_000,
-): Promise<boolean> {
-  const deadline = nowFn() + timeoutMs;
-  while (conversation.isProcessing() && nowFn() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return !conversation.isProcessing();
-}
+const WAKE_IDLE_TIMEOUT_MS = 30_000;
 
 function classifyWakeDiskPressurePolicy(opts: WakeOptions): {
   decision: DiskPressureTurnPolicyDecision;
@@ -689,7 +679,13 @@ export async function wakeAgentForOpportunity(
       };
     }
 
-    const idle = await waitUntilIdle(conversation, nowFn);
+    // Wait for any independently started user turn to release the processing
+    // lock so we don't run a second agent loop concurrently. With no abort
+    // signal, waitForIdle never rejects — `false` means the budget elapsed
+    // with the lock still held.
+    const idle = await conversation.waitForIdle({
+      timeoutMs: WAKE_IDLE_TIMEOUT_MS,
+    });
     if (!idle) {
       log.warn(
         { conversationId, source },
