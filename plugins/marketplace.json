@@ -298,7 +298,7 @@
       "source": {
         "source": "github",
         "repo": "AnitaKirkovska/family-briefing",
-        "ref": "8d363835f752992a397e350825f229902fc4a5ff"
+        "ref": "8eefa41f991279a0f25e3992730cf0ce65c6845d"
       },
       "description": "Daily morning briefing for parents: merges family calendars, triages school emails, and detects scheduling conflicts.",
       "category": "productivity",
