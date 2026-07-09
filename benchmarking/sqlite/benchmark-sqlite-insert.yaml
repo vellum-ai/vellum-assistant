@@ -1,31 +1,32 @@
 # NOTE: This is the CI workflow for the SQLite insert-scaling benchmark.
 # It is staged here because the automation that created this branch lacks the
 # GitHub `workflow` OAuth scope required to write under .github/workflows/.
-# To activate it, move this file to .github/workflows/ with a client that has
-# workflow scope:
+# To activate it (and make it runnable from the Actions UI), move this file to
+# .github/workflows/ with a client that has workflow scope:
 #
 #   git mv benchmarking/sqlite/benchmark-sqlite-insert.yaml \
 #          .github/workflows/benchmark-sqlite-insert.yaml
 #
 name: Benchmark - SQLite insert scaling
 
-# Builds two ~5 GiB SQLite databases (sequential vs. random primary key), then
-# times small insert batches against each to show how write performance depends
-# on where a row lands in the B-tree. Heavy (multi-GiB fill), so it does not run
-# on every push — only on demand or when the benchmark itself changes.
+# Builds two SQLite databases (sequential vs. random primary key), then times
+# small insert batches against each to show how write performance depends on
+# where a row lands in the B-tree. Heavy (multi-GiB fill), so it only runs on
+# demand (workflow_dispatch) or when the benchmark itself changes.
 on:
+  # Run manually from the Actions UI. All knobs are exposed as inputs.
   workflow_dispatch:
     inputs:
       target_bytes:
-        description: 'Fill size per DB, in bytes'
+        description: 'Fill size per DB, in bytes (default 5 GiB)'
         required: false
         default: '5368709120' # 5 GiB
       min_row_bytes:
-        description: 'Smallest row payload, in bytes'
+        description: 'Smallest content payload, in bytes'
         required: false
         default: '5120' # 5 KiB
       max_row_bytes:
-        description: 'Largest row payload, in bytes'
+        description: 'Largest content payload, in bytes'
         required: false
         default: '51200' # 50 KiB
       batch_rows:
@@ -49,6 +50,9 @@ concurrency:
 jobs:
   benchmark:
     name: Fill & benchmark
+    # ubuntu-latest is the smallest GitHub-hosted runner. Its ~7 GiB RAM is a
+    # feature here: a multi-GiB DB spills out of the page cache, so the random
+    # key's cache-miss penalty shows on top of its page-split cost.
     runs-on: ubuntu-latest
     # The measured phase is seconds; the multi-GiB fill dominates. Cap well
     # under GitHub's 6-hour default so a stall does not hold a runner.
@@ -63,15 +67,36 @@ jobs:
         with:
           bun-version: '1.3.11'
 
-      - name: Prepare scratch dir on large volume
+      - name: Choose scratch dir with enough free space
         id: scratch
+        env:
+          TARGET_BYTES: ${{ github.event.inputs.target_bytes || '5368709120' }}
         run: |
-          # /mnt is the runner's large ephemeral SSD (~65 GiB free); the OS disk
-          # is too small for two 5 GiB files plus their WAL.
-          sudo mkdir -p /mnt/sqlite-bench
-          sudo chmod 777 /mnt/sqlite-bench
-          df -h / /mnt
-          echo "dir=/mnt/sqlite-bench" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          # Two DBs plus WAL/scratch — budget 2x target and 2 GiB headroom.
+          needed=$(( TARGET_BYTES * 2 + 2 * 1024 * 1024 * 1024 ))
+
+          # Prefer whichever candidate volume has the most free space. On the
+          # smallest runner the OS disk is the roomy one; /mnt may or may not
+          # exist, so probe both rather than assuming.
+          best_dir=""
+          best_avail=0
+          for base in /mnt "${RUNNER_TEMP:-/tmp}"; do
+            mkdir -p "$base/sqlite-bench" 2>/dev/null || continue
+            avail=$(df -PB1 "$base/sqlite-bench" | awk 'NR==2 {print $4}')
+            echo "candidate $base/sqlite-bench: $((avail / 1024 / 1024)) MiB free"
+            if [ "$avail" -gt "$best_avail" ]; then
+              best_avail=$avail
+              best_dir="$base/sqlite-bench"
+            fi
+          done
+
+          echo "Need $((needed / 1024 / 1024)) MiB; best is $best_dir with $((best_avail / 1024 / 1024)) MiB free"
+          if [ -z "$best_dir" ] || [ "$best_avail" -lt "$needed" ]; then
+            echo "::error::Not enough free disk for the benchmark. Lower target_bytes and re-run." >&2
+            exit 1
+          fi
+          echo "dir=$best_dir" >> "$GITHUB_OUTPUT"
 
       - name: Run benchmark
         env:
@@ -85,4 +110,4 @@ jobs:
 
       - name: Clean up
         if: always()
-        run: rm -rf /mnt/sqlite-bench
+        run: rm -rf "${{ steps.scratch.outputs.dir }}"
