@@ -66,12 +66,18 @@ afterAll(() => {
 
 import {
   _resetLastKnownGoodConfigForTests,
+  getConfigReadOnly,
   invalidateConfigCache,
   loadConfig,
 } from "../loader.js";
 
 function writeConfig(obj: unknown): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(obj, null, 2) + "\n");
+}
+
+/** Write raw bytes to config.json without JSON-stringifying them. */
+function writeRawConfig(contents: string): void {
+  writeFileSync(CONFIG_PATH, contents);
 }
 
 /**
@@ -159,5 +165,51 @@ describe("config recovery ladder for cleanup-resistant invalid config", () => {
     invalidateConfigCache();
 
     expect(loadConfig().maxStepsPerSession).toBe(77);
+  });
+
+  test("getConfigReadOnly returns schema defaults for a top-level `null` config without throwing", () => {
+    // `JSON.parse("null")` is valid JSON, so it reaches validateWithSchema as a
+    // non-object top-level value. `loadConfig` quarantines non-object files
+    // before validation, so `getConfigReadOnly` (which validates the parsed
+    // value directly) is the path that exercises the recovery ladder's
+    // non-object guard. It must degrade to schema defaults, not throw on
+    // `Object.entries(null)`.
+    writeRawConfig("null");
+
+    const config = getConfigReadOnly();
+
+    expect(config.maxStepsPerSession).toBe(50);
+    expect(config.tools.exclude).toEqual([]);
+  });
+
+  test("getConfigReadOnly returns schema defaults for a top-level array config without throwing", () => {
+    writeRawConfig("[]");
+
+    const config = getConfigReadOnly();
+
+    expect(config.maxStepsPerSession).toBe(50);
+    expect(config.tools.exclude).toEqual([]);
+  });
+
+  test("keeps context-filled managed service modes after a later cleanup-resistant load on a platform daemon", () => {
+    process.env.IS_PLATFORM = "true";
+
+    // First load with no config.json seeds the file and fills the
+    // deployment-context managed OAuth service modes in memory.
+    const seeded = loadConfig();
+    expect(seeded.services["outlook-oauth"].mode).toBe("managed");
+
+    // The seeded file later becomes cleanup-resistant-invalid while still
+    // mirroring the managed service mode on disk. Recovery keeps the
+    // last-known-good EFFECTIVE config, so the managed mode survives rather than
+    // reverting to the schema default ("your-own").
+    writeConfig({
+      services: { "outlook-oauth": { mode: "managed" } },
+      tools: cleanupResistantToolsSection(),
+    });
+    invalidateConfigCache();
+
+    const recovered = loadConfig();
+    expect(recovered.services["outlook-oauth"].mode).toBe("managed");
   });
 });

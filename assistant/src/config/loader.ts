@@ -26,11 +26,15 @@ let loading = false;
 let suppressConfigDiskWritesDepth = 0;
 
 /**
- * The most recent config that validated successfully in this process, captured
- * inside {@link validateWithSchema} on every success path. It is a safety net
- * for the recovery ladder — when config.json later fails validation even after
- * per-key cleanup, the last-known-good config is preferred over discarding the
- * user's entire configuration and falling back to schema defaults.
+ * The most recent effective config in this process. Captured inside
+ * {@link validateWithSchema} on every validation-success path, then overwritten
+ * by {@link loadConfig} with the deployment-context-filled config whenever
+ * context defaults apply — so it reflects the config as consumers actually see
+ * it (managed service modes and all), not just the pre-fill schema-defaulted
+ * view. It is a safety net for the recovery ladder — when config.json later
+ * fails validation even after per-key cleanup, the last-known-good config is
+ * preferred over discarding the user's entire configuration and falling back to
+ * schema defaults.
  *
  * Deliberately NOT cleared by {@link invalidateConfigCache}: cache
  * invalidation forces a re-read from disk, but the safety net must survive a
@@ -387,12 +391,14 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
  *      degraded and the previous good values are the closest safe substitute.
  *   2. Otherwise (first load after startup), salvage section-by-section: keep
  *      every top-level section of `cleaned` that validates on its own and reset
- *      only the sections that do not.
+ *      only the sections that do not. This rung requires `cleaned` to be a plain
+ *      object; a top-level non-object config (JSON `null`, a primitive, or an
+ *      array) has no sections to iterate and is skipped straight to rung 3.
  *   3. If even the combined kept sections fail to parse, return full schema
  *      defaults.
  */
 function recoverFromInvalidConfig(
-  cleaned: Record<string, unknown>,
+  cleaned: unknown,
   issues: ValidationIssue[],
 ): AssistantConfig {
   const issueSummary = describeIssues(issues);
@@ -404,6 +410,19 @@ function recoverFromInvalidConfig(
         `config.json to apply your changes (validation issues: ${issueSummary}).`,
     );
     return structuredClone(lastKnownGoodConfig);
+  }
+
+  if (!isPlainObject(cleaned)) {
+    // The per-section salvage below walks `Object.entries(cleaned)`, which
+    // throws on `null` and yields no config sections for a primitive or array.
+    // A top-level non-object config carries no recoverable sections, so load
+    // full schema defaults.
+    log.error(
+      `config.json is not a JSON object at the top level; loading full ` +
+        `defaults. Fix config.json to restore your settings (validation ` +
+        `issues: ${issueSummary}).`,
+    );
+    return cloneDefaultConfig();
   }
 
   const kept: Record<string, unknown> = {};
@@ -858,6 +877,13 @@ export function loadConfig(): AssistantConfig {
         fileConfig,
         contextDefaults,
       );
+      // Refresh the last-known-good safety net with the effective config.
+      // `validateWithSchema` captured a snapshot before these deployment-context
+      // fills (e.g. IS_PLATFORM=true → managed OAuth service modes) were layered
+      // on, so its snapshot reflects pre-fill schema defaults. The fills are part
+      // of this run's effective configuration, so a later recovery must restore
+      // them rather than flip a managed service mode back to its schema default.
+      lastKnownGoodConfig = structuredClone(config);
     }
 
     // First-launch seed only: when config.json does not exist, write the
