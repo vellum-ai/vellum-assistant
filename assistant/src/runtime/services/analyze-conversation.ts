@@ -20,6 +20,8 @@
  * against `llm.callSites.analyzeConversation` (falling back to `llm.default`
  * when no override is set).
  */
+import { v7 as uuidv7 } from "uuid";
+
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import {
   AUTO_ANALYSIS_GROUP_ID,
@@ -239,7 +241,7 @@ export async function analyzeConversation(
   // this, `addMessage` would auto-assign a fresh row id while step (k)
   // minted an unrelated `currentRequestId`, leaving `userMessageId` and
   // `requestId` divergent for the analysis turn.
-  const requestId = crypto.randomUUID();
+  const requestId = uuidv7();
   const message = await addMessage(
     analysisConversationId,
     "user",

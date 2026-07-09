@@ -5,7 +5,7 @@
  * Extracted from Conversation to keep the class focused on coordination.
  */
 
-import { v4 as uuid } from "uuid";
+import { v7 as uuidv7 } from "uuid";
 
 import {
   type AttachmentReferenceInput,
@@ -554,7 +554,7 @@ export function enqueueMessage(
     content,
     attachments = [],
     onEvent,
-    requestId = crypto.randomUUID(),
+    requestId = uuidv7(),
     activeSurfaceId,
     currentPage,
     metadata,
@@ -642,7 +642,7 @@ export async function persistUserMessage(
     throw new Error("Message content or attachments are required");
   }
 
-  const reqId = options.requestId ?? uuid();
+  const reqId = options.requestId ?? uuidv7();
   ctx.currentRequestId = reqId;
   ctx.abortController = new AbortController();
 
@@ -699,7 +699,7 @@ export async function persistQueuedMessageBody(
   const {
     content,
     attachments = [],
-    requestId = uuid(),
+    requestId = uuidv7(),
     metadata,
     displayContent,
     clientMessageId,
