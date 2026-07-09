@@ -760,14 +760,25 @@ export async function runDueSchedulesOnce(
             scheduleJobId: job.id,
           },
           async (conversationId, message, taskRunId) => {
-            await dispatchScheduleMessage(conversationId, message, {
-              trustClass: "guardian",
-              taskRunId,
-              cronRunId: runId,
-              ...(job.inferenceProfile
-                ? { overrideProfile: job.inferenceProfile }
-                : {}),
-            });
+            const { turnFailure } = await dispatchScheduleMessage(
+              conversationId,
+              message,
+              {
+                trustClass: "guardian",
+                taskRunId,
+                cronRunId: runId,
+                ...(job.inferenceProfile
+                  ? { overrideProfile: job.inferenceProfile }
+                  : {}),
+              },
+            );
+            // A failed LLM call (e.g. an invalid provider) ends the turn
+            // without throwing. Throw here so `runTask` records the task run as
+            // failed instead of completing it — otherwise the task/cron run
+            // would be marked ok despite the failure.
+            if (turnFailure) {
+              throw new Error(describeTurnFailure(turnFailure));
+            }
           },
         );
 

@@ -85,13 +85,21 @@ export interface TurnFailure {
  * of the outcome rather than a parallel copy that could drift.
  */
 export function readTurnFailure(userMessageId: string): TurnFailure | null {
-  const message = getMessageById(userMessageId);
-  if (!message?.metadata) {
+  let metadataJson: string | null;
+  try {
+    metadataJson = getMessageById(userMessageId)?.metadata ?? null;
+  } catch (err) {
+    // Best-effort, mirroring stampTurnOutcome: a telemetry read on the turn
+    // path must never throw, so a DB hiccup degrades to "no failure recorded".
+    log.warn({ err, userMessageId }, "Failed to read turn outcome (non-fatal)");
+    return null;
+  }
+  if (!metadataJson) {
     return null;
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(message.metadata);
+    parsed = JSON.parse(metadataJson);
   } catch {
     return null;
   }

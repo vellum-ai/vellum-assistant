@@ -318,12 +318,13 @@ export async function processMessage(
   messageId: string;
   assistantMessageId?: string;
   /**
-   * Set when the agent turn failed (e.g. its LLM call failed with an invalid
-   * provider). The turn persists a synthetic error message and returns
-   * normally rather than throwing, so this is the only way an awaiting caller
-   * can tell the turn failed. Absent on a normally-replied turn.
+   * The agent turn's failure outcome, or `null` when it replied normally. Set
+   * when the turn failed (e.g. its LLM call failed with an invalid provider) —
+   * that path persists a synthetic error message and returns normally rather
+   * than throwing, so this is the only way an awaiting caller can tell. Omitted
+   * by the slash-command branches, which never run the agent loop.
    */
-  turnFailure?: TurnFailure;
+  turnFailure?: TurnFailure | null;
 }> {
   assertDbMigrationsReadyForTurn();
 
@@ -609,7 +610,7 @@ export async function processMessage(
   // call that failed with an invalid provider) ends without throwing, so this
   // is the only signal an awaiting caller gets.
   const turnFailure = readTurnFailure(messageId);
-  return { messageId, ...(turnFailure ? { turnFailure } : {}) };
+  return { messageId, turnFailure };
 }
 
 /**

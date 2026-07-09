@@ -434,6 +434,38 @@ describe("scheduler run_task detection", () => {
     });
   });
 
+  test("records a task run as error when the turn fails without throwing", async () => {
+    // A run_task:<id> schedule whose LLM call fails (e.g. an invalid provider)
+    // ends the turn without throwing — processMessage resolves and reports the
+    // failure via turnFailure. The task callback must turn that into a failed
+    // task result so the run is recorded as error, not ok.
+    const task = createTask({
+      title: "Bad Creds Task",
+      template: "Spend scheduled tokens",
+    });
+    const schedule = await scheduleTask({
+      taskId: task.id,
+      name: "Bad Creds Schedule",
+      cronExpression: "* * * * *",
+    });
+    forceScheduleDue(schedule.id);
+
+    processMessageImpl = async () => ({
+      messageId: "test-message-id",
+      turnFailure: { failureCode: "provider_error" },
+    });
+
+    const result = await runScheduleDueWorkOnce();
+
+    expect(result.completed).toBe(0);
+    expect(result.failed).toBe(1);
+
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].status).toBe("error");
+    expect(runs[0].error).toContain("provider_error");
+  });
+
   test("opens a normal execute schedule run before fresh background processing and records the conversation id", async () => {
     const schedule = await createSchedule({
       name: "Usage Attribution Message Schedule",
