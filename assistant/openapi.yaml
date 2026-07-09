@@ -17542,6 +17542,10 @@ paths:
                                 type: array
                                 items:
                                   type: string
+                              imageAttachmentIds:
+                                type: array
+                                items:
+                                  type: string
                               startedAt:
                                 type: number
                               previewStartedAt:
@@ -17971,6 +17975,10 @@ paths:
                                       imageData:
                                         type: string
                                       imageDataList:
+                                        type: array
+                                        items:
+                                          type: string
+                                      imageAttachmentIds:
                                         type: array
                                         items:
                                           type: string

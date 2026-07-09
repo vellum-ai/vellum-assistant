@@ -153,6 +153,15 @@ export const ConversationMessageToolCallSchema = z.object({
   imageData: z.string().optional(),
   /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
   imageDataList: z.array(z.string()).optional(),
+  /**
+   * Workspace attachment ids for tool-result images persisted as workspace
+   * references. When present, clients fetch the image bytes by id on render
+   * (lazy) rather than embedding base64 in the history wire. Positionally
+   * aligned with the tool's rendered images; a row emits either these ids
+   * (referenced media) or `imageDataList` (legacy inline base64), not both for
+   * the same image.
+   */
+  imageAttachmentIds: z.array(z.string()).optional(),
   /** Unix ms when the tool started executing (the `tool_use_start` time). */
   startedAt: z.number().optional(),
   /**
