@@ -157,6 +157,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "mcp auth",
   "mcp remove",
   "memory",
+  "memory nodes",
+  "memory nodes list",
+  "memory nodes delete",
+  "memory nodes update",
   "memory items",
   "memory items list",
   "memory items get",
@@ -499,6 +503,18 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "mcp add", risk: "high" },
   { path: "mcp auth", risk: "medium" },
   { path: "mcp remove", risk: "low" },
+  {
+    path: "memory nodes delete",
+    risk: "medium",
+    reason:
+      "Permanently deletes a memory graph node by content match and removes it from the recall index",
+  },
+  {
+    path: "memory nodes update",
+    risk: "medium",
+    reason:
+      "Rewrites a memory graph node's content by content match and re-embeds it for recall",
+  },
   {
     path: "memory items create",
     risk: "medium",
