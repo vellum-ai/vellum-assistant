@@ -9,7 +9,7 @@
  * its credential hooks so render doesn't fan out daemon queries.
  *
  * Coverage:
- *  - field order is provider-first (Provider before Name/Key/Description),
+ *  - Name and Key live under the create flow's Advanced disclosure,
  *  - selecting a model pre-fills Name + Key from the model display name,
  *  - editing Name then selecting another model does NOT clobber Name/Key,
  *  - "+ Create new provider" mounts the inline ProviderCreateForm, and a
@@ -146,7 +146,7 @@ function getSaveBtn(): HTMLButtonElement {
 function openInlineProviderAdvanced(): void {
   const button = Array.from(
     document.querySelectorAll<HTMLButtonElement>("button"),
-  ).find((b) => b.textContent?.includes("Display name"));
+  ).find((b) => b.textContent?.trim() === "Advanced");
   if (!button) {
     throw new Error("expected the inline provider Advanced disclosure");
   }
@@ -328,6 +328,7 @@ function topPSlider(): HTMLElement {
 function fillCreateForm(): void {
   selectProvider("Anthropic");
   selectModel("Claude Opus 4.8");
+  fireEvent.click(getButton("Advanced"));
   fireEvent.change(getInputByPlaceholder("e.g. fast-cheap"), {
     target: { value: "my-profile" },
   });
@@ -348,20 +349,29 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("ProfileEditorModal create mode — provider-first", () => {
-  test("renders Provider before Name/Key in create mode", () => {
+  test("keeps Name and Key inside Advanced in create mode", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
-    const text = document.body.textContent ?? "";
-    const providerIdx = text.indexOf("Provider");
-    const nameIdx = text.indexOf("Name");
-    const keyIdx = text.indexOf("Key");
-    expect(providerIdx).toBeGreaterThanOrEqual(0);
-    expect(nameIdx).toBeGreaterThan(providerIdx);
-    expect(keyIdx).toBeGreaterThan(providerIdx);
+    selectProvider("Anthropic");
+    selectModel("Claude Opus 4.8");
+
+    expect(
+      document.querySelector('input[placeholder="e.g. Fast & Cheap"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('input[placeholder="e.g. fast-cheap"]'),
+    ).toBeNull();
+
+    fireEvent.click(getButton("Advanced"));
+
+    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
+    expect(getInputByPlaceholder("e.g. fast-cheap")).toBeDefined();
   });
 
   test("Advanced is hidden until a model is chosen, then collapsed by default", () => {
     renderCreate([makeConnection("anthropic-personal")]);
+
+    expect(document.body.textContent).not.toContain("Pick a provider");
 
     // No model selected yet → the Advanced disclosure is not rendered.
     const hasAdvancedButton = () =>
@@ -383,6 +393,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("Anthropic");
     selectModel("Claude Opus 4.8");
+    fireEvent.click(getButton("Advanced"));
 
     expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe(
       "Claude Opus 4.8",
@@ -397,6 +408,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("Anthropic");
     selectModel("Claude Opus 4.8");
+    fireEvent.click(getButton("Advanced"));
 
     // User overrides the Name.
     fireEvent.change(getInputByPlaceholder("e.g. Fast & Cheap"), {
@@ -457,6 +469,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     expect(triggerLabels).not.toContain("No models available");
 
     selectModel("Llama 3.2");
+    fireEvent.click(getButton("Advanced"));
     expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe("Llama 3.2");
     expect(getInputByPlaceholder("e.g. fast-cheap").value).toBe("llama-3-2");
 
@@ -543,6 +556,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     // Pick a model + key, then save immediately (no connections refetch).
     selectModel("Claude Opus 4.8");
+    fireEvent.click(getButton("Advanced"));
     fireEvent.change(getInputByPlaceholder("e.g. fast-cheap"), {
       target: { value: "my-profile" },
     });
@@ -1005,6 +1019,12 @@ describe("ProfileEditorModal — invariant managed profiles in view mode", () =>
     renderView(invariantProfile);
 
     fireEvent.click(getButton("Save As New"));
+
+    // Clearing the generated key does not surface a validation error before
+    // the user interacts with the collapsed identity fields.
+    expect(getButton("Advanced").getAttribute("aria-expanded")).toBe("false");
+    expect(document.body.textContent).not.toContain("Key is required");
+    fireEvent.click(getButton("Advanced"));
 
     // The duplicate drops the invariant lock: name and key are editable and
     // the Active toggle is back.

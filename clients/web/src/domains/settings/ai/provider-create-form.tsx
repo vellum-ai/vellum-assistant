@@ -299,9 +299,6 @@ export function ProviderCreateForm({
           className={`h-4 w-4 transition-transform ${detailsOpen ? "rotate-90" : ""}`}
         />
         <span>Advanced</span>
-        <span className="text-[var(--content-tertiary)] ml-1">
-          · Display name &amp; key
-        </span>
       </button>
 
       {detailsOpen && (
