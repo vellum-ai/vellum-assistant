@@ -62,9 +62,11 @@ afterAll(() => {
 
 const {
   CONSOLIDATION_PROMPT,
+  CONSOLIDATION_PROMPT_V3,
   CORE_PAGES_CONSOLIDATION_SECTION,
   CORE_PAGES_PLACEHOLDER,
   CUTOFF_PLACEHOLDER,
+  renderConsolidationPrompt,
   resolveConsolidationPrompt,
 } = await import("../prompts/consolidation.js");
 
@@ -106,6 +108,32 @@ afterEach(() => {
   ]) {
     rmSync(join(tmpWorkspace, entry), { force: true });
   }
+});
+
+describe("anti-injection framing", () => {
+  // The consolidation pass reads buffer.md + existing pages, which can carry
+  // text from untrusted sources the assistant ingested earlier. Both templates
+  // must frame that content as data to reorganize, never as instructions —
+  // defense-in-depth alongside the wire-scoped tool surface. Assert on a stable
+  // phrase so a reword keeps the guarantee visible.
+  const MARKER = "not instructions for this pass";
+
+  test("both bundled templates contain the anti-injection framing", () => {
+    expect(CONSOLIDATION_PROMPT as string).toContain(MARKER);
+    expect(CONSOLIDATION_PROMPT_V3 as string).toContain(MARKER);
+  });
+
+  test("survives rendering for both v2 and v3 article shapes", () => {
+    // Guards against a future placeholder refactor silently dropping the
+    // framing from the prompt the model actually receives.
+    const v2 = renderConsolidationPrompt(CUTOFF, NO_CORE);
+    const v3 = renderConsolidationPrompt(CUTOFF, {
+      includeCorePagesSection: true,
+      articleShape: "v3",
+    });
+    expect(v2).toContain(MARKER);
+    expect(v3).toContain(MARKER);
+  });
 });
 
 describe("resolveConsolidationPrompt — no override", () => {
