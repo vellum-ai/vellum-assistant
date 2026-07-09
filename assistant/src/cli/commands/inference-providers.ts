@@ -19,6 +19,7 @@ import type { Command } from "commander";
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { OAuth2Config } from "../../security/oauth2.js";
 import { log } from "../logger.js";
+import { attachDefaultProviderSubcommand } from "./inference-providers-default.js";
 
 // ---------------------------------------------------------------------------
 // Response types
@@ -509,4 +510,5 @@ Examples:
   attachDeleteSubcommand(connections);
 
   attachLoginChatgptSubcommand(providers);
+  attachDefaultProviderSubcommand(providers);
 }

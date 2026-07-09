@@ -14016,6 +14016,55 @@ paths:
                   - images
                   - resolvedModel
                 additionalProperties: false
+  /v1/inference/callsites:
+    get:
+      operationId: inference_callsites_get
+      summary: List call-site resolutions
+      description:
+        "Return the effective resolution for every LLM call site: the winning profile, its source (override /
+        active / call-site pin / shipped default), and the resolved provider/model plus notable tuning."
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  callSites:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CallSiteResolutionSummary"
+                required:
+                  - callSites
+                additionalProperties: false
+  /v1/inference/callsites/{site}:
+    get:
+      operationId: inference_callsites_by_site_get
+      summary: Get a call-site resolution detail
+      description:
+        "Return the full resolution for one call site: the winner, the resolution chain (rungs considered and
+        skipped), the shipped default fragment, the user's pin fragment, and a preflight-derived resolution error when
+        dispatch would provably fail."
+      tags:
+        - inference
+      parameters:
+        - name: site
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallSiteResolutionDetail"
+        "400":
+          description: Unknown call site
   /v1/inference/chatgpt-subscription/auth:
     post:
       operationId: inference_chatgptsubscription_auth_post
@@ -14077,6 +14126,237 @@ paths:
                 required:
                   - ok
                 additionalProperties: false
+  /v1/inference/models:
+    get:
+      operationId: inference_models_get
+      summary: List inference catalog models
+      description:
+        Return every model in the code-owned provider catalog, each tagged with its provider. Optionally filter by
+        provider with ?provider=<id>.
+      tags:
+        - inference
+      parameters:
+        - name: provider
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            "Filter by provider id. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
+            vercel-ai-gateway, openai-compatible, minimax, atlascloud"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CatalogModel"
+                required:
+                  - models
+                additionalProperties: false
+        "400":
+          description: Unknown provider filter
+  /v1/inference/profiles:
+    get:
+      operationId: inference_profiles_get
+      summary: List effective inference profiles
+      description:
+        "Return the effective profile catalog: code-defined managed defaults merged with user profiles, each
+        annotated with source and (when it has a connection) availability."
+      tags:
+        - inference
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profiles:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InferenceProfileSummary"
+                required:
+                  - profiles
+                additionalProperties: false
+    post:
+      operationId: inference_profiles_post
+      summary: Create an inference profile
+      description:
+        Create a validated custom profile. The provider must be a known LLM provider, the model must be in the
+        catalog (unless allowUnlisted), and a referenced connection must exist. Managed default names cannot be created.
+      tags:
+        - inference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                provider:
+                  type: string
+                  minLength: 1
+                model:
+                  type: string
+                  minLength: 1
+                connection:
+                  type: string
+                  minLength: 1
+                label:
+                  type: string
+                  minLength: 1
+                effort:
+                  type: string
+                maxTokens:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                temperature:
+                  type: number
+                thinking:
+                  type: boolean
+                description:
+                  type: string
+                allowUnlisted:
+                  type: boolean
+              required:
+                - name
+                - provider
+                - model
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InferenceProfileWriteResult"
+        "400":
+          description: Invalid provider, uncataloged model, or missing connection
+        "409":
+          description: A profile with this name already exists
+  /v1/inference/profiles/{name}:
+    delete:
+      operationId: inference_profiles_by_name_delete
+      summary: Delete an inference profile
+      description: Delete a custom profile. Managed default profiles cannot be deleted (they are re-seeded on boot).
+      tags:
+        - inference
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  name:
+                    type: string
+                required:
+                  - ok
+                  - name
+                additionalProperties: false
+        "400":
+          description: Attempt to delete a managed profile
+        "404":
+          description: Profile not found
+    get:
+      operationId: inference_profiles_by_name_get
+      summary: Get an effective inference profile
+      description: Return a single effective profile by name, with availability.
+      tags:
+        - inference
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InferenceProfileDetail"
+        "404":
+          description: Profile not found
+    patch:
+      operationId: inference_profiles_by_name_patch
+      summary: Update an inference profile
+      description:
+        Partial update of a custom profile with the same write-time validation as create. Managed default profiles
+        are read-only.
+      tags:
+        - inference
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  minLength: 1
+                model:
+                  type: string
+                  minLength: 1
+                connection:
+                  type: string
+                  minLength: 1
+                label:
+                  type: string
+                  minLength: 1
+                effort:
+                  type: string
+                maxTokens:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                temperature:
+                  type: number
+                thinking:
+                  type: boolean
+                description:
+                  type: string
+                allowUnlisted:
+                  type: boolean
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InferenceProfileWriteResult"
+        "400":
+          description: Invalid fields, or attempt to edit a managed profile
+        "404":
+          description: Profile not found
   /v1/inference/provider-connections:
     get:
       operationId: inference_providerconnections_get
@@ -32664,6 +32944,274 @@ components:
       required:
         - provider
         - resolvedConnectionName
+        - availability
+      additionalProperties: false
+    CallSiteResolutionSummary:
+      type: object
+      properties:
+        callSite:
+          type: string
+        profile:
+          anyOf:
+            - type: string
+            - type: "null"
+        label:
+          anyOf:
+            - type: string
+            - type: "null"
+        source:
+          type: string
+          enum:
+            - override
+            - active
+            - call_site
+            - default
+        provider:
+          type: string
+        model:
+          type: string
+        effort:
+          type: string
+        maxTokens:
+          type: number
+        maxInputTokens:
+          type: number
+      required:
+        - callSite
+        - profile
+        - label
+        - source
+        - provider
+        - model
+        - effort
+        - maxTokens
+      additionalProperties: false
+    CallSiteResolutionDetail:
+      type: object
+      properties:
+        callSite:
+          type: string
+        winner:
+          type: object
+          properties:
+            profile:
+              anyOf:
+                - type: string
+                - type: "null"
+            label:
+              anyOf:
+                - type: string
+                - type: "null"
+            source:
+              type: string
+              enum:
+                - override
+                - active
+                - call_site
+                - default
+          required:
+            - profile
+            - label
+            - source
+          additionalProperties: false
+        resolved:
+          type: object
+          properties:
+            provider:
+              type: string
+            model:
+              type: string
+            maxTokens:
+              type: number
+            effort:
+              type: string
+            temperature:
+              anyOf:
+                - type: number
+                - type: "null"
+            maxInputTokens:
+              type: number
+          required:
+            - provider
+            - model
+            - maxTokens
+            - effort
+            - temperature
+          additionalProperties: false
+        resolutionChain:
+          type: array
+          items:
+            type: object
+            properties:
+              requested:
+                type: string
+              reason:
+                type: string
+                enum:
+                  - missing
+                  - disabled
+                  - incomplete
+            required:
+              - requested
+              - reason
+            additionalProperties: false
+        shippedDefault:
+          type: object
+          propertyNames:
+            type: string
+          additionalProperties: {}
+        userPin:
+          anyOf:
+            - type: object
+              propertyNames:
+                type: string
+              additionalProperties: {}
+            - type: "null"
+        resolutionError:
+          type: object
+          properties:
+            reason:
+              type: string
+            message:
+              type: string
+          required:
+            - reason
+            - message
+          additionalProperties: false
+      required:
+        - callSite
+        - winner
+        - resolved
+        - resolutionChain
+        - shippedDefault
+        - userPin
+      additionalProperties: false
+    CatalogModel:
+      type: object
+      properties:
+        provider:
+          type: string
+        id:
+          type: string
+        displayName:
+          type: string
+        contextWindowTokens:
+          type: number
+        maxOutputTokens:
+          type: number
+        supportsThinking:
+          type: boolean
+        supportsVision:
+          type: boolean
+        supportsToolUse:
+          type: boolean
+        featureFlag:
+          type: string
+      required:
+        - provider
+        - id
+        - displayName
+      additionalProperties: false
+    InferenceProfileSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        label:
+          anyOf:
+            - type: string
+            - type: "null"
+        provider:
+          anyOf:
+            - type: string
+            - type: "null"
+        model:
+          anyOf:
+            - type: string
+            - type: "null"
+        status:
+          type: string
+          enum:
+            - active
+            - disabled
+        source:
+          type: string
+          enum:
+            - managed
+            - user
+        provider_connection:
+          type: string
+        availability:
+          anyOf:
+            - $ref: "#/components/schemas/ProfileConnectionAvailability"
+            - type: "null"
+      required:
+        - name
+        - label
+        - provider
+        - model
+        - status
+        - source
+        - availability
+      additionalProperties: false
+    ProfileConnectionAvailability:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - missing_connection
+            - missing_credential
+            - provider_mismatch
+            - unsupported_auth
+            - vellum_unauthenticated
+            - unknown
+        message:
+          type: string
+      required:
+        - status
+      additionalProperties: false
+    InferenceProfileWriteResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          const: true
+        name:
+          type: string
+        entry:
+          type: object
+          propertyNames:
+            type: string
+          additionalProperties: {}
+        warnings:
+          type: array
+          items:
+            type: string
+      required:
+        - ok
+        - name
+        - entry
+        - warnings
+      additionalProperties: false
+    InferenceProfileDetail:
+      type: object
+      properties:
+        name:
+          type: string
+        entry:
+          type: object
+          propertyNames:
+            type: string
+          additionalProperties: {}
+        availability:
+          anyOf:
+            - $ref: "#/components/schemas/ProfileConnectionAvailability"
+            - type: "null"
+      required:
+        - name
+        - entry
         - availability
       additionalProperties: false
     ProviderConnection:
