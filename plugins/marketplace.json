@@ -328,6 +328,18 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/proactive-slacks",
       "license": "MIT"
+    },
+    {
+      "name": "cognee",
+      "source": {
+        "source": "github",
+        "repo": "topoteretes/cognee-integrations",
+        "path": "integrations/vellum-assistant",
+        "ref": "d79bd9a216c9f6d88d27694cc0b42a18b63dba88"
+      },
+      "description": "Cognee knowledge graph memory for Vellum Assistant: session-aware storage, auto-routing recall, and persistent learning across sessions. Supports local mode and Cognee Cloud.",
+      "category": "memory",
+      "homepage": "https://github.com/topoteretes/cognee-integrations/tree/main/integrations/vellum-assistant"
     }
   ]
 }
