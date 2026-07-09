@@ -22,10 +22,20 @@ const tools = new Map<string, Tool>();
 // `register*` functions and read by `getToolOwner()`. Lives on the registry
 // (not on the `Tool` object) so callers cannot spoof ownership by writing a
 // field on the manifest — the only way to claim a tool is to go through a
-// `register*` function, which stamps the owner from its arguments. Core
-// tools intentionally have no entry here; `getToolOwner` returns `undefined`
-// for them.
+// `register*` function, which stamps the owner from its arguments. Built-in
+// tools are stamped with the shared {@link DEFAULT_TOOL_OWNER} by
+// `registerTool`, so every registered tool has an entry and `getToolOwner` is a
+// plain lookup — a missing entry means the name is not registered at all.
 const ownersByName = new Map<string, OwnerInfo>();
+
+// Owner recorded for built-in tools — those registered via `registerTool`
+// without an explicit extension owner. One frozen instance is shared across all
+// built-ins; `id` is a constant sentinel because built-ins are not a distinct
+// installable extension.
+const DEFAULT_TOOL_OWNER: OwnerInfo = Object.freeze({
+  kind: "default",
+  id: "default",
+});
 
 // ── External tool registry ───────────────────────────────────────────
 // Skills register their tools here at initialization time so the tool
@@ -82,10 +92,12 @@ function getExternalTools(): Array<{ owner: OwnerInfo; tool: Tool }> {
   );
 }
 
-// Snapshot of core tools captured after initializeTools() completes.
-// Lets __resetRegistryForTesting() restore the core baseline synchronously,
-// without re-running the async initializeTools() bootstrap.
-let coreToolsSnapshot: Map<string, Tool> | null = null;
+// Snapshot of core tools (with their owners) captured after initializeTools()
+// completes. Lets __resetRegistryForTesting() restore the core baseline — tools
+// and ownership together — synchronously, without re-running the async
+// initializeTools() bootstrap.
+let coreToolsSnapshot: Map<string, { tool: Tool; owner: OwnerInfo }> | null =
+  null;
 
 // Tracks how many sessions are currently using each skill's tools.
 // Tools are only removed from the global registry when this drops to 0.
@@ -192,6 +204,11 @@ export function registerTool(definition: ToolDefinition): void {
     log.warn({ name }, "Tool already registered, overwriting");
   }
   tools.set(name, tool);
+  // A tool registered through this bare path has no explicit extension owner,
+  // so it is a built-in: record the shared `default` owner by name. Callers
+  // that own the tool (external skill bootstraps) overwrite this entry with
+  // their own owner immediately after calling `registerTool`.
+  ownersByName.set(name, DEFAULT_TOOL_OWNER);
   log.info({ name, category: tool.category }, "Tool registered");
 }
 
@@ -235,12 +252,20 @@ export function getEnabledTools(): Tool[] {
 }
 
 /**
- * Return the recorded owner for a tool, or `undefined` if the tool is
- * core-origin (no owner) or unknown. Consumers that need to gate behavior on
- * which extension contributed a tool (permissions checker, approval-handler
- * load hints, conversation-skill-tools projection) call this rather than
- * reading owner off the `Tool` object — the registry is the single source of
- * truth for ownership.
+ * Return the owner recorded for a tool. Extension tools return their
+ * {@link OwnerInfo} (skill / plugin / MCP / workspace); built-ins return the
+ * shared {@link DEFAULT_TOOL_OWNER} (`kind: "default"`) that `registerTool`
+ * stamps by name. Returns `undefined` only when `name` is not registered at all
+ * — an unknown tool, which callers treat as "not a real tool" (skip / deny),
+ * never as a built-in.
+ *
+ * Because a tool cannot be invoked unless it was registered first, an invocable
+ * tool always has a defined owner in practice.
+ *
+ * Consumers that gate behavior on which extension contributed a tool
+ * (permissions checker, approval-handler load hints, conversation-skill-tools
+ * projection) call this rather than reading owner off the `Tool` object — the
+ * registry is the single source of truth for ownership.
  */
 export function getToolOwner(name: string): OwnerInfo | undefined {
   return ownersByName.get(name);
@@ -279,7 +304,7 @@ export function registerSkillTools(skillId: string, newTools: Tool[]): Tool[] {
     const existing = tools.get(tool.name);
     if (existing) {
       const existingOwner = ownersByName.get(tool.name);
-      const existingIsCore = !existingOwner;
+      const existingIsCore = !existingOwner || existingOwner.kind === "default";
       if (existingIsCore) {
         log.warn(
           { toolName: tool.name, ownerSkillId: skillId },
@@ -364,7 +389,8 @@ export function registerPluginTools(
     }
     const existing = tools.get(tool.name);
     if (existing) {
-      const existingIsCore = !ownersByName.has(tool.name);
+      const existingOwner = ownersByName.get(tool.name);
+      const existingIsCore = !existingOwner || existingOwner.kind === "default";
       if (existingIsCore) {
         log.warn(
           { toolName: tool.name, ownerPluginId: pluginName },
@@ -372,7 +398,6 @@ export function registerPluginTools(
         );
         continue;
       }
-      const existingOwner = ownersByName.get(tool.name);
       if (existingOwner?.kind === "workspace") {
         log.warn(
           { toolName: tool.name, pluginName },
@@ -496,7 +521,8 @@ export function registerMcpTools(serverId: string, newTools: Tool[]): Tool[] {
     }
     const existing = tools.get(tool.name);
     if (existing) {
-      const existingIsCore = !ownersByName.has(tool.name);
+      const existingOwner = ownersByName.get(tool.name);
+      const existingIsCore = !existingOwner || existingOwner.kind === "default";
       if (existingIsCore) {
         log.warn(
           { toolName: tool.name, ownerMcpServerId: serverId },
@@ -504,7 +530,6 @@ export function registerMcpTools(serverId: string, newTools: Tool[]): Tool[] {
         );
         continue;
       }
-      const existingOwner = ownersByName.get(tool.name);
       if (existingOwner?.kind === "workspace") {
         log.warn(
           { toolName: tool.name, serverId },
@@ -684,7 +709,10 @@ export function registerWorkspaceTools(
       );
     }
 
-    if (!existingOwner) continue; // Core tool — override allowed, handled in mutation phase below.
+    // Built-in (default) tool — override allowed, handled in the mutation
+    // phase below. `undefined` shouldn't occur (every registered tool has an
+    // owner) but is treated the same as a built-in for safety.
+    if (!existingOwner || existingOwner.kind === "default") continue;
 
     throw new Error(
       `Workspace tool "${tool.name}" conflicts with an existing ${describeOwner(existingOwner)}. Workspace tools must register before other extension categories.`,
@@ -693,7 +721,9 @@ export function registerWorkspaceTools(
 
   for (const { tool, workspacePath } of stamped) {
     const existing = tools.get(tool.name);
-    const existingIsCore = existing && !ownersByName.has(tool.name);
+    const existingOwner = ownersByName.get(tool.name);
+    const existingIsCore =
+      existing && (!existingOwner || existingOwner.kind === "default");
     if (existingIsCore) {
       coreToolOverrides.set(tool.name, existing);
       log.info(
@@ -735,7 +765,9 @@ export function unregisterWorkspaceTool(name: string): void {
   const stashed = coreToolOverrides.get(name);
   if (stashed) {
     tools.set(name, stashed);
-    ownersByName.delete(name);
+    // The stash only ever holds a displaced built-in, so restore its `default`
+    // owner rather than deleting the entry.
+    ownersByName.set(name, DEFAULT_TOOL_OWNER);
     coreToolOverrides.delete(name);
     log.info(
       { name, workspacePath },
@@ -795,7 +827,7 @@ export function removeCoreToolViaWorkspace(name: string): void {
     );
   }
 
-  if (existingOwner) {
+  if (existingOwner && existingOwner.kind !== "default") {
     log.warn(
       { name, owner: existingOwner },
       `removeCoreToolViaWorkspace: "${name}" is owned by ${describeOwner(existingOwner)}, not a core tool — cannot strip from workspace. Resolve at the source (uninstall the ${existingOwner.kind}).`,
@@ -805,6 +837,9 @@ export function removeCoreToolViaWorkspace(name: string): void {
 
   coreToolOverrides.set(name, existing);
   tools.delete(name);
+  // The stripped built-in no longer has a live entry; drop its owner so
+  // `getToolOwner` reports the name as unregistered until it is restored.
+  ownersByName.delete(name);
   log.info(
     { name },
     "Stripped core tool via workspace .removed sentinel — stashed for potential restore",
@@ -849,6 +884,7 @@ export function restoreStrippedCoreTool(name: string): void {
     return;
   }
   tools.set(name, stashed);
+  ownersByName.set(name, DEFAULT_TOOL_OWNER);
   coreToolOverrides.delete(name);
   log.info(
     { name },
@@ -993,13 +1029,15 @@ export async function initializeTools(): Promise<void> {
       ...coreAppProxyTools.map((t) => t.name!),
     ]);
 
-    coreToolsSnapshot = new Map<string, Tool>();
+    coreToolsSnapshot = new Map<string, { tool: Tool; owner: OwnerInfo }>();
     for (const [name, tool] of tools) {
-      const ownerKind = ownersByName.get(name)?.kind;
-      if (ownerKind === "skill" || ownerKind === "plugin") continue;
+      const owner = ownersByName.get(name);
+      if (owner?.kind === "skill" || owner?.kind === "plugin") continue;
       // Exclude pre-existing tools not declared in the manifest
       if (preExisting.has(name) && !manifestToolNames.has(name)) continue;
-      coreToolsSnapshot.set(name, tool);
+      // Every registered tool carries an owner (built-ins get DEFAULT_TOOL_OWNER
+      // stamped by registerTool), so `owner` is defined here.
+      coreToolsSnapshot.set(name, { tool, owner: owner! });
     }
   }
 
@@ -1045,8 +1083,9 @@ export function __resetRegistryForTesting(): void {
   coreToolOverrides.clear();
 
   if (coreToolsSnapshot) {
-    for (const [name, tool] of coreToolsSnapshot) {
+    for (const [name, { tool, owner }] of coreToolsSnapshot) {
       tools.set(name, tool);
+      ownersByName.set(name, owner);
     }
   }
 }
