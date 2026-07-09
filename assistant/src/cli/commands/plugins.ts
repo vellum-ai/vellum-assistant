@@ -43,6 +43,7 @@ import {
   looksLikeGitHubSpec,
   parseGitHubPluginSpec,
 } from "../lib/parse-github-plugin-spec.js";
+import { getPluginCatalog } from "../lib/plugin-catalog-cache.js";
 import {
   arePlatformFeaturesEnabled,
   resolveBundledPluginSource,
@@ -58,8 +59,10 @@ import {
 import { runPublish } from "../lib/publish-plugin.js";
 import { registerCommand } from "../lib/register-command.js";
 import {
+  assertValidSearchPattern,
+  filterPluginCatalog,
   InvalidSearchPatternError,
-  searchPlugins,
+  PluginCatalogUnavailableError,
 } from "../lib/search-plugins.js";
 import {
   disablePlugin,
@@ -550,10 +553,12 @@ Examples:
         .option("--json", "Emit machine-readable JSON instead of a table")
         .action(async (query: string, opts: { json?: boolean }) => {
           try {
-            const result = await searchPlugins(
-              { query },
-              { fetch: globalThis.fetch.bind(globalThis) },
-            );
+            assertValidSearchPattern(query);
+            const catalog = await getPluginCatalog(DEFAULT_PLUGIN_REF, {
+              fetch: globalThis.fetch.bind(globalThis),
+            });
+            const matches = filterPluginCatalog(catalog, query);
+            const result = { query, ref: catalog.ref, matches };
 
             if (opts.json) {
               process.stdout.write(JSON.stringify(result, null, 2) + "\n");
@@ -592,6 +597,13 @@ Examples:
           } catch (err) {
             if (err instanceof InvalidSearchPatternError) {
               console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            if (err instanceof PluginCatalogUnavailableError) {
+              console.error(
+                "The plugin catalog is temporarily unavailable. Try again shortly.",
+              );
               process.exitCode = 1;
               return;
             }
