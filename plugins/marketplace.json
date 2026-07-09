@@ -262,7 +262,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/tennis-companion",
-        "ref": "7ff65ce9ee10e84aaf44d541522bb83b767a445a"
+        "ref": "d519eb9075f6f5225b9063f676fa40889869c749"
       },
       "description": "Tennis journal, drill sessions, court finder, and progress tracking. Log matches with opponent tendencies, generate 30-minute practice sessions with progressions, find nearby courts via OpenStreetMap, and track win rate by surface and conditions.",
       "category": "lifestyle",
