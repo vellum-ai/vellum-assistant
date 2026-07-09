@@ -240,9 +240,7 @@ export class ContactStore {
    * by channel `id`. Empty input → empty map. Contacts/channels absent from the
    * gateway are simply absent from the map (the caller leaves them untouched).
    */
-  async getAclByContactIds(
-    ids: string[],
-  ): Promise<Map<string, ContactAcl>> {
+  async getAclByContactIds(ids: string[]): Promise<Map<string, ContactAcl>> {
     const result = new Map<string, ContactAcl>();
     if (ids.length === 0) return result;
 
@@ -1180,13 +1178,15 @@ export class ContactStore {
     // gateway DB — the just-written source of truth — and overlay assistant-
     // owned info. The assistant mirror would report stale unverified/allow/
     // contact defaults for fresh creates.
-    const fullContact = await this.getContactWithInfo(contactId).catch((err) => {
-      log.warn(
-        { contactId, err },
-        "upsertContact: gateway read-back failed; returning gateway fallback",
-      );
-      return null;
-    });
+    const fullContact = await this.getContactWithInfo(contactId).catch(
+      (err) => {
+        log.warn(
+          { contactId, err },
+          "upsertContact: gateway read-back failed; returning gateway fallback",
+        );
+        return null;
+      },
+    );
 
     if (fullContact) {
       return { contact: fullContact, created };
@@ -1704,7 +1704,6 @@ export class ContactStore {
     }
     return `${slug}-${crypto.randomUUID().slice(0, 8)}.md`;
   }
-
 }
 
 // ---------------------------------------------------------------------------
