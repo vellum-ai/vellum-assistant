@@ -353,6 +353,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
           <Button
             variant="ghost"
             iconOnly={<Download />}
+            expandOnMobile={false}
             onClick={handleDownload}
             disabled={!effectiveUrl}
             aria-label={`Download ${attachment.filename}`}
