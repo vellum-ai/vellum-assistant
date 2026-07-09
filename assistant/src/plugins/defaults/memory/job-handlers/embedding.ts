@@ -7,13 +7,13 @@ import { getDb } from "../../../../persistence/db-connection.js";
 import type { EmbeddingInput } from "../../../../persistence/embeddings/embedding-types.js";
 import { asString } from "../../../../persistence/job-utils.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { extractMediaBlocks } from "../../../../persistence/message-content.js";
 import {
   mediaAssets,
   memorySegments,
   memorySummaries,
   messages,
 } from "../../../../persistence/schema/index.js";
+import { extractMediaBlocks } from "../message-media.js";
 
 export async function embedSegmentJob(job: MemoryJob): Promise<void> {
   const segmentId = asString(job.payload.segmentId);

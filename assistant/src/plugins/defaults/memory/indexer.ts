@@ -1,4 +1,7 @@
-import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
+import {
+  extractTextFromStoredMessageContent,
+  selectedBackendSupportsMultimodal,
+} from "@vellumai/plugin-api";
 import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
 
@@ -15,10 +18,6 @@ import {
   isMemoryEnabled,
   upsertDebouncedJob,
 } from "../../../persistence/jobs-store.js";
-import {
-  extractMediaBlockMeta,
-  extractTextFromStoredMessageContent,
-} from "../../../persistence/message-content.js";
 import { memorySegments } from "../../../persistence/schema/index.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { enqueueAutoAnalysisIfEnabled } from "../../../runtime/services/auto-analysis-enqueue.js";
@@ -26,6 +25,7 @@ import { isAutoAnalysisConversation } from "../../../runtime/services/auto-analy
 import { getLogger } from "../../../util/logger.js";
 import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
 import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
+import { extractMediaBlockMeta } from "./message-media.js";
 import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");

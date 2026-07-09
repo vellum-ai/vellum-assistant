@@ -22,13 +22,15 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
-import { listInstalledSkills } from "@vellumai/plugin-api";
+import {
+  listInstalledSkills,
+  stringifyMessageContent,
+} from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
 import { getMessages } from "../../../../persistence/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
-import { stringifyMessageContent } from "../../../../persistence/message-content.js";
 import { getLogger } from "../../../../util/logger.js";
 import {
   getWorkspaceDir,

@@ -198,3 +198,14 @@ export {
   listCatalogSkills,
   listInstalledSkills,
 } from "../skills/available-skills.js";
+// Stored-message content — pure projections of the persisted message content
+// format (a JSON content-block array) to a string, so plugins that read
+// conversation history stay agnostic to how content is persisted.
+// `stringifyMessageContent` keeps only the spoken text (text blocks; tool
+// calls/results, thinking, and media are dropped);
+// `extractTextFromStoredMessageContent` renders the annotated transcript
+// (tool calls with inputs, tool results, thinking, image/file markers).
+export {
+  extractTextFromStoredMessageContent,
+  stringifyMessageContent,
+} from "../persistence/message-content.js";
