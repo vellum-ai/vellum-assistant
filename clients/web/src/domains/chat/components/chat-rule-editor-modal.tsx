@@ -416,7 +416,9 @@ export function ChatRuleEditorModal({
         </Modal.Header>
 
         <Modal.Body>
-          <div className="flex flex-col gap-5">
+          {/* Neutral checked-radio colors (the library default is positive
+              green, which reads as a status signal in this dark modal). */}
+          <div className="flex flex-col gap-5 [--radio-checked-bg:var(--content-default)] [--radio-checked-dot:var(--surface-overlay)]">
             {/* The tool call this rule generalizes from */}
             {(context.commandText || context.commandDescription) && (
               <OverlayCard>

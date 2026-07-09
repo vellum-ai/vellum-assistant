@@ -114,12 +114,19 @@ export function CodeBlock({ text }: { text: string }) {
 }
 
 /** Uppercase section label in `--content-tertiary`. */
-export function SectionLabel({ children }: { children: string }) {
+export function SectionLabel({
+  children,
+  className = "mb-1.5",
+}: {
+  children: string;
+  /** Margin override for rows that manage their own spacing. */
+  className?: string;
+}) {
   return (
     <Typography
       variant="label-small-default"
       as="div"
-      className="mb-1.5 uppercase tracking-wider text-[var(--content-tertiary)]"
+      className={`uppercase tracking-wider text-[var(--content-tertiary)] ${className}`}
     >
       {children}
     </Typography>
@@ -193,27 +200,26 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
   return (
     <>
       {/* Reasoning — the call's risk level and the affordance to persist
-          that judgement as a trust rule. */}
+          that judgement as a trust rule. Bare section: label row (with the
+          trust-rule button trailing) over the badge, no container card. */}
       {riskLevel && (
         <div className="mb-5">
-          <SectionLabel>Reasoning</SectionLabel>
-          <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
-            <div className="flex items-center justify-between gap-3">
-              <RiskBadge level={riskLevel} />
-              {canCreateTrustRule && (
-                <Button
-                  variant="outlined"
-                  size="compact"
-                  className="shrink-0"
-                  onClick={() =>
-                    useViewerStore.getState().requestRuleEditor(detail.toolCallId)
-                  }
-                >
-                  Create Trust Rule
-                </Button>
-              )}
-            </div>
+          <div className="mb-1.5 flex items-center justify-between gap-3">
+            <SectionLabel className="mb-0">Reasoning</SectionLabel>
+            {canCreateTrustRule && (
+              <Button
+                variant="outlined"
+                size="compact"
+                className="shrink-0"
+                onClick={() =>
+                  useViewerStore.getState().requestRuleEditor(detail.toolCallId)
+                }
+              >
+                Create Trust Rule
+              </Button>
+            )}
           </div>
+          <RiskBadge level={riskLevel} />
         </div>
       )}
 
