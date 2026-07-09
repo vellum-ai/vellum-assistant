@@ -192,6 +192,7 @@ import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import { inviteRoutes } from "./ipc/invite-handlers.js";
 import { verificationSessionRoutes } from "./ipc/verification-session-handlers.js";
+import { guardianRequestRoutes } from "./ipc/guardian-request-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
 import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
@@ -2665,6 +2666,7 @@ async function main() {
     ...contactRoutes,
     ...inviteRoutes,
     ...verificationSessionRoutes,
+    ...guardianRequestRoutes,
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...admissionPolicyRoutes,
