@@ -705,6 +705,41 @@ describe("DeepgramRealtimeTranscriber", () => {
       expect(events).toEqual([{ type: "finalized" }]);
     });
 
+    test("emits finalized via fallback when no from_finalize flush arrives", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 20,
+      });
+
+      // Deepgram omits the flush entirely when nothing significant is
+      // buffered — the fallback timer must complete the contract.
+      transcriber.finalizeUtterance();
+      expect(events).toHaveLength(0);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+
+      expect(events).toEqual([{ type: "finalized" }]);
+
+      // A flush arriving after the fallback must not double-emit.
+      mockWs.simulateMessage(
+        resultsFrame("", { is_final: true, from_finalize: true }),
+      );
+      expect(events).toEqual([{ type: "finalized" }]);
+    });
+
+    test("a pending finalize completes as finalized before closed on teardown", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 60_000,
+      });
+
+      transcriber.finalizeUtterance();
+      transcriber.stop();
+      mockWs.simulateClose(1000, "normal");
+
+      const finalizedIndex = events.findIndex((e) => e.type === "finalized");
+      const closedIndex = events.findIndex((e) => e.type === "closed");
+      expect(finalizedIndex).toBeGreaterThanOrEqual(0);
+      expect(closedIndex).toBeGreaterThan(finalizedIndex);
+    });
+
     test("stream stays usable after finalized (audio still transcribes)", async () => {
       const { transcriber, events } = await startSession();
 

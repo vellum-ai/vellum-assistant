@@ -80,6 +80,14 @@ const MAX_BUFFERED_AMOUNT = 1024 * 1024; // 1 MiB
  */
 const CLOSE_GRACE_MS = 5_000;
 
+/**
+ * Grace period (ms) after sending Finalize before the adapter emits
+ * `finalized` on its own. Deepgram sends no `from_finalize` Results frame
+ * when it has no significant audio buffered, so a caller waiting on the
+ * completion signal would otherwise stall indefinitely.
+ */
+const FINALIZE_FALLBACK_MS = 2_000;
+
 // ---------------------------------------------------------------------------
 // Options
 // ---------------------------------------------------------------------------
@@ -108,6 +116,11 @@ export interface DeepgramRealtimeOptions {
    * silence).
    */
   keepaliveIntervalMs?: number;
+  /**
+   * Grace (ms) after a Finalize before `finalized` is emitted without a
+   * `from_finalize` flush from Deepgram. Default: 2_000.
+   */
+  finalizeFallbackMs?: number;
   /** Audio sample rate in Hz (default: 16000). Passed through from the client WebSocket connection. */
   sampleRate?: number;
   /**
@@ -267,6 +280,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   private readonly connectTimeoutMs: number;
   private readonly inactivityTimeoutMs: number;
   private readonly keepaliveIntervalMs: number;
+  private readonly finalizeFallbackMs: number;
   private readonly sampleRate: number;
   /**
    * Whether speaker diarization is requested. Forwarded to the Deepgram
@@ -305,6 +319,14 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    */
   private finalizePending = false;
 
+  /**
+   * Fallback timer for an in-flight Finalize. Deepgram omits the
+   * `from_finalize` flush when nothing significant is buffered, so this
+   * timer emits `finalized` after {@link FINALIZE_FALLBACK_MS} to keep the
+   * completion contract. Cleared when the flush arrives or on cleanup.
+   */
+  private finalizeFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
   /** Whether stop() has been called. */
   private stopping = false;
 
@@ -335,6 +357,8 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       options.inactivityTimeoutMs ?? DEFAULT_INACTIVITY_TIMEOUT_MS;
     this.keepaliveIntervalMs =
       options.keepaliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS;
+    this.finalizeFallbackMs =
+      options.finalizeFallbackMs ?? FINALIZE_FALLBACK_MS;
     this.sampleRate = options.sampleRate ?? 16_000;
     this.diarize = options.diarize ?? false;
     this.utteranceBoundaryFinals = options.utteranceBoundaryFinals ?? false;
@@ -458,6 +482,15 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       return;
     }
     this.finalizePending = true;
+    if (this.finalizeFallbackTimer !== null) {
+      clearTimeout(this.finalizeFallbackTimer);
+    }
+    this.finalizeFallbackTimer = setTimeout(() => {
+      log.debug(
+        "Deepgram sent no from_finalize flush — emitting finalized fallback",
+      );
+      this.emitFinalizedIfPending();
+    }, this.finalizeFallbackMs);
   }
 
   stop(): void {
@@ -749,6 +782,10 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * emitted at most once per request.
    */
   private emitFinalizedIfPending(): void {
+    if (this.finalizeFallbackTimer !== null) {
+      clearTimeout(this.finalizeFallbackTimer);
+      this.finalizeFallbackTimer = null;
+    }
     if (!this.finalizePending) return;
     this.finalizePending = false;
     this.emitEvent({ type: "finalized" });
@@ -768,6 +805,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.forceClose();
 
     this.flushPendingUtterance();
+    // A Finalize with no flush response must still complete before the
+    // stream reports closed, so waiters see finalized → closed in order.
+    this.emitFinalizedIfPending();
     this.emitEvent({ type: "closed" });
     this.onEvent = null;
   }
@@ -803,6 +843,10 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     if (this.keepaliveTimer !== null) {
       clearInterval(this.keepaliveTimer);
       this.keepaliveTimer = null;
+    }
+    if (this.finalizeFallbackTimer !== null) {
+      clearTimeout(this.finalizeFallbackTimer);
+      this.finalizeFallbackTimer = null;
     }
   }
 
