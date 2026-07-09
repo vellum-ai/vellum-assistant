@@ -166,8 +166,13 @@ export async function resolveConfiguredProvider(
       }
     }
     if (!connectionName) {
-      log.debug(
-        { callSite, inferenceProvider },
+      log.warn(
+        {
+          callSite,
+          inferenceProvider,
+          model: resolved.model,
+          reason: "no_connection",
+        },
         "resolveCallSiteConfig yielded no provider_connection — returning null so callsite can fall back",
       );
       return null;
@@ -183,7 +188,18 @@ export async function resolveConfiguredProvider(
   if (!connectionProvider) {
     // Soft credential failure — the connection resolved to no usable
     // adapter (credential missing, transient auth failure, etc.).
-    // Callers handle null as "no provider available" rather than crash.
+    // Callers handle null as "no provider available" rather than crash;
+    // the structured warn keeps every silent degradation observable.
+    log.warn(
+      {
+        callSite,
+        connectionName,
+        inferenceProvider,
+        model: resolved.model,
+        reason: "credential_unavailable",
+      },
+      "Connection resolved to no usable adapter — returning null so the call site can degrade",
+    );
     return null;
   }
   return {

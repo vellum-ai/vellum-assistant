@@ -1273,6 +1273,31 @@ describe("ConnectionResolutionError classification", () => {
     expect(result.userMessage).toContain("Restart the assistant");
   });
 
+  it("classifies missing_credential naming the connection and fix", () => {
+    const err = new ConnectionResolutionError(
+      "anthropic-personal",
+      "missing_credential",
+      "no key",
+      { profileName: "custom-fast" },
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
+    expect(result.userMessage).toContain('"anthropic-personal"');
+    expect(result.userMessage).toContain("no stored credential");
+    expect(result.userMessage).toContain('profile "custom-fast"');
+  });
+
+  it("classifies platform_unauthenticated with a log-in fix", () => {
+    const err = new ConnectionResolutionError(
+      "vellum",
+      "platform_unauthenticated",
+      "not logged in",
+    );
+    const result = classifyConversationError(err, errCtx);
+    expect(result.userMessage).toContain("platform login");
+    expect(result.userMessage).toContain("Log in");
+  });
+
   it("is a structured VellumError (ConfigError) for logging/monitoring", () => {
     const err = new ConnectionResolutionError("x", "not_found", "m");
     expect(err).toBeInstanceOf(VellumError);

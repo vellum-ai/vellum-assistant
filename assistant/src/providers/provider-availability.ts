@@ -6,7 +6,10 @@
  */
 
 import { getConfig } from "../config/loader.js";
-import { getProviderKeyAsync } from "../security/secure-keys.js";
+import {
+  getProviderKeyAsync,
+  getSecureKeyResultAsync,
+} from "../security/secure-keys.js";
 import { PROVIDER_CATALOG } from "./model-catalog.js";
 import { managedFallbackEnabledFor } from "./platform-proxy/context.js";
 import { getVisibleProviderCatalog } from "./provider-catalog-visibility.js";
@@ -58,4 +61,23 @@ export async function getConfiguredProviders(): Promise<string[]> {
     configured.push("ollama");
   }
   return configured;
+}
+
+export type CredentialPresence = "present" | "absent" | "indeterminate";
+
+/**
+ * Non-plaintext existence probe for a stored credential. Never returns the
+ * secret — modules that only need "is a key stored?" use this instead of
+ * importing secure-keys (which the credential-security invariant restricts
+ * to an allowlist). `indeterminate` means the credential store was
+ * unreachable: callers must not treat it as absent.
+ */
+export async function checkCredentialPresence(
+  account: string,
+): Promise<CredentialPresence> {
+  const result = await getSecureKeyResultAsync(account);
+  if (result.unreachable) {
+    return "indeterminate";
+  }
+  return result.value != null ? "present" : "absent";
 }
