@@ -10,11 +10,7 @@
 
 import { v4 as uuid } from "uuid";
 
-import {
-  isOverrideOrDefaultResolutionEnabled,
-  resolveCallSiteConfig,
-  selectWinningProfile,
-} from "../config/llm-resolver.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { Conversation } from "../daemon/conversation.js";
 import {
@@ -31,14 +27,13 @@ import {
 } from "../persistence/subagent-store.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import {
-  preflightResolvedConfig,
+  mainAgentResolutionError,
   resolveDefaultProvider,
 } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { listProviders } from "../providers/registry.js";
 import type { Message, TextContent } from "../providers/types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
-import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { injectMessageIntoParent } from "./notify.js";
@@ -378,20 +373,7 @@ export class SubagentManager {
     // platform auth unavailable).
     const baseProvider = await resolveDefaultProvider(appConfig);
     if (!baseProvider) {
-      const resolved = resolveCallSiteConfig("mainAgent", appConfig.llm);
-      if (isOverrideOrDefaultResolutionEnabled()) {
-        // Statically pinpoint the breakage (missing credential, platform
-        // login, deleted connection) so the banner names the fix; falls
-        // through to the generic retryable error when indeterminate.
-        await preflightResolvedConfig(resolved, {
-          profileName:
-            selectWinningProfile("mainAgent", appConfig.llm, {}).profileName ??
-            undefined,
-        });
-      }
-      throw new ProviderNotConfiguredError(resolved.provider, listProviders(), {
-        connectionName: resolved.provider_connection,
-      });
+      throw await mainAgentResolutionError(appConfig.llm, listProviders());
     }
     // Per-call `options.config.callSite` (e.g. `subagentSpawn`) can resolve
     // to a profile that differs from `llm.default`. The shared wrapper

@@ -15,18 +15,22 @@ mock.module("../inference/connections.js", () => ({
   listConnections: () => [],
 }));
 
-mock.module("../../security/secure-keys.js", () => ({
-  getSecureKeyResultAsync: async (account: string) =>
+mock.module("../provider-availability.js", () => ({
+  checkCredentialPresence: async (account: string) =>
     cesUnreachable
-      ? { value: undefined, unreachable: true }
-      : { value: secureKeys[account], unreachable: false },
+      ? "indeterminate"
+      : secureKeys[account] != null
+        ? "present"
+        : "absent",
 }));
 
 mock.module("../platform-proxy/context.js", () => ({
   hasManagedProxyPrereqs: async () => platformLoggedIn,
   resolveManagedProxyContext: async () => ({
     enabled: platformLoggedIn,
-    platformBaseUrl: platformLoggedIn ? "https://platform" : "",
+    // Base URL configured: an unauthenticated result must come from the
+    // credential probe, so CES outages stay distinguishable.
+    platformBaseUrl: "https://platform",
     assistantApiKey: platformLoggedIn ? "key" : "",
   }),
 }));
@@ -56,6 +60,7 @@ async function preflightError(
 }
 
 beforeEach(() => {
+  secureKeys = {};
   connectionsByName = {
     "anthropic-personal": {
       name: "anthropic-personal",
@@ -160,6 +165,16 @@ describe("preflightResolvedConfig", () => {
     expect(err?.reason).toBe("platform_unauthenticated");
 
     platformLoggedIn = true;
+    expect(await preflightError(resolved())).toBeUndefined();
+  });
+
+  test("a credential-store outage on platform auth passes silently — never reported as logout", async () => {
+    connectionsByName["anthropic-personal"] = {
+      name: "anthropic-personal",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    };
+    cesUnreachable = true;
     expect(await preflightError(resolved())).toBeUndefined();
   });
 

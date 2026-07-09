@@ -27,17 +27,22 @@
  *      a conversation offline.
  */
 
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import {
+  isOverrideOrDefaultResolutionEnabled,
+  resolveCallSiteConfig,
+  selectWinningProfile,
+} from "../config/llm-resolver.js";
 import { getDb } from "../persistence/db-connection.js";
-import { getSecureKeyResultAsync } from "../security/secure-keys.js";
-import { ConfigError } from "../util/errors.js";
+import { credentialKey } from "../security/credential-key.js";
+import { ConfigError, ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
 import { getConnection, listConnections } from "./inference/connections.js";
-import { hasManagedProxyPrereqs } from "./platform-proxy/context.js";
+import { resolveManagedProxyContext } from "./platform-proxy/context.js";
+import { checkCredentialPresence } from "./provider-availability.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
 import type { Provider } from "./types.js";
@@ -364,7 +369,7 @@ export async function preflightResolvedConfig(
         errorOptions,
       );
     }
-    if (!(await hasManagedProxyPrereqs())) {
+    if ((await platformLoginPresence()) === "unauthenticated") {
       throw new ConnectionResolutionError(
         connectionName,
         "platform_unauthenticated",
@@ -386,10 +391,12 @@ export async function preflightResolvedConfig(
   switch (connection.auth.type) {
     case "api_key":
     case "oauth_subscription": {
-      const key = await getSecureKeyResultAsync(connection.auth.credential);
-      if (key.unreachable || key.value != null) {
-        // Unreachable is indeterminate: the key may exist. Never claim
-        // `missing_credential` here.
+      const presence = await checkCredentialPresence(
+        connection.auth.credential,
+      );
+      if (presence !== "absent") {
+        // `indeterminate` (credential store unreachable) must never be
+        // claimed as a missing credential.
         return;
       }
       throw new ConnectionResolutionError(
@@ -400,17 +407,70 @@ export async function preflightResolvedConfig(
       );
     }
     case "platform": {
-      if (await hasManagedProxyPrereqs()) {
-        return;
+      if ((await platformLoginPresence()) === "unauthenticated") {
+        throw new ConnectionResolutionError(
+          connectionName,
+          "platform_unauthenticated",
+          `provider_connection "${connectionName}" uses platform auth, but no platform login is available — log in to use it`,
+          errorOptions,
+        );
       }
-      throw new ConnectionResolutionError(
-        connectionName,
-        "platform_unauthenticated",
-        `provider_connection "${connectionName}" uses platform auth, but no platform login is available — log in to use it`,
-        errorOptions,
-      );
+      return;
     }
     default:
       return;
   }
+}
+
+/**
+ * Platform-login state with the credential-store-outage case kept distinct:
+ * `resolveManagedProxyContext` collapses an unreachable key read into
+ * "no key", which must not be reported as a logout. A missing platform base
+ * URL is definitively unauthenticated (it is config, not a credential read).
+ */
+async function platformLoginPresence(): Promise<
+  "ok" | "unauthenticated" | "indeterminate"
+> {
+  const ctx = await resolveManagedProxyContext();
+  if (ctx.enabled) {
+    return "ok";
+  }
+  if (!ctx.platformBaseUrl) {
+    return "unauthenticated";
+  }
+  const presence = await checkCredentialPresence(
+    credentialKey("vellum", "assistant_api_key"),
+  );
+  if (presence === "present") {
+    return "ok";
+  }
+  return presence === "indeterminate" ? "indeterminate" : "unauthenticated";
+}
+
+/**
+ * Shared guard for the call sites that must fail loudly when the default
+ * provider resolves to no usable adapter: the flag-gated preflight throws a
+ * reason-carrying error when it can statically pinpoint the breakage;
+ * otherwise the returned generic retryable error is for the caller to
+ * throw (returned rather than thrown so `throw await …` keeps TypeScript's
+ * reachability narrowing at the call site).
+ */
+export async function mainAgentResolutionError(
+  llm: Parameters<typeof resolveCallSiteConfig>[1],
+  registeredProviders: string[],
+): Promise<ProviderNotConfiguredError> {
+  const resolved = resolveCallSiteConfig("mainAgent", llm);
+  if (isOverrideOrDefaultResolutionEnabled()) {
+    await preflightResolvedConfig(resolved, {
+      profileName:
+        selectWinningProfile("mainAgent", llm, {}).profileName ?? undefined,
+    });
+  }
+  return new ProviderNotConfiguredError(
+    resolved.provider,
+    registeredProviders,
+    {
+      connectionName: resolved.provider_connection,
+    },
+  );
 }

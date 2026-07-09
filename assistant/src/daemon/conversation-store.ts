@@ -12,21 +12,15 @@
  * `conversation-evictor`.
  */
 
-import {
-  isOverrideOrDefaultResolutionEnabled,
-  resolveCallSiteConfig,
-  selectWinningProfile,
-} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import {
-  preflightResolvedConfig,
+  mainAgentResolutionError,
   resolveDefaultProvider,
 } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { listProviders } from "../providers/registry.js";
 import { getSubagentManager } from "../subagent/index.js";
-import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
 import {
@@ -79,7 +73,9 @@ function applyTransportMetadata(
   options: ConversationCreateOptions | undefined,
 ): void {
   const transport = options?.transport;
-  if (!transport) return;
+  if (!transport) {
+    return;
+  }
   conversation.setTransportHints(buildTransportHints(transport));
   conversation.applyHostEnvFromTransport(transport);
   conversation.applyClientTimezoneFromTransport(transport);
@@ -130,24 +126,7 @@ export async function getOrCreateConversation(
       // credential, platform auth unavailable).
       const baseProvider = await resolveDefaultProvider(config);
       if (!baseProvider) {
-        const resolved = resolveCallSiteConfig("mainAgent", config.llm);
-        if (isOverrideOrDefaultResolutionEnabled()) {
-          // Statically pinpoint the breakage (missing credential, platform
-          // login, deleted connection) so the banner names the fix; falls
-          // through to the generic retryable error when indeterminate.
-          await preflightResolvedConfig(resolved, {
-            profileName:
-              selectWinningProfile("mainAgent", config.llm, {}).profileName ??
-              undefined,
-          });
-        }
-        throw new ProviderNotConfiguredError(
-          resolved.provider,
-          listProviders(),
-          {
-            connectionName: resolved.provider_connection,
-          },
-        );
+        throw await mainAgentResolutionError(config.llm, listProviders());
       }
       // Per-call `callSite` routing layered on top, with connection-awareness
       // for alternate profiles (matches the canonical dispatch path).
@@ -222,7 +201,9 @@ export async function getOrCreateConversation(
  */
 export function destroyActiveConversation(conversationId: string): void {
   const conversation = findConversation(conversationId);
-  if (!conversation) return;
+  if (!conversation) {
+    return;
+  }
   removeFromEvictor(conversationId);
   getSubagentManager().abortAllForParent(conversationId);
   conversation.dispose();
