@@ -943,12 +943,11 @@ async function handleSearchPlugins({
 
   try {
     // Reject a malformed regex before any network I/O so a user typo is a
-    // cheap deterministic 400 — never a wasted GitHub request that could
-    // surface as 503 on a cold cache when upstream is rate-limited.
+    // cheap deterministic 400 rather than a wasted catalog fetch.
     assertValidSearchPattern(query);
-    // The catalog is cached per ref (and served stale on upstream failure),
-    // so repeated searches don't re-hit GitHub's unauthenticated rate limit.
-    // Filtering by the query is an in-memory operation over that catalog.
+    // getPluginCatalog is platform-first (or the bundled manifest when platform
+    // features are disabled) and fails hard on a platform error — never served
+    // stale. Filtering by the query is in-memory over the resolved catalog.
     const catalog = await getPluginCatalog(ref, {
       fetch: globalThis.fetch.bind(globalThis),
     });
@@ -969,8 +968,8 @@ async function handleSearchPlugins({
     if (err instanceof InvalidSearchPatternError) {
       throw new BadRequestError(err.message);
     }
-    // A rate-limited or unavailable upstream (with no cache to fall back on)
-    // is transient and retryable — surface it as 503 rather than a
+    // A rate-limited or unavailable platform (no stale catalog to fall back
+    // on) is transient and retryable — surface it as 503 rather than a
     // misleading 500 so the client can show a "temporarily unavailable"
     // state and retry later.
     if (err instanceof PluginCatalogUnavailableError) {
