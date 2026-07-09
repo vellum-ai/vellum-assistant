@@ -177,17 +177,32 @@ describe("create IPC schemas", () => {
     } as const;
     expect(CreateGuardianRequestIpcParamsSchema.parse(full)).toEqual(full);
 
-    const minimal = { id: "req-3", kind: "tool_approval" } as const;
+    const minimal = {
+      id: "req-3",
+      kind: "tool_approval",
+      guardianPrincipalId: "principal-1",
+    } as const;
     expect(CreateGuardianRequestIpcParamsSchema.parse(minimal)).toEqual(
       minimal,
     );
 
     expect(() =>
-      CreateGuardianRequestIpcParamsSchema.parse({ kind: "tool_approval" }),
+      CreateGuardianRequestIpcParamsSchema.parse({
+        kind: "tool_approval",
+        guardianPrincipalId: "principal-1",
+      }),
     ).toThrow();
     expect(() =>
       CreateGuardianRequestIpcParamsSchema.parse({
         id: "",
+        kind: "tool_approval",
+        guardianPrincipalId: "principal-1",
+      }),
+    ).toThrow();
+    // Every admitted kind is decisionable: the principal is non-optional.
+    expect(() =>
+      CreateGuardianRequestIpcParamsSchema.parse({
+        id: "req-3",
         kind: "tool_approval",
       }),
     ).toThrow();
@@ -301,6 +316,23 @@ describe("decide IPC schemas", () => {
     expect(DecideGuardianRequestIpcParamsSchema.parse(plainCas)).toEqual(
       plainCas,
     );
+  });
+
+  test("only resolves pending to approved/denied", () => {
+    expect(() =>
+      DecideGuardianRequestIpcParamsSchema.parse({
+        id: "req-1",
+        expectedStatus: "approved",
+        status: "pending",
+      }),
+    ).toThrow();
+    expect(() =>
+      DecideGuardianRequestIpcParamsSchema.parse({
+        id: "req-1",
+        expectedStatus: "pending",
+        status: "expired",
+      }),
+    ).toThrow();
   });
 
   test("response discriminates applied from status_conflict", () => {

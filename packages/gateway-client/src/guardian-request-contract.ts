@@ -216,7 +216,8 @@ export const CreateGuardianRequestIpcParamsSchema = z.object({
   requesterExternalUserId: z.string().optional(),
   requesterChatId: z.string().optional(),
   guardianExternalUserId: z.string().optional(),
-  guardianPrincipalId: z.string().optional(),
+  /** Required: every admitted kind is decisionable and undecidable without it. */
+  guardianPrincipalId: z.string().min(1),
   callSessionId: z.string().optional(),
   pendingQuestionId: z.string().optional(),
   questionText: z.string().optional(),
@@ -358,11 +359,27 @@ export type GuardianRequestAclOutcome = z.infer<
   typeof GuardianRequestAclOutcomeSchema
 >;
 
-/** Request for `guardian_requests_decide` (status CAS + optional ACL outcome). */
+/** Terminal statuses a decision may resolve to. */
+export const GuardianRequestDecisionStatusSchema = z.enum([
+  "approved",
+  "denied",
+]);
+
+export type GuardianRequestDecisionStatus = z.infer<
+  typeof GuardianRequestDecisionStatusSchema
+>;
+
+/**
+ * Request for `guardian_requests_decide` (status CAS + optional ACL outcome).
+ * Decisions only resolve a pending request to approved/denied — expiry has
+ * `guardian_requests_expire`/`_sweep_expired`, terminal→pending has
+ * `guardian_requests_reopen` — so a malformed call can never apply an
+ * `aclOutcome` while leaving the request decidable again.
+ */
 export const DecideGuardianRequestIpcParamsSchema = z.object({
   id: z.string().min(1),
-  expectedStatus: GuardianRequestStatusSchema,
-  status: GuardianRequestStatusSchema,
+  expectedStatus: z.literal("pending"),
+  status: GuardianRequestDecisionStatusSchema,
   decidedByExternalUserId: z.string().optional(),
   decidedByPrincipalId: z.string().optional(),
   answerText: z.string().optional(),
