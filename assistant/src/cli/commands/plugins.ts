@@ -85,7 +85,8 @@ export function registerPluginsCommand(program: Command): void {
   registerCommand(program, {
     name: "plugins",
     transport: "local",
-    description: "Manage external plugins",
+    description:
+      "List, search, install, and manage external plugins (`list` shows what is installed, `search` queries the marketplace)",
     build: (plugins) => {
       plugins.addHelpText(
         "after",
