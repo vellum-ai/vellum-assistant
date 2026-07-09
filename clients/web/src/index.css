@@ -177,6 +177,26 @@ body {
   border-radius: var(--radius-lg);
 }
 
+/* Streamed word fade — applied by `rehypeStreamWordFade` to each word of the
+ * actively-streaming assistant message's trailing text. Opacity-only (no
+ * layout properties) so the animation composites cheaply across many small
+ * spans; each span animates once, on insertion, since React preserves the
+ * DOM nodes of already-revealed words across reveal commits. */
+@keyframes stream-word-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.stream-word-fade {
+  animation: stream-word-fade-in 260ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-word-fade {
+    animation: none;
+  }
+}
+
 /* Avatar streaming ring — a semicircular arc that traces the circular avatar's
    edge and spins continuously while the assistant is streaming/loading. Used
    only for custom uploaded-image avatars; character avatars convey streaming

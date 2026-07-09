@@ -28,6 +28,7 @@ import {
   openMarkdownOAuthLinkInPopup,
   shouldOpenMarkdownLinkInOAuthPopup,
 } from "@/domains/chat/utils/oauth-popup-links";
+import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {
@@ -221,7 +222,17 @@ export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "li
   attachments?: DisplayAttachment[];
   /** Active assistant ID for fetching attachment content from the daemon. */
   assistantId?: string | null;
+  /**
+   * When true, each rendered word is wrapped in a fade-in span so newly
+   * streamed words animate in (see `rehypeStreamWordFade`). Only enable for
+   * the actively-growing text of a streaming message — the spans cost DOM
+   * weight, so settled content should render plain.
+   */
+  streamWordFade?: boolean;
 }
+
+/** Module-level so the plugin list is referentially stable across renders. */
+const STREAM_WORD_FADE_PLUGINS = [rehypeStreamWordFade];
 
 export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   content,
@@ -230,6 +241,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   onVellumLinkClick,
   attachments,
   assistantId,
+  streamWordFade,
 }: ChatMarkdownMessageProps) {
   const { openPreview, previewModal } = useAttachmentPreview(
     assistantId,
@@ -292,6 +304,9 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
         linkComponent={linkComponent}
         imageComponent={imageComponent}
         urlTransform={vellumUrlTransform}
+        extraRehypePlugins={
+          streamWordFade ? STREAM_WORD_FADE_PLUGINS : undefined
+        }
       />
       {previewModal}
     </>

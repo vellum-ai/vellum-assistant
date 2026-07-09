@@ -65,6 +65,17 @@ import {
 } from "@/domains/chat/transcript/transcript-message-body-shared";
 
 /**
+ * Word-fade cutoff for the streaming trailing text group. The fade wraps
+ * every word in a span, and each ~30fps reveal commit re-reconciles the whole
+ * group, so cost grows with group length: benchmarked (happy-dom, M-series)
+ * at ~1.6ms/commit for a 2k-char group and ~4.8ms at 8k — comfortably inside
+ * the 33ms commit budget — but ~14ms avg / 27ms p95 at 24k. Past this cutoff
+ * the group streams without the per-word fade (reveal smoothing still
+ * applies), trading polish for headroom on outlier-length messages.
+ */
+const STREAM_WORD_FADE_MAX_CHARS = 12000;
+
+/**
  * Renders a `DisplayMessage`'s body by walking its unified `contentBlocks`
  * projection — grouped by `groupContentBlocks`. Each block embeds its own
  * referent, so there are no positional resolvers: text comes straight off the
@@ -324,7 +335,11 @@ export function TranscriptMessageBody({
     [message.attachments, assistantId],
   );
 
-  const renderTextWithInlineSurfaces = (text: string, key: string) => {
+  const renderTextWithInlineSurfaces = (
+    text: string,
+    key: string,
+    streamWordFade = false,
+  ) => {
     const inlineSegments = parseInlineSurfaces(text);
     if (inlineSegments) {
       return (
@@ -357,6 +372,7 @@ export function TranscriptMessageBody({
                   onVellumLinkClick={handleVellumLinkClick}
                   attachments={message.attachments}
                   assistantId={assistantId}
+                  streamWordFade={streamWordFade}
                 />
               </div>
             );
@@ -372,6 +388,7 @@ export function TranscriptMessageBody({
           onVellumLinkClick={handleVellumLinkClick}
           attachments={message.attachments}
           assistantId={assistantId}
+          streamWordFade={streamWordFade}
         />
       </div>
     );
@@ -686,11 +703,13 @@ export function TranscriptMessageBody({
     gi: number,
   ): ReactNode => {
     if (group.type === "text") {
-      const text =
-        gi === lastGroupIndex && smoothedTrailingText !== null
-          ? smoothedTrailingText
-          : group.text;
-      return renderTextWithInlineSurfaces(text, `b-text-${gi}`);
+      const isSmoothedTrailing =
+        gi === lastGroupIndex && smoothedTrailingText !== null;
+      return renderTextWithInlineSurfaces(
+        isSmoothedTrailing ? smoothedTrailingText : group.text,
+        `b-text-${gi}`,
+        isSmoothedTrailing && group.text.length <= STREAM_WORD_FADE_MAX_CHARS,
+      );
     }
     if (group.type === "surface") {
       return renderSurfaceNode(group.surface, `b-surface-${gi}`);
