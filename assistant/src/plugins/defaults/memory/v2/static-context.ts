@@ -18,9 +18,9 @@
 // matching the existing PKB auto-inject pattern.
 
 import type { ChannelId } from "../../../../channels/types.js";
-import { loadConfig } from "../../../../config/loader.js";
 import { readPromptFile } from "../../../../prompts/system-prompt.js";
 import { getWorkspacePromptPath } from "../../../../util/platform.js";
+import { getMemoryConfig } from "../config.js";
 
 interface MemoryV2StaticBlock {
   heading: string;
@@ -35,9 +35,9 @@ const MEMORY_V2_STATIC_BLOCKS: readonly MemoryV2StaticBlock[] = [
 ];
 
 /**
- * Build the v2 static memory block, gated on `config.memory.enabled` and
- * `config.memory.v2.enabled`. Empty/missing files are skipped; returns `null`
- * when either gate is off or every file is empty.
+ * Build the v2 static memory block, gated on the memory config's `enabled`
+ * and `v2.enabled`. Empty/missing files are skipped; returns `null` when
+ * either gate is off or every file is empty.
  *
  * `excludeBuffer` drops the `## Buffer` section. The consolidation run sets
  * it: the agent's contract there is the `memory/buffer.md` FILE — it reads,
@@ -49,13 +49,8 @@ const MEMORY_V2_STATIC_BLOCKS: readonly MemoryV2StaticBlock[] = [
 export function readMemoryV2StaticContent(
   options: { excludeBuffer?: boolean } = {},
 ): string | null {
-  let config;
-  try {
-    config = loadConfig();
-  } catch {
-    return null;
-  }
-  if (config.memory.enabled === false || !config.memory.v2.enabled) {
+  const memoryConfig = getMemoryConfig();
+  if (memoryConfig.enabled === false || !memoryConfig.v2.enabled) {
     return null;
   }
 

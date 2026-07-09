@@ -36,17 +36,20 @@ let configMemoryEnabled = true;
 
 mock.module("../../../../../config/loader.js", () => ({
   getConfig: () => ({}),
-  loadConfig: () => ({
-    memory: {
-      enabled: configMemoryEnabled,
-      v2: { enabled: configMemoryV2Enabled },
-    },
-  }),
+  loadConfig: () => ({}),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   invalidateConfigCache: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
+}));
+
+// static-context reads its gates through the plugin's own config accessor.
+mock.module("../../config.js", () => ({
+  getMemoryConfig: () => ({
+    enabled: configMemoryEnabled,
+    v2: { enabled: configMemoryV2Enabled },
+  }),
 }));
 
 const { readMemoryV2StaticContent, shouldExposePersonalMemory } =

@@ -121,11 +121,9 @@ let activeJobSourceConvIds = new Set<string>();
 let injectedNowMinusOrphanAgeMs = 0;
 let mockKeepSupersededRuns = false;
 
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    memory: {
-      retrospective: { keepSupersededRuns: mockKeepSupersededRuns },
-    },
+mock.module("../config.js", () => ({
+  getMemoryConfig: () => ({
+    retrospective: { keepSupersededRuns: mockKeepSupersededRuns },
   }),
 }));
 
