@@ -172,3 +172,11 @@ export { resolveMediaSourceData } from "../providers/media-resolve.js";
 // hook reads it off `PostModelCallContext.stopReason` to decide whether to
 // continue a cut-off reply.
 export { isMaxTokensStopReason } from "../providers/stop-reasons.js";
+// Identity reads — "who is the assistant and the user." A plugin that builds
+// its own prompts (e.g. for its own inference) names the actor via these.
+// Backed by the workspace `IDENTITY.md` / user profile; each returns null when
+// unset. `resolveUserName` reads the profile under the given workspace dir.
+export {
+  getAssistantName,
+  resolveUserName,
+} from "../daemon/identity-helpers.js";

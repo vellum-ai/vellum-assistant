@@ -22,15 +22,15 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import {
+  getAssistantName,
+  getConfiguredProvider,
+  resolveUserName,
+} from "@vellumai/plugin-api";
 import { and, desc, eq, gt, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import {
-  getAssistantName,
-  resolveUserName,
-} from "../../../../daemon/identity-helpers.js";
 import { emitNotificationSignal } from "../../../../notifications/emit-signal.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
