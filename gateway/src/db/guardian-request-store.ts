@@ -19,6 +19,13 @@ import {
   or,
 } from "drizzle-orm";
 
+import type {
+  GuardianRequestDeliveryWire,
+  GuardianRequestSourceType,
+  GuardianRequestStatus,
+  GuardianRequestWire,
+} from "@vellumai/gateway-client";
+
 import { getGatewayDb } from "./connection.js";
 import { guardianRequestDeliveries, guardianRequests } from "./schema.js";
 
@@ -31,62 +38,22 @@ function rawClient(): Database {
 }
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (single-sourced from the shared contract)
 // ---------------------------------------------------------------------------
 
-export type GuardianRequestStatus =
-  | "pending"
-  | "approved"
-  | "denied"
-  | "expired"
-  | "cancelled";
+export type {
+  GuardianRequestSourceType,
+  GuardianRequestStatus,
+} from "@vellumai/gateway-client";
 
-export type GuardianRequestSourceType = "voice" | "desktop" | "channel";
+/**
+ * Request row as the store returns it — the wire DTO minus `sourceType`,
+ * which is computed by the service mapper (the column is not stored).
+ */
+export type GuardianRequest = Omit<GuardianRequestWire, "sourceType">;
 
-export interface GuardianRequest {
-  id: string;
-  kind: string;
-  sourceChannel: string | null;
-  sourceConversationId: string | null;
-  requesterExternalUserId: string | null;
-  requesterChatId: string | null;
-  guardianExternalUserId: string | null;
-  guardianPrincipalId: string | null;
-  callSessionId: string | null;
-  pendingQuestionId: string | null;
-  questionText: string | null;
-  requestCode: string | null;
-  toolName: string | null;
-  inputDigest: string | null;
-  commandPreview: string | null;
-  riskLevel: string | null;
-  activityText: string | null;
-  executionTarget: string | null;
-  /** JSON-encoded requester identity signals. */
-  requesterSignals: string | null;
-  /** What prompted an access request: `denied` (default) or `admitted`. */
-  requestTrigger: string | null;
-  status: GuardianRequestStatus;
-  answerText: string | null;
-  decidedByExternalUserId: string | null;
-  decidedByPrincipalId: string | null;
-  followupState: string | null;
-  expiresAt: number | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface GuardianRequestDelivery {
-  id: string;
-  requestId: string;
-  destinationChannel: string;
-  destinationConversationId: string | null;
-  destinationChatId: string | null;
-  destinationMessageId: string | null;
-  status: string;
-  createdAt: number;
-  updatedAt: number;
-}
+/** Delivery row as the store returns it — identical to the wire DTO. */
+export type GuardianRequestDelivery = GuardianRequestDeliveryWire;
 
 /**
  * Thrown when a create violates a store integrity invariant. Carries a

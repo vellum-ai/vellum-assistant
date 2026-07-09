@@ -116,15 +116,25 @@ describe("GuardianRequestSchema", () => {
     );
   });
 
-  test("rejects unknown status, kind, and sourceType", () => {
+  test("rejects unknown status and sourceType; kind stays open for legacy rows", () => {
     expect(() =>
       GuardianRequestSchema.parse({ ...accessRequest, status: "answered" }),
     ).toThrow();
-    expect(() =>
-      GuardianRequestSchema.parse({ ...accessRequest, kind: "ask_guardian" }),
-    ).toThrow();
+    // The physical column accepts any kind; reads round-trip legacy rows.
+    expect(
+      GuardianRequestSchema.parse({ ...accessRequest, kind: "status_update" })
+        .kind,
+    ).toBe("status_update");
     expect(() =>
       GuardianRequestSchema.parse({ ...accessRequest, sourceType: "phone" }),
+    ).toThrow();
+    // Creates stay restricted to the decisionable kind enum.
+    expect(() =>
+      CreateGuardianRequestIpcParamsSchema.parse({
+        id: "req-x",
+        kind: "status_update",
+        guardianPrincipalId: "principal-1",
+      }),
     ).toThrow();
   });
 

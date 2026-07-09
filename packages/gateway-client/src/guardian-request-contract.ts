@@ -78,7 +78,12 @@ export type GuardianRequestSourceType = z.infer<
  */
 export const GuardianRequestSchema = z.object({
   id: z.string(),
-  kind: GuardianRequestKindSchema,
+  /**
+   * Plain string, not the kind enum: the physical column accepts any value,
+   * and reads must round-trip rows that predate the current kind set.
+   * `guardian_requests_create` still restricts new rows to the enum.
+   */
+  kind: z.string(),
   /** Computed from `sourceChannel` by the gateway mapper — not stored. */
   sourceType: GuardianRequestSourceTypeSchema,
   sourceChannel: z.string().nullable(),
