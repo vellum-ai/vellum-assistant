@@ -17,6 +17,10 @@ import {
 } from "./plugin-marketplace.js";
 import { marketplaceMatch, type PluginCatalog } from "./search-plugins.js";
 
+// Re-exported so `local`-tagged CLI commands can gate on platform features
+// without importing `platform/` directly (cli/no-daemon-internals allows lib).
+export { arePlatformFeaturesEnabled } from "../../platform/feature-gate.js";
+
 /**
  * Validate and project the bundled manifest into a {@link PluginCatalog}:
  * every entry deduped by name, mapped via {@link marketplaceMatch}, sorted

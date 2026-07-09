@@ -8,7 +8,6 @@
 
 import type { Command } from "commander";
 
-import { arePlatformFeaturesEnabled } from "../../platform/feature-gate.js";
 import { yellow } from "../lib/cli-colors.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
 import {
@@ -44,7 +43,10 @@ import {
   looksLikeGitHubSpec,
   parseGitHubPluginSpec,
 } from "../lib/parse-github-plugin-spec.js";
-import { resolveBundledPluginSource } from "../lib/plugin-catalog-local.js";
+import {
+  arePlatformFeaturesEnabled,
+  resolveBundledPluginSource,
+} from "../lib/plugin-catalog-local.js";
 import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
 import {
   DEFAULT_PIN_HISTORY_LIMIT,
