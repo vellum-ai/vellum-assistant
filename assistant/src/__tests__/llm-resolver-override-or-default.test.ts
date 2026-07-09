@@ -393,3 +393,171 @@ describe("flag-on / flag-off parity on materialized workspaces", () => {
     expect(flagOn).toEqual(flagOff);
   });
 });
+
+describe("explicit default-profile references resolve through the default provider", () => {
+  // Regressed failure mode: the vellum column's model ids dispatched to
+  // BYOK connections.
+  const managedStubs = {
+    balanced: { source: "managed" as const },
+    "cost-optimized": { source: "managed" as const },
+  };
+
+  test("an override pin to a default key matches the intent-rung resolution", () => {
+    const llm = LLMSchema.parse({ profiles: managedStubs, ...anthropicDp });
+    const pinned = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "cost-optimized",
+    });
+    // conversationSummarization's call-site default is the same intent.
+    const viaIntent = resolveCallSiteConfig("conversationSummarization", llm);
+    expect(pinned.provider).toBe("anthropic");
+    expect(pinned.model).toBe(viaIntent.model);
+    expect(pinned.provider_connection).toBe(viaIntent.provider_connection);
+    expect(pinned.model).not.toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES["cost-optimized"].model as string,
+    );
+  });
+
+  test("activeProfile set to a default key resolves the default provider's column", () => {
+    const llm = LLMSchema.parse({
+      profiles: managedStubs,
+      activeProfile: "balanced",
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.provider_connection).toBe("anthropic-personal");
+    expect(resolved.model).not.toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
+    );
+  });
+
+  test("a vellum default provider keeps the vellum bodies", () => {
+    const llm = LLMSchema.parse({
+      profiles: managedStubs,
+      defaultProvider: { provider: "vellum" },
+    });
+    const pinned = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "cost-optimized",
+    });
+    const vellumBody = CODE_DEFAULT_PROFILE_ENTRIES["cost-optimized"];
+    expect(pinned.model).toBe(vellumBody.model as string);
+    expect(pinned.provider_connection).toBe(vellumBody.provider_connection);
+  });
+
+  test("a mix arm naming a default key expands through the default provider", () => {
+    const llm = LLMSchema.parse({
+      profiles: {
+        ...managedStubs,
+        blend: {
+          source: "user" as const,
+          mix: [
+            { profile: "cost-optimized", weight: 1 },
+            { profile: "cost-optimized", weight: 1 },
+          ],
+        },
+      },
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "blend",
+      selectionSeed: "seed",
+    });
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).not.toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES["cost-optimized"].model as string,
+    );
+  });
+});
+
+describe("hatch-era disabled stubs on default keys", () => {
+  // Fresh BYOK hatches persist disabled managed stubs.
+  const disabledStubs = {
+    balanced: { source: "managed" as const, status: "disabled" as const },
+    "cost-optimized": {
+      source: "managed" as const,
+      status: "disabled" as const,
+    },
+  };
+
+  test("an override pin to a disabled default stub still resolves the provider's column", () => {
+    const llm = LLMSchema.parse({ profiles: disabledStubs, ...anthropicDp });
+    const pinned = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "cost-optimized",
+    });
+    const viaIntent = resolveCallSiteConfig("conversationSummarization", llm);
+    expect(pinned.provider).toBe("anthropic");
+    expect(pinned.model).toBe(viaIntent.model);
+  });
+
+  test("activeProfile pointing at a disabled default stub resolves, not falls through", () => {
+    const llm = LLMSchema.parse({
+      profiles: { ...disabledStubs, mine: completeCustom },
+      activeProfile: "balanced",
+      callSites: { mainAgent: { profile: "mine" } },
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    // The call-site pin below the active rung must not capture the turn.
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).not.toBe(completeCustom.model);
+  });
+
+  test("a disabled CUSTOM profile is still skipped", () => {
+    const { fallbacks, opts } = collect();
+    const llm = LLMSchema.parse({
+      profiles: {
+        mine: { ...completeCustom, status: "disabled" as const },
+      },
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      ...opts,
+      overrideProfile: "mine",
+    });
+    expect(resolved.model).not.toBe(completeCustom.model);
+    expect(fallbacks).toContainEqual({
+      callSite: "mainAgent",
+      requested: "mine",
+      reason: "disabled",
+    });
+  });
+});
+
+describe("user shadows of default keys keep their intent", () => {
+  test("a disabled user shadow reports and falls through, not silently the catalog", () => {
+    const { fallbacks, opts } = collect();
+    const llm = LLMSchema.parse({
+      profiles: {
+        balanced: {
+          ...completeCustom,
+          status: "disabled" as const,
+          model: "gpt-5.4",
+        },
+      },
+      activeProfile: "balanced",
+      ...anthropicDp,
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, opts);
+    expect(fallbacks).toContainEqual({
+      callSite: "mainAgent",
+      requested: "balanced",
+      reason: "disabled",
+    });
+    // The anchor lands on the same intent either way; the report above is
+    // what distinguishes fall-through from silent replacement.
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).not.toBe("gpt-5.4");
+  });
+
+  test("a usable user shadow of a default key wins verbatim", () => {
+    const llm = LLMSchema.parse({
+      profiles: { balanced: { ...completeCustom, model: "gpt-5.4" } },
+      ...anthropicDp,
+    });
+    const pinned = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "balanced",
+    });
+    expect(pinned.model).toBe("gpt-5.4");
+    expect(pinned.provider).toBe("openai");
+  });
+});
