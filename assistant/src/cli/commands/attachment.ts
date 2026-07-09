@@ -12,7 +12,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import { subcommand } from "../lib/cli-command-help.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
@@ -22,11 +22,11 @@ import { attachmentHelp } from "./attachment.help.js";
 
 export function registerAttachmentCommand(program: Command): void {
   registerCommand(program, {
-    name: attachmentHelp.name,
+    name: "attachment",
     transport: "ipc",
     description: attachmentHelp.description,
     build: (attachment) => {
-      attachmentHelp.configure(attachment);
+      applyCommandHelp(attachment, attachmentHelp);
 
       // ── register ───────────────────────────────────────────────────
       subcommand(attachment, "register").action(

@@ -109,6 +109,12 @@ mock.module("../../../../../cli/program.js", () => ({
   },
 }));
 
+// Keep the suite driven entirely by the mocked program tree above: no commands
+// are sourced from the declarative `cli/index.help.ts` aggregate.
+mock.module("../../../../../cli/index.help.js", () => ({
+  CLI_COMMAND_HELP: [],
+}));
+
 mock.module(
   "../../../../../persistence/embeddings/embedding-backend.js",
   () => ({
