@@ -10,11 +10,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import {
+  getConfiguredProvider,
+  getConversationDirPath,
+} from "@vellumai/plugin-api";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getConversationDirPath } from "../../../../persistence/conversation-disk-view.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
   conversations,
@@ -1029,7 +1031,8 @@ export async function runGraphExtraction(
   let transcript = opts?.transcript;
   if (!transcript) {
     transcript =
-      loadTranscriptFromDisk(conversationId, opts?.afterTimestamp) ?? undefined;
+      (await loadTranscriptFromDisk(conversationId, opts?.afterTimestamp)) ??
+      undefined;
     if (!transcript) {
       // If we have a multimodal result but no disk transcript, extract text
       // from the multimodal message content blocks for candidate search.
@@ -1317,10 +1320,10 @@ function resolveImageRefMimeType(
   }
 }
 
-function loadTranscriptFromDisk(
+async function loadTranscriptFromDisk(
   conversationId: string,
   afterTimestamp?: number,
-): string | null {
+): Promise<string | null> {
   const db = getDb();
   const conv = db
     .select({ createdAt: conversations.createdAt })
@@ -1333,7 +1336,10 @@ function loadTranscriptFromDisk(
   }
 
   try {
-    const dirPath = getConversationDirPath(conversationId, conv.createdAt);
+    const dirPath = await getConversationDirPath(
+      conversationId,
+      conv.createdAt,
+    );
     const messagesPath = join(dirPath, "messages.jsonl");
     const content = readFileSync(messagesPath, "utf-8");
 

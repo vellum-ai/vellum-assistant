@@ -209,3 +209,24 @@ export {
   extractTextFromStoredMessageContent,
   stringifyMessageContent,
 } from "../persistence/message-content.js";
+// Conversation history — reads and writes on the host conversation store
+// (rows, message history, processing state, disk-view paths) plus the lexical
+// message-search surface. Every operation takes explicit parameters; nothing
+// is resolved from config. Async because the facade loads the DB store graph
+// lazily on first call.
+export type { ConversationRow } from "../persistence/conversation-crud.js";
+export {
+  addMessage,
+  buildRecallEvidenceExcerpt,
+  deleteConversationGently,
+  getConversation,
+  getConversationDirPath,
+  getMessages,
+  hasLexicalTokens,
+  isConversationProcessing,
+  listConversations,
+  parseMessageMetadata,
+  searchMessageIdsLexical,
+  syncMessageToDisk,
+  updateMessageMetadata,
+} from "../persistence/conversation-plugin-facade.js";

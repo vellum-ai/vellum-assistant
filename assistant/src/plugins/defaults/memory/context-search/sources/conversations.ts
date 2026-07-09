@@ -1,11 +1,12 @@
-import { readSlackMetadata } from "../../../../../messaging/providers/slack/message-metadata.js";
-import { AUTO_ANALYSIS_SOURCE } from "../../../../../persistence/auto-analysis-constants.js";
-import { isLexicalBackfillComplete } from "../../../../../persistence/checkpoints.js";
 import {
   buildRecallEvidenceExcerpt,
   hasLexicalTokens,
-} from "../../../../../persistence/conversation-queries.js";
-import { searchMessageIdsLexical } from "../../../../../persistence/conversation-search-lexical.js";
+  searchMessageIdsLexical,
+} from "@vellumai/plugin-api";
+
+import { readSlackMetadata } from "../../../../../messaging/providers/slack/message-metadata.js";
+import { AUTO_ANALYSIS_SOURCE } from "../../../../../persistence/auto-analysis-constants.js";
+import { isLexicalBackfillComplete } from "../../../../../persistence/checkpoints.js";
 import { rawAll } from "../../../../../persistence/raw-query.js";
 import {
   parseExternalContentEnvelope,
@@ -130,7 +131,7 @@ export async function searchConversationSource(
   // conversation evidence. The early return also keeps the sparse encoder
   // honest: it still emits a 1-char token for these queries, so querying the
   // index anyway would return noisy hits.
-  if (!hasLexicalTokens(trimmedQuery)) {
+  if (!(await hasLexicalTokens(trimmedQuery))) {
     return { evidence: [] };
   }
 
@@ -159,19 +160,21 @@ export async function searchConversationSource(
     .slice(0, normalizedLimit);
 
   return {
-    evidence: sortedRows.map(({ row, score }) => ({
-      id: `conversations:${row.conversation_id}:${row.message_id}`,
-      source: "conversations",
-      title: row.title?.trim() || "Untitled conversation",
-      locator: `${row.conversation_id}#${row.message_id}`,
-      excerpt: buildRecallExcerpt(row, trimmedQuery),
-      timestampMs: row.created_at,
-      score,
-      metadata: {
-        role: row.role,
-        conversationId: row.conversation_id,
-      },
-    })),
+    evidence: await Promise.all(
+      sortedRows.map(async ({ row, score }) => ({
+        id: `conversations:${row.conversation_id}:${row.message_id}`,
+        source: "conversations",
+        title: row.title?.trim() || "Untitled conversation",
+        locator: `${row.conversation_id}#${row.message_id}`,
+        excerpt: await buildRecallExcerpt(row, trimmedQuery),
+        timestampMs: row.created_at,
+        score,
+        metadata: {
+          role: row.role,
+          conversationId: row.conversation_id,
+        },
+      })),
+    ),
   };
 }
 
@@ -257,11 +260,11 @@ function searchByIds(
   );
 }
 
-function buildRecallExcerpt(
+async function buildRecallExcerpt(
   row: ConversationEvidenceRow,
   query: string,
-): string {
-  const excerpt = buildRecallEvidenceExcerpt(row.content, query);
+): Promise<string> {
+  const excerpt = await buildRecallEvidenceExcerpt(row.content, query);
   const slackMeta = parseSlackRecallMetadata(row.metadata);
   if (
     row.role !== "user" ||
