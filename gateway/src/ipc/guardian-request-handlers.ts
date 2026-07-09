@@ -34,6 +34,7 @@ import {
   UpdateGuardianRequestDeliveryIpcParamsSchema,
   UpdateGuardianRequestIpcParamsSchema,
 } from "@vellumai/gateway-client";
+import { z } from "zod";
 
 import {
   createGuardianRequest,
@@ -56,6 +57,18 @@ import {
   updateGuardianRequestDelivery,
 } from "../approvals/guardian-request-service.js";
 import type { IpcRoute } from "./server.js";
+
+// The server validates req.params BEFORE the handler runs, and no-arg daemon
+// callers (`ipcCallPersistent(method)`) send req.params === undefined — these
+// two routes must accept the omitted-params call shape and default it to {}.
+const ExpireInteractionBoundParamsSchema = z.preprocess(
+  (v) => v ?? {},
+  ExpireInteractionBoundIpcParamsSchema,
+);
+const SweepExpiredParamsSchema = z.preprocess(
+  (v) => v ?? {},
+  SweepExpiredGuardianRequestsIpcParamsSchema,
+);
 
 export const guardianRequestRoutes: IpcRoute[] = [
   {
@@ -128,19 +141,15 @@ export const guardianRequestRoutes: IpcRoute[] = [
   {
     // Daemon-boot expiry (daemon-keyed — never run on gateway restart).
     method: GUARDIAN_REQUESTS_IPC_METHODS.expireInteractionBound,
-    schema: ExpireInteractionBoundIpcParamsSchema,
-    handler: (params?: Record<string, unknown>) => {
-      ExpireInteractionBoundIpcParamsSchema.parse(params);
-      return expireInteractionBoundRequests();
-    },
+    schema: ExpireInteractionBoundParamsSchema,
+    handler: () => expireInteractionBoundRequests(),
   },
   {
     // Returns the expired ids for daemon-side notification fan-out.
     method: GUARDIAN_REQUESTS_IPC_METHODS.sweepExpired,
-    schema: SweepExpiredGuardianRequestsIpcParamsSchema,
+    schema: SweepExpiredParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      const { now } =
-        SweepExpiredGuardianRequestsIpcParamsSchema.parse(params);
+      const { now } = SweepExpiredParamsSchema.parse(params);
       return sweepExpiredRequests(now);
     },
   },

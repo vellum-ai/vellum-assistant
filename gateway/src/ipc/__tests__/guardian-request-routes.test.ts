@@ -378,6 +378,16 @@ describe("guardian_requests_expire_interaction_bound", () => {
     expect(getRequestRow(staleAccess.id)?.status).toBe("expired");
     expect(getRequestRow(freshAccess.id)?.status).toBe("pending");
   });
+
+  test("accepts the omitted-params call shape", async () => {
+    const toolApproval = await createRequest({
+      kind: "tool_approval",
+      toolName: "bash",
+    });
+
+    expect(await call(METHODS.expireInteractionBound)).toEqual({ expired: 1 });
+    expect(getRequestRow(toolApproval.id)?.status).toBe("expired");
+  });
 });
 
 describe("guardian_requests_sweep_expired", () => {
@@ -387,7 +397,7 @@ describe("guardian_requests_sweep_expired", () => {
     const noDeadline = await createRequest({});
 
     const swept = SweepExpiredGuardianRequestsIpcResponseSchema.parse(
-      await call(METHODS.sweepExpired, {}),
+      await call(METHODS.sweepExpired),
     );
     expect(swept.expired).toEqual([stale.id]);
     expect(getRequestRow(stale.id)?.status).toBe("expired");
