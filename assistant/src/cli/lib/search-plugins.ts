@@ -17,7 +17,7 @@
  */
 
 import type { FetchLike } from "./fetch-like.js";
-import { DEFAULT_PLUGIN_REF } from "./install-from-github.js";
+import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 import {
   fetchMarketplaceEntries,
   type MarketplaceEntry,

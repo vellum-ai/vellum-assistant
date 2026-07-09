@@ -29,15 +29,13 @@ import { join } from "node:path";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import type { FetchLike } from "./fetch-like.js";
-import {
-  DEFAULT_PLUGIN_REF,
-  sanitizePluginName,
-} from "./install-from-github.js";
+import { sanitizePluginName } from "./install-from-github.js";
 import {
   parsePluginArtifact,
   parsePluginIcon,
   type PluginArtifact,
 } from "./plugin-artifact.js";
+import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 import { readValidatedPluginIcon } from "./plugin-icon-file.js";
 import {
   fetchMarketplaceEntries,
@@ -252,7 +250,9 @@ function readLocalReadme(dir: string): string | null {
     return null;
   }
   const readme = names.find((n) => README_RE.test(n));
-  if (!readme) return null;
+  if (!readme) {
+    return null;
+  }
   try {
     return readFileSync(join(dir, readme), "utf8");
   } catch {
@@ -326,9 +326,13 @@ async function listDirSafe(
 
   try {
     const res = await githubFetch(url, "application/vnd.github+json", fetchFn);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return null;
+    }
     const body = (await res.json()) as unknown;
-    if (!Array.isArray(body)) return null;
+    if (!Array.isArray(body)) {
+      return null;
+    }
     return body as readonly GitHubContentEntry[];
   } catch {
     return null;
@@ -340,14 +344,18 @@ async function fetchRawFile(
   entry: GitHubContentEntry,
   fetchFn: FetchLike,
 ): Promise<string | null> {
-  if (!entry.download_url) return null;
+  if (!entry.download_url) {
+    return null;
+  }
   try {
     const res = await githubFetch(
       entry.download_url,
       "application/vnd.github.raw",
       fetchFn,
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return null;
+    }
     return await res.text();
   } catch {
     return null;
@@ -420,7 +428,9 @@ function parseManifest(raw: string): PluginManifestFields {
  * `{ "type": "MIT" }` still appears in the wild — surface its `type`.
  */
 function normalizeLicense(value: unknown): string | null {
-  if (typeof value === "string") return value;
+  if (typeof value === "string") {
+    return value;
+  }
   if (
     typeof value === "object" &&
     value !== null &&
