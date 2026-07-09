@@ -180,6 +180,3 @@ export {
   getAssistantName,
   resolveUserName,
 } from "../daemon/identity-helpers.js";
-// Render the workspace's core identity block (assistant + user framing) as the
-// text a plugin can prepend to its own model calls; null when no identity is set.
-export { buildCoreIdentityContext } from "../prompts/system-prompt.js";
