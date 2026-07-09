@@ -699,7 +699,7 @@ export function TranscriptMessageBody({
   // cancels the column's `gap-2` slot while collapsed — a zero-height flex
   // item still incurs the parent gap — and animates back to `mt-0` on reveal.
   const trailerHeightClass = isLatestMessage
-    ? "h-0 -mt-2 overflow-hidden group-hover/msg:h-6 group-hover/msg:mt-0 has-[:focus-visible]:h-6 has-[:focus-visible]:mt-0 group-data-[revealed=true]/msg:h-6 group-data-[revealed=true]/msg:mt-0"
+    ? "h-0 -mt-2 overflow-hidden group-hover/msg:h-8 group-hover/msg:mt-0 has-[:focus-visible]:h-8 has-[:focus-visible]:mt-0 group-data-[revealed=true]/msg:h-8 group-data-[revealed=true]/msg:mt-0"
     : "h-6 overflow-hidden";
 
   const trailer = (
