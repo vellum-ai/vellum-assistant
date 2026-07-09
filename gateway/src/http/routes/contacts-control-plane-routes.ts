@@ -9,9 +9,12 @@ import type { GatewayRouteDefinition } from "./types.js";
  * exist ONLY on the gateway (they have no daemon HTTP counterpart, so they
  * are absent from the daemon SDK): contact upsert, contact delete,
  * contact-prompt submit, and manual channel verify. Clients consume them
- * through the generated gateway SDK, which targets the assistant-scoped
- * `/v1/assistants/{assistant_id}/...` variants registered in `index.ts`
- * alongside these flat paths.
+ * through the generated gateway SDK, which emits assistant-scoped
+ * `/v1/assistants/{assistant_id}/...` URLs — but both deployment boundaries
+ * strip the scope before the gateway routes the request (Django's
+ * RuntimeProxyView in cloud; `rewriteForSelfHostedIngress` contact-family
+ * flattening in self-hosted), so the gateway serves exactly the flat paths
+ * in this spec.
  *
  * The handlers live in `contacts-control-plane-proxy.ts` (upsert, delete,
  * verify) and `contact-prompt.ts` (prompt submit); this module is

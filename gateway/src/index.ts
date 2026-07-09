@@ -772,13 +772,6 @@ async function main() {
       handler: (req) => handleContactPromptSubmit(req),
     },
     {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/prompt\/submit\/?$/,
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleContactPromptSubmit(req),
-    },
-    {
       path: "/v1/contacts",
       method: "GET",
       auth: "edge",
@@ -786,13 +779,6 @@ async function main() {
     },
     {
       path: "/v1/contacts",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/?$/,
       method: "POST",
       auth: "edge",
       handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
@@ -812,14 +798,6 @@ async function main() {
     },
     {
       path: /^\/v1\/contact-channels\/([^/]+)\/verify$/,
-      method: "POST",
-      auth: "edge-guardian",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contact-channels\/([^/]+)\/verify\/?$/,
       method: "POST",
       auth: "edge-guardian",
       handler: (req, params) =>
@@ -869,14 +847,6 @@ async function main() {
       // Keep DELETE on the invite collection unsupported; only /invites/:id
       // should revoke an invite.
       path: /^\/v1\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (_req, params) =>
-        contactsControlPlaneProxy.handleDeleteContact(params[0]),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
       method: "DELETE",
       auth: "edge",
       handler: (_req, params) =>
@@ -1702,8 +1672,7 @@ async function main() {
     // on mutations (the daemon HTTP handlers were stripped by #28784).
     //
     // Trust rules are gateway-global, so the assistant id is matched and
-    // discarded. Same precedent as the assistant-scoped /v1/assistants/.../
-    // contacts DELETE route above.
+    // discarded. Same precedent as channel-admission-policy above.
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
       method: "GET",
