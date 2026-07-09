@@ -15,6 +15,7 @@ import { existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { runShutdownHook } from "../../hooks/hook-loader.js";
+import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
@@ -90,7 +91,16 @@ export async function uninstallPlugin(
   // this runs in a fresh CLI process that never called `loadUserPlugins()`.
   // Best-effort — a failed shim just means the hook may not resolve.
   await ensurePluginApiShim().catch(() => {});
-  await runShutdownHook("plugin", name, "uninstall");
+
+  // Skip the shutdown hook when the plugin is disabled. A `.disabled` plugin
+  // is never loaded — no hooks, tools, or init — so its shutdown was never
+  // paired with an init. Running it on uninstall would be the first and only
+  // execution of the plugin's code, which inverts the disabled contract and
+  // is especially dangerous for untrusted/direct-installed plugins where
+  // removal should never be the action that first runs plugin code.
+  if (!isPluginDisabled(name)) {
+    await runShutdownHook("plugin", name, "uninstall");
+  }
 
   rmSync(target, { recursive: true, force: true });
   return { name, target };
