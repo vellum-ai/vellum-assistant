@@ -136,10 +136,10 @@ A few backwards-compat concerns don't fit the version-gate shape and live
 with the code they protect:
 
 - **SSE event parsing** — `src/lib/streaming/event-parser.ts` accepts both
-  the enveloped event shape (`{ id, conversationId, seq, emittedAt,
-message }`, 0.8.5+) and the flat legacy shape (`{ type, … }`), wrapping
-  the legacy form in a synthetic envelope so downstream callers never see
-  the difference.
+  the enveloped event shape of 0.8.5+
+  (`{ id, conversationId, seq, emittedAt, message }`) and the flat legacy
+  shape (`{ type, … }`), wrapping the legacy form in a synthetic envelope
+  so downstream callers never see the difference.
 - **Message normalization** — `src/domains/chat/api/messages.ts`
   reconstructs the unified `contentBlocks` discriminated union from the
   pre-0.8.8 positional arrays (`textSegments`, `thinkingSegments`,
