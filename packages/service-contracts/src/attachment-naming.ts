@@ -76,15 +76,19 @@ export function inferMimeType(filename: string): string {
  * extensionless downloads with an `application/octet-stream` MIME type,
  * which macOS opens as raw text. In that case the real path basename wins.
  *
- * Paths are treated as POSIX (`/`-separated): sandbox paths always are, and
- * `vellum://` URLs use `/` on every platform.
+ * The basename fallback splits on both `/` and `\\` so it handles POSIX
+ * sandbox paths, `vellum://` URL paths, and Windows host paths alike.
+ * Splitting on both separators regardless of the runtime platform also
+ * covers Windows host paths resolved by a non-Windows daemon, which
+ * platform-selected `node:path` semantics cannot.
  */
 export function resolveAttachmentFilename(
   preferred: string | undefined,
   resolvedPath: string,
   filenameSource: "explicit" | "label" = "explicit",
 ): string {
-  const fallback = resolvedPath.split("/").pop() ?? resolvedPath;
+  const fallback =
+    resolvedPath.split(/[\\/]/).filter(Boolean).pop() ?? resolvedPath;
   if (!preferred) {
     return fallback;
   }
