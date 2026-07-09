@@ -17,11 +17,14 @@ import "./test-preload.js";
 import { AuthRateLimiter } from "../auth-rate-limiter.js";
 import type { RouteDefinition } from "../http/router.js";
 import { createRouter } from "../http/router.js";
+import { buildMarkedContactRoutes } from "./helpers/contact-route-table.js";
 
 // ---------------------------------------------------------------------------
 // Source pinning — no scoped contact registrations in index.ts
 // ---------------------------------------------------------------------------
 
+// Belt-and-suspenders grep over index.ts; the route-table tests below pin the
+// real registrations.
 describe("contact route registrations (index.ts)", () => {
   test("no route path scopes a contact-family path under /v1/assistants", () => {
     const indexSource = readFileSync(
@@ -45,37 +48,22 @@ describe("contact route registrations (index.ts)", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * Router mirroring the contacts control-plane path/method registrations in
- * index.ts plus the runtime-proxy catch-all. Auth is elided: route matching
- * happens before auth, and this harness pins matching only.
+ * Router built from the SAME route table index.ts registers
+ * (`buildContactsControlPlaneRoutes`), plus the runtime-proxy catch-all.
+ * Auth is mapped to "none": route matching happens before auth, and this
+ * harness pins matching only.
  */
 function makeContactsRouter() {
-  const controlPlane = (route: string) => () =>
-    Response.json({ handledBy: "control-plane", route });
-  const routes: RouteDefinition[] = [
-    {
-      path: "/v1/contacts/prompt/submit",
-      method: "POST",
-      handler: controlPlane("prompt-submit"),
-    },
-    { path: "/v1/contacts", method: "GET", handler: controlPlane("list") },
-    { path: "/v1/contacts", method: "POST", handler: controlPlane("upsert") },
-    {
-      path: /^\/v1\/contact-channels\/([^/]+)\/verify$/,
-      method: "POST",
-      handler: controlPlane("verify"),
-    },
-    {
-      path: /^\/v1\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
-      method: "DELETE",
-      handler: controlPlane("delete"),
-    },
-    // Runtime proxy catch-all — must be last, matches everything.
-    {
-      path: /^\//,
-      handler: () => Response.json({ handledBy: "runtime-proxy" }),
-    },
-  ];
+  const routes: RouteDefinition[] = buildMarkedContactRoutes().map((route) => ({
+    ...route,
+    auth: "none" as const,
+    scope: undefined,
+  }));
+  // Runtime proxy catch-all — must be last, matches everything.
+  routes.push({
+    path: /^\//,
+    handler: () => Response.json({ marker: "runtime-proxy" }),
+  });
   return createRouter(routes, { authRateLimiter: new AuthRateLimiter() });
 }
 
@@ -89,7 +77,7 @@ async function dispatch(method: string, path: string) {
     () => "203.0.113.9",
   );
   expect(res).not.toBeNull();
-  return (await res!.json()) as { handledBy: string; route?: string };
+  return (await res!.json()) as { marker: string };
 }
 
 const SCOPED_CONTACT_WRITES: Array<[string, string]> = [
@@ -104,12 +92,31 @@ describe("scoped contact writes fall through to the runtime proxy", () => {
     "%s %s → runtime-proxy catch-all, not the control plane",
     async (method, path) => {
       const body = await dispatch(method, path);
-      expect(body.handledBy).toBe("runtime-proxy");
+      expect(body.marker).toBe("runtime-proxy");
     },
   );
 
   test("flat POST /v1/contacts still hits the control-plane handler", async () => {
     const body = await dispatch("POST", "/v1/contacts");
-    expect(body).toEqual({ handledBy: "control-plane", route: "upsert" });
+    expect(body).toEqual({ marker: "handleUpsertContact" });
+  });
+});
+
+describe("registration-order invariants within the flat table", () => {
+  test("DELETE /v1/contacts/invites/:id revokes the invite, not a contact", async () => {
+    const body = await dispatch("DELETE", "/v1/contacts/invites/inv-1");
+    expect(body).toEqual({ marker: "handleRevokeInvite" });
+  });
+
+  test("DELETE /v1/contacts/:id still deletes the contact", async () => {
+    const body = await dispatch("DELETE", "/v1/contacts/contact-1");
+    expect(body).toEqual({ marker: "handleDeleteContact" });
+  });
+
+  test("daemon-only subpaths fall through to the runtime proxy", async () => {
+    for (const path of ["/v1/contacts/search", "/v1/contacts/prompt"]) {
+      const body = await dispatch("POST", path);
+      expect(body).toEqual({ marker: "runtime-proxy" });
+    }
   });
 });

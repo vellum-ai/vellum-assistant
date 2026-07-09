@@ -38,7 +38,7 @@ Clients always **emit** assistant-scoped URLs (`/v1/assistants/{id}/...`) — mu
 
 Route-registration consequences (`gateway/src/index.ts`):
 
-- **Contacts** (`/v1/contacts...`, `/v1/contact-channels...`) are served on **flat routes only** — both boundaries deliver flat, so no assistant-scoped contact mirrors exist.
+- **Contacts** (`/v1/contacts...`, `/v1/contact-channels...`) are served on **flat routes only** — both boundaries deliver flat, so no assistant-scoped contact mirrors exist. The self-hosted flattening covers the **entire** `contacts`/`contact-channels` segment family, not just the CRUD writes: invites requests land on the gateway's flat edge-scoped invite routes (the same gateway invite engine the daemon relays to), and daemon-only subpaths (`contacts/search`, `contacts/prompt`) match no flat registration and fall through the runtime-proxy catch-all to the daemon verbatim.
 - **Other control-plane families** (channel-admission-policy, channel-permission-overrides, trust-rules, backups) register **flat + assistant-scoped variants**: the self-hosted rewrite forwards their paths verbatim, so a scoped mirror must catch that traffic. These stores are gateway-global — the scoped variant matches and discards the id.
 - **Invariant: never remove a flat gateway control-plane route.** Cloud's prefix strip means the flat family is the load-bearing production path even when repo-local clients appear to emit only scoped URLs. The flat channel-admission-policy routes were removed once on that mistaken theory (`2fb435314f`) and had to be restored before #35150 merged (`53fcfa7cc2` re-added the schema entries the removal took out).
 
