@@ -18,7 +18,8 @@ import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { OAuth2Config } from "../../security/oauth2.js";
-import { log } from "../logger.js";
+import { writeCliError } from "../lib/cli-output.js";
+import { attachDefaultProviderSubcommand } from "./inference-providers-default.js";
 
 // ---------------------------------------------------------------------------
 // Response types
@@ -159,32 +160,30 @@ function buildAuthInput(
   credential?: string,
 ): Record<string, unknown> | string {
   if (authType === "api_key") {
-    if (!credential) return "--credential is required when --auth api_key";
+    if (!credential) {
+      return "--credential is required when --auth api_key";
+    }
     return { type: "api_key", credential };
   }
   if (authType === "platform") {
-    if (credential) return "--credential is not accepted with --auth platform";
+    if (credential) {
+      return "--credential is not accepted with --auth platform";
+    }
     return { type: "platform" };
   }
   if (authType === "none") {
-    if (credential) return "--credential is not accepted with --auth none";
+    if (credential) {
+      return "--credential is not accepted with --auth none";
+    }
     return { type: "none" };
   }
   if (authType === "oauth_subscription") {
-    if (!credential)
+    if (!credential) {
       return "--credential is required when --auth oauth_subscription";
+    }
     return { type: "oauth_subscription", credential };
   }
   return `Unknown auth type "${authType}". Use: api_key, platform, none, oauth_subscription`;
-}
-
-function writeCliError(msg: string, json?: boolean): void {
-  if (json) {
-    process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-  } else {
-    log.error(msg);
-  }
-  process.exitCode = 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -509,4 +508,5 @@ Examples:
   attachDeleteSubcommand(connections);
 
   attachLoginChatgptSubcommand(providers);
+  attachDefaultProviderSubcommand(providers);
 }

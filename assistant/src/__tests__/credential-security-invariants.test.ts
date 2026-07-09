@@ -234,7 +234,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "tools/executor.ts", // CES approval bridge resolves the CES RPC client via getCesClient
       "tools/network/web-fetch.ts", // Firecrawl /scrape BYOK fetch provider API key lookup (firecrawl provider key)
       "workspace/default-provider-ensure.ts", // legacy anthropic echo disambiguation (vault key presence check)
-      "runtime/routes/default-provider-routes.ts", // default-provider availability status (credential presence check only; value never leaves the handler)
+      "providers/inference/connection-availability.ts", // shared (provider, connection) availability status (credential presence check only; value never leaves the helper)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
