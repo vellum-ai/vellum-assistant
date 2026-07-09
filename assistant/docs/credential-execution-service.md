@@ -4,6 +4,18 @@
 
 **Accepted** — locked decisions below are final for the initial implementation.
 
+> **Note — assistant-side surfaces removed.** The four assistant feature flags
+> that gated the agent-facing CES surfaces (`ces-tools`, `ces-shell-lockdown`,
+> `ces-secure-install`, `ces-grant-audit`) were never enabled and have been
+> removed, along with the surfaces they gated: the three CES agent tools
+> (`run_authenticated_command`, `make_authenticated_request`,
+> `manage_secure_command_tool`), the untrusted-agent shell lockdown, the
+> secure-install routing, and the `credential-execution` grant/audit CLI. The
+> CES service (`credential-executor/`), its RPC contracts, and the
+> credential-backend integration (`ces-rpc-credential-backend`, `secure-keys`,
+> the CES client and process manager) remain in place. The sections below that
+> describe those removed surfaces are retained as historical design record.
+
 ## Context
 
 Untrusted agents (managed assistants, delegated workers, third-party skill invocations) need to execute credential-bearing operations (API calls, CLI commands, browser automation with stored secrets) without the agent ever observing plaintext secret material. The existing credential broker (`assistant/src/tools/credentials/broker.ts`) operates inside the assistant process, which means the assistant runtime has theoretical access to secret values during brokered use. For local single-user deployments this is acceptable, but for managed multi-tenant and untrusted-agent scenarios, a stronger isolation boundary is required.

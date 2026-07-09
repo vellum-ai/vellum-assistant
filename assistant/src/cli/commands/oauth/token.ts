@@ -4,24 +4,6 @@ import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
 // ---------------------------------------------------------------------------
-// CES shell lockdown guard
-// ---------------------------------------------------------------------------
-
-/**
- * Returns true when the current process is running inside an untrusted shell
- * (CES shell lockdown active). CLI commands that reveal raw tokens must
- * check this and fail deterministically.
- */
-function isUntrustedShell(): boolean {
-  return process.env.VELLUM_UNTRUSTED_SHELL === "1";
-}
-
-/** Error message for commands blocked by CES shell lockdown. */
-const UNTRUSTED_SHELL_ERROR =
-  "This command is not available in untrusted shell mode. " +
-  "Raw token access is restricted when running under CES shell lockdown.";
-
-// ---------------------------------------------------------------------------
 // Command registration
 // ---------------------------------------------------------------------------
 
@@ -58,7 +40,7 @@ Platform-managed providers handle tokens internally — use
 authenticated requests.
 
 Use 'assistant oauth status <provider>' to find account identifiers for
---account. Shell lockdown: blocked when VELLUM_UNTRUSTED_SHELL=1.
+--account.
 
 Examples:
   $ assistant oauth token google
@@ -73,13 +55,6 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          // CES shell lockdown — check on CLI side before hitting daemon
-          if (isUntrustedShell()) {
-            writeOutput(cmd, { ok: false, error: UNTRUSTED_SHELL_ERROR });
-            process.exitCode = 1;
-            return;
-          }
-
           const body: Record<string, unknown> = { provider };
           if (opts.account) body.account = opts.account;
           if (opts.clientId) body.client_id = opts.clientId;
