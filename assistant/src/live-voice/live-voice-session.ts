@@ -331,8 +331,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * stream, oldest first. Flush finals and `finalized` signals carry no
    * request identity, so at most one `Finalize` request is in flight at a
    * time (the head's, marked `finalizeRequested` — see pumpFinalizeQueue):
-   * the head owns the next flush/`finalized`, and a stale flush can never
-   * be attributed to a newer cycle's request.
+   * the head owns the next flush/`finalized`. The transcriber drops a
+   * fallback-settled request's stale flush until the next `Finalize` goes
+   * out; one landing after that surfaces as the new head's flush, bounded
+   * by the dispatched-turn drop-guard in the `final` handler.
    */
   private finalizeQueue: UtteranceCycle[] = [];
   private finalizeGraceTimer: ReturnType<typeof setTimeout> | null = null;
