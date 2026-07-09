@@ -22,7 +22,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/kitchen-companion",
-        "ref": "a268f495f8177144477055f7f1956f28c5574669"
+        "ref": "b6ebdda6992dfa1fd2186a600a642f538fb64584"
       },
       "description": "Full kitchen companion. Scan your fridge with a photo to stock a pantry inventory and get 3 makeable-now recipes, get alerts before food expires, clip recipes from any URL into a clean format, and generate meal plans with grocery lists from what you actually have.",
       "category": "lifestyle",
