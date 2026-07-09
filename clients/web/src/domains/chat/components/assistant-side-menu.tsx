@@ -509,14 +509,14 @@ export function AssistantSideMenu({
              the primary actions sit in the thumb zone without spending two
              fixed rows (Figma 6764:6745). `pointer-events-none` on the row
              keeps the list scrollable between/around the pills. */
-          <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex items-center justify-center gap-2.5">
+          <div className="pointer-events-none absolute inset-x-4 bottom-4 z-10 flex items-center justify-center gap-4">
             {footerAction ? (
-              <div className="pointer-events-auto">{footerAction}</div>
+              <div className="pointer-events-auto flex-1">{footerAction}</div>
             ) : null}
             {onStartNewConversation ? (
               <Button
                 variant="primary"
-                className="pointer-events-auto h-10 rounded-full px-4 shadow-[var(--shadow-lg)]"
+                className="pointer-events-auto h-10 flex-1 rounded-full px-4 shadow-[var(--shadow-lg)]"
                 leftIcon={<SquarePen />}
                 onClick={() => {
                   onStartNewConversation();

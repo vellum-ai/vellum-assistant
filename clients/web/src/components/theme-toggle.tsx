@@ -76,6 +76,10 @@ export function ThemeToggle({ className }: { className?: string } = {}) {
         value={theme}
         onChange={handleChange}
         iconOnly
+        // Icons (Monitor/Sun/Moon) are self-explanatory and each segment keeps
+        // its `aria-label`; the per-segment tooltip otherwise hangs open on
+        // touch focus, leaving a phantom "System"/"Light"/"Dark" label.
+        showTooltips={false}
         items={themeOptions.map(({ value, label, Icon }) => ({
           value,
           label,

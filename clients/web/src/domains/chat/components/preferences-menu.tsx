@@ -86,7 +86,7 @@ export function PreferencesMenu({
       <Button
         variant="ghost"
         leftIcon={<SlidersHorizontal />}
-        className="h-10 rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 shadow-[var(--shadow-lg)]"
+        className="h-10 w-full rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 shadow-[var(--shadow-lg)]"
       >
         Preferences
       </Button>
