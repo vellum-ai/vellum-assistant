@@ -178,7 +178,6 @@ export async function embedGraphNodeDirect(node: MemoryNode): Promise<void> {
   const text = formatNodeForEmbedding(node);
   const extraPayload: Record<string, unknown> = {
     created_at: node.created,
-    memory_scope_id: node.scopeId,
     confidence: node.confidence,
     importance: node.significance,
     kind: node.type,

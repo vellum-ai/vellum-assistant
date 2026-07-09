@@ -3,7 +3,6 @@ import { join, resolve, sep } from "node:path";
 import { getAppsDir } from "../../apps/app-store.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { enqueuePkbIndexJob } from "../../plugins/defaults/memory/jobs/embed-pkb-file.js";
-import { PKB_WORKSPACE_SCOPE } from "../../plugins/defaults/memory/pkb/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
@@ -160,7 +159,6 @@ export const fileWriteTool = {
         enqueuePkbIndexJob({
           pkbRoot,
           absPath: filePath,
-          memoryScopeId: PKB_WORKSPACE_SCOPE,
         });
       }
     } catch (err) {

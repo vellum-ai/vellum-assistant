@@ -24,16 +24,11 @@ import {
 const enqueueCalls: Array<{
   pkbRoot: string;
   absPath: string;
-  memoryScopeId: string;
 }> = [];
 let enqueueThrows = false;
 
 mock.module("../plugins/defaults/memory/jobs/embed-pkb-file.js", () => ({
-  enqueuePkbIndexJob: (input: {
-    pkbRoot: string;
-    absPath: string;
-    memoryScopeId: string;
-  }) => {
+  enqueuePkbIndexJob: (input: { pkbRoot: string; absPath: string }) => {
     if (enqueueThrows) {
       throw new Error("simulated enqueue failure");
     }
@@ -49,7 +44,6 @@ function setWorkspaceDir(dir: string): void {
   process.env.VELLUM_WORKSPACE_DIR = dir;
 }
 
-import { PKB_WORKSPACE_SCOPE } from "../plugins/defaults/memory/pkb/types.js";
 import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolContext } from "../tools/types.js";
 
@@ -194,25 +188,27 @@ describe("file_write tool PKB re-index hook", () => {
     expect(enqueueCalls[0]).toEqual({
       pkbRoot: join(workingDir, "pkb"),
       absPath: join(workingDir, "pkb", "note.md"),
-      memoryScopeId: PKB_WORKSPACE_SCOPE,
     });
   });
 
-  test("always uses PKB_WORKSPACE_SCOPE", async () => {
+  test("payload identifies the file alone — the PKB index is workspace-shared", async () => {
     const workingDir = makeTempDir();
     setWorkspaceDir(workingDir);
     mkdirSync(join(workingDir, "pkb"), { recursive: true });
 
     const result = await fileWriteTool.execute(
       { path: "pkb/private.md", content: "secret\n" },
-      makeContext(workingDir),
+      { ...makeContext(workingDir), conversationId: "another-conversation" },
     );
 
     expect(result.isError).toBe(false);
     expect(enqueueCalls).toHaveLength(1);
-    // PKB files are workspace-level — points are keyed by PKB_WORKSPACE_SCOPE
-    // so all conversations share one PKB index.
-    expect(enqueueCalls[0]?.memoryScopeId).toBe(PKB_WORKSPACE_SCOPE);
+    // All conversations share one PKB index — the job payload carries no
+    // conversation or scope discriminator.
+    expect(Object.keys(enqueueCalls[0]!).sort()).toEqual([
+      "absPath",
+      "pkbRoot",
+    ]);
   });
 
   test("does NOT enqueue when writing outside pkb/", async () => {

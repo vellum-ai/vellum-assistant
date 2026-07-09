@@ -33,7 +33,6 @@ export async function embedSegmentJob(job: MemoryJob): Promise<void> {
     conversation_id: segment.conversationId,
     message_id: segment.messageId,
     created_at: segment.createdAt,
-    memory_scope_id: segment.scopeId,
   });
 }
 
@@ -59,7 +58,6 @@ export async function embedSummaryJob(job: MemoryJob): Promise<void> {
       kind: summary.scope,
       created_at: summary.startAt,
       last_seen_at: summary.endAt,
-      memory_scope_id: summary.scopeId,
     },
   );
 }
@@ -94,7 +92,6 @@ export async function embedMediaJob(job: MemoryJob): Promise<void> {
     created_at: asset.createdAt,
     kind: asset.mediaType,
     subject: asset.title,
-    memory_scope_id: "default",
   });
 }
 
@@ -133,6 +130,5 @@ export async function embedAttachmentJob(job: MemoryJob): Promise<void> {
     created_at: message.createdAt,
     message_id: messageId,
     conversation_id: message.conversationId,
-    memory_scope_id: "default",
   });
 }

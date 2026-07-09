@@ -14,7 +14,6 @@ import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
 import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
-import { PKB_WORKSPACE_SCOPE } from "../pkb/types.js";
 import { deleteNode, queryNodes, recordNodeEdit, updateNode } from "./store.js";
 
 const log = getLogger("graph-tool-handlers");
@@ -61,7 +60,6 @@ function rememberSuccessMessage(count: number): string {
 export function handleRemember(
   input: RememberInput,
   _conversationId: string,
-  _scopeId: string,
   config: AssistantConfig,
 ): RememberResult {
   const facts = normalizeFacts(input.content);
@@ -177,9 +175,6 @@ export function appendBufferAndArchive(args: {
 /**
  * Fire-and-forget enqueue of a PKB re-index job for a file we just wrote.
  *
- * Always indexes under {@link PKB_WORKSPACE_SCOPE}. See the comment on that
- * constant for why PKB points are not per-conversation-scoped.
- *
  * Wrapped in try/catch so an enqueue failure (e.g. DB hiccup) cannot break
  * the remember call — the write has already succeeded and the user's fact
  * is safe on disk.
@@ -189,7 +184,6 @@ function enqueuePkbReindex(pkbRoot: string, absPath: string): void {
     enqueuePkbIndexJob({
       pkbRoot,
       absPath,
-      memoryScopeId: PKB_WORKSPACE_SCOPE,
     });
   } catch (err) {
     log.warn({ err, absPath }, "Failed to enqueue PKB re-index job");

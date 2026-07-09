@@ -13,7 +13,6 @@ import { indexPkbFile } from "../pkb/pkb-index.js";
 export interface EmbedPkbFileJobInput {
   pkbRoot: string;
   absPath: string;
-  memoryScopeId: string;
 }
 
 /**
@@ -28,11 +27,10 @@ export async function embedPkbFileJob(
 ): Promise<void> {
   const pkbRoot = asString(job.payload.pkbRoot);
   const absPath = asString(job.payload.absPath);
-  const memoryScopeId = asString(job.payload.memoryScopeId);
-  if (!pkbRoot || !absPath || !memoryScopeId) return;
+  if (!pkbRoot || !absPath) return;
 
   try {
-    await indexPkbFile(pkbRoot, absPath, memoryScopeId);
+    await indexPkbFile(pkbRoot, absPath);
   } catch (error) {
     if (
       error !== null &&
@@ -54,6 +52,5 @@ export function enqueuePkbIndexJob(input: EmbedPkbFileJobInput): string {
   return enqueueMemoryJob("embed_pkb_file", {
     pkbRoot: input.pkbRoot,
     absPath: input.absPath,
-    memoryScopeId: input.memoryScopeId,
   });
 }
