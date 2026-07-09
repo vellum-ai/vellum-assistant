@@ -99,6 +99,12 @@ function getExternalTools(): Array<{ owner: OwnerInfo; tool: Tool }> {
 let coreToolsSnapshot: Map<string, { tool: Tool; owner: OwnerInfo }> | null =
   null;
 
+// Cached promise for the one-time tool-registry initialization. `initializeTools`
+// returns this so repeated calls (across entry points, or an eventual
+// getter-triggered ensure) run the underlying work exactly once. Cleared by the
+// test-reset helpers so each test can re-initialize from a clean baseline.
+let toolsInitPromise: Promise<void> | null = null;
+
 // Tracks how many sessions are currently using each skill's tools.
 // Tools are only removed from the global registry when this drops to 0.
 const skillRefCount = new Map<string, number>();
@@ -968,7 +974,32 @@ export function getAllToolDefinitions(): Tool[] {
   );
 }
 
-export async function initializeTools(): Promise<void> {
+/**
+ * Idempotent, cached tool-registry initialization: resolve the tool manifest,
+ * register the built-in (default) tools, and load workspace overrides. The
+ * first call runs the work; every later call returns the same settled promise
+ * without repeating it, so it is safe to call from multiple entry points or
+ * lazily on demand.
+ *
+ * This is the tool-registry analogue of the hook registry's
+ * `maybeReconcileFromSentinel()` — the lazy "make sure the registry is
+ * populated" step. As the registry read getters migrate to async (mirroring
+ * `getHooksFor`), they will `await` this before reading the map, so a read can
+ * no longer observe an un-initialized registry.
+ */
+export function initializeTools(): Promise<void> {
+  if (!toolsInitPromise) {
+    toolsInitPromise = runToolInitialization().catch((err) => {
+      // Don't cache a failed init: clear the slot so a later call retries
+      // rather than returning the same rejected promise forever.
+      toolsInitPromise = null;
+      throw err;
+    });
+  }
+  return toolsInitPromise;
+}
+
+async function runToolInitialization(): Promise<void> {
   const { explicitTools } = await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
@@ -1081,6 +1112,9 @@ export function __resetRegistryForTesting(): void {
   // later registerWorkspaceTools() falsely report "overridesCore: true"
   // against a fresh registry.
   coreToolOverrides.clear();
+  // Clear the cached init promise so a later initializeTools() re-runs against
+  // the freshly reset registry rather than returning the previous settled run.
+  toolsInitPromise = null;
 
   if (coreToolsSnapshot) {
     for (const [name, { tool, owner }] of coreToolsSnapshot) {
@@ -1101,6 +1135,7 @@ export function __clearRegistryForTesting(): void {
   skillRefCount.clear();
   pluginRefCount.clear();
   coreToolOverrides.clear();
+  toolsInitPromise = null;
 }
 
 /**
