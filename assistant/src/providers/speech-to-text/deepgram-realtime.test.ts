@@ -748,28 +748,21 @@ describe("DeepgramRealtimeTranscriber", () => {
       expect(events).toEqual([{ type: "finalized" }]);
     });
 
-    test("a stale flush does not consume a newer request's settlement", async () => {
+    test("an omitted flush does not poison the next request's flush", async () => {
       const { transcriber, events } = await startSession({
         finalizeFallbackMs: 20,
       });
 
-      // Request one settles via the fallback (its flush is running late).
+      // Request one settles via the fallback because Deepgram OMITTED the
+      // flush (nothing significant buffered) — no stale frame ever arrives
+      // to consume the debt.
       transcriber.finalizeUtterance();
       await new Promise((resolve) => setTimeout(resolve, 40));
       expect(events).toEqual([{ type: "finalized" }]);
 
-      // Request two goes out, then request one's LATE flush finally lands.
+      // Sending request two clears the debt, so its legitimate flush is
+      // emitted and settles it — not dropped as stale.
       transcriber.finalizeUtterance();
-      mockWs.simulateMessage(
-        resultsFrame("previous turn tail", {
-          is_final: true,
-          from_finalize: true,
-        }),
-      );
-      // The stale flush is dropped: no final, and request two stays live.
-      expect(events).toEqual([{ type: "finalized" }]);
-
-      // Request two's own flush settles it normally.
       mockWs.simulateMessage(
         resultsFrame("current turn", { is_final: true, from_finalize: true }),
       );
@@ -778,6 +771,36 @@ describe("DeepgramRealtimeTranscriber", () => {
         {
           type: "final",
           text: "current turn",
+          confidence: 0.95,
+          fromFinalize: true,
+        },
+        { type: "finalized" },
+      ]);
+    });
+
+    test("repeated omitted flushes never accumulate stale-flush debt", async () => {
+      const { transcriber, events } = await startSession({
+        finalizeFallbackMs: 20,
+      });
+
+      // Requests one and two each get no flush; each settles via fallback.
+      for (let i = 0; i < 2; i += 1) {
+        transcriber.finalizeUtterance();
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+      expect(events).toEqual([{ type: "finalized" }, { type: "finalized" }]);
+
+      // Request three is answered — its flush lands normally.
+      transcriber.finalizeUtterance();
+      mockWs.simulateMessage(
+        resultsFrame("third turn", { is_final: true, from_finalize: true }),
+      );
+      expect(events).toEqual([
+        { type: "finalized" },
+        { type: "finalized" },
+        {
+          type: "final",
+          text: "third turn",
           confidence: 0.95,
           fromFinalize: true,
         },
@@ -824,14 +847,15 @@ describe("DeepgramRealtimeTranscriber", () => {
       await new Promise((resolve) => setTimeout(resolve, 40));
       expect(events).toEqual([{ type: "finalized" }]);
 
-      transcriber.finalizeUtterance();
-      // Request one's late flush: dropped — withheld text stays withheld.
+      // Request one's late flush lands before any new request: dropped —
+      // withheld text stays withheld and no boundary is forced.
       mockWs.simulateMessage(
         resultsFrame("stale tail", { is_final: true, from_finalize: true }),
       );
       expect(events).toEqual([{ type: "finalized" }]);
 
       // Request two's timely flush forces the boundary as usual.
+      transcriber.finalizeUtterance();
       mockWs.simulateMessage(
         resultsFrame("live tail", { is_final: true, from_finalize: true }),
       );
