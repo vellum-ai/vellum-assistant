@@ -22,10 +22,6 @@ import type { ConversationType } from "./conversation-types.js";
  * underlying functions are synchronous.
  */
 
-type DeletedMemoryIds = Awaited<
-  ReturnType<typeof import("./conversation-crud.js").deleteConversationGently>
->;
-
 type MessageMetadata = ReturnType<
   typeof import("./conversation-crud.js").parseMessageMetadata
 >;
@@ -80,7 +76,14 @@ export async function updateMessageMetadata(
   return fn(messageId, updates);
 }
 
-/** Append a message to a conversation. */
+/**
+ * Append a message to a conversation. This is the low-level insert: it
+ * persists and indexes the row only — it does not project the message into
+ * the conversation's disk view and does not notify connected clients, so
+ * background/internal writes stay silent. A user-visible append pairs this
+ * with `syncMessageToDisk` and a client notification, as the host's own
+ * out-of-pipeline writers do.
+ */
 export async function addMessage(
   conversationId: string,
   role: MessageRole,
@@ -92,15 +95,31 @@ export async function addMessage(
 }
 
 /**
- * Delete a conversation, yielding the event loop between row batches. Returns
- * the memory ids whose vector-store entries the caller must clean up.
+ * Delete a conversation, yielding the event loop between row batches, and
+ * enqueue vector-store cleanup for the memory segments and summaries the
+ * delete cascaded away — the same vector-cleanup pairing the host's delete
+ * route performs, so facade callers never leave semantic vectors behind. The lexical-index
+ * purge runs inside the delete itself via the persistence hook.
  */
-export async function deleteConversation(
-  id: string,
-): Promise<DeletedMemoryIds> {
-  const { deleteConversationGently: fn } =
-    await import("./conversation-crud.js");
-  return fn(id);
+export async function deleteConversation(id: string): Promise<void> {
+  const [{ deleteConversationGently: fn }, { enqueueMemoryJob }] =
+    await Promise.all([
+      import("./conversation-crud.js"),
+      import("./jobs-store.js"),
+    ]);
+  const deleted = await fn(id);
+  for (const segId of deleted.segmentIds) {
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "segment",
+      targetId: segId,
+    });
+  }
+  for (const summaryId of deleted.deletedSummaryIds) {
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "summary",
+      targetId: summaryId,
+    });
+  }
 }
 
 /** List conversation rows, newest first. */
