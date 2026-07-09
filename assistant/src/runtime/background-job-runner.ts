@@ -20,6 +20,7 @@
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
+import type { SubagentToolGateMode } from "../daemon/tool-setup-types.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   commitDeferredConversation,
@@ -122,6 +123,25 @@ export interface RunBackgroundJobOptions {
    * keys on. Omitted = no origin-scoped grant can fire for the turn.
    */
   requestOrigin?: string;
+  /**
+   * Restrict the job's agent turn to this exact set of tools. When set, the
+   * turn's tool surface is scoped to the allowlist for the duration of the
+   * run — used by unattended guardian-trust jobs (e.g. memory consolidation)
+   * that must not reach tools they don't need (network egress, host proxy).
+   * The run is non-interactive + guardian, so the permission checker
+   * auto-approves anything within the background threshold; scoping the
+   * surface is what keeps injected buffer/page content from reaching an
+   * auto-approved side-effect tool. Omitted = the full conversation tool
+   * surface (behavior unchanged for every existing caller).
+   */
+  allowedTools?: readonly string[];
+  /**
+   * How {@link allowedTools} is enforced. Defaults to `"wire"` — the excluded
+   * tools are never presented to the model (strongest gate; no reliance on
+   * the permission checker). See {@link SubagentToolGateMode}. Ignored when
+   * `allowedTools` is absent.
+   */
+  toolGateMode?: SubagentToolGateMode;
   /** Conversation type to bootstrap with. Defaults to `"background"`. */
   conversationType?: "background" | "scheduled";
   /**
@@ -319,6 +339,8 @@ export async function runBackgroundJob(
         : {}),
       ...(opts.requestOrigin ? { requestOrigin: opts.requestOrigin } : {}),
       ...(opts.cronRunId ? { cronRunId: opts.cronRunId } : {}),
+      ...(opts.allowedTools ? { allowedTools: opts.allowedTools } : {}),
+      ...(opts.toolGateMode ? { toolGateMode: opts.toolGateMode } : {}),
     });
     // Absorb late rejections: if the timeout wins the race, `work` keeps
     // running and may eventually reject — swallow so it doesn't surface as

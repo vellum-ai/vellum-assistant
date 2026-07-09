@@ -67,6 +67,7 @@ import {
   shouldAttachHostProxyForCapability,
 } from "./host-proxy-preactivation.js";
 import type { ServerMessage } from "./message-protocol.js";
+import type { SubagentToolGateMode } from "./tool-setup-types.js";
 
 const log = getLogger("process-message");
 
@@ -93,6 +94,19 @@ type ProcessMessageOptions = ConversationCreateOptions & {
    * not stored on the long-lived conversation.
    */
   cronRunId?: string | null;
+  /**
+   * Restrict this turn's tool surface to the given allowlist. Threaded from
+   * `runBackgroundJob` so an unattended guardian-trust job (e.g. memory
+   * consolidation) cannot reach tools it does not need. Applied to the live
+   * conversation for the turn and restored afterward. Omitted = the full
+   * conversation tool surface (unchanged for every normal caller).
+   */
+  allowedTools?: readonly string[];
+  /**
+   * How {@link allowedTools} is enforced (default `"wire"` — excluded tools
+   * are not presented to the model). Ignored when `allowedTools` is absent.
+   */
+  toolGateMode?: SubagentToolGateMode;
 };
 
 function buildEventEmitter(
@@ -106,6 +120,37 @@ function buildEventEmitter(
     } catch (err) {
       log.warn({ err, messageType: msg.type }, "Agent event observer failed");
     }
+  };
+}
+
+/**
+ * Scope the live conversation's tool surface to `options.allowedTools` for the
+ * duration of a turn, returning a closure that restores the prior scope. A
+ * no-op (returns an empty restore) when no allowlist is supplied, so ordinary
+ * turns are byte-for-byte unaffected.
+ *
+ * The `runBackgroundJob` → `processMessage` path does not run through the wake
+ * machinery, so it cannot use {@link scopeWakeAllowedTools}; this mirrors that
+ * helper's set-and-restore over the same two conversation fields. Default
+ * `"wire"` gate mode filters the excluded tools out of the definitions sent to
+ * the provider, so a scoped turn (e.g. unattended memory consolidation) can
+ * never call a tool outside the allowlist — no reliance on the permission
+ * checker's background auto-approve threshold.
+ */
+function applyTurnToolAllowlist(
+  conversation: Conversation,
+  options?: ProcessMessageOptions,
+): () => void {
+  if (!options?.allowedTools) {
+    return () => {};
+  }
+  const previousTools = conversation.subagentAllowedTools;
+  const previousGateMode = conversation.subagentToolGateMode;
+  conversation.setSubagentAllowedTools(new Set(options.allowedTools));
+  conversation.subagentToolGateMode = options.toolGateMode ?? "wire";
+  return () => {
+    conversation.setSubagentAllowedTools(previousTools);
+    conversation.subagentToolGateMode = previousGateMode;
   };
 }
 
@@ -170,6 +215,8 @@ async function prepareConversationForMessage(
     onEvent: _onEvent,
     cronRunId: _cronRunId,
     requestOrigin: _requestOrigin,
+    allowedTools: _allowedTools,
+    toolGateMode: _toolGateMode,
     ...conversationOptions
   } = options ?? {};
   const conversation = await getOrCreateActiveConversation(
@@ -585,6 +632,7 @@ export async function processMessage(
     getSubagentManager().updateParentSender(conversationId, broadcastMessage);
   }
 
+  const restoreToolScope = applyTurnToolAllowlist(conversation, options);
   try {
     await conversation.runAgentLoop(resolvedContent, messageId, {
       onEvent: emitEvent,
@@ -600,6 +648,7 @@ export async function processMessage(
       ...(options?.cronRunId ? { cronRunId: options.cronRunId } : {}),
     });
   } finally {
+    restoreToolScope();
     if (
       options?.isInteractive === true &&
       conversation.getCurrentSender() === broadcastMessage
@@ -656,6 +705,7 @@ export async function processMessageInBackground(
     getSubagentManager().updateParentSender(conversationId, broadcastMessage);
   }
 
+  const restoreToolScope = applyTurnToolAllowlist(conversation, options);
   conversation
     .runAgentLoop(content, messageId, {
       onEvent: emitEvent,
@@ -668,6 +718,7 @@ export async function processMessageInBackground(
       ...(options?.cronRunId ? { cronRunId: options.cronRunId } : {}),
     })
     .finally(() => {
+      restoreToolScope();
       if (
         options?.isInteractive === true &&
         conversation.getCurrentSender() === broadcastMessage

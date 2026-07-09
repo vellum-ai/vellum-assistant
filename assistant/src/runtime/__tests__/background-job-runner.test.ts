@@ -182,6 +182,33 @@ describe("runBackgroundJob", () => {
     });
   });
 
+  test("threads allowedTools + toolGateMode into processMessage options when set", async () => {
+    await runBackgroundJob(
+      baseOpts({
+        allowedTools: ["file_read", "bash"],
+        toolGateMode: "wire",
+      }),
+    );
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options).toMatchObject({
+      allowedTools: ["file_read", "bash"],
+      toolGateMode: "wire",
+    });
+  });
+
+  test("omits allowedTools/toolGateMode from processMessage options when unset (ordinary jobs unchanged)", async () => {
+    await runBackgroundJob(baseOpts());
+
+    expect(processMessageCalls).toHaveLength(1);
+    const opts = processMessageCalls[0].options as {
+      allowedTools?: unknown;
+      toolGateMode?: unknown;
+    };
+    expect(opts.allowedTools).toBeUndefined();
+    expect(opts.toolGateMode).toBeUndefined();
+  });
+
   test("generic exception: returns ok=false with errorKind=exception and emits activity.failed with dedupeKey", async () => {
     processMessageImpl = async () => {
       throw new Error("boom");
