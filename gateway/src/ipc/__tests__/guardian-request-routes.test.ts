@@ -6,8 +6,9 @@
  * relay hits them: schema validation on the server, guardian-request-store
  * writes, and wire-shaped responses pinned by the shared contract.
  *
- * `guardian_requests_decide` is asserted ABSENT (unknown method): decisions
- * are not part of this route set.
+ * `guardian_requests_decide` is exercised here as a plain status CAS (no
+ * `aclOutcome`); outcome side effects and the rollback contract are pinned in
+ * `gateway/src/__tests__/guardian-request-decide.test.ts`.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -17,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  DecideGuardianRequestIpcResponseSchema,
   GUARDIAN_REQUESTS_IPC_METHODS,
   GuardianRequestDeliveryListIpcResponseSchema,
   GuardianRequestDeliverySchema,
@@ -140,25 +142,57 @@ afterEach(() => {
 });
 
 describe("route registration", () => {
-  test("registers every contract method except decide, each with a schema", () => {
-    const expected = Object.values(METHODS)
-      .filter((m) => m !== METHODS.decide)
-      .sort();
+  test("registers every contract method, each with a schema", () => {
+    const expected = Object.values(METHODS).sort();
     expect(guardianRequestRoutes.map((r) => r.method).sort()).toEqual(expected);
     for (const route of guardianRequestRoutes) {
       expect(route.schema).toBeDefined();
     }
   });
+});
 
-  test("guardian_requests_decide is not registered (unknown method)", async () => {
-    const res = await rpc(METHODS.decide, {
-      id: "req-x",
+describe("guardian_requests_decide", () => {
+  test("plain CAS decide resolves the request and stamps the decision fields", async () => {
+    const created = await createRequest({ kind: "tool_approval", toolName: "bash" });
+
+    const decided = DecideGuardianRequestIpcResponseSchema.parse(
+      await call(METHODS.decide, {
+        id: created.id,
+        expectedStatus: "pending",
+        status: "approved",
+        answerText: "yes",
+        decidedByPrincipalId: "principal-1",
+      }),
+    );
+    expect(decided.applied).toBe(true);
+    if (decided.applied) {
+      expect(decided.request.status).toBe("approved");
+      expect(decided.request.answerText).toBe("yes");
+      expect(decided.mintedSession).toBeUndefined();
+    }
+
+    const row = getRequestRow(created.id);
+    expect(row?.status).toBe("approved");
+    expect(row?.decidedByPrincipalId).toBe("principal-1");
+  });
+
+  test("a second decide loses the CAS: status_conflict, row untouched", async () => {
+    const created = await createRequest({ kind: "tool_approval", toolName: "bash" });
+    await call(METHODS.decide, {
+      id: created.id,
       expectedStatus: "pending",
       status: "approved",
     });
-    expect(res.statusCode).toBe(404);
-    expect(res.errorCode).toBe("UNKNOWN_METHOD");
-    expect(String(res.error)).toContain("Unknown method");
+
+    const replay = DecideGuardianRequestIpcResponseSchema.parse(
+      await call(METHODS.decide, {
+        id: created.id,
+        expectedStatus: "pending",
+        status: "denied",
+      }),
+    );
+    expect(replay).toEqual({ applied: false, reason: "status_conflict" });
+    expect(getRequestRow(created.id)?.status).toBe("approved");
   });
 });
 
@@ -672,6 +706,26 @@ describe("schema rejection", () => {
       [METHODS.list, { sourceType: "carrier-pigeon" }],
       [METHODS.update, { id: "req-x" }], // patch required
       [METHODS.update, { id: "req-x", patch: { status: "not-a-status" } }],
+      [METHODS.decide, { id: "req-x", status: "approved" }], // expectedStatus required
+      [
+        METHODS.decide,
+        { id: "req-x", expectedStatus: "pending", status: "expired" },
+      ], // decisions resolve to approved/denied only
+      [
+        // The outcome type must agree with the decision status: seeding pairs
+        // with denial, never approval.
+        METHODS.decide,
+        {
+          id: "req-x",
+          expectedStatus: "pending",
+          status: "approved",
+          aclOutcome: {
+            type: "seed_unverified",
+            sourceChannel: "telegram",
+            externalUserId: "tg-1",
+          },
+        },
+      ],
       [METHODS.reopen, { id: "req-x" }], // fromStatus required
       [METHODS.expire, {}],
       [METHODS.sweepExpired, { now: "yesterday" }],
