@@ -32,8 +32,9 @@ import {
   addMessage,
   getConversation,
   isConversationProcessing,
-} from "../../../persistence/conversation-crud.js";
-import { syncMessageToDisk } from "../../../persistence/conversation-disk-view.js";
+  syncMessageToDisk,
+} from "@vellumai/plugin-api";
+
 import {
   type MemoryJob,
   upsertSkillCardInsertJob,
@@ -75,12 +76,12 @@ export interface AuthoredSkill {
  * exists and is not an error. Robust to malformed content JSON — unparseable
  * rows are skipped, not propagated.
  */
-export function extractRetrospectiveRunSkillScaffolds(
+export async function extractRetrospectiveRunSkillScaffolds(
   retrospectiveConversationId: string,
-): AuthoredSkill[] {
+): Promise<AuthoredSkill[]> {
   const runMessages = loadRetrospectiveRunMessages(
     retrospectiveConversationId,
-    getConversation(retrospectiveConversationId)?.source ?? null,
+    (await getConversation(retrospectiveConversationId))?.source ?? null,
   );
   if (runMessages == null) {
     return [];
@@ -306,10 +307,16 @@ function parseSkillCardInsertPayload(
   }
   const skills: AuthoredSkill[] = [];
   for (const entry of payload.skills) {
-    if (!entry || typeof entry !== "object") continue;
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
     const rec = entry as Record<string, unknown>;
-    if (typeof rec.skillId !== "string" || rec.skillId.length === 0) continue;
-    if (typeof rec.name !== "string" || rec.name.length === 0) continue;
+    if (typeof rec.skillId !== "string" || rec.skillId.length === 0) {
+      continue;
+    }
+    if (typeof rec.name !== "string" || rec.name.length === 0) {
+      continue;
+    }
     skills.push({
       skillId: rec.skillId,
       name: rec.name,
@@ -346,7 +353,7 @@ async function insertOrDeferSkillCard(
   runConversationId: string,
   skills: AuthoredSkill[],
 ): Promise<void> {
-  const sourceConversation = getConversation(sourceConversationId);
+  const sourceConversation = await getConversation(sourceConversationId);
   if (!sourceConversation) {
     log.info(
       { sourceConversationId, runConversationId },
@@ -360,7 +367,7 @@ async function insertOrDeferSkillCard(
   // render in an order strict OpenAI-compatible backends reject (see module
   // header). The durable job re-checks until the turn ends, so the card
   // still always arrives.
-  if (isConversationProcessing(sourceConversationId)) {
+  if (await isConversationProcessing(sourceConversationId)) {
     upsertSkillCardInsertJob(
       { sourceConversationId, runConversationId, skills },
       Date.now() + SKILL_CARD_INSERT_RETRY_DELAY_MS,
@@ -421,7 +428,7 @@ async function insertOrDeferSkillCard(
   // in sync (its own failure is non-fatal so the client broadcast below
   // still fires), then tell connected clients the message list changed.
   try {
-    syncMessageToDisk(
+    await syncMessageToDisk(
       sourceConversationId,
       persisted.id,
       sourceConversation.createdAt,

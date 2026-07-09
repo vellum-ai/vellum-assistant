@@ -23,13 +23,13 @@
 import { existsSync, readFileSync } from "node:fs";
 
 import {
+  getMessages,
   listInstalledSkills,
   stringifyMessageContent,
 } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
-import { getMessages } from "../../../../persistence/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { getLogger } from "../../../../util/logger.js";
 import {
@@ -429,11 +429,11 @@ function buildSituationalContext(): string {
  * date and the live NOW.md scratchpad. Returns `null` when there is no user
  * message to route on (nothing to shadow this turn).
  */
-function buildShadowTurn(
+async function buildShadowTurn(
   conversationId: string,
   turnIndex: number,
-): MemoryRoutingTurn | null {
-  const rows = getMessages(conversationId);
+): Promise<MemoryRoutingTurn | null> {
+  const rows = await getMessages(conversationId);
   if (rows.length === 0) {
     return null;
   }
@@ -601,7 +601,7 @@ export async function observeTurn(
   turnIndex: number,
 ): Promise<OrchestrateResult | null> {
   try {
-    const turn = buildShadowTurn(conversationId, turnIndex);
+    const turn = await buildShadowTurn(conversationId, turnIndex);
     if (!turn) {
       return null;
     }

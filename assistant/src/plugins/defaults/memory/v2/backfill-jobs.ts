@@ -18,11 +18,13 @@
 // the same code paths exercised by tests of those modules run unchanged when
 // a backfill kicks them off.
 
-import { stringifyMessageContent } from "@vellumai/plugin-api";
+import {
+  getMessages,
+  listConversations,
+  stringifyMessageContent,
+} from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getMessages } from "../../../../persistence/conversation-crud.js";
-import { listConversations } from "../../../../persistence/conversation-queries.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import { getLogger } from "../../../../util/logger.js";
@@ -161,7 +163,7 @@ export async function memoryV2ActivationRecomputeJob(
   // Activation maps still need to refresh for archived conversations — a
   // consolidated page can leave stale slugs above epsilon in their persisted
   // state — so this job opts back into seeing archived rows.
-  const conversations = listConversations(
+  const conversations = await listConversations(
     ACTIVATION_RECOMPUTE_CONVERSATION_LIMIT,
     "standard",
     0,
@@ -229,7 +231,7 @@ async function recomputeForConversation(
 ): Promise<Awaited<ReturnType<typeof hydrate>> | null> {
   const { conversationId, priorState, edgeIndex, nowText, config } = params;
 
-  const { userText, assistantText } = lastExchangeTexts(conversationId);
+  const { userText, assistantText } = await lastExchangeTexts(conversationId);
   if (!userText && !assistantText) {
     return null;
   }
@@ -283,11 +285,11 @@ async function recomputeForConversation(
  * circuit cleanly. Tool-call content is dropped (only `text` blocks survive)
  * — same shape `loadRecentMessagesText` produces in `sweep-job.ts`.
  */
-function lastExchangeTexts(conversationId: string): {
+async function lastExchangeTexts(conversationId: string): Promise<{
   userText: string;
   assistantText: string;
-} {
-  const all = getMessages(conversationId);
+}> {
+  const all = await getMessages(conversationId);
   if (all.length === 0) {
     return { userText: "", assistantText: "" };
   }

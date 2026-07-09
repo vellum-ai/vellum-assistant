@@ -41,6 +41,14 @@
 // `memory-retrospective-startup-cleanup.ts`.
 
 import {
+  addMessage,
+  type ConversationRow,
+  deleteConversation,
+  getConversation,
+  isConversationProcessing,
+} from "@vellumai/plugin-api";
+
+import {
   type InterfaceId,
   isInteractiveInterface,
   parseInterfaceId,
@@ -57,13 +65,7 @@ import {
 import type { WakeToolContextPin } from "../../../daemon/tool-setup-types.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../../daemon/trust-context.js";
 import {
-  addMessage,
-  type ConversationRow,
-  deleteConversation,
-  deleteConversationGently,
   forkConversationForRetrospective,
-  getConversation,
-  isConversationProcessing,
   resolveOverrideProfile,
 } from "../../../persistence/conversation-crud.js";
 import {
@@ -162,7 +164,7 @@ export async function runForkBasedRetrospective(
   // Start stamp for the retrospective's end-to-end wall time, surfaced as
   // `durationMs` on the "invoked" log (start → invoked).
   const startedAtMs = Date.now();
-  const sourceConversation = getConversation(sourceConversationId);
+  const sourceConversation = await getConversation(sourceConversationId);
   if (!sourceConversation) {
     log.warn(
       { sourceConversationId },
@@ -191,7 +193,7 @@ export async function runForkBasedRetrospective(
   // the last-resort net). Both state pointers stay untouched, so nothing is
   // lost. Returning (not throwing) keeps the jobs-worker from
   // retry-with-backoff.
-  if (isConversationProcessing(sourceConversationId)) {
+  if (await isConversationProcessing(sourceConversationId)) {
     try {
       upsertMemoryRetrospectiveJob(
         { conversationId: sourceConversationId },
@@ -257,7 +259,7 @@ export async function runForkBasedRetrospective(
   // Locate the prior retrospective and assemble the dedup baseline BEFORE
   // forking — otherwise `findMostRecentRetrospectiveFor` could locate this
   // run's own fork.
-  const { prior, priorRemembers } = resolvePriorRetrospective(
+  const { prior, priorRemembers } = await resolvePriorRetrospective(
     sourceConversationId,
     state?.rememberedLog ?? [],
   );
@@ -322,7 +324,10 @@ export async function runForkBasedRetrospective(
       { err, forkId, sourceConversationId },
       "memory-retrospective (fork): failed to persist instruction message",
     );
-    safeDeleteRetrospectiveConversation(forkId, FORK_DELETE_FAILURE_WARNING);
+    await safeDeleteRetrospectiveConversation(
+      forkId,
+      FORK_DELETE_FAILURE_WARNING,
+    );
     await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     throw err;
   }
@@ -448,7 +453,10 @@ export async function runForkBasedRetrospective(
   // `lastProcessedMessageId` alone so the next attempt re-processes the
   // same messages. Then clean up the orphan fork.
   await bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
-  safeDeleteRetrospectiveConversation(forkId, FORK_DELETE_FAILURE_WARNING);
+  await safeDeleteRetrospectiveConversation(
+    forkId,
+    FORK_DELETE_FAILURE_WARNING,
+  );
 
   if (threw !== undefined) {
     throw threw;
@@ -594,18 +602,24 @@ function resolveSourceLiveInterface(
 ): InterfaceId | undefined {
   for (let i = sliceMessages.length - 1; i >= 0; i--) {
     const row = sliceMessages[i]!;
-    if (row.role !== "user" || !row.metadata) continue;
+    if (row.role !== "user" || !row.metadata) {
+      continue;
+    }
     let meta: unknown;
     try {
       meta = JSON.parse(row.metadata);
     } catch {
       continue;
     }
-    if (!meta || typeof meta !== "object") continue;
+    if (!meta || typeof meta !== "object") {
+      continue;
+    }
     const iface = parseInterfaceId(
       (meta as Record<string, unknown>).userMessageInterface,
     );
-    if (iface) return iface;
+    if (iface) {
+      return iface;
+    }
   }
   return (
     parseInterfaceId(source.originInterface) ??
@@ -626,14 +640,17 @@ type PriorRetrospective = NonNullable<
  * it. The prior row is returned so the success path can GC it once this run
  * supersedes it.
  */
-function resolvePriorRetrospective(
+async function resolvePriorRetrospective(
   sourceConversationId: string,
   rememberedLog: string[],
-): { prior: PriorRetrospective | null; priorRemembers: string[] } {
+): Promise<{ prior: PriorRetrospective | null; priorRemembers: string[] }> {
   const prior = findMostRecentRetrospectiveFor(sourceConversationId);
   return {
     prior,
-    priorRemembers: collectPriorRetrospectiveRemembers(prior, rememberedLog),
+    priorRemembers: await collectPriorRetrospectiveRemembers(
+      prior,
+      rememberedLog,
+    ),
   };
 }
 
@@ -667,7 +684,7 @@ async function finalizeSuccessfulRetrospective(args: {
     logFields,
   } = args;
 
-  const runRemembers = extractRetrospectiveRunRemembers(
+  const runRemembers = await extractRetrospectiveRunRemembers(
     retrospectiveConversationId,
   );
   await upsertRetrospectiveState({
@@ -691,7 +708,7 @@ async function finalizeSuccessfulRetrospective(args: {
     config,
   );
   if (procToSkillsActive && skillCardFlagEnabled) {
-    const authoredSkills = extractRetrospectiveRunSkillScaffolds(
+    const authoredSkills = await extractRetrospectiveRunSkillScaffolds(
       retrospectiveConversationId,
     );
     log.info(
@@ -755,12 +772,12 @@ const FORK_DELETE_FAILURE_WARNING =
  * failure path. Deletion failure is logged with the caller-supplied warning
  * and never escalates.
  */
-function safeDeleteRetrospectiveConversation(
+async function safeDeleteRetrospectiveConversation(
   conversationId: string,
   warnMessage: string,
-): void {
+): Promise<void> {
   try {
-    deleteConversation(conversationId);
+    await deleteConversation(conversationId);
   } catch (err) {
     log.warn({ err, conversationId }, warnMessage);
   }
@@ -795,15 +812,21 @@ async function deleteSupersededPriorRetrospective(
   prior: PriorRetrospective | null,
   sourceConversationId: string,
 ): Promise<void> {
-  if (!prior) return;
-  if (config.memory.retrospective.keepSupersededRuns) return;
-  if (prior.forkParentConversationId !== sourceConversationId) return;
+  if (!prior) {
+    return;
+  }
+  if (config.memory.retrospective.keepSupersededRuns) {
+    return;
+  }
+  if (prior.forkParentConversationId !== sourceConversationId) {
+    return;
+  }
   try {
     // Fork-kind priors carry a full copy of the source's message history, so
     // delete the message rows off the event loop in lock-friendly batches —
     // the deletion mirror of the batched fork copy that built them — instead
     // of one lock-holding transaction that would starve live user turns.
-    await deleteConversationGently(prior.id);
+    await deleteConversation(prior.id);
   } catch (err) {
     log.warn(
       { err, priorConversationId: prior.id },
@@ -826,16 +849,22 @@ function findFirstTurnContextTimestamp(
   messages: Array<{ role: string; metadata: string | null }>,
 ): string | null {
   for (const row of messages) {
-    if (row.role !== "user" || !row.metadata) continue;
+    if (row.role !== "user" || !row.metadata) {
+      continue;
+    }
     let meta: unknown;
     try {
       meta = JSON.parse(row.metadata);
     } catch {
       continue;
     }
-    if (!meta || typeof meta !== "object") continue;
+    if (!meta || typeof meta !== "object") {
+      continue;
+    }
     const block = (meta as Record<string, unknown>).turnContextBlock;
-    if (typeof block !== "string") continue;
+    if (typeof block !== "string") {
+      continue;
+    }
     // Reuse the compactor's parser by wrapping the metadata block text in a
     // single-text-block message — same `<turn_context>` / `current_time:`
     // scan it applies to rehydrated content.
@@ -843,7 +872,9 @@ function findFirstTurnContextTimestamp(
       role: "user",
       content: [{ type: "text", text: block }],
     });
-    if (ts) return ts;
+    if (ts) {
+      return ts;
+    }
   }
   return null;
 }
@@ -863,13 +894,17 @@ function findFirstTurnContextTimestamp(
  * the prior run after success) for state rows that predate the log column
  * or whose log is empty. Empty array on first run (no log, no prior).
  */
-function collectPriorRetrospectiveRemembers(
+async function collectPriorRetrospectiveRemembers(
   prior: { id: string } | null,
   rememberedLog: string[],
-): string[] {
-  if (rememberedLog.length > 0) return rememberedLog;
-  if (!prior) return [];
-  return extractRetrospectiveRunRemembers(prior.id);
+): Promise<string[]> {
+  if (rememberedLog.length > 0) {
+    return rememberedLog;
+  }
+  if (!prior) {
+    return [];
+  }
+  return await extractRetrospectiveRunRemembers(prior.id);
 }
 
 /**
@@ -881,13 +916,17 @@ function collectPriorRetrospectiveRemembers(
  * `null` on load failure or an undetectable fork boundary (logged, never
  * fatal) — treated here as "the run saved nothing".
  */
-function extractRetrospectiveRunRemembers(conversationId: string): string[] {
-  const conv = getConversation(conversationId);
+async function extractRetrospectiveRunRemembers(
+  conversationId: string,
+): Promise<string[]> {
+  const conv = await getConversation(conversationId);
   const runMessages = loadRetrospectiveRunMessages(
     conversationId,
     conv?.source ?? null,
   );
-  if (runMessages == null) return [];
+  if (runMessages == null) {
+    return [];
+  }
   return extractRememberContents(runMessages);
 }
 
@@ -904,29 +943,45 @@ interface MessageLike {
 function extractRememberContents(messages: MessageLike[]): string[] {
   const contents: string[] = [];
   for (const msg of messages) {
-    if (msg.role !== "assistant") continue;
+    if (msg.role !== "assistant") {
+      continue;
+    }
     let blocks: unknown;
     try {
       blocks = JSON.parse(msg.content);
     } catch {
       continue;
     }
-    if (!Array.isArray(blocks)) continue;
+    if (!Array.isArray(blocks)) {
+      continue;
+    }
     for (const block of blocks) {
-      if (!block || typeof block !== "object") continue;
+      if (!block || typeof block !== "object") {
+        continue;
+      }
       const b = block as Record<string, unknown>;
-      if (b.type !== "tool_use") continue;
-      if (b.name !== "remember") continue;
+      if (b.type !== "tool_use") {
+        continue;
+      }
+      if (b.name !== "remember") {
+        continue;
+      }
       const input = b.input;
-      if (!input || typeof input !== "object") continue;
+      if (!input || typeof input !== "object") {
+        continue;
+      }
       const content = (input as Record<string, unknown>).content;
       // `remember` accepts a single string or an array of facts (batch form);
       // flatten both so batched saves still feed the dedup baseline.
       const facts = Array.isArray(content) ? content : [content];
       for (const fact of facts) {
-        if (typeof fact !== "string") continue;
+        if (typeof fact !== "string") {
+          continue;
+        }
         const trimmed = fact.trim();
-        if (trimmed.length > 0) contents.push(trimmed);
+        if (trimmed.length > 0) {
+          contents.push(trimmed);
+        }
       }
     }
   }

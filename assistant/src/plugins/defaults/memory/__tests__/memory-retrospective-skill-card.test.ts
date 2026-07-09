@@ -360,7 +360,7 @@ describe("memory-retrospective skill card", () => {
   // extractRetrospectiveRunSkillScaffolds
   // -------------------------------------------------------------------------
 
-  test("extractor returns only successful, non-overwrite scaffolds", () => {
+  test("extractor returns only successful, non-overwrite scaffolds", async () => {
     conversationOverrides["retro-1"] = {
       source: "memory-retrospective",
       forkParentMessageId: null,
@@ -398,7 +398,7 @@ describe("memory-retrospective skill card", () => {
       toolResultMsg("tu-5", { createdAt: 2008 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds("retro-1");
+    const skills = await extractRetrospectiveRunSkillScaffolds("retro-1");
 
     expect(skills).toEqual([
       {
@@ -410,7 +410,7 @@ describe("memory-retrospective skill card", () => {
     ]);
   });
 
-  test("extractor resolves the run's source itself and scopes fork-kind runs to the post-fork tail", () => {
+  test("extractor resolves the run's source itself and scopes fork-kind runs to the post-fork tail", async () => {
     // The fork-kind source comes from the conversation row (getConversation),
     // not a caller-supplied parameter — tail scoping proves it was read.
     conversationOverrides["retro-fork-1"] = {
@@ -433,12 +433,12 @@ describe("memory-retrospective skill card", () => {
       toolResultMsg("tu-tail", { createdAt: 2100 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds("retro-fork-1");
+    const skills = await extractRetrospectiveRunSkillScaffolds("retro-fork-1");
 
     expect(skills.map((s) => s.skillId)).toEqual(["tail-skill"]);
   });
 
-  test("extractor degrades to empty for a fork-kind run with no detectable boundary", () => {
+  test("extractor degrades to empty for a fork-kind run with no detectable boundary", async () => {
     conversationOverrides["retro-fork-2"] = {
       source: "memory-retrospective-fork",
       forkParentMessageId: null,
@@ -448,12 +448,12 @@ describe("memory-retrospective skill card", () => {
       toolResultMsg("tu-1", { createdAt: 1100 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds("retro-fork-2");
+    const skills = await extractRetrospectiveRunSkillScaffolds("retro-fork-2");
 
     expect(skills).toEqual([]);
   });
 
-  test("extractor normalizes padded/newline-carrying inputs to the persisted values", () => {
+  test("extractor normalizes padded/newline-carrying inputs to the persisted values", async () => {
     // `executeScaffoldManagedSkill` trims skill_id (and newline-collapses +
     // trims name/description/emoji) before persisting: a padded " my-skill "
     // input creates skill `my-skill`, so a card built from the raw input
@@ -476,7 +476,7 @@ describe("memory-retrospective skill card", () => {
       toolResultMsg("tu-1", { createdAt: 2001 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds("retro-2");
+    const skills = await extractRetrospectiveRunSkillScaffolds("retro-2");
 
     expect(skills).toEqual([
       {
@@ -488,7 +488,7 @@ describe("memory-retrospective skill card", () => {
     ]);
   });
 
-  test("extractor drops an emoji that is whitespace-only after normalization", () => {
+  test("extractor drops an emoji that is whitespace-only after normalization", async () => {
     conversationOverrides["retro-3"] = {
       source: "memory-retrospective",
       forkParentMessageId: null,
@@ -507,7 +507,7 @@ describe("memory-retrospective skill card", () => {
       toolResultMsg("tu-1", { createdAt: 2001 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds("retro-3");
+    const skills = await extractRetrospectiveRunSkillScaffolds("retro-3");
 
     expect(skills).toHaveLength(1);
     expect(skills[0]).toEqual({
