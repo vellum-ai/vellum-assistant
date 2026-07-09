@@ -149,9 +149,15 @@ export function resolveAttachmentFilename(
   filenameSource: "explicit" | "label" = "explicit",
 ): string {
   const fallback = basename(resolvedPath);
-  if (!preferred) return fallback;
-  if (filenameSource === "explicit") return preferred;
-  if (inferMimeType(preferred) !== "application/octet-stream") return preferred;
+  if (!preferred) {
+    return fallback;
+  }
+  if (filenameSource === "explicit") {
+    return preferred;
+  }
+  if (inferMimeType(preferred) !== "application/octet-stream") {
+    return preferred;
+  }
   return fallback;
 }
 
