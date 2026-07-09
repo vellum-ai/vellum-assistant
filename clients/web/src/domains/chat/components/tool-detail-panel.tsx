@@ -2,8 +2,8 @@
  * Side-drawer body shown when a tool-call step pill is clicked. Mirrors the
  * web `SubagentDetailPanel` shell (outer container, header with leading icon /
  * title / close, scrollable body with sections). The call's risk level lives
- * in the body's "Reasoning" section (badge + rationale + trust-rule button),
- * not the header.
+ * in the body's "Reasoning" section (badge + trust-rule button), not the
+ * header.
  *
  * Driven by the `ToolDetailPayload` opened into `viewer-store`. Both variants
  * subscribe to the chat-session store so an open drawer streams live: the tool
@@ -182,8 +182,9 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
   const inputJson = JSON.stringify(detail.input, null, 2);
 
   // Risk assessment can land after the drawer opens — prefer the live call.
+  // The raw `riskReason` rule-match string ("ls (default)") is internal
+  // classifier jargon and is deliberately NOT shown.
   const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
-  const riskReason = liveTc?.riskReason ?? detail.riskReason;
   // The trust-rule editor needs the raw tool call (its allowlist ladder /
   // scope options), which the bridge resolves from the transcript — offer the
   // button only when the call resolves live, so it never opens on nothing.
@@ -191,25 +192,14 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
 
   return (
     <>
-      {/* Reasoning — the call's risk level, why it was classified that way,
-          and the affordance to persist that judgement as a trust rule. */}
+      {/* Reasoning — the call's risk level and the affordance to persist
+          that judgement as a trust rule. */}
       {riskLevel && (
         <div className="mb-5">
           <SectionLabel>Reasoning</SectionLabel>
           <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 flex-col gap-1.5">
-                <RiskBadge level={riskLevel} className="self-start" />
-                {riskReason && (
-                  <Typography
-                    variant="body-small-default"
-                    as="p"
-                    className="text-[var(--content-secondary)]"
-                  >
-                    {riskReason}
-                  </Typography>
-                )}
-              </div>
+            <div className="flex items-center justify-between gap-3">
+              <RiskBadge level={riskLevel} />
               {canCreateTrustRule && (
                 <Button
                   variant="outlined"

@@ -132,7 +132,7 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("Technical details")).toBeNull();
   });
 
-  test("renders the Reasoning section with the risk badge and reason", () => {
+  test("renders the Reasoning section with the risk badge but not the raw reason", () => {
     const { getByTestId, getByText, queryByText } = render(
       <ToolDetailPanel
         detail={makeDetail({ riskReason: "File edit (default)" })}
@@ -144,7 +144,8 @@ describe("ToolDetailPanel", () => {
     expect(getByTestId("risk-badge").getAttribute("data-risk-level")).toBe(
       "low",
     );
-    expect(getByText("File edit (default)")).toBeDefined();
+    // The classifier's rule-match string is internal jargon — never shown.
+    expect(queryByText("File edit (default)")).toBeNull();
     // The tool call isn't resolvable in the (empty) transcript, so the
     // trust-rule affordance stays hidden — the editor would open on nothing.
     expect(queryByText("Create Trust Rule")).toBeNull();
