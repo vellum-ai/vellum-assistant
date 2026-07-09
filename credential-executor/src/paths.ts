@@ -117,8 +117,9 @@ const BOOTSTRAP_SOCKET_NAME = "ces.sock";
 /**
  * Return the path to the bootstrap Unix socket.
  *
- * In managed mode, CES listens on this socket for exactly one assistant
- * connection, then unlinks it. The path is on a shared `emptyDir` volume
+ * In managed mode, CES listens on this socket for authenticated assistant
+ * connections (multiple concurrent, each validated via a shared-secret
+ * handshake token). The path is on a shared `emptyDir` volume
  * visible to both containers.
  *
  * Priority:

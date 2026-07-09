@@ -15,6 +15,7 @@
  */
 
 import type { Readable, Writable } from "node:stream";
+import { timingSafeEqual } from "node:crypto";
 
 import {
   CES_PROTOCOL_VERSION,
@@ -101,6 +102,15 @@ export interface CesServerOptions {
   logger?: Pick<Console, "log" | "warn" | "error">;
   /** Optional abort signal to shut down the server. */
   signal?: AbortSignal;
+  /**
+   * Shared-secret token required for socket handshake authentication.
+   * When set, incoming handshake requests must include a matching
+   * `authToken` field (validated with timingSafeEqual). Connections
+   * that omit or mismatch the token are rejected and the socket closed.
+   * When unset, no auth is enforced (backward-compatible for local mode
+   * where filesystem permissions bound access).
+   */
+  serviceToken?: string;
   /** Callback invoked when the handshake completes with the negotiated session ID and optional API key / assistant ID. */
   onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
   /** Callback invoked when the assistant pushes an updated API key (and optionally assistant ID) after hatch. */
@@ -122,6 +132,7 @@ export class CesRpcServer {
   private readonly handlers: RpcHandlerRegistry;
   private readonly logger: Pick<Console, "log" | "warn" | "error">;
   private readonly signal?: AbortSignal;
+  private readonly serviceToken?: string;
   private readonly onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
 
   private handshakeComplete = false;
@@ -140,6 +151,7 @@ export class CesRpcServer {
     this.handlers = options.handlers;
     this.logger = options.logger ?? console;
     this.signal = options.signal;
+    this.serviceToken = options.serviceToken;
     this.onHandshakeComplete = options.onHandshakeComplete;
 
     // Auto-register the update_managed_credential handler if a callback is provided.
@@ -277,13 +289,42 @@ export class CesRpcServer {
   }
 
   private handleHandshake(req: HandshakeRequest): void {
-    const accepted = req.protocolVersion === CES_PROTOCOL_VERSION;
+    let accepted = req.protocolVersion === CES_PROTOCOL_VERSION;
+    let reason: string | undefined;
+
+    // Auth token check. When a service token is configured, the initiator
+    // must supply a matching authToken. Constant-time comparison prevents
+    // timing side channels. On mismatch the handshake is rejected and
+    // handshakeComplete stays false, so no RPC can be issued.
+    if (accepted && this.serviceToken) {
+      const provided = req.authToken ? Buffer.from(req.authToken) : null;
+      const expected = Buffer.from(this.serviceToken);
+      const tokenValid =
+        provided != null &&
+        provided.length === expected.length &&
+        timingSafeEqual(provided, expected);
+      if (!tokenValid) {
+        accepted = false;
+        reason = "Invalid auth token";
+        this.logger.warn(
+          "[ces-server] Handshake rejected: auth token mismatch",
+        );
+      }
+    }
+
+    if (!accepted && !reason) {
+      reason = `Unsupported protocol version: ${req.protocolVersion}`;
+      this.logger.warn(
+        `[ces-server] Handshake rejected: version mismatch (got ${req.protocolVersion}, expected ${CES_PROTOCOL_VERSION})`,
+      );
+    }
+
     const ack: HandshakeAck = {
       type: "handshake_ack",
       protocolVersion: CES_PROTOCOL_VERSION,
       sessionId: req.sessionId,
       accepted,
-      ...(accepted ? {} : { reason: `Unsupported protocol version: ${req.protocolVersion}` }),
+      ...(accepted ? {} : { reason }),
     };
 
     if (accepted) {
@@ -291,10 +332,6 @@ export class CesRpcServer {
       this.sessionContext.sessionId = req.sessionId;
       this.logger.log(`[ces-server] Handshake accepted for session ${req.sessionId}`);
       this.onHandshakeComplete?.(req.sessionId, req.assistantApiKey, req.assistantId);
-    } else {
-      this.logger.warn(
-        `[ces-server] Handshake rejected: version mismatch (got ${req.protocolVersion}, expected ${CES_PROTOCOL_VERSION})`,
-      );
     }
 
     this.sendMessage(ack);

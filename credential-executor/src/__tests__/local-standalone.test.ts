@@ -153,6 +153,7 @@ describe("local CES standalone sibling (real entrypoint)", () => {
         CES_LOCAL_SOCKET: socketPath,
         CREDENTIAL_SECURITY_DIR: securityDir,
         VELLUM_WORKSPACE_DIR: workspaceDir,
+        CES_SERVICE_TOKEN: "",
       },
       stdin: "ignore",
       stdout: "ignore",

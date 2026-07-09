@@ -139,6 +139,7 @@ function handshake(sock: Socket, sessionId: string): Promise<HandshakeAck> {
         type: "handshake_request",
         protocolVersion: CES_PROTOCOL_VERSION,
         sessionId,
+        authToken: "test-ces-service-token",
       }) + "\n",
     );
   });
@@ -186,7 +187,9 @@ describe("managed CES reconnection (real entrypoint)", () => {
       env: {
         ...process.env,
         CES_MODE: "managed",
+        CES_SERVICE_TOKEN: "test-ces-service-token",
         CES_DATA_DIR: dataDir,
+        CES_BOOTSTRAP_SOCKET_DIR: socketDir,
         CES_BOOTSTRAP_SOCKET: socketPath,
         CES_HEALTH_PORT: String(healthPort),
         CES_ASSISTANT_DATA_MOUNT: assistantDataMount,

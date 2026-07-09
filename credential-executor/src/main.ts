@@ -583,7 +583,9 @@ function buildManagedHandlers(
  * Binds the socket, accepts connections concurrently (each served by its own
  * CesRpcServer over the shared handler registry), and unlinks the socket when
  * the signal aborts. The listener stays open across connections so a client
- * that disconnects can reconnect without CES re-binding.
+ * that disconnects can reconnect without CES re-binding. Each connection is
+ * authenticated via a shared-secret handshake token (serviceToken) before any
+ * RPC can be issued.
  */
 function serveStandaloneSocket(opts: {
   socketPath: string;
@@ -591,10 +593,11 @@ function serveStandaloneSocket(opts: {
   signal: AbortSignal;
   logger: Pick<Console, "log" | "warn" | "error">;
   log: ReturnType<typeof getLogger>;
+  serviceToken?: string;
   onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
   onApiKeyUpdate?: (assistantApiKey: string, assistantId?: string) => void;
 }): void {
-  const { socketPath, handlers, signal, logger, log, onHandshakeComplete, onApiKeyUpdate } = opts;
+  const { socketPath, handlers, signal, logger, log, serviceToken, onHandshakeComplete, onApiKeyUpdate } = opts;
 
   mkdirSync(dirname(socketPath), { recursive: true });
   try {
@@ -634,6 +637,7 @@ function serveStandaloneSocket(opts: {
         handlers,
         logger,
         signal,
+        serviceToken,
         onHandshakeComplete: (sessionId, apiKey, assistantId) => {
           onHandshakeComplete?.(sessionId, apiKey, assistantId);
         },
@@ -816,6 +820,22 @@ async function main(): Promise<void> {
   const socketPath =
     mode === "managed" ? getBootstrapSocketPath() : getLocalSocketPath();
 
+  // Read the shared-secret token for socket handshake auth. In managed mode
+  // this is mandatory — the socket is reachable by any process on the box, so
+  // without auth any process can issue credential RPCs. In local mode it is
+  // optional (filesystem permissions bound access), but recommended.
+  const socketServiceToken = process.env["CES_SERVICE_TOKEN"] ?? "";
+  if (mode === "managed" && !socketServiceToken) {
+    log.fatal(
+      "CES_SERVICE_TOKEN not set — refusing to start managed CES socket without authentication. " +
+        "Set CES_SERVICE_TOKEN to enable socket handshake auth.",
+    );
+    process.exit(1);
+  }
+  if (socketServiceToken) {
+    log.info("CES socket handshake authentication enabled");
+  }
+
   const rpcLog = getLogger("rpc");
   const rpcLogger = {
     log: (msg: string, ...args: unknown[]) => rpcLog.info({ args }, msg),
@@ -832,6 +852,7 @@ async function main(): Promise<void> {
     signal: controller.signal,
     logger: rpcLogger,
     log,
+    serviceToken: socketServiceToken || undefined,
     onHandshakeComplete: refs
       ? (_hsSessionId, hsApiKey, hsAssistantId) => {
           // Update the process-scoped credential refs on every handshake.

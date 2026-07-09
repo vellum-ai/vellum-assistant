@@ -389,7 +389,10 @@ async function tryLazyCesConnect(): Promise<CesClient | undefined> {
       const pm = createCesProcessManager({});
       const transport = await pm.start();
       const client = createCesClient(transport);
-      const { accepted, reason } = await client.handshake();
+      const authToken = process.env.CES_SERVICE_TOKEN;
+      const { accepted, reason } = await client.handshake(
+        authToken ? { authToken } : undefined,
+      );
       if (!accepted) {
         log.warn(
           { reason },
@@ -410,7 +413,9 @@ async function tryLazyCesConnect(): Promise<CesClient | undefined> {
           await pm.stop();
           const newTransport = await pm.start();
           const newClient = createCesClient(newTransport);
-          const { accepted: ok } = await newClient.handshake();
+          const { accepted: ok } = await newClient.handshake(
+            authToken ? { authToken } : undefined,
+          );
           if (ok) {
             log.info("Lazy CES reconnection successful");
             return newClient;

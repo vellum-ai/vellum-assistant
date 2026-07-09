@@ -49,7 +49,8 @@ interface CesStartupResult {
  * handles to the in-flight initialization — callers don't need to await this
  * for startup to continue.
  *
- * The managed sidecar accepts exactly one bootstrap connection, so this must be
+ * The managed sidecar accepts multiple concurrent connections (each
+ * authenticated via a shared-secret handshake token), so this must be
  * called at the process level (not per-conversation).
  */
 function startCesProcess(config: AssistantConfig): CesStartupResult {
@@ -71,7 +72,9 @@ function startCesProcess(config: AssistantConfig): CesStartupResult {
       // the env var, so we pass it via the handshake.
       const proxyCtx = await resolveManagedProxyContext();
       const assistantId = getPlatformAssistantId();
+      const authToken = process.env.CES_SERVICE_TOKEN;
       const { accepted, reason } = await client.handshake({
+        ...(authToken ? { authToken } : {}),
         ...(proxyCtx.assistantApiKey
           ? { assistantApiKey: proxyCtx.assistantApiKey }
           : {}),
@@ -210,6 +213,7 @@ export async function startCes(config: AssistantConfig): Promise<void> {
     // reconnect, so caching at startup is safe.
     const startupProxyCtx = await resolveManagedProxyContext();
     const startupAssistantId = getPlatformAssistantId();
+    const authToken = process.env.CES_SERVICE_TOKEN;
 
     setCesReconnect(async () => {
       try {
@@ -217,6 +221,7 @@ export async function startCes(config: AssistantConfig): Promise<void> {
         const transport = await pm.start();
         const newClient = createCesClient(transport);
         const { accepted, reason } = await newClient.handshake({
+          ...(authToken ? { authToken } : {}),
           ...(startupProxyCtx.assistantApiKey
             ? { assistantApiKey: startupProxyCtx.assistantApiKey }
             : {}),

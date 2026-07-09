@@ -26,6 +26,13 @@ export const HandshakeRequestSchema = z.object({
   /** Opaque session identifier chosen by the initiator. */
   sessionId: z.string(),
   /**
+   * Shared-secret authentication token. The initiator must provide this when
+   * the CES socket requires authentication. Validated by the server against
+   * the configured `CES_SERVICE_TOKEN` using a constant-time comparison.
+   * Connections that omit or mismatch the token are rejected and closed.
+   */
+  authToken: z.string().optional(),
+  /**
    * Optional assistant API key passed from the assistant runtime.
    * In managed (sidecar) mode the API key is provisioned after hatch,
    * so the assistant forwards it during the bootstrap handshake so CES
