@@ -30,6 +30,14 @@ let defaultProviderGetCalls = 0;
 let putBodies: Array<{ provider: string; connectionName?: string }> = [];
 let putShouldFail = false;
 let deleteCalls: string[] = [];
+let deleteResult: { status: number; body?: unknown } = { status: 200 };
+let capturedErrors: unknown[] = [];
+
+mock.module("@/lib/sentry/capture-error", () => ({
+  captureError: (error: unknown) => {
+    capturedErrors.push(error);
+  },
+}));
 
 const actualSdk = await import("@/generated/daemon/sdk.gen");
 
@@ -66,7 +74,13 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     if (options?.path?.name) {
       deleteCalls.push(options.path.name);
     }
-    return { response: { ok: true, status: 200 } };
+    return {
+      error: deleteResult.body,
+      response: {
+        ok: deleteResult.status >= 200 && deleteResult.status < 300,
+        status: deleteResult.status,
+      },
+    };
   },
   configGet: async () => ({ data: {} }),
 }));
@@ -142,6 +156,8 @@ beforeEach(() => {
   putBodies = [];
   putShouldFail = false;
   deleteCalls = [];
+  deleteResult = { status: 200 };
+  capturedErrors = [];
   // The marker UI is version-gated (assistants < 0.10.8 lack the routes).
   useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.8");
 });
@@ -279,6 +295,83 @@ describe("default marker", () => {
       expect(result.baseElement.textContent).toContain(
         "Failed to set default provider",
       );
+    });
+  });
+});
+
+describe("delete-guard errors", () => {
+  async function clickDelete(name: string) {
+    connectionsState = [makeConnection({ name, provider: "openai" })];
+    const result = renderModal();
+    await waitFor(() => {
+      expect(result.baseElement.textContent).toContain(name);
+    });
+    const deleteButton = result.baseElement.querySelector<HTMLButtonElement>(
+      `button[aria-label="Delete ${name}"]`,
+    );
+    fireEvent.click(deleteButton as HTMLButtonElement);
+    return result;
+  }
+
+  test("409 renders the daemon's guard message verbatim", async () => {
+    deleteResult = {
+      status: 409,
+      body: {
+        error: {
+          code: "CONFLICT",
+          message:
+            'Connection "work-openai" is referenced by llm.defaultProvider. Update llm.defaultProvider before deleting.',
+          details: { referencedBy: ["llm.defaultProvider"] },
+        },
+      },
+    };
+
+    const result = await clickDelete("work-openai");
+    await waitFor(() => {
+      expect(result.baseElement.textContent).toContain(
+        "is referenced by llm.defaultProvider",
+      );
+    });
+  });
+
+  test("409 without a parseable envelope falls back to the generic string", async () => {
+    deleteResult = { status: 409, body: "not-an-envelope" };
+
+    const result = await clickDelete("work-openai");
+    await waitFor(() => {
+      expect(result.baseElement.textContent).toContain(
+        "Connection is in use by one or more profiles",
+      );
+    });
+  });
+
+  test("non-guarded connections still delete cleanly", async () => {
+    deleteResult = { status: 200 };
+
+    const result = await clickDelete("work-openai");
+    await waitFor(() => {
+      expect(deleteCalls).toEqual(["work-openai"]);
+    });
+    expect(result.baseElement.textContent).not.toContain("Failed to delete");
+  });
+
+  test("set-default failure reports to Sentry via captureError", async () => {
+    putShouldFail = true;
+    connectionsState = [
+      makeConnection({ name: "openai-personal", provider: "openai" }),
+    ];
+
+    const result = renderModal();
+    await waitFor(() => {
+      expect(result.baseElement.textContent).toContain("openai-personal");
+    });
+    const setDefaultButton = [
+      ...result.baseElement.querySelectorAll("button"),
+    ].find((b) => b.textContent === "Set as default");
+    fireEvent.click(setDefaultButton as HTMLButtonElement);
+
+    await waitFor(() => {
+      expect(capturedErrors.length).toBe(1);
     });
   });
 });
