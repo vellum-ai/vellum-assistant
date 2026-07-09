@@ -420,7 +420,11 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "channel-verification-sessions resend", risk: "high" },
   { path: "channel-verification-sessions cancel", risk: "low" },
   { path: "channel-verification-sessions revoke", risk: "low" },
-  { path: "config set", risk: "low" },
+  {
+    path: "config set",
+    risk: "medium",
+    reason: "Writes a value into the assistant's runtime configuration",
+  },
   { path: "contacts prompt", risk: "medium" },
   { path: "contacts channels update-status", risk: "medium" },
   { path: "contacts invites create", risk: "high" },
@@ -745,6 +749,24 @@ const oauthModeArgRules: ArgRule[] = [
   },
 ];
 getExistingPath(spec, "oauth mode").argRules = oauthModeArgRules;
+
+// `config set` is a medium-risk state mutation, but writing an `llm.*`,
+// `services.*`, or `gateway.*` config path rewires the assistant's own model
+// routing, service modes, or gateway behavior. Self-misconfiguration of these
+// paths can silently break integrations, so classify them as high — a
+// privilege/trust-relevant mutation. The pattern
+// matches the config-path positional (the first non-flag argument to
+// `config set`), including bare domain roots and any dotted subpath.
+const configSetArgRules: ArgRule[] = [
+  {
+    id: "assistant-config-set:privileged-path",
+    valuePattern: String.raw`^(llm|services|gateway)(\.|$)`,
+    risk: "high",
+    reason:
+      "Rewires the assistant's own model routing (llm.*), service modes (services.*), or gateway behavior; self-misconfiguration can silently break integrations",
+  },
+];
+getExistingPath(spec, "config set").argRules = configSetArgRules;
 
 const assistantBashArgRules: ArgRule[] = [
   {

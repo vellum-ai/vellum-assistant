@@ -584,7 +584,7 @@ describe("command-registry", () => {
     });
 
     test("expanded assistant operations have expected risk levels", () => {
-      expect(getAssistantPath("config set").baseRisk).toBe("low");
+      expect(getAssistantPath("config set").baseRisk).toBe("medium");
       expect(getAssistantPath("oauth providers register").baseRisk).toBe(
         "medium",
       );
@@ -619,6 +619,28 @@ describe("command-registry", () => {
       expect(getAssistantPath("plugins uninstall").baseRisk).toBe("medium");
       expect(getAssistantPath("plugins enable").baseRisk).toBe("medium");
       expect(getAssistantPath("plugins disable").baseRisk).toBe("medium");
+    });
+
+    test("assistant config set escalates to high for privileged config paths", () => {
+      const configSetSpec = getAssistantPath("config set");
+      expect(configSetSpec.baseRisk).toBe("medium");
+      expect(configSetSpec.argRules).toBeDefined();
+
+      const pathRule = configSetSpec.argRules!.find(
+        (r) => r.id === "assistant-config-set:privileged-path",
+      );
+      expect(pathRule).toBeDefined();
+      expect(pathRule!.risk).toBe("high");
+
+      const re = new RegExp(pathRule!.valuePattern!);
+      expect(re.test("llm.activeProfile")).toBe(true);
+      expect(re.test("llm.callSites.mainAgent.model")).toBe(true);
+      expect(re.test("llm")).toBe(true);
+      expect(re.test("services.outlook-oauth.mode")).toBe(true);
+      expect(re.test("services")).toBe(true);
+      expect(re.test("gateway.publicBaseUrl")).toBe(true);
+      expect(re.test("ui.theme")).toBe(false);
+      expect(re.test("llmfoo")).toBe(false);
     });
 
     test("assistant schedules update escalates to high for script payloads", () => {

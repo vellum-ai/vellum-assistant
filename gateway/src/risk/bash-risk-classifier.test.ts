@@ -955,12 +955,36 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("high");
   });
 
-  test("assistant config set → low", async () => {
+  test("assistant config set (ordinary path) → medium", async () => {
     const result = await classifier.classify({
-      command: "assistant config set key value",
+      command: "assistant config set ui.theme dark",
       toolName: "bash",
     });
-    expect(result.riskLevel).toBe("low");
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("assistant config set llm.activeProfile → high", async () => {
+    const result = await classifier.classify({
+      command: "assistant config set llm.activeProfile foo",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("assistant config set services.*.mode → high", async () => {
+    const result = await classifier.classify({
+      command: "assistant config set services.outlook-oauth.mode your-own",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("assistant config set gateway.* → high", async () => {
+    const result = await classifier.classify({
+      command: "assistant config set gateway.publicBaseUrl https://example.com",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
   });
 
   test("assistant conversations clear → medium", async () => {
