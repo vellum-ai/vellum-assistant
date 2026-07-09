@@ -135,10 +135,6 @@ export function MobileChatOverlays() {
     useViewerStore.getState().closeActivitySteps();
   }, []);
 
-  const handleToolDetailRiskBadgeClick = useCallback(() => {
-    useViewerStore.getState().requestRuleEditorForActiveTool();
-  }, []);
-
   if (!overlayTarget) return null;
 
   return createPortal(
@@ -202,7 +198,6 @@ export function MobileChatOverlays() {
       <MobileToolDetailOverlay
         detail={mainView === "tool-detail" ? activeToolDetail : null}
         onClose={handleCloseToolDetail}
-        onRiskBadgeClick={handleToolDetailRiskBadgeClick}
       />
       <MobileActivityStepsOverlay
         payload={mainView === "activity-steps" ? activeActivitySteps : null}

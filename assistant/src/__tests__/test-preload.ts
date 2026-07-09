@@ -17,12 +17,11 @@
  * some environments.
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll } from "bun:test";
 
-import { installDbTemplateCache } from "./db-template-cache.js";
 import { installGatewayIpcMock } from "./mock-gateway-ipc.js";
 
 // --- Phase 1: env override (zero source-module imports above this point) ---
@@ -37,6 +36,16 @@ mkdirSync(testDir);
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
 process.exitCode = 0;
+
+// Seed this workspace from the prebuilt "migrated" fixture (a pre-migrated set
+// of the four assistant DBs) so a test's initializeDb() finds an already-migrated
+// DB and the migration runner no-ops instead of re-running the whole chain; when
+// VELLUM_TEST_FIXTURES_DIR is unset (a lone `bun test`) nothing is copied and the
+// full chain runs. Plain recursive file copy — no `src/` import.
+const fixturesDir = process.env.VELLUM_TEST_FIXTURES_DIR;
+if (fixturesDir) {
+  cpSync(join(fixturesDir, "migrated"), testDir, { recursive: true });
+}
 
 // Prevent tests from routing credential writes through the real CES
 // (Credential Execution Service). Without this, setSecureKeyAsync() in
@@ -53,13 +62,6 @@ delete process.env.CES_CREDENTIAL_URL;
 // retry loop in `initFeatureFlagOverrides()`. Tests that need specific IPC
 // responses use `mockGatewayIpc()` / `resetMockGatewayIpc()`.
 installGatewayIpcMock();
-
-// Install the DB migration-template cache so DB-touching test files restore a
-// pre-migrated template instead of re-running the full migration chain. The
-// real implementation is require()'d lazily on first use (see
-// `db-template-cache.ts`), so this call does not pull the persistence graph
-// into the preload's import chain.
-installDbTemplateCache();
 
 afterAll(() => {
   process.exitCode = 0;

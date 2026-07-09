@@ -45,6 +45,7 @@ import {
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { HookFunction, Plugin } from "../plugins/types.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 
 // Point the workspace at an empty temp dir so `getHooksFor` -> `getUserHooksFor`
 // finds no user-land plugins; the in-process hook tests then observe only the
@@ -138,59 +139,51 @@ describe("getHooksFor per-chat plugin scope (in-process default hooks)", () => {
 });
 
 describe("collectUserHookEntries per-chat plugin scope (user-land hooks)", () => {
-  let root: string;
-  let counter = 0;
+  const pluginsDir = getWorkspacePluginsDir();
 
   beforeEach(() => {
     resetHookCacheForTests();
-    root = join(
-      tmpdir(),
-      `vellum-userhooks-${process.pid}-${Date.now()}-${counter++}`,
-    );
-    mkdirSync(root, { recursive: true });
+    rmSync(pluginsDir, { recursive: true, force: true });
+    mkdirSync(pluginsDir, { recursive: true });
   });
 
   afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(pluginsDir, { recursive: true, force: true });
   });
 
-  // Each hook resolves lazily on its first read, so the fixture only has to lay
-  // the files down on disk — the read fills the cache.
-  function pluginDirWithHook(name: string): string {
-    const dir = join(root, name);
-    const hooksDir = join(dir, "hooks");
+  // `collectUserHookEntries` takes plugin *names* and derives each owner's
+  // hooks directory as `<workspace>/plugins/<name>/hooks` — the same layout the
+  // installer enforces — so the fixture lays files down there and returns the
+  // name. Each hook resolves lazily on its first read, so the fixture only has
+  // to write the file; the read fills the cache.
+  function pluginWithHook(name: string): string {
+    const hooksDir = join(pluginsDir, name, "hooks");
     mkdirSync(hooksDir, { recursive: true });
     writeFileSync(
       join(hooksDir, "user-prompt-submit.ts"),
       "export default () => ({});\n",
     );
-    return dir;
+    return name;
   }
 
   test("null set runs both user plugins' hooks (unchanged)", async () => {
-    const dirs: Array<readonly [string, string]> = [
-      [pluginDirWithHook("uplug-a"), "uplug-a"],
-      [pluginDirWithHook("uplug-b"), "uplug-b"],
-    ];
+    const names = [pluginWithHook("uplug-a"), pluginWithHook("uplug-b")];
 
     expect(
-      await collectUserHookEntries("user-prompt-submit", dirs),
+      await collectUserHookEntries("user-prompt-submit", names),
     ).toHaveLength(2);
     expect(
-      await collectUserHookEntries("user-prompt-submit", dirs, null),
+      await collectUserHookEntries("user-prompt-submit", names, null),
     ).toHaveLength(2);
   });
 
   test("a set excluding plugin b drops b's user-land hook", async () => {
-    const dirs: Array<readonly [string, string]> = [
-      [pluginDirWithHook("uplug-a"), "uplug-a"],
-      [pluginDirWithHook("uplug-b"), "uplug-b"],
-    ];
+    const names = [pluginWithHook("uplug-a"), pluginWithHook("uplug-b")];
 
     expect(
       await collectUserHookEntries(
         "user-prompt-submit",
-        dirs,
+        names,
         new Set(["uplug-a"]),
       ),
     ).toHaveLength(1);

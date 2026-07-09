@@ -6,6 +6,8 @@
  * simple callbacks suitable for real-time TTS streaming.
  */
 
+import { v7 as uuidv7 } from "uuid";
+
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import type {
   ChannelId,
@@ -401,7 +403,7 @@ export async function startVoiceTurn(
     }
   };
 
-  const requestId = crypto.randomUUID();
+  const requestId = uuidv7();
   const turnId = crypto.randomUUID();
   let messageId: string;
   try {

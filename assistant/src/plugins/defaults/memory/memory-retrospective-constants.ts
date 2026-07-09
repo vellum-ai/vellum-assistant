@@ -50,6 +50,15 @@ export const MEMORY_RETROSPECTIVE_INSTRUCTION_KIND =
   "memory_retrospective_instruction";
 
 /**
+ * `metadata.kind` value stamped on the assistant-role message carrying the
+ * `skill_card` ui_surface that a retrospective inserts into its SOURCE
+ * conversation after authoring new skills. Lets clients and operators
+ * identify the card row; the block itself is provider-stripped so it never
+ * reaches the model as renderable content.
+ */
+export const SKILL_CARD_MESSAGE_KIND = "skill-authored-card";
+
+/**
  * Request-origin tag the fork wake stamps onto `ToolContext.requestOrigin`
  * (via the wake's tool-context pin). The permission checker scopes its
  * non-interactive skill-authoring auto-grant to this origin, so a retrospective

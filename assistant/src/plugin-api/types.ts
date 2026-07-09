@@ -135,8 +135,10 @@ export interface ModelProfileInfo {
  * - `disable` — the plugin was disabled at runtime (e.g. a `.disabled`
  *   sentinel was added, or a feature flag turned it off).
  * - `reload` — a source file inside the plugin directory changed and the
- *   plugin is being redeployed in place; the old version's `shutdown` runs
- *   before the new version is imported and its `init` fires.
+ *   plugin is being redeployed in place; `shutdown` runs before the new version
+ *   is imported and its `init` fires. Note the `shutdown` that runs is the one
+ *   currently on disk, which is the previous version *unless* the edit was to
+ *   `shutdown` itself.
  */
 export type ShutdownReason = "shutdown" | "uninstall" | "disable" | "reload";
 
@@ -151,6 +153,13 @@ export type ShutdownReason = "shutdown" | "uninstall" | "disable" | "reload";
  * The `assistantVersion` field mirrors the init context's so plugins that stash
  * a version stamp at init can compare against the same name on tear-down
  * without keeping their own copy.
+ *
+ * **`shutdown` may run in a different process than `init`.** A managed
+ * `uninstall` runs it in whichever process performs the removal (the CLI or the
+ * daemon), which is not necessarily the daemon process that ran `init`. Do not
+ * close over in-memory state established at `init` (open handles, timers,
+ * module-level singletons) and expect to tear it down here — reconstruct
+ * anything you need from the plugin's config and `data/` directory instead.
  */
 export interface ShutdownContext {
   /** Assistant semver for compatibility checks inside the plugin. */

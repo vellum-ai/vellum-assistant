@@ -280,6 +280,78 @@
       "category": "health",
       "homepage": "https://github.com/vellum-ai/tennis-companion",
       "license": "MIT"
+    },
+    {
+      "name": "smb-inbox-brief",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/smb-inbox-brief",
+        "ref": "8e298bd8ded5e0e16c5160edcd547eda1e4d222f"
+      },
+      "description": "Find urgent replies, overdue invoices, quotes, and customer follow-ups before they slip. Scans email, logs business items, delivers urgency-ranked daily briefs.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/smb-inbox-brief",
+      "license": "MIT"
+    },
+    {
+      "name": "family-briefing",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/family-briefing",
+        "ref": "145f341db7d06ffa81e2052033f187679b8bda4d"
+      },
+      "description": "Daily morning briefing for parents: merges family calendars, triages school emails, and detects scheduling conflicts.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/family-briefing",
+      "license": "MIT"
+    },
+    {
+      "name": "personal-finance",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/personal-finance",
+        "ref": "f8f9bfba3d86c943001da894b920e7e867507dd4"
+      },
+      "description": "Track expenses, income, recurring bills, and savings funds from your assistant. Multi-currency, receipt OCR, Plaid bank sync, and financial summaries. All data stored locally in SQLite.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/personal-finance",
+      "license": "MIT"
+    },
+    {
+      "name": "proactive-slacks",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/proactive-slacks",
+        "ref": "a5dd35699455ae7a2db3d2243511a8c7edc49aea"
+      },
+      "description": "Let your assistant reach you on Slack on purpose. Route notifications by topic to the right channel at the right volume, with heartbeat-based change detection so it only pings when something actually changed.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/proactive-slacks",
+      "license": "MIT"
+    },
+    {
+      "name": "cognee",
+      "source": {
+        "source": "github",
+        "repo": "topoteretes/cognee-integrations",
+        "path": "integrations/vellum-assistant",
+        "ref": "d79bd9a216c9f6d88d27694cc0b42a18b63dba88"
+      },
+      "description": "Cognee knowledge graph memory for Vellum Assistant: session-aware storage, auto-routing recall, and persistent learning across sessions. Supports local mode and Cognee Cloud.",
+      "category": "memory",
+      "homepage": "https://github.com/topoteretes/cognee-integrations/tree/main/integrations/vellum-assistant"
+    },
+    {
+      "name": "influencer-marketing",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/influencer",
+        "ref": "8629b0dcfdacf62246122af2dcd7320baa6db04e"
+      },
+      "description": "Find and research influencers on Instagram, TikTok, and X/Twitter. Includes a strategy builder that walks from campaign brief to research criteria, a research skill that discovers real profiles via browser automation, scores candidates, and exports ranked shortlists, and a dashboard skill that turns the shortlist into an interactive outreach tracker.",
+      "category": "marketing",
+      "homepage": "https://github.com/ZeebBoyBlue/influencer",
+      "license": "MIT"
     }
   ]
 }

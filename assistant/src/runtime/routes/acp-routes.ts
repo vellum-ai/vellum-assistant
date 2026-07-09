@@ -19,6 +19,8 @@ import {
 } from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import { getConfig } from "../../config/loader.js";
+import type { ServerMessage } from "../../daemon/message-protocol.js";
+import { createCanonicalRequestForConfirmation } from "../../permissions/confirmation-canonical-request.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { rawChanges } from "../../persistence/raw-query.js";
@@ -155,21 +157,25 @@ function awaitRouteApproval(args: {
         settle(decision, decision === "allow" ? "approved" : "rejected"),
     });
 
-    broadcastMessage(
-      {
-        type: "confirmation_request",
-        requestId,
-        toolName,
-        input,
-        riskLevel: "high",
-        executionTarget: "host",
-        allowlistOptions: [],
-        scopeOptions: [],
-        conversationId,
-        persistentDecisionsAllowed: false,
-      },
+    const confirmationMsg: ServerMessage & {
+      type: "confirmation_request";
+    } = {
+      type: "confirmation_request",
+      requestId,
+      toolName,
+      input,
+      riskLevel: "high",
+      executionTarget: "host",
+      allowlistOptions: [],
+      scopeOptions: [],
       conversationId,
-    );
+      persistentDecisionsAllowed: false,
+    };
+    broadcastMessage(confirmationMsg, conversationId);
+
+    // Promote the confirmation to a canonical guardian request so channel
+    // guardian decisions (reactions, buttons, text) can resolve it.
+    void createCanonicalRequestForConfirmation(confirmationMsg, conversationId);
   });
 }
 

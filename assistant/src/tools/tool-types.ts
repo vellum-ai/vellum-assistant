@@ -255,9 +255,9 @@ export interface ToolContext {
    * "Always Allow" rules, or non-interactive auto-approve shortcuts may
    * bypass the prompt. This flag is independently sufficient: it
    * promotes allow → prompt decisions on its own and suppresses
-   * temporary override options in the prompt UI. Used by
-   * `manage_secure_command_tool` to ensure a human reviews each secure
-   * bundle installation.
+   * temporary override options in the prompt UI. Used by the `run_workflow`
+   * launch path so a human consents to a run whose capability manifest grants
+   * side-effecting tools.
    */
   requireFreshApproval?: boolean;
   /** Approval callback for proxy policy decisions that require user confirmation. */

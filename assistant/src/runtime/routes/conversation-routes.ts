@@ -8,6 +8,7 @@ import {
   type ClientMetadataField,
   sanitizeClientMetadataValue,
 } from "@vellumai/service-contracts/client-metadata";
+import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
 import { enrichMessageWithSourcePaths } from "../../agent/attachments.js";
@@ -1858,7 +1859,7 @@ export async function handleSendMessage(
       const persisted = await persistQueuedMessageBody(conversation, {
         content: rawContent,
         attachments,
-        requestId: crypto.randomUUID(),
+        requestId: uuidv7(),
         metadata: greetingMeta,
         clientMessageId,
       });
@@ -2020,7 +2021,7 @@ export async function handleSendMessage(
 
   if (conversation.isProcessing()) {
     // Queue the message so it's processed when the current turn completes
-    const requestId = crypto.randomUUID();
+    const requestId = uuidv7();
     const enqueueResult = conversation.enqueueMessage({
       content: contentAfterScan,
       attachments,
@@ -2174,7 +2175,7 @@ export async function handleSendMessage(
       const persisted = await persistQueuedMessageBody(conversation, {
         content: rawContent,
         attachments,
-        requestId: crypto.randomUUID(),
+        requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
@@ -2273,7 +2274,7 @@ export async function handleSendMessage(
       persisted = await persistQueuedMessageBody(conversation, {
         content: rawContent,
         attachments,
-        requestId: crypto.randomUUID(),
+        requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
@@ -2364,7 +2365,7 @@ export async function handleSendMessage(
       const persisted = await persistQueuedMessageBody(conversation, {
         content: rawContent,
         attachments,
-        requestId: crypto.randomUUID(),
+        requestId: uuidv7(),
         metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
@@ -2421,7 +2422,7 @@ export async function handleSendMessage(
 
   const resolvedContent = slashResult.content;
 
-  const requestId = crypto.randomUUID();
+  const requestId = uuidv7();
   const persistResult = await conversation.persistUserMessage({
     content: resolvedContent,
     attachments,
