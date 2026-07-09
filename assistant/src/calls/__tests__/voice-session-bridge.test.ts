@@ -110,8 +110,11 @@ function makeFakeConversation(opts: {
     setVoiceCallControlPrompt: () => {},
     persistUserMessage: async () => {
       persistCount += 1;
-      opts.onPersist?.(persistCount);
+      // Recorded before `onPersist` so scripted persist FAILURES also
+      // appear in the event stream — ordering tests need the losing
+      // attempt visible.
       opts.events?.push("persist");
+      opts.onPersist?.(persistCount);
       return { id: `msg-${persistCount}` };
     },
     // The install (reset falsy) / reset (reset true) pair marks a turn
@@ -406,11 +409,15 @@ describe("startVoiceTurn queued-message drain race", () => {
   test("a persist that loses the lock race to the drain waits and retries once", async () => {
     // TOCTOU: the wait loop saw an idle conversation with no visible queued
     // work, but the drain's persist took the lock before this turn's persist
-    // ran. The first persist throws the exact busy error; the bridge waits
-    // for idle again and retries the persist once.
+    // ran. The first persist throws the exact busy error; the bridge
+    // uninstalls its voice turn state, waits for idle, re-installs, and
+    // retries the persist once.
+    const events: string[] = [];
     const fake = makeFakeConversation({
       processing: false,
+      events,
       waitForIdle: async () => {
+        events.push("wait:resolved");
         // The drained turn completes during the retry wait.
         fake.setProcessingFlag(false);
         return true;
@@ -422,17 +429,47 @@ describe("startVoiceTurn queued-message drain race", () => {
         }
       },
     });
+    // Record install/uninstall markers for the state the drained turn must
+    // never see: the phone control prompt and the caller trust context.
+    fake.conversation.setVoiceCallControlPrompt = (prompt) => {
+      events.push(prompt === null ? "prompt:clear" : "prompt:install");
+    };
+    fake.conversation.setTrustContext = (ctx) => {
+      events.push(ctx === null ? "trust:clear" : "trust:install");
+    };
     fakeConversation = fake.conversation;
 
     const persistedIds: string[] = [];
     const handle = await startVoiceTurn({
       ...makeTurnOptions(),
+      trustContext: { sourceChannel: "phone", trustClass: "guardian" },
       callbacks: {
         persisted_user_message_id: (id) => persistedIds.push(id),
       },
     });
+    await flushMicrotasks();
 
     expect(handle.turnId).toBeString();
+    expect(events).toEqual([
+      // Initial install, then the losing persist attempt.
+      "trust:install",
+      "prompt:install",
+      "persist",
+      // Uninstalled BEFORE the retry wait resolves — the drained turn that
+      // holds the lock must not run with the phone prompt or caller trust.
+      "trust:clear",
+      "prompt:clear",
+      "wait:resolved",
+      // Re-installed before the successful retry persist.
+      "trust:install",
+      "prompt:install",
+      "persist",
+      "client:install",
+      // The turn's own finally releases the state again.
+      "trust:clear",
+      "prompt:clear",
+      "client:reset",
+    ]);
     expect(fake.persistCount()).toBe(2);
     expect(fake.waitForIdleCalls.length).toBe(1);
     // The retried persist's row id is the one reported to the client.

@@ -15,6 +15,7 @@ import type {
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
+import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
@@ -46,20 +47,19 @@ export const TURN_ABORTED_WAITING_MESSAGE =
 
 /**
  * Exact message thrown when the processing-wait budget elapses without the
- * conversation becoming available. The call controller's lock-contention
- * re-prompt matches on this string — keep the value byte-identical across
- * every throw site.
+ * conversation becoming available. Shared with the daemon's persist-time
+ * throw site (`conversation-messaging.ts`); the call controller's
+ * lock-contention re-prompt matches on this string.
  */
-export const CONVERSATION_BUSY_MESSAGE =
-  "Conversation is already processing a message";
+export { CONVERSATION_BUSY_MESSAGE };
 
 const PROCESSING_WAIT_MARGIN_MS = 1000;
 /**
  * How long startVoiceTurn waits for a prior turn to release the processing
  * lock before giving up. The prior turn can hold the lock for the abort
  * unwind budget PLUS the awaited turn-boundary commit window, so the wait
- * must cover both (+ margin) or a barge-in can still surface
- * "Conversation is already processing a message".
+ * must cover both (+ margin) or a barge-in can still fail with
+ * CONVERSATION_BUSY_MESSAGE.
  */
 export function resolveProcessingWaitMs(
   turnCommitMaxWaitMs: number,
@@ -538,8 +538,13 @@ export async function startVoiceTurn(
     });
     return persistResult.id;
   };
-  let messageId: string;
-  try {
+  /**
+   * Install this turn's per-conversation state (caller trust, call session
+   * id, channel capabilities, voice control prompt). Runs before every
+   * persist attempt: the busy-retry path below uninstalls via `cleanup()`
+   * for the duration of its wait, then re-installs before retrying.
+   */
+  const installVoiceTurnState = () => {
     conversation.setAssistantId(
       opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     );
@@ -555,6 +560,10 @@ export async function startVoiceTurn(
       ),
     );
     conversation.setVoiceCallControlPrompt(voiceCallControlPrompt);
+  };
+  let messageId: string;
+  try {
+    installVoiceTurnState();
 
     try {
       messageId = await persistTurnUserMessage();
@@ -563,7 +572,10 @@ export async function startVoiceTurn(
       // above and this persist — the drain reaches its own persist a few
       // microtasks after the idle transition that released this turn.
       // Within the remaining budget, wait the drained turn out and retry
-      // the persist once instead of failing the barge-in.
+      // the persist once instead of failing the barge-in. The drained turn
+      // must not run with this turn's phone prompt or caller trust, so the
+      // voice state is uninstalled while it holds the lock and re-installed
+      // before the retry.
       if (
         !(err instanceof Error) ||
         err.message !== CONVERSATION_BUSY_MESSAGE ||
@@ -571,7 +583,9 @@ export async function startVoiceTurn(
       ) {
         throw err;
       }
+      cleanup();
       await waitOutProcessingLock();
+      installVoiceTurnState();
       messageId = await persistTurnUserMessage();
     }
   } catch (err) {
