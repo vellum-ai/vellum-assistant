@@ -33,6 +33,7 @@ import {
   initGatewayDb,
   resetGatewayDb,
 } from "../../db/connection.js";
+import { createGuardianRequest } from "../../db/guardian-request-store.js";
 import { guardianRequestDeliveries, guardianRequests } from "../../db/schema.js";
 import { guardianRequestRoutes } from "../guardian-request-handlers.js";
 import { GatewayIpcServer } from "../server.js";
@@ -242,6 +243,24 @@ describe("guardian_requests_get / get_by_code", () => {
       patch: { status: "approved" },
     });
     expect(await call(METHODS.getByCode, { code })).toBeNull();
+  });
+});
+
+describe("legacy kinds", () => {
+  test("rows outside the kind enum round-trip through get and list", async () => {
+    // Not creatable over IPC (create restricts kind), but legacy/backfilled
+    // rows can carry any kind and reads must still serialize them.
+    createGuardianRequest({ id: "req-legacy", kind: "status_update" });
+
+    const fetched = GuardianRequestSchema.parse(
+      await call(METHODS.get, { id: "req-legacy" }),
+    );
+    expect(fetched.kind).toBe("status_update");
+
+    const listed = GuardianRequestListIpcResponseSchema.parse(
+      await call(METHODS.list),
+    );
+    expect(listed.map((r) => r.id)).toContain("req-legacy");
   });
 });
 

@@ -21,7 +21,6 @@ import {
 
 import type {
   GuardianRequestDeliveryWire,
-  GuardianRequestKind,
   GuardianRequestSourceType,
   GuardianRequestStatus,
   GuardianRequestWire,
@@ -152,7 +151,7 @@ function rowToRequest(
 ): GuardianRequest {
   return {
     id: row.id,
-    kind: row.kind as GuardianRequestKind,
+    kind: row.kind,
     sourceChannel: row.sourceChannel,
     sourceConversationId: row.sourceConversationId,
     requesterExternalUserId: row.requesterExternalUserId,
