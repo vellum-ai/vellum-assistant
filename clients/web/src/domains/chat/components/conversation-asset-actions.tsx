@@ -1,4 +1,3 @@
-import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUp,
   Download,
@@ -19,15 +18,10 @@ import {
   toast,
 } from "@vellumai/design-library";
 
-import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import {
-  appsByIdDeletePost,
-  documentsByIdPdfGet,
-} from "@/generated/daemon/sdk.gen";
+import { documentsByIdPdfGet } from "@/generated/daemon/sdk.gen";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
-import { clearAppHtmlCache } from "@/utils/app-html-cache";
 import { shareApp } from "@/utils/share-app";
 
 /**
@@ -99,70 +93,6 @@ function MenuShell({
       </Menu.Content>
     </Menu.Root>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Delete state (owned by the pill, outside the popover/sheet)
-// ---------------------------------------------------------------------------
-
-/**
- * App-deletion state and mutation for the assets pill. Lives OUTSIDE the
- * Popover/BottomSheet subtree (see `onRequestDelete` note above), mirroring
- * the gallery's delete flow: `appsByIdDeletePost` + HTML cache clear +
- * `appsGet` invalidation + unpin.
- */
-export function useAppDelete(assistantId: string) {
-  const queryClient = useQueryClient();
-  const togglePin = usePinnedAppsStore.use.togglePin();
-  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
-  const [pendingDelete, setPendingDelete] = useState<AppSummary | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  const confirmDelete = useCallback(async () => {
-    if (!pendingDelete || isDeleting) {
-      return;
-    }
-    setIsDeleting(true);
-    try {
-      await appsByIdDeletePost({
-        path: { assistant_id: assistantId, id: pendingDelete.id },
-        throwOnError: true,
-      });
-      clearAppHtmlCache(assistantId, pendingDelete.id);
-      void queryClient.invalidateQueries({
-        queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }),
-      });
-      if (pinnedAppIds.has(pendingDelete.id)) {
-        togglePin(pendingDelete);
-      }
-      setPendingDelete(null);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete app");
-    } finally {
-      setIsDeleting(false);
-    }
-  }, [
-    pendingDelete,
-    isDeleting,
-    assistantId,
-    pinnedAppIds,
-    togglePin,
-    queryClient,
-  ]);
-
-  const cancelDelete = useCallback(() => {
-    if (!isDeleting) {
-      setPendingDelete(null);
-    }
-  }, [isDeleting]);
-
-  return {
-    pendingDelete,
-    isDeleting,
-    requestDelete: setPendingDelete,
-    confirmDelete,
-    cancelDelete,
-  };
 }
 
 // ---------------------------------------------------------------------------

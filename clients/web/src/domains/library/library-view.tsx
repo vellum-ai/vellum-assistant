@@ -19,11 +19,11 @@ import { LibraryEmptyState } from "@/domains/library/components/library-empty-st
 import { LibraryGridSection } from "@/domains/library/components/library-grid-section";
 import { useLibraryData } from "@/domains/library/use-library-data";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import { appsByIdDeletePost } from "@/generated/daemon/sdk.gen";
 import { useDeployStore } from "@/stores/deploy-store";
+import { useAppDelete } from "@/hooks/use-app-delete";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { AppSummary } from "@/types/app-types";
-import { clearAppHtmlCache, getCachedAppHtml } from "@/utils/app-html-cache";
+import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { importBundle } from "@/utils/import-bundle";
 import { Button, Input, toast } from "@vellumai/design-library";
 
@@ -62,73 +62,62 @@ export function LibraryView({
     error,
   } = useLibraryData(assistantId);
 
-  // --- Delete state ---
-  const [appPendingDelete, setAppPendingDelete] = useState<AppSummary | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  const handleConfirmDelete = useCallback(async () => {
-    const target = appPendingDelete;
-    if (!target || isDeleting) return;
-    setIsDeleting(true);
-    try {
-      await appsByIdDeletePost({
-        path: { assistant_id: assistantId, id: target.id },
-        throwOnError: true,
-      });
-      clearAppHtmlCache(assistantId, target.id);
-      void queryClient.invalidateQueries({
-        queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }),
-      });
-      if (pinnedAppIds.has(target.id)) {
-        togglePin(target);
-      }
-      setAppPendingDelete(null);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete app");
-    } finally {
-      setIsDeleting(false);
-    }
-  }, [appPendingDelete, isDeleting, assistantId, pinnedAppIds, togglePin, queryClient]);
-
-  const handleCancelDelete = useCallback(() => {
-    if (!isDeleting) setAppPendingDelete(null);
-  }, [isDeleting]);
+  // --- Delete state (shared flow, see use-app-delete.ts) ---
+  const {
+    pendingDelete: appPendingDelete,
+    isDeleting,
+    requestDelete: setAppPendingDelete,
+    confirmDelete: handleConfirmDelete,
+    cancelDelete: handleCancelDelete,
+  } = useAppDelete(assistantId);
 
   // --- Import state ---
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
 
-  const handleImportBundle = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || isImporting) return;
-    setIsImporting(true);
-    try {
-      const result = await importBundle(assistantId, file);
-      await queryClient.invalidateQueries({
-        queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }),
-      });
-      toast.success(result.name + " imported");
-      onOpenApp(result.appId);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to import app");
-    } finally {
-      setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }, [assistantId, isImporting, queryClient, onOpenApp]);
+  const handleImportBundle = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || isImporting) return;
+      setIsImporting(true);
+      try {
+        const result = await importBundle(assistantId, file);
+        await queryClient.invalidateQueries({
+          queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }),
+        });
+        toast.success(result.name + " imported");
+        onOpenApp(result.appId);
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Failed to import app",
+        );
+      } finally {
+        setIsImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [assistantId, isImporting, queryClient, onOpenApp],
+  );
 
   // --- Deploy ---
-  const handleDeploy = useCallback(async (appId: string) => {
-    if (isDeploying) return;
-    const app = apps.find((a) => a.id === appId);
-    const appName = app?.name ?? "this app";
-    try {
-      const html = await getCachedAppHtml(assistantId, appId);
-      void useDeployStore.getState().deployApp(assistantId, appId, appName, html);
-    } catch {
-      void useDeployStore.getState().deployApp(assistantId, appId, appName, "");
-    }
-  }, [assistantId, isDeploying, apps]);
+  const handleDeploy = useCallback(
+    async (appId: string) => {
+      if (isDeploying) return;
+      const app = apps.find((a) => a.id === appId);
+      const appName = app?.name ?? "this app";
+      try {
+        const html = await getCachedAppHtml(assistantId, appId);
+        void useDeployStore
+          .getState()
+          .deployApp(assistantId, appId, appName, html);
+      } catch {
+        void useDeployStore
+          .getState()
+          .deployApp(assistantId, appId, appName, "");
+      }
+    },
+    [assistantId, isDeploying, apps],
+  );
 
   const handlePinToggle = useCallback(
     (app: AppSummary) => togglePin(app),
@@ -173,7 +162,9 @@ export function LibraryView({
         fileInputRef={fileInputRef}
         isImporting={isImporting}
         onImportBundle={handleImportBundle}
-        onNewConversation={onNewConversation ? () => onNewConversation() : undefined}
+        onNewConversation={
+          onNewConversation ? () => onNewConversation() : undefined
+        }
       />
     );
   }
@@ -219,7 +210,9 @@ export function LibraryView({
           type="text"
           placeholder="Search your library"
           value={searchText}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchText(e.target.value)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+            setSearchText(e.target.value)
+          }
           leftIcon={<Search size={16} />}
         />
       </div>

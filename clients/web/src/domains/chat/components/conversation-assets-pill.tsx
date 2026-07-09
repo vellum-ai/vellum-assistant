@@ -3,25 +3,25 @@ import { AppWindow, FileText, Layers } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
-    BottomSheet,
-    Button,
-    PanelItem,
-    Popover,
-    Typography,
+  BottomSheet,
+  Button,
+  PanelItem,
+  Popover,
+  Typography,
 } from "@vellumai/design-library";
 
 import {
-    appsGetOptions,
-    appsGetQueryKey,
-    documentsGetOptions,
-    documentsGetQueryKey,
+  appsGetOptions,
+  appsGetQueryKey,
+  documentsGetOptions,
+  documentsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { DeleteAppDialog } from "@/components/delete-app-dialog";
 import {
-    AppAssetActions,
-    DocumentAssetActions,
-    useAppDelete,
+  AppAssetActions,
+  DocumentAssetActions,
 } from "@/domains/chat/components/conversation-asset-actions";
+import { useAppDelete } from "@/hooks/use-app-delete";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
@@ -100,10 +100,16 @@ export function ConversationAssetsPill({
   useEffect(() => {
     if (refreshKey === undefined) return;
     void queryClient.invalidateQueries({
-      queryKey: appsGetQueryKey({ path: { assistant_id: assistantId }, query: { conversationId } }),
+      queryKey: appsGetQueryKey({
+        path: { assistant_id: assistantId },
+        query: { conversationId },
+      }),
     });
     void queryClient.invalidateQueries({
-      queryKey: documentsGetQueryKey({ path: { assistant_id: assistantId }, query: { conversationId } }),
+      queryKey: documentsGetQueryKey({
+        path: { assistant_id: assistantId },
+        query: { conversationId },
+      }),
     });
   }, [refreshKey, queryClient, assistantId, conversationId]);
 
