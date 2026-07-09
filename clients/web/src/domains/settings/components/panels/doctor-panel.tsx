@@ -755,7 +755,7 @@ export function DoctorPanel() {
                 onClick={handleNewSession}
                 className={
                   canReconnect
-                    ? "flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--surface-raised)] px-4 py-2 text-body-medium-default text-[var(--content-default)] transition-colors hover:bg-[var(--surface-hover)]"
+                    ? "flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--surface-lift)] px-4 py-2 text-body-medium-default text-[var(--content-default)] transition-colors hover:bg-[var(--surface-hover)]"
                     : "flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)]"
                 }
               >
