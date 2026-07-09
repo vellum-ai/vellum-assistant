@@ -256,6 +256,32 @@ interface SessionContext {
   speechMs: number;
   /** Accumulated trailing silence (ms) after speech in the current utterance. */
   silenceMs: number;
+  /**
+   * `performance.now()` stamp of the most recent end-of-speech — the
+   * `utterance_end` frame (hands-free) or the `ptt_release` send (manual).
+   * Pending until a `thinking` frame binds it to that turn (see
+   * `turnHeardStampMs`); cleared on `utterance_discarded` (and dies with
+   * the session context on teardown) so a stale stamp never pairs across
+   * turns. Hands-free allows a new utterance to end while the previous
+   * response is still thinking, so the pending stamp must stay unbound
+   * until its own turn starts.
+   */
+  speechEndedAtMs: number | null;
+  /**
+   * The end-of-speech stamp bound to the in-flight response — moved from
+   * `speechEndedAtMs` when that response's `thinking` frame arrives.
+   * Consumed by the response's FIRST `tts_audio` frame to derive
+   * `clientHeardLatencyMs`; cleared on `turn_cancelled` so a cancelled
+   * turn's stamp can't pair with a later response's audio.
+   */
+  turnHeardStampMs: number | null;
+  /**
+   * Client-perceived end-of-speech → first-TTS-audio latency for the current
+   * response, `null` until measured (and for responses that produced no
+   * audio). Reset with the other per-response flags on `thinking` so a
+   * `metrics` frame always pairs with its own turn's measurement.
+   */
+  clientHeardLatencyMs: number | null;
 }
 
 /** Number of bytes per Int16 PCM sample. */
@@ -479,6 +505,9 @@ export function useLiveVoice(
         releaseInFlight: false,
         speechMs: 0,
         silenceMs: 0,
+        speechEndedAtMs: null,
+        turnHeardStampMs: null,
+        clientHeardLatencyMs: null,
       };
 
       const capture = (opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o)))({
@@ -528,11 +557,19 @@ export function useLiveVoice(
         }),
         client.on("utteranceEnd", () => {
           if (!live() || !session.handsFree) return;
+          // End of user speech: stamp the client-heard latency start; the
+          // response's first tts_audio consumes it (see
+          // beginAssistantAudioIfNeeded). Manual mode stamps at the
+          // ptt_release send instead (see releasePushToTalk).
+          session.speechEndedAtMs = performance.now();
           // Server VAD closed the utterance; its transcription is finishing.
           useLiveVoiceStore.getState().setState("transcribing");
         }),
         client.on("utteranceDiscarded", () => {
           if (!live() || !session.handsFree) return;
+          // The discarded utterance never becomes a turn — drop its
+          // end-of-speech stamp so it can't pair with a later turn's audio.
+          session.speechEndedAtMs = null;
           // The closed utterance had no usable speech (noise/cough); return
           // to listening. A discarded utterance never reaches `thinking`
           // (empty finals stay in `transcribing`), so any other state belongs
@@ -584,6 +621,16 @@ export function useLiveVoice(
           session.responseEpoch += 1;
           session.responseAudioStarted = false;
           session.interruptSent = false;
+          // The previous response's measurement is spent — a `metrics` frame
+          // for THIS turn must pair with this turn's own first audio (or
+          // null, for a response that produces none).
+          session.clientHeardLatencyMs = null;
+          // Bind the pending end-of-speech stamp to this turn. An utterance
+          // that ends while a previous response is still thinking keeps its
+          // stamp pending here until its own `thinking` arrives, so the
+          // previous response's audio can never consume it.
+          session.turnHeardStampMs = session.speechEndedAtMs;
+          session.speechEndedAtMs = null;
           const s = useLiveVoiceStore.getState();
           s.clearAssistantTranscript();
           s.setState("thinking");
@@ -614,8 +661,41 @@ export function useLiveVoice(
         }),
         client.on("turnCancelled", () => {
           if (!live() || !session.handsFree) return;
+          // Drop the cancelled turn's bound stamp so the next response's
+          // audio can't pair against it. The unbound `speechEndedAtMs` is
+          // left alone — it belongs to a newer overlapping utterance whose
+          // own `thinking` will bind it.
+          session.turnHeardStampMs = null;
           // Barge-in aborted the turn; no tts_done follows a cancelled turn.
           flushPlaybackToListening(session);
+        }),
+        client.on("metrics", (frame) => {
+          if (!live()) return;
+          // The daemon also emits metrics frames for cancelled turns and
+          // session end; only a completed turn carries a pairable latency.
+          // An absent event field (older daemons) is treated as completed.
+          if (frame.event !== undefined && frame.event !== "turn_completed") {
+            return;
+          }
+          // Turn completion: pair the server's metrics with the client-side
+          // measurement for the same turn. `roundTripMs` is absent on frames
+          // from older daemons — normalize to null (read fallback, no compat
+          // gate for a read-only debug surface; see docs/BACKWARDS_COMPAT.md).
+          const lastTurnLatency = {
+            server: { ...frame, roundTripMs: frame.roundTripMs ?? null },
+            clientHeardLatencyMs: session.clientHeardLatencyMs,
+          };
+          useLiveVoiceStore.getState().setLastTurnLatency(lastTurnLatency);
+          // Debug surface only (no UI): one line per completed turn.
+          console.debug("[live-voice] turn latency", {
+            turnId: frame.turnId,
+            roundTripMs: lastTurnLatency.server.roundTripMs,
+            clientHeardLatencyMs: lastTurnLatency.clientHeardLatencyMs,
+            sttMs: frame.sttMs,
+            llmFirstDeltaMs: frame.llmFirstDeltaMs,
+            ttsFirstAudioMs: frame.ttsFirstAudioMs,
+            totalMs: frame.totalMs,
+          });
         }),
         client.on("archived", () => {
           if (!live()) return;
@@ -893,6 +973,9 @@ function releasePushToTalk(session: SessionContext): void {
   session.releaseInFlight = true;
   session.forwardingAudio = false;
   session.client.pttRelease();
+  // End of user speech (manual mode): stamp the client-heard latency start,
+  // mirroring the hands-free utterance_end stamp.
+  session.speechEndedAtMs = performance.now();
   const s = useLiveVoiceStore.getState();
   if (s.state === "listening") s.setState("transcribing");
   s.setInputAmplitude(0);
@@ -916,11 +999,27 @@ function interruptIfSpeaking(
   teardown();
 }
 
-/** First TTS frame of a response: reset playback flags for the new utterance. */
+/**
+ * First TTS frame of a response: reset playback flags for the new utterance
+ * and resolve the client-heard latency — the end-of-speech stamp → first
+ * audio enqueue delta the user actually perceives (network + queueing
+ * included, which the server-side `roundTripMs` can't see). The stamp is
+ * consumed here so no later frame or turn can pair against it again.
+ */
 function beginAssistantAudioIfNeeded(session: SessionContext): void {
   if (session.responseAudioStarted) return;
   session.responseAudioStarted = true;
   session.interruptSent = false;
+  if (session.turnHeardStampMs === null) return;
+  session.clientHeardLatencyMs = performance.now() - session.turnHeardStampMs;
+  session.turnHeardStampMs = null;
+  // Publish immediately (server half still null) so the measurement exists
+  // even against a daemon that never emits `metrics` frames; the turn's
+  // `metrics` frame overwrites this with the fully paired object.
+  useLiveVoiceStore.getState().setLastTurnLatency({
+    server: null,
+    clientHeardLatencyMs: session.clientHeardLatencyMs,
+  });
 }
 
 /**
