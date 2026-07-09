@@ -146,14 +146,12 @@ describe("MultiActivityGroup — non-web tool group", () => {
     expect(queryByTestId("tool-progress-card-status-indicator")).toBeNull();
   });
 
-  test("uses the complete indicator once every tool call is terminal", () => {
+  test("renders no status indicator once terminal either — settled (non-shimmering) means done", () => {
     const toolCalls = [
       makeToolCall({ id: "tc-1", name: "bash", status: "completed" }),
     ];
-    const { getByTestId } = renderCard(toolCalls);
-    const indicator = getByTestId("tool-progress-card-status-indicator");
-    expect(indicator.tagName.toLowerCase()).toBe("svg");
-    expect(indicator.getAttribute("data-state")).toBe("complete");
+    const { queryByTestId } = renderCard(toolCalls);
+    expect(queryByTestId("tool-progress-card-status-indicator")).toBeNull();
   });
 });
 

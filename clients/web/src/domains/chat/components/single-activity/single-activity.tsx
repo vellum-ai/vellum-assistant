@@ -2,16 +2,18 @@
  * Inline single-activity link — the lone affordance for ONE step of agent work,
  * in one of three variants:
  *
- *   - `variant="thinking"` — an assistant reasoning run. A brain glyph +
- *     "Thought process"; while streaming the label reads "Thinking" (or the
- *     live reasoning preview) rendered through the avatar-tinted
- *     {@link StreamingShimmerText}. OWNS the streaming/loading state so it can be the single
+ *   - `variant="thinking"` — an assistant reasoning run. A bare "Thinking"
+ *     label (no leading glyph) with exactly two states: rendered through the
+ *     avatar-tinted {@link StreamingShimmerText} sweep while the reasoning
+ *     streams, static text once settled.
+ *     OWNS the streaming/loading state so it can be the single
  *     thinking affordance from the start of a turn, staying clickable so the
  *     live reasoning opens in the drawer as it arrives; no-ops once settled with
  *     empty content (see `shouldShowThinkingIndicator`).
  *   - `variant="tool"` — a LONE renderable tool call (non-web, no confirmation,
- *     no thinking). The derived tool glyph + activity label + optional risk
- *     badge.
+ *     no thinking). A bare activity label — no leading glyph and no inline
+ *     risk badge (the risk assessment lives in the detail drawer's Reasoning
+ *     section).
  *   - `variant="web"` — a LONE web search. An inline link reading
  *     "Web Search | <latest page title>" — while the search is in flight the
  *     info slot rotates the searched sites via {@link WebsiteCarousel}; once
@@ -22,7 +24,7 @@
  *     so its trailing glyph is an up/down chevron rather than `ChevronRight`.
  *
  * The thinking/tool variants render the same minimal, container-less button
- * (leading glyph + label + optional risk badge + trailing chevron) and toggle
+ * (label + trailing chevron, no leading glyph) and toggle
  * the shared tool-detail side drawer — clicking an already-open link closes it
  * (toggle). The trailing `ChevronRight` signals "opens a drawer" (vs the card's
  * expand-in-place up/down chevron). Consistent padding lets the active highlight
@@ -33,19 +35,15 @@
  */
 
 import {
-  Bolt,
-  Brain,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Globe,
 } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 
 import { cn } from "@/utils/misc";
-import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
-import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { deriveStepLabel } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import {
   toolDetailPayloadFromToolCall,
@@ -57,7 +55,6 @@ import {
 } from "@/domains/chat/components/web-search/web-search-step-row";
 import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel";
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
-import { useStreamingThinkingPreview } from "@/domains/chat/hooks/use-streaming-thinking-preview";
 import { sameThinkingTarget, useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
@@ -100,7 +97,6 @@ export type SingleActivityProps =
 interface ResolvedView {
   dataTestId: string;
   ariaLabel: string;
-  icon: ReactNode;
   label: string;
   /**
    * When `true`, the label renders through {@link StreamingShimmerText} — the
@@ -108,7 +104,6 @@ interface ResolvedView {
    * reasoning). The three-dot pulse is retired in its favor.
    */
   shimmerLabel?: boolean;
-  riskLevel?: string;
   tone: "default" | "error";
   active: boolean;
   onClick: () => void;
@@ -120,10 +115,6 @@ export function SingleActivity(props: SingleActivityProps) {
   // early return (empty, settled thinking) happens after them below.
   const toggleToolDetail = useViewerStore.use.toggleToolDetail();
   const activeDetail = useViewerStore.use.activeToolDetail();
-  const streamingThinkingPreview = useStreamingThinkingPreview(
-    props.variant === "thinking" ? props.content : "",
-    props.variant === "thinking" && props.isStreaming === true,
-  );
 
   // The web variant feeds a rotating carousel into the header info slot. Memoize
   // the element so it stays referentially stable (a fresh element each render
@@ -242,12 +233,7 @@ export function SingleActivity(props: SingleActivityProps) {
     view = {
       dataTestId: "thought-process-link",
       ariaLabel: "View thinking",
-      icon: <Brain className="size-4 shrink-0" aria-hidden />,
-      label: isStreaming
-        ? (streamingThinkingPreview ?? "Thinking")
-        : "Thought process",
-      // Streaming state is carried by the label itself — the avatar-tinted
-      // shimmer sweep — so the glyph stays the stable brain.
+      label: "Thinking",
       shimmerLabel: isStreaming,
       tone: "default",
       // Thinking payloads carry an empty `toolCallId`; the bare panel addresses
@@ -277,8 +263,7 @@ export function SingleActivity(props: SingleActivityProps) {
     };
   } else {
     const { toolCall } = props;
-    const { iconName, activity, info, title } = deriveStepLabel(toolCall);
-    const Glyph = ICON_MAP[iconName] ?? Bolt;
+    const { activity, info, title } = deriveStepLabel(toolCall);
     const label = activity || info || title;
     const isError =
       Boolean(toolCall.isError) ||
@@ -287,16 +272,7 @@ export function SingleActivity(props: SingleActivityProps) {
     view = {
       dataTestId: "inline-tool-link",
       ariaLabel: `View details: ${label}`,
-      // Running state just shows the static tool icon (no spinner) — a lone fast
-      // tool resolves quickly, so the spinner-free chip is acceptable.
-      icon: (
-        <Glyph
-          className="size-4 shrink-0 text-[var(--content-tertiary)]"
-          aria-hidden
-        />
-      ),
       label,
-      riskLevel: toolCall.riskLevel,
       tone: isError ? "error" : "default",
       // A lone run never opens the drawer for a thinking payload; match purely
       // on the active tool-call id.
@@ -325,14 +301,6 @@ export function SingleActivity(props: SingleActivityProps) {
         isError && "text-[var(--system-negative-strong)]",
       )}
     >
-      <span
-        className={cn(
-          "inline-flex shrink-0 items-center text-[var(--content-tertiary)]",
-          isError && "text-[var(--system-negative-strong)]",
-        )}
-      >
-        {view.icon}
-      </span>
       <span className="min-w-0 max-w-[min(520px,calc(100vw-8rem))] truncate">
         {view.shimmerLabel ? (
           <StreamingShimmerText data-testid="thought-process-loading">
@@ -342,7 +310,6 @@ export function SingleActivity(props: SingleActivityProps) {
           view.label
         )}
       </span>
-      {view.riskLevel ? <RiskBadge level={view.riskLevel} /> : null}
       <ChevronRight
         className="size-3.5 shrink-0 text-[var(--content-tertiary)]"
         aria-hidden

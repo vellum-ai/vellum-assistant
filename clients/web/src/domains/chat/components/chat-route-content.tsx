@@ -508,6 +508,7 @@ export function ChatMainPanel({
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
     messages,
     showThinking,
+    turnActive: isAssistantBusy,
     thinkingLabel,
     showOnboardingChoice,
   });

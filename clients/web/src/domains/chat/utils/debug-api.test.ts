@@ -234,7 +234,7 @@ describe("createChatDebugApi.getTranscriptItems", () => {
         key: "msg-a",
         message: fakeDisplayMessage({ id: "msg-a" }),
       },
-      { kind: "thinking", key: "thinking", label: "Processing" },
+      { kind: "thinking", key: "thinking", active: true, label: "Processing" },
     ];
     const api = createChatDebugApi(
       makeRefs({
@@ -262,7 +262,7 @@ describe("createChatDebugApi.getTranscriptItems", () => {
         key: "pc-1",
         requestId: "req-2",
       },
-      { kind: "thinking", key: "thinking" },
+      { kind: "thinking", key: "thinking", active: true },
     ];
     const api = createChatDebugApi(
       makeRefs({

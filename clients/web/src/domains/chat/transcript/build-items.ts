@@ -29,6 +29,16 @@ export interface BuildTranscriptItemsInput {
     role?: string;
   } | null;
   isThinking: boolean;
+  /**
+   * Whether the assistant is busy on an in-flight turn at all (from
+   * `isAssistantBusy`). While true, the thinking item is kept in the list even
+   * when `isThinking` is false — rendered as an invisible fixed-height slot —
+   * so the shimmering indicator fades in/out in place across the turn's
+   * signal-ownership handoffs instead of inserting/removing a row (which read
+   * as the transcript jumping). Omitted/false preserves the legacy behavior:
+   * the item exists only while `isThinking`.
+   */
+  turnActive?: boolean;
   /** Daemon-provided activity label for the thinking indicator. */
   thinkingLabel?: string | null;
   /** Ephemeral local meta-command results (e.g. /clean, /status), rendered at
@@ -223,10 +233,11 @@ export function buildTranscriptItems(
     });
   }
 
-  if (isThinking) {
+  if (isThinking || input.turnActive) {
     items.push({
       kind: "thinking",
       key: "thinking",
+      active: isThinking,
       ...(input.thinkingLabel ? { label: input.thinkingLabel } : {}),
     });
   }

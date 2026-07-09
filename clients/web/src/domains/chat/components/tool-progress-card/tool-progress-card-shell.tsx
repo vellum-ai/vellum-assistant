@@ -339,6 +339,10 @@ export function ToolProgressCardShell({
               // While loading, the primary header label renders through the
               // avatar-tinted shimmer — it IS the loading indicator.
               shimmer={state === "loading"}
+              // Bare headers style the primary label to pixel-match the
+              // inline `SingleActivity` links (13px medium secondary, flush
+              // left) so the transcript's activity affordances all align.
+              inline={bare}
             />
           </span>
         );
@@ -433,7 +437,11 @@ export function ToolProgressCardShell({
                   // While this header's panel is open (`headerActive`) or its
                   // body is expanded, that same surface-hover stays painted so
                   // the header reads as the active/open affordance.
-                  `h-auto w-fit min-w-0 max-w-[calc(100%+0.375rem)] justify-start gap-2 rounded-md px-1.5 py-1.5 -ml-1.5 hover:bg-[var(--surface-hover)]${
+                  // `border-0` drops the ghost Button's transparent 1px
+                  // border so the label lands at exactly the same x as the
+                  // inline `SingleActivity` links (border + px-1.5 − ml-1.5
+                  // otherwise leaves it 1px right of flush).
+                  `h-auto w-fit min-w-0 max-w-[calc(100%+0.375rem)] justify-start gap-2 rounded-md border-0 px-1.5 py-1.5 -ml-1.5 hover:bg-[var(--surface-hover)]${
                     expanded || headerActive
                       ? " bg-[var(--surface-hover)]"
                       : ""
