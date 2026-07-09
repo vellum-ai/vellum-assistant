@@ -34,6 +34,10 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getSubagentManager } from "../subagent/index.js";
+import {
+  readTurnFailure,
+  type TurnFailure,
+} from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import {
@@ -312,7 +316,18 @@ export async function processMessage(
   conversationId: string,
   content: string,
   options?: ProcessMessageOptions,
-): Promise<{ messageId: string; assistantMessageId?: string }> {
+): Promise<{
+  messageId: string;
+  assistantMessageId?: string;
+  /**
+   * The agent turn's failure outcome, or `null` when it replied normally. Set
+   * when the turn failed (e.g. its LLM call failed with an invalid provider) —
+   * that path persists a synthetic error message and returns normally rather
+   * than throwing, so this is the only way an awaiting caller can tell. Omitted
+   * by the slash-command branches, which never run the agent loop.
+   */
+  turnFailure?: TurnFailure | null;
+}> {
   assertDbMigrationsReadyForTurn();
 
   const { conversation, attachments } = await prepareConversationForMessage(
@@ -592,7 +607,12 @@ export async function processMessage(
     }
   }
 
-  return { messageId };
+  // Read the just-finished turn's outcome from the stamp `runAgentLoop`'s
+  // `finally` wrote onto this user-message row. A failed turn (e.g. an LLM
+  // call that failed with an invalid provider) ends without throwing, so this
+  // is the only signal an awaiting caller gets.
+  const turnFailure = readTurnFailure(messageId);
+  return { messageId, turnFailure };
 }
 
 /**
