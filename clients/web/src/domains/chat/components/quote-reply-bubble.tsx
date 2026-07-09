@@ -72,10 +72,15 @@ function useComposerTopOffset(enabled: boolean): number {
     const resizeObserver = new ResizeObserver(measure);
     resizeObserver.observe(composer);
     window.visualViewport?.addEventListener("resize", measure);
+    // iOS shifts layout via visualViewport scroll (keyboard offsetTop change)
+    // with no resize event; the root shell moves on this same signal, so the
+    // dock must remeasure here too or it drifts from the composer.
+    window.visualViewport?.addEventListener("scroll", measure);
     window.addEventListener("resize", measure);
     return () => {
       resizeObserver.disconnect();
       window.visualViewport?.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("scroll", measure);
       window.removeEventListener("resize", measure);
     };
   }, [enabled]);
