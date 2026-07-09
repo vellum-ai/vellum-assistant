@@ -329,12 +329,15 @@ export interface ViewerState {
   activeChannelSetup: ChannelSetupPayload | null;
   viewBeforeChannelSetup: Exclude<MainView, OverlayView>;
   /**
-   * Monotonic counter bumped when a viewer (e.g. the mobile tool-detail
-   * overlay, which lives in a separate portal subtree) asks to open the trust
-   * rule editor for `activeToolDetail`. `ChatMainPanel` owns the rule-editor
-   * state, so it watches this seq and performs the open against `messages`.
+   * Monotonic counter bumped when a viewer (a tool-detail drawer or the
+   * activity-steps drill-in, which may live in a separate portal subtree)
+   * asks to open the trust rule editor for `ruleEditorRequestToolCallId`.
+   * `ChatMainPanel` owns the rule-editor state, so it watches this seq and
+   * performs the open against `messages`.
    */
   ruleEditorRequestSeq: number;
+  /** The tool call the pending rule-editor request targets. */
+  ruleEditorRequestToolCallId: string | null;
 }
 
 export interface ViewerActions {
@@ -401,7 +404,13 @@ export interface ViewerActions {
    */
   toggleToolDetail: (payload: ToolDetailPayload) => void;
   closeToolDetail: () => void;
-  requestRuleEditorForActiveTool: () => void;
+  /**
+   * Ask the chat panel to open the trust-rule editor for `toolCallId`.
+   * Callable from any surface showing a tool call's detail (the tool-detail
+   * drawer, the activity-steps drill-in) — including portal subtrees that
+   * can't reach the rule-editor state directly.
+   */
+  requestRuleEditor: (toolCallId: string) => void;
 
   // --- Activity steps panel ---
   openActivitySteps: (payload: ActivityStepsPayload) => void;
@@ -465,6 +474,7 @@ const INITIAL_STATE: ViewerState = {
   activeChannelSetup: null,
   viewBeforeChannelSetup: "chat",
   ruleEditorRequestSeq: 0,
+  ruleEditorRequestToolCallId: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -750,9 +760,12 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     });
   },
 
-  requestRuleEditorForActiveTool: () => {
-    if (!get().activeToolDetail) return;
-    set((s) => ({ ruleEditorRequestSeq: s.ruleEditorRequestSeq + 1 }));
+  requestRuleEditor: (toolCallId) => {
+    if (!toolCallId) return;
+    set((s) => ({
+      ruleEditorRequestSeq: s.ruleEditorRequestSeq + 1,
+      ruleEditorRequestToolCallId: toolCallId,
+    }));
   },
 
   // --- Activity steps panel ---

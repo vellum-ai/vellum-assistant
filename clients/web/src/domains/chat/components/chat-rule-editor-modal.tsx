@@ -14,9 +14,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Lock } from "lucide-react";
+
 import { Typography } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
+import { Card } from "@vellumai/design-library/components/card";
 import { Modal } from "@vellumai/design-library/components/modal";
+import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
+import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import type { TrustRulePayload } from "@/domains/chat/rule-editor-actions";
 import { toRiskLevel } from "@/domains/chat/utils/risk";
 
@@ -98,43 +103,39 @@ export interface ChatRuleEditorModalProps {
 }
 
 // ---------------------------------------------------------------------------
-// Radio option row — reused for pattern and directory scope sections
+// Shared section pieces
 // ---------------------------------------------------------------------------
 
-function RadioRow({
-  label,
-  selected,
-  onSelect,
+/** Section heading above each option group. */
+function SectionHeading({
+  children,
+  className = "",
 }: {
-  label: string;
-  selected: boolean;
-  onSelect: () => void;
+  children: string;
+  className?: string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className="flex w-full items-start gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-[var(--surface-base)]"
-      aria-pressed={selected}
+    <Typography
+      variant="label-medium-default"
+      as="div"
+      className={`text-[var(--content-secondary)] ${className}`}
     >
-      <span
-        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-          selected
-            ? "border-[var(--primary-base)]"
-            : "border-[var(--content-tertiary)]"
-        }`}
-      >
-        {selected && (
-          <span className="h-2 w-2 rounded-full bg-[var(--primary-base)]" />
-        )}
-      </span>
-      <Typography
-        variant="body-small-default"
-        className="min-w-0 [overflow-wrap:anywhere] text-[var(--content-default)]"
-      >
-        {label}
-      </Typography>
-    </button>
+      {children}
+    </Typography>
+  );
+}
+
+/** Radio label — pattern strings are code, so they render in mono. */
+function OptionLabel({ children, mono }: { children: string; mono?: boolean }) {
+  return (
+    <Typography
+      variant="body-small-default"
+      className={`min-w-0 [overflow-wrap:anywhere] text-[var(--content-default)] ${
+        mono ? "font-mono" : ""
+      }`}
+    >
+      {children}
+    </Typography>
   );
 }
 
@@ -373,191 +374,179 @@ export function ChatRuleEditorModal({
       <Modal.Content size="sm" hideCloseButton>
         <Modal.Header>
           <Modal.Title>{isEditMode ? "Edit Trust Rule" : "Create Trust Rule"}</Modal.Title>
+          <Modal.Description>
+            Matching tool calls take this rule's risk level, so your approval
+            tolerance can auto-approve them.
+          </Modal.Description>
         </Modal.Header>
 
         <Modal.Body>
-          <div className="space-y-5">
-            {/* Context header — command text + description */}
-            <div className="space-y-1">
-              {context.commandText && (
-                <div className="rounded-md bg-[var(--surface-base)] px-3 py-2">
-                  <Typography
-                    variant="body-small-default"
-                    className="line-clamp-2 font-mono text-[var(--content-default)]"
-                  >
-                    {context.commandText}
-                  </Typography>
+          <div className="flex flex-col gap-5">
+            {/* The tool call this rule generalizes from */}
+            {(context.commandText || context.commandDescription) && (
+              <Card padding="sm">
+                <div className="flex flex-col gap-1">
+                  {context.commandText && (
+                    <Typography
+                      variant="body-small-default"
+                      className="line-clamp-2 font-mono [overflow-wrap:anywhere] text-[var(--content-default)]"
+                    >
+                      {context.commandText}
+                    </Typography>
+                  )}
+                  {context.commandDescription && (
+                    <Typography
+                      variant="label-medium-default"
+                      className="text-[var(--content-tertiary)]"
+                    >
+                      {context.commandDescription}
+                    </Typography>
+                  )}
                 </div>
-              )}
-              {context.commandDescription && (
-                <Typography
-                  variant="label-medium-default"
-                  className="text-[var(--content-tertiary)]"
-                >
-                  {context.commandDescription}
-                </Typography>
-              )}
-            </div>
+              </Card>
+            )}
 
             {/* Apply to — pattern options */}
-            <div className="space-y-2">
-              <Typography
-                variant="label-medium-default"
-                className="text-[var(--content-secondary)]"
-              >
-                Apply to
-              </Typography>
+            <section className="flex flex-col gap-2">
+              <SectionHeading>Apply to</SectionHeading>
               {isEditMode && existingRule ? (
                 <>
-                  {/* Edit mode: show existing rule pattern as read-only */}
-                  <div className="flex items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-3 py-2">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-2.5 w-2.5 shrink-0 text-[var(--content-tertiary)]"
-                    >
-                      <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </svg>
-                    <Typography
-                      variant="body-medium-default"
-                      className="truncate font-mono text-[var(--content-secondary)]"
-                    >
-                      {existingRule.pattern}
-                    </Typography>
-                  </div>
+                  {/* Edit mode: the existing rule pattern is locked */}
+                  <Card padding="sm">
+                    <div className="flex items-center gap-2">
+                      <Lock
+                        aria-hidden="true"
+                        className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
+                      />
+                      <Typography
+                        variant="body-small-default"
+                        className="truncate font-mono text-[var(--content-secondary)]"
+                      >
+                        {existingRule.pattern}
+                      </Typography>
+                    </div>
+                  </Card>
                   {/* Narrower scope options for Save As New */}
                   {showSaveAsNew && (
                     <>
-                      <Typography
-                        variant="label-medium-default"
-                        className="text-[var(--content-secondary)]"
-                      >
+                      <SectionHeading className="mt-1">
                         Or narrow the scope:
-                      </Typography>
-                      <div className="space-y-1">
-                        {narrowerOptions.map((option) => {
-                          const scopeIdx = effectiveOptions.findIndex(
-                            (o) => o.pattern === option.pattern,
-                          );
-                          if (scopeIdx < 0) {
-                            return null;
+                      </SectionHeading>
+                      <Card padding="sm">
+                        <RadioGroup
+                          aria-label="Narrower scope"
+                          value={String(selectedPatternIndex)}
+                          onValueChange={(next) =>
+                            handleUserInteraction(() =>
+                              setSelectedPatternIndex(Number(next)),
+                            )
                           }
-                          return (
-                            <RadioRow
-                              key={option.pattern}
-                              label={option.label}
-                              selected={selectedPatternIndex === scopeIdx}
-                              onSelect={() =>
-                                handleUserInteraction(() => setSelectedPatternIndex(scopeIdx))
-                              }
-                            />
-                          );
-                        })}
-                      </div>
+                        >
+                          {narrowerOptions.map((option) => {
+                            const scopeIdx = effectiveOptions.findIndex(
+                              (o) => o.pattern === option.pattern,
+                            );
+                            if (scopeIdx < 0) {
+                              return null;
+                            }
+                            return (
+                              <Radio
+                                key={option.pattern}
+                                value={String(scopeIdx)}
+                                label={<OptionLabel mono>{option.label}</OptionLabel>}
+                              />
+                            );
+                          })}
+                        </RadioGroup>
+                      </Card>
                     </>
                   )}
                 </>
               ) : pipelineCollapsed || generalizedOptions.length === 1 ? (
-                <div className="rounded-md bg-[var(--surface-base)] px-3 py-2">
+                <Card padding="sm">
                   <Typography
                     variant="body-small-default"
                     className="block whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere] text-[var(--content-default)]"
                   >
                     {generalizedOptions[0]?.label ?? ""}
                   </Typography>
-                </div>
+                </Card>
               ) : generalizedOptions.length > 1 ? (
-                <div className="space-y-1">
-                  {generalizedOptions.map((option, i) => {
-                    const targetIndex = i + generalizationOffset;
-                    return (
-                      <RadioRow
-                        key={option.pattern}
-                        label={option.label}
-                        selected={selectedPatternIndex === targetIndex}
-                        onSelect={() =>
-                          handleUserInteraction(() => setSelectedPatternIndex(targetIndex))
-                        }
-                      />
-                    );
-                  })}
-                </div>
+                <Card padding="sm">
+                  <RadioGroup
+                    aria-label="Apply to"
+                    value={String(selectedPatternIndex)}
+                    onValueChange={(next) =>
+                      handleUserInteraction(() =>
+                        setSelectedPatternIndex(Number(next)),
+                      )
+                    }
+                  >
+                    {generalizedOptions.map((option, i) => {
+                      const targetIndex = i + generalizationOffset;
+                      return (
+                        <Radio
+                          key={option.pattern}
+                          value={String(targetIndex)}
+                          label={<OptionLabel mono>{option.label}</OptionLabel>}
+                        />
+                      );
+                    })}
+                  </RadioGroup>
+                </Card>
               ) : null}
-            </div>
+            </section>
 
             {/* Where — directory scope */}
             {directoryScopeFiltered.length > 0 && (
-              <div className="space-y-2">
-                <Typography
-                  variant="label-medium-default"
-                  className="text-[var(--content-secondary)]"
-                >
-                  Where
-                </Typography>
-                <div className="space-y-1">
-                  {directoryScopeFiltered.map((option, i) => (
-                    <RadioRow
-                      key={option.scope}
-                      label={option.label}
-                      selected={selectedDirScopeIndex === i}
-                      onSelect={() =>
-                        handleUserInteraction(() => setSelectedDirScopeIndex(i))
-                      }
-                    />
-                  ))}
-                  <RadioRow
-                    label="Everywhere"
-                    selected={selectedDirScopeIndex === -1}
-                    onSelect={() =>
-                      handleUserInteraction(() => setSelectedDirScopeIndex(-1))
+              <section className="flex flex-col gap-2">
+                <SectionHeading>Where</SectionHeading>
+                <Card padding="sm">
+                  <RadioGroup
+                    aria-label="Where"
+                    value={String(selectedDirScopeIndex)}
+                    onValueChange={(next) =>
+                      handleUserInteraction(() =>
+                        setSelectedDirScopeIndex(Number(next)),
+                      )
                     }
-                  />
-                </div>
-              </div>
+                  >
+                    {directoryScopeFiltered.map((option, i) => (
+                      <Radio
+                        key={option.scope}
+                        value={String(i)}
+                        label={<OptionLabel>{option.label}</OptionLabel>}
+                      />
+                    ))}
+                    <Radio
+                      value="-1"
+                      label={<OptionLabel>Everywhere</OptionLabel>}
+                    />
+                  </RadioGroup>
+                </Card>
+              </section>
             )}
 
             {/* Treat as — risk level picker */}
-            <div className="space-y-2">
-              <Typography
-                variant="label-medium-default"
-                className="text-[var(--content-secondary)]"
-              >
-                Treat as
-              </Typography>
-              <div className="flex gap-2">
-                {RISK_LEVELS.map((level) => {
-                  const isSelected = selectedRiskLevel === level.value;
-                  return (
-                    <button
-                      key={level.value}
-                      type="button"
-                      onClick={() =>
-                        handleUserInteraction(() => setSelectedRiskLevel(level.value))
-                      }
-                      className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 transition-colors ${
-                        isSelected
-                          ? "border-[var(--primary-base)] bg-[var(--surface-active)]"
-                          : "border-[var(--border-base)] bg-transparent hover:bg-[var(--surface-base)]"
-                      }`}
-                      aria-pressed={isSelected}
-                    >
-                      <span className={`h-2 w-2 shrink-0 rounded-full ${level.dotColor}`} />
-                      <Typography
-                        variant="body-medium-default"
-                        className="text-[var(--content-default)]"
-                      >
-                        {level.label}
-                      </Typography>
-                    </button>
-                  );
-                })}
-              </div>
+            <section className="flex flex-col gap-2">
+              <SectionHeading>Treat as</SectionHeading>
+              <SegmentControl<TrustRuleRisk>
+                ariaLabel="Treat as"
+                value={selectedRiskLevel}
+                onChange={(next) =>
+                  handleUserInteraction(() => setSelectedRiskLevel(next))
+                }
+                items={RISK_LEVELS.map((level) => ({
+                  value: level.value,
+                  label: level.label,
+                  icon: (
+                    <span
+                      aria-hidden="true"
+                      className={`h-2 w-2 shrink-0 rounded-full ${level.dotColor}`}
+                    />
+                  ),
+                }))}
+              />
               {showSuggestionAnnotation && (
                 <Typography
                   variant="label-medium-default"
@@ -574,7 +563,7 @@ export function ChatRuleEditorModal({
                   {riskHint}
                 </Typography>
               )}
-            </div>
+            </section>
           </div>
         </Modal.Body>
 

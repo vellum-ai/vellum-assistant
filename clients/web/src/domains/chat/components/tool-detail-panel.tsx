@@ -1,7 +1,9 @@
 /**
  * Side-drawer body shown when a tool-call step pill is clicked. Mirrors the
  * web `SubagentDetailPanel` shell (outer container, header with leading icon /
- * title / risk badge / close, scrollable body with sections).
+ * title / close, scrollable body with sections). The call's risk level lives
+ * in the body's "Reasoning" section (badge + rationale + trust-rule button),
+ * not the header.
  *
  * Driven by the `ToolDetailPayload` opened into `viewer-store`. Both variants
  * subscribe to the chat-session store so an open drawer streams live: the tool
@@ -28,11 +30,12 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Typography } from "@vellumai/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { DetailShell } from "@/domains/chat/components/detail-shell";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
+import { useViewerStore } from "@/stores/viewer-store";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
 import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
@@ -178,8 +181,52 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
   const hasStreamedOutput = !!streamedOutput;
   const inputJson = JSON.stringify(detail.input, null, 2);
 
+  // Risk assessment can land after the drawer opens — prefer the live call.
+  const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
+  const riskReason = liveTc?.riskReason ?? detail.riskReason;
+  // The trust-rule editor needs the raw tool call (its allowlist ladder /
+  // scope options), which the bridge resolves from the transcript — offer the
+  // button only when the call resolves live, so it never opens on nothing.
+  const canCreateTrustRule = liveTc != null;
+
   return (
     <>
+      {/* Reasoning — the call's risk level, why it was classified that way,
+          and the affordance to persist that judgement as a trust rule. */}
+      {riskLevel && (
+        <div className="mb-5">
+          <SectionLabel>Reasoning</SectionLabel>
+          <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <RiskBadge level={riskLevel} className="self-start" />
+                {riskReason && (
+                  <Typography
+                    variant="body-small-default"
+                    as="p"
+                    className="text-[var(--content-secondary)]"
+                  >
+                    {riskReason}
+                  </Typography>
+                )}
+              </div>
+              {canCreateTrustRule && (
+                <Button
+                  variant="outlined"
+                  size="compact"
+                  className="shrink-0"
+                  onClick={() =>
+                    useViewerStore.getState().requestRuleEditor(detail.toolCallId)
+                  }
+                >
+                  Create Trust Rule
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tool name + activity + input */}
       <div>
         <Typography
@@ -230,11 +277,9 @@ export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
 export function ToolDetailPanel({
   detail,
   onClose,
-  onRiskBadgeClick,
 }: {
   detail: ToolDetailPayload;
   onClose: () => void;
-  onRiskBadgeClick?: () => void;
 }) {
   // Thinking variant — reuse the same shell/header but render the full
   // reasoning markdown with no input/output sections and no risk badge.
@@ -253,9 +298,6 @@ export function ToolDetailPanel({
       title={title}
       closeLabel="Close tool details"
       onClose={onClose}
-      headerTrailing={
-        <RiskBadge level={detail.riskLevel} onClick={onRiskBadgeClick} />
-      }
     >
       <ToolDetailBody detail={detail} />
     </DetailShell>
