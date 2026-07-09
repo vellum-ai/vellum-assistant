@@ -42,6 +42,7 @@ import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import {
   buildSlackMetaForPersistence,
+  CONVERSATION_BUSY_MESSAGE,
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";
 import {
@@ -179,7 +180,7 @@ async function prepareConversationForMessage(
   );
 
   if (conversation.isProcessing()) {
-    throw new Error("Conversation is already processing a message");
+    throw new Error(CONVERSATION_BUSY_MESSAGE);
   }
 
   const resolvedChannel = resolveTurnChannel(

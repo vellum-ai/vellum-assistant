@@ -23,6 +23,7 @@
 
 import { create } from "zustand";
 
+import type { LiveVoiceMetricsServerFrame } from "@/domains/chat/voice/live-voice/protocol";
 import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
@@ -117,6 +118,25 @@ export interface LiveVoiceSessionControls {
 }
 
 /**
+ * Latency pair for the most recent live-voice turn.
+ *
+ * - `server` — the daemon's `metrics` frame for the turn, `null` until it
+ *   arrives (its `roundTripMs` is normalized to `null` by the controller when
+ *   an older daemon omits the field).
+ * - `clientHeardLatencyMs` — the client-perceived end-of-speech → first
+ *   TTS-audio-enqueued delta measured by the controller (includes network +
+ *   queueing the server can't see); `null` when the turn produced no audio or
+ *   had no pending end-of-speech stamp.
+ *
+ * Written wholesale as one object so the atomic `use.lastTurnLatency()`
+ * selector never observes a torn pair (see docs/STATE_MANAGEMENT.md).
+ */
+export interface LiveVoiceTurnLatency {
+  readonly server: LiveVoiceMetricsServerFrame | null;
+  readonly clientHeardLatencyMs: number | null;
+}
+
+/**
  * Starts a live-voice session for `assistantId`, attaching `conversationId`
  * when non-null. Registered into the store by the persistently mounted
  * session-controller hook (see `use-live-voice-session-controller.ts`) so any
@@ -171,6 +191,14 @@ export interface LiveVoiceState {
   /** Smoothed RMS mic amplitude in [0, 1] for UI / barge-in. */
   inputAmplitude: number;
   /**
+   * Latency measurements for the last turn, `null` until a turn is measured.
+   * Debug surface only — per the minimal-treatment note on
+   * {@link LIVE_VOICE_STATE_LABELS}, no surface renders this: the controller
+   * logs one `console.debug("[live-voice] turn latency", …)` line per
+   * completed turn and this field waits for a future debug panel.
+   */
+  lastTurnLatency: LiveVoiceTurnLatency | null;
+  /**
    * Provider for the assistant's TTS *output* amplitude in [0, 1], registered
    * by the controller from the active session's {@link LiveVoiceAudioPlayer}
    * (its output-bus analyser). `null` when there is no session, or on a context
@@ -219,6 +247,11 @@ export interface LiveVoiceActions {
    */
   clearUserTranscripts: () => void;
   setInputAmplitude: (amplitude: number) => void;
+  /**
+   * Replace the last turn's latency pair wholesale (never patch a member in
+   * place) so subscribers of the atomic selector see one consistent object.
+   */
+  setLastTurnLatency: (lastTurnLatency: LiveVoiceTurnLatency) => void;
   /** Register (or clear) the active player's output-amplitude provider. */
   setOutputAmplitudeProvider: (provider: (() => number) | null) => void;
   /** Transition to `failed` with a message. */
@@ -314,6 +347,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   finalTranscript: "",
   assistantTranscript: "",
   inputAmplitude: 0,
+  lastTurnLatency: null,
   outputAmplitudeProvider: null,
   error: null,
 };
@@ -336,6 +370,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   clearAssistantTranscript: () => set({ assistantTranscript: "" }),
   clearUserTranscripts: () => set({ partialTranscript: "", finalTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
+  setLastTurnLatency: (lastTurnLatency) => set({ lastTurnLatency }),
   setOutputAmplitudeProvider: (outputAmplitudeProvider) =>
     set({ outputAmplitudeProvider }),
   fail: (message) => set({ state: "failed", error: message }),

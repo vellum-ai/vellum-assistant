@@ -263,12 +263,31 @@ export interface ConversationConstructorOptions {
   parentConversationId?: string;
 }
 
+/**
+ * The rejection value for an aborted {@link Conversation.waitForIdle} wait:
+ * the signal's own reason when set, else a plain Error so callers always
+ * receive a throwable.
+ */
+function abortReasonOf(signal?: AbortSignal): unknown {
+  return (
+    signal?.reason ?? new Error("Aborted while waiting for conversation idle")
+  );
+}
+
 export class Conversation {
   public readonly conversationId: string;
   /** @internal */ provider: Provider;
   /** @internal */ messages: Message[] = [];
   /** @internal */ agentLoop: AgentLoop;
   private _processing = false;
+  /**
+   * Pending {@link waitForIdle} resolvers, notified from the committed
+   * `processing → false` transition inside {@link setProcessing}. Every
+   * `setProcessing(false)` call site funnels through that single method
+   * (agent-loop/messaging/lifecycle contexts receive the Conversation
+   * instance itself), so waiters cannot miss a release.
+   */
+  private idleWaiters = new Set<() => void>();
   private stale = false;
   /** @internal */ abortController: AbortController | null = null;
   /** @internal */ prompter: PermissionPrompter;
@@ -1475,11 +1494,59 @@ export class Conversation {
       this._processing = wasProcessing;
       throw err;
     }
+    if (!value && this.idleWaiters.size > 0) {
+      // Notify only after the persisted write above committed — a thrown
+      // write reverts the in-memory flag and re-throws, so waiters must not
+      // observe a release that never happened. Copy-and-clear so a waiter
+      // registered from inside a notification can't be re-entered.
+      const waiters = [...this.idleWaiters];
+      this.idleWaiters.clear();
+      for (const notify of waiters) {
+        notify();
+      }
+    }
     if (wasProcessing && !value) {
       void publishSyncInvalidation([
         conversationMetadataSyncTag(this.conversationId),
       ]);
     }
+  }
+
+  /**
+   * Wait until this conversation's processing lock releases.
+   *
+   * Resolves `true` as soon as `processing` is false (including a
+   * synchronous fast path when it already is), resolves `false` when
+   * `timeoutMs` elapses first, and rejects with the signal's abort reason
+   * if `signal` fires while waiting. Resolution is event-driven from the
+   * `setProcessing(false)` transition — no polling — so a voice barge-in
+   * turn can start on the same tick the prior turn releases the lock.
+   * Timer and abort listener are cleaned up on every exit path.
+   */
+  waitForIdle(options: {
+    timeoutMs: number;
+    signal?: AbortSignal;
+  }): Promise<boolean> {
+    const { timeoutMs, signal } = options;
+    if (!this._processing) {
+      return Promise.resolve(true);
+    }
+    if (signal?.aborted) {
+      return Promise.reject(abortReasonOf(signal));
+    }
+    return new Promise<boolean>((resolve, reject) => {
+      const settle = (fn: () => void) => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        this.idleWaiters.delete(notify);
+        fn();
+      };
+      const notify = () => settle(() => resolve(true));
+      const onAbort = () => settle(() => reject(abortReasonOf(signal)));
+      const timer = setTimeout(() => settle(() => resolve(false)), timeoutMs);
+      this.idleWaiters.add(notify);
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
   }
 
   markStale(): void {
@@ -2198,7 +2265,7 @@ export class Conversation {
     }
   }
 
-  setTurnChannelContext(ctx: TurnChannelContext): void {
+  setTurnChannelContext(ctx: TurnChannelContext | null): void {
     this.currentTurnChannelContext = ctx;
   }
 
@@ -2206,7 +2273,7 @@ export class Conversation {
     return this.currentTurnChannelContext;
   }
 
-  setTurnInterfaceContext(ctx: TurnInterfaceContext): void {
+  setTurnInterfaceContext(ctx: TurnInterfaceContext | null): void {
     this.currentTurnInterfaceContext = ctx;
   }
 

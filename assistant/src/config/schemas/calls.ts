@@ -64,6 +64,15 @@ const CallsVoiceConfigSchema = z
       .describe(
         "Whether phone-call audio is streamed to the STT provider in real time; disable to fall back to per-turn batch transcription",
       ),
+    utteranceEndMs: z
+      .number({ error: "calls.voice.utteranceEndMs must be a number" })
+      .int("calls.voice.utteranceEndMs must be an integer")
+      .min(1000, "calls.voice.utteranceEndMs must be >= 1000")
+      .max(5000, "calls.voice.utteranceEndMs must be at most 5000")
+      .default(1000)
+      .describe(
+        "Silence window (ms) the STT provider waits before finalizing a telephony utterance; Deepgram's hosted API floor for utterance_end_ms is 1000",
+      ),
   })
   .describe("Voice and speech settings for phone calls");
 

@@ -115,6 +115,7 @@ function makeTarget(): {
     messages,
     getMessages: () => messages,
     isProcessing: () => processing,
+    waitForIdle: async () => !processing,
     setProcessing: (on: boolean) => {
       processing = on;
     },

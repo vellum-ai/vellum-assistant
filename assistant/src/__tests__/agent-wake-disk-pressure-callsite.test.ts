@@ -84,6 +84,7 @@ function makeTarget(): Conversation {
     messages,
     getMessages: () => messages,
     isProcessing: () => processing,
+    waitForIdle: async () => !processing,
     setProcessing: (on: boolean) => {
       processing = on;
     },
