@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import { embedAndUpsert, extractMediaBlocks } from "@vellumai/plugin-api";
+import { embedAndUpsert } from "@vellumai/plugin-api";
 import { eq } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
@@ -13,6 +13,7 @@ import {
   memorySummaries,
   messages,
 } from "../../../../persistence/schema/index.js";
+import { extractMediaBlocks } from "../message-media.js";
 
 export async function embedSegmentJob(job: MemoryJob): Promise<void> {
   const segmentId = asString(job.payload.segmentId);

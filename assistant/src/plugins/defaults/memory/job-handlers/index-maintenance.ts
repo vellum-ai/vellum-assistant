@@ -1,7 +1,4 @@
-import {
-  extractMediaBlockMeta,
-  selectedBackendSupportsMultimodal,
-} from "@vellumai/plugin-api";
+import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
 import { eq, isNotNull, like, ne } from "drizzle-orm";
 
 import { getDb } from "../../../../persistence/db-connection.js";
@@ -25,6 +22,7 @@ import {
   messages,
 } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../../../../util/logger.js";
+import { extractMediaBlockMeta } from "../message-media.js";
 
 const log = getLogger("memory-jobs-worker");
 

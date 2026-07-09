@@ -1,5 +1,4 @@
 import {
-  extractMediaBlockMeta,
   extractTextFromStoredMessageContent,
   selectedBackendSupportsMultimodal,
 } from "@vellumai/plugin-api";
@@ -26,6 +25,7 @@ import { isAutoAnalysisConversation } from "../../../runtime/services/auto-analy
 import { getLogger } from "../../../util/logger.js";
 import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
 import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
+import { extractMediaBlockMeta } from "./message-media.js";
 import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");
