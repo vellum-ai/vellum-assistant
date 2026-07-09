@@ -25,6 +25,19 @@ let cachedFileSignature: ConfigFileSignature | null = null;
 let loading = false;
 let suppressConfigDiskWritesDepth = 0;
 
+/**
+ * The most recent config that validated successfully in this process, captured
+ * inside {@link validateWithSchema} on every success path. It is a safety net
+ * for the recovery ladder — when config.json later fails validation even after
+ * per-key cleanup, the last-known-good config is preferred over discarding the
+ * user's entire configuration and falling back to schema defaults.
+ *
+ * Deliberately NOT cleared by {@link invalidateConfigCache}: cache
+ * invalidation forces a re-read from disk, but the safety net must survive a
+ * re-read so it can rescue a subsequently-corrupted config.
+ */
+let lastKnownGoodConfig: AssistantConfig | null = null;
+
 type ConfigFileSignature =
   | {
       path: string;
@@ -287,14 +300,42 @@ function writeQuarantineNotice(
   }
 }
 
+/** Minimal structural view of the Zod issues the recovery ladder consumes. */
+type ValidationIssue = { path: PropertyKey[]; message: string };
+
+/** Join a Zod issue's path/message into a single human-readable clause. */
+function describeIssues(issues: ValidationIssue[]): string {
+  return issues
+    .map((issue) => {
+      const path = issue.path.join(".");
+      return path ? `"${path}": ${issue.message}` : issue.message;
+    })
+    .join("; ");
+}
+
 /**
- * Validate a raw config object with Zod. Invalid fields are logged as warnings
- * and replaced with defaults (matching prior behavior of per-field fallback).
+ * Validate a raw config object with Zod, applying schema defaults for absent
+ * keys. Invalid fields are logged and stripped so their schema defaults apply,
+ * then the config is re-parsed.
+ *
+ * When cleanup fails to produce a valid config, recovery follows a ladder
+ * (see {@link recoverFromInvalidConfig}) that prefers preserving as much of the
+ * user's configuration as possible over discarding it wholesale:
+ *   1. the last-known-good config validated earlier in this process,
+ *   2. a per-section salvage that keeps every top-level section that validates
+ *      on its own and defaults only the ones that do not, and
+ *   3. full schema defaults as the true last resort.
+ *
+ * Every success path records a `structuredClone` of the returned config as the
+ * last-known-good safety net. Cloning is required because `loadConfig` mutates
+ * the returned object in place via `fillContextDefaultsForMissingKeys`.
  */
 function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   const result = AssistantConfigSchema.safeParse(raw);
   if (result.success) {
-    return applyNestedDefaults(result.data);
+    const config = applyNestedDefaults(result.data);
+    lastKnownGoodConfig = structuredClone(config);
+    return config;
   }
 
   // Log each validation issue as a warning
@@ -318,19 +359,78 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   const cleaned = structuredClone(raw);
   for (const issue of result.error.issues) {
     if (issue.path.length === 0) {
-      // Top-level error — return full defaults
-      return cloneDefaultConfig();
+      // Top-level error — individual keys cannot be stripped. Recover working
+      // from the clone as-is (its top-level sections are still iterable).
+      return recoverFromInvalidConfig(cleaned, [...result.error.issues]);
     }
     deleteNestedKey(cleaned, issue.path as (string | number)[], true);
   }
 
   const retry = AssistantConfigSchema.safeParse(cleaned);
   if (retry.success) {
-    return applyNestedDefaults(retry.data);
+    const config = applyNestedDefaults(retry.data);
+    lastKnownGoodConfig = structuredClone(config);
+    return config;
   }
 
-  // If still failing, fall back to full defaults
-  log.warn("Config validation failed after cleanup. Using full defaults.");
+  return recoverFromInvalidConfig(cleaned, [...retry.error.issues]);
+}
+
+/**
+ * Recover a usable config when {@link validateWithSchema}'s strip-and-reparse
+ * cleanup cannot produce a valid config, minimizing how much of the user's
+ * configuration is discarded.
+ *
+ * Ladder:
+ *   1. If a last-known-good config was captured earlier in this process, keep
+ *      it — config.json on disk is untouched, so only the in-memory view is
+ *      degraded and the previous good values are the closest safe substitute.
+ *   2. Otherwise (first load after startup), salvage section-by-section: keep
+ *      every top-level section of `cleaned` that validates on its own and reset
+ *      only the sections that do not.
+ *   3. If even the combined kept sections fail to parse, return full schema
+ *      defaults.
+ */
+function recoverFromInvalidConfig(
+  cleaned: Record<string, unknown>,
+  issues: ValidationIssue[],
+): AssistantConfig {
+  const issueSummary = describeIssues(issues);
+
+  if (lastKnownGoodConfig) {
+    log.error(
+      `config.json failed validation even after stripping invalid fields; ` +
+        `keeping the last-known-good configuration from this process. Fix ` +
+        `config.json to apply your changes (validation issues: ${issueSummary}).`,
+    );
+    return structuredClone(lastKnownGoodConfig);
+  }
+
+  const kept: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(cleaned)) {
+    const sectionResult = AssistantConfigSchema.safeParse({ [key]: value });
+    if (sectionResult.success) {
+      kept[key] = value;
+    } else {
+      log.error(
+        `config.json section "${key}" failed validation; resetting it to ` +
+          `defaults.`,
+      );
+    }
+  }
+
+  const salvaged = AssistantConfigSchema.safeParse(kept);
+  if (salvaged.success) {
+    const config = applyNestedDefaults(salvaged.data);
+    lastKnownGoodConfig = structuredClone(config);
+    return config;
+  }
+
+  log.error(
+    `config.json could not be salvaged section-by-section; loading full ` +
+      `defaults. Fix config.json to restore your settings (validation ` +
+      `issues: ${describeIssues([...salvaged.error.issues])}).`,
+  );
   return cloneDefaultConfig();
 }
 
@@ -998,3 +1098,14 @@ export function setNestedValue(
  * production use.
  */
 export const _writeQuarantineNotice = writeQuarantineNotice;
+
+/**
+ * Test-only reset for the module-level last-known-good config safety net.
+ * Exists so tests can exercise the first-load-after-startup salvage path (where
+ * no last-known-good config exists yet) deterministically. Not for production
+ * use: {@link invalidateConfigCache} deliberately preserves the safety net, so
+ * production code never clears it.
+ */
+export function _resetLastKnownGoodConfigForTests(): void {
+  lastKnownGoodConfig = null;
+}
