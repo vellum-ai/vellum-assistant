@@ -35,10 +35,21 @@ OUT_DIR=/tmp/sqlite-bench TARGET_BYTES=$((200*1024*1024)) \
 
 ## In CI
 
-The `Benchmark - SQLite insert scaling` workflow runs it on
-`workflow_dispatch` (with tunable inputs) and on PRs that touch these files.
-Databases are written to `/mnt/sqlite-bench` (the runner's large ephemeral
-volume) and results are posted to the job summary.
+The benchmark runs via the `Benchmark - SQLite insert scaling` GitHub Actions
+workflow on `workflow_dispatch` (with tunable inputs) and on PRs that touch
+these files. Databases are written to `/mnt/sqlite-bench` (the runner's large
+ephemeral volume) and results are posted to the job summary.
+
+> **Activation step:** the workflow YAML is staged in this directory as
+> `benchmark-sqlite-insert.yaml` because the automation that opened the PR
+> lacks the GitHub `workflow` OAuth scope required to write under
+> `.github/workflows/`. To enable it, move the file into place from a client
+> that has workflow scope:
+>
+> ```bash
+> git mv benchmarking/sqlite/benchmark-sqlite-insert.yaml \
+>        .github/workflows/benchmark-sqlite-insert.yaml
+> ```
 
 ## Environment variables
 
