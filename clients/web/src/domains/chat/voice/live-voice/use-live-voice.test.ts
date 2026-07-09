@@ -1173,6 +1173,150 @@ describe("turn latency", () => {
     });
     expect(useLiveVoiceStore.getState().lastTurnLatency).toBeNull();
   });
+
+  test("an utterance ending mid-thinking keeps its stamp for its own turn", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // Utterance A ends and its turn t1 starts thinking.
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 2,
+        reason: "silence",
+      });
+      h.client.emit("thinking", { type: "thinking", seq: 3, turnId: "t1" });
+    });
+    // Utterance B ends while t1 is still thinking (allowed in hands-free —
+    // no turn_cancelled follows a pre-audio overlap).
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 4 });
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 5,
+        reason: "silence",
+      });
+    });
+    await act(async () => {
+      await sleep(10);
+    });
+    // t1's first audio measures against A's bound stamp — it must not
+    // consume B's pending one.
+    act(() => {
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 6,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(
+      useLiveVoiceStore.getState().lastTurnLatency?.clientHeardLatencyMs,
+    ).toBeGreaterThan(0);
+
+    // B's own turn still gets a measurement from B's stamp.
+    await act(async () => {
+      await sleep(10);
+    });
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 7, turnId: "t2" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 8,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(
+      useLiveVoiceStore.getState().lastTurnLatency?.clientHeardLatencyMs,
+    ).toBeGreaterThan(0);
+  });
+
+  test("a cancelled turn leaves the overlapping utterance's pending stamp intact", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // Utterance A → t1 thinking; utterance B ends mid-thinking; t1 cancelled.
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 2,
+        reason: "silence",
+      });
+      h.client.emit("thinking", { type: "thinking", seq: 3, turnId: "t1" });
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 4,
+        reason: "silence",
+      });
+      h.client.emit("turnCancelled", {
+        type: "turn_cancelled",
+        seq: 5,
+        turnId: "t1",
+      });
+    });
+    await act(async () => {
+      await sleep(10);
+    });
+    // B's turn still measures — cancellation only dropped t1's bound stamp.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 6, turnId: "t2" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 7,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(
+      useLiveVoiceStore.getState().lastTurnLatency?.clientHeardLatencyMs,
+    ).toBeGreaterThan(0);
+  });
+
+  test("metrics frames for cancelled turns and session end are ignored", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("metrics", {
+        type: "metrics",
+        seq: 2,
+        event: "turn_cancelled",
+        turnId: "t1",
+        ...METRICS_FIELDS,
+        roundTripMs: 500,
+      });
+      h.client.emit("metrics", {
+        type: "metrics",
+        seq: 3,
+        event: "session_ended",
+        turnId: "t1",
+        ...METRICS_FIELDS,
+        roundTripMs: 500,
+      });
+    });
+    expect(useLiveVoiceStore.getState().lastTurnLatency).toBeNull();
+    expect(latencyLogs()).toHaveLength(0);
+
+    // A completed-turn frame still lands.
+    act(() => {
+      h.client.emit("metrics", {
+        type: "metrics",
+        seq: 4,
+        event: "turn_completed",
+        turnId: "t2",
+        ...METRICS_FIELDS,
+        roundTripMs: 640,
+      });
+    });
+    expect(
+      useLiveVoiceStore.getState().lastTurnLatency?.server?.roundTripMs,
+    ).toBe(640);
+    expect(latencyLogs()).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

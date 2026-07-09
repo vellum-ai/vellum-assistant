@@ -257,14 +257,24 @@ interface SessionContext {
   /** Accumulated trailing silence (ms) after speech in the current utterance. */
   silenceMs: number;
   /**
-   * `performance.now()` stamp of the current turn's end-of-speech — the
+   * `performance.now()` stamp of the most recent end-of-speech — the
    * `utterance_end` frame (hands-free) or the `ptt_release` send (manual).
-   * Consumed by the FIRST `tts_audio` frame of the following response to
-   * derive `clientHeardLatencyMs`; cleared on `turn_cancelled` and
-   * `utterance_discarded` (and dies with the session context on teardown) so
-   * a stale stamp never pairs across turns.
+   * Pending until a `thinking` frame binds it to that turn (see
+   * `turnHeardStampMs`); cleared on `utterance_discarded` (and dies with
+   * the session context on teardown) so a stale stamp never pairs across
+   * turns. Hands-free allows a new utterance to end while the previous
+   * response is still thinking, so the pending stamp must stay unbound
+   * until its own turn starts.
    */
   speechEndedAtMs: number | null;
+  /**
+   * The end-of-speech stamp bound to the in-flight response — moved from
+   * `speechEndedAtMs` when that response's `thinking` frame arrives.
+   * Consumed by the response's FIRST `tts_audio` frame to derive
+   * `clientHeardLatencyMs`; cleared on `turn_cancelled` so a cancelled
+   * turn's stamp can't pair with a later response's audio.
+   */
+  turnHeardStampMs: number | null;
   /**
    * Client-perceived end-of-speech → first-TTS-audio latency for the current
    * response, `null` until measured (and for responses that produced no
@@ -496,6 +506,7 @@ export function useLiveVoice(
         speechMs: 0,
         silenceMs: 0,
         speechEndedAtMs: null,
+        turnHeardStampMs: null,
         clientHeardLatencyMs: null,
       };
 
@@ -614,6 +625,12 @@ export function useLiveVoice(
           // for THIS turn must pair with this turn's own first audio (or
           // null, for a response that produces none).
           session.clientHeardLatencyMs = null;
+          // Bind the pending end-of-speech stamp to this turn. An utterance
+          // that ends while a previous response is still thinking keeps its
+          // stamp pending here until its own `thinking` arrives, so the
+          // previous response's audio can never consume it.
+          session.turnHeardStampMs = session.speechEndedAtMs;
+          session.speechEndedAtMs = null;
           const s = useLiveVoiceStore.getState();
           s.clearAssistantTranscript();
           s.setState("thinking");
@@ -644,15 +661,22 @@ export function useLiveVoice(
         }),
         client.on("turnCancelled", () => {
           if (!live() || !session.handsFree) return;
-          // A turn cancelled before its first tts_audio leaves its
-          // end-of-speech stamp pending — drop it so the next turn's audio
-          // can't pair against it.
-          session.speechEndedAtMs = null;
+          // Drop the cancelled turn's bound stamp so the next response's
+          // audio can't pair against it. The unbound `speechEndedAtMs` is
+          // left alone — it belongs to a newer overlapping utterance whose
+          // own `thinking` will bind it.
+          session.turnHeardStampMs = null;
           // Barge-in aborted the turn; no tts_done follows a cancelled turn.
           flushPlaybackToListening(session);
         }),
         client.on("metrics", (frame) => {
           if (!live()) return;
+          // The daemon also emits metrics frames for cancelled turns and
+          // session end; only a completed turn carries a pairable latency.
+          // An absent event field (older daemons) is treated as completed.
+          if (frame.event !== undefined && frame.event !== "turn_completed") {
+            return;
+          }
           // Turn completion: pair the server's metrics with the client-side
           // measurement for the same turn. `roundTripMs` is absent on frames
           // from older daemons — normalize to null (read fallback, no compat
@@ -986,9 +1010,9 @@ function beginAssistantAudioIfNeeded(session: SessionContext): void {
   if (session.responseAudioStarted) return;
   session.responseAudioStarted = true;
   session.interruptSent = false;
-  if (session.speechEndedAtMs === null) return;
-  session.clientHeardLatencyMs = performance.now() - session.speechEndedAtMs;
-  session.speechEndedAtMs = null;
+  if (session.turnHeardStampMs === null) return;
+  session.clientHeardLatencyMs = performance.now() - session.turnHeardStampMs;
+  session.turnHeardStampMs = null;
   // Publish immediately (server half still null) so the measurement exists
   // even against a daemon that never emits `metrics` frames; the turn's
   // `metrics` frame overwrites this with the fully paired object.

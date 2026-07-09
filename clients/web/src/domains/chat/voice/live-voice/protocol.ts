@@ -193,6 +193,12 @@ export interface LiveVoiceTurnCancelledServerFrame extends LiveVoiceServerFrameB
 
 export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "metrics";
+  /**
+   * What the frame reports: `"turn_completed"`, `"turn_cancelled"`, or
+   * `"session_ended"`. Optional: daemons predating the field omit it, and
+   * readers treat absent as a completed turn.
+   */
+  readonly event?: string;
   readonly turnId: string;
   readonly sttMs: number | null;
   readonly llmFirstDeltaMs: number | null;
