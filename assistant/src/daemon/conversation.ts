@@ -1131,7 +1131,16 @@ export class Conversation {
           // itself is never rewritten — auditable and reversible); an
           // all-pruned block is skipped entirely, matching the live strip in
           // `memory/v3/prune.ts`.
-          if (typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string") {
+          // Trust-gated on `personalMemoryAllowed`, mirroring the v2 static
+          // block below and the live v3 injector: v3 cards carry personal user
+          // memory (memory pages, PKB, matched sections), so an untrusted-actor
+          // view must not read them back through persisted metadata. The tail
+          // is still rehydrated for trusted views (unlike v2) — the gate is the
+          // only constraint added here.
+          if (
+            personalMemoryAllowed &&
+            typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string"
+          ) {
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
             ] as string;
