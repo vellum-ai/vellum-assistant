@@ -8,6 +8,7 @@
 
 import type { Command } from "commander";
 
+import { arePlatformFeaturesEnabled } from "../../platform/feature-gate.js";
 import { yellow } from "../lib/cli-colors.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
 import {
@@ -43,6 +44,7 @@ import {
   looksLikeGitHubSpec,
   parseGitHubPluginSpec,
 } from "../lib/parse-github-plugin-spec.js";
+import { resolveBundledPluginSource } from "../lib/plugin-catalog-local.js";
 import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
 import {
   DEFAULT_PIN_HISTORY_LIMIT,
@@ -184,10 +186,38 @@ Examples:
               let result;
               let untrusted = false;
               if (!direct && !usesMarketplaceGit) {
-                result = await installPluginViaPlatform(
-                  { name: nameOrUrl, force: opts.force },
-                  { fetch: globalThis.fetch.bind(globalThis) },
-                );
+                // Platform-managed install serves a verified tarball from the
+                // pinned commit. With platform features disabled (air-gapped /
+                // self-hosted) there is no platform to call, so resolve the pin
+                // from the bundled catalog and install through the GitHub path.
+                if (arePlatformFeaturesEnabled()) {
+                  result = await installPluginViaPlatform(
+                    { name: nameOrUrl, force: opts.force },
+                    { fetch: globalThis.fetch.bind(globalThis) },
+                  );
+                } else {
+                  const source = resolveBundledPluginSource(nameOrUrl);
+                  if (!source) {
+                    console.error(
+                      `Plugin "${nameOrUrl}" is not in the bundled marketplace catalog.`,
+                    );
+                    process.exitCode = 1;
+                    return;
+                  }
+                  result = await installPlugin(
+                    {
+                      name: nameOrUrl,
+                      force: opts.force,
+                      directSource: {
+                        owner: source.owner,
+                        repo: source.repo,
+                        rootPath: source.path,
+                        ref: source.ref,
+                      },
+                    },
+                    { fetch: globalThis.fetch.bind(globalThis) },
+                  );
+                }
               } else {
                 const installOpts = direct
                   ? resolveDirectInstallOptions(nameOrUrl, opts)
