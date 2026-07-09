@@ -83,38 +83,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "ces-tools",
-      "scope": "assistant",
-      "key": "ces-tools",
-      "label": "CES Tool Exposure",
-      "description": "Register Credential Execution Service tools (credential-grant, credential-revoke, credential-list) in the agent loop",
-      "defaultEnabled": false
-    },
-    {
-      "id": "ces-shell-lockdown",
-      "scope": "assistant",
-      "key": "ces-shell-lockdown",
-      "label": "CES Shell Lockdown",
-      "description": "Enforce untrusted-agent shell lockdown when CES credentials are active, restricting direct shell access to credentialed services",
-      "defaultEnabled": false
-    },
-    {
-      "id": "ces-secure-install",
-      "scope": "assistant",
-      "key": "ces-secure-install",
-      "label": "CES Secure Command Installation",
-      "description": "Enable secure tool/command installation via CES instead of direct shell execution for untrusted agents",
-      "defaultEnabled": false
-    },
-    {
-      "id": "ces-grant-audit",
-      "scope": "assistant",
-      "key": "ces-grant-audit",
-      "label": "CES Grant & Audit Inspection",
-      "description": "Surface credential grant and audit inspection endpoints for reviewing active grants and access logs",
-      "defaultEnabled": false
-    },
-    {
       "id": "settings-embedding-provider",
       "scope": "assistant",
       "key": "settings-embedding-provider",
@@ -440,6 +408,22 @@
       "key": "credential-requests",
       "label": "One-time credential request links",
       "description": "Enable one-time credential-request links: the generate-link action in settings, the public credential entry page, and assistant-initiated links on channels without secure input.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "summarize-up-to-here",
+      "scope": "both",
+      "key": "summarize-up-to-here",
+      "label": "Summarize Up To Here",
+      "description": "Show the per-message Summarize up to here action and enable the conversation summarize endpoint",
+      "defaultEnabled": false
+    },
+    {
+      "id": "skill-creation-card",
+      "scope": "both",
+      "key": "skill-creation-card",
+      "label": "Skill creation card",
+      "description": "Insert an in-chat card into the source conversation when the memory retrospective authors a new skill, and render it in the web client.",
       "defaultEnabled": false
     },
     {
