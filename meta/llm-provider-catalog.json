@@ -954,7 +954,8 @@
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 2,
-            "outputPer1mTokens": 6
+            "outputPer1mTokens": 6,
+            "cacheReadPer1mTokens": 0.5
           }
         },
         {
@@ -970,7 +971,8 @@
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 1.25,
-            "outputPer1mTokens": 2.5
+            "outputPer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2
           }
         },
         {
@@ -986,7 +988,8 @@
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 1.25,
-            "outputPer1mTokens": 2.5
+            "outputPer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2
           }
         },
         {
