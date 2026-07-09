@@ -186,7 +186,7 @@ describe("fallback and completeness", () => {
 });
 
 describe("composition", () => {
-  test("three layers: schema base, winner, call-site tweak (nested merge preserved)", () => {
+  test("base + winner + site-tweak composition (nested tweaks combine leaf-wise)", () => {
     const llm = LLMSchema.parse({
       profiles: { mine: completeCustom },
       callSites: {

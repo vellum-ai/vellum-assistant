@@ -297,9 +297,13 @@ export function resolveCallSiteConfig(
 // hop is deliberately absent — a fallback anchor must be code-owned, never
 // user-mutable state.
 //
-// Composition is exactly three layers, deep-merged: schema-default base →
-// winner → the call site's own tweak fragment. `temperature`/`topP` come from
-// the winner (or an explicit tweak); `logitBias` only ever from the winner.
+// The request config is the base + winner + site-tweak composition:
+// code-owned schema defaults, then the single winning profile, then the call
+// site's own tuning fragment. Selection is pure either/or — no profile ever
+// contributes a field to another profile; `deepMerge` here only makes nested
+// tweaks (`thinking.enabled`) combine leaf-wise instead of wiping siblings.
+// `temperature`/`topP` come from the winner (or an explicit tweak);
+// `logitBias` only ever from the winner.
 // `forceOverrideProfile` is a no-op here (the override is already first).
 
 export interface ProfileWinnerSelection {
