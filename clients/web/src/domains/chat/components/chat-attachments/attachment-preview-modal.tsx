@@ -326,8 +326,16 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       onClick={handleBackdropClick}
     >
       {/* Top chrome: file size (left), filename (center), download + close
-          (right). Sits below the safe-area inset the overlay already pads. */}
-      <div className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 px-4 pt-4">
+          (right). Absolute children anchor to the overlay's padding box, so the
+          parent's safe-area paddingTop does not offset them — the bar carries
+          the top inset itself to clear the notch/status bar. */}
+      <div
+        className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 px-4"
+        style={{
+          paddingTop:
+            "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1rem)",
+        }}
+      >
         <Typography
           variant="body-small-default"
           className="w-11 shrink-0 truncate text-white/50"
@@ -396,8 +404,14 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
 
       {hasGallery && (
         // Position counter, centered ~32px above the bottom safe-area line.
+        // Absolute children ignore the overlay's safe-area paddingBottom, so the
+        // counter carries the bottom inset itself.
         <div
-          className="absolute inset-x-0 bottom-0 z-10 flex justify-center pb-8"
+          className="absolute inset-x-0 bottom-0 z-10 flex justify-center"
+          style={{
+            paddingBottom:
+              "calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 2rem)",
+          }}
           onClick={(e) => e.stopPropagation()}
         >
           <Typography variant="body-small-default" className="text-white/50">
