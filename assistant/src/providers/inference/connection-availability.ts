@@ -13,6 +13,7 @@
 import { getDb } from "../../persistence/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyResultAsync } from "../../security/secure-keys.js";
+import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { resolveManagedProxyContext } from "../platform-proxy/context.js";
 import {
   isVellumManagedConnection,
@@ -172,10 +173,21 @@ export async function computeConnectionAvailability(
         status: "unsupported_auth",
         message: `Connection "${resolvedConnectionName}" uses Vellum platform auth, which cannot serve provider "${provider}". Add an API-key connection for "${provider}" ${SETTINGS_HINT}.`,
       };
-    case "none":
+    case "none": {
+      // Keyless providers (catalog setupMode "keyless", e.g. ollama)
+      // legitimately dispatch with none-auth — mirror
+      // `createAdapterFromConnection`, which only rejects none-auth for
+      // keyed catalog entries.
+      const isKeyless =
+        PROVIDER_CATALOG.find((entry) => entry.id === provider)?.setupMode ===
+        "keyless";
+      if (isKeyless) {
+        return { status: "ok" };
+      }
       return {
         status: "unsupported_auth",
         message: `Connection "${resolvedConnectionName}" has no authentication configured, but provider "${provider}" requires an API key. Add a key ${SETTINGS_HINT}.`,
       };
+    }
   }
 }
