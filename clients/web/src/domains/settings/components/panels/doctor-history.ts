@@ -280,7 +280,7 @@ export function hasPendingApproval(entries: ChatEntry[]): boolean {
     if (!entry) {
       continue;
     }
-    if (entry.kind === "status") {
+    if (entry.kind === "status" || entry.kind === "feedback_prompt") {
       continue;
     }
     return entry.kind === "approval";
@@ -294,7 +294,7 @@ export function hasPendingBackup(entries: ChatEntry[]): boolean {
     if (!entry) {
       continue;
     }
-    if (entry.kind === "status") {
+    if (entry.kind === "status" || entry.kind === "feedback_prompt") {
       continue;
     }
     return entry.kind === "backup_prompt";
