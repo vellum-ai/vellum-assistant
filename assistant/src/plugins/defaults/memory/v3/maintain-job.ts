@@ -58,11 +58,12 @@
  * and `invalidateLanes` without process-global module mocks.
  */
 
-import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import {
-  loadSkillCatalog,
-  type SkillSummary,
-} from "../../../../config/skills.js";
+  listInstalledSkills,
+  type ResolvedSkillEntry,
+} from "@vellumai/plugin-api";
+
+import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import {
   getMemoryCheckpoint,
@@ -71,10 +72,6 @@ import {
 import { EmbeddingBackendUnavailableError } from "../../../../persistence/embeddings/embedding-backend.js";
 import { EmbeddingBillingBlockError } from "../../../../persistence/embeddings/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import {
-  readInstallMeta,
-  type SkillInstallMeta,
-} from "../../../../skills/install-meta.js";
 import { executeDeleteManagedSkill } from "../../../../tools/skills/delete-managed.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
@@ -172,15 +169,11 @@ export interface MaintainJobDeps {
   /** Drop the memoized v3 lanes so the next turn rebuilds them. */
   invalidateLanes: () => void;
   /**
-   * The managed (assistant-installed) skills in the catalog. The usage-prune
-   * stage reads each one's install-meta to find stale assistant-authored skills.
+   * The managed (assistant-installed) skills in the catalog, each carrying its
+   * `installMeta`. The usage-prune stage reads the meta's `author`,
+   * `lastUsedAt`, and `installedAt` to find stale assistant-authored skills.
    */
-  listManagedSkills: () => SkillSummary[];
-  /**
-   * Read a skill's install metadata from its directory. The prune stage reads
-   * `author`, `lastUsedAt`, and `installedAt` to decide eligibility.
-   */
-  readSkillMeta: (skillDir: string) => SkillInstallMeta | null;
+  listManagedSkills: () => ResolvedSkillEntry[] | Promise<ResolvedSkillEntry[]>;
   /**
    * Delete a managed skill by id (dir + companion files + graph node + v2
    * page/vectors + v3 sections reconcile), as the `delete_managed_skill` tool
@@ -312,7 +305,9 @@ export function computeChangedPages(
 ): Slug[] {
   const changed: Slug[] = [];
   for (const page of pages) {
-    if (page.modifiedAt <= 0) continue; // synthetic capability row
+    if (page.modifiedAt <= 0) {
+      continue;
+    } // synthetic capability row
     if (prevHighWaterMs === null || page.modifiedAt > prevHighWaterMs) {
       changed.push(page.slug);
     }
@@ -323,7 +318,9 @@ export function computeChangedPages(
 /** Read the persisted high-water mark, treating missing/garbage as first-run. */
 function readEmbedHighWater(): number | null {
   const raw = getMemoryCheckpoint(MAINTAIN_EMBED_HIGH_WATER_KEY);
-  if (raw === null) return null;
+  if (raw === null) {
+    return null;
+  }
   const parsed = Number.parseInt(raw, 10);
   return Number.isNaN(parsed) ? null : parsed;
 }
@@ -393,9 +390,8 @@ function defaultDeps(config: AssistantConfig): MaintainJobDeps {
     listIndexedSlugs: () => selectAllPagesFromWorkspace(workspaceDir),
     loadCoreSet: () => realLoadCoreSet(workspaceDir),
     invalidateLanes: realInvalidateLanes,
-    listManagedSkills: () =>
-      loadSkillCatalog().filter((s) => s.source === "managed"),
-    readSkillMeta: (skillDir) => readInstallMeta(skillDir),
+    listManagedSkills: async () =>
+      (await listInstalledSkills()).filter((s) => s.source === "managed"),
     deleteSkill: async (skillId) => {
       const result = await executeDeleteManagedSkill(
         { skill_id: skillId },
@@ -405,7 +401,9 @@ function defaultDeps(config: AssistantConfig): MaintainJobDeps {
           trustClass: "guardian",
         },
       );
-      if (result.isError) throw new Error(result.content);
+      if (result.isError) {
+        throw new Error(result.content);
+      }
     },
     nowMs: () => Date.now(),
     config,
@@ -492,7 +490,9 @@ async function reconcileCapabilityRows(
   for (const slug of missing) {
     try {
       const body = await deps.readCapabilityBody(slug);
-      if (body.trim().length === 0) continue; // store cold — retry next pass
+      if (body.trim().length === 0) {
+        continue;
+      } // store cold — retry next pass
       const index = await deps.buildSectionIndex(
         [slug],
         deps.readCapabilityBody,
@@ -581,7 +581,7 @@ async function pruneStaleSkills(deps: MaintainJobDeps): Promise<{
   const deleteEnabled =
     typeof skillPruneDays === "number" && skillPruneDays > 0;
 
-  const managed = deps.listManagedSkills();
+  const managed = await deps.listManagedSkills();
   const prunableSkills: string[] = [];
   const prunedSkills: string[] = [];
   const skillPruneFailures: Array<{ skillId: string; error: string }> = [];
@@ -590,14 +590,18 @@ async function pruneStaleSkills(deps: MaintainJobDeps): Promise<{
   let assistantAuthored = 0;
 
   for (const skill of managed) {
-    const meta = deps.readSkillMeta(skill.directoryPath);
+    const meta = skill.installMeta;
     // Protect user-authored AND untagged (legacy) skills — only the
     // assistant's own skills are ever eligible.
-    if (meta?.author !== "assistant") continue;
+    if (meta?.author !== "assistant") {
+      continue;
+    }
     assistantAuthored += 1;
 
     const referenceTime = Date.parse(meta.lastUsedAt ?? meta.installedAt);
-    if (Number.isNaN(referenceTime)) continue;
+    if (Number.isNaN(referenceTime)) {
+      continue;
+    }
     const ageDays = (now - referenceTime) / DAY_MS;
 
     if (ageDays >= SKILL_OBSERVE_WINDOW_DAYS) {
@@ -715,7 +719,9 @@ export async function backfillAllSections(
     try {
       if (isCapabilitySlug(slug)) {
         const body = await deps.readPageBody(slug);
-        if (body.trim().length === 0) return "cold";
+        if (body.trim().length === 0) {
+          return "cold";
+        }
       }
       const index = await deps.buildSectionIndex([slug], deps.readPageBody);
       await deps.deleteSectionsForArticle(deps.config, slug);
@@ -746,7 +752,9 @@ export async function backfillAllSections(
 
   const coldCapabilities: Slug[] = [];
   for (const slug of slugs) {
-    if ((await embedOne(slug)) === "cold") coldCapabilities.push(slug);
+    if ((await embedOne(slug)) === "cold") {
+      coldCapabilities.push(slug);
+    }
   }
 
   // Late-capability sweep + cold retry. The main loop spans minutes on a real
