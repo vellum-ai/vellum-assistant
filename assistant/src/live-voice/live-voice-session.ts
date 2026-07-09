@@ -576,6 +576,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           : LiveVoiceProtocolErrorCode.InvalidField,
       message: result.message,
     });
+    // The manager only observes failures thrown from start(); an arm that
+    // fails after the early `ready` must release the session slot itself,
+    // or the next start frame on this (or a reconnecting) socket gets
+    // `busy` until the client tears the WebSocket down.
+    await this.context.releaseAfterFailure?.();
   }
 
   private async handleAudio(chunk: Buffer): Promise<void> {
