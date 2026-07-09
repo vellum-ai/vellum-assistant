@@ -718,11 +718,18 @@ export async function materializePluginTree(
   // tree is a valid Vellum plugin. Raw clones (no stub) are left untouched,
   // except for a minimal package.json synthesis when the upstream repo shipped
   // none — the Vellum loader hard-requires one and would silently skip the
-  // plugin without it.
+  // plugin without it. The synthesis runs only for direct installs
+  // (stubRef === null); the upgrade path re-materializes baselines through
+  // this function with a non-null stubRef, and synthesizing a package.json
+  // not present at install time would corrupt the fingerprint comparison.
   if (cloned.fileCount > 0 && opts.stubRef !== null) {
     await applyAdapterStub(opts.name, opts.stubRef, opts.destDir, deps);
   }
-  if (cloned.fileCount > 0 && !existsSync(join(opts.destDir, "package.json"))) {
+  if (
+    cloned.fileCount > 0 &&
+    opts.stubRef === null &&
+    !existsSync(join(opts.destDir, "package.json"))
+  ) {
     synthesizeMinimalPackageJson(opts.name, opts.destDir);
   }
   return cloned;
