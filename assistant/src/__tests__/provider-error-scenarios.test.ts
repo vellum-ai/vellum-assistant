@@ -692,6 +692,21 @@ describe("RetryProvider — streaming corruption retries", () => {
     expect(inner.calls).toBe(2);
   });
 
+  test("retries on 'Unable to parse tool parameter JSON' (invalid tool-args JSON in stream)", async () => {
+    const inner = makeFlaky(
+      1,
+      new ProviderError(
+        'Anthropic request failed: Unable to parse tool parameter JSON from model. Please retry your request or adjust your prompt. Error: SyntaxError: JSON Parse error: Unterminated string. JSON: {"path": "/workspace/config.json", "content',
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(result.stopReason).toBe("end_turn");
+    expect(inner.calls).toBe(2);
+  });
+
   test("throws after exhausting retries on persistent stream corruption", async () => {
     const inner = makeFailing(
       new ProviderError(
