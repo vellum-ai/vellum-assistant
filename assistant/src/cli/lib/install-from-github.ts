@@ -132,6 +132,19 @@ export interface InstallPluginOptions {
    * commit to clone (a branch, tag, `HEAD`, or full SHA).
    */
   readonly directSource?: PluginFetchSource;
+  /**
+   * Install from these PRE-RESOLVED, TRUSTED GitHub coordinates while STILL
+   * overlaying the curated `plugins/<name>` adapter stub. This is the offline
+   * analogue of a marketplace install: the pin came from the reviewed bundled
+   * catalog instead of a live marketplace fetch, so — unlike
+   * {@link InstallPluginOptions.directSource} — the source is trusted and the
+   * adapter stub is kept. The stub is fetched from the canonical repo at
+   * {@link InstallPluginOptions.ref} (default {@link DEFAULT_PLUGIN_REF}), the
+   * same ref the online trusted path uses. When set, marketplace resolution and
+   * {@link InstallPluginOptions.commitOverride} are skipped; `trustedSource.ref`
+   * selects the commit to clone (the reviewed pin).
+   */
+  readonly trustedSource?: PluginFetchSource;
 }
 
 /** Dependencies injected by the caller. */
@@ -383,13 +396,21 @@ export async function installPlugin(
 
   // A direct install bypasses the marketplace whitelist entirely: the source is
   // supplied by the caller and the tree is materialized verbatim (no curated
-  // adapter stub). Otherwise the name is resolved against the reviewed manifest.
+  // adapter stub). A trusted pre-resolved source (offline bundled-catalog
+  // install) supplies its coordinates too but keeps the curated overlay.
+  // Otherwise the name is resolved against the reviewed manifest.
   let effectiveSource: PluginFetchSource;
   // Ref the curated adapter stub is fetched at, or `null` to skip the overlay.
   let stubRef: string | null;
   if (opts.directSource) {
     effectiveSource = opts.directSource;
     stubRef = null;
+  } else if (opts.trustedSource) {
+    // Trusted, pre-resolved coordinates: keep the curated adapter overlay,
+    // fetched from the canonical repo at `marketplaceRef` exactly as the online
+    // trusted path does.
+    effectiveSource = opts.trustedSource;
+    stubRef = marketplaceRef;
   } else {
     const source = await resolvePluginSource(name, marketplaceRef, deps.fetch);
     if (!source) {

@@ -213,7 +213,7 @@ Examples:
                     {
                       name: nameOrUrl,
                       force: opts.force,
-                      directSource: {
+                      trustedSource: {
                         owner: source.owner,
                         repo: source.repo,
                         rootPath: source.path,

@@ -686,6 +686,52 @@ describe("installPlugin — marketplace resolution", () => {
     expect(hook).not.toContain("description: terse mode");
   });
 
+  test("a trusted pre-resolved source still overlays the curated adapter stub", async () => {
+    // GIVEN caveman's pin already resolved (as the offline bundled catalog
+    // does) — so no marketplace manifest is served — but the real curated
+    // adapter stub IS available to overlay
+    const fetch = makeContentsFetch({ tree: readRealCavemanStub() });
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": JSON.stringify({
+          name: "caveman-installer",
+          version: "0.1.0",
+        }),
+        "skills/caveman/SKILL.md":
+          "---\nname: caveman\n---\n\nCAVEMAN MODE. Drop filler words.",
+      },
+      commit: CAVEMAN_SHA,
+    });
+
+    // WHEN we install from trusted pre-resolved coordinates
+    const result = await installPlugin(
+      {
+        name: "caveman",
+        trustedSource: {
+          owner: "JuliusBrussee",
+          repo: "caveman",
+          rootPath: "",
+          ref: CAVEMAN_SHA,
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the adapter overlay ran (the stub was NOT skipped): the manifest was
+    // normalized and the pre-model-call hook synthesized from the ruleset
+    const target = join(pluginsDir, "caveman");
+    expect(result.commit).toBe(CAVEMAN_SHA);
+    const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf-8"));
+    expect(pkg.name).toBe("caveman");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeString();
+    expect(pkg.scripts?.postinstall).toBeUndefined();
+    const hook = readFileSync(
+      join(target, "hooks", "pre-model-call.ts"),
+      "utf-8",
+    );
+    expect(hook).toContain("CAVEMAN MODE. Drop filler words.");
+  });
+
   test("falls back to the stub manifest when the upstream ships no package.json", async () => {
     // GIVEN caveman is whitelisted with the real curated adapter stub
     const fetch = makeContentsFetch({
