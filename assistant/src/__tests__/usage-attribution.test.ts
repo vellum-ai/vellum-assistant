@@ -1,4 +1,20 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// The pre-existing describes pin attribution under the legacy cascade
+// (flag-off); the trailing describe pins the override-or-default mapping.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 let mockLlmConfig: Record<string, unknown> = {};
 
@@ -245,5 +261,77 @@ describe("sanitizeUsageMetadataValue", () => {
     expect(sanitizeUsageMetadataValue(`profile\n1`)).toBeNull();
     expect(sanitizeUsageMetadataValue("profile\u00851")).toBeNull();
     expect(sanitizeUsageMetadataValue("x".repeat(200))).toHaveLength(128);
+  });
+});
+
+describe("resolveUsageAttribution — override-or-default semantics", () => {
+  const completeProfile = {
+    source: "user",
+    provider: "openai",
+    provider_connection: "openai-personal",
+    model: "gpt-5.5",
+    maxTokens: 9000,
+  };
+
+  beforeAll(() => {
+    // Registry default: the override-or-default flag ships enabled.
+    setOverridesForTesting({});
+  });
+  afterAll(() => {
+    setOverridesForTesting({ "override-or-default-resolution": false });
+  });
+
+  test("a non-forced override wins attribution on a background call site", () => {
+    setLlmConfig({
+      profiles: { mine: completeProfile },
+      callSites: {
+        conversationSummarization: { profile: "quality-optimized" },
+      },
+      defaultProvider: { provider: "anthropic" },
+    });
+    const snapshot = resolveUsageAttribution({
+      callSite: "conversationSummarization",
+      overrideProfile: "mine",
+    });
+    expect(snapshot.appliedProfile).toBe("mine");
+    expect(snapshot.profileSource).toBe("conversation");
+    expect(snapshot.resolvedModel).toBe("gpt-5.5");
+  });
+
+  test("the default intent attributes its profile key with source 'default'", () => {
+    setLlmConfig({ defaultProvider: { provider: "anthropic" } });
+    const snapshot = resolveUsageAttribution({
+      callSite: "conversationSummarization",
+    });
+    expect(snapshot.appliedProfile).toBe("cost-optimized");
+    expect(snapshot.profileSource).toBe("default");
+    expect(snapshot.resolvedProvider).toBe("anthropic");
+  });
+
+  test("activeProfile attributes as 'active' on mainAgent only", () => {
+    setLlmConfig({
+      profiles: { mine: completeProfile },
+      activeProfile: "mine",
+      defaultProvider: { provider: "anthropic" },
+    });
+    expect(resolveUsageAttribution({ callSite: "mainAgent" })).toMatchObject({
+      appliedProfile: "mine",
+      profileSource: "active",
+    });
+    expect(
+      resolveUsageAttribution({ callSite: "conversationSummarization" }),
+    ).toMatchObject({
+      appliedProfile: "cost-optimized",
+      profileSource: "default",
+    });
+  });
+
+  test("attribution provider/model agree with the resolver", () => {
+    setLlmConfig({
+      profiles: { mine: completeProfile },
+      defaultProvider: { provider: "anthropic" },
+    });
+    expectResolvedProviderModelMatchesResolver("conversationSummarization");
+    expectResolvedProviderModelMatchesResolver("mainAgent", "mine");
   });
 });

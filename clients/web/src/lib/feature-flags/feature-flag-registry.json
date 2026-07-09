@@ -425,6 +425,14 @@
       "label": "Skill creation card",
       "description": "Insert an in-chat card into the source conversation when the memory retrospective authors a new skill, and render it in the web client.",
       "defaultEnabled": false
+    },
+    {
+      "id": "override-or-default-resolution",
+      "scope": "assistant",
+      "key": "override-or-default-resolution",
+      "label": "Override-or-Default Profile Resolution",
+      "description": "Resolve inference profiles as single complete overrides (or the call site's default intent through the default provider) instead of the legacy deep-merge cascade. Ships enabled; disable as a kill switch to restore merge semantics.",
+      "defaultEnabled": true
     }
   ]
 }
