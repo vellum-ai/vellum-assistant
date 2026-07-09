@@ -19,6 +19,7 @@ function msg(role: string, content: unknown[]): MessageRow {
     createdAt: Date.now(),
     metadata: null,
     clientMessageId: null,
+    finalized: 1,
   };
 }
 
