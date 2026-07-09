@@ -330,7 +330,7 @@
       "license": "MIT"
     },
     {
-      "name": "cognee-memory",
+      "name": "cognee",
       "source": {
         "source": "github",
         "repo": "topoteretes/cognee-integrations",
