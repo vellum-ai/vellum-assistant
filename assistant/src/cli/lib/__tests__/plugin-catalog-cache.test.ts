@@ -17,13 +17,13 @@ import {
 } from "bun:test";
 
 import type { FetchLike } from "../fetch-like.js";
-import { readBundledPluginCatalog } from "../plugin-catalog-local.js";
-import type { SearchPluginsDeps } from "../search-plugins.js";
 import {
-  PLUGIN_CATALOG_CACHE_TTL_MS,
   getPluginCatalog,
   invalidatePluginCatalogCache,
+  PLUGIN_CATALOG_CACHE_TTL_MS,
 } from "../plugin-catalog-cache.js";
+import { readBundledPluginCatalog } from "../plugin-catalog-local.js";
+import type { SearchPluginsDeps } from "../search-plugins.js";
 
 // A non-zero base time. Bun treats `setSystemTime(new Date(0))` as "reset to
 // the real clock", so the fake clock must start from a positive epoch.
@@ -75,8 +75,8 @@ describe("getPluginCatalog", () => {
   afterEach(() => {
     setSystemTime();
     for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
+      if (value === undefined) {delete process.env[key];}
+      else {process.env[key] = value;}
     }
   });
 
