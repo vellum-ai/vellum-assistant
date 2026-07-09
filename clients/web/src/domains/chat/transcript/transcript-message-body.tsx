@@ -10,6 +10,8 @@ import {
 } from "react";
 
 import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
+import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachment-naming";
+
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
@@ -280,7 +282,20 @@ export function TranscriptMessageBody({
       } catch {
         // Malformed percent-encoding: fall back to the raw basename.
       }
+      // Mirror the daemon's stored-filename rule (shared contract): a link
+      // label is only the stored name when it carries a recognized
+      // extension, otherwise the attachment lives under the path basename.
+      // Search the expected name first so an unrelated attachment that
+      // happens to share the label's text cannot shadow the linked file;
+      // keep label/basename/raw fallbacks for attachments stored before
+      // this rule existed.
+      const expectedFilename = resolveAttachmentFilename(
+        linkText || undefined,
+        pathBasename,
+        "label",
+      );
       const att =
+        message.attachments?.find((a) => a.filename === expectedFilename) ??
         message.attachments?.find((a) => a.filename === linkText) ??
         message.attachments?.find((a) => a.filename === pathBasename) ??
         message.attachments?.find((a) => a.filename === rawBasename);

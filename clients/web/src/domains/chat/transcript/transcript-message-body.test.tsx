@@ -1085,6 +1085,48 @@ describe("TranscriptMessageBody", () => {
     ).toMatchObject({ id: "att-enc" });
   });
 
+  test("bare label cannot be shadowed by an unrelated attachment with that name", () => {
+    downloadAttachmentMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-shadow",
+          role: "assistant",
+          contentBlocks: [textBlock("two files")],
+          attachments: [
+            {
+              // Unrelated attachment explicitly named like the link's label.
+              id: "att-decoy",
+              filename: "desktop",
+              mimeType: "application/octet-stream",
+              sizeBytes: 1,
+              previewUrl: null,
+            },
+            {
+              // The attachment the daemon materialized for the clicked link
+              // (bare label, so stored under the path basename).
+              id: "att-real",
+              filename: "qa-delete-desktop-dialog.png",
+              mimeType: "image/png",
+              sizeBytes: 2,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    lastVellumLinkClick?.(
+      "vellum://workspace/qa-delete-desktop-dialog.png",
+      "desktop",
+    );
+    expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
+    expect(
+      (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
+    ).toMatchObject({ id: "att-real" });
+  });
+
   test("vellum link click still matches link text and raw basename", () => {
     downloadAttachmentMock.mockClear();
     render(
