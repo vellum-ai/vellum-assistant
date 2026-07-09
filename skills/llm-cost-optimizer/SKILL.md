@@ -75,7 +75,7 @@ For each recurring schedule, check which profile its runs use — `assistant sch
 ## Step 3 — What typically drives cost (check in this order)
 
 1. **The chat loop and everything that inherits its profile.** `llm.activeProfile` (and per-conversation `/model` sessions) is the #1 lever. Note the inheritance paths: subagents spawned from a conversation with a profile override run under that profile, and memory retrospectives run under the **source conversation's** profile when `memory.retrospective.matchConversationProfile` is enabled (they show under `memoryRetrospective` in the breakdown but are priced at the chat profile — this is deliberate, for prompt-cache reuse).
-2. **Recurring schedules without a pinned profile.** Schedule runs default to the mainAgent model selection, and a pinned schedule profile overrides the *entire run* (every call site in it). A frequent schedule left on an expensive chat profile is a classic silent cost driver — check it with `assistant usage breakdown --group-by call_site --schedule <id>`, and per-run cost with `assistant schedules runs <id>`.
+2. **Recurring schedules without a pinned profile.** Schedule runs default to the mainAgent model selection, and a pinned schedule profile overrides the _entire run_ (every call site in it). A frequent schedule left on an expensive chat profile is a classic silent cost driver — check it with `assistant usage breakdown --group-by call_site --schedule <id>`, and per-run cost with `assistant schedules runs <id>`.
 3. **Pins to `quality-optimized`.** No call site should be statically pinned to it; it is an on-demand escalation profile.
 4. **High-volume background sites.** `memoryRouter` runs with a very large input window by design; heartbeat, memory sweeps, and summarization run often. These are already on `cost-optimized` by default — check whether a pin or override moved them off it.
 5. **Cache economics.** Repeated-prefix call sites benefit from caching; one-shot sites ship with caching disabled. If `cache_creation` dwarfs `cache_read` on a site, flag it.
@@ -162,7 +162,7 @@ Model ids are easy to get wrong and config writes are not validated (Step 5), so
 assistant inference send --profile my-quality --max-tokens 32 --json "Reply with OK"
 ```
 
-This makes one real call through the named profile — auth, provider routing, and the model id are all exercised; a wrong model name fails here instead of silently breaking a call site later. To check a raw model id *before* writing it into config, use `--model <id>` instead of `--profile`.
+This makes one real call through the named profile — auth, provider routing, and the model id are all exercised; a wrong model name fails here instead of silently breaking a call site later. To check a raw model id _before_ writing it into config, use `--model <id>` instead of `--profile`.
 
 ## Step 7 — Verify and monitor
 
