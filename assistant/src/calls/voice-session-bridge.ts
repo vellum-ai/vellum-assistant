@@ -35,6 +35,24 @@ import {
 
 const log = getLogger("voice-session-bridge");
 
+/**
+ * Exact message thrown when `opts.signal` aborts while the turn is waiting
+ * for the conversation to become available. The call controller's abort
+ * handling relies on this turn failing with a recognizable error — keep the
+ * value byte-identical across every throw site.
+ */
+export const TURN_ABORTED_WAITING_MESSAGE =
+  "Turn aborted while waiting for conversation";
+
+/**
+ * Exact message thrown when the processing-wait budget elapses without the
+ * conversation becoming available. The call controller's lock-contention
+ * re-prompt matches on this string — keep the value byte-identical across
+ * every throw site.
+ */
+export const CONVERSATION_BUSY_MESSAGE =
+  "Conversation is already processing a message";
+
 const PROCESSING_WAIT_MARGIN_MS = 1000;
 /**
  * How long startVoiceTurn waits for a prior turn to release the processing
@@ -75,7 +93,7 @@ async function waitForPriorTurnTeardown(
   signal?: AbortSignal,
 ): Promise<boolean> {
   if (signal?.aborted) {
-    throw new Error("Turn aborted while waiting for conversation");
+    throw new Error(TURN_ABORTED_WAITING_MESSAGE);
   }
   return await new Promise<boolean>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -88,7 +106,7 @@ async function waitForPriorTurnTeardown(
     };
     const onAbort = () => {
       settleWait();
-      reject(new Error("Turn aborted while waiting for conversation"));
+      reject(new Error(TURN_ABORTED_WAITING_MESSAGE));
     };
     timer = setTimeout(() => {
       settleWait();
@@ -409,17 +427,21 @@ export async function startVoiceTurn(
   );
   const waitStartedAt = Date.now();
 
-  // Two conditions must both clear before this turn may install its
-  // per-turn conversation state, and clearing one can re-raise the other:
+  // Three conditions must all clear before this turn may install its
+  // per-turn conversation state, and clearing one can re-raise another:
   //
   // - The processing lock. `waitForIdle` resolves from the
   //   `setProcessing(false)` transition, so the turn starts on the same
   //   tick the lock releases instead of paying up to a 50 ms poll interval
   //   after every barge-in.
   // - The prior turn's teardown. Its `finally { cleanup() }` runs after
-  //   `setProcessing(false)` (see `pendingTurnTeardowns`), and a queued
-  //   message drained by the prior `runAgentLoop` can retake the lock
-  //   right after that teardown settles.
+  //   `setProcessing(false)` (see `pendingTurnTeardowns`).
+  // - A queued-message drain. The `finally` that releases the lock (waking
+  //   this turn) then calls `drainQueue`, which retakes the lock for any
+  //   queued messages. When queued work is visible after a successful idle
+  //   wait, loop back and wait the drained turn out instead of racing its
+  //   persist; a drain that takes the lock without visible queued work is
+  //   covered by the persist retry below.
   //
   // Hence the re-check loop, bounded by one shared budget. In practice
   // each leg settles within a few microtasks; the bound only guards a
@@ -428,31 +450,46 @@ export async function startVoiceTurn(
   // idle conversation still starts the turn, which the signal wiring below
   // then aborts immediately (pinned by the pre-aborted-signal test).
   let remainingWaitMs = maxWaitMs;
+  const consumeWaitBudget = () => {
+    remainingWaitMs = Math.max(0, maxWaitMs - (Date.now() - waitStartedAt));
+  };
+  /**
+   * Wait for the processing lock to release within the remaining budget.
+   * Maps every exit to the turn's terminal errors: signal abort → the exact
+   * turn-aborted error; timeout or exhausted budget → the exact busy error.
+   */
+  const waitOutProcessingLock = async (): Promise<void> => {
+    if (remainingWaitMs <= 0) {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    }
+    let idle: boolean;
+    try {
+      idle = await conversation.waitForIdle({
+        timeoutMs: remainingWaitMs,
+        signal: opts.signal,
+      });
+    } catch {
+      // waitForIdle rejects only when opts.signal aborted mid-wait.
+      throw new Error(TURN_ABORTED_WAITING_MESSAGE);
+    }
+    if (opts.signal?.aborted) {
+      throw new Error(TURN_ABORTED_WAITING_MESSAGE);
+    }
+    if (!idle) {
+      // Waited the full budget (see resolveProcessingWaitMs) without the
+      // lock releasing, so the prior turn is genuinely wedged. The
+      // controller catches this terminal error and speaks a brief
+      // non-technical re-prompt rather than staying silent.
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    }
+    consumeWaitBudget();
+  };
   for (;;) {
     if (conversation.isProcessing()) {
-      let idle: boolean;
-      try {
-        idle = await conversation.waitForIdle({
-          timeoutMs: remainingWaitMs,
-          signal: opts.signal,
-        });
-      } catch {
-        // waitForIdle rejects only when opts.signal aborted mid-wait.
-        throw new Error("Turn aborted while waiting for conversation");
+      await waitOutProcessingLock();
+      if (conversation.hasQueuedMessages?.()) {
+        continue;
       }
-      if (opts.signal?.aborted) {
-        throw new Error("Turn aborted while waiting for conversation");
-      }
-      if (!idle) {
-        // Waited the full budget (see resolveProcessingWaitMs) without the
-        // lock releasing, so the prior turn is genuinely wedged. The
-        // controller catches this terminal error and speaks a brief
-        // non-technical re-prompt rather than staying silent.
-        throw new Error("Conversation is already processing a message");
-      }
-      // A successful idle wait is trusted; fall through to the teardown
-      // leg in the same iteration.
-      remainingWaitMs = Math.max(0, maxWaitMs - (Date.now() - waitStartedAt));
     }
     const priorTeardown = pendingTurnTeardowns.get(opts.conversationId);
     if (priorTeardown) {
@@ -462,9 +499,9 @@ export async function startVoiceTurn(
         opts.signal,
       );
       if (!torndown) {
-        throw new Error("Conversation is already processing a message");
+        throw new Error(CONVERSATION_BUSY_MESSAGE);
       }
-      remainingWaitMs = Math.max(0, maxWaitMs - (Date.now() - waitStartedAt));
+      consumeWaitBudget();
       continue;
     }
     break;
@@ -494,6 +531,13 @@ export async function startVoiceTurn(
 
   const requestId = crypto.randomUUID();
   const turnId = crypto.randomUUID();
+  const persistTurnUserMessage = async (): Promise<string> => {
+    const persistResult = await conversation.persistUserMessage({
+      content: persistedContent,
+      requestId,
+    });
+    return persistResult.id;
+  };
   let messageId: string;
   try {
     conversation.setAssistantId(
@@ -512,11 +556,24 @@ export async function startVoiceTurn(
     );
     conversation.setVoiceCallControlPrompt(voiceCallControlPrompt);
 
-    const persistResult = await conversation.persistUserMessage({
-      content: persistedContent,
-      requestId,
-    });
-    messageId = persistResult.id;
+    try {
+      messageId = await persistTurnUserMessage();
+    } catch (err) {
+      // A queued-message drain can take the lock between the wait loop
+      // above and this persist — the drain reaches its own persist a few
+      // microtasks after the idle transition that released this turn.
+      // Within the remaining budget, wait the drained turn out and retry
+      // the persist once instead of failing the barge-in.
+      if (
+        !(err instanceof Error) ||
+        err.message !== CONVERSATION_BUSY_MESSAGE ||
+        remainingWaitMs <= 0
+      ) {
+        throw err;
+      }
+      await waitOutProcessingLock();
+      messageId = await persistTurnUserMessage();
+    }
   } catch (err) {
     cleanup();
     throw err;
