@@ -218,9 +218,11 @@ describe("ManageProfilesModal — profile-create success toast (Settings surface
     // Open the create editor.
     fireEvent.click(getButton("+ New Profile"));
 
-    // Provider-first create: pick Anthropic, a model, then a name.
+    // Provider-first create: pick Anthropic and a model, then customize the
+    // derived identity fields under Advanced.
     pickOption(providerTrigger(), "Anthropic");
     selectModel("Claude Opus 4.8");
+    fireEvent.click(getButton("Advanced"));
 
     fireEvent.change(getInputByPlaceholder("e.g. fast-cheap"), {
       target: { value: "my-profile" },
