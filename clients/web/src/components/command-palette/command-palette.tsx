@@ -238,7 +238,9 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
               className={
                 isWindowSurface
                   ? "px-3 pb-1 pt-2 text-xs font-semibold text-[var(--content-tertiary)]"
-                  : "px-3 pb-1 pt-2 text-[var(--content-tertiary)]"
+                  : /* Bump the 10px label token to the 12px body-small token
+                       on mobile, where it reads too small (Figma 6764:6748). */
+                    "px-3 pb-1 pt-2 text-[var(--content-tertiary)] max-md:text-body-small-default"
               }
             >
               {section.label}
