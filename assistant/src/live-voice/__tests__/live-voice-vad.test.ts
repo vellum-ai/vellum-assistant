@@ -5,12 +5,18 @@ import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+import {
+  getConfig,
+  loadRawConfig,
+  saveRawConfig,
+} from "../../config/loader.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
+  createLiveVoiceSession,
   LiveVoiceSession,
   type LiveVoiceSessionAudioArchiver,
   type LiveVoiceTtsStreamer,
@@ -105,6 +111,7 @@ function createHarness(options: {
   streamTtsAudio?: LiveVoiceTtsStreamer | null;
   archiveAudio?: LiveVoiceSessionAudioArchiver;
   turnDetectorConfig?: TurnDetectorConfig;
+  speechEnergyThreshold?: number;
   emitMetrics?: boolean;
   metricsClock?: () => number;
   // Return a promise to hold a frame's transport write open (a backed-up
@@ -114,6 +121,10 @@ function createHarness(options: {
   ) => Promise<void> | null;
   // Transcriber indices whose stop events wait for flushStopEvents().
   holdStopEventsFor?: number[];
+  // Build the session through the production factory (with the credential
+  // preflight skipped) instead of the constructor, so the liveVoice.vad
+  // config path is exercised: unset thresholds come from getConfig().
+  viaFactory?: boolean;
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -142,7 +153,7 @@ function createHarness(options: {
   });
 
   let turnNumber = 0;
-  const session = new LiveVoiceSession(context, {
+  const sessionOptions = {
     resolveTranscriber,
     startVoiceTurn:
       options.startVoiceTurn ??
@@ -155,10 +166,20 @@ function createHarness(options: {
       turnNumber += 1;
       return `live-turn-${turnNumber}`;
     },
-    turnDetectorConfig: options.turnDetectorConfig ?? {
-      silenceThresholdMs: 40,
-    },
-  });
+    // Factory sessions leave unset thresholds to the config path; direct
+    // sessions default to a short silence timer to keep tests fast.
+    turnDetectorConfig:
+      options.turnDetectorConfig ??
+      (options.viaFactory ? undefined : { silenceThresholdMs: 40 }),
+    speechEnergyThreshold: options.speechEnergyThreshold,
+  };
+  const session = options.viaFactory
+    ? createLiveVoiceSession(context, {
+        ...sessionOptions,
+        // Credential-free harness: every leg is injected, so skip the preflight.
+        resolveCredentialReadiness: null,
+      })
+    : new LiveVoiceSession(context, sessionOptions);
 
   return { frames, session, transcribers };
 }
@@ -1035,5 +1056,113 @@ describe("LiveVoiceSession server VAD", () => {
       "assistant_text_delta",
       "tts_done",
     ]);
+  });
+});
+
+describe("LiveVoiceSession VAD threshold configuration", () => {
+  // Mean amplitude 1000: speech under the default 800 gate, silence under a
+  // raised 2000 gate.
+  const BORDERLINE_CHUNK = pcm(1_000);
+
+  test("a configured silenceThresholdMs of 300 ends the turn after ~300 ms of silence", async () => {
+    const { frames, session } = createHarness({
+      finals: ["timed turn"],
+      startVoiceTurn: makeAutoCompletingTurnStarter(["Done."]).startVoiceTurn,
+      turnDetectorConfig: { silenceThresholdMs: 300 },
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "speech_started"),
+    );
+    await session.handleBinaryAudio(SILENT_CHUNK);
+
+    // Well before the 300 ms threshold the turn is still open.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(countType(frames, "utterance_end")).toBe(0);
+
+    // The silence timer then ends the turn at ~300 ms after the last speech.
+    await waitFor(() => countType(frames, "utterance_end") === 1);
+    expect(
+      frames.find((frame) => frame.type === "utterance_end"),
+    ).toMatchObject({ type: "utterance_end", reason: "silence" });
+  });
+
+  test("a session-level speechEnergyThreshold flips a borderline chunk's speech classification", async () => {
+    // Under the default 800 gate the borderline chunk is speech.
+    const defaultGate = createHarness({});
+    await defaultGate.session.start();
+    await defaultGate.session.handleBinaryAudio(BORDERLINE_CHUNK);
+    await waitFor(() => countType(defaultGate.frames, "speech_started") === 1);
+
+    // Under a raised gate the exact same chunk is silence.
+    const raisedGate = createHarness({ speechEnergyThreshold: 2_000 });
+    await raisedGate.session.start();
+    await raisedGate.session.handleBinaryAudio(BORDERLINE_CHUNK);
+    await flushAsyncCallbacks();
+    expect(countType(raisedGate.frames, "speech_started")).toBe(0);
+  });
+
+  test("with no config set the factory defaults to 800 energy / 800 ms silence / 30 s max turn", async () => {
+    // The test workspace has no liveVoice config, so the factory reads the
+    // schema defaults — which must equal the historical code constants.
+    expect(getConfig().liveVoice.vad).toEqual({
+      speechEnergyThreshold: 800,
+      silenceThresholdMs: 800,
+      maxTurnDurationMs: 30_000,
+    });
+
+    const { frames, session } = createHarness({ viaFactory: true });
+    await session.start();
+
+    // Mean amplitude exactly at the default gate (800) is still silence...
+    await session.handleBinaryAudio(pcm(800));
+    await flushAsyncCallbacks();
+    expect(countType(frames, "speech_started")).toBe(0);
+
+    // ...one step above it is speech.
+    await session.handleBinaryAudio(pcm(801));
+    await waitFor(() => countType(frames, "speech_started") === 1);
+  });
+
+  test("the factory threads liveVoice.vad config into the server VAD", async () => {
+    const originalRaw = loadRawConfig();
+    saveRawConfig({
+      ...originalRaw,
+      liveVoice: {
+        vad: {
+          speechEnergyThreshold: 2_000,
+          silenceThresholdMs: 100,
+          maxTurnDurationMs: 30_000,
+        },
+      },
+    });
+
+    try {
+      const { frames, session } = createHarness({
+        viaFactory: true,
+        finals: ["configured turn"],
+        startVoiceTurn: makeAutoCompletingTurnStarter(["Done."]).startVoiceTurn,
+      });
+      await session.start();
+
+      // Above the code default (800) but below the configured 2000 gate:
+      // classified as silence.
+      await session.handleBinaryAudio(BORDERLINE_CHUNK);
+      await flushAsyncCallbacks();
+      expect(countType(frames, "speech_started")).toBe(0);
+
+      // Above the configured gate: speech — and the configured 100 ms
+      // silence threshold ends the turn well inside the waitFor budget,
+      // where the default 800 ms would time it out.
+      await session.handleBinaryAudio(pcm(3_000));
+      await waitFor(() => countType(frames, "utterance_end") === 1);
+      expect(
+        frames.find((frame) => frame.type === "utterance_end"),
+      ).toMatchObject({ type: "utterance_end", reason: "silence" });
+    } finally {
+      saveRawConfig(originalRaw);
+    }
   });
 });
