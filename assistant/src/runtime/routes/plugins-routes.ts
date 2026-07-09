@@ -1469,7 +1469,7 @@ export const ROUTES: RouteDefinition[] = [
         name: "ref",
         schema: { type: "string" },
         description:
-          "Optional git ref to list the catalog at. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).",
+          "Accepted for backward compatibility. The catalog is resolved from the Vellum platform (or the bundled manifest when platform features are disabled); this ref does not select a git revision — it is echoed back and used as the cache key. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).",
       },
     ],
     responseBody: pluginsSearchResponseSchema,
