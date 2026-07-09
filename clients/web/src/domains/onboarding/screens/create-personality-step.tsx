@@ -16,14 +16,19 @@
  * scattered down the page edges (NOT aligned to their slider row) so they read
  * as a loose crowd reacting to the choices. (Hidden on mobile, where the narrow
  * track leaves no room for them.)
+ *
+ * Height-responsive: the content column reserves the backdrop eyes' visible
+ * height at the bottom and compresses its spacing on short screens (small
+ * phones) so the Continue button always sits above the eyes.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
+import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 import {
@@ -122,11 +127,21 @@ const AVATAR_TOPS = ["9%", "27%", "45%", "62%", "79%"];
 const DEFAULT_VALUE = 50;
 
 /**
+ * Fraction of the stage's smaller dimension covered by the backdrop eyes'
+ * visible portion — mirrors `OnboardingPeekingEyes` (EYE_TARGET_HEIGHT 0.3 ×
+ * (1 − EYE_REST_CUTOFF 0.25)). The content column reserves this much at the
+ * bottom so the Continue button always clears the eyes.
+ */
+const EYES_VISIBLE_FRACTION = 0.3 * (1 - 0.25);
+
+/**
  * Slider styling from Figma (node 6279-576): a thick, uniformly-tinted track
  * (Surface-Dark/Lift at low opacity, so it darkens whatever avatar color sits
  * behind it) with a large solid-white thumb (Primary-Dark/Base). Smooth
  * (continuous) drag, no separate filled-range color — the track reads the same
- * on both sides of the thumb.
+ * on both sides of the thumb. Below `sm` the track/thumb/labels render one step
+ * smaller so short phones get more breathing room (the root keeps its full
+ * height as the touch target).
  */
 const TRACK_COLOR = "rgba(36, 41, 46, 0.2)"; // #24292E @ 20%
 const THUMB_COLOR = "#FDFDFC";
@@ -259,15 +274,18 @@ function PersonalitySlider({
   // track, so it's obvious which end each label belongs to; on >=sm they flank
   // the track in a single row. Flex `order` + wrap drives the reflow.
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 sm:flex-nowrap">
+    <div
+      className="flex w-full shrink-0 flex-wrap items-center gap-x-5 gap-y-1.5 sm:flex-nowrap"
+      style={{ opacity: disabled ? 0.7 : 1 }}
+    >
       <span
-        className="order-1 flex-1 text-left text-base sm:w-32 sm:flex-none sm:text-right sm:text-[17px]"
+        className="order-1 flex-1 text-left text-sm sm:w-32 sm:flex-none sm:text-right sm:text-[17px]"
         style={{ color: fg }}
       >
         {axis.left}
       </span>
       <span
-        className="order-2 flex-1 text-right text-base sm:order-3 sm:w-32 sm:flex-none sm:text-left sm:text-[17px]"
+        className="order-2 flex-1 text-right text-sm sm:order-3 sm:w-32 sm:flex-none sm:text-left sm:text-[17px]"
         style={{ color: fg }}
       >
         {axis.right}
@@ -283,11 +301,11 @@ function PersonalitySlider({
         aria-label={`${axis.left} to ${axis.right}`}
       >
         <SliderPrimitive.Track
-          className="relative h-3 w-full grow rounded-full"
+          className="relative h-2 w-full grow rounded-full sm:h-3"
           style={{ backgroundColor: TRACK_COLOR }}
         />
         <SliderPrimitive.Thumb
-          className="block h-6 w-6 cursor-grab rounded-full shadow-sm transition-transform active:scale-95 active:cursor-grabbing keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-white/70 data-[disabled]:cursor-not-allowed data-[disabled]:active:scale-100"
+          className="block h-5 w-5 cursor-grab rounded-full shadow-sm transition-transform active:scale-95 active:cursor-grabbing keyboard-focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-white/70 data-[disabled]:cursor-not-allowed data-[disabled]:active:scale-100 sm:h-6 sm:w-6"
           style={{ backgroundColor: THUMB_COLOR }}
         />
       </SliderPrimitive.Root>
@@ -357,6 +375,11 @@ export function CreatePersonalityStep({
   const tone = useOnboardingTone();
   const components = useBundledAvatarComponents();
   const viewportWidth = useViewportWidth();
+  const { w: stageW, h: stageH } = useOnboardingStageSize();
+  // Keep the Continue button clear of the backdrop eyes: reserve their visible
+  // height (plus a little breathing room) at the bottom of the content column.
+  const eyesReserve =
+    Math.round(EYES_VISIBLE_FRACTION * Math.min(stageW, stageH)) + 12;
   const isDesktop = viewportWidth >= DESKTOP_MIN_WIDTH;
   // The page is painted in the selected avatar's color, so steer the side
   // avatars clear of it (see `avoidBackgroundColor`).
@@ -402,8 +425,24 @@ export function CreatePersonalityStep({
         />
       )}
 
-      <div className="absolute left-1/2 top-[14%] flex w-full max-w-2xl -translate-x-1/2 flex-col items-center gap-10 px-6">
-        <div className="flex flex-col items-center gap-2">
+      {/* One flat flex column spanning the full stage height. The top offset
+          and the gaps between sections are shrinkable spacers: on tall screens
+          they sit at their natural size (matching the old fixed layout), on
+          short phones they compress — top offset first, then the gaps — so the
+          Continue button stays above the eyes. If even the fully-compressed
+          column can't fit, the column scrolls as a last resort (the bottom
+          padding keeps the button clear of the eyes at full scroll). */}
+      <div
+        className="absolute inset-x-0 top-0 bottom-0 mx-auto flex w-full max-w-2xl flex-col items-center overflow-y-auto px-6"
+        style={{ paddingBottom: eyesReserve }}
+      >
+        {/* Top offset: 14% of the stage when there's room, never under the
+            top bar (24px top + 32px button). */}
+        <div
+          className="w-full min-h-14 shrink-[4]"
+          style={{ flexBasis: Math.round(stageH * 0.14) }}
+        />
+        <div className="flex shrink-0 flex-col items-center gap-2">
           <h1
             className="text-center text-[2.6rem] leading-none"
             style={{ fontFamily: "var(--font-serif)" }}
@@ -417,7 +456,7 @@ export function CreatePersonalityStep({
             </p>
           ) : (
             <p
-              className="max-w-md text-center text-[15px]"
+              className="hidden max-w-md text-center text-[15px] sm:block"
               style={{ color: tone.fgMuted }}
             >
               How do you want me to talk to you? You can always ask me to change
@@ -425,27 +464,26 @@ export function CreatePersonalityStep({
             </p>
           )}
         </div>
+        <div className="w-full min-h-3 shrink-[2] basis-10" />
 
-        <div
-          className="flex w-full flex-col gap-8 sm:gap-11"
-          style={{ opacity: locked ? 0.7 : 1 }}
-        >
-          {PERSONALITY_AXES.map((axis) => (
+        {PERSONALITY_AXES.map((axis, i) => (
+          <Fragment key={axis.id}>
+            {i > 0 && <div className="w-full min-h-2.5 shrink basis-8 sm:basis-11" />}
             <PersonalitySlider
-              key={axis.id}
               axis={axis}
               value={values[axis.id] ?? DEFAULT_VALUE}
               onValueChange={(next) => onValueChange(axis.id, next)}
               fg={tone.fg}
               disabled={locked}
             />
-          ))}
-        </div>
+          </Fragment>
+        ))}
 
+        <div className="w-full min-h-3 shrink-[2] basis-14" />
         <button
           type="button"
           onClick={onContinue}
-          className="mt-4 flex h-11 w-[234px] cursor-pointer items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97]"
+          className="flex h-11 w-[234px] shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97]"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
