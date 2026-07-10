@@ -29,13 +29,7 @@
  * Writes are best-effort: a ClickHouse outage logs and is swallowed so it
  * can never abort a turn.
  */
-// Namespace import (not a named `getConfigReadOnly` import) on purpose: the
-// store imports this module, so it is reached transitively by the large set of
-// tests that stub `config/loader` with a partial mock exposing only
-// `getConfig`. A named import would fail to link against those mocks; a
-// namespace access degrades to `undefined` at call time instead, which the
-// factory's try/catch treats as "no sink" (→ local SQLite). Matches the store.
-import * as configLoader from "../config/loader.js";
+import { getConfigReadOnly } from "../config/loader.js";
 import type { LlmRequestLogsClickHouseConfig } from "../config/schemas/llm-request-logs.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
@@ -313,7 +307,7 @@ let cachedSink: { key: string; sink: ClickHouseLlmRequestLogSink } | null =
 export function getClickHouseLlmRequestLogSink(): ClickHouseLlmRequestLogSink | null {
   let cfg;
   try {
-    cfg = configLoader.getConfigReadOnly().llmRequestLogs;
+    cfg = getConfigReadOnly().llmRequestLogs;
   } catch {
     return null;
   }
