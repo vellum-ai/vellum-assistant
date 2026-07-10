@@ -68,8 +68,6 @@ assistant mcp add unstructured-transform -t streamable-http -u https://mcp.trans
 
 The server is registered under the id `unstructured-transform` — that's the name shown by `assistant mcp list` and used in the commands below, even though this skill is titled "Chat with Complex Documents".
 
-**Optional — scope the tools:** to limit which Transform tools are exposed or cap how many load, edit `mcp.servers.unstructured-transform` in the assistant's `config.json` and set `allowedTools` / `blockedTools` (tool-name filters) or `maxTools`. Leave unset to expose the server's full tool set.
-
 ### Step 3 — Authenticate via OAuth
 
 ```
