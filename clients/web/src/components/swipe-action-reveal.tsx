@@ -42,10 +42,10 @@ function SwipeActionButton({
       )}
       style={{
         width: ACTION_WIDTH_PX,
-        color: action.variant === "destructive" ? "var(--content-on-danger)" : "var(--content-on-primary)",
+        color: action.variant === "destructive" ? "var(--aux-white)" : "var(--content-inset)",
         background:
           action.variant === "destructive"
-            ? "var(--danger-base)"
+            ? "var(--system-negative-strong)"
             : "var(--primary-base)",
       }}
     >
