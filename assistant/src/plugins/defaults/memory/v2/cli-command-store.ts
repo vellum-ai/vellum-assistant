@@ -20,14 +20,17 @@
 //   - No MCP-style augmentation — Commander's description is the canonical
 //     summary.
 
-import { CLI_COMMAND_HELP } from "../../../../cli/index.help.js";
-import { renderCliCommandHelp } from "../../../../cli/lib/cli-command-help.js";
+import { CLI_COMMAND_HELP } from "@vellumai/plugin-api";
+
 import { getConfig } from "../../../../config/loader.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
 import { getLogger } from "../../../../util/logger.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embeddings.js";
-import { buildCliCommandContent } from "./cli-command-content.js";
+import {
+  buildCliCommandContent,
+  buildCliCommandHelpContent,
+} from "./cli-command-content.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
   backfillKindOnPointsWithPrefix,
@@ -141,18 +144,14 @@ async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
     const declarativeNames = new Set<string>();
 
     // Commands that have adopted the static-help split are read from their
-    // declarative `.help.ts` (via `cli/index.help.ts`) — pure data, no CLI
-    // action graph. `renderCliCommandHelp` reproduces the exact `--help` output.
+    // declarative help (exposed via `@vellumai/plugin-api`) — pure data, no CLI
+    // action graph. Content is rendered from that data here in the plugin.
     for (const help of CLI_COMMAND_HELP) {
       declarativeNames.add(help.name);
       seeds.push({
         id: help.name,
         description: help.description,
-        content: buildCliCommandContent(
-          help.name,
-          help.description,
-          renderCliCommandHelp(help),
-        ),
+        content: buildCliCommandHelpContent(help),
       });
     }
 

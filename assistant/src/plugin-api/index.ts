@@ -180,3 +180,13 @@ export {
   getAssistantName,
   resolveUserName,
 } from "../daemon/identity-helpers.js";
+// Declarative help for the top-level `assistant` CLI commands that have adopted
+// the static-help split. Plugins (e.g. the memory capability indexer) read this
+// to embed CLI command capabilities without importing the CLI action graph.
+// Pure data — iterate the fields directly.
+export { CLI_COMMAND_HELP } from "../cli/index.help.js";
+export type {
+  CliCommandHelp,
+  CliOptionHelp,
+  CliSubcommandHelp,
+} from "../cli/lib/cli-command-help.js";

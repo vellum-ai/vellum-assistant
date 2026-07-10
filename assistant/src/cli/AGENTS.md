@@ -40,11 +40,11 @@ Both transport classes avoid proxying through the gateway HTTP API. `ipc` comman
 Every command file declares its transport class via `registerCommand({ transport, ... })`
 from `../lib/register-command.ts`. The three transport classes are:
 
-| Class | Rule | When to use |
-|---|---|---|
-| `ipc` | Wraps exactly one IPC method per subcommand. No daemon-internal imports. | Commands that call the daemon |
-| `local` | Touches only static workspace files / shell artifacts. | Commands that work without a running daemon |
-| `bootstrap` | Runs before the daemon is up (e.g. `assistant config init`). | Pre-daemon setup |
+| Class       | Rule                                                                     | When to use                                 |
+| ----------- | ------------------------------------------------------------------------ | ------------------------------------------- |
+| `ipc`       | Wraps exactly one IPC method per subcommand. No daemon-internal imports. | Commands that call the daemon               |
+| `local`     | Touches only static workspace files / shell artifacts.                   | Commands that work without a running daemon |
+| `bootstrap` | Runs before the daemon is up (e.g. `assistant config init`).             | Pre-daemon setup                            |
 
 The ESLint rule `cli/no-daemon-internals` enforces import allowlists per class.
 
@@ -101,12 +101,14 @@ registerFooCommand(program);
 ### Rules
 
 1. **One `registerCommand` call per file.** The options object MUST be
-   passed inline as an object literal; `name` and `transport` MUST be
-   string literals. Hoisted variables and `as const` casts break the
-   static analysis tools rely on.
+   passed inline as an object literal, and `transport` MUST be a string
+   literal — the `cli/no-daemon-internals` ESLint rule reads it
+   statically to pick the import allowlist, so hoisting it or wrapping it
+   in an `as const` cast breaks the rule. `name` may reference the
+   command's `<command>Help.name` from its `.help.ts` (single-sourcing
+   the name with the declarative help).
 
 2. **No daemon-internal imports.** An `ipc` command file can import:
-
    - the IPC client (`../../ipc/cli-client`)
    - the Commander framework + Node stdlib (`commander`, `node:*`)
    - shared CLI helpers (`../logger`, `../output`, `../lib/*`,
@@ -174,8 +176,8 @@ served by the daemon's IPC server. Two route surfaces exist:
   shouldn't be exposed over HTTP — when in doubt, default to the
   shared surface.
 
-Operation IDs are snake_case. The conventional shape is
-`<command>_<subcommand>` (`pending_list`, `oauth_connect`,
+Operation IDs are snake*case. The conventional shape is
+`<command>*<subcommand>` (`pending_list`, `oauth_connect`,
 `cache_get`), but verb-first names are also used where they read more
 naturally (`upsert_contact`, `wake_conversation`, `conversations_import`).
 Pick the form that makes the operation obvious from the ID alone.
@@ -189,6 +191,7 @@ response. When you add a new CLI verb you're almost always also adding
 
 `commands/pending.ts` is the reference implementation. Read it first
 when migrating a legacy command or unsure about a pattern.
+
 - Clean error handling via `exitFromIpcResult`
 - No daemon-internal imports
 

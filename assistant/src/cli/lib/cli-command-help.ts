@@ -1,4 +1,4 @@
-import { Command } from "commander";
+import type { Command } from "commander";
 
 /**
  * Fully declarative description of a top-level `assistant` CLI command and its
@@ -54,20 +54,6 @@ export function applyCommandHelp(command: Command, help: CliCommandHelp): void {
       child.addHelpText("after", sub.helpText);
     }
   }
-}
-
-/**
- * Render a command's `helpInformation()` from its declarative help, matching
- * what `assistant <name> --help` prints. Builds a throwaway command rooted at
- * `assistant` (as {@link ../program.buildCliProgramTree} does) so the usage line
- * matches. Used by the memory capability indexer to embed CLI help without
- * building the full program tree.
- */
-export function renderCliCommandHelp(help: CliCommandHelp): string {
-  const root = new Command().name("assistant");
-  const command = root.command(help.name).description(help.description);
-  applyCommandHelp(command, help);
-  return command.helpInformation();
 }
 
 /** Return a subcommand by name, throwing if absent. */

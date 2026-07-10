@@ -22,7 +22,7 @@ import { attachmentHelp } from "./attachment.help.js";
 
 export function registerAttachmentCommand(program: Command): void {
   registerCommand(program, {
-    name: "attachment",
+    name: attachmentHelp.name,
     transport: "ipc",
     description: attachmentHelp.description,
     build: (attachment) => {
