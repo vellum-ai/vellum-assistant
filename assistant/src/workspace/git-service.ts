@@ -142,6 +142,24 @@ const WORKSPACE_GITIGNORE_RULES = [
   "!conversations/**",
 ];
 
+/**
+ * Paths exempt from the oversized-file guard. Mirrors the `!` re-include
+ * rules in WORKSPACE_GITIGNORE_RULES above: canonical state the product
+ * explicitly insists on tracking (e.g. conversation disk views that DB
+ * recovery rebuilds from) must keep committing even past
+ * workspaceGit.maxFileSizeBytes. Keep in sync with the negation rules.
+ */
+const SIZE_GUARD_EXEMPT_PATTERNS: RegExp[] = [
+  /^conversations\//,
+  /^data\/avatar\//,
+  /^data\/sounds\//,
+  /^data\/apps\/[^/]+\/icon\.png$/,
+];
+
+function isSizeGuardExempt(relPath: string): boolean {
+  return SIZE_GUARD_EXEMPT_PATTERNS.some((re) => re.test(relPath));
+}
+
 /** Default identity for automated workspace commits. */
 const DEFAULT_GIT_NAME = "Vellum Assistant";
 // generic-examples:ignore-next-line — reason: real daemon commit identity, not an example
@@ -899,6 +917,9 @@ export class WorkspaceGitService {
    * unreadable paths (deletions, races) are treated as not oversized.
    */
   private isOversized(relPath: string): boolean {
+    if (isSizeGuardExempt(relPath)) {
+      return false;
+    }
     try {
       const stats = lstatSync(join(this.workspaceDir, relPath));
       return stats.isFile() && stats.size > this.maxFileSizeBytes();
@@ -1023,8 +1044,10 @@ export class WorkspaceGitService {
    * squashed into a single base commit whose tree is scrubbed of oversized
    * entries; younger commits are replayed verbatim (trees, messages,
    * authors, and dates preserved); reflogs are then expired and unreachable
-   * objects pruned. Runs only when the object store actually contains an
-   * oversized blob, so the steady state is a cheap detection scan.
+   * objects pruned. Runs only when the object store contains an oversized
+   * blob that is actionable — unreachable, or reachable at a non-exempt
+   * path (see SIZE_GUARD_EXEMPT_PATTERNS) — so the steady state is a cheap
+   * detection scan and exempt canonical state never triggers rewrites.
    *
    * Oversized blobs still referenced by replayed recent commits survive
    * until those commits age past retention — the result carries
@@ -1060,25 +1083,68 @@ export class WorkspaceGitService {
   }
 
   /**
-   * Whether any blob in the object store exceeds the size limit. Reads
-   * object metadata only — no history walk.
+   * Object ids of every blob in the object store exceeding the size limit.
+   * Reads object metadata only — no history walk.
    */
-  private async objectStoreHasOversizedBlobLocked(
+  private async collectOversizedBlobOidsLocked(
     limit: number,
-  ): Promise<boolean> {
+  ): Promise<Set<string>> {
     const objects = await this.execGitStreaming(
       [
         "cat-file",
         "--batch-all-objects",
         "--unordered",
-        "--batch-check=%(objecttype) %(objectsize)",
+        "--batch-check=%(objectname) %(objecttype) %(objectsize)",
       ],
       { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
     );
-    return objects.stdout.split("\n").some((line) => {
-      const [type, size] = line.split(" ");
-      return type === "blob" && Number(size) > limit;
-    });
+    const oids = new Set<string>();
+    for (const line of objects.stdout.split("\n")) {
+      const [oid, type, size] = line.split(" ");
+      if (oid && type === "blob" && Number(size) > limit) {
+        oids.add(oid);
+      }
+    }
+    return oids;
+  }
+
+  /**
+   * Whether any of the given oversized blobs is actionable for compaction:
+   * unreachable from main (prunable now) or reachable at a non-exempt path.
+   * Blobs whose only reachable use is exempt canonical state (e.g. a
+   * conversation disk view) are tracked on purpose — they must neither
+   * trigger a rewrite nor keep compaction retrying.
+   */
+  private async hasActionableOversizedBlobLocked(
+    oversized: Set<string>,
+  ): Promise<boolean> {
+    if (oversized.size === 0) {
+      return false;
+    }
+    // Lines are "<oid>" for commits and "<oid> <path>" for trees/blobs.
+    const reachable = await this.execGitStreaming(
+      ["rev-list", "--objects", "main"],
+      { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
+    );
+    const remaining = new Set(oversized);
+    for (const line of reachable.stdout.split("\n")) {
+      if (!line) {
+        continue;
+      }
+      const spaceIdx = line.indexOf(" ");
+      const oid = spaceIdx === -1 ? line : line.substring(0, spaceIdx);
+      if (!remaining.has(oid)) {
+        continue;
+      }
+      const path = spaceIdx === -1 ? "" : line.substring(spaceIdx + 1);
+      if (isSizeGuardExempt(path)) {
+        remaining.delete(oid);
+      } else {
+        return true;
+      }
+    }
+    // Anything never seen in rev-list is unreachable, hence prunable.
+    return remaining.size > 0;
   }
 
   private async compactHistoryLocked(): Promise<{
@@ -1092,7 +1158,8 @@ export class WorkspaceGitService {
 
     // Any oversized blobs at all? Bounds the cost of every boot where there
     // is nothing to do.
-    if (!(await this.objectStoreHasOversizedBlobLocked(limit))) {
+    const oversizedOids = await this.collectOversizedBlobOidsLocked(limit);
+    if (oversizedOids.size === 0) {
       return noop;
     }
 
@@ -1136,6 +1203,13 @@ export class WorkspaceGitService {
       return noop;
     }
 
+    // Exempt canonical state (conversation disk views, avatars) is allowed
+    // to exceed the limit — when it accounts for every oversized blob,
+    // there is nothing to reclaim and nothing to retry.
+    if (!(await this.hasActionableOversizedBlobLocked(oversizedOids))) {
+      return { ...noop, keptCommits: commits.length };
+    }
+
     // Squash a PREFIX of the chain so replay order stays consistent even if
     // commit timestamps are not monotonic.
     const cutoffSec =
@@ -1151,7 +1225,8 @@ export class WorkspaceGitService {
       // away; only blobs still reachable from recent commits must wait out
       // retention.
       await this.expireReflogsAndPruneLocked();
-      if (!(await this.objectStoreHasOversizedBlobLocked(limit))) {
+      const afterPrune = await this.collectOversizedBlobOidsLocked(limit);
+      if (!(await this.hasActionableOversizedBlobLocked(afterPrune))) {
         log.info(
           { workspaceDir: this.workspaceDir },
           "Pruned unreachable oversized blobs from workspace git",
@@ -1231,7 +1306,8 @@ export class WorkspaceGitService {
     // for when the oldest kept commit ages past retention, so they are
     // reclaimed without waiting for a daemon restart.
     let retryAfterMs: number | undefined;
-    if (await this.objectStoreHasOversizedBlobLocked(limit)) {
+    const afterGc = await this.collectOversizedBlobOidsLocked(limit);
+    if (await this.hasActionableOversizedBlobLocked(afterGc)) {
       const oldestKeptSec =
         kept[0]?.committedAtSec ?? Math.floor(Date.now() / 1000);
       retryAfterMs = Math.max(
@@ -1280,8 +1356,13 @@ export class WorkspaceGitService {
       }
       // "<mode> <type> <oid> <size>\t<path>" — size is right-aligned.
       const meta = entry.substring(0, tab).trim().split(/\s+/);
-      if (meta[1] === "blob" && Number(meta[3]) > limit) {
-        oversizedPaths.push(entry.substring(tab + 1));
+      const path = entry.substring(tab + 1);
+      if (
+        meta[1] === "blob" &&
+        Number(meta[3]) > limit &&
+        !isSizeGuardExempt(path)
+      ) {
+        oversizedPaths.push(path);
       }
     }
     if (oversizedPaths.length === 0) {

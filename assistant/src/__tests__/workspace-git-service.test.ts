@@ -2032,6 +2032,35 @@ describe("WorkspaceGitService", () => {
       execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
     });
 
+    test("oversized conversation disk views keep committing", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // conversations/** is canonical recovery state, re-included by the
+      // managed ignore rules — the size guard must never suppress it.
+      const viewDir = join(testDir, "conversations", "conv-1");
+      mkdirSync(viewDir, { recursive: true });
+      writeFileSync(join(viewDir, "messages.jsonl"), bigContent());
+
+      const status = await service.getStatus();
+      expect(status.clean).toBe(false);
+
+      await service.commitChanges("Sync conversation");
+      expect(trackedFiles()).toContain("conversations/conv-1/messages.jsonl");
+
+      // A fresh init must not untrack it either
+      const second = new WorkspaceGitService(testDir);
+      await second.ensureInitialized();
+      const result = await second.commitIfDirty(() => ({ message: "tick" }));
+      expect(trackedFiles()).toContain("conversations/conv-1/messages.jsonl");
+
+      // And compaction sees nothing actionable — no rewrite, no retry loop
+      const compaction = await second.compactHistoryNow();
+      expect(compaction.rewrote).toBe(false);
+      expect(compaction.retryAfterMs).toBeUndefined();
+      expect(result.committed).toBe(false);
+    });
+
     test("unstaging an externally staged oversized blob schedules compaction", async () => {
       // Fresh repo created by the service — no boot-time compaction pending
       const service = new WorkspaceGitService(testDir);
