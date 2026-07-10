@@ -658,7 +658,6 @@ function buildQueuedMessagePayloads(
         // identifier the queued-message delete/steer endpoints key on.
         id: item.requestId,
         role: "user" as const,
-        content: text,
         timestamp: new Date(item.sentAt).toISOString(),
         attachments,
         ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
@@ -1018,10 +1017,9 @@ export function handleListMessages({
 
     // Strip <no_response/> markers from assistant messages so web/API clients
     // never see the raw sentinel. Only assistant messages produce it; user
-    // messages are untouched. The filter is applied consistently to the flat
-    // text, the segments, the contentOrder text refs, and the text blocks of
+    // messages are untouched. The filter is applied consistently to the
+    // segments, the contentOrder text refs, and the text blocks of
     // contentBlocks.
-    let text = rendered.text;
     let textSegments = rendered.textSegments;
     let contentOrder = rendered.contentOrder;
     let contentBlocks = rendered.contentBlocks;
@@ -1048,7 +1046,6 @@ export function handleListMessages({
         })
         .filter((e): e is string => e !== undefined);
       textSegments = filteredSegments;
-      text = rendered.text.replace(NO_RESPONSE_INLINE_RE, "").trim();
       contentBlocks = rendered.contentBlocks
         .map((block) =>
           block.type === "text"
@@ -1096,9 +1093,6 @@ export function handleListMessages({
       ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
       ...(m.clientMessageId ? { clientMessageId: m.clientMessageId } : {}),
       role: m.role,
-      // Flat plain-text body; see the `content` field on
-      // ConversationMessageSchema for why this must stay.
-      content: text,
       timestamp: new Date(displayTimestamp).toISOString(),
       attachments: msgAttachments,
       ...(toolCalls.length > 0 ? { toolCalls } : {}),

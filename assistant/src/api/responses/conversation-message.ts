@@ -2,7 +2,6 @@
  * Wire contract for the conversation history / messages endpoints.
  *
  *   - `GET /v1/assistants/:id/messages` → `{ messages: ConversationMessage[] }`
- *   - `POST /v1/messages` send acks echo an `assistantMessage: ConversationMessage`
  *
  * Holds the canonical history-row shape produced by the daemon's
  * `renderHistoryContent` + conversation-routes serializer and consumed by
@@ -480,20 +479,6 @@ export const ConversationMessageSchema = z.object({
    * scaffolding, never a displayed turn.
    */
   role: z.enum(["user", "assistant"]),
-  /**
-   * @deprecated Superseded by `contentBlocks`. Flat plain-text body (joined
-   * text segments). Redundant with `textSegments`/`contentOrder` for clients
-   * that render from the positional arrays (web, CLI). The serializer always
-   * emits it — do not remove without auditing clients that read it directly.
-   */
-  content: z
-    .string()
-    .meta({
-      deprecated: true,
-      description:
-        "Deprecated: superseded by contentBlocks. Flat plain-text body (joined text segments).",
-    })
-    .optional(),
   /** Display timestamp as an ISO-8601 string. */
   timestamp: z.string(),
   /**
