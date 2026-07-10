@@ -26,6 +26,8 @@ const { drainStagedTable, stageTableForRelocation } =
   await import("../../../../persistence/migrations/helpers/relocation.js");
 const { MEMORY_JOBS_RELOCATION } =
   await import("../../../../persistence/migrations/298-move-memory-jobs-to-memory-db.js");
+const { INJECTION_EVENTS_RELOCATION } =
+  await import("../../../../persistence/migrations/326-move-injection-events-to-memory-db.js");
 
 await initializeDb();
 
@@ -125,6 +127,53 @@ describe("memory_jobs drain", () => {
       { id: "seed-keep-1", status: "pending" },
       { id: "seed-keep-2", status: "pending" },
       { id: "seed-keep-3", status: "pending" },
+    ]);
+  });
+});
+
+describe("memory_v2_injection_events drain", () => {
+  test("copies in-window rows, purges rows older than the read window, drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    // Clean slate: empty live table, fresh populated staging table.
+    memory.exec(`DELETE FROM memory_v2_injection_events`);
+    sqlite.exec(
+      `DROP TABLE IF EXISTS main."memory_v2_injection_events__relocating"`,
+    );
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_v2_injection_events__relocating" (
+        id INTEGER PRIMARY KEY, slug TEXT NOT NULL, injected_at INTEGER NOT NULL
+      )
+    `);
+
+    const now = Date.now();
+    const readWindowMs = 18 * 24 * 60 * 60 * 1000; // 6 half-lives of 3 days
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_v2_injection_events__relocating"
+         (id, slug, injected_at) VALUES (?, ?, ?)`,
+    );
+    insert.run(1, "fresh-a", now - 1000);
+    insert.run(2, "fresh-b", now - readWindowMs / 2);
+    insert.run(3, "stale-a", now - readWindowMs - 24 * 60 * 60 * 1000);
+    insert.run(4, "stale-b", now - 2 * readWindowMs);
+
+    await drainStagedTable(sqlite, INJECTION_EVENTS_RELOCATION);
+
+    // Staging dropped.
+    expect(existsInMain("memory_v2_injection_events__relocating")).toBe(false);
+
+    // Only the in-window rows landed in the memory database, ids preserved;
+    // rows past the score read window were purged without being copied.
+    const kept = memory
+      .query<
+        { id: number; slug: string },
+        []
+      >(`SELECT id, slug FROM memory_v2_injection_events ORDER BY id`)
+      .all();
+    expect(kept).toEqual([
+      { id: 1, slug: "fresh-a" },
+      { id: 2, slug: "fresh-b" },
     ]);
   });
 });

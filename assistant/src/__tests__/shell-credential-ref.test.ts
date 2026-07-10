@@ -4,14 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Mock logger
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mock registry
 mock.module("../tools/registry.js", () => ({
   registerTool: () => {},

@@ -1,16 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../__tests__/helpers/mock-logger.js";
-
 // This test exercises the v1 graph search path. `config.memory.v2.enabled`
 // (default `true`) makes graph-search short-circuit to keep traffic off
 // the legacy collection — force it off so the v1 path stays under test.
 mock.module("../../../../config/loader.js", () => ({
   getConfig: () => ({ memory: { v2: { enabled: false } } }),
-}));
-
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
 }));
 
 let breakerOpen = false;

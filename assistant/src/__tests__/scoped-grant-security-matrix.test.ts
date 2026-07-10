@@ -23,15 +23,7 @@
  *  11. Guardian identity mismatch cannot mint grant — guardian-grant-minting.test.ts
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   _internal,

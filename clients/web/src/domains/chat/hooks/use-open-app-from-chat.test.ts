@@ -22,10 +22,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 
-import {
-  chooseSidebarOpenAppDestination,
-  useOpenAppFromChat,
-} from "./use-open-app-from-chat";
+import { useOpenAppFromChat } from "./use-open-app-from-chat";
 
 // We can't safely `mock.module(...)` core stores like viewer/conversation
 // because Bun module mocks are process-global — they leak into every
@@ -179,49 +176,31 @@ describe("useOpenAppFromChat", () => {
     expect(enterAppEditingMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
   });
-});
 
-describe("chooseSidebarOpenAppDestination", () => {
-  test("returns null on the chat index path (viewer mounts here via ConversationRedirect)", () => {
-    expect(chooseSidebarOpenAppDestination("/assistant", "conv-7")).toBeNull();
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/", "conv-7"),
-    ).toBeNull();
+  test("with bindConversation: false, loads the app but never binds or enters editing", async () => {
+    useConversationStore.setState({ activeConversationId: "conv-7" });
+    const { result } = renderHook(() =>
+      useOpenAppFromChat({ bindConversation: false }),
+    );
+
+    await result.current("app-42");
+
+    expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
+    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+    expect(enterAppEditingMock).not.toHaveBeenCalled();
   });
 
-  test("returns null on a conversation route (viewer mounts under ChatPage)", () => {
-    expect(
-      chooseSidebarOpenAppDestination(
-        "/assistant/conversations/abc",
-        "conv-7",
-      ),
-    ).toBeNull();
-  });
+  test("with bindConversation: false on mobile, loads the app but never binds", async () => {
+    mobileRef.current = true;
+    useConversationStore.setState({ activeConversationId: "conv-7" });
+    const { result } = renderHook(() =>
+      useOpenAppFromChat({ bindConversation: false }),
+    );
 
-  test("navigates to the active conversation when off-chat (e.g. library)", () => {
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/library", "conv-7"),
-    ).toBe("/assistant/conversations/conv-7");
-  });
+    await result.current("app-42");
 
-  test("navigates to the chat index when off-chat with no active conversation", () => {
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/home", null),
-    ).toBe("/assistant");
-  });
-
-  test("inspector subpath counts as off-chat (viewer panel is not mounted under InspectPage)", () => {
-    expect(
-      chooseSidebarOpenAppDestination(
-        "/assistant/conversations/abc/inspect",
-        "conv-7",
-      ),
-    ).toBe("/assistant/conversations/conv-7");
-  });
-
-  test("identity / settings paths route to the active conversation", () => {
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/identity", "conv-7"),
-    ).toBe("/assistant/conversations/conv-7");
+    expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
+    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+    expect(enterAppEditingMock).not.toHaveBeenCalled();
   });
 });

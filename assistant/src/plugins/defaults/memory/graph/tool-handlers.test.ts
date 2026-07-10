@@ -6,12 +6,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ── Stub logger ────────────────────────────────────────────────────────────────
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // ── Controllable store mock ────────────────────────────────────────────────────
 let mockNodes: Array<{
   id: string;

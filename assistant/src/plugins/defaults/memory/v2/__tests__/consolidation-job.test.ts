@@ -34,12 +34,6 @@ import {
   test,
 } from "bun:test";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // ── runBackgroundJob mock ───────────────────────────────────────────
 //
 // The consolidation handler delegates the bootstrap + processMessage +

@@ -60,14 +60,6 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 mock.module("../permissions/channel-permission-query.js", () => ({
   buildChannelPermissionCellQuery: () => undefined,
 }));

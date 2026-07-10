@@ -9,14 +9,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ── Stub pipes ──────────────────────────────────────────────────────
-// Same logger-stub shape as the rest of the test suite — pino pulls are
-// agent-loop-time too, but we silence them so the test stays deterministic.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Mock plugin pipeline. Two modes:
 //  - return mode (default): returns `hookResponse` as the hook result.
 //  - in-place mode: mutates ctx.systemPrompt directly and returns the same

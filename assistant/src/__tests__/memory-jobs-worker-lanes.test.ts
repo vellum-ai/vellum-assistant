@@ -20,13 +20,6 @@ import type { AssistantConfig } from "../config/types.js";
 
 // ── Mocks (must precede imports of tested module) ──────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Per-lane caps: 1 slow slot (so only 1 of the 5 enqueued slow jobs runs in
 // this tick) and a generous fast cap so every fast job both gets claimed
 // and gets a slot in the lane pool. The OLD shared-pool scheduler — which

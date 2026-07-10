@@ -30,13 +30,6 @@ const realPreflightModule = {
   ...(await import("../live-voice-credential-preflight.js")),
 };
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../../config/loader.js", () => {
   const config = {
     model: "test",

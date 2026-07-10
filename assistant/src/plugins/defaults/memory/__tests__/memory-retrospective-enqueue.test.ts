@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Mock state — reset between tests.
 // ---------------------------------------------------------------------------

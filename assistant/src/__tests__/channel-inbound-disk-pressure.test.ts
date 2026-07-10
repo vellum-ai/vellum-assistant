@@ -10,13 +10,6 @@ const deliverChannelReplyMock = mock(
 const expectedRemoteBlockReply =
   "Storage is critically low, so remote messages are ignored until the guardian frees enough space. Please try again later.";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: deliverChannelReplyMock,
 }));

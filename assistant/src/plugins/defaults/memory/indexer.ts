@@ -1,4 +1,5 @@
 import {
+  type ContentBlock,
   extractTextFromStoredMessageContent,
   selectedBackendSupportsMultimodal,
 } from "@vellumai/plugin-api";
@@ -35,7 +36,7 @@ export interface IndexMessageInput {
   messageId: string;
   conversationId: string;
   role: string;
-  content: string;
+  content: string | ContentBlock[];
   createdAt: number;
   /**
    * Trust class of the actor who produced this message, captured at

@@ -183,11 +183,6 @@ mock.module("../config/llm-resolver.js", () => ({
   }),
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
 import {

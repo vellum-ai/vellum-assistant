@@ -30,6 +30,7 @@
 
 import {
   addMessage,
+  type ContentBlock,
   getConversation,
   isConversationProcessing,
   syncMessageToDisk,
@@ -91,15 +92,17 @@ export async function extractRetrospectiveRunSkillScaffolds(
 
 interface MessageLike {
   role: string;
-  content: string;
+  content: string | ContentBlock[];
 }
 
 function parseBlocks(msg: MessageLike): Array<Record<string, unknown>> {
-  let blocks: unknown;
-  try {
-    blocks = JSON.parse(msg.content);
-  } catch {
-    return [];
+  let blocks: unknown = msg.content;
+  if (typeof blocks === "string") {
+    try {
+      blocks = JSON.parse(blocks);
+    } catch {
+      return [];
+    }
   }
   if (!Array.isArray(blocks)) {
     return [];

@@ -215,12 +215,17 @@ function getRootLogger(): Logger {
   if (!rootLogger) {
     const pino = loadPino();
     const pinoPretty = loadPinoPretty();
-    const forceStderr =
+    const isTest =
       process.env.BUN_TEST === "1" || process.env.NODE_ENV === "test";
-    if (forceStderr) {
+    if (isTest) {
+      // Silent by default so test output stays readable without per-file
+      // `mock.module("../util/logger.js", …)` boilerplate — the mocks this
+      // replaces did exactly this, module-wide. Set VELLUM_TEST_LOG_LEVEL
+      // (e.g. "info", "debug") to see log output on stderr when debugging
+      // a test run.
       rootLogger = pino(
         {
-          level: "info",
+          level: process.env.VELLUM_TEST_LOG_LEVEL ?? "silent",
           serializers: logSerializers,
         },
         pino.destination(2),

@@ -5,13 +5,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let mockSecureKeys: Record<string, string | null> = {};
 let mockLoadConfigResult: Record<string, unknown> = {};
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
 }));

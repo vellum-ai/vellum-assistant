@@ -17,13 +17,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const storePayloadMock = mock((_eventId: string, _payload: unknown) => {});
 const clearPayloadMock = mock((_eventId: string) => {});
 

@@ -33,13 +33,6 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../tools/terminal/safe-env.js", () => ({
   buildSanitizedEnv: () => ({
     PATH: process.env.PATH ?? "/usr/bin:/bin",

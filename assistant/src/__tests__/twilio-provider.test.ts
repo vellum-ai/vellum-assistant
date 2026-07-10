@@ -7,13 +7,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { credentialKey } from "../security/credential-key.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Start with a configured auth token
 let mockAuthToken: string | undefined = "test-auth-token-secret";
 let mockAccountSid: string | undefined = "AC_test_account";

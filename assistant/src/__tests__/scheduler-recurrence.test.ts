@@ -1,13 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // Mock the shared `runBackgroundJob` runner so the scheduler's fresh-bootstrap
 // talk-mode path stays observable in unit tests. Each invocation creates a new
 // conversation row (so downstream lookups reflect reality) and pushes the

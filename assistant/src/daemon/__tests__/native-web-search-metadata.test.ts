@@ -8,14 +8,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ── Mock platform (must precede imports that read it) ─────────────────────────
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../../config/loader.js", () => ({
   getConfig: () => ({
     skills: {

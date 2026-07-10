@@ -40,11 +40,6 @@ beforeAll(() => {
 // Module mocks (must be declared before the import-under-test).
 // ---------------------------------------------------------------------------
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Test fixtures for the mocked config loader.
 let mockLlmConfig: Record<string, unknown> = {};
 

@@ -11,13 +11,6 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Auth is NOT disabled — we need enforcePolicy to actually check scopes.
 let authDisabled = false;
 mock.module("../config/env.js", () => ({

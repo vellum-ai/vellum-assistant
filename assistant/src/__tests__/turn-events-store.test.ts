@@ -6,13 +6,7 @@
  * downstream (DAU) can filter out background/scheduled prompts.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   addMessage,

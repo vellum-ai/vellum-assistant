@@ -14,14 +14,6 @@ mock.module("../daemon/conversation-store.js", () => ({
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // Mock render to return the raw content as text
 mock.module("../daemon/handlers/shared.js", () => ({
   renderHistoryContent: (content: unknown) => ({

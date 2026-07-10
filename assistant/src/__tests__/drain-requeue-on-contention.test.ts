@@ -7,14 +7,7 @@
  * dropped through the generic persist-failure path. The lock holder's own
  * finally block re-drains the queue.
  */
-import { describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { describe, expect, test } from "bun:test";
 
 import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { drainQueue } from "../daemon/conversation-process.js";

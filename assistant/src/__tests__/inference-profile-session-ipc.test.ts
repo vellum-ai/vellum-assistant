@@ -7,12 +7,6 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: { publish: async () => {} },
   broadcastMessage: () => {},

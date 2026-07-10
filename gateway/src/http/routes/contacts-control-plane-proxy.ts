@@ -573,9 +573,10 @@ export async function triggerInviteCallNative(
  * UI expects (matching assistant/src/daemon/message-types/contacts.ts).
  *
  * Includes the `withChannelCompat` transform: older macOS clients expect
- * `externalUserId` on each channel (= address). The guardian-name override
- * (`withGuardianNameOverride`) is not applied — it reads the guardian persona
- * file which is assistant-side state, not available to the gateway process.
+ * `externalUserId` on each channel (= address). The guardian display-name
+ * override is not applied here — it derives from the guardian persona file,
+ * which is assistant-side state; the native read handlers layer it on via
+ * `withGuardianLabelOverlay` (daemon IPC).
  */
 function toContactPayload(c: ContactWithInfo): Record<string, unknown> {
   return {
@@ -615,6 +616,37 @@ function toContactPayload(c: ContactWithInfo): Record<string, unknown> {
     })),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Guardian display-name overlay (gateway-native read paths)
+// ---------------------------------------------------------------------------
+
+/**
+ * TTL on the resolved guardian label so a contact list costs at most one
+ * daemon IPC round-trip per window. The label changes only when the guardian
+ * edits their persona preferred name, so short staleness is acceptable.
+ */
+const GUARDIAN_LABEL_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Bound on the best-effort label IPC so a wedged daemon cannot add a long
+ * stall to contact reads just to decorate a cosmetic label.
+ */
+const GUARDIAN_LABEL_IPC_TIMEOUT_MS = 1500;
+
+/**
+ * Short TTL on fallback (failed/timed-out) resolutions so a wedged daemon is
+ * not re-probed on every read, but recovers quickly once healthy.
+ */
+const GUARDIAN_LABEL_FALLBACK_TTL_MS = 30 * 1000;
+
+interface GuardianLabelCacheEntry {
+  storedDisplayName: string | null;
+  label: Promise<string | null>;
+  ttlMs: number;
+  at: number;
+}
+
 const VALID_ASSISTANT_SPECIES = ["vellum"] as const;
 const VALID_CHANNEL_STATUSES = [
   "active",
@@ -850,6 +882,78 @@ function extractContactsArray(
 }
 
 export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
+  let guardianLabelCache: GuardianLabelCacheEntry | null = null;
+
+  /**
+   * Resolve the guardian's display label via the `resolve_guardian_label`
+   * daemon IPC (persona preferred name → stored displayName → default
+   * reference), cached with a short TTL. The in-flight promise is cached, so
+   * concurrent cold reads share one IPC call. Best-effort: any IPC failure,
+   * timeout, or malformed response serves the stored displayName unchanged —
+   * a contact read never fails or stalls because the daemon is unreachable.
+   */
+  function resolveGuardianLabelCached(
+    storedDisplayName: string | null,
+  ): Promise<string | null> {
+    const now = Date.now();
+    if (
+      guardianLabelCache &&
+      guardianLabelCache.storedDisplayName === storedDisplayName &&
+      now - guardianLabelCache.at < guardianLabelCache.ttlMs
+    ) {
+      return guardianLabelCache.label;
+    }
+    async function resolveLabel(): Promise<string | null> {
+      try {
+        const result = (await ipcCallAssistant(
+          "resolve_guardian_label",
+          { body: { storedDisplayName } },
+          { timeoutMs: GUARDIAN_LABEL_IPC_TIMEOUT_MS },
+        )) as { label?: unknown } | null;
+        if (typeof result?.label === "string" && result.label.trim()) {
+          entry.ttlMs = GUARDIAN_LABEL_TTL_MS;
+          return result.label;
+        }
+        log.warn(
+          "resolve_guardian_label: daemon response missing label (best-effort)",
+        );
+      } catch (err) {
+        log.warn(
+          { err },
+          "resolve_guardian_label: daemon resolve failed (best-effort)",
+        );
+      }
+      return storedDisplayName;
+    }
+    // Fallback TTL until a positive resolution upgrades it, so a wedged
+    // daemon is not re-probed on every read but recovers quickly.
+    const entry: GuardianLabelCacheEntry = {
+      storedDisplayName,
+      ttlMs: GUARDIAN_LABEL_FALLBACK_TTL_MS,
+      at: now,
+      label: resolveLabel(),
+    };
+    guardianLabelCache = entry;
+    return entry.label;
+  }
+
+  /**
+   * Overlay the resolved guardian label onto a serialized contact payload so
+   * gateway-native reads present the same guardian displayName as the daemon's
+   * read relay. Non-guardian rows pass through untouched.
+   */
+  async function withGuardianLabelOverlay(
+    payload: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (payload.role !== "guardian") {
+      return payload;
+    }
+    const stored =
+      typeof payload.displayName === "string" ? payload.displayName : null;
+    const label = await resolveGuardianLabelCached(stored);
+    return label == null ? payload : { ...payload, displayName: label };
+  }
+
   async function forward(
     req: Request,
     upstreamPath: string,
@@ -1004,7 +1108,9 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         );
         return Response.json({
           ok: true,
-          contacts: contacts.map(toContactPayload),
+          contacts: await Promise.all(
+            contacts.map((c) => withGuardianLabelOverlay(toContactPayload(c))),
+          ),
         });
       } catch (err) {
         log.error(
@@ -1282,7 +1388,9 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         log.info({ contactId }, "get_contact: handled natively");
 
         // Match the daemon's response shape: { ok, contact, assistantMetadata }
-        const payload = toContactPayload(contact);
+        const payload = await withGuardianLabelOverlay(
+          toContactPayload(contact),
+        );
         const assistantMetadata =
           contact.contactType === "assistant" && contact.assistantMetadata
             ? {

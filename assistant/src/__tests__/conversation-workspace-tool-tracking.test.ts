@@ -14,11 +14,6 @@ let agentLoopScript: (onEvent: (event: AgentEvent) => void) => void = () => {};
 // Mocks
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},

@@ -1,12 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const mockDeleteSecureKeyAsync = mock(
   (): Promise<"deleted" | "not-found" | "error"> =>
     Promise.resolve("deleted" as const),

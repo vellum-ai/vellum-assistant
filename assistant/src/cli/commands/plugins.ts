@@ -114,9 +114,9 @@ export function registerPluginsCommand(program: Command): void {
       // plugin hook in this fresh CLI process — `uninstall` running a plugin's
       // `shutdown` — needs the package importable; the daemon materializes the
       // same shim at boot, this covers the standalone CLI. Dynamically imported
-      // so the daemon-internal module stays out of the CLI's static graph
-      // (`cli/no-daemon-internals`). Best-effort: a failed shim just means such a
-      // hook's import may not resolve.
+      // so the daemon-internal module stays out of the CLI's static graph and
+      // does not weigh on every invocation. Best-effort: a failed shim just
+      // means such a hook's import may not resolve.
       plugins.hook("preAction", async () => {
         const { ensurePluginApiShim } =
           await import("../../plugins/ensure-plugin-api-shim.js");

@@ -24,16 +24,14 @@ import {
 } from "@/utils/local-settings";
 import {
   isAboutAssistantPath,
+  isConversationChatPath,
   isConversationPath,
   routes,
 } from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
-import {
-  chooseSidebarOpenAppDestination,
-  useOpenAppFromChat,
-} from "@/domains/chat/hooks/use-open-app-from-chat";
+import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import {
   DRAWER_SLIDE_MS,
@@ -617,20 +615,31 @@ export function ChatLayout() {
   //
   // See `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow
   // shared with the transcript / assets-pill open path.
-  const openAppFromChat = useOpenAppFromChat();
+  const openAppFromChat = useOpenAppFromChat({
+    // When the user is off a chat route (home, library, identity, …), do
+    // not bind the stale `activeConversationId` as the editing target —
+    // the store value persists across route changes for SSE / attention
+    // consumers and doesn't reflect the user's current intent (LUM-2691).
+    bindConversation: isConversationChatPath(location.pathname),
+  });
   const activeAppId = useViewerStore.use.activeAppId();
   const handleOpenAppFromSidebar = useCallback(
     async (appId: string) => {
-      const dest = chooseSidebarOpenAppDestination(
-        location.pathname,
-        activeConversationId,
-      );
-      if (dest) {
-        void navigate(dest);
+      // Off a chat route the viewer panel has no surface to render against, so
+      // we must land on one before opening the app. Routing to `/assistant`
+      // isn't neutral: the chat index auto-bootstraps to the last active /
+      // latest conversation (`use-conversation-loader`), which resurfaces the
+      // stale conversation behind the app and once it's closed (LUM-2691) —
+      // `activeConversationId` persists across route changes for SSE /
+      // attention consumers, so it doesn't reflect the user's intent. Opening
+      // over a fresh silent draft hands the loader an explicit id it won't
+      // override and leaves a clean new-chat surface on close.
+      if (!isConversationChatPath(location.pathname)) {
+        navigateToNewConversation(navigate, { silent: true });
       }
       await openAppFromChat(appId);
     },
-    [location.pathname, navigate, activeConversationId, openAppFromChat],
+    [location.pathname, navigate, openAppFromChat],
   );
 
   // Inspector affordance for the sidebar context menu. The topbar variant

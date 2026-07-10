@@ -28,11 +28,6 @@ import { Database } from "bun:sqlite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import {
-  conversations,
-  messages,
-} from "../../../persistence/schema/conversations.js";
-import * as schema from "../../../persistence/schema/index.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import type { RepairContext, RepairStep, StepResult } from "./repair-steps.js";
 
@@ -86,7 +81,9 @@ interface DiskMessageRecord {
 // ---------------------------------------------------------------------------
 
 function parseEpochMs(isoString: string | undefined): number | null {
-  if (!isoString) return null;
+  if (!isoString) {
+    return null;
+  }
   const ms = new Date(isoString).getTime();
   return Number.isNaN(ms) ? null : ms;
 }
@@ -137,6 +134,13 @@ function buildContentBlocks(record: DiskMessageRecord): unknown[] {
 async function runConversationBackfill(
   ctx: RepairContext,
 ): Promise<StepResult> {
+  // Lazy-imported so the persistence schema (and the drizzle/DB module graph
+  // it pulls) stays out of the CLI's static import graph — this step only
+  // touches it when `db repair` actually runs the backfill.
+  const { conversations, messages } =
+    await import("../../../persistence/schema/conversations.js");
+  const schema = await import("../../../persistence/schema/index.js");
+
   // Open RW so we can insert recovered rows. Mirror the daemon's pragmas
   // for consistent journal/FK behavior.
   let sqlite: Database;
@@ -171,7 +175,9 @@ async function runConversationBackfill(
     let errors = 0;
     const warnings: string[] = [];
     const pushWarning = (line: string): void => {
-      if (warnings.length < WARNING_CAP_TOTAL) warnings.push(line);
+      if (warnings.length < WARNING_CAP_TOTAL) {
+        warnings.push(line);
+      }
     };
 
     const conversationsDir = join(workspaceDir, "conversations");
@@ -188,7 +194,9 @@ async function runConversationBackfill(
         const dirPath = join(conversationsDir, entry);
 
         try {
-          if (!statSync(dirPath).isDirectory()) continue;
+          if (!statSync(dirPath).isDirectory()) {
+            continue;
+          }
         } catch {
           continue;
         }
@@ -233,7 +241,9 @@ async function runConversationBackfill(
             const raw = readFileSync(messagesPath, "utf-8");
             for (const line of raw.split("\n")) {
               const trimmed = line.trim();
-              if (!trimmed) continue;
+              if (!trimmed) {
+                continue;
+              }
               try {
                 messageRecords.push(JSON.parse(trimmed) as DiskMessageRecord);
               } catch {

@@ -1,11 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   getAttachmentById,
@@ -49,8 +42,12 @@ describe("deleteLastExchange", () => {
 
     const remaining = getMessages(conv.id);
     expect(remaining).toHaveLength(2);
-    expect(remaining[0].content).toBe("first question");
-    expect(remaining[1].content).toBe("first answer");
+    expect(remaining[0].content).toEqual([
+      { type: "text", text: "first question" },
+    ]);
+    expect(remaining[1].content).toEqual([
+      { type: "text", text: "first answer" },
+    ]);
   });
 
   test("returns 0 when no user messages exist", () => {
@@ -94,8 +91,8 @@ describe("deleteLastExchange", () => {
 
     const remaining = getMessages(conv.id);
     expect(remaining).toHaveLength(2);
-    expect(remaining[0].content).toBe("first");
-    expect(remaining[1].content).toBe("reply1");
+    expect(remaining[0].content).toEqual([{ type: "text", text: "first" }]);
+    expect(remaining[1].content).toEqual([{ type: "text", text: "reply1" }]);
   });
 });
 

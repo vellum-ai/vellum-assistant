@@ -16,13 +16,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { z } from "zod";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,

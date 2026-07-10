@@ -49,15 +49,6 @@ mock.module("../../../../a2a/task-store.js", () => ({
   },
 }));
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
-
 // Intercept global fetch for push notification testing
 const originalFetch = globalThis.fetch;
 

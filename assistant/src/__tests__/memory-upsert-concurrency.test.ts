@@ -20,13 +20,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     searchWithFilter: async () => [],

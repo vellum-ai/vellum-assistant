@@ -330,9 +330,9 @@ export async function postPublishRequest(
  * Resolve platform credentials for the publish request.
  *
  * Returns `null` when not connected to the Vellum platform (no API key
- * or base URL configured). The CLI command uses this to avoid importing
- * `VellumPlatformClient` directly, which would violate the
- * `cli/no-daemon-internals` lint rule for `local`-transport commands.
+ * or base URL configured). The CLI command uses this to avoid hoisting
+ * `VellumPlatformClient` into its static import graph; resolving it lazily
+ * keeps that daemon code out of the CLI process until the command needs it.
  */
 export async function resolvePlatformDeps(): Promise<PublishDeps | null> {
   const { VellumPlatformClient } = await import("../../platform/client.js");

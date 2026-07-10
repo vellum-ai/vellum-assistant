@@ -113,11 +113,6 @@ mock.module("../config/llm-resolver.js", () => ({
   resolveCallSiteConfig: () => ({ provider: "anthropic", maxTokens: 8192 }),
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
 import { clearConversations } from "../daemon/conversation-registry.js";

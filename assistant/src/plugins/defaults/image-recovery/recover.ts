@@ -77,7 +77,9 @@ export function unsendableImageReplacement(
   // is gated on the same payload/dimension caps as an inline one. When the
   // attachment can no longer be read, leave the block untouched.
   const resolved = resolveMediaSourceData(block.source);
-  if (!resolved) return null;
+  if (!resolved) {
+    return null;
+  }
   const payloadBytes = resolved.data.length;
   const dims = parseImageDimensions(block.source);
   const exceedsDimensionCap =
@@ -126,23 +128,25 @@ export function persistUnsendableImageDowngrades(
 ): number {
   let rewritten = 0;
   for (const row of getMessages(conversationId)) {
-    // Cheap prefilter — JSON.stringify emits no spaces, so an image block
-    // always serializes with this exact substring.
-    if (!row.content.includes('"type":"image"')) continue;
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(row.content);
-    } catch {
+    const hasImageBlock = row.content.some(
+      (b) =>
+        b.type === "image" ||
+        (b.type === "tool_result" &&
+          b.contentBlocks?.some((cb) => cb.type === "image")),
+    );
+    if (!hasImageBlock) {
       continue;
     }
-    if (!Array.isArray(parsed)) continue;
+
+    const parsed = row.content;
 
     let changed = false;
     const next = (parsed as ContentBlock[]).map((block): ContentBlock => {
       if (block.type === "image") {
         const replacement = unsendableImageReplacement(block);
-        if (!replacement) return block;
+        if (!replacement) {
+          return block;
+        }
         changed = true;
         return replacement;
       }
@@ -152,19 +156,27 @@ export function persistUnsendableImageDowngrades(
       if (block.type === "tool_result" && block.contentBlocks?.length) {
         let nestedChanged = false;
         const contentBlocks = block.contentBlocks.map((cb): ContentBlock => {
-          if (cb.type !== "image") return cb;
+          if (cb.type !== "image") {
+            return cb;
+          }
           const replacement = unsendableImageReplacement(cb);
-          if (!replacement) return cb;
+          if (!replacement) {
+            return cb;
+          }
           nestedChanged = true;
           return replacement;
         });
-        if (!nestedChanged) return block;
+        if (!nestedChanged) {
+          return block;
+        }
         changed = true;
         return { ...block, contentBlocks };
       }
       return block;
     });
-    if (!changed) continue;
+    if (!changed) {
+      continue;
+    }
 
     updateMessageContent(row.id, JSON.stringify(next));
     rewritten++;
@@ -203,8 +215,12 @@ export function recoverUnsendableImages(
   messages: ReadonlyArray<Message>,
 ): Message[] {
   return messages.map((msg) => {
-    if (!Array.isArray(msg.content)) return msg;
-    if (!messageHasImageBlock(msg.content)) return msg;
+    if (!Array.isArray(msg.content)) {
+      return msg;
+    }
+    if (!messageHasImageBlock(msg.content)) {
+      return msg;
+    }
     return {
       ...msg,
       content: msg.content.flatMap((b): ContentBlock[] => {

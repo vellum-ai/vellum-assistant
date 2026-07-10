@@ -112,9 +112,7 @@ function toolResultWithImage(data: string): ContentBlock {
 }
 
 function storedContent(conversationId: string): ContentBlock[][] {
-  return getMessages(conversationId).map(
-    (row) => JSON.parse(row.content) as ContentBlock[],
-  );
+  return getMessages(conversationId).map((row) => row.content);
 }
 
 describe("persistUnsendableImageDowngrades (downscalable host)", () => {

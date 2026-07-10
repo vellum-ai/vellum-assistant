@@ -115,9 +115,7 @@ function formatChannelTable(channels: ContactChannel[]): string {
     ].join("  "),
   );
 
-  return [headerLine, separator, ...dataLines]
-    .map((l) => `  ${l}`)
-    .join("\n");
+  return [headerLine, separator, ...dataLines].map((l) => `  ${l}`).join("\n");
 }
 
 function formatContactDetail(
@@ -324,9 +322,7 @@ Examples:
 
       contacts
         .command("prompt")
-        .description(
-          "Prompt user to register a contact channel via the app UI",
-        )
+        .description("Prompt user to register a contact channel via the app UI")
         .option(
           "--channel <channel>",
           "Suggested channel type hint (e.g. phone, email, telegram)",
@@ -370,7 +366,9 @@ Run \`assistant contacts prompt --help\` for full option details.`,
             },
             cmd: Command,
           ) => {
-            const timeoutMs = opts.timeout ? parseInt(opts.timeout, 10) : 310_000;
+            const timeoutMs = opts.timeout
+              ? parseInt(opts.timeout, 10)
+              : 310_000;
             const r = await cliIpcCall<ContactPromptResult>(
               "contacts_prompt",
               {
@@ -392,10 +390,7 @@ Run \`assistant contacts prompt --help\` for full option details.`,
               );
 
             if (!r.result?.ok) {
-              writeError(
-                cmd,
-                r.result?.error ?? "Contact prompt failed",
-              );
+              writeError(cmd, r.result?.error ?? "Contact prompt failed");
               process.exitCode = 1;
               return;
             }
@@ -511,9 +506,7 @@ Examples:
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, r.result);
             } else {
-              process.stdout.write(
-                `Updated channel ${channelId}\n`,
-              );
+              process.stdout.write(`Updated channel ${channelId}\n`);
             }
           },
         );
@@ -524,8 +517,8 @@ Examples:
 
       // Invite subcommands dispatch daemon route operationIds that mirror the
       // gateway wire names in INVITES_IPC_METHODS (@vellumai/gateway-client) —
-      // kept as literals because `ipc`-tagged CLI commands may not import
-      // contract modules (cli/no-daemon-internals).
+      // kept as literals to avoid pulling the gateway-client contract module
+      // into the CLI here.
       const invites = contacts
         .command("invites")
         .description("Manage contact invites");
@@ -625,10 +618,7 @@ Examples:
           "--expected-external-user-id <id>",
           "E.164 phone number (required for voice invites)",
         )
-        .requiredOption(
-          "--contact-id <id>",
-          "Contact ID to bind the invite to",
-        )
+        .requiredOption("--contact-id <id>", "Contact ID to bind the invite to")
         .addHelpText(
           "after",
           `
@@ -769,10 +759,7 @@ Examples:
           "--caller-external-user-id <phone>",
           "E.164 phone number for voice code redemption",
         )
-        .option(
-          "--assistant-id <id>",
-          "Assistant ID for voice code redemption",
-        )
+        .option("--assistant-id <id>", "Assistant ID for voice code redemption")
         .addHelpText(
           "after",
           `

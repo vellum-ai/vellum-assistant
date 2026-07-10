@@ -106,7 +106,10 @@ function formatSubagentMessages(
   return lines.join("\n");
 }
 
-function parseContent(raw: string): ContentBlock[] {
+function parseContent(raw: string | unknown[]): ContentBlock[] {
+  if (Array.isArray(raw)) {
+    return raw as ContentBlock[];
+  }
   try {
     return JSON.parse(raw) as ContentBlock[];
   } catch {
