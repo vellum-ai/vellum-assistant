@@ -53,6 +53,7 @@ import {
   SLOW_LLM_JOB_TYPES,
 } from "../../../persistence/jobs-store.js";
 import { spawnMemoryWorkerProcess } from "../../../persistence/worker-control.js";
+import type { JobHandler } from "../../types.js";
 import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
@@ -60,14 +61,6 @@ import { hasPkbBufferContent } from "./pkb-schedule.js";
 import { countBufferLines } from "./v2/consolidation-job.js";
 
 const log = getLogger("memory-jobs-worker");
-
-/**
- * A per-job-type handler. The owning feature (e.g. memory) registers handlers
- * via {@link registerJobHandler}; the worker dispatches each claimed job to its
- * registered handler. Decoupling registration from the worker keeps the queue
- * mechanics generic and free of feature-specific handler imports.
- */
-export type JobHandler = (job: MemoryJob, config: AssistantConfig) => unknown;
 
 const jobHandlers = new Map<string, JobHandler>();
 
