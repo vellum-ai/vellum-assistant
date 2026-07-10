@@ -1,14 +1,16 @@
 import type { ContentBlock } from "../providers/types.js";
 import { escapeXmlAttr } from "../util/xml.js";
 
-export function extractTextFromStoredMessageContent(raw: string): string {
+export function extractTextFromStoredMessageContent(
+  raw: string | ContentBlock[],
+): string {
   try {
-    const parsed = JSON.parse(raw) as unknown;
+    const parsed = Array.isArray(raw) ? raw : (JSON.parse(raw) as unknown);
     if (typeof parsed === "string") {
       return parsed;
     }
     if (!Array.isArray(parsed)) {
-      return raw;
+      return raw as string;
     }
     const blocks = parsed as ContentBlock[];
     const lines: string[] = [];
@@ -66,7 +68,7 @@ export function extractTextFromStoredMessageContent(raw: string): string {
     }
     return lines.join("\n").trim();
   } catch {
-    return raw;
+    return Array.isArray(raw) ? "" : raw;
   }
 }
 
@@ -93,18 +95,24 @@ function stableJson(value: unknown): string {
  * Parse failures fall back to returning the raw input trimmed (the
  * legacy-string path).
  */
-export function stringifyMessageContent(stored: string): string {
+export function stringifyMessageContent(
+  stored: string | ContentBlock[],
+): string {
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(stored);
-  } catch {
-    return stored.trim();
+  if (Array.isArray(stored)) {
+    parsed = stored;
+  } else {
+    try {
+      parsed = JSON.parse(stored);
+    } catch {
+      return stored.trim();
+    }
   }
   if (typeof parsed === "string") {
     return parsed.trim();
   }
   if (!Array.isArray(parsed)) {
-    return stored.trim();
+    return (stored as string).trim();
   }
   const parts: string[] = [];
   for (const block of parsed) {

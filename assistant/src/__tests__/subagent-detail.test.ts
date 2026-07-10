@@ -15,7 +15,7 @@ function msg(role: string, content: unknown[]): MessageRow {
     id: `msg-${msgCounter}`,
     conversationId: "conv-1",
     role,
-    content: JSON.stringify(content),
+    content: content as MessageRow["content"],
     createdAt: Date.now(),
     metadata: null,
     clientMessageId: null,

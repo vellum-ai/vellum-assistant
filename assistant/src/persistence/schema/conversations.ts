@@ -107,9 +107,9 @@ export const messages = sqliteTable(
     /**
      * Union of two JSON shapes: an inline `ContentBlock[]` (or a legacy
      * plain string), or `{ ref: "<workspace-relative path>" }` pointing at
-     * a file-backed content payload. Always read through the message row
-     * mapper (which applies `resolveStoredMessageContent`) — never parse
-     * this column raw.
+     * a file-backed content payload. Resolve to typed blocks with
+     * `resolveMessageContentBlocks` (message-content-file.ts) — never
+     * interpret this column's shape by hand.
      */
     content: text("content").notNull(),
     createdAt: integer("created_at").notNull(),

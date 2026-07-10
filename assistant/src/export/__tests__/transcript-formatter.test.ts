@@ -2,11 +2,13 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { z } from "zod";
 
+import type { ContentBlock } from "../../providers/types.js";
+
 type TestMessage = {
   id: string;
   conversationId: string;
   role: string;
-  content: string;
+  content: ContentBlock[];
   createdAt: number;
   metadata: string | null;
   clientMessageId: string | null;
@@ -18,7 +20,7 @@ const parentMessages: TestMessage[] = [
     id: "msg-parent-1",
     conversationId: "parent-conv",
     role: "user",
-    content: JSON.stringify([{ type: "text", text: "go research foo" }]),
+    content: [{ type: "text", text: "go research foo" }],
     createdAt: 1_700_000_000_000,
     metadata: null,
     clientMessageId: null,
@@ -28,7 +30,7 @@ const parentMessages: TestMessage[] = [
     id: "msg-parent-2",
     conversationId: "parent-conv",
     role: "assistant",
-    content: JSON.stringify([{ type: "text", text: "spawning subagent" }]),
+    content: [{ type: "text", text: "spawning subagent" }],
     createdAt: 1_700_000_001_000,
     metadata: JSON.stringify({
       subagentNotification: {
@@ -48,9 +50,9 @@ const childMessages: TestMessage[] = [
     id: "msg-child-1",
     conversationId: "child-conv-1",
     role: "user",
-    content: JSON.stringify([
+    content: [
       { type: "text", text: "Objective: research foo and report back." },
-    ]),
+    ],
     createdAt: 1_700_000_002_000,
     metadata: null,
     clientMessageId: null,
@@ -60,9 +62,7 @@ const childMessages: TestMessage[] = [
     id: "msg-child-2",
     conversationId: "child-conv-1",
     role: "assistant",
-    content: JSON.stringify([
-      { type: "text", text: "I found that foo is a bar." },
-    ]),
+    content: [{ type: "text", text: "I found that foo is a bar." }],
     createdAt: 1_700_000_003_000,
     metadata: null,
     clientMessageId: null,

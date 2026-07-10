@@ -80,7 +80,7 @@ function getLatestAssistantText(conversationId: string): string {
   );
   expect(rows.length).toBeGreaterThan(0);
   const latest = rows[rows.length - 1];
-  const parsed = JSON.parse(latest.content) as Array<{
+  const parsed = latest.content as unknown as Array<{
     type: string;
     text?: string;
   }>;

@@ -9,7 +9,7 @@ interface ContentBlock {
   text?: string;
   name?: string;
   input?: Record<string, unknown>;
-  content?: string;
+  content?: unknown;
   tool_use_id?: string;
   is_error?: boolean;
 }
@@ -37,7 +37,9 @@ function extractText(blocks: ContentBlock[]): string {
   for (const block of blocks) {
     switch (block.type) {
       case "text":
-        if (block.text) parts.push(block.text);
+        if (block.text) {
+          parts.push(block.text);
+        }
         break;
       case "tool_use":
         parts.push(
@@ -46,9 +48,9 @@ function extractText(blocks: ContentBlock[]): string {
         break;
       case "tool_result":
         if (block.is_error) {
-          parts.push(`[Error: ${block.content ?? ""}]`);
+          parts.push(`[Error: ${String(block.content ?? "")}]`);
         } else {
-          parts.push(`[Result: ${truncate(block.content ?? "", 500)}]`);
+          parts.push(`[Result: ${truncate(String(block.content ?? ""), 500)}]`);
         }
         break;
       case "server_tool_use":

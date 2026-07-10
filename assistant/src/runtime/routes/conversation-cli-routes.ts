@@ -170,7 +170,7 @@ function handleExportCli({ body = {} }: RouteHandlerArgs) {
     ...conversation,
     messages: msgs.map((m) => ({
       role: m.role,
-      content: JSON.parse(m.content),
+      content: m.content,
       createdAt: m.createdAt,
     })),
   };

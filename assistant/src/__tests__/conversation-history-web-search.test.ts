@@ -27,7 +27,7 @@ let dbMessages: Array<{
   id: string;
   conversationId: string;
   role: string;
-  content: string;
+  content: ContentBlock[];
   createdAt: number;
   metadata: string | null;
 }> = [];
@@ -48,7 +48,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
   updateMessageContent: (messageId: string, content: string) => {
     updatedMessages.push({ id: messageId, content });
     const msg = dbMessages.find((m) => m.id === messageId);
-    if (msg) msg.content = content;
+    if (msg) {
+      msg.content = JSON.parse(content) as ContentBlock[];
+    }
   },
   relinkAttachments: () => 0,
   deleteLastExchange: () => 0,
@@ -98,7 +100,7 @@ function makeDbMessage(
     id,
     conversationId,
     role,
-    content: JSON.stringify(content),
+    content,
     createdAt,
     metadata: null,
   };
@@ -809,7 +811,9 @@ describe("web_search_tool_result structural guard", () => {
       const hasRawCheck =
         /[=!]==?\s*["']tool_result["']/.test(line) ||
         /["']tool_result["']\s*[=!]==?/.test(line);
-      if (!hasRawCheck) continue;
+      if (!hasRawCheck) {
+        continue;
+      }
 
       // Allow lines that reference web_search_tool_result nearby (paired check).
       // Multi-line patterns like `block.type === "tool_result" ||\n  block.type === "web_search_tool_result"`
@@ -821,7 +825,9 @@ describe("web_search_tool_result structural guard", () => {
       const windowEnd = Math.min(lines.length - 1, i + 3);
       let pairedOrSuppressed = false;
       for (let j = windowStart; j <= windowEnd; j++) {
-        if (consumedSuppressions.has(j)) continue;
+        if (consumedSuppressions.has(j)) {
+          continue;
+        }
         if (
           /web_search_tool_result/.test(lines[j]) ||
           /guard:allow-tool-result-only/.test(lines[j])
@@ -831,10 +837,14 @@ describe("web_search_tool_result structural guard", () => {
           break;
         }
       }
-      if (pairedOrSuppressed) continue;
+      if (pairedOrSuppressed) {
+        continue;
+      }
 
       // Allow comment-only lines
-      if (/^\s*\/\//.test(line) || /^\s*\*/.test(line)) continue;
+      if (/^\s*\/\//.test(line) || /^\s*\*/.test(line)) {
+        continue;
+      }
 
       violations.push({
         file: filePath,
@@ -889,7 +899,9 @@ describe("web_search_tool_result structural guard", () => {
       const relPath = filePath.slice(SRC_DIR.length + 1);
 
       // Skip allowlisted files
-      if (ALLOWLISTED_FILES.has(relPath)) continue;
+      if (ALLOWLISTED_FILES.has(relPath)) {
+        continue;
+      }
 
       const source = readFileSync(filePath, "utf-8");
       const violations = findRawToolResultChecks(source, relPath);

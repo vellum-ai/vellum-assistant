@@ -16,7 +16,7 @@ let getMessagesImpl: (conversationId: string) => Array<{
   id: string;
   conversationId: string;
   role: string;
-  content: string;
+  content: unknown;
   createdAt: number;
   metadata: string | null;
 }> = () => [];
@@ -87,7 +87,9 @@ function seedRows(rows: Array<{ id: string; content: unknown }>): void {
       conversationId: "conv-persist-1",
       role: "assistant",
       content:
-        typeof r.content === "string" ? r.content : JSON.stringify(r.content),
+        typeof r.content === "string"
+          ? [{ type: "text", text: r.content }]
+          : r.content,
       createdAt: 0,
       metadata: null,
     }));
