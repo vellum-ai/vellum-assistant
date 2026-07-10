@@ -5,7 +5,7 @@ import { useLongPress } from "@/hooks/use-long-press";
 
 /**
  * Helper: install a window.matchMedia stub that reports `coarse` for the
- * `(pointer: coarse)` query. Restored in `afterEach`.
+ * `(pointer: coarse)` query. Returns a restore function.
  */
 function setPointerCoarse(coarse: boolean) {
   const original = window.matchMedia;
@@ -43,16 +43,25 @@ function makeTouchEvent(
   } as unknown as React.TouchEvent<HTMLElement>;
 }
 
+/**
+ * Restore function captured from setPointerCoarse(true) in beforeEach.
+ * Calling this in afterEach restores the REAL matchMedia instead of
+ * installing another mock whose restore function is discarded.
+ */
+let restoreMatchMedia: (() => void) | null = null;
+
 beforeEach(() => {
-  setPointerCoarse(true);
+  restoreMatchMedia = setPointerCoarse(true);
 });
 
 afterEach(() => {
   cleanup();
-  // matchMedia restore is handled by setPointerCoarse's return, but we
-  // call setPointerCoarse(false) to reset to a known state for the next test.
-  setPointerCoarse(false);
-  // Re-enable coarse for the next test via beforeEach.
+  // Restore the original matchMedia captured by setPointerCoarse(true).
+  // Calling setPointerCoarse(false) instead would install ANOTHER mock
+  // and discard its restore function, leaving the original permanently
+  // stubbed for later test suites in the same worker.
+  restoreMatchMedia?.();
+  restoreMatchMedia = null;
 });
 
 describe("useLongPress", () => {
