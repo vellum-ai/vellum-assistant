@@ -73,7 +73,6 @@ import {
   unregisterSkillRoute,
 } from "../runtime/skill-route-registry.js";
 import {
-  loadPluginTools,
   registerPluginTools,
   unregisterPluginTools,
 } from "../tools/registry.js";
@@ -153,12 +152,6 @@ function ensurePluginStorageDir(pluginName: string): string {
 export async function initializePlugins(): Promise<void> {
   registerDefaultPlugins();
   await loadUserPlugins();
-  // Pull the user-plugin tool set the cache scan above discovered into the
-  // tool registry. Kept in the same slot registration used to occupy (after
-  // the user-plugin scan, before the default plugins' `init()` registers
-  // their Plugin-object tools) so name-conflict precedence is unchanged.
-  // `loadPluginTools` never rejects — a failed pull logs and boots degraded.
-  await loadPluginTools();
   try {
     await bootstrapPlugins();
   } catch (err) {

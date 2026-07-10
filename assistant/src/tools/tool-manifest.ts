@@ -50,10 +50,4 @@ export const explicitTools: ToolDefinition[] = [
   recallTool,
   notifyParentTool,
   askQuestionTool,
-  // NOTE: external skill tools (registered via registerExternalTools in
-  // registry.ts) are intentionally NOT included here. `explicitTools` is a
-  // module-level const whose value is fixed at first evaluation, so
-  // external tools registered after this file loads would be missed.
-  // `initializeTools()` in `registry.ts` calls `getExternalTools()`
-  // separately at runtime so late registrations are picked up.
 ];
