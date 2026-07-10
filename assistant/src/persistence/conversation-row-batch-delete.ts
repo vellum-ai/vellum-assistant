@@ -34,6 +34,7 @@
 
 import { setTimeout as sleep } from "node:timers/promises";
 
+import { BULK_BATCH_TIMEOUT_MS, withBulkWriteGate } from "./bulk-write-gate.js";
 import {
   type AsyncSqliteBackend,
   type AsyncSqliteResult,
@@ -170,9 +171,23 @@ export async function deleteConversationRowsInBatches(
     runOptions.forceBackend = "in-process-blocking";
   }
   if (options.dbPath !== undefined) {
+    // A dedicated file (e.g. the logs DB) has its own write lock, so its
+    // drain must not queue behind — or hold up — main-DB bulk streams.
     runOptions.dbPath = options.dbPath;
+    return await drainBatches(options, batchSize, runOptions);
   }
 
+  return await withBulkWriteGate(
+    `conversation-row-delete:${options.table}:${options.conversationId}`,
+    () => drainBatches(options, batchSize, runOptions),
+  );
+}
+
+async function drainBatches(
+  options: DeleteConversationRowsOptions,
+  batchSize: number,
+  runOptions: RunAsyncSqliteOptions,
+): Promise<AsyncSqliteResult> {
   let totalElapsedMs = 0;
   let backend: AsyncSqliteBackend = "in-process-blocking";
 
@@ -190,7 +205,7 @@ export async function deleteConversationRowsInBatches(
     const result = await runAsyncSqlite(
       sql,
       `conversation-row-delete:${options.table}:${options.conversationId}`,
-      runOptions,
+      { ...runOptions, timeoutMs: BULK_BATCH_TIMEOUT_MS },
     );
     totalElapsedMs += result.elapsedMs;
     backend = result.backend;
