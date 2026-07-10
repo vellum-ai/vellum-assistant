@@ -290,7 +290,8 @@ function attachCreateSubcommand(connections: Command): void {
           );
         } else {
           process.stdout.write(
-            `Created connection "${conn.name}" (provider=${conn.provider}, auth=${formatAuth(conn.auth)})\n`,
+            `Created connection "${conn.name}" (provider=${conn.provider}, auth=${formatAuth(conn.auth)})\n` +
+              `Verify it works: point a profile's provider_connection at "${conn.name}", then run: assistant inference send --profile <profile> "Reply with OK"\n`,
           );
         }
       },
@@ -359,7 +360,8 @@ function attachUpdateSubcommand(connections: Command): void {
           );
         } else {
           process.stdout.write(
-            `Updated connection "${name}" auth to ${formatAuth(conn.auth)}\n`,
+            `Updated connection "${name}" auth to ${formatAuth(conn.auth)}\n` +
+              `Verify it works: assistant inference send --profile <profile-using-this-connection> "Reply with OK"\n`,
           );
         }
       },
@@ -563,7 +565,11 @@ Examples:
       --provider openai-compatible --auth none \\
       --base-url http://localhost:1234/v1 --model my-model
   $ assistant inference providers connections update anthropic-personal --auth platform
-  $ assistant inference providers connections delete anthropic-personal`,
+  $ assistant inference providers connections delete anthropic-personal
+
+After creating or updating a connection, validate it with a live call through
+a profile that uses it:
+  $ assistant inference send --profile <profile> "Reply with OK"`,
   );
 
   attachListSubcommand(connections);
