@@ -10,12 +10,18 @@
  *    the parent via `postMessage`.
  * 3. **Fetch proxy** — `window.vellum.fetch()` proxies authenticated requests
  *    through the parent, keeping auth tokens out of the sandbox.
- * 4. **Safe injection** — `injectScript()` inserts `<script>` tags using
+ * 4. **Link interceptor** — catches clicks on `<a>` elements and opens them in
+ *    new tabs via `window.open()`, which the `allow-popups` sandbox token
+ *    permits. Without this, links inside sandboxed iframes are non-interactive
+ *    because the sandbox lacks `allow-top-navigation` (intentionally, for
+ *    security — the interceptor is the safer alternative).
+ * 5. **Safe injection** — `injectScript()` inserts `<script>` tags using
  *    `lastIndexOf` to avoid hijacking when app JS contains literal close-tag
  *    sequences.
  *
  * All sandboxed iframes that render untrusted HTML must use these utilities.
  * The storage polyfill is required even for non-interactive preview iframes.
+ * The link interceptor is injected by `injectBridge` (interactive iframes only).
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/HTML/Element/iframe#sandbox
  * @see https://html.spec.whatwg.org/multipage/iframe-embed-object.html#attr-iframe-sandbox
@@ -76,6 +82,49 @@ export function buildStoragePolyfill(): string {
   try {
     Object.defineProperty(window, 'sessionStorage', { value: storageShim, writable: true, configurable: true });
   } catch(e) { window.sessionStorage = storageShim; }
+})();
+</script>`;
+}
+
+// ---------------------------------------------------------------------------
+// Link interceptor
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `<script>` tag that intercepts clicks on `<a>` elements inside the
+ * sandboxed iframe and opens them in new tabs.
+ *
+ * Sandboxed iframes without `allow-top-navigation` cannot navigate the parent
+ * window, so plain `<a href="...">` links are silently non-interactive. Adding
+ * `allow-top-navigation` would let untrusted app JS redirect the host page at
+ * will. Instead, this interceptor uses event delegation to catch link clicks
+ * and calls `window.open()` (permitted by the existing `allow-popups` token),
+ * which opens the URL in a new tab with `noopener,noreferrer`.
+ *
+ * Only external links (http:, https:, mailto:, tel:) are intercepted. Anchor
+ * links (`#foo`) and `javascript:` URIs are left alone — the former are
+ * in-page navigation, the latter are already blocked by the sandbox.
+ */
+export function buildLinkInterceptorScript(): string {
+  return `<script>
+(function() {
+  document.addEventListener('click', function(e) {
+    var el = e.target;
+    while (el && el !== document.body) {
+      if (el.tagName === 'A' && el.href) {
+        var href = el.href;
+        // Only intercept external URL schemes. Leave in-page anchors and
+        // javascript: URIs (already blocked by sandbox) untouched.
+        if (/^https?:|^mailto:|^tel:/i.test(href)) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.open(href, '_blank', 'noopener,noreferrer');
+          return;
+        }
+      }
+      el = el.parentElement;
+    }
+  }, true);
 })();
 </script>`;
 }
@@ -181,7 +230,7 @@ function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): strin
  * logic at separate positions in the HTML.
  */
 export function buildBridgeScript(frameId: string, options?: BridgeOptions): string {
-  return buildStoragePolyfill() + buildBridgeLogicScript(frameId, options);
+  return buildStoragePolyfill() + buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript();
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +295,7 @@ export function prependScript(html: string, script: string): string {
  */
 export function injectBridge(html: string, frameId: string, options?: BridgeOptions): string {
   return prependScript(
-    injectScript(html, buildBridgeLogicScript(frameId, options)),
+    injectScript(html, buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript()),
     buildStoragePolyfill(),
   );
 }

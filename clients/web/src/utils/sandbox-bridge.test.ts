@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  buildLinkInterceptorScript,
   buildStoragePolyfill,
   injectBridge,
   injectScript,
@@ -209,6 +210,55 @@ describe("injectBridge", () => {
     const out = injectBridge(html, FRAME_ID);
     expect(out).not.toContain("vellum_fetch_request");
     expect(out).not.toContain("window.vellum.fetch");
+  });
+});
+
+describe("buildLinkInterceptorScript", () => {
+  it("produces a script tag with a click handler", () => {
+    const out = buildLinkInterceptorScript();
+    expect(out).toContain("<script>");
+    expect(out).toContain("</script>");
+    expect(out).toContain("addEventListener");
+    expect(out).toContain("click");
+  });
+
+  it("opens links via window.open with noopener,noreferrer", () => {
+    const out = buildLinkInterceptorScript();
+    expect(out).toContain("window.open");
+    expect(out).toContain("noopener,noreferrer");
+  });
+
+  it("only intercepts external URL schemes", () => {
+    const out = buildLinkInterceptorScript();
+    expect(out).toContain("https?:");
+    expect(out).toContain("mailto:");
+    expect(out).toContain("tel:");
+  });
+
+  it("uses event delegation via capture phase", () => {
+    const out = buildLinkInterceptorScript();
+    expect(out).toContain("tagName === 'A'");
+    expect(out).toContain("parentElement");
+    // Capture flag — true as third arg to addEventListener
+    expect(out).toMatch(/},\s*true\)/);
+  });
+});
+
+describe("injectBridge — link interceptor", () => {
+  it("includes the link interceptor in the bridge output", () => {
+    const html = "<html><body></body></html>";
+    const out = injectBridge(html, FRAME_ID);
+    expect(out).toContain("window.open");
+    expect(out).toContain("noopener,noreferrer");
+  });
+
+  it("injects the link interceptor before </body> alongside bridge logic", () => {
+    const html = "<!doctype html><html><head></head><body><div>hi</div></body></html>";
+    const out = injectBridge(html, FRAME_ID);
+    const bodyClose = out.lastIndexOf("</body>");
+    const interceptorIdx = out.indexOf("window.open");
+    expect(interceptorIdx).toBeLessThan(bodyClose);
+    expect(interceptorIdx).toBeGreaterThan(0);
   });
 });
 
