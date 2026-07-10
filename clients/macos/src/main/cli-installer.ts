@@ -407,29 +407,32 @@ function writeInstalledAppVersion(installDir: string): void {
  * Re-float a stale unpinned install after an app update.
  *
  * `isCliInstalled()` only checks that the bin exists, so a shared `cli/latest`
- * seeded by an older app build stays pinned to that old runtime version across
- * every later app update — and the in-app "new version available" banner (which
- * compares the platform release against the running daemon) can never land
- * (LUM-2733). Record the app version that seeded the install and, when the
- * running app differs, wipe the tree so the reinstall below re-floats to the
- * current dist-tag. Fires at most once per app update (the marker is rewritten
- * after each install); a markerless install from before this field one-time
- * heals on first launch of the fixed app.
+ * seeded by an older app build would otherwise stay on that build's runtime
+ * version across every later app update. A markerless install (from builds
+ * that predate the marker) reads as stale on purpose, one-time healing on the
+ * first launch of a build that writes markers.
  *
- * Skipped for pinned builds (their dir name already changes on a bump, so
- * isCliInstalled goes false on its own) and local builds (they run the repo CLI
- * source, not an install). Returns true when a stale install was cleared and a
- * reinstall is needed.
+ * Pinned builds don't need this (a version bump changes the install dir, so
+ * `isCliInstalled` goes false on its own); local builds run the repo CLI
+ * source, not an install. Returns true when a reinstall is needed.
  */
 function clearStaleInstallForAppUpdate(): boolean {
-  if (PINNED_CLI_VERSION) return false;
-  if (getLocalCliEntry() !== null) return false;
+  if (PINNED_CLI_VERSION) {
+    return false;
+  }
+  if (getLocalCliEntry() !== null) {
+    return false;
+  }
 
   const installDir = getCliInstallDir();
-  if (!existsSync(binPathIn(installDir))) return false;
+  if (!existsSync(binPathIn(installDir))) {
+    return false;
+  }
 
   const seededBy = readInstalledAppVersion(installDir);
-  if (seededBy === app.getVersion()) return false;
+  if (seededBy === app.getVersion()) {
+    return false;
+  }
 
   log.info(
     `[cli-installer] app ${seededBy ?? "unknown"} -> ${app.getVersion()}: refreshing CLI install`,
