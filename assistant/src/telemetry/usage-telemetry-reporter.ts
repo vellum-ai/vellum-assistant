@@ -36,6 +36,7 @@ import {
   type ActivationStepName,
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
+import { queryUnreportedConfigSettingEvents } from "./config-setting-events-store.js";
 import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
 import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.js";
@@ -77,6 +78,10 @@ const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID =
 const CHECKPOINT_KEY_WATCHDOG_WATERMARK = "telemetry:watchdog:last_reported_at";
 const CHECKPOINT_KEY_WATCHDOG_WATERMARK_ID =
   "telemetry:watchdog:last_reported_id";
+const CHECKPOINT_KEY_CONFIG_SETTING_WATERMARK =
+  "telemetry:config_setting:last_reported_at";
+const CHECKPOINT_KEY_CONFIG_SETTING_WATERMARK_ID =
+  "telemetry:config_setting:last_reported_id";
 // Written into the `*_id` watermark checkpoints by the opt-out flush branch.
 // Sorts lexicographically above every real row ID (all event stores generate
 // lowercase v4 UUIDs), so the compound cursor's same-millisecond arm
@@ -102,6 +107,10 @@ const WATERMARK_KEY_PAIRS: ReadonlyArray<readonly [string, string]> = [
     CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID,
   ],
   [CHECKPOINT_KEY_WATCHDOG_WATERMARK, CHECKPOINT_KEY_WATCHDOG_WATERMARK_ID],
+  [
+    CHECKPOINT_KEY_CONFIG_SETTING_WATERMARK,
+    CHECKPOINT_KEY_CONFIG_SETTING_WATERMARK_ID,
+  ],
 ];
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const INITIAL_FLUSH_DELAY_MS = 30_000; // Delay first flush to let CES handshake complete
@@ -390,6 +399,16 @@ export class UsageTelemetryReporter {
       const watchdogWatermarkId =
         getMemoryCheckpoint(CHECKPOINT_KEY_WATCHDOG_WATERMARK_ID) ?? undefined;
 
+      // Read config-setting watermark (compound cursor: createdAt + id).
+      // Writes are gated on share_analytics consent, so opted-out rows
+      // cannot exist and the standard 0 default is safe.
+      const configSettingWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_CONFIG_SETTING_WATERMARK) ?? "0",
+      );
+      const configSettingWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_CONFIG_SETTING_WATERMARK_ID) ??
+        undefined;
+
       // Query unreported events
       const events = queryUnreportedUsageEvents(
         watermark,
@@ -429,6 +448,11 @@ export class UsageTelemetryReporter {
       const watchdogEvents = queryUnreportedWatchdogEvents(
         watchdogWatermark,
         watchdogWatermarkId,
+        BATCH_SIZE,
+      );
+      const configSettingEvents = queryUnreportedConfigSettingEvents(
+        configSettingWatermark,
+        configSettingWatermarkId,
         BATCH_SIZE,
       );
 
@@ -502,9 +526,11 @@ export class UsageTelemetryReporter {
         authFallbackEvents.length === 0 &&
         toolExecutedEvents.length === 0 &&
         skillLoadedEvents.length === 0 &&
-        watchdogEvents.length === 0
-      )
+        watchdogEvents.length === 0 &&
+        configSettingEvents.length === 0
+      ) {
         return;
+      }
 
       // Resolve auth context. We send authenticated-only: if no platform
       // credentials are available yet, skip without advancing watermarks so the
@@ -527,6 +553,7 @@ export class UsageTelemetryReporter {
           toolExecutedCount: toolExecutedEvents.length,
           skillLoadedCount: skillLoadedEvents.length,
           watchdogCount: watchdogEvents.length,
+          configSettingCount: configSettingEvents.length,
         },
         "Telemetry flush: resolved auth context",
       );
@@ -795,6 +822,19 @@ export class UsageTelemetryReporter {
             assistant_version: APP_VERSION,
           }),
         ),
+        ...configSettingEvents.map(
+          (e): TelemetryEvent => ({
+            type: "config_setting",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            config_key: e.configKey,
+            config_value: e.configValue,
+            // `config_setting_events` has no record-time version column —
+            // same upload-time APP_VERSION stamping as the other
+            // non-llm_usage event types.
+            assistant_version: APP_VERSION,
+          }),
+        ),
       ];
 
       const organizationId = getPlatformOrganizationId() || undefined;
@@ -930,6 +970,20 @@ export class UsageTelemetryReporter {
         );
       }
 
+      // Advance config-setting watermark (compound cursor)
+      if (configSettingEvents.length > 0) {
+        const lastConfigSetting =
+          configSettingEvents[configSettingEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_CONFIG_SETTING_WATERMARK,
+          String(lastConfigSetting.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_CONFIG_SETTING_WATERMARK_ID,
+          lastConfigSetting.id,
+        );
+      }
+
       // If we got a full batch of any type, there may be more — recurse.
       // Turns use the REPORTED count: when the completeness barrier truncates
       // the batch, the deferred turns must wait for a later flush (by which
@@ -943,7 +997,8 @@ export class UsageTelemetryReporter {
         authFallbackEvents.length === BATCH_SIZE ||
         toolExecutedEvents.length === BATCH_SIZE ||
         skillLoadedEvents.length === BATCH_SIZE ||
-        watchdogEvents.length === BATCH_SIZE
+        watchdogEvents.length === BATCH_SIZE ||
+        configSettingEvents.length === BATCH_SIZE
       ) {
         await this._doFlush(batchCount + 1);
       }

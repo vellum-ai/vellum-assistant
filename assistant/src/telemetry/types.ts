@@ -492,6 +492,27 @@ export interface WatchdogTelemetryEvent extends TelemetryEventBase {
   detail: Record<string, unknown> | null;
 }
 
+/**
+ * Config-setting event — records a tracked config key's effective value.
+ * A single string:string pair on top of the standard envelope, mirroring
+ * the platform `ConfigSettingTelemetryEventSerializer`:
+ *
+ *   - `config_key` — dotted config path (e.g. `"memory.enabled"`).
+ *     Bounded server-side at 128 chars.
+ *   - `config_value` — the effective value rendered as a string
+ *     (`"true"` / `"false"` for booleans). Bounded server-side at 256
+ *     chars.
+ *
+ * Metadata only — emitters record an explicit allowlist of non-sensitive
+ * settings, never free-form config content. Dedupe downstream on
+ * `daemon_event_id` (the daemon retries a batch on transient POST failure).
+ */
+export interface ConfigSettingTelemetryEvent extends TelemetryEventBase {
+  type: "config_setting";
+  config_key: string;
+  config_value: string;
+}
+
 /** Discriminated union of all telemetry event types. */
 export type TelemetryEvent =
   | LlmUsageTelemetryEvent
@@ -501,4 +522,5 @@ export type TelemetryEvent =
   | AuthFallbackTelemetryEvent
   | ToolExecutedTelemetryEvent
   | SkillLoadedTelemetryEvent
-  | WatchdogTelemetryEvent;
+  | WatchdogTelemetryEvent
+  | ConfigSettingTelemetryEvent;
