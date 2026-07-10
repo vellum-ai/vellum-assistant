@@ -30,6 +30,7 @@
 
 import {
   addMessage,
+  type ContentBlock,
   getConversation,
   isConversationProcessing,
   syncMessageToDisk,
@@ -39,7 +40,6 @@ import {
   type MemoryJob,
   upsertSkillCardInsertJob,
 } from "../../../persistence/jobs-store.js";
-import type { ContentBlock } from "../../../providers/types.js";
 import { publishConversationMessagesChanged } from "../../../runtime/sync/resource-sync-events.js";
 import { getLogger } from "./logging.js";
 import { SKILL_CARD_MESSAGE_KIND } from "./memory-retrospective-constants.js";

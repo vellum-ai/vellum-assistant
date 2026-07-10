@@ -42,6 +42,7 @@
 
 import {
   addMessage,
+  type ContentBlock,
   type ConversationRow,
   deleteConversation,
   getConversation,
@@ -76,7 +77,6 @@ import {
 } from "../../../persistence/jobs-store.js";
 import { resolveUserSlug } from "../../../prompts/persona-resolver.js";
 import type { SystemPromptPersonaOverride } from "../../../prompts/system-prompt.js";
-import type { ContentBlock } from "../../../providers/types.js";
 import { wakeAgentForOpportunity } from "../../../runtime/agent-wake.js";
 import { findMostRecentRetrospectiveFor } from "./find-most-recent-retrospective-for.js";
 import { getLogger } from "./logging.js";

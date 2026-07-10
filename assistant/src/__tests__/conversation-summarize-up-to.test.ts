@@ -124,7 +124,7 @@ interface MockRow {
   id: string;
   conversationId: string;
   role: string;
-  content: string;
+  content: unknown;
   createdAt: number;
   metadata: string | null;
   clientMessageId: string | null;
@@ -330,7 +330,7 @@ function row(id: string, role: string, text: string): MockRow {
     id,
     conversationId: "conv-1",
     role,
-    content: JSON.stringify([{ type: "text", text }]),
+    content: [{ type: "text", text }],
     createdAt: nextCreatedAt++,
     metadata: null,
     clientMessageId: null,
@@ -687,9 +687,9 @@ describe("Conversation.summarizeUpToMessage", () => {
       row("m0", "user", "u1"),
       {
         ...row("m1", "assistant", ""),
-        content: JSON.stringify([
+        content: [
           { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
-        ]),
+        ],
       },
       row("m2", "assistant", "continued"),
       row("m3", "user", "u2"),

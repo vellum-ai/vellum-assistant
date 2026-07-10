@@ -188,8 +188,9 @@ function resolveRefToBlocks(ref: MessageContentRef): ContentBlock[] {
  * This is the expressive form of the resolver:
  *   - Inline `ContentBlock[]` JSON parses to its blocks.
  *   - A `{ ref }` folds its delta file (empty on missing/escaping refs).
- *   - A legacy plain string (or any non-array, non-ref JSON) becomes a
- *     single text block carrying the raw value.
+ *   - A JSON string unwraps to its parsed value as a single text block
+ *     (parity with the legacy readers); any other legacy plain string or
+ *     non-array JSON becomes a text block carrying the raw value.
  *
  * Never throws — content reads must not take down read paths.
  */
@@ -204,6 +205,9 @@ export function resolveMessageContentBlocks(raw: string): ContentBlock[] {
   } catch {
     // legacy plain string
     return [{ type: "text", text: raw }];
+  }
+  if (typeof parsed === "string") {
+    return [{ type: "text", text: parsed }];
   }
   if (Array.isArray(parsed)) {
     const result = z.array(contentBlockSchema).safeParse(parsed);
