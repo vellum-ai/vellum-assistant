@@ -28,7 +28,7 @@ const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
 import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type { SurfaceType, UiSurfaceShow } from "../daemon/message-protocol.js";
 import { queryUnreportedOnboardingEvents } from "../onboarding/onboarding-events-store.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
   activationSessions,
@@ -84,7 +84,7 @@ function makeContext(
 }
 
 function resetTables(): void {
-  getDb().delete(onboardingEvents).run();
+  getTelemetryDb()!.delete(onboardingEvents).run();
   getDb().delete(activationSessions).run();
 }
 
