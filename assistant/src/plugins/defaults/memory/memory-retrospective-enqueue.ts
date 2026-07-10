@@ -107,11 +107,10 @@ function isLowYieldRetrospectiveSource(conversationId: string): boolean {
 }
 
 /**
- * Fire a memory-retrospective enqueue from the compaction site. Mirrors
- * `enqueueAutoAnalysisOnCompaction` — same trust-class gate (don't run a
- * guardian-trust background loop over untrusted-actor conversations) and
- * same best-effort error swallowing (never block compaction on enqueue
- * failures).
+ * Fire a memory-retrospective enqueue from the compaction site. Trust-class
+ * gated (don't run a guardian-trust background loop over untrusted-actor
+ * conversations) with best-effort error swallowing (never block compaction
+ * on enqueue failures).
  */
 export function enqueueMemoryRetrospectiveOnCompaction(
   conversationId: string,

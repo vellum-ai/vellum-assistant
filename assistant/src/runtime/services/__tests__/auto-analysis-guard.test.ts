@@ -7,10 +7,7 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
-import {
-  AUTO_ANALYSIS_GROUP_ID,
-  AUTO_ANALYSIS_SOURCE,
-} from "../../../persistence/auto-analysis-constants.js";
+import { AUTO_ANALYSIS_SOURCE } from "../../../persistence/auto-analysis-constants.js";
 import { createConversation } from "../../../persistence/conversation-crud.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
@@ -26,10 +23,6 @@ function resetTables(): void {
 describe("auto-analysis constants", () => {
   test("AUTO_ANALYSIS_SOURCE is the canonical 'auto-analysis' string", () => {
     expect(AUTO_ANALYSIS_SOURCE).toBe("auto-analysis");
-  });
-
-  test("AUTO_ANALYSIS_GROUP_ID is 'system:background' so reflections render as a background sub-group", () => {
-    expect(AUTO_ANALYSIS_GROUP_ID).toBe("system:background");
   });
 });
 

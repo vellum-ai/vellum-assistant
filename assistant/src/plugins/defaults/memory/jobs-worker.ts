@@ -132,6 +132,9 @@ const LEGACY_JOB_TYPES = new Set([
   "memory_v3_index_maintenance",
   "memory_v3_edge_learning",
   "memory_proc_distill",
+  // Retired analyze-conversation job type — pre-upgrade pending rows drop
+  // gracefully.
+  "conversation_analyze",
 ]);
 
 export const POLL_INTERVAL_MIN_MS = 1_500;
