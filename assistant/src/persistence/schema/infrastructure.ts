@@ -366,6 +366,18 @@ export const watchdogEvents = sqliteTable(
   ],
 );
 
+// Key/value store for telemetry flush state — the per-event-type
+// `(last_reported_at, last_reported_id)` watermark cursors advanced by the
+// usage telemetry reporter after each successful upload. Lives on the
+// dedicated telemetry database (assistant-telemetry.db) so flush state
+// stays with the telemetry pipeline; the main DB's `memory_checkpoints`
+// ledger is reserved for DB-migration checkpoints.
+export const flushCheckpoints = sqliteTable("flush_checkpoints", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 // One row per `config_setting` telemetry event — a tracked config key's
 // effective value; see config-setting-events-store.ts for the data
 // contract. Lives on the dedicated telemetry database
