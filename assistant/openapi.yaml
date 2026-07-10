@@ -15560,6 +15560,8 @@ paths:
               properties:
                 serverId:
                   type: string
+                reset:
+                  type: boolean
               required:
                 - serverId
       responses:

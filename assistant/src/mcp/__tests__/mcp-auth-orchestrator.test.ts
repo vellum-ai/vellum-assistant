@@ -46,6 +46,8 @@ const mockSetMcpAuthError = mock(
   (_serverId: string, _error: string, _attemptId: string): boolean => true,
 );
 
+// mock.module applies process-wide; provide every export of the real module
+// so other test files importing it in the same run don't hit missing names.
 mock.module("../mcp-auth-state.js", () => ({
   setMcpAuthPending: (...args: unknown[]) =>
     mockSetMcpAuthPending(...(args as [string, string, string])),
@@ -53,6 +55,10 @@ mock.module("../mcp-auth-state.js", () => ({
     mockSetMcpAuthComplete(...(args as [string, string])),
   setMcpAuthError: (...args: unknown[]) =>
     mockSetMcpAuthError(...(args as [string, string, string])),
+  getMcpAuthState: () => null,
+  markMcpNeedsReauth: () => {},
+  clearMcpNeedsReauth: () => {},
+  mcpNeedsReauth: () => false,
 }));
 
 const mockReloadMcpServers = mock(async () => ({

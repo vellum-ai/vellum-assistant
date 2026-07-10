@@ -20,8 +20,16 @@ mock.module("../mcp/mcp-auth-orchestrator.js", () => ({
 
 const mockGetMcpAuthState = mock((_serverId: string) => null as unknown);
 
+// mock.module applies process-wide; provide every export of the real module
+// so other test files importing it in the same run don't hit missing names.
 mock.module("../mcp/mcp-auth-state.js", () => ({
   getMcpAuthState: mockGetMcpAuthState,
+  setMcpAuthPending: () => true,
+  setMcpAuthComplete: () => true,
+  setMcpAuthError: () => true,
+  markMcpNeedsReauth: () => {},
+  clearMcpNeedsReauth: () => {},
+  mcpNeedsReauth: () => false,
 }));
 
 const mockConfig = {
