@@ -1,5 +1,8 @@
+import { useCallback, type CSSProperties } from "react";
+
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
+import { useSwipeVertical } from "@/hooks/use-swipe-vertical";
 import { cn } from "@/utils/misc";
 import type { OpenedAppState } from "@/stores/viewer-store";
 
@@ -54,6 +57,36 @@ export function MobileAppOverlay({
 }: MobileAppOverlayProps) {
   const shellStyle = useMobileOverlayViewportStyle();
 
+  // Swipe-down on the full overlay minimizes to the strip; swipe-up on the
+  // minimized strip restores; swipe-down on the strip closes entirely. These
+  // trigger the same callbacks the nav-bar buttons use — no new state.
+  const handleSwipeDown = useCallback(() => {
+    if (isAppMinimized) {
+      onClose();
+    } else {
+      onToggleMinimized();
+    }
+  }, [isAppMinimized, onClose, onToggleMinimized]);
+
+  const handleSwipeUp = useCallback(() => {
+    if (isAppMinimized) {
+      onToggleMinimized();
+    }
+  }, [isAppMinimized, onToggleMinimized]);
+
+  const {
+    dragOffset,
+    isDragging,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onTouchCancel,
+  } = useSwipeVertical({
+    enabled: !!openedAppState,
+    onSwipeDown: handleSwipeDown,
+    onSwipeUp: handleSwipeUp,
+  });
+
   if (!openedAppState) {
     return null;
   }
@@ -70,18 +103,19 @@ export function MobileAppOverlay({
       )}
       style={{
         ...shellStyle,
-        // Minimized: slide down until only the nav bar peeks above the bottom
-        // edge. The bar is 64px tall on mobile (`py-3` 24px + 40px
-        // `touch-mobile:` buttons). Both insets the shell's padding applies
-        // must be subtracted: the top inset because `paddingTop` shifts the
-        // content down, and the hook's effective bottom inset
-        // (`--overlay-safe-area-bottom`) so the strip clears the iOS home
-        // indicator while the keyboard is closed yet sits flush on the
-        // keyboard while it's open (the hook zeroes the inset then).
+        // `--drag-y` is 0 at rest and tracks the finger during a swipe. It
+        // composes with the resting translateY so the overlay follows the
+        // finger, then springs back (or animates to the new resting state on
+        // commit) when the transition re-enables.
+        "--drag-y": `${dragOffset}px`,
         transform: isAppMinimized
-          ? "translateY(calc(100% - var(--app-strip-h, 64px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) - var(--overlay-safe-area-bottom, 0px)))"
-          : "translateY(0)",
-      }}
+          ? "translateY(calc(100% - var(--app-strip-h, 64px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) - var(--overlay-safe-area-bottom, 0px) + var(--drag-y, 0px)))"
+          : "translateY(var(--drag-y, 0px))",
+        // Disable the CSS transition while dragging so the overlay tracks the
+        // finger 1:1; re-enable it on release for the spring-back / commit
+        // animation.
+        transition: isDragging ? "none" : undefined,
+      } as CSSProperties}
     >
       {/* The minimized strip overlays the chat, so it needs a top-directional
           shadow to read as a layer above it. The shadow lives on this inner
@@ -94,6 +128,14 @@ export function MobileAppOverlay({
           isAppMinimized &&
             "pointer-events-auto shadow-[0_-4px_16px_rgba(0,0,0,0.15)]",
         )}
+        // Claim vertical gestures for the swipe; let the browser handle
+        // horizontal pans natively. Touches inside the sandboxed app iframe
+        // are governed by the iframe's own document and are unaffected.
+        style={{ touchAction: "pan-x" }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
         <AppViewerContainer
           appId={openedAppState.appId}
