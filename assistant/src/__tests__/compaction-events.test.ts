@@ -25,65 +25,33 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: async () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "high" as const,
-        speed: "standard",
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {
-        // Disable the catalog default so resolution lands on llm.default.
-        balanced: { source: "managed", status: "disabled" },
-        "cost-optimized": { source: "managed", status: "disabled" },
-      },
-      callSites: {
-        // This file's blanket assistant-feature-flags mock forces the
-        // override-or-default resolution flag ON, so the windows the
-        // gate-sizing tests depend on live in call-site tweaks (which apply
-        // under both resolution semantics) rather than llm.default.
-        mainAgent: {
-          contextWindow: { maxInputTokens: 100000 },
-        },
-        // Resolves a SMALLER window than mainAgent — exercised by the
-        // maybeCompact gate-sizing tests below.
-        memoryRetrospective: {
-          contextWindow: { maxInputTokens: 50000 },
-        },
-      },
-      pricingOverrides: [],
+import { setConfig } from "./helpers/set-config.js";
+
+// Seed the real workspace config with the non-default values these tests
+// depend on instead of mocking the loader.
+setConfig("llm", {
+  profiles: {
+    // Disable the catalog default so resolution lands on llm.default.
+    balanced: { source: "managed", status: "disabled" },
+    "cost-optimized": { source: "managed", status: "disabled" },
+  },
+  callSites: {
+    // This file's blanket assistant-feature-flags mock forces the
+    // override-or-default resolution flag ON, so the windows the
+    // gate-sizing tests depend on live in call-site tweaks (which apply
+    // under both resolution semantics) rather than llm.default.
+    mainAgent: {
+      contextWindow: { maxInputTokens: 100000 },
     },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    memory: { v2: { enabled: false } },
-    conversations: { skipAutoRetitling: false },
-    timeouts: { permissionTimeoutSec: 1 },
-    skills: { entries: {}, allowBundled: true },
-    permissions: { mode: "workspace" },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+    // Resolves a SMALLER window than mainAgent — exercised by the
+    // maybeCompact gate-sizing tests below.
+    memoryRetrospective: {
+      contextWindow: { maxInputTokens: 50000 },
+    },
+  },
+});
+setConfig("memory", { v2: { enabled: false } });
+setConfig("timeouts", { permissionTimeoutSec: 1 });
 
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,

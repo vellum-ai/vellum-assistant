@@ -4,45 +4,13 @@
  * handlers directly (Codex review feedback on PR #30262).
  */
 
+import { utimesSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks for handleSetConfig's transitive deps
 // ---------------------------------------------------------------------------
-
-let savedRaw: Record<string, unknown> | null = null;
-let rawConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => structuredClone(rawConfig),
-  saveRawConfig: (raw: Record<string, unknown>) => {
-    savedRaw = raw;
-  },
-  deepMergeOverwrite: () => {},
-  getConfig: () => rawConfig,
-  invalidateConfigCache: () => {},
-  withSuppressedConfigDiskWrites: async (fn: () => unknown) => fn(),
-  withSuppressedConfigDiskWritesSync: (fn: () => unknown) => fn(),
-  // setNestedValue is also exported by loader; handleSetConfig imports the
-  // real one from this module, so we re-export a thin implementation that
-  // mutates in place (matches loader's behavior).
-  setNestedValue: (
-    obj: Record<string, unknown>,
-    path: string,
-    value: unknown,
-  ) => {
-    const keys = path.split(".");
-    let current: Record<string, unknown> = obj;
-    for (let i = 0; i < keys.length - 1; i++) {
-      const key = keys[i]!;
-      if (current[key] == null || typeof current[key] !== "object") {
-        current[key] = {};
-      }
-      current = current[key] as Record<string, unknown>;
-    }
-    current[keys[keys.length - 1]!] = value;
-  },
-}));
 
 mock.module("../providers/registry.js", () => ({
   initializeProviders: async () => {},
@@ -72,8 +40,25 @@ mock.module("../security/secret-allowlist.js", () => ({
   },
 }));
 
+import { loadRawConfig } from "../config/loader.js";
 import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
+
+/**
+ * Replace the workspace config.json with exactly `config`. The route under
+ * test edits the raw file wholesale, so each test starts from a complete
+ * known file state rather than composing per-key seeds. Bumps the mtime
+ * monotonically so the loader's file-signature cache re-reads (same trick as
+ * helpers/set-config.ts).
+ */
+let mtimeSeq = 0;
+function seedRawConfig(config: Record<string, unknown>): void {
+  const path = join(process.env.VELLUM_WORKSPACE_DIR!, "config.json");
+  writeFileSync(path, JSON.stringify(config));
+  mtimeSeq += 1;
+  const stamp = new Date(Date.now() + mtimeSeq);
+  utimesSync(path, stamp, stamp);
+}
 
 const configSetRoute = ROUTES.find((r) => r.operationId === "config_set")!;
 const allowlistRoute = ROUTES.find(
@@ -97,15 +82,12 @@ describe("config_set route - request validation", () => {
   });
 
   test("accepts body with explicit null value", async () => {
-    rawConfig = { heartbeat: { activeHoursStart: "09:00" } };
-    savedRaw = null;
+    seedRawConfig({ heartbeat: { activeHoursStart: 9 } });
     const result = await configSetRoute.handler({
       body: { path: "heartbeat.activeHoursStart", value: null },
     });
     expect(result).toEqual({ ok: true });
-    expect(savedRaw).not.toBeNull();
-    const heartbeat = (savedRaw as unknown as Record<string, unknown>)
-      .heartbeat as Record<string, unknown>;
+    const heartbeat = loadRawConfig().heartbeat as Record<string, unknown>;
     expect(heartbeat.activeHoursStart).toBeNull();
   });
 
@@ -132,19 +114,17 @@ describe("config_set route - request validation", () => {
   });
 
   test("accepts a normal scalar set and writes to raw config", async () => {
-    rawConfig = {};
-    savedRaw = null;
+    seedRawConfig({});
     const result = await configSetRoute.handler({
       body: { path: "calls.enabled", value: true },
     });
     expect(result).toEqual({ ok: true });
-    const calls = (savedRaw as unknown as Record<string, unknown>)
-      .calls as Record<string, unknown>;
+    const calls = loadRawConfig().calls as Record<string, unknown>;
     expect(calls.enabled).toBe(true);
   });
 
   test("preserves user profiles and custom settings when setting unrelated key", async () => {
-    rawConfig = {
+    seedRawConfig({
       llm: {
         activeProfile: "my-custom-profile",
         profiles: {
@@ -164,8 +144,7 @@ describe("config_set route - request validation", () => {
       memory: {
         embeddings: { provider: "openai" },
       },
-    };
-    savedRaw = null;
+    });
     const result = await configSetRoute.handler({
       body: {
         path: "memory.cleanup.llmRequestLogRetentionMs",
@@ -173,9 +152,8 @@ describe("config_set route - request validation", () => {
       },
     });
     expect(result).toEqual({ ok: true });
-    expect(savedRaw).not.toBeNull();
 
-    const saved = savedRaw as unknown as Record<string, unknown>;
+    const saved = loadRawConfig();
     const llm = saved.llm as Record<string, unknown>;
     expect(llm.activeProfile).toBe("my-custom-profile");
 
@@ -202,22 +180,20 @@ describe("config_set route - request validation", () => {
   });
 
   test("preserves all top-level keys when setting a nested path", async () => {
-    rawConfig = {
+    seedRawConfig({
       llm: { default: { provider: "anthropic" } },
       calls: { enabled: true },
-      heartbeat: { activeHoursStart: "09:00", activeHoursEnd: "22:00" },
-    };
-    savedRaw = null;
+      heartbeat: { activeHoursStart: 9, activeHoursEnd: 22 },
+    });
     await configSetRoute.handler({
       body: { path: "memory.cleanup.conversationRetentionDays", value: 30 },
     });
-    expect(savedRaw).not.toBeNull();
-    const saved = savedRaw as unknown as Record<string, unknown>;
+    const saved = loadRawConfig();
     expect(saved.llm).toEqual({ default: { provider: "anthropic" } });
     expect(saved.calls).toEqual({ enabled: true });
     expect(saved.heartbeat).toEqual({
-      activeHoursStart: "09:00",
-      activeHoursEnd: "22:00",
+      activeHoursStart: 9,
+      activeHoursEnd: 22,
     });
   });
 });
