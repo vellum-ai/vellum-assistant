@@ -32,6 +32,7 @@ import {
   messageMetadataSchema,
 } from "./conversation-crud.js";
 import { type DrizzleDb, getDb, getLogsDb } from "./db-connection.js";
+import { getClickHouseLlmRequestLogSink } from "./llm-request-log-sink-clickhouse.js";
 import { llmRequestLogs, messages } from "./schema/index.js";
 import { timeSyncSection } from "./slow-sync-log.js";
 
@@ -195,8 +196,27 @@ export function recordRequestLog(
   if (!llmRequestLoggingEnabled()) {
     return null;
   }
-  const db = logsDb();
   const id = uuid();
+  // When ClickHouse is the configured source, it is also the write target:
+  // send the row there instead of local SQLite (fire-and-forget). The id is
+  // still returned for signature parity, though no local row exists for the
+  // post-loop stamping helpers to update — an accepted ClickHouse limitation.
+  const clickHouseSink = getClickHouseLlmRequestLogSink();
+  if (clickHouseSink) {
+    clickHouseSink.recordBestEffort({
+      id,
+      conversationId,
+      messageId: messageId ?? null,
+      provider: provider ?? null,
+      requestPayload,
+      responsePayload,
+      createdAt: Date.now(),
+      agentLoopExitReason: null,
+      callSite: callSite ?? null,
+    });
+    return id;
+  }
+  const db = logsDb();
   // Synchronous insert of the full request/response payloads (an entire
   // context window for main-agent calls) into the append-only logs DB, on the
   // per-LLM-call critical path. Timed so an event-loop freeze the watchdog
@@ -285,7 +305,6 @@ export function recordSyntheticAgentErrorMessageLog(args: {
   if (!llmRequestLoggingEnabled()) {
     return null;
   }
-  const db = logsDb();
   const id = uuid();
   const requestPayload = JSON.stringify({
     syntheticAgentErrorMessage: {
@@ -299,6 +318,25 @@ export function recordSyntheticAgentErrorMessageLog(args: {
       noticeText: args.noticeText,
     },
   });
+  // Route to ClickHouse when it is the configured target. The exit reason is
+  // already known here, so it is carried on the row directly (unlike real
+  // calls, which stamp it post-loop against a local row that ClickHouse lacks).
+  const clickHouseSink = getClickHouseLlmRequestLogSink();
+  if (clickHouseSink) {
+    clickHouseSink.recordBestEffort({
+      id,
+      conversationId: args.conversationId,
+      messageId: args.messageId,
+      provider: null,
+      requestPayload,
+      responsePayload,
+      createdAt: args.createdAt,
+      agentLoopExitReason: args.exitReason,
+      callSite: CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
+    });
+    return id;
+  }
+  const db = logsDb();
   db.insert(llmRequestLogs)
     .values({
       id,
