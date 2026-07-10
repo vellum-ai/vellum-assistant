@@ -21,9 +21,9 @@ const log = getLogger("memory-retrospective-fork-boundary");
  * source message); its `createdAt` is the boundary. The stamp's value may
  * point at any ancestor when the source was itself a fork
  * (`cloneForkMessageMetadata` preserves pre-existing values), so we only
- * check for presence, not equality. Returns `null` only if no copied
- * messages remain (corrupted fork metadata or empty fork — caller logs +
- * degrades).
+ * check for presence, not equality. Returns `null` when no message carries a
+ * stamp — the fork's copied prefix is empty (a tail-only fork whose inherited
+ * compaction covers the whole cutoff range renders as summary-only).
  */
 export function findForkBoundaryCreatedAt(
   forkMessages: Array<{
@@ -52,15 +52,17 @@ export function findForkBoundaryCreatedAt(
  * Load the messages a retrospective run produced itself, given the
  * retrospective conversation's `source` kind:
  *
- *   - **Fork-kind** rows carry the full copied source prefix, so only the
- *     post-fork tail (messages strictly after the fork boundary) counts —
- *     scanning the whole row would attribute the source conversation's own
- *     turns to the retrospective.
+ *   - **Fork-kind** rows carry the copied source prefix (the source's visible
+ *     tail), so only the post-fork tail (messages strictly after the fork
+ *     boundary) counts — scanning the whole row would attribute the source
+ *     conversation's own turns to the retrospective. When no row carries a
+ *     `forkSourceMessageId` stamp, the copied prefix is empty (the inherited
+ *     compaction covered the whole cutoff range) and every message is the
+ *     run's own.
  *   - **Legacy-kind** rows start empty, so every message is the run's own.
  *
- * Returns `null` when the run's output cannot be determined — message load
- * failure, or a fork-kind row with no detectable boundary (corrupted fork
- * metadata) — so callers degrade (empty dedup baseline / "no output").
+ * Returns `null` when the run's output cannot be determined (message load
+ * failure) — callers degrade (empty dedup baseline / "no output").
  * Best-effort: failures are logged, never thrown.
  */
 export function loadRetrospectiveRunMessages(
@@ -81,11 +83,8 @@ export function loadRetrospectiveRunMessages(
   if (source === MEMORY_RETROSPECTIVE_FORK_SOURCE) {
     const boundaryCreatedAt = findForkBoundaryCreatedAt(messages);
     if (boundaryCreatedAt == null) {
-      log.warn(
-        { retrospectiveConversationId: conversationId },
-        "memory-retrospective: fork-kind retrospective has no message with forkSourceMessageId metadata; treating run as having produced none",
-      );
-      return null;
+      // Empty copied prefix — every message is the run's own output.
+      return messages;
     }
     return messages.filter((m) => m.createdAt > boundaryCreatedAt);
   }

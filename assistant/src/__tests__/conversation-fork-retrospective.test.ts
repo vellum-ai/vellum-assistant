@@ -585,5 +585,17 @@ describe("forkConversationForRetrospective — compacted source", () => {
     expect(fork.contextCompactedMessageCount).toBe(0);
     expect(fork.contextCompactedAt).toBe(tip.createdAt);
     expect(fork.forkParentMessageId).toBe(tip.id);
+
+    // With no stamped copied rows the copied prefix is empty, so the whole
+    // conversation is the run's own output — run messages still feed the
+    // success bookkeeping (dedup baseline, skill cards).
+    const runMessage = await addMessage(fork.id, "user", "retro instruction", {
+      skipIndexing: true,
+    });
+    const runRows = loadRetrospectiveRunMessages(
+      fork.id,
+      MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    );
+    expect(runRows?.map((m) => m.id)).toEqual([runMessage.id]);
   });
 });

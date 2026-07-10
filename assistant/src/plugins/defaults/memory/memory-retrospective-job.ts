@@ -912,8 +912,8 @@ async function collectPriorRetrospectiveRemembers(
  * `loadRetrospectiveRunMessages` scopes fork-kind rows to the post-fork tail
  * (the copied prefix contains the source conversation's own inline
  * `remember` calls, which must not pollute the dedup baseline) and returns
- * `null` on load failure or an undetectable fork boundary (logged, never
- * fatal) — treated here as "the run saved nothing".
+ * `null` on load failure (logged, never fatal) — treated here as "the run
+ * saved nothing".
  */
 async function extractRetrospectiveRunRemembers(
   conversationId: string,

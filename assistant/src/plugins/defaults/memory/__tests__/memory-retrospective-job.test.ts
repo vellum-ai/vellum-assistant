@@ -1207,11 +1207,11 @@ describe("memoryRetrospectiveJob", () => {
     expect(instructionText).not.toContain("(none)");
   });
 
-  test("prior fork-kind retrospective with no copied messages degrades to empty dedup", async () => {
-    // Corrupted/empty fork-kind prior: no message carries
-    // `forkSourceMessageId`. The detector should return null and the
-    // handler should treat dedup as empty rather than dumping everything
-    // (which would leak any pre-fork content into the baseline).
+  test("prior fork-kind retrospective with no copied messages attributes every row to the run", async () => {
+    // Empty-prefix fork-kind prior (a tail-only fork whose inherited
+    // compaction covered the whole cutoff range): no message carries
+    // `forkSourceMessageId`, so every row is the run's own output and its
+    // saves feed the dedup baseline.
     priorRetroId = "prior-fork-retro-2";
 
     conversationOverrides[priorRetroId] = {
@@ -1225,7 +1225,7 @@ describe("memoryRetrospectiveJob", () => {
           {
             type: "tool_use",
             name: "remember",
-            input: { content: "would-be-leaked save" },
+            input: { content: "empty-prefix save" },
           },
         ]),
         createdAt: 1000,
@@ -1236,8 +1236,8 @@ describe("memoryRetrospectiveJob", () => {
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     const instructionText = persistedInstructionText();
-    expect(instructionText).not.toContain("- would-be-leaked save");
-    expect(instructionText).toContain("(none)");
+    expect(instructionText).toContain("- empty-prefix save");
+    expect(instructionText).not.toContain("(none)");
   });
 
   // -------------------------------------------------------------------------

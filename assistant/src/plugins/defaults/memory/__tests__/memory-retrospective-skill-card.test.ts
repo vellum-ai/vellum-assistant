@@ -438,7 +438,9 @@ describe("memory-retrospective skill card", () => {
     expect(skills.map((s) => s.skillId)).toEqual(["tail-skill"]);
   });
 
-  test("extractor degrades to empty for a fork-kind run with no detectable boundary", async () => {
+  test("extractor attributes every row to a fork-kind run with an empty copied prefix", async () => {
+    // No message carries `forkSourceMessageId`: the fork's copied prefix is
+    // empty, so the scaffold is the run's own work.
     conversationOverrides["retro-fork-2"] = {
       source: "memory-retrospective-fork",
       forkParentMessageId: null,
@@ -450,7 +452,7 @@ describe("memory-retrospective skill card", () => {
 
     const skills = await extractRetrospectiveRunSkillScaffolds("retro-fork-2");
 
-    expect(skills).toEqual([]);
+    expect(skills.map((s) => s.skillId)).toEqual(["skill-a"]);
   });
 
   test("extractor normalizes padded/newline-carrying inputs to the persisted values", async () => {
