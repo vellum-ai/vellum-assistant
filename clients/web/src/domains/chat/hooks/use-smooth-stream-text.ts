@@ -89,6 +89,8 @@ export function useSmoothStreamText(target: string | null): string | null {
   if (target === null) return null;
   if (reducedMotion) return target;
   const raw = Math.min(target.length, Math.max(0, Math.floor(revealedLength)));
+  // Returning the target itself (not a same-length slice) when caught up lets
+  // callers detect the caught-up state by identity.
   if (raw >= target.length) return target;
   return target.slice(0, raw);
 }

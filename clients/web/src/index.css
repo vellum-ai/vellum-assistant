@@ -177,6 +177,22 @@ body {
   border-radius: var(--radius-lg);
 }
 
+/* Streamed word fade — applied by `rehypeStreamWordFade` to each word of the
+ * actively-streaming assistant message's trailing text. The plugin grades the
+ * words nearest the reveal edge with inline opacities; this transition is
+ * what animates each word up as the edge sweeps past it, producing a soft
+ * left-to-right gradient wipe. Opacity-only (no layout properties) so it
+ * composites cheaply across many small spans. */
+.stream-word-fade {
+  transition: opacity 160ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-word-fade {
+    transition: none;
+  }
+}
+
 /* Avatar streaming ring — a semicircular arc that traces the circular avatar's
    edge and spins continuously while the assistant is streaming/loading. Used
    only for custom uploaded-image avatars; character avatars convey streaming
