@@ -1518,16 +1518,21 @@ describe("AssistantConfigSchema", () => {
     });
   });
 
-  test("rejects services.stt.mode = managed", () => {
+  test("accepts services.stt.mode = managed with a provider", () => {
     const result = AssistantConfigSchema.safeParse({
-      services: { stt: { mode: "managed" } },
+      services: { stt: { mode: "managed", provider: "deepgram" } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects provider vellum outside managed mode", () => {
+    const result = AssistantConfigSchema.safeParse({
+      services: { stt: { mode: "your-own", provider: "vellum" } },
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const msgs = result.error.issues.map((i) => i.message);
-      expect(
-        msgs.some((m) => m.includes("your-own") || m.includes("managed")),
-      ).toBe(true);
+      expect(msgs.some((m) => m.includes("managed"))).toBe(true);
     }
   });
 
@@ -1606,7 +1611,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("services.stt.mode only accepts your-own as literal", () => {
+  test("services.stt.mode accepts your-own and managed", () => {
     // Explicit your-own should work
     const valid = SttServiceSchema.safeParse({
       mode: "your-own",
@@ -1614,12 +1619,12 @@ describe("AssistantConfigSchema", () => {
     });
     expect(valid.success).toBe(true);
 
-    // managed should be rejected
-    const invalid = SttServiceSchema.safeParse({
+    // managed is supported; the BYOK provider choice is preserved
+    const managed = SttServiceSchema.safeParse({
       mode: "managed",
       provider: "openai-whisper",
     });
-    expect(invalid.success).toBe(false);
+    expect(managed.success).toBe(true);
 
     // Any other string should be rejected
     const invalid2 = SttServiceSchema.safeParse({
