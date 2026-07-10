@@ -407,8 +407,8 @@
       "scope": "both",
       "key": "skill-creation-card",
       "label": "Skill creation card",
-      "description": "Insert an in-chat card into the source conversation when the memory retrospective authors a new skill, and render it in the web client.",
-      "defaultEnabled": false
+      "description": "Insert an in-chat card into the source conversation when the memory retrospective authors a new skill, and render it in the web client. GA (default on); the flag remains only as an emergency kill-switch.",
+      "defaultEnabled": true
     },
     {
       "id": "override-or-default-resolution",
