@@ -8,7 +8,7 @@ any generic account registry:
 - `assistant credentials list` for discovering stored credential handles
 - `assistant oauth status <provider>` for discovering OAuth connection handles
 - `assistant credentials set ...` for storing new credentials
-- `assistant mcp auth <name>` when an MCP server needs browser login
+- `assistant mcp auth <name> --no-wait` when an MCP server needs browser login — start the flow, relay the printed authorization URL to the user, then poll `assistant mcp auth <name> --status`. Do not run a blocking `assistant mcp auth <name>`, which ties up the turn for up to 2.5 minutes.
 - `assistant platform status` for platform-linked deployment/auth context
 
 If a bundled skill documents a service-specific `assistant <service>` auth or

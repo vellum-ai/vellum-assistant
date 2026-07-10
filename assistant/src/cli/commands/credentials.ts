@@ -423,8 +423,9 @@ Examples:
 
       credential
         .command("inspect [id]")
+        .alias("get")
         .description(
-          "Show metadata and a masked preview of a stored credential",
+          "Show metadata and a masked preview of a stored credential (alias: get)",
         )
         .option("--service <service>", "Service namespace")
         .option("--field <field>", "Field name")
@@ -435,7 +436,10 @@ Arguments:
   id   (optional) Credential UUID for lookup by ID
 
 Shows everything known about a credential without revealing the secret value.
-The secret is masked to show only the last 4 characters (e.g. ****c123).
+The secret is masked to show only the last 4 characters (e.g. ****c123). To
+print the plaintext value instead, use "assistant credentials reveal".
+
+Also invokable as "assistant credentials get".
 
 Displayed fields include: label, creation/update timestamps, allowed tools,
 allowed domains, OAuth2 scopes, account info, and injection template count.
@@ -445,6 +449,7 @@ positional argument. One of the two forms is required.
 
 Examples:
   $ assistant credentials inspect --service twilio --field account_sid
+  $ assistant credentials get --service twilio --field account_sid
   $ assistant credentials inspect 7a3b1c2d-4e5f-6789-abcd-ef0123456789
   $ assistant credentials inspect --json --service slack_channel --field bot_token`,
         )
