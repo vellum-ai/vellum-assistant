@@ -88,7 +88,6 @@ import {
   enqueueLexicalIndexForMessage,
   enqueuePurgeConversationLexical,
 } from "./job-handlers/message-lexical.js";
-import { resolveStoredMessageContent } from "./message-content-file.js";
 import {
   rawAll,
   rawExec,
@@ -447,7 +446,11 @@ export interface MessageRow {
   id: string;
   conversationId: string;
   role: string;
-  /** Resolved content — always inline JSON, never a raw `{ ref }`. */
+  /**
+   * The raw stored value — an inline `ContentBlock[]` JSON string, a legacy
+   * plain string, or (for file-backed rows) a `{ ref }` JSON string. Resolve
+   * to typed blocks with `resolveMessageContentBlocks` before consuming.
+   */
   content: string;
   createdAt: number;
   metadata: string | null;
@@ -460,12 +463,7 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
   id: "id",
   conversationId: "conversationId",
   role: "role",
-  // File-backed `{ ref }` content is resolved here, at the row-fetch
-  // chokepoint, so every consumer of MessageRow sees inline content.
-  content: {
-    from: "content",
-    transform: (v) => resolveStoredMessageContent(v as string),
-  },
+  content: "content",
   createdAt: "createdAt",
   metadata: "metadata",
   clientMessageId: "clientMessageId",

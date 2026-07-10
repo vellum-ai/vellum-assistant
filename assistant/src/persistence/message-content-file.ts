@@ -20,10 +20,10 @@
  * crash-truncated file still folds to the newest complete snapshot of each
  * block.
  *
- * All content reads must go through {@link resolveMessageContentBlocks}
- * (expressive form) or {@link resolveStoredMessageContent} (the string shim
- * wired into the message row mapper) — downstream consumers never see a raw
- * `{ ref }` value.
+ * {@link resolveMessageContentBlocks} is the single resolution seam:
+ * consumers take the raw stored string off the message row and resolve it
+ * to typed blocks here — a raw `{ ref }` value is never interpreted
+ * anywhere else.
  */
 
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
@@ -39,33 +39,29 @@ import { getWorkspaceDir } from "../util/platform.js";
 const log = getLogger("message-content-file");
 
 /**
- * Ref-shaped `messages.content` value. Strict (no extra keys) and
- * reserved-path constrained so legacy plain-string rows that parse as
- * arbitrary JSON objects can never be mistaken for a ref.
+ * Ref-shaped `messages.content` value. The reserved-path constraint is the
+ * discriminator that keeps legacy plain-string rows that parse as arbitrary
+ * JSON objects from being mistaken for a ref.
  */
-export const messageContentRefSchema = z
-  .object({
-    ref: z
-      .string()
-      .regex(
-        /^conversations\/.+\.jsonl$/,
-        "content refs must be workspace-relative paths under conversations/ ending in .jsonl",
-      ),
-  })
-  .strict();
+export const messageContentRefSchema = z.object({
+  ref: z
+    .string()
+    .regex(
+      /^conversations\/.+\.jsonl$/,
+      "content refs must be workspace-relative paths under conversations/ ending in .jsonl",
+    ),
+});
 
 export type MessageContentRef = z.infer<typeof messageContentRefSchema>;
 
 /** One line of the append-only content delta file. */
-const contentDeltaLineSchema = z
-  .object({
-    /** Index of `block` in the folded `ContentBlock[]`. */
-    i: z.number(),
-    /** Monotonic write sequence; the highest `seq` per `i` wins the fold. */
-    seq: z.number(),
-    block: contentBlockSchema,
-  })
-  .strict();
+const contentDeltaLineSchema = z.object({
+  /** Index of `block` in the folded `ContentBlock[]`. */
+  i: z.number(),
+  /** Monotonic write sequence; the highest `seq` per `i` wins the fold. */
+  seq: z.number(),
+  block: contentBlockSchema,
+});
 
 export type ContentDeltaLine = z.infer<typeof contentDeltaLineSchema>;
 
@@ -75,7 +71,7 @@ export type ContentDeltaLine = z.infer<typeof contentDeltaLineSchema>;
  * inline-array case to a single character check.
  */
 function parseContentRef(raw: string): MessageContentRef | null {
-  if (typeof raw !== "string" || raw.charCodeAt(0) !== 0x7b /* '{' */) {
+  if (raw.charCodeAt(0) !== 0x7b /* '{' */) {
     return null;
   }
   let parsed: unknown;
@@ -225,22 +221,4 @@ export function resolveMessageContentBlocks(raw: string): ContentBlock[] {
     return parsed as ContentBlock[];
   }
   return [{ type: "text", text: raw }];
-}
-
-/**
- * Resolve a stored `messages.content` value to its inline JSON string form.
- *
- * String shim over the resolver for call sites whose contract is the raw
- * stored string — today that is `MessageRow.content` via the row mapper.
- * Inline values (JSON `ContentBlock[]` or legacy plain strings) pass
- * through by identity — the common case costs one character check — so
- * legacy-string handling stays byte-identical for existing consumers.
- * Prefer {@link resolveMessageContentBlocks} in new code.
- */
-export function resolveStoredMessageContent(raw: string): string {
-  const ref = parseContentRef(raw);
-  if (!ref) {
-    return raw;
-  }
-  return JSON.stringify(resolveRefToBlocks(ref));
 }
