@@ -81,6 +81,7 @@ const WORKSPACE_GITIGNORE_RULES = [
   // Logs and process state
   "logs/",
   "*.log",
+  "*.jsonl",
   "*.sock",
   "*.pid",
   "daemon-startup.lock",
@@ -129,12 +130,15 @@ const WORKSPACE_GITIGNORE_RULES = [
   "*.safetensors",
   "*.pt",
   "*.pth",
-  // Canonical user state re-included despite the media rules above.
+  // Canonical user state re-included despite the extension rules above.
   // Must stay after the extension rules: last matching pattern wins.
   // (Not a broad !data/apps/** — that would also re-include dist/.)
+  // conversations/ holds the messages.jsonl disk view that DB recovery
+  // rebuilds from, so it survives the *.jsonl rule.
   "!data/avatar/**",
   "!data/sounds/**",
   "!data/apps/*/icon.png",
+  "!conversations/**",
 ];
 
 const NULL_GIT_OID = "0000000000000000000000000000000000000000";
@@ -486,7 +490,6 @@ export class WorkspaceGitService {
                 // These calls are OUTSIDE the rev-parse try/catch so that
                 // normalization errors are not misclassified as "no commits".
                 this.ensureGitignoreRulesLocked();
-                await this.untrackIgnoredFilesLocked();
                 this.ensureBranchGuardHookLocked();
                 await this.ensureCommitIdentityLocked();
                 await this.ensureBranchGuardConfigLocked();
@@ -507,9 +510,6 @@ export class WorkspaceGitService {
           // in the corruption-recovery path we fall through here after
           // removing .git, so branch enforcement is still useful.
           this.ensureGitignoreRulesLocked();
-          // A partial init (`.git` exists, no commit) can carry staged
-          // now-ignored paths from an interrupted `git add -A`.
-          await this.untrackIgnoredFilesLocked();
           this.ensureBranchGuardHookLocked();
           await this.ensureCommitIdentityLocked();
           await this.ensureBranchGuardConfigLocked();
@@ -863,67 +863,6 @@ export class WorkspaceGitService {
         WORKSPACE_GITIGNORE_RULES.join("\n") +
         "\n";
       writeFileSync(gitignorePath, gitignore, "utf-8");
-    }
-  }
-
-  /**
-   * Drop tracked files matched by the Vellum-managed ignore rules from the
-   * index (working tree untouched). Ignore rules only affect untracked
-   * paths, so committed runtime state (e.g. embedding-models/) stays in the
-   * index — and churns every commit — until explicitly removed here. The
-   * staged deletions ride along with the next commit. Best-effort: failures
-   * are logged, never block init. Must be called with the mutex lock held.
-   *
-   * Deliberately matches against the Vellum-managed rules only — not the
-   * workspace .gitignore (which may carry user-authored rules whose matches
-   * are force-added on purpose) and not --exclude-standard (the user's
-   * global/local exclude files). The rules are passed via a temp file under
-   * .git so gitignore semantics, including negation order, are preserved.
-   */
-  private async untrackIgnoredFilesLocked(): Promise<void> {
-    const rulesPath = join(this.workspaceDir, ".git", "vellum-untrack-rules");
-    try {
-      writeFileSync(
-        rulesPath,
-        WORKSPACE_GITIGNORE_RULES.join("\n") + "\n",
-        "utf-8",
-      );
-      const { stdout } = await this.execGitStreaming([
-        "ls-files",
-        "-z",
-        "--cached",
-        "--ignored",
-        `--exclude-from=${rulesPath}`,
-      ]);
-      const files = stdout.split("\0").filter(Boolean);
-      if (files.length === 0) {
-        return;
-      }
-      // Chunked to stay under OS argv limits on bloated workspaces.
-      const chunkSize = 200;
-      for (let i = 0; i < files.length; i += chunkSize) {
-        await this.execGit([
-          "rm",
-          "--cached",
-          "-r",
-          "-q",
-          "--ignore-unmatch",
-          "--",
-          ...files.slice(i, i + chunkSize),
-        ]);
-      }
-      log.info(
-        { fileCount: files.length },
-        "Untracked newly ignored files from workspace index",
-      );
-    } catch (err) {
-      log.warn({ err }, "Failed to untrack newly ignored files");
-    } finally {
-      try {
-        unlinkSync(rulesPath);
-      } catch {
-        // Never created, or already gone.
-      }
     }
   }
 
