@@ -11,6 +11,8 @@ import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-previ
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
 import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
+import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
+import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
 // File extensions routed to the inline text preview even when the upstream
@@ -77,13 +79,29 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   onNavigate,
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
+  // Focus the overlay itself (not a child button) on open so the keydown
+  // handler receives ArrowLeft/ArrowRight reliably — a focused child can steal
+  // arrow semantics, and once a child button is clicked focus would otherwise
+  // leave the dialog entirely.
   useEffect(() => {
     if (open) {
-      closeButtonRef.current?.focus();
+      overlayRef.current?.focus();
     }
   }, [open]);
+
+  // While the full-screen preview is open, claim the left-edge swipe gesture so
+  // the page-level swipe-to-open-menu drawer stays suppressed. Both listen on
+  // `document`, so without this a rightward gallery swipe starting in the left
+  // half of the viewport would fire goToPrev *and* open the sidebar. The
+  // arbiter is the same single-owner mechanism back-swipe pages use.
+  const registerBackOwner = useEdgeSwipeArbiterStore.use.registerBackOwner();
+  const unregisterBackOwner = useEdgeSwipeArbiterStore.use.unregisterBackOwner();
+  useEffect(() => {
+    if (!open) return;
+    registerBackOwner();
+    return () => unregisterBackOwner();
+  }, [open, registerBackOwner, unregisterBackOwner]);
 
   // Synthetic IDs from the text-parsing history fallback
   // (parseAttachmentSummariesFromContent) can never resolve against the
@@ -168,6 +186,20 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     const nextIndex = (currentIndex + 1) % siblingAttachments.length;
     onNavigate(siblingAttachments[nextIndex]!);
   }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
+
+  // Touch-first navigation (primarily iOS): swipe left/right to change item.
+  // This is an *additional* affordance on top of the chevron buttons and
+  // keyboard arrows — never a replacement. The buttons stay rendered on touch
+  // so users who can't swipe (assistive tech: VoiceOver, Switch Control) keep
+  // an operable control.
+  const {
+    dragOffset,
+    isDragging,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onTouchCancel,
+  } = useGallerySwipe({ enabled: hasGallery, onPrev: goToPrev, onNext: goToNext });
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -312,7 +344,10 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label={`Preview of ${attachment.filename}`}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 [-webkit-app-region:no-drag]"
+      // Focusable so the overlay can hold keyboard focus for the arrow-key
+      // handler; the ring is suppressed since the dialog is the whole screen.
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 outline-none [-webkit-app-region:no-drag]"
       style={{
         paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
         paddingBottom:
@@ -361,7 +396,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             tintColor="currentColor"
           />
           <Button
-            ref={closeButtonRef}
             variant="ghost"
             iconOnly={<X />}
             expandOnMobile={false}
@@ -398,7 +432,17 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
 
       <div
         className="flex items-center justify-center"
+        style={{
+          transform: `translateX(${dragOffset}px)`,
+          // Spring back smoothly on release; follow the finger 1:1 while dragging.
+          transition: isDragging ? "none" : "transform 200ms ease-out",
+          touchAction: "pan-y",
+        }}
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
         {renderContent()}
       </div>
