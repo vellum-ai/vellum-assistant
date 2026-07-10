@@ -266,14 +266,15 @@ function readConfigValidationResetNotice(): ConfigValidationResetNotice | null {
 /**
  * `config-validation-reset-notice` injector — order 26, prepend-user-tail.
  *
- * Surfaces a recent config-validation reset to the agent. When `config.json`
- * parses as JSON but fails schema validation hard enough that the loader falls
- * back to full defaults (see `config/loader.ts` `recordConfigValidationReset`),
- * settings the user never touched can silently revert — e.g. an unknown
- * `llm.callSites` key unmasks a `superRefine` violation on the strip-and-reparse
- * and the whole config resets, flipping a managed email/OAuth service mode back
- * to `your-own`. That reset is otherwise invisible (warn-only logs). This
- * injector reads the sentinel and, when it is younger than
+ * Surfaces a recent config-validation event to the agent. When `config.json`
+ * parses as JSON but fails schema validation that per-key cleanup cannot repair,
+ * the loader recovers along a ladder (see `config/loader.ts`
+ * `recoverFromInvalidConfig`) and records a sentinel. Whichever rung it lands
+ * on, the saved config is not fully in effect: a section — or the whole config —
+ * may have reverted to schema defaults, flipping a managed email/OAuth service
+ * mode back to `your-own`, or the user's most recent edit may simply never have
+ * applied. That is otherwise invisible (log-only). This injector reads the
+ * sentinel and, when it is younger than
  * {@link CONFIG_VALIDATION_RESET_NOTICE_MAX_AGE_MS}, injects a short block so the
  * agent can explain a setting or connection that changed without the user asking
  * — the on-disk config is intact, so recovery is fixing the flagged entries.
@@ -311,13 +312,14 @@ const configValidationResetNoticeInjector: Injector = {
         : "(top-level)";
     const text =
       `<config_reset_notice>\n` +
-      `The user's config.json failed schema validation and was reset to ` +
-      `defaults at ${notice.resetAt}, so settings the user did not change may ` +
-      `have silently reverted — including managed email/OAuth service modes ` +
-      `(a managed connection can flip back to "your-own" and break), model ` +
-      `choices, and other customizations. The on-disk config.json is intact; ` +
-      `the invalid entries just need fixing for the saved values to take ` +
-      `effect again. Invalid config path(s): ${invalidList}.\n\n` +
+      `The user's config.json failed schema validation at ${notice.resetAt} ` +
+      `and did not fully take effect. Settings the user did not change may ` +
+      `have silently reverted to defaults — including managed email/OAuth ` +
+      `service modes (a managed connection can flip back to "your-own" and ` +
+      `break), model choices, and other customizations — and a recent edit may ` +
+      `never have applied. The on-disk config.json is intact; the invalid ` +
+      `entries just need fixing for the saved values to take effect again. ` +
+      `Invalid config path(s): ${invalidList}.\n\n` +
       `If the user reports a connection, setting, or integration that broke or ` +
       `changed on its own — especially email/Outlook/OAuth — do NOT trust ` +
       `memory or the Connected Services block: run a live check ` +

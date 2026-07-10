@@ -27,6 +27,23 @@ let cachedFileSignature: ConfigFileSignature | null = null;
 let loading = false;
 let suppressConfigDiskWritesDepth = 0;
 
+/**
+ * The most recent effective config in this process. Captured inside
+ * {@link validateWithSchema} on every validation-success path, then overwritten
+ * by {@link loadConfig} with the deployment-context-filled config whenever
+ * context defaults apply — so it reflects the config as consumers actually see
+ * it (managed service modes and all), not just the pre-fill schema-defaulted
+ * view. It is a safety net for the recovery ladder — when config.json later
+ * fails validation even after per-key cleanup, the last-known-good config is
+ * preferred over discarding the user's entire configuration and falling back to
+ * schema defaults.
+ *
+ * Deliberately NOT cleared by {@link invalidateConfigCache}: cache
+ * invalidation forces a re-read from disk, but the safety net must survive a
+ * re-read so it can rescue a subsequently-corrupted config.
+ */
+let lastKnownGoodConfig: AssistantConfig | null = null;
+
 type ConfigFileSignature =
   | {
       path: string;
@@ -289,31 +306,46 @@ function writeQuarantineNotice(
   }
 }
 
+/** Minimal structural view of the Zod issues the recovery ladder consumes. */
+type ValidationIssue = { path: PropertyKey[]; message: string };
+
+/** Join a Zod issue's path/message into a single human-readable clause. */
+function describeIssues(issues: ValidationIssue[]): string {
+  return issues
+    .map((issue) => {
+      const path = issue.path.join(".");
+      return path ? `"${path}": ${issue.message}` : issue.message;
+    })
+    .join("; ");
+}
+
 /**
- * Record a "config was reset to full defaults by schema validation" event so
- * the per-turn `config-validation-reset-notice` injector can surface it to the
- * agent. Unlike {@link writeQuarantineNotice} (JSON-corrupt file, quarantined),
- * this fires when `config.json` parses as valid JSON but fails schema validation
- * hard enough that {@link validateWithSchema} falls back to {@link
- * cloneDefaultConfig} — e.g. an unknown key that masks a `superRefine`
- * violation until the strip unmasks it, forcing a whole-config reset that
- * silently reverts unrelated settings (managed service modes, model choices,
- * API keys). The on-disk file is left intact, so the user's values are still
- * present but inactive until the invalid entries are fixed.
+ * Record a "config.json did not take effect as written" event so the per-turn
+ * `config-validation-reset-notice` injector can surface it to the agent. Unlike
+ * {@link writeQuarantineNotice} (JSON-corrupt file, quarantined), this fires
+ * when `config.json` parses as valid JSON but fails schema validation hard
+ * enough that per-key cleanup cannot repair it and {@link validateWithSchema}
+ * hands off to {@link recoverFromInvalidConfig} — e.g. an unknown key that masks
+ * a `superRefine` violation until the strip unmasks it. Every rung of that
+ * ladder leaves at least part of the user's saved configuration inactive, and
+ * the rungs that reset a section (or the whole config) to schema defaults
+ * silently revert settings the user never touched: managed service modes, model
+ * choices, API keys. The on-disk file is left intact, so the user's values are
+ * still present but inactive until the invalid entries are fixed.
  *
  * Deliberately NOT gated on `suppressConfigDiskWritesDepth`. The only suppressed
  * `getConfig()` is the re-parse inside `commitConfigWrite`, which runs *after*
  * `saveRawConfig` — so it reflects the persisted config, not a transient one. A
- * bad conversational `config set` must surface the reset it just caused;
- * skipping the write here would leave that live-session reset silent, because
- * the full-default fallback is then cached against the invalid file signature
- * and later loads short-circuit before re-validating. The sentinel is a
- * separate file, so writing it does not conflict with the suppression's purpose
+ * bad conversational `config set` must surface the degradation it just caused;
+ * skipping the write here would leave that live-session event silent, because
+ * the recovered config is then cached against the invalid file signature and
+ * later loads short-circuit before re-validating. The sentinel is a separate
+ * file, so writing it does not conflict with the suppression's purpose
  * (blocking the first-launch-seed / deprecated-strip rewrites of config.json).
  *
- * Best-effort — any failure is logged and swallowed; the `log.warn` reset lines
- * remain the authoritative record. `invalidPaths` is capped so a pathological
- * config cannot bloat the sentinel.
+ * Best-effort — any failure is logged and swallowed; the `log.error` recovery
+ * lines remain the authoritative record. `invalidPaths` is capped so a
+ * pathological config cannot bloat the sentinel.
  */
 function recordConfigValidationReset(invalidPaths: string[]): void {
   try {
@@ -333,14 +365,14 @@ function recordConfigValidationReset(invalidPaths: string[]): void {
     writeFileSync(noticePath, JSON.stringify(notice, null, 2) + "\n", "utf-8");
     log.warn(
       `Wrote config-validation-reset notice to ${noticePath}; config.json ` +
-        `failed schema validation and was reset to defaults (${
+        `failed schema validation and did not fully take effect (${
           dedupedPaths.length
         } invalid path(s): ${dedupedPaths.join(", ") || "top-level"}).`,
     );
   } catch (noticeErr) {
     log.warn(
       { noticeErr },
-      `Failed to write config-validation-reset notice; the reset is still ` +
+      `Failed to write config-validation-reset notice; the event is still ` +
         `recorded in the assistant logs.`,
     );
   }
@@ -348,13 +380,13 @@ function recordConfigValidationReset(invalidPaths: string[]): void {
 
 /**
  * Clear any stale config-validation-reset sentinel once the config validates
- * cleanly again — a validation reset is recoverable (fix the invalid entry and
- * the values come back), so the notice must stop as soon as the config parses,
- * not linger until age-out like a quarantine. Not gated on suppression (see
- * {@link recordConfigValidationReset}): the suppressed re-parse inside
+ * cleanly again — the event is recoverable (fix the invalid entry and the values
+ * come back), so the notice must stop as soon as the config parses, not linger
+ * until age-out like a quarantine. Not gated on suppression (see {@link
+ * recordConfigValidationReset}): the suppressed re-parse inside
  * `commitConfigWrite` is exactly when a user fixes their config via `config
- * set`, and the fallback config it produced is about to be cached against the
- * new signature — so if we skipped clearing here, later short-circuiting loads
+ * set`, and the config it produced is about to be cached against the new
+ * signature — so if we skipped clearing here, later short-circuiting loads
  * would keep injecting the stale notice until age-out. Best-effort.
  */
 function clearConfigValidationResetNotice(): void {
@@ -367,14 +399,29 @@ function clearConfigValidationResetNotice(): void {
 }
 
 /**
- * Validate a raw config object with Zod. Invalid fields are logged as warnings
- * and replaced with defaults (matching prior behavior of per-field fallback).
+ * Validate a raw config object with Zod, applying schema defaults for absent
+ * keys. Invalid fields are logged and stripped so their schema defaults apply,
+ * then the config is re-parsed.
+ *
+ * When cleanup fails to produce a valid config, recovery follows a ladder
+ * (see {@link recoverFromInvalidConfig}) that prefers preserving as much of the
+ * user's configuration as possible over discarding it wholesale:
+ *   1. the last-known-good config validated earlier in this process,
+ *   2. a per-section salvage that keeps every top-level section that validates
+ *      on its own and defaults only the ones that do not, and
+ *   3. full schema defaults as the true last resort.
+ *
+ * Every success path records a `structuredClone` of the returned config as the
+ * last-known-good safety net. Cloning is required because `loadConfig` mutates
+ * the returned object in place via `fillContextDefaultsForMissingKeys`.
  */
 function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   const result = AssistantConfigSchema.safeParse(raw);
   if (result.success) {
     clearConfigValidationResetNotice();
-    return applyNestedDefaults(result.data);
+    const config = applyNestedDefaults(result.data);
+    lastKnownGoodConfig = structuredClone(config);
+    return config;
   }
 
   // Log each validation issue as a warning
@@ -398,12 +445,13 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   const cleaned = structuredClone(raw);
   for (const issue of result.error.issues) {
     if (issue.path.length === 0) {
-      // Top-level error — return full defaults. Surface the reset so the agent
-      // can explain settings that silently reverted (see recordConfigValidationReset).
-      recordConfigValidationReset(
-        result.error.issues.map((i) => i.path.join(".")),
+      // Top-level error — individual keys cannot be stripped. Recover working
+      // from the clone as-is (its top-level sections are still iterable).
+      return recoverFromInvalidConfig(
+        cleaned,
+        [...result.error.issues],
+        issuePaths(result.error.issues),
       );
-      return cloneDefaultConfig();
     }
     deleteNestedKey(cleaned, issue.path as (string | number)[], true);
   }
@@ -411,20 +459,108 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   const retry = AssistantConfigSchema.safeParse(cleaned);
   if (retry.success) {
     clearConfigValidationResetNotice();
-    return applyNestedDefaults(retry.data);
+    const config = applyNestedDefaults(retry.data);
+    lastKnownGoodConfig = structuredClone(config);
+    return config;
   }
 
-  // If still failing, fall back to full defaults. This is the case that
-  // silently reverts unrelated settings (e.g. a stripped unknown `llm.callSites`
-  // key unmasks a `superRefine` violation, wiping managed service modes back to
-  // their `your-own` schema default). Record BOTH the first-parse paths (what
-  // was stripped) and the retry paths (what still failed) so the notice can name
-  // what went wrong — the retry issues are otherwise never logged.
-  log.warn("Config validation failed after cleanup. Using full defaults.");
-  recordConfigValidationReset([
-    ...result.error.issues.map((i) => i.path.join(".")),
-    ...retry.error.issues.map((i) => i.path.join(".")),
-  ]);
+  // Record BOTH the first-parse paths (what was stripped) and the retry paths
+  // (what still failed) so the notice can name what went wrong — a first-parse
+  // `invalid_key` can abort the record parse and mask a latent `superRefine`
+  // that only the retry surfaces, and vice versa.
+  return recoverFromInvalidConfig(
+    cleaned,
+    [...retry.error.issues],
+    [...issuePaths(result.error.issues), ...issuePaths(retry.error.issues)],
+  );
+}
+
+/** Dotted paths for a set of Zod issues; a top-level issue yields `""`. */
+function issuePaths(issues: readonly ValidationIssue[]): string[] {
+  return issues.map((issue) => issue.path.join("."));
+}
+
+/**
+ * Recover a usable config when {@link validateWithSchema}'s strip-and-reparse
+ * cleanup cannot produce a valid config, minimizing how much of the user's
+ * configuration is discarded.
+ *
+ * Ladder:
+ *   1. If a last-known-good config was captured earlier in this process, keep
+ *      it — config.json on disk is untouched, so only the in-memory view is
+ *      degraded and the previous good values are the closest safe substitute.
+ *   2. Otherwise (first load after startup), salvage section-by-section: keep
+ *      every top-level section of `cleaned` that validates on its own and reset
+ *      only the sections that do not. This rung requires `cleaned` to be a plain
+ *      object; a top-level non-object config (JSON `null`, a primitive, or an
+ *      array) has no sections to iterate and is skipped straight to rung 3.
+ *   3. If even the combined kept sections fail to parse, return full schema
+ *      defaults.
+ *
+ * Every rung leaves some part of the user's saved config inactive, so all of
+ * them record the validation-reset sentinel (see {@link
+ * recordConfigValidationReset}) — the agent needs to explain a setting that
+ * reverted (rungs 2 and 3) or a `config set` that never took effect (rung 1).
+ *
+ * `issues` are the ones still unresolved after cleanup, used for the operator
+ * log; `invalidPaths` spans every parse attempt and is what the sentinel
+ * records.
+ */
+function recoverFromInvalidConfig(
+  cleaned: unknown,
+  issues: ValidationIssue[],
+  invalidPaths: string[],
+): AssistantConfig {
+  recordConfigValidationReset(invalidPaths);
+  const issueSummary = describeIssues(issues);
+
+  if (lastKnownGoodConfig) {
+    log.error(
+      `config.json failed validation even after stripping invalid fields; ` +
+        `keeping the last-known-good configuration from this process. Fix ` +
+        `config.json to apply your changes (validation issues: ${issueSummary}).`,
+    );
+    return structuredClone(lastKnownGoodConfig);
+  }
+
+  if (!isPlainObject(cleaned)) {
+    // The per-section salvage below walks `Object.entries(cleaned)`, which
+    // throws on `null` and yields no config sections for a primitive or array.
+    // A top-level non-object config carries no recoverable sections, so load
+    // full schema defaults.
+    log.error(
+      `config.json is not a JSON object at the top level; loading full ` +
+        `defaults. Fix config.json to restore your settings (validation ` +
+        `issues: ${issueSummary}).`,
+    );
+    return cloneDefaultConfig();
+  }
+
+  const kept: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(cleaned)) {
+    const sectionResult = AssistantConfigSchema.safeParse({ [key]: value });
+    if (sectionResult.success) {
+      kept[key] = value;
+    } else {
+      log.error(
+        `config.json section "${key}" failed validation; resetting it to ` +
+          `defaults.`,
+      );
+    }
+  }
+
+  const salvaged = AssistantConfigSchema.safeParse(kept);
+  if (salvaged.success) {
+    const config = applyNestedDefaults(salvaged.data);
+    lastKnownGoodConfig = structuredClone(config);
+    return config;
+  }
+
+  log.error(
+    `config.json could not be salvaged section-by-section; loading full ` +
+      `defaults. Fix config.json to restore your settings (validation ` +
+      `issues: ${describeIssues([...salvaged.error.issues])}).`,
+  );
   return cloneDefaultConfig();
 }
 
@@ -852,6 +988,13 @@ export function loadConfig(): AssistantConfig {
         fileConfig,
         contextDefaults,
       );
+      // Refresh the last-known-good safety net with the effective config.
+      // `validateWithSchema` captured a snapshot before these deployment-context
+      // fills (e.g. IS_PLATFORM=true → managed OAuth service modes) were layered
+      // on, so its snapshot reflects pre-fill schema defaults. The fills are part
+      // of this run's effective configuration, so a later recovery must restore
+      // them rather than flip a managed service mode back to its schema default.
+      lastKnownGoodConfig = structuredClone(config);
     }
 
     // First-launch seed only: when config.json does not exist, write the
@@ -1092,3 +1235,14 @@ export function setNestedValue(
  * production use.
  */
 export const _writeQuarantineNotice = writeQuarantineNotice;
+
+/**
+ * Test-only reset for the module-level last-known-good config safety net.
+ * Exists so tests can exercise the first-load-after-startup salvage path (where
+ * no last-known-good config exists yet) deterministically. Not for production
+ * use: {@link invalidateConfigCache} deliberately preserves the safety net, so
+ * production code never clears it.
+ */
+export function _resetLastKnownGoodConfigForTests(): void {
+  lastKnownGoodConfig = null;
+}
