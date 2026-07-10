@@ -12,6 +12,7 @@ import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/p
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
 import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
+import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
 // File extensions routed to the inline text preview even when the upstream
@@ -88,6 +89,19 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       overlayRef.current?.focus();
     }
   }, [open]);
+
+  // While the full-screen preview is open, claim the left-edge swipe gesture so
+  // the page-level swipe-to-open-menu drawer stays suppressed. Both listen on
+  // `document`, so without this a rightward gallery swipe starting in the left
+  // half of the viewport would fire goToPrev *and* open the sidebar. The
+  // arbiter is the same single-owner mechanism back-swipe pages use.
+  const registerBackOwner = useEdgeSwipeArbiterStore.use.registerBackOwner();
+  const unregisterBackOwner = useEdgeSwipeArbiterStore.use.unregisterBackOwner();
+  useEffect(() => {
+    if (!open) return;
+    registerBackOwner();
+    return () => unregisterBackOwner();
+  }, [open, registerBackOwner, unregisterBackOwner]);
 
   // Synthetic IDs from the text-parsing history fallback
   // (parseAttachmentSummariesFromContent) can never resolve against the

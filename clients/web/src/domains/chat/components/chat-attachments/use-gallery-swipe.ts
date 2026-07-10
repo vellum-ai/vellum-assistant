@@ -67,8 +67,11 @@ export function useGallerySwipe({
   const [isDragging, setIsDragging] = useState(false);
 
   // Mutable per-gesture state kept in a ref so touchmove/touchend read fresh
-  // values without re-subscribing or re-rendering on every move.
+  // values without re-subscribing or re-rendering on every move. `touchId`
+  // pins the gesture to the finger that started it, so a second finger can't
+  // hijack or resume it.
   const gesture = useRef<{
+    touchId: number;
     startX: number;
     startY: number;
     axis: GestureAxis;
@@ -84,7 +87,12 @@ export function useGallerySwipe({
     (e: ReactTouchEvent) => {
       if (!enabled || e.touches.length !== 1) return;
       const t = e.touches[0]!;
-      gesture.current = { startX: t.clientX, startY: t.clientY, axis: "undecided" };
+      gesture.current = {
+        touchId: t.identifier,
+        startX: t.clientX,
+        startY: t.clientY,
+        axis: "undecided",
+      };
     },
     [enabled],
   );
@@ -92,8 +100,17 @@ export function useGallerySwipe({
   const onTouchMove = useCallback(
     (e: ReactTouchEvent) => {
       const g = gesture.current;
-      if (!g || e.touches.length !== 1) return;
+      if (!g) return;
+      // A second finger landing mid-gesture (e.g. a pinch) cancels the swipe
+      // outright — otherwise the stale dragOffset could still commit on the
+      // following touchend. Full reset, not an early return.
+      if (e.touches.length !== 1) {
+        reset();
+        return;
+      }
       const t = e.touches[0]!;
+      // Ignore moves from a different finger than the one that armed the gesture.
+      if (t.identifier !== g.touchId) return;
       const dx = t.clientX - g.startX;
       const dy = t.clientY - g.startY;
 
@@ -121,7 +138,7 @@ export function useGallerySwipe({
           : COMMIT_THRESHOLD_PX + (abs - COMMIT_THRESHOLD_PX) * OVERDRAG_DAMPING;
       setDragOffset(sign * damped);
     },
-    [],
+    [reset],
   );
 
   const onTouchEnd = useCallback(() => {
