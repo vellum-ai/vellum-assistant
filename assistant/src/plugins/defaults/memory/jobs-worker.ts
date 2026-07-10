@@ -260,8 +260,10 @@ export function startInProcessMemoryJobsWorker(
   // swept), clean up orphan memory-retrospective background conversations
   // left behind by daemon crashes mid-job. Best-effort and detached — worker
   // startup never blocks on the sweep, and failures only log. Concurrent
-  // ticking is safe: the sweep's orphan snapshot predates any job a tick
-  // starts, and fresh conversations are protected by the 1-hour cutoff.
+  // ticking is safe: the sweep reads the active-job set and the orphan
+  // candidates in one synchronous block after its awaited baseline loads, so
+  // a retrospective forked by a mid-sweep tick is protected by its
+  // pending/running job.
   void sweepOrphanMemoryRetrospectiveConversations().catch((err: unknown) => {
     log.warn(
       { err },

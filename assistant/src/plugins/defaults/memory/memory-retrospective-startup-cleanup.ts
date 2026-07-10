@@ -109,28 +109,6 @@ export async function sweepOrphanMemoryRetrospectiveConversations(
     return { swept: 0 };
   }
 
-  // Job payloads encode the SOURCE conversation id (the conversation being
-  // analyzed), not the background-conversation id of the retrospective itself.
-  // The background conversation links back to its source via
-  // `forkParentConversationId` (set when bootstrapped — see
-  // memory-retrospective-job.ts). To protect in-flight jobs we therefore
-  // compare source-id to source-id by filtering on
-  // `conversations.forkParentConversationId`, not `conversations.id`.
-  const activeJobSourceConversationIds = memoryDb
-    .select({
-      conversationId: sql<string>`json_extract(${memoryJobs.payload}, '$.conversationId')`,
-    })
-    .from(memoryJobs)
-    .where(
-      and(
-        eq(memoryJobs.type, "memory_retrospective"),
-        inArray(memoryJobs.status, ["pending", "running"]),
-      ),
-    )
-    .all()
-    .map((row) => row.conversationId)
-    .filter((id): id is string => typeof id === "string" && id.length > 0);
-
   // Compute the preserved dedup baseline per source. Runs whose state row
   // predates the persisted `remembered_log` pull dedup context by scanning
   // the most-recent prior retro (via `findMostRecentRetrospectiveFor`);
@@ -167,6 +145,35 @@ export async function sweepOrphanMemoryRetrospectiveConversations(
   for (const rows of retrosPerSource.values()) {
     preservedIds.add(await selectPreservedBaseline(rows));
   }
+
+  // Job payloads encode the SOURCE conversation id (the conversation being
+  // analyzed), not the background-conversation id of the retrospective itself.
+  // The background conversation links back to its source via
+  // `forkParentConversationId` (set when bootstrapped — see
+  // memory-retrospective-job.ts). To protect in-flight jobs we therefore
+  // compare source-id to source-id by filtering on
+  // `conversations.forkParentConversationId`, not `conversations.id`.
+  //
+  // Read in the same synchronous block as the orphan query below — AFTER the
+  // awaited baseline loads above. The sweep runs concurrently with worker
+  // ticking, and a retrospective forked while baselines were loading inherits
+  // the copied source prefix's old `lastMessageAt`, so the age cutoff alone
+  // does not protect it; its pending/running job must be in this set when the
+  // orphan candidates are classified.
+  const activeJobSourceConversationIds = memoryDb
+    .select({
+      conversationId: sql<string>`json_extract(${memoryJobs.payload}, '$.conversationId')`,
+    })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "memory_retrospective"),
+        inArray(memoryJobs.status, ["pending", "running"]),
+      ),
+    )
+    .all()
+    .map((row) => row.conversationId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
 
   const orphans = db
     .select({ id: conversations.id })
