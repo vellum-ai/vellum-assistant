@@ -11,6 +11,8 @@ import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-previ
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
 import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
+import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
+import { isPointerCoarse } from "@/utils/pointer";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
 // File extensions routed to the inline text preview even when the upstream
@@ -77,11 +79,14 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   onNavigate,
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
+  // Focus the overlay itself (not a child button) on open so the keydown
+  // handler receives ArrowLeft/ArrowRight reliably — a focused child can steal
+  // arrow semantics, and once a child button is clicked focus would otherwise
+  // leave the dialog entirely.
   useEffect(() => {
     if (open) {
-      closeButtonRef.current?.focus();
+      overlayRef.current?.focus();
     }
   }, [open]);
 
@@ -168,6 +173,16 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     const nextIndex = (currentIndex + 1) % siblingAttachments.length;
     onNavigate(siblingAttachments[nextIndex]!);
   }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
+
+  // Touch-first navigation (primarily iOS): swipe left/right to change item.
+  // Complements the keyboard arrows and on-screen chevrons.
+  const { dragOffset, isDragging, onTouchStart, onTouchMove, onTouchEnd } =
+    useGallerySwipe({ enabled: hasGallery, onPrev: goToPrev, onNext: goToNext });
+
+  // Coarse pointers get swipe as the primary affordance, so the chevron
+  // buttons (which cover parts of a landscape image) are hidden there; fine
+  // pointers (desktop/trackpad) keep them since there's no swipe.
+  const showChevrons = hasGallery && !isPointerCoarse();
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -312,7 +327,10 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label={`Preview of ${attachment.filename}`}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 [-webkit-app-region:no-drag]"
+      // Focusable so the overlay can hold keyboard focus for the arrow-key
+      // handler; the ring is suppressed since the dialog is the whole screen.
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 outline-none [-webkit-app-region:no-drag]"
       style={{
         paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
         paddingBottom:
@@ -361,7 +379,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             tintColor="currentColor"
           />
           <Button
-            ref={closeButtonRef}
             variant="ghost"
             iconOnly={<X />}
             expandOnMobile={false}
@@ -373,7 +390,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         </div>
       </div>
 
-      {hasGallery && (
+      {showChevrons && (
         <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between px-4">
           <Button
             variant="ghost"
@@ -398,7 +415,16 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
 
       <div
         className="flex items-center justify-center"
+        style={{
+          transform: `translateX(${dragOffset}px)`,
+          // Spring back smoothly on release; follow the finger 1:1 while dragging.
+          transition: isDragging ? "none" : "transform 200ms ease-out",
+          touchAction: "pan-y",
+        }}
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
       >
         {renderContent()}
       </div>
