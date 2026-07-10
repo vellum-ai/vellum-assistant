@@ -2,13 +2,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks ─────────────────────────────────────────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 /** Events published through the mock event hub. */
 let publishedEvents: unknown[] = [];
 
@@ -35,7 +28,9 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       // pending-interactions tracker for every resolution. They are
       // orthogonal to the host-browser wire messages these tests assert
       // on, so swallow them here.
-      if ((event as { type?: string } | null)?.type === "interaction_resolved") {
+      if (
+        (event as { type?: string } | null)?.type === "interaction_resolved"
+      ) {
         return;
       }
       publishedEvents.push(event);
@@ -119,16 +114,16 @@ describe("HostBrowserProxy", () => {
 
     test("returns true immediately when an extension is connected", async () => {
       mockClients = [EXTENSION];
-      expect(await proxy.waitForExtensionClient(undefined, undefined, 1_000)).toBe(
-        true,
-      );
+      expect(
+        await proxy.waitForExtensionClient(undefined, undefined, 1_000),
+      ).toBe(true);
     });
 
     test("returns false after the timeout when none connects", async () => {
       mockClients = [DEFAULT_CLIENT]; // macos only, no extension
-      expect(await proxy.waitForExtensionClient(undefined, undefined, 100)).toBe(
-        false,
-      );
+      expect(
+        await proxy.waitForExtensionClient(undefined, undefined, 100),
+      ).toBe(false);
     });
 
     test("returns true when an extension appears within the window", async () => {
@@ -136,9 +131,9 @@ describe("HostBrowserProxy", () => {
       setTimeout(() => {
         mockClients = [DEFAULT_CLIENT, EXTENSION];
       }, 50);
-      expect(await proxy.waitForExtensionClient(undefined, undefined, 2_000)).toBe(
-        true,
-      );
+      expect(
+        await proxy.waitForExtensionClient(undefined, undefined, 2_000),
+      ).toBe(true);
     });
 
     test("respects sourceActorPrincipalId", async () => {
@@ -151,9 +146,9 @@ describe("HostBrowserProxy", () => {
         },
       ];
       // Caller is actor-a; the connected extension belongs to actor-b.
-      expect(await proxy.waitForExtensionClient("actor-a", undefined, 100)).toBe(
-        false,
-      );
+      expect(
+        await proxy.waitForExtensionClient("actor-a", undefined, 100),
+      ).toBe(false);
     });
 
     test("with a targetClientId, waits for that exact client (not a sibling)", async () => {

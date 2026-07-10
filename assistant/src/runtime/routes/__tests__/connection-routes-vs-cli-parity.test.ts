@@ -23,11 +23,6 @@ mock.module("../../../config/loader.js", () => ({
   saveRawConfig: () => {},
 }));
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // ── Real imports ──────────────────────────────────────────────────────────────
 
 import { getDb } from "../../../persistence/db-connection.js";

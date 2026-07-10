@@ -16,13 +16,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { MessageLexicalSearchResult } from "../embeddings/messages-lexical-index.js";
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // The lexical candidate source is the single seam this cutover swaps in. Mock
 // it directly (returning caller-controlled candidate ids/scores) and, per test,
 // override it to throw to exercise the Qdrant-error degrade path. Spreading the

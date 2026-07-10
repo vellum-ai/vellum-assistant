@@ -29,15 +29,9 @@ import {
   test,
 } from "bun:test";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
-
 // ---------------------------------------------------------------------------
 // Module-level mocks (registered before importing the module under test).
 // ---------------------------------------------------------------------------
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 // Migration runner — `migrate` job wraps this. The stub records call args
 // and lets each test choose the resolution shape (success, sentinel error).

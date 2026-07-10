@@ -9,19 +9,11 @@
  * 4. Reactivate previously revoked members on re-verification
  * 5. NOT create a guardian binding (trusted contacts are not guardians)
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getDb } from "../persistence/db-connection.js";

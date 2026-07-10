@@ -11,13 +11,6 @@ import { describe, expect, mock, test } from "bun:test";
 // Mocks — must be defined before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const mockGetConversationByKey = mock(
   (_key: string): { conversationId: string } | null => ({
     conversationId: "conv-test",

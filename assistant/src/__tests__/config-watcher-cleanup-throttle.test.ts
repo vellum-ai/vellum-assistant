@@ -118,14 +118,6 @@ mock.module("../persistence/cleanup-schedule-state.js", () => ({
   markScheduledCleanupEnqueued: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (v: string) => v,
-}));
-
 // Simulate a config-cache layer: `diskConfig` is the on-disk value and
 // `cachedConfig` is the in-memory value returned by getConfig() when present.
 // Tests mutate `diskConfig` to simulate a user writing a new config.json.

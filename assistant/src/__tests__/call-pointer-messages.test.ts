@@ -1,12 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Stand in for the daemon conversation-turn path so these tests can drive its
 // behavior (success / throw) without pulling in the real conversation pipeline.
 // `runPointerTurnImpl` is swapped per-test via setProcessor/resetProcessor.

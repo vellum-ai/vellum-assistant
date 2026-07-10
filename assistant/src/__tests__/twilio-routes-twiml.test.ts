@@ -5,14 +5,7 @@
  * the TwiML serializer only — handshake metadata encoding (path segments +
  * `<Parameter>` children), XML escaping, and structure.
  */
-import { describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { describe, expect, test } from "bun:test";
 
 import { generateStreamTwiML } from "../calls/twilio-routes.js";
 

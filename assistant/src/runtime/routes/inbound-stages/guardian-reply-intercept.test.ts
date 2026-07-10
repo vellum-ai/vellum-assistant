@@ -15,15 +15,6 @@ mock.module("../../../contacts/canonical-guardian-store.js", () => ({
   listCanonicalGuardianRequests: () => mockIdentityRequests,
 }));
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
-
 mock.module("../../gateway-client.js", () => ({
   deliverChannelReply: (url: unknown, payload: unknown, token: unknown) => {
     deliverChannelReplyCalls.push([url, payload, token]);

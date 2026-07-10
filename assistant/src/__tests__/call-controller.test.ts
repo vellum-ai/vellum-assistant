@@ -12,13 +12,6 @@ mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 // ── Logger mock (must come before any source imports) ────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Config mock ─────────────────────────────────────────────────────
 
 mock.module("../config/loader.js", () => {

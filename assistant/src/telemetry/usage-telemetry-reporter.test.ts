@@ -84,13 +84,6 @@ mock.module("../util/device-id.js", () => ({
   getDeviceId: mockGetDeviceId,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../version.js", () => ({
   APP_VERSION: "1.2.3-test",
 }));

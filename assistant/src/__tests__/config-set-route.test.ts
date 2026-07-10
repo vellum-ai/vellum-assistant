@@ -6,12 +6,6 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // ---------------------------------------------------------------------------
 // Mocks for handleSetConfig's transitive deps
 // ---------------------------------------------------------------------------

@@ -43,13 +43,6 @@ mock.module("../config/loader.js", () => ({
   saveRawConfig: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // shell.ts uses the script proxy — stub it to avoid network side-effects.
 mock.module("../tools/network/script-proxy/index.js", () => ({
   getOrStartSession: async () => ({

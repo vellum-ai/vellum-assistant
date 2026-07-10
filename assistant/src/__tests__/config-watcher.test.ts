@@ -20,14 +20,6 @@ const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 // Mock platform paths
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (v: string) => v,
-}));
-
 // ---------------------------------------------------------------------------
 // Capture fs.watch and fs.watchFile calls so we can simulate file system
 // events deterministically. Bun's libuv-based fs.watchFile is too unreliable

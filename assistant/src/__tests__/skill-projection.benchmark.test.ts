@@ -17,11 +17,6 @@ import type { Message } from "../providers/types.js";
 // Mocks — must be registered before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Mock config loader and feature flags to avoid filesystem reads on CI.
 // The benchmark fixture treats every feature flag as enabled.
 mock.module("../config/loader.js", () => ({

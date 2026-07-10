@@ -15,14 +15,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Silence logger output during tests.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Controllable IPC mock ────────────────────────────────────────────────────
 
 type IpcHandler = (params?: Record<string, unknown>) => unknown;

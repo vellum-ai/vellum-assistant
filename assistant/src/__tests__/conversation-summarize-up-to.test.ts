@@ -21,27 +21,6 @@ import { UserError } from "../util/errors.js";
 // Mocks — must precede Conversation import
 // ---------------------------------------------------------------------------
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},

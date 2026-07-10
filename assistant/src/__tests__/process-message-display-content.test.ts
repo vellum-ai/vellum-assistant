@@ -21,11 +21,6 @@ let resolveSlashForTest: (
   content,
 });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 let createInlineShouldThrow = false;
 let validateShouldFail = false;
 

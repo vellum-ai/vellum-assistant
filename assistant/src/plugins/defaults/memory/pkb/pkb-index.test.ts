@@ -3,12 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // Capture calls to embedAndUpsert so we can assert on targetType + payload.
 const embedAndUpsertCalls: Array<{
   config: unknown;

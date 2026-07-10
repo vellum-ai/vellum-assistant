@@ -1,15 +1,9 @@
 import { Database } from "bun:sqlite";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
 const originalBunTest = process.env.BUN_TEST;
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 import { _resetDisplayOrderMigrationForTests } from "../persistence/conversation-display-order-migration.js";
 import { _resetGroupMigrationForTests } from "../persistence/conversation-group-migration.js";

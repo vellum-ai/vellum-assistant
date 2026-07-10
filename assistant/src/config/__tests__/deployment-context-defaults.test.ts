@@ -36,27 +36,6 @@ function ensureTestDir(): void {
   }
 }
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
   clearFeatureFlagOverridesCache: () => {},

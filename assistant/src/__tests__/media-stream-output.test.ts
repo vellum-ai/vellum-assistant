@@ -4,15 +4,6 @@ import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 // Module mocks
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-  }),
-}));
-
 // Mock TTS provider for synthesis tests
 const mockSynthesize = jest.fn();
 const mockProvider = {

@@ -6,11 +6,6 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Logging stays enabled; `getConfigReadOnly` is only consulted by the store.s
 // disabled gate here (the sink factory itself is mocked below).
 mock.module("../config/loader.js", () => ({

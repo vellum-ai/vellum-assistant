@@ -5,13 +5,6 @@ import { describe, expect, mock, test } from "bun:test";
 // imports (logger, config loader) stay side-effect free for this pure helper.
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({}),
 }));

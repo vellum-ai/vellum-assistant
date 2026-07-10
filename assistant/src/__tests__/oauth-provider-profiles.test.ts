@@ -1,12 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: async () => "deleted" as const,
   setSecureKeyAsync: async () => true,

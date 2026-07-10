@@ -9,14 +9,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
-// Silence logger output during tests.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const testConfig = {
   skills: { load: { extraDirs: [] as string[] } },
 };

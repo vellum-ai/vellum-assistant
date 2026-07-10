@@ -31,13 +31,6 @@ import type { ManifestType } from "../../migrations/vbundle-validator.js";
 // Module mocks — must appear before any imports of the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // -- listSnapshotsInDir spy ------------------------------------------------
 // Wraps the real implementation so tests can assert on which directories
 // were enumerated. Needed to verify handleBackupList skips offsite

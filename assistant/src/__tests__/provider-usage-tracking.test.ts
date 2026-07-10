@@ -9,18 +9,12 @@ beforeAll(() => {
   setOverridesForTesting({ "override-or-default-resolution": false });
 });
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
 let mockLlmConfig: Record<string, unknown> = {};
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     llm: mockLlmConfig,
   }),
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
 }));
 
 import { LLMSchema } from "../config/schemas/llm.js";

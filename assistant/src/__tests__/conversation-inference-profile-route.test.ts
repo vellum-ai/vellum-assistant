@@ -4,12 +4,7 @@ import {
   conversationMetadataSyncTag,
   SYNC_TAGS,
 } from "../daemon/message-types/sync.js";
-import { makeMockLogger } from "./helpers/mock-logger.js";
 import { waitFor } from "./helpers/wait-for.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 const config = {
   llm: {

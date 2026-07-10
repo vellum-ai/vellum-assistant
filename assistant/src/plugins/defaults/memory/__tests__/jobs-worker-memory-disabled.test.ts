@@ -11,13 +11,6 @@ import { eq } from "drizzle-orm";
 import { DEFAULT_CONFIG } from "../../../../config/defaults.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 let memoryEnabled = false;
 const testConfig = (): AssistantConfig => ({
   ...DEFAULT_CONFIG,

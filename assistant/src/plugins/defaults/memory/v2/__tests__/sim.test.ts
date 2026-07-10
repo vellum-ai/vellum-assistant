@@ -17,16 +17,11 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
 import type { AssistantConfig } from "../../../../../config/types.js";
 
 // ---------------------------------------------------------------------------
 // Module-level mocks (registered before `await import("../sim.js")`).
 // ---------------------------------------------------------------------------
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 // Stub both `getConfig` and `loadConfig`. `loadConfig` is reached by code
 // paths transitively imported during teardown (e.g. dynamic imports inside

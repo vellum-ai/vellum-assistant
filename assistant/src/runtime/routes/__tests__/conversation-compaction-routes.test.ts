@@ -11,13 +11,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mutable so a test can flip the master switch off and assert the guard.
 let llmRequestLoggingEnabled = true;
 mock.module("../../../config/loader.js", () => ({

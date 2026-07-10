@@ -5,27 +5,6 @@
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 // Mutable config the factory reads via `getConfigReadOnly`.
 let currentConfig: unknown = { llmRequestLogs: { readSource: "local" } };
 mock.module("../config/loader.js", () => ({

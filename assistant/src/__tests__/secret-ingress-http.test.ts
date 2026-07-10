@@ -53,13 +53,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-test" }),
   getConversationByKey: () => null,
@@ -112,9 +105,8 @@ mock.module("../persistence/conversation-crud.js", () => ({
   recordConversationPersistedSeq: () => {},
 }));
 
-const realLocalActorIdentity = await import(
-  "../runtime/local-actor-identity.js"
-);
+const realLocalActorIdentity =
+  await import("../runtime/local-actor-identity.js");
 mock.module("../runtime/local-actor-identity.js", () => ({
   ...realLocalActorIdentity,
 }));
