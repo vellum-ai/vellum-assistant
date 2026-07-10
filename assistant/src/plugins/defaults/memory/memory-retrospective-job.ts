@@ -54,7 +54,6 @@ import {
   isInteractiveInterface,
   parseInterfaceId,
 } from "../../../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { isProcToSkillsActive } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
@@ -92,7 +91,6 @@ import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-bounda
 import {
   extractRetrospectiveRunSkillScaffolds,
   insertSkillCardMessage,
-  SKILL_CREATION_CARD_FLAG,
 } from "./memory-retrospective-skill-card.js";
 import {
   appendToRememberedLog,
@@ -696,18 +694,13 @@ async function finalizeSuccessfulRetrospective(args: {
 
   // Surface newly created skills as a `skill_card` ui_surface message on the
   // source conversation. Gated on proc-to-skills being active (the run can
-  // only author skills when it is) AND the `skill-creation-card` flag.
-  // `insertSkillCardMessage` is best-effort — a card failure never fails the
-  // job — and defers delivery through a durable `skill_card_insert` job when
-  // the source is mid-turn, so the card still always lands once the turn
-  // ends. Every gate outcome logs at info level so a missing card is
-  // one-grep diagnosable in the field ("skill-card:" / "skill card:").
-  const procToSkillsActive = isProcToSkillsActive(config);
-  const skillCardFlagEnabled = isAssistantFeatureFlagEnabled(
-    SKILL_CREATION_CARD_FLAG,
-    config,
-  );
-  if (procToSkillsActive && skillCardFlagEnabled) {
+  // only author skills when it is). `insertSkillCardMessage` is best-effort —
+  // a card failure never fails the job — and defers delivery through a
+  // durable `skill_card_insert` job when the source is mid-turn, so the card
+  // still always lands once the turn ends. Every gate outcome logs at info
+  // level so a missing card is one-grep diagnosable in the field
+  // ("skill-card:" / "skill card:").
+  if (isProcToSkillsActive(config)) {
     const authoredSkills = await extractRetrospectiveRunSkillScaffolds(
       retrospectiveConversationId,
     );
@@ -731,12 +724,8 @@ async function finalizeSuccessfulRetrospective(args: {
       {
         sourceConversationId,
         retrospectiveConversationId,
-        procToSkillsActive,
-        skillCardFlagEnabled,
       },
-      procToSkillsActive
-        ? "skill-card: skipped — skill-creation-card flag off"
-        : "skill-card: skipped — proc-to-skills inactive",
+      "skill-card: skipped — proc-to-skills inactive",
     );
   }
 
