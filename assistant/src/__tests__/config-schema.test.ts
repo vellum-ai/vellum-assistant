@@ -734,7 +734,7 @@ describe("AssistantConfigSchema", () => {
       turnCommitMaxWaitMs: 4000,
       failureBackoffBaseMs: 2000,
       failureBackoffMaxMs: 60000,
-      maxFileSizeBytes: 512000,
+      maxFileSizeBytes: 256000,
       interactiveGitTimeoutMs: 10000,
       enrichmentQueueSize: 50,
       enrichmentConcurrency: 1,

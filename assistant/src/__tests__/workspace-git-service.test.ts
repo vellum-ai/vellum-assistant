@@ -1471,8 +1471,8 @@ describe("WorkspaceGitService", () => {
   });
 
   describe("oversized file exclusion", () => {
-    // Just over the default workspaceGit.maxFileSizeBytes (512000)
-    const bigContent = () => Buffer.alloc(512001, 120);
+    // Just over the default workspaceGit.maxFileSizeBytes (256000)
+    const bigContent = () => Buffer.alloc(256001, 120);
 
     const trackedFiles = () =>
       execFileSync("git", ["ls-files"], { cwd: testDir, encoding: "utf-8" })
@@ -1653,6 +1653,44 @@ describe("WorkspaceGitService", () => {
       const tracked = trackedFiles();
       expect(tracked).toContain("ab.bin");
       expect(tracked).not.toContain("a?.bin");
+    });
+
+    test("init sweep untracks previously committed oversized files", async () => {
+      const first = new WorkspaceGitService(testDir);
+      await first.ensureInitialized();
+
+      writeFileSync(join(testDir, "keep.txt"), "small");
+      await first.commitChanges("Add small file");
+
+      // Simulate an oversized file that entered history before the guard
+      writeFileSync(join(testDir, "legacy.bin"), bigContent());
+      execFileSync("git", ["add", "--", ":(literal)legacy.bin"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["commit", "--no-verify", "-m", "legacy"], {
+        cwd: testDir,
+      });
+      expect(trackedFiles()).toContain("legacy.bin");
+
+      // A fresh service init (new daemon boot) sweeps it out of the index
+      const second = new WorkspaceGitService(testDir);
+      await second.ensureInitialized();
+
+      const tracked = trackedFiles();
+      expect(tracked).not.toContain("legacy.bin");
+      expect(tracked).toContain("keep.txt");
+      // Working-tree file is preserved; only tracking is dropped
+      expect(existsSync(join(testDir, "legacy.bin"))).toBe(true);
+
+      const message = execFileSync("git", ["log", "-1", "--pretty=%B"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(message).toContain("Untrack files exceeding");
+
+      // And the workspace reads clean afterwards — no dirty-loop churn
+      const status = await second.getStatus();
+      expect(status.clean).toBe(true);
     });
 
     test("deletion of an oversized tracked file is committed", async () => {

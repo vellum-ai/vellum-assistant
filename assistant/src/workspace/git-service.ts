@@ -95,7 +95,7 @@ const NULL_GIT_OID = "0000000000000000000000000000000000000000";
  */
 const EMPTY_TREE_OID = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
-const DEFAULT_MAX_FILE_SIZE_BYTES = 512000;
+const DEFAULT_MAX_FILE_SIZE_BYTES = 256000;
 
 const WORKSPACE_BRANCH_GUARD_HOOK = `#!/bin/sh
 set -eu
@@ -477,6 +477,7 @@ export class WorkspaceGitService {
                 await this.ensureCommitIdentityLocked();
                 await this.ensureBranchGuardConfigLocked();
                 await this.ensureOnMainLocked();
+                await this.untrackOversizedFilesLocked();
                 this.initialized = true;
                 this.recordInitSuccess();
                 return;
@@ -829,6 +830,55 @@ export class WorkspaceGitService {
       }
       throw err;
     }
+  }
+
+  /**
+   * One-time-per-init sweep: untrack files that entered the index before
+   * the size guard existed (or before a limit decrease) and whose on-disk
+   * size now exceeds workspaceGit.maxFileSizeBytes. Removes them from the
+   * index only — working-tree files are kept, and blobs referenced by older
+   * commits remain in .git — then commits so the tip snapshot no longer
+   * carries oversized files. Must be called with the lock held, on a repo
+   * whose HEAD exists.
+   */
+  private async untrackOversizedFilesLocked(): Promise<void> {
+    const tracked = await this.execGitStreaming(["ls-files", "-z"]);
+    const oversized = tracked.stdout
+      .split("\0")
+      .filter((p) => p.length > 0 && this.isOversized(p));
+    if (oversized.length === 0) {
+      return;
+    }
+
+    await this.execGitStreaming(
+      [
+        "rm",
+        "--cached",
+        "-q",
+        "--ignore-unmatch",
+        "--pathspec-from-file=-",
+        "--pathspec-file-nul",
+      ],
+      { input: oversized.map((p) => `:(literal)${p}`).join("\0") },
+    );
+    await this.execGit(
+      this.buildSafeCommitArgs([
+        "-m",
+        "Untrack files exceeding workspaceGit.maxFileSizeBytes",
+      ]),
+    );
+
+    for (const p of oversized) {
+      this.warnedOversizedPaths.add(p);
+    }
+    log.warn(
+      {
+        workspaceDir: this.workspaceDir,
+        files: oversized,
+        maxFileSizeBytes: this.maxFileSizeBytes(),
+      },
+      "Untracked oversized files from workspace git",
+    );
   }
 
   /**

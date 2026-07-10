@@ -30,7 +30,7 @@ export const WorkspaceGitConfigSchema = z
       .number({ error: "workspaceGit.maxFileSizeBytes must be a number" })
       .int("workspaceGit.maxFileSizeBytes must be an integer")
       .positive("workspaceGit.maxFileSizeBytes must be a positive integer")
-      .default(512000)
+      .default(256000)
       .describe(
         "Files larger than this (bytes) are excluded from workspace auto-commits",
       ),
