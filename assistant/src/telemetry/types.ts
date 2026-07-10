@@ -170,6 +170,16 @@ export interface TurnTraceMessage {
    * modern rows are `ContentBlock[]`, legacy rows are a plain string.
    */
   content: unknown;
+  /**
+   * Model that served this row — the provider's `response.model`, carried on
+   * the agent loop's `message_complete` event and persisted with the row
+   * (`messages.metadata.model`); matches the turn's `llm_usage.model` and
+   * reflects per-call reroutes by a `pre-model-call` hook. Null on rows with
+   * no model call: user rows, tool-result rows, synthetic assistant rows
+   * (provider-error / yield notices), and historical rows persisted before the
+   * daemon began stamping the model.
+   */
+  model: string | null;
 }
 
 /**
@@ -220,10 +230,12 @@ export interface TurnTraceToolDefinition {
 
 export interface TurnTrace {
   /** Shape version so the platform/dbt can evolve parsing without ambiguity. */
-  schema_version: 2;
+  schema_version: 3;
   /**
    * Ordered message rows for the turn (the user message first, then assistant
    * responses and any tool-result rows), oldest-first by `(created_at, id)`.
+   * Model attribution is per message — each assistant row carries the model
+   * that served it on `TurnTraceMessage.model`.
    */
   messages: TurnTraceMessage[];
   /**

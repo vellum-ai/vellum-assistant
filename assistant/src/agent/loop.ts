@@ -240,7 +240,15 @@ export type AgentEvent =
   | { type: "llm_call_started"; callSite?: LLMCallSite }
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
-  | { type: "message_complete"; message: Message }
+  /**
+   * Emitted once per LLM call when the assistant message is finalized.
+   * `model` is the provider-reported model that served the call
+   * (`response.model`) — the same value `llm_usage` records — so downstream
+   * persistence can attribute the message to the model that actually ran,
+   * including per-call reroutes by a `pre-model-call` hook. Absent on
+   * synthesized emissions that have no provider response.
+   */
+  | { type: "message_complete"; message: Message; model?: string }
   | { type: "max_tokens_reached"; stopReason: string }
   | {
       type: "tool_use";
@@ -1902,6 +1910,7 @@ export class AgentLoop {
             await onEvent({
               type: "message_complete",
               message: safeAssistantMessage,
+              model: response.model,
             });
             history = maxTokensMessages;
             continue;
@@ -1914,6 +1923,7 @@ export class AgentLoop {
           await onEvent({
             type: "message_complete",
             message: safeAssistantMessage,
+            model: response.model,
           });
           await stopTurn("max_tokens_reached");
           break;
@@ -1998,7 +2008,11 @@ export class AgentLoop {
 
         history.push(assistantMessage);
 
-        await onEvent({ type: "message_complete", message: assistantMessage });
+        await onEvent({
+          type: "message_complete",
+          message: assistantMessage,
+          model: response.model,
+        });
 
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
           // The model stopped requesting tools and `post-model-call` settled on

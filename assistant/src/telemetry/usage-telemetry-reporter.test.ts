@@ -126,12 +126,13 @@ mock.module("../config/loader.js", () => ({
 }));
 
 interface MockTurnTrace {
-  schema_version: 2;
+  schema_version: 3;
   messages: {
     id: string;
     role: string;
     created_at: number;
     content: unknown;
+    model: string | null;
   }[];
   tool_calls: unknown[];
   system_prompt: string | null;
@@ -150,13 +151,14 @@ function defaultBoundedTurnTrace(boundary: {
   userMessageCreatedAt: number;
 }): MockTurnTrace | null {
   return {
-    schema_version: 2,
+    schema_version: 3,
     messages: [
       {
         id: boundary.userMessageId,
         role: "user",
         created_at: boundary.userMessageCreatedAt,
         content: [{ type: "text", text: "hello" }],
+        model: null,
       },
     ],
     tool_calls: [],
@@ -1124,8 +1126,9 @@ describe("UsageTelemetryReporter", () => {
     expect(turn.type).toBe("turn");
     expect(turn.daemon_event_id).toBe("evt-turn-trace");
     expect(turn.trace).toBeDefined();
-    expect(turn.trace.schema_version).toBe(2);
+    expect(turn.trace.schema_version).toBe(3);
     expect(turn.trace.messages[0].id).toBe("evt-turn-trace");
+    expect(turn.trace.messages[0].model).toBeNull();
     expect(Array.isArray(turn.trace.tool_calls)).toBe(true);
   });
 
@@ -1332,19 +1335,21 @@ describe("UsageTelemetryReporter", () => {
     // the full trace assembles. The same (still-unreported) turn now ships.
     mockIsTurnSettled.mockReturnValue(true);
     mockAssembleBoundedTurnTrace.mockReturnValue({
-      schema_version: 2,
+      schema_version: 3,
       messages: [
         {
           id: "evt-inflight",
           role: "user",
           created_at: 1700000050000,
           content: [{ type: "text", text: "do a thing" }],
+          model: null,
         },
         {
           id: "asst-1",
           role: "assistant",
           created_at: 1700000051000,
           content: [{ type: "text", text: "done" }],
+          model: "claude-fable-5",
         },
       ],
       tool_calls: [{ id: "ti-1" }],
