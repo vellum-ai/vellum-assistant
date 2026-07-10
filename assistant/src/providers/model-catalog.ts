@@ -1088,6 +1088,164 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.1,
         },
       },
+      // OpenAI
+      // GPT-5.6 family (Sol / Terra / Luna). The `*-pro` slugs are the same
+      // underlying models served with `reasoning.mode: pro` at identical
+      // rates. Long-context (>272K input) is 2x input / 1.5x output / 2x
+      // cache-read for the whole request, per OpenAI's model cards. GPT-5.6+
+      // also bills cache *writes* at 1.25x input, but that isn't represented
+      // here — the chat-completions usage path reports no cache-write token
+      // class, only cached (read) tokens.
+      {
+        id: "openai/gpt-5.6-sol",
+        displayName: "GPT-5.6 Sol",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-sol-pro",
+        displayName: "GPT-5.6 Sol Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-terra",
+        displayName: "GPT-5.6 Terra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 2.5,
+          outputPer1mTokens: 15.0,
+          cacheReadPer1mTokens: 0.25,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 5,
+              outputPer1mTokens: 22.5,
+              cacheReadPer1mTokens: 0.5,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-terra-pro",
+        displayName: "GPT-5.6 Terra Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 2.5,
+          outputPer1mTokens: 15.0,
+          cacheReadPer1mTokens: 0.25,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 5,
+              outputPer1mTokens: 22.5,
+              cacheReadPer1mTokens: 0.5,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-luna",
+        displayName: "GPT-5.6 Luna",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheReadPer1mTokens: 0.1,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheReadPer1mTokens: 0.2,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-luna-pro",
+        displayName: "GPT-5.6 Luna Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheReadPer1mTokens: 0.1,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheReadPer1mTokens: 0.2,
+            },
+          ],
+        },
+      },
       // xAI
       // OpenRouter lists an `input_cache_read` rate for xAI models but its
       // xAI endpoints report `supports_implicit_caching: false`, and observed
