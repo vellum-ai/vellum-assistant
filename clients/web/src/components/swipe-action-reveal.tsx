@@ -1,6 +1,5 @@
 import {
   type ComponentPropsWithoutRef,
-  type ReactNode,
   forwardRef,
   useCallback,
 } from "react";
