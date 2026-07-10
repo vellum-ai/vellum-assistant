@@ -56,8 +56,7 @@ import { z } from "zod";
 
 import { classifyConversationError } from "../../../../daemon/conversation-error.js";
 import type { PendingConversationNotice } from "../../../../daemon/conversation-notices.js";
-import { redactLogString } from "../../../../util/log-redact.js";
-import { truncate } from "../../../../util/truncate.js";
+import { redactLogString, truncate } from "../host-utils.js";
 import {
   cachedTextBlock,
   extractToolUse,

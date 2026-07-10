@@ -27,7 +27,7 @@ import { eq } from "drizzle-orm";
 
 import { type DrizzleDb, getDb } from "../../../persistence/db-connection.js";
 import { memoryRetrospectiveState } from "../../../persistence/schema/index.js";
-import { withSqliteRetry } from "../../../util/sqlite-retry.js";
+import { withSqliteRetry } from "./host-utils.js";
 
 export interface MemoryRetrospectiveState {
   conversationId: string;
