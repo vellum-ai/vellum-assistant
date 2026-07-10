@@ -669,4 +669,65 @@ describe("forkConversationForRetrospective — compacted source", () => {
       "fresh tail",
     ]);
   });
+
+  test("seeds the fork-local ledger event even when the hidden prefix falls outside the cutoff", async () => {
+    const source = createConversation("Tie-cutoff thread");
+    const hidden = await addMessage(source.id, "user", "hidden by compaction", {
+      skipIndexing: true,
+    });
+    const requested = await addMessage(source.id, "assistant", "visible", {
+      skipIndexing: true,
+    });
+
+    // Same-millisecond rows with ids crafted so the `(createdAt, id)` cutoff
+    // order puts the requested message BEFORE the render-hidden sibling: the
+    // cutoff range then contains no hidden row, so nothing is dropped, but
+    // the fork still inherits the compaction and must not copy the source's
+    // count-1 ledger event (a fork of this fork would hide a visible row).
+    const db = getDb();
+    const base = Date.now();
+    db.update(messages)
+      .set({ id: "zz-tie-hidden", createdAt: base })
+      .where(eq(messages.id, hidden.id))
+      .run();
+    db.update(messages)
+      .set({ id: "aa-tie-requested", createdAt: base })
+      .where(eq(messages.id, requested.id))
+      .run();
+    db.update(conversations)
+      .set({
+        contextSummary: "Tie summary",
+        contextCompactedMessageCount: 1,
+        contextCompactedAt: base,
+      })
+      .where(eq(conversations.id, source.id))
+      .run();
+    appendCompactionEvent(source.id, {
+      compactedAt: base,
+      summary: "Tie summary",
+      compactedMessageCount: 1,
+    });
+
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: "aa-tie-requested",
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    expect(getMessages(fork.id).map((m) => m.content)).toEqual(["visible"]);
+    expect(fork.contextSummary).toBe("Tie summary");
+    expect(fork.contextCompactedMessageCount).toBe(0);
+    const forkEvents = getDb()
+      .select()
+      .from(conversationCompactionEvents)
+      .where(eq(conversationCompactionEvents.conversationId, fork.id))
+      .all();
+    expect(forkEvents).toHaveLength(1);
+    expect(forkEvents[0]).toMatchObject({
+      compactedAt: base,
+      summary: "Tie summary",
+      compactedMessageCount: 0,
+    });
+  });
 });

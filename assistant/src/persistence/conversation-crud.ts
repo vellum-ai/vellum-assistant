@@ -1172,9 +1172,9 @@ interface PopulateForkContentsArgs {
   inheritedCompactedMessageCount: number;
   /**
    * When true, the source's compaction-event ledger is not copied into the
-   * fork. Set by the tail-only retrospective fork, which seeds its own
-   * count-adjusted event instead — the source events' `compactedMessageCount`
-   * values index rows the fork does not contain.
+   * fork. Set by the retrospective fork whenever it inherits a compaction —
+   * it seeds its own count-adjusted event instead, since the source events'
+   * `compactedMessageCount` values index source-space row positions.
    */
   skipCompactionLedgerCopy?: boolean;
   /**
@@ -1470,7 +1470,6 @@ export async function forkConversationForRetrospective(params: {
   const rowsToCopy = messagesToCopy.filter(
     (message) => !hiddenRowIds.has(message.id),
   );
-  const isTailOnlyCopy = rowsToCopy.length < messagesToCopy.length;
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
@@ -1567,14 +1566,18 @@ export async function forkConversationForRetrospective(params: {
         isFullHistoryFork: copyBoundaryIndex === sourceMessages.length - 1,
         // The copied range already starts at the visible window.
         inheritedCompactedMessageCount: 0,
-        skipCompactionLedgerCopy: isTailOnlyCopy,
+        skipCompactionLedgerCopy: inheritedCompaction != null,
       });
-      // A tail-only fork owns none of the source's ledger events — their
-      // counts index rows it does not contain. Seed a single event mirroring
-      // the fork row's compaction fields so the ledger and the row cache
-      // agree, and a fork of this fork inherits the summary with the correct
-      // fork-local count.
-      if (isTailOnlyCopy && inheritedCompaction) {
+      // The fork owns none of the source's ledger events — their counts
+      // index source-space row positions, and this fork row stores a count
+      // of 0. Seed a single event mirroring the fork row's compaction
+      // fields whenever a compaction is inherited (even when the hidden
+      // prefix fell outside the cutoff and nothing was dropped), so the
+      // ledger and the row cache agree and a fork of this fork inherits the
+      // summary with the fork-local count. With no inherited compaction the
+      // default ledger copy is a natural no-op (no source event is
+      // at-or-before the boundary).
+      if (inheritedCompaction) {
         appendCompactionEvent(fork.id, {
           compactedAt: inheritedCompaction.compactedAt,
           summary: inheritedCompaction.summary,
