@@ -23,7 +23,6 @@ mock.module("../mcp-oauth-provider.js", () => ({
     constructor(
       _serverId: string,
       _serverUrl: string,
-      _interactive: boolean,
       _callbackTransport: string,
       options: { onAuthorizationUrl?: (url: string) => void } = {},
     ) {
@@ -47,6 +46,8 @@ const mockSetMcpAuthError = mock(
   (_serverId: string, _error: string, _attemptId: string): boolean => true,
 );
 
+// mock.module applies process-wide; provide every export of the real module
+// so other test files importing it in the same run don't hit missing names.
 mock.module("../mcp-auth-state.js", () => ({
   setMcpAuthPending: (...args: unknown[]) =>
     mockSetMcpAuthPending(...(args as [string, string, string])),
@@ -54,6 +55,10 @@ mock.module("../mcp-auth-state.js", () => ({
     mockSetMcpAuthComplete(...(args as [string, string])),
   setMcpAuthError: (...args: unknown[]) =>
     mockSetMcpAuthError(...(args as [string, string, string])),
+  getMcpAuthState: () => null,
+  markMcpNeedsReauth: () => {},
+  clearMcpNeedsReauth: () => {},
+  mcpNeedsReauth: () => false,
 }));
 
 const mockReloadMcpServers = mock(async () => ({
@@ -66,8 +71,9 @@ mock.module("../../daemon/mcp-reload-service.js", () => ({
   reloadMcpServers: () => mockReloadMcpServers(),
 }));
 
+let mockIsContainerized = false;
 mock.module("../../config/env-registry.js", () => ({
-  getIsContainerized: () => false,
+  getIsContainerized: () => mockIsContainerized,
   getWorkspaceDirOverride: () => undefined,
   // Imported by the real util/logger.js; ESM named-import validation
   // requires it even though the silent test logger never calls it.
@@ -277,6 +283,42 @@ describe("orchestrateMcpOAuthConnect", () => {
     // The set was attempted but returned false, so no reload should happen
     expect(mockSetMcpAuthComplete).toHaveBeenCalled();
     expect(mockReloadMcpServers).not.toHaveBeenCalled();
+  });
+
+  test("gateway flow reuses stored client — does not invalidate credentials", async () => {
+    mockIsContainerized = true;
+    try {
+      await orchestrateMcpOAuthConnect({
+        serverId: "test-server",
+        transport: { url: "https://example.com", type: "sse" },
+      });
+      expect(mockInvalidateCredentials).not.toHaveBeenCalled();
+    } finally {
+      mockIsContainerized = false;
+    }
+  });
+
+  test("loopback flow re-registers the client (fresh redirect port) but keeps tokens", async () => {
+    await orchestrateMcpOAuthConnect({
+      serverId: "test-server",
+      transport: { url: "https://example.com", type: "sse" },
+    });
+    const scopes = mockInvalidateCredentials.mock.calls.map(
+      (c) => (c as unknown as string[])[0],
+    );
+    expect(scopes).toEqual(["client", "discovery"]);
+  });
+
+  test("reset flow invalidates client, discovery, and tokens before starting", async () => {
+    await orchestrateMcpOAuthConnect({
+      serverId: "test-server",
+      transport: { url: "https://example.com", type: "sse" },
+      reset: true,
+    });
+    const scopes = mockInvalidateCredentials.mock.calls.map(
+      (c) => (c as unknown as string[])[0],
+    );
+    expect(scopes).toEqual(["client", "discovery", "tokens"]);
   });
 
   test("reload failure after completion is logged but does not corrupt success state", async () => {

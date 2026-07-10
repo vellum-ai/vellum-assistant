@@ -50,8 +50,14 @@ export interface OrchestrateMcpOAuthConnectResult {
 export async function orchestrateMcpOAuthConnect(args: {
   serverId: string;
   transport: McpAuthTransportConfig;
+  /**
+   * Discard the stored client registration, discovery metadata, and tokens
+   * before starting so the flow re-registers from scratch. Off by default so
+   * re-auth reuses the existing client_id and keeps refresh tokens durable.
+   */
+  reset?: boolean;
 }): Promise<OrchestrateMcpOAuthConnectResult> {
-  const { serverId, transport } = args;
+  const { serverId, transport, reset } = args;
 
   // Containerized deployments (platform-managed AND self-hosted Docker) must
   // use the gateway transport: the browser is outside the daemon container,
@@ -65,7 +71,6 @@ export async function orchestrateMcpOAuthConnect(args: {
   const provider = new McpOAuthProvider(
     serverId,
     transport.url,
-    /* interactive */ false,
     callbackTransport,
     {
       onAuthorizationUrl: (url) => {
@@ -74,9 +79,20 @@ export async function orchestrateMcpOAuthConnect(args: {
     },
   );
 
-  // Clear stale credentials so the flow starts fresh
-  await provider.invalidateCredentials("client");
-  await provider.invalidateCredentials("discovery");
+  // Gateway flows reuse the stored client registration and discovery metadata
+  // so re-running auth doesn't mint a brand-new client_id (which can
+  // invalidate any server-side refresh-token binding); the gateway callback
+  // URL is stable, so the registered redirect_uri stays valid. Loopback flows
+  // bind a fresh random localhost port each run, so a reused registration's
+  // redirect_uri no longer matches and strict servers reject the request —
+  // always re-register there. An explicit reset also wipes stored tokens.
+  if (reset || callbackTransport === "loopback") {
+    await provider.invalidateCredentials("client");
+    await provider.invalidateCredentials("discovery");
+    if (reset) {
+      await provider.invalidateCredentials("tokens");
+    }
+  }
 
   // Register the pending callback in the daemon heap
   const { codePromise } = await provider.startCallbackServer();
