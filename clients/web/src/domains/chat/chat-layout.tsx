@@ -775,12 +775,17 @@ export function ChatLayout() {
               aria-modal="true"
               aria-label="Navigation"
             >
+              {/* The aside must paint the same token as the SideMenu it
+                  hosts (`--surface-overlay`): its safe-area padding ring is
+                  the only part of it that shows around the full-bleed menu,
+                  and a mismatched background renders as tinted strips along
+                  the notch / home-indicator edges on iOS. No border — the
+                  sheet covers the full screen, so there is no edge to draw. */}
               <aside
                 id="chat-side-menu"
                 className="relative flex h-full w-full flex-col shadow-xl"
                 style={{
-                  background: "var(--surface-lift)",
-                  borderRight: "1px solid var(--border-base)",
+                  background: "var(--surface-overlay)",
                   zIndex: 50,
                   paddingTop:
                     "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
