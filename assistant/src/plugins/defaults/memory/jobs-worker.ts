@@ -58,6 +58,7 @@ import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospect
 import { getWorkspaceDir } from "./paths.js";
 import { hasPkbBufferContent } from "./pkb-schedule.js";
 import {
+  type ConsolidationFailureKind,
   countBufferLines,
   readConsolidationFailureState,
 } from "./v2/consolidation-job.js";
@@ -821,24 +822,44 @@ function memoryBufferLineCount(): number {
 // Failure backoff for automatic consolidation enqueues. A failed run never
 // trims the buffer, so without backoff the size trigger re-enqueues a
 // fast-failing run on every worker poll (~1.5s), each iteration persisting a
-// full background conversation. Base doubles per consecutive failure, capped
-// at max(6h, the configured interval). Manual "run now" enqueues go through
-// the routes layer, not this schedule, and are never gated.
-const CONSOLIDATION_FAILURE_BACKOFF_BASE_MS = 5 * 60 * 1000;
-const CONSOLIDATION_FAILURE_BACKOFF_MIN_CAP_MS = 6 * 60 * 60 * 1000;
+// full background conversation. Two curves, selected by the most recent
+// failure's kind (see `ConsolidationFailureState`):
+//   - transient (network blip, model hiccup, timeout): 5min doubling,
+//     capped at 30min — transient failures never meaningfully delay
+//     consolidation;
+//   - billing (non-retryable PROVIDER_BILLING): 1h doubling, capped at
+//     max(6h, the configured interval) — retrying can't succeed until the
+//     account is funded.
+// Manual "run now" enqueues go through the routes layer, not this schedule,
+// and are never gated.
+const CONSOLIDATION_TRANSIENT_BACKOFF_BASE_MS = 5 * 60 * 1000;
+const CONSOLIDATION_TRANSIENT_BACKOFF_CAP_MS = 30 * 60 * 1000;
+const CONSOLIDATION_BILLING_BACKOFF_BASE_MS = 60 * 60 * 1000;
+const CONSOLIDATION_BILLING_BACKOFF_MIN_CAP_MS = 6 * 60 * 60 * 1000;
 
 /**
- * Backoff window after `consecutiveFailures` failed consolidation runs:
- * `min(BASE * 2^(n-1), max(6h, intervalMs))`.
+ * Backoff window after `consecutiveFailures` failed consolidation runs.
+ * Billing: `min(1h * 2^(n-1), max(6h, intervalMs))`. Transient:
+ * `min(5min * 2^(n-1), 30min)`.
  */
 export function consolidationFailureBackoffMs(
+  kind: ConsolidationFailureKind,
   consecutiveFailures: number,
   intervalMs: number,
 ): number {
-  const capMs = Math.max(CONSOLIDATION_FAILURE_BACKOFF_MIN_CAP_MS, intervalMs);
+  if (kind === "billing") {
+    const capMs = Math.max(
+      CONSOLIDATION_BILLING_BACKOFF_MIN_CAP_MS,
+      intervalMs,
+    );
+    return Math.min(
+      CONSOLIDATION_BILLING_BACKOFF_BASE_MS * 2 ** (consecutiveFailures - 1),
+      capMs,
+    );
+  }
   return Math.min(
-    CONSOLIDATION_FAILURE_BACKOFF_BASE_MS * 2 ** (consecutiveFailures - 1),
-    capMs,
+    CONSOLIDATION_TRANSIENT_BACKOFF_BASE_MS * 2 ** (consecutiveFailures - 1),
+    CONSOLIDATION_TRANSIENT_BACKOFF_CAP_MS,
   );
 }
 
@@ -855,6 +876,7 @@ function consolidationBackoffRemainingMs(
     return 0;
   }
   const backoffMs = consolidationFailureBackoffMs(
+    state.kind,
     state.consecutiveFailures,
     intervalMs,
   );

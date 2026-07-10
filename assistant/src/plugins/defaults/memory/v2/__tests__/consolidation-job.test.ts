@@ -16,7 +16,9 @@
  *   - Follow-up coalescing: a pending job of a follow-up type suppresses
  *     that enqueue (the pending row already covers it).
  *   - Consecutive-failure state: failed runs increment the durable
- *     checkpoint, success clears it, pre-runner bail paths leave it alone.
+ *     checkpoint, success clears it, pre-runner bail paths leave it alone,
+ *     and the recorded kind (billing vs transient) tracks the most recent
+ *     failure's classification.
  *
  * Tests use temp workspaces (mkdtemp) and never touch `~/.vellum/`. Sample
  * content uses generic placeholders (Alice).
@@ -66,6 +68,7 @@ let runnerImpl: () => Promise<{
   ok: boolean;
   error?: Error;
   errorKind?: string;
+  failureCode?: string;
 }> = runnerTrimsBuffer;
 
 mock.module("../../../../../runtime/background-job-runner.js", () => ({
@@ -884,6 +887,7 @@ describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
   function readFailureState(): {
     consecutiveFailures: number;
     lastFailureAt: number;
+    kind: string;
   } | null {
     const raw = checkpointStore.get(CONSOLIDATION_FAILURE_CHECKPOINT_KEY);
     return raw === undefined
@@ -891,17 +895,29 @@ describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
       : (JSON.parse(raw) as {
           consecutiveFailures: number;
           lastFailureAt: number;
+          kind: string;
         });
   }
 
   function seedFailureState(
     consecutiveFailures: number,
     lastFailureAt: number,
+    kind: "billing" | "transient" = "transient",
   ): void {
     checkpointStore.set(
       CONSOLIDATION_FAILURE_CHECKPOINT_KEY,
-      JSON.stringify({ consecutiveFailures, lastFailureAt }),
+      JSON.stringify({ consecutiveFailures, lastFailureAt, kind }),
     );
+  }
+
+  function failingRunner(failureCode?: string): typeof runnerImpl {
+    return async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("provider refused"),
+      errorKind: "model_provider",
+      ...(failureCode !== undefined ? { failureCode } : {}),
+    });
   }
 
   beforeEach(() => {
@@ -909,12 +925,7 @@ describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
   });
 
   test("a failed run records consecutiveFailures=1 with a failure timestamp", async () => {
-    runnerImpl = async () => ({
-      conversationId: "conv-1",
-      ok: false,
-      error: new Error("provider refused"),
-      errorKind: "model_provider",
-    });
+    runnerImpl = failingRunner();
 
     const before = Date.now();
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
@@ -929,12 +940,7 @@ describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
   });
 
   test("consecutive failed runs increment the count", async () => {
-    runnerImpl = async () => ({
-      conversationId: "conv-1",
-      ok: false,
-      error: new Error("provider refused"),
-      errorKind: "model_provider",
-    });
+    runnerImpl = failingRunner();
 
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
@@ -943,8 +949,52 @@ describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
     expect(readFailureState()!.consecutiveFailures).toBe(3);
   });
 
+  test("a PROVIDER_BILLING turn failure records kind=billing", async () => {
+    runnerImpl = failingRunner("PROVIDER_BILLING");
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.kind).toBe("billing");
+  });
+
+  test("a failure without a failureCode records kind=transient", async () => {
+    runnerImpl = failingRunner();
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.kind).toBe("transient");
+  });
+
+  test("a non-billing failureCode records kind=transient", async () => {
+    runnerImpl = failingRunner("PROVIDER_RATE_LIMIT");
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.kind).toBe("transient");
+  });
+
+  test("the most recent failure's kind wins while the count keeps accruing", async () => {
+    // transient → billing: kind flips to billing at count 2.
+    runnerImpl = failingRunner();
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    runnerImpl = failingRunner("PROVIDER_BILLING");
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    let state = readFailureState()!;
+    expect(state.consecutiveFailures).toBe(2);
+    expect(state.kind).toBe("billing");
+
+    // billing → transient: kind flips back at count 3.
+    runnerImpl = failingRunner();
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    state = readFailureState()!;
+    expect(state.consecutiveFailures).toBe(3);
+    expect(state.kind).toBe("transient");
+  });
+
   test("a successful run clears the failure state", async () => {
-    seedFailureState(4, Date.now() - 60_000);
+    seedFailureState(4, Date.now() - 60_000, "billing");
 
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
@@ -962,6 +1012,7 @@ describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
     expect(readFailureState()).toEqual({
       consecutiveFailures: 2,
       lastFailureAt,
+      kind: "transient",
     });
   });
 
@@ -976,6 +1027,7 @@ describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
     expect(readFailureState()).toEqual({
       consecutiveFailures: 2,
       lastFailureAt,
+      kind: "transient",
     });
   });
 
@@ -991,21 +1043,36 @@ describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
     expect(readFailureState()).toEqual({
       consecutiveFailures: 2,
       lastFailureAt,
+      kind: "transient",
     });
   });
 
   test("a corrupt failure-state payload restarts the count at 1 on the next failure", async () => {
     checkpointStore.set(CONSOLIDATION_FAILURE_CHECKPOINT_KEY, "not-json");
-    runnerImpl = async () => ({
-      conversationId: "conv-1",
-      ok: false,
-      error: new Error("provider refused"),
-      errorKind: "model_provider",
-    });
+    runnerImpl = failingRunner();
 
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(readFailureState()!.consecutiveFailures).toBe(1);
+  });
+
+  test("a payload with an unknown kind restarts the count at 1 on the next failure", async () => {
+    checkpointStore.set(
+      CONSOLIDATION_FAILURE_CHECKPOINT_KEY,
+      JSON.stringify({
+        consecutiveFailures: 7,
+        lastFailureAt: Date.now(),
+        kind: "mystery",
+      }),
+    );
+    runnerImpl = failingRunner();
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()).toMatchObject({
+      consecutiveFailures: 1,
+      kind: "transient",
+    });
   });
 });
 

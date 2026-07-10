@@ -260,6 +260,9 @@ describe("runBackgroundJob", () => {
     expect(result.errorKind).toBe("model_provider");
     expect(result.error?.message).toContain("provider_error");
     expect(result.conversationId).toBe(STUB_CONVERSATION_ID);
+    // The stable classified code rides the result so callers can branch on
+    // the failure class without parsing the error message.
+    expect(result.failureCode).toBe("provider_error");
 
     expect(emitCalls).toHaveLength(1);
     expect(emitCalls[0].sourceEventName).toBe("activity.failed");

@@ -174,14 +174,23 @@ const STALE_LOCK_TTL_MS = 4 * CONSOLIDATION_TIMEOUT_MS;
  * buffer never trims re-fires the size trigger on every worker poll. Manual
  * "run now" enqueues are not gated.
  *
- * Value is JSON: `{ consecutiveFailures, lastFailureAt }`.
+ * `kind` reflects the MOST RECENT failure and selects the scheduler's backoff
+ * curve: `billing` (non-retryable `PROVIDER_BILLING` turn failures) backs off
+ * toward the long cap, `transient` (everything else) stays short so a network
+ * blip or model hiccup never meaningfully delays consolidation. The
+ * consecutive count spans both kinds.
+ *
+ * Value is JSON: `{ consecutiveFailures, lastFailureAt, kind }`.
  */
 export const CONSOLIDATION_FAILURE_CHECKPOINT_KEY =
   "memory_v2_consolidate_failure_state";
 
+export type ConsolidationFailureKind = "billing" | "transient";
+
 export interface ConsolidationFailureState {
   consecutiveFailures: number;
   lastFailureAt: number;
+  kind: ConsolidationFailureKind;
 }
 
 /**
@@ -201,13 +210,15 @@ export function readConsolidationFailureState(): ConsolidationFailureState | nul
       !Number.isFinite(parsed.consecutiveFailures) ||
       parsed.consecutiveFailures < 1 ||
       typeof parsed.lastFailureAt !== "number" ||
-      !Number.isFinite(parsed.lastFailureAt)
+      !Number.isFinite(parsed.lastFailureAt) ||
+      (parsed.kind !== "billing" && parsed.kind !== "transient")
     ) {
       return null;
     }
     return {
       consecutiveFailures: parsed.consecutiveFailures,
       lastFailureAt: parsed.lastFailureAt,
+      kind: parsed.kind,
     };
   } catch {
     return null;
@@ -215,15 +226,20 @@ export function readConsolidationFailureState(): ConsolidationFailureState | nul
 }
 
 /**
- * Increment the consecutive-failure count and stamp the failure time.
+ * Increment the consecutive-failure count, stamp the failure time, and set
+ * the kind to this (most recent) failure's classification.
  * Best-effort: failure bookkeeping must never change the handler's outcome.
  */
-function recordConsolidationFailure(nowMs: number): void {
+function recordConsolidationFailure(
+  nowMs: number,
+  kind: ConsolidationFailureKind,
+): void {
   try {
     const prior = readConsolidationFailureState();
     const state: ConsolidationFailureState = {
       consecutiveFailures: (prior?.consecutiveFailures ?? 0) + 1,
       lastFailureAt: nowMs,
+      kind,
     };
     setMemoryCheckpoint(
       CONSOLIDATION_FAILURE_CHECKPOINT_KEY,
@@ -435,15 +451,24 @@ export async function memoryV2ConsolidateJob(
     });
 
     if (!runResult.ok) {
+      // Billing turn failures (`PROVIDER_BILLING` covers both exhausted
+      // managed credits and BYOK provider-account credits) are
+      // non-retryable and select the scheduler's long backoff curve;
+      // everything else (network blip, model hiccup, timeout) is transient
+      // and stays on the short curve.
+      const failureKind: ConsolidationFailureKind =
+        runResult.failureCode === "PROVIDER_BILLING" ? "billing" : "transient";
       log.error(
         {
           conversationId: runResult.conversationId,
           errorKind: runResult.errorKind,
+          failureCode: runResult.failureCode,
+          failureKind,
           err: runResult.error?.message,
         },
         "consolidation run failed; follow-ups skipped",
       );
-      recordConsolidationFailure(Date.now());
+      recordConsolidationFailure(Date.now(), failureKind);
       return runResult.error?.message !== undefined
         ? { kind: "run_failed", reason: runResult.error.message }
         : { kind: "run_failed" };

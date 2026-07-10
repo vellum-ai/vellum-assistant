@@ -439,10 +439,11 @@ describe("maybeEnqueueGraphMaintenanceJobs — consolidation failure backoff", (
   function seedFailureState(
     consecutiveFailures: number,
     lastFailureAt: number,
+    kind: "billing" | "transient" = "transient",
   ): void {
     setMemoryCheckpoint(
       CONSOLIDATION_FAILURE_CHECKPOINT_KEY,
-      JSON.stringify({ consecutiveFailures, lastFailureAt }),
+      JSON.stringify({ consecutiveFailures, lastFailureAt, kind }),
     );
   }
 
@@ -516,7 +517,7 @@ describe("maybeEnqueueGraphMaintenanceJobs — consolidation failure backoff", (
     expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
   });
 
-  test("backoff grows with the failure count", () => {
+  test("transient backoff grows with the failure count", () => {
     const config = buildConfig({
       v2Enabled: true,
       intervalHours: 1,
@@ -525,8 +526,8 @@ describe("maybeEnqueueGraphMaintenanceJobs — consolidation failure backoff", (
     const now = Date.now();
     setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - MINUTE_MS));
     writeBuffer(10);
-    // Three failures → 20min backoff; 6min elapsed (past the single-failure
-    // 5min window) must still skip.
+    // Three transient failures → 20min backoff; 6min elapsed (past the
+    // single-failure 5min window) must still skip.
     seedFailureState(3, now - 6 * MINUTE_MS);
 
     maybeEnqueueGraphMaintenanceJobs(config, now);
@@ -534,6 +535,46 @@ describe("maybeEnqueueGraphMaintenanceJobs — consolidation failure backoff", (
 
     // 21min elapsed → the 20min window is over.
     seedFailureState(3, now - 21 * MINUTE_MS);
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("transient backoff never delays more than 30 minutes", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+    });
+    const now = Date.now();
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - MINUTE_MS));
+    writeBuffer(10);
+    // Ten transient failures — uncapped doubling would be days, the 30min
+    // cap keeps 31min elapsed enough to resume.
+    seedFailureState(10, now - 31 * MINUTE_MS);
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("a single billing failure already waits the 1-hour base", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+    });
+    const now = Date.now();
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - MINUTE_MS));
+    writeBuffer(10);
+    // 30min elapsed — a transient failure would have resumed at 5min, but a
+    // billing failure holds for the full hour.
+    seedFailureState(1, now - 30 * MINUTE_MS, "billing");
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+
+    // 61min elapsed → the 1h window is over.
+    seedFailureState(1, now - 61 * MINUTE_MS, "billing");
     maybeEnqueueGraphMaintenanceJobs(config, now);
     expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
   });
@@ -555,20 +596,50 @@ describe("consolidationFailureBackoffMs", () => {
   const MINUTE_MS = 60 * 1000;
   const HOUR_MS = 60 * MINUTE_MS;
 
-  test("doubles from a 5-minute base per consecutive failure", () => {
-    expect(consolidationFailureBackoffMs(1, HOUR_MS)).toBe(5 * MINUTE_MS);
-    expect(consolidationFailureBackoffMs(2, HOUR_MS)).toBe(10 * MINUTE_MS);
-    expect(consolidationFailureBackoffMs(3, HOUR_MS)).toBe(20 * MINUTE_MS);
-    expect(consolidationFailureBackoffMs(5, HOUR_MS)).toBe(80 * MINUTE_MS);
+  test("transient: doubles from a 5-minute base per consecutive failure", () => {
+    expect(consolidationFailureBackoffMs("transient", 1, HOUR_MS)).toBe(
+      5 * MINUTE_MS,
+    );
+    expect(consolidationFailureBackoffMs("transient", 2, HOUR_MS)).toBe(
+      10 * MINUTE_MS,
+    );
+    expect(consolidationFailureBackoffMs("transient", 3, HOUR_MS)).toBe(
+      20 * MINUTE_MS,
+    );
   });
 
-  test("caps at 6 hours for a shorter configured interval", () => {
-    expect(consolidationFailureBackoffMs(10, HOUR_MS)).toBe(6 * HOUR_MS);
-    expect(consolidationFailureBackoffMs(1000, HOUR_MS)).toBe(6 * HOUR_MS);
+  test("transient: caps at 30 minutes regardless of the configured interval", () => {
+    expect(consolidationFailureBackoffMs("transient", 4, HOUR_MS)).toBe(
+      30 * MINUTE_MS,
+    );
+    expect(consolidationFailureBackoffMs("transient", 1000, 12 * HOUR_MS)).toBe(
+      30 * MINUTE_MS,
+    );
   });
 
-  test("cap rises to the configured interval when it exceeds 6 hours", () => {
-    expect(consolidationFailureBackoffMs(10, 12 * HOUR_MS)).toBe(12 * HOUR_MS);
+  test("billing: doubles from a 1-hour base per consecutive failure", () => {
+    expect(consolidationFailureBackoffMs("billing", 1, HOUR_MS)).toBe(HOUR_MS);
+    expect(consolidationFailureBackoffMs("billing", 2, HOUR_MS)).toBe(
+      2 * HOUR_MS,
+    );
+    expect(consolidationFailureBackoffMs("billing", 3, HOUR_MS)).toBe(
+      4 * HOUR_MS,
+    );
+  });
+
+  test("billing: caps at 6 hours for a shorter configured interval", () => {
+    expect(consolidationFailureBackoffMs("billing", 4, HOUR_MS)).toBe(
+      6 * HOUR_MS,
+    );
+    expect(consolidationFailureBackoffMs("billing", 1000, HOUR_MS)).toBe(
+      6 * HOUR_MS,
+    );
+  });
+
+  test("billing: cap rises to the configured interval when it exceeds 6 hours", () => {
+    expect(consolidationFailureBackoffMs("billing", 10, 12 * HOUR_MS)).toBe(
+      12 * HOUR_MS,
+    );
   });
 });
 
