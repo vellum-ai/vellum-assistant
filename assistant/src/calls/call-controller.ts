@@ -71,6 +71,7 @@ import {
   CALL_VERIFICATION_COMPLETE_MARKER,
   couldBeControlMarker,
   END_CALL_MARKER,
+  ESCALATE_MARKER,
   extractBalancedJson,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
@@ -79,6 +80,15 @@ import {
   startVoiceTurn,
   type VoiceTurnHandle,
 } from "./voice-session-bridge.js";
+import {
+  ESCALATION_CONTINUATION_CONTENT,
+  ESCALATION_PROFILE,
+  FALLBACK_ESCALATION_BRIDGE,
+  FRONT_DOOR_PROFILE,
+  isVoiceTriageEscalateEnabled,
+  MIN_SPOKEN_BRIDGE_CHARS,
+  type VoiceRoutingLeg,
+} from "./voice-triage-escalate.js";
 
 const log = getLogger("call-controller");
 
@@ -864,88 +874,162 @@ export class CallController {
       }
     };
 
-    // Use a promise to track completion of the voice turn
-    const turnComplete = new Promise<void>((resolve, reject) => {
-      const onTextDelta = (text: string): void => {
-        if (!this.isCurrentRun(runVersion)) return;
-        fullResponseText += text;
-        ttsBuffer += text;
-        ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
-        flushSafeText();
-      };
+    // Triage-and-escalate routing (voice-triage-escalate flag). When on, a fast
+    // "front-door" model fronts the turn; if it emits [ESCALATE] we run a second
+    // "escalated" leg on the quality model. Both legs stream through the shared
+    // TTS machinery below and share this turn's single end-of-turn signal, so
+    // the caller never gets a listening window between the spoken bridge and the
+    // answer. When off, exactly one leg runs on the call-site default profile —
+    // identical to the prior behavior.
+    const escalateEnabled = isVoiceTriageEscalateEnabled();
 
-      const onComplete = (): void => {
-        resolve();
-      };
-
-      const onError = (message: string): void => {
-        reject(new Error(message));
-      };
-
-      // Start the voice turn through the session bridge
-      startVoiceTurn({
-        conversationId: this.conversationId,
-        callSessionId: this.callSessionId,
-        content,
-        assistantId: this.assistantId,
-        trustContext: this.trustContext ?? undefined,
-        isInbound: this.isInbound,
-        task: this.task,
-        skipDisclosure: this.skipDisclosure,
-        onTextDelta,
-        onComplete,
-        onError,
-        signal: runSignal,
-      })
-        .then((handle) => {
-          if (this.isCurrentRun(runVersion)) {
-            this.currentTurnHandle = handle;
-          } else {
-            // Turn was superseded before handle arrived; abort immediately
-            handle.abort();
+    // Run a single voice-turn leg through the session bridge, streaming its
+    // deltas through the shared TTS closures above. Resolves with the raw text
+    // this leg produced (used to detect the [ESCALATE] hand-off). Errors cancel
+    // and drain this turn's synthesis before propagating, mirroring the prior
+    // single-leg behavior.
+    const runVoiceLeg = async (
+      legContent: string,
+      overrideProfile: string | undefined,
+      routingLeg: VoiceRoutingLeg | undefined,
+    ): Promise<string> => {
+      let legText = "";
+      // Once the front-door leg emits [ESCALATE], nothing more it says is
+      // spoken: only the holding phrase preceding the marker reaches the
+      // caller. Guards against a model that ignores "stop after [ESCALATE]"
+      // and keeps answering — that weak answer must never be heard.
+      let legSpeechSuppressed = false;
+      const turnComplete = new Promise<void>((resolve, reject) => {
+        const onTextDelta = (text: string): void => {
+          if (!this.isCurrentRun(runVersion)) return;
+          legText += text;
+          fullResponseText += text;
+          if (legSpeechSuppressed) return;
+          ttsBuffer += text;
+          if (routingLeg === "front-door") {
+            // Speak only up to the marker, then suppress the rest of this leg.
+            const markerIdx = ttsBuffer.indexOf(ESCALATE_MARKER);
+            if (markerIdx !== -1) {
+              ttsBuffer = stripInternalSpeechMarkers(
+                ttsBuffer.slice(0, markerIdx),
+              );
+              flushSafeText();
+              ttsBuffer = "";
+              legSpeechSuppressed = true;
+              return;
+            }
           }
-        })
-        .catch((err) => {
-          reject(err);
-        });
+          ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
+          flushSafeText();
+        };
 
-      // Defensive: if the turn is aborted (e.g. barge-in) and the event
-      // sink callbacks are never invoked, resolve the promise so it
-      // doesn't hang forever.
-      runSignal.addEventListener(
-        "abort",
-        () => {
+        const onComplete = (): void => {
           resolve();
-        },
-        { once: true },
-      );
-    });
+        };
 
-    // Eagerly mark the rejection as handled so runtimes (e.g. bun) don't
-    // flag it as an unhandled rejection when onError fires synchronously
-    // inside the Promise constructor before this await adds its handler.
-    // The await below still re-throws, caught by the outer try-catch.
-    turnComplete.catch(() => {});
-    try {
-      await turnComplete;
-    } catch (err) {
-      // Cancel and settle this turn's synthesis before the error reaches
-      // the outer handler, so no straggling segment plays the partial
-      // answer over the recovery prompt. While this run is current no
-      // newer run's synthesis can be in flight, so the abort is safe.
-      if (this.isCurrentRun(runVersion)) {
-        synthesisCancelled = true;
-        this.abortActiveSynthesis();
+        const onError = (message: string): void => {
+          reject(new Error(message));
+        };
+
+        // Start the voice turn through the session bridge
+        startVoiceTurn({
+          conversationId: this.conversationId,
+          callSessionId: this.callSessionId,
+          content: legContent,
+          assistantId: this.assistantId,
+          trustContext: this.trustContext ?? undefined,
+          isInbound: this.isInbound,
+          task: this.task,
+          skipDisclosure: this.skipDisclosure,
+          onTextDelta,
+          onComplete,
+          onError,
+          signal: runSignal,
+          ...(overrideProfile != null ? { overrideProfile } : {}),
+          ...(routingLeg != null ? { routingLeg } : {}),
+        })
+          .then((handle) => {
+            if (this.isCurrentRun(runVersion)) {
+              this.currentTurnHandle = handle;
+            } else {
+              // Turn was superseded before handle arrived; abort immediately
+              handle.abort();
+            }
+          })
+          .catch((err) => {
+            reject(err);
+          });
+
+        // Defensive: if the turn is aborted (e.g. barge-in) and the event
+        // sink callbacks are never invoked, resolve the promise so it
+        // doesn't hang forever.
+        runSignal.addEventListener(
+          "abort",
+          () => {
+            resolve();
+          },
+          { once: true },
+        );
+      });
+
+      // Eagerly mark the rejection as handled so runtimes (e.g. bun) don't
+      // flag it as an unhandled rejection when onError fires synchronously
+      // inside the Promise constructor before this await adds its handler.
+      // The await below still re-throws, caught by the outer try-catch.
+      turnComplete.catch(() => {});
+      try {
+        await turnComplete;
+      } catch (err) {
+        // Cancel and settle this turn's synthesis before the error reaches
+        // the outer handler, so no straggling segment plays the partial
+        // answer over the recovery prompt. While this run is current no
+        // newer run's synthesis can be in flight, so the abort is safe.
+        if (this.isCurrentRun(runVersion)) {
+          synthesisCancelled = true;
+          this.abortActiveSynthesis();
+        }
+        await synthesisChain.catch(() => {});
+        throw err;
       }
-      await synthesisChain.catch(() => {});
-      throw err;
-    }
+      return legText;
+    };
+
+    // Front-door leg: fast profile + triage rule when routing is on; otherwise
+    // the caller utterance on the call-site default profile (today's behavior).
+    const frontDoorText = await runVoiceLeg(
+      content,
+      escalateEnabled ? FRONT_DOOR_PROFILE : undefined,
+      escalateEnabled ? "front-door" : undefined,
+    );
     if (!this.isCurrentRun(runVersion)) {
       // Superseded mid-stream (barge-in): drain the segment chain — queued
       // links short-circuit on staleness — so this turn's synthesis fully
       // settles instead of racing the next turn.
       await synthesisChain.catch(() => {});
       return fullResponseText;
+    }
+
+    // Escalation: the front-door model handed off. Its holding phrase already
+    // streamed to TTS and its onTextDelta stopped speaking at the marker, so
+    // nothing it said after [ESCALATE] was spoken. Clear any residual buffer
+    // before the quality leg as a belt-and-suspenders guard.
+    if (escalateEnabled && frontDoorText.includes(ESCALATE_MARKER)) {
+      ttsBuffer = "";
+      // If the front-door model emitted no meaningful holding phrase, speak a
+      // canned bridge so the hand-off has no dead air.
+      const spokenBridge = stripInternalSpeechMarkers(frontDoorText).trim();
+      if (spokenBridge.length < MIN_SPOKEN_BRIDGE_CHARS) {
+        emitSafeChunk(`${FALLBACK_ESCALATION_BRIDGE} `);
+      }
+      await runVoiceLeg(
+        ESCALATION_CONTINUATION_CONTENT,
+        ESCALATION_PROFILE,
+        "escalated",
+      );
+      if (!this.isCurrentRun(runVersion)) {
+        await synthesisChain.catch(() => {});
+        return fullResponseText;
+      }
     }
 
     // Final sweep: strip any remaining control markers from the buffer

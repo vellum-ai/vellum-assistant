@@ -123,6 +123,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "voice-triage-escalate",
+      "scope": "assistant",
+      "key": "voice-triage-escalate",
+      "label": "Voice Triage & Escalate",
+      "description": "Front phone-call turns with a fast model that answers simple turns and escalates tricky ones to the quality model, cutting perceived latency",
+      "defaultEnabled": false
+    },
+    {
       "id": "fast-mode",
       "scope": "assistant",
       "key": "fast-mode",
