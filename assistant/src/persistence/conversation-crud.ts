@@ -1494,22 +1494,40 @@ export async function forkConversationForRetrospective(params: {
 
     // Phase 3 (in-process): attachments + memory-state seeding, reusing the
     // same helper as the synchronous fork. Disk-view projection is skipped.
+    //
+    // The populate transaction reads (attachment links) before its first
+    // write, so a deferred BEGIN would take its snapshot as a reader and any
+    // concurrent writer committing before the first write fails the
+    // read→write upgrade with SQLITE_BUSY_SNAPSHOT — a hard error
+    // `busy_timeout` cannot wait out, which would discard the entire batch
+    // copy from phase 2. `behavior: "immediate"` acquires the write lock at
+    // BEGIN so the snapshot postdates it, and the retry absorbs residual
+    // contention: the transaction rolls back atomically, so re-running it is
+    // safe.
     const latestForkedAssistant = latestForkedAssistantFrom(
       messagesToCopy,
       forkedMessageIds,
     );
-    db.transaction(() => {
-      populateForkContentsInProcess({
-        fork,
-        sourceConversationId: sourceConversation.id,
-        messagesToCopy,
-        forkedMessageIds,
-        latestForkedAssistant,
-        isFullHistoryFork: copyBoundaryIndex === sourceMessages.length - 1,
-        inheritedCompactedMessageCount:
-          inheritedCompaction?.compactedMessageCount ?? 0,
-      });
-    });
+    await withSqliteRetry(
+      () =>
+        db.transaction(
+          () => {
+            populateForkContentsInProcess({
+              fork,
+              sourceConversationId: sourceConversation.id,
+              messagesToCopy,
+              forkedMessageIds,
+              latestForkedAssistant,
+              isFullHistoryFork:
+                copyBoundaryIndex === sourceMessages.length - 1,
+              inheritedCompactedMessageCount:
+                inheritedCompaction?.compactedMessageCount ?? 0,
+            });
+          },
+          { behavior: "immediate" },
+        ),
+      { op: "forkConversationForRetrospective.populate" },
+    );
 
     const persistedFork = getConversation(fork.id);
     if (!persistedFork) {
