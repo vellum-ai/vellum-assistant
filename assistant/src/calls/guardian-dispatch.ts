@@ -94,7 +94,7 @@ async function dispatchGuardianQuestionInner(
     // Resolve the request principal from the gateway guardian delivery — the
     // same source the submitting actor (guardian-action-routes /
     // actor-trust-resolver) resolves, so they cannot diverge.
-    // applyCanonicalGuardianDecision requires strict equality with
+    // applyGuardianDecision requires strict equality with
     // request.guardianPrincipalId; sharing this gateway source guarantees the
     // stamped principal == the submitting principal.
     const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });

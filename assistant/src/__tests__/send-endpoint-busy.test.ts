@@ -140,6 +140,15 @@ mock.module("../ipc/gateway-client.js", () => ({
   },
 }));
 
+// Guardian decisions read and CAS through the gateway client; serve that
+// surface from the local canonical store the tests seed.
+import { gatewayGuardianRequestsStoreBridge } from "./helpers/gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
+
 import { __resetGuardianDeliveryCacheForTest } from "../contacts/guardian-delivery-reader.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";

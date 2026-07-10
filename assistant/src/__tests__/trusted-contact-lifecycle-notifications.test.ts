@@ -82,6 +82,11 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
+import { createGuardianGatewaySim } from "./guardian-gateway-sim.js";
+
+const sim = createGuardianGatewaySim();
+mock.module("../channels/gateway-guardian-requests.js", () => sim.module);
+
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
 import { createCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -114,8 +119,28 @@ function resetState(): void {
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   resetGatewayAclStore();
+  sim.reset();
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
+}
+
+/**
+ * Seed the same pending request in BOTH the gateway sim (where the decision
+ * primitive reads/decides) and the assistant store (which the inbound
+ * pipeline's create/dedupe paths still read until PRs 7/9 land together).
+ */
+function seedRequestInBoth(
+  params: Parameters<typeof createCanonicalGuardianRequest>[0],
+) {
+  const stored = createCanonicalGuardianRequest(params);
+  const { sourceType: _sourceType, conversationId, ...rest } = params;
+  sim.seedRequest({
+    ...rest,
+    id: stored.id,
+    sourceConversationId: conversationId,
+    requestCode: stored.requestCode ?? undefined,
+  });
+  return stored;
 }
 
 function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
@@ -184,7 +209,7 @@ describe("trusted contact lifecycle notification signals", () => {
     const testRequestId = `req-deny-${Date.now()}`;
 
     // Create a pending canonical access request
-    createCanonicalGuardianRequest({
+    seedRequestInBoth({
       id: testRequestId,
       kind: "access_request",
       sourceType: "channel",
@@ -278,7 +303,7 @@ describe("trusted contact lifecycle notification signals", () => {
     const testRequestId = `req-approve-${Date.now()}`;
 
     // Create a pending canonical access request
-    createCanonicalGuardianRequest({
+    seedRequestInBoth({
       id: testRequestId,
       kind: "access_request",
       sourceType: "channel",
@@ -354,7 +379,7 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-dedup-${Date.now()}`;
 
-    const approval = createCanonicalGuardianRequest({
+    const approval = seedRequestInBoth({
       id: testRequestId,
       kind: "access_request",
       sourceType: "channel",
@@ -426,7 +451,7 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-noname-${Date.now()}`;
 
-    createCanonicalGuardianRequest({
+    seedRequestInBoth({
       id: testRequestId,
       kind: "access_request",
       sourceType: "channel",
