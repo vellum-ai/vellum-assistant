@@ -7,6 +7,7 @@ import { Tag } from "@vellumai/design-library/components/tag";
 
 import { ShareFeedbackModal } from "@/components/share-feedback-modal";
 import type { FeedbackReason } from "@/components/share-feedback-types";
+import { AssistantBackups } from "@/domains/settings/components/assistant-backups";
 import {
   ApprovalBlock,
   AssistantMessage,
@@ -382,6 +383,25 @@ export function DoctorPanel() {
     [entries],
   );
 
+  // When the doctor lists platform backups, surface the interactive backups
+  // panel (list + restore) inline so the user can act without leaving the
+  // session. Only the most recent completed listing gets the panel — earlier
+  // listings are stale once the doctor (or the user) creates or restores one.
+  const latestBackupsListEntryId = useMemo(() => {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const candidate = entries[i];
+      if (
+        candidate.kind === "tool_call" &&
+        candidate.meta.toolName === "list_assistant_backups" &&
+        candidate.meta.status === "completed" &&
+        !candidate.meta.isError
+      ) {
+        return candidate.id;
+      }
+    }
+    return null;
+  }, [entries]);
+
   // Scroll coordinator — auto-follows streaming growth only while the
   // user is pinned to the latest message. Scrolling away (drag on
   // mobile, wheel on desktop) un-pins and surfaces a "Go to Newest"
@@ -555,6 +575,11 @@ export function DoctorPanel() {
                       <div key={entry.id} className="flex justify-start">
                         <div className="w-full">
                           <ToolCallBlock entry={entry} />
+                          {entry.id === latestBackupsListEntryId && assistantId && (
+                            <div className="mt-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
+                              <AssistantBackups assistantId={assistantId} />
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
