@@ -338,7 +338,7 @@ export function TranscriptMessageBody({
   const renderTextWithInlineSurfaces = (
     text: string,
     key: string,
-    streamWordFade = false,
+    streamWordFade?: "revealing" | "caughtUp",
   ) => {
     const inlineSegments = parseInlineSurfaces(text);
     if (inlineSegments) {
@@ -705,10 +705,19 @@ export function TranscriptMessageBody({
     if (group.type === "text") {
       const isSmoothedTrailing =
         gi === lastGroupIndex && smoothedTrailingText !== null;
+      // `useSmoothStreamText` returns the target string itself (identity,
+      // not a copy) once the reveal has drained the backlog — that identity
+      // check is what flips the sweep from "revealing" to "caughtUp".
+      const fadeMode =
+        isSmoothedTrailing && group.text.length <= STREAM_WORD_FADE_MAX_CHARS
+          ? smoothedTrailingText === group.text
+            ? ("caughtUp" as const)
+            : ("revealing" as const)
+          : undefined;
       return renderTextWithInlineSurfaces(
         isSmoothedTrailing ? smoothedTrailingText : group.text,
         `b-text-${gi}`,
-        isSmoothedTrailing && group.text.length <= STREAM_WORD_FADE_MAX_CHARS,
+        fadeMode,
       );
     }
     if (group.type === "surface") {

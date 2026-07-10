@@ -223,16 +223,17 @@ export interface ChatMarkdownMessageProps extends Omit<MarkdownMessageProps, "li
   /** Active assistant ID for fetching attachment content from the daemon. */
   assistantId?: string | null;
   /**
-   * When true, each rendered word is wrapped in a fade-in span so newly
-   * streamed words animate in (see `rehypeStreamWordFade`). Only enable for
-   * the actively-growing text of a streaming message — the spans cost DOM
-   * weight, so settled content should render plain.
+   * Streamed-text reveal sweep (see `rehypeStreamWordFade`): each word is
+   * wrapped in a fade span, and while `"revealing"` the words nearest the
+   * reveal edge are graded toward transparent so the text appears through a
+   * soft left-to-right gradient wipe. Pass `"caughtUp"` once the reveal has
+   * drained the stream backlog so the tail lifts to full opacity (spans stay
+   * mounted, ready for the next chunk). Only enable for the actively-growing
+   * text of a streaming message — the spans cost DOM weight, so settled
+   * content should render plain (`undefined`).
    */
-  streamWordFade?: boolean;
+  streamWordFade?: "revealing" | "caughtUp";
 }
-
-/** Module-level so the plugin list is referentially stable across renders. */
-const STREAM_WORD_FADE_PLUGINS = [rehypeStreamWordFade];
 
 export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   content,
@@ -276,6 +277,19 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
     [onVellumLinkClick],
   );
 
+  const streamFadePlugins = useMemo(
+    () =>
+      streamWordFade
+        ? [
+            [
+              rehypeStreamWordFade,
+              { caughtUp: streamWordFade === "caughtUp" },
+            ] as import("unified").Pluggable,
+          ]
+        : undefined,
+    [streamWordFade],
+  );
+
   const imageComponent: MarkdownImageComponent = useMemo(
     () =>
       ({ src, alt }: { src: string; alt: string }) => {
@@ -304,9 +318,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
         linkComponent={linkComponent}
         imageComponent={imageComponent}
         urlTransform={vellumUrlTransform}
-        extraRehypePlugins={
-          streamWordFade ? STREAM_WORD_FADE_PLUGINS : undefined
-        }
+        extraRehypePlugins={streamFadePlugins}
       />
       {previewModal}
     </>

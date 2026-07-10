@@ -20,8 +20,6 @@ const MIN_CHARS_PER_SECOND = 45;
  */
 const COMMIT_INTERVAL_MS = 1000 / 30;
 
-const WHITESPACE = /\s/;
-
 /**
  * Re-paces streamed assistant text into a steady typewriter reveal. Network
  * chunks land in irregular bursts, which makes streamed text pop in jittery
@@ -91,13 +89,8 @@ export function useSmoothStreamText(target: string | null): string | null {
   if (target === null) return null;
   if (reducedMotion) return target;
   const raw = Math.min(target.length, Math.max(0, Math.floor(revealedLength)));
+  // Returning the target itself (not a same-length slice) when caught up lets
+  // callers detect the caught-up state by identity.
   if (raw >= target.length) return target;
-  // Snap the reveal back to the last completed word. Each word's fade-in span
-  // (see `rehypeStreamWordFade`) animates when it mounts, so a word must
-  // appear whole for the fade to cover it — with a raw character cut, a span
-  // mounts on the word's first character and the rest fills in already
-  // opaque, making the fade imperceptible.
-  let cut = raw;
-  while (cut > 0 && !WHITESPACE.test(target[cut - 1])) cut--;
-  return target.slice(0, cut);
+  return target.slice(0, raw);
 }

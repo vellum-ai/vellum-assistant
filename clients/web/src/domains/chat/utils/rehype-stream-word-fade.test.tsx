@@ -5,14 +5,17 @@ import { MarkdownMessage } from "@vellumai/design-library";
 
 import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
 
-const PLUGINS = [rehypeStreamWordFade];
+import type { Pluggable } from "unified";
+
+const REVEALING: Pluggable[] = [[rehypeStreamWordFade, { caughtUp: false }]];
+const CAUGHT_UP: Pluggable[] = [[rehypeStreamWordFade, { caughtUp: true }]];
 
 describe("rehypeStreamWordFade", () => {
   test("wraps each word in a fade span without altering the text", () => {
     const { container } = render(
       <MarkdownMessage
         content={"Hello **bold** world"}
-        extraRehypePlugins={PLUGINS}
+        extraRehypePlugins={REVEALING}
       />,
     );
     const spans = container.querySelectorAll("span.stream-word-fade");
@@ -26,9 +29,44 @@ describe("rehypeStreamWordFade", () => {
     expect(container.textContent).toContain("Hello bold world");
   });
 
+  test("revealing mode grades the trailing words toward transparent", () => {
+    const words = Array.from({ length: 12 }, (_, i) => `word${i}`).join(" ");
+    const { container } = render(
+      <MarkdownMessage content={words} extraRehypePlugins={REVEALING} />,
+    );
+    const spans = [...container.querySelectorAll("span.stream-word-fade")];
+    expect(spans).toHaveLength(12);
+    const opacities = spans.map((s) =>
+      (s as HTMLElement).style.opacity === ""
+        ? 1
+        : Number((s as HTMLElement).style.opacity),
+    );
+    // Early words are untouched (full opacity), the tail ramps down toward
+    // the reveal edge, and the last word is the most transparent.
+    expect(opacities[0]).toBe(1);
+    expect(opacities[opacities.length - 1]).toBeLessThan(0.2);
+    for (let i = 1; i < opacities.length; i++) {
+      expect(opacities[i]).toBeLessThanOrEqual(opacities[i - 1]);
+    }
+  });
+
+  test("caughtUp mode keeps the spans but applies no grading", () => {
+    const { container } = render(
+      <MarkdownMessage
+        content={"one two three four"}
+        extraRehypePlugins={CAUGHT_UP}
+      />,
+    );
+    const spans = [...container.querySelectorAll("span.stream-word-fade")];
+    expect(spans).toHaveLength(4);
+    for (const span of spans) {
+      expect((span as HTMLElement).style.opacity).toBe("");
+    }
+  });
+
   test("preserves inter-word whitespace as bare text nodes", () => {
     const { container } = render(
-      <MarkdownMessage content={"one two"} extraRehypePlugins={PLUGINS} />,
+      <MarkdownMessage content={"one two"} extraRehypePlugins={REVEALING} />,
     );
     const p = container.querySelector("p");
     expect(p?.textContent).toBe("one two");
@@ -39,7 +77,7 @@ describe("rehypeStreamWordFade", () => {
     const { container } = render(
       <MarkdownMessage
         content={"pre `inline code` and\n\n```\nconst a = 1;\n```"}
-        extraRehypePlugins={PLUGINS}
+        extraRehypePlugins={REVEALING}
       />,
     );
     const codeEls = container.querySelectorAll("code");
