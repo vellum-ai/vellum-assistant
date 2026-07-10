@@ -2970,13 +2970,20 @@ export async function clearAll(): Promise<{
 
   // Record audit event — lifecycle_events lives in the telemetry DB and is
   // NOT deleted by clearAll(), so this survives the wipe as a permanent trail.
-  rawTelemetryRun(
-    "conversation:clearAll:auditEvent",
-    `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
-    uuid(),
-    "conversations_clear_all",
-    Date.now(),
-  );
+  // Best-effort: the destructive deletes above already completed, so telemetry
+  // degradation must not turn a finished wipe into a failure or skip the
+  // cleanup below.
+  try {
+    rawTelemetryRun(
+      "conversation:clearAll:auditEvent",
+      `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
+      uuid(),
+      "conversations_clear_all",
+      Date.now(),
+    );
+  } catch (err) {
+    log.warn({ err }, "clearAll: failed to record audit event");
+  }
 
   // Drop the whole lexical (Qdrant) collection — a "delete all" leaves no ids
   // to key per-message cleanup on. AWAITED so the drop completes before
