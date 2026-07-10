@@ -231,12 +231,24 @@ describe("profiles active", () => {
     expect(stdout).toContain("balanced");
   });
 
-  test("with a name writes via config_patch deep-merge", async () => {
-    mockIpcResult = { ok: true, result: {} };
-    await run(["profiles", "active", "my-fast"]);
-    expect(lastIpcCall?.method).toBe("config_patch");
-    expect(lastIpcCall?.params).toEqual({
-      body: { llm: { activeProfile: "my-fast" } },
-    });
+  test("with a name writes via the validated set-active route", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: { ok: true, activeProfile: "my-fast" },
+    };
+    const { stdout } = await run(["profiles", "active", "my-fast"]);
+    expect(lastIpcCall?.method).toBe("inference_profiles_set_active");
+    expect(lastIpcCall?.params).toEqual({ body: { name: "my-fast" } });
+    expect(stdout).toContain("active profile set to my-fast");
+  });
+
+  test("surfaces the daemon's rejection for an unknown name", async () => {
+    mockIpcResult = {
+      ok: false,
+      error: 'Profile "balancd" does not exist. Valid profiles: balanced, ...',
+    };
+    const { exitCode } = await run(["profiles", "active", "balancd"]);
+    expect(lastIpcCall?.method).toBe("inference_profiles_set_active");
+    expect(exitCode).toBe(1);
   });
 });

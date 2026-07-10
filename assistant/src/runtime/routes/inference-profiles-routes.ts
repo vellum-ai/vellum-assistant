@@ -19,8 +19,9 @@ import { z } from "zod";
 
 import {
   getEffectiveProfile,
-  getEffectiveProfiles,
+  getEffectiveProfilesForProvider,
   MANAGED_PROFILE_NAMES,
+  resolveDefaultProfileForProvider,
 } from "../../config/default-profile-catalog.js";
 import {
   getConfig,
@@ -243,6 +244,51 @@ function fragmentFromBody(
   return fragment;
 }
 
+/**
+ * Enumerate every live reference to profile `name` in the raw `llm` config
+ * block: `activeProfile`, `advisorProfile`, each `callSites.<id>.profile`, and
+ * every mix arm (`profiles.<mix>.mix[].profile`). Deleting a profile while any
+ * of these point at it would leave a dangling reference that `LLMSchema`'s
+ * superRefine rejects on the next load — silently resetting the user's chat
+ * model or call-site pins. The delete handler rejects instead.
+ */
+export function collectProfileReferences(
+  llm: Record<string, unknown> | null,
+  name: string,
+): string[] {
+  if (!llm) {
+    return [];
+  }
+  const refs: string[] = [];
+  if (llm.activeProfile === name) {
+    refs.push("llm.activeProfile");
+  }
+  if (llm.advisorProfile === name) {
+    refs.push("llm.advisorProfile");
+  }
+  const callSites = asPlainObject(llm.callSites);
+  if (callSites) {
+    for (const [siteId, siteConfig] of Object.entries(callSites)) {
+      if (asPlainObject(siteConfig)?.profile === name) {
+        refs.push(`llm.callSites.${siteId}`);
+      }
+    }
+  }
+  const profiles = asPlainObject(llm.profiles);
+  if (profiles) {
+    for (const [profileName, profileEntry] of Object.entries(profiles)) {
+      const mix = asPlainObject(profileEntry)?.mix;
+      if (
+        Array.isArray(mix) &&
+        mix.some((arm) => asPlainObject(arm)?.profile === name)
+      ) {
+        refs.push(`llm.profiles.${profileName}.mix`);
+      }
+    }
+  }
+  return refs;
+}
+
 function validateProfileEntry(entry: Record<string, unknown>): void {
   const parsed = ProfileEntry.safeParse(entry);
   if (!parsed.success) {
@@ -256,7 +302,11 @@ function validateProfileEntry(entry: Record<string, unknown>): void {
 // ---------------------------------------------------------------------------
 
 async function handleListProfiles() {
-  const effective = getEffectiveProfiles(getConfigReadOnly().llm.profiles);
+  const config = getConfigReadOnly();
+  const effective = getEffectiveProfilesForProvider(
+    config.llm.profiles,
+    config.llm.defaultProvider ?? null,
+  );
   const profiles = await Promise.all(
     Object.entries(effective).map(async ([name, entry]) => {
       const record = entry as Record<string, unknown>;
@@ -282,7 +332,12 @@ async function handleGetProfile({ pathParams = {} }: RouteHandlerArgs) {
   if (!name) {
     throw new BadRequestError("Profile name must be a non-empty string");
   }
-  const entry = getEffectiveProfile(getConfigReadOnly().llm.profiles, name);
+  const config = getConfigReadOnly();
+  const entry = resolveDefaultProfileForProvider(
+    config.llm.profiles,
+    name,
+    config.llm.defaultProvider ?? null,
+  );
   if (!entry) {
     throw new NotFoundError(`Profile "${name}" not found.`);
   }
@@ -460,11 +515,71 @@ async function handleDeleteProfile({ pathParams = {} }: RouteHandlerArgs) {
   if (!profiles || profiles[name] === undefined) {
     throw new NotFoundError(`Profile "${name}" not found.`);
   }
+
+  // Refuse deletion while the profile is still referenced. Cascade-deleting the
+  // references would silently reset the user's chat model / call-site pins; make
+  // the user clear them explicitly instead.
+  const references = collectProfileReferences(llm, name);
+  if (references.length > 0) {
+    throw new ConflictError(
+      `Cannot delete profile "${name}" — it is referenced by ${references.join(", ")}. ` +
+        `Clear or repoint ${references.length === 1 ? "that reference" : "those references"} first.`,
+      { referencedBy: references },
+    );
+  }
+
   delete profiles[name];
 
   await commitConfigWrite(raw, "delete inference profile");
 
   return { ok: true as const, name };
+}
+
+const setActiveRequestSchema = z.object({ name: z.string().min(1) });
+
+async function handleSetActiveProfile({ body = {} }: RouteHandlerArgs) {
+  const parsed = setActiveRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError("name must be a non-empty string");
+  }
+  const name = parsed.data.name.trim();
+  if (!name) {
+    throw new BadRequestError("Profile name must be a non-empty string");
+  }
+
+  // Validate against the same effective catalog the resolver selects from
+  // (provider-aware default expansion included), so a typo or a removed name
+  // is rejected here instead of silently stripped on the next config load —
+  // which would reset the user's chat-model selection.
+  const config = getConfigReadOnly();
+  const effective = getEffectiveProfilesForProvider(
+    config.llm.profiles,
+    config.llm.defaultProvider ?? null,
+  );
+  const entry = effective[name] as Record<string, unknown> | undefined;
+  if (!entry) {
+    const valid = Object.keys(effective).sort().join(", ");
+    throw new BadRequestError(
+      `Profile "${name}" does not exist. Valid profiles: ${valid}.`,
+    );
+  }
+  if (entry.status === "disabled") {
+    throw new BadRequestError(
+      `Profile "${name}" is disabled and cannot be set as the active profile. Enable it first, or pick another.`,
+    );
+  }
+
+  const raw = loadRawConfig();
+  const existingLlm = asPlainObject(raw.llm);
+  const llm = existingLlm ?? {};
+  if (!existingLlm) {
+    raw.llm = llm;
+  }
+  llm.activeProfile = name;
+
+  await commitConfigWrite(raw, "set active inference profile");
+
+  return { ok: true as const, activeProfile: name };
 }
 
 // ---------------------------------------------------------------------------
@@ -568,7 +683,35 @@ export const ROUTES: RouteDefinition[] = [
     additionalResponses: {
       "400": { description: "Attempt to delete a managed profile" },
       "404": { description: "Profile not found" },
+      "409": {
+        description:
+          "Profile is still referenced by activeProfile, advisorProfile, a call site, or a mix arm",
+      },
     },
     handler: handleDeleteProfile,
+  },
+  {
+    operationId: "inference_profiles_set_active",
+    endpoint: "inference/active-profile",
+    method: "PUT",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Set the active (chat) inference profile",
+    description:
+      "Set llm.activeProfile after validating the name against the effective profile catalog (provider-aware default expansion included). Unknown or disabled profiles are rejected so the chat-model selection cannot be silently stripped on the next config load.",
+    tags: ["inference"],
+    requestBody: setActiveRequestSchema,
+    responseBody: z.object({
+      ok: z.literal(true),
+      activeProfile: z.string(),
+    }),
+    additionalResponses: {
+      "400": {
+        description: "Unknown or disabled profile name",
+      },
+    },
+    handler: handleSetActiveProfile,
   },
 ];

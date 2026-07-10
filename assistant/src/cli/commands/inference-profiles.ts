@@ -351,19 +351,21 @@ Examples:
         return;
       }
 
-      const ipcResult = await cliIpcCall("config_patch", {
-        body: { llm: { activeProfile: name } },
-      });
+      const ipcResult = await cliIpcCall<{ ok: true; activeProfile: string }>(
+        "inference_profiles_set_active",
+        { body: { name } },
+      );
       if (!ipcResult.ok) {
         writeCliError(ipcResult.error ?? "Unknown error", opts.json);
         return;
       }
+      const activeProfile = ipcResult.result!.activeProfile;
       if (opts.json) {
         process.stdout.write(
-          JSON.stringify({ ok: true, activeProfile: name }) + "\n",
+          JSON.stringify({ ok: true, activeProfile }) + "\n",
         );
         return;
       }
-      writeLine(`active profile set to ${name}`);
+      writeLine(`active profile set to ${activeProfile}`);
     });
 }

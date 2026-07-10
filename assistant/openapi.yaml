@@ -13795,6 +13795,47 @@ paths:
                   - images
                   - resolvedModel
                 additionalProperties: false
+  /v1/inference/active-profile:
+    put:
+      operationId: inference_activeprofile_put
+      summary: Set the active (chat) inference profile
+      description:
+        Set llm.activeProfile after validating the name against the effective profile catalog (provider-aware
+        default expansion included). Unknown or disabled profiles are rejected so the chat-model selection cannot be
+        silently stripped on the next config load.
+      tags:
+        - inference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+              required:
+                - name
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  activeProfile:
+                    type: string
+                required:
+                  - ok
+                  - activeProfile
+                additionalProperties: false
+        "400":
+          description: Unknown or disabled profile name
   /v1/inference/callsites:
     get:
       operationId: inference_callsites_get
@@ -14057,6 +14098,8 @@ paths:
           description: Attempt to delete a managed profile
         "404":
           description: Profile not found
+        "409":
+          description: Profile is still referenced by activeProfile, advisorProfile, a call site, or a mix arm
     get:
       operationId: inference_profiles_by_name_get
       summary: Get an effective inference profile

@@ -54,7 +54,19 @@ assistant inference providers connections create <connection-name> \
   --credential credential/<provider>/api_key
 ```
 
-For self-hosted or OpenAI-compatible endpoints, use `--provider openai-compatible` with the endpoint's base URL. The managed Vellum connection is not editable — create a new named connection instead of modifying it.
+For self-hosted or OpenAI-compatible endpoints, use `--provider openai-compatible` and supply the endpoint's base URL plus at least one model id (both are required for this provider type — the endpoint advertises no fixed catalog). Pass `--model` once per model the endpoint serves:
+
+```bash
+assistant inference providers connections create <connection-name> \
+  --provider openai-compatible \
+  --auth api_key \
+  --credential credential/<provider>/api_key \
+  --base-url https://<host>/v1 \
+  --model <model-id> \
+  --model <another-model-id>
+```
+
+For a local, keyless endpoint (e.g. LM Studio, vLLM) use `--auth none` and drop `--credential`. The managed Vellum connection is not editable — create a new named connection instead of modifying it.
 
 ## Step 3 — Discover a valid model id (do not guess)
 
