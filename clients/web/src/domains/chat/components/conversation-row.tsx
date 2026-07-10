@@ -11,9 +11,12 @@
  * `withContextMenu={false}` (no right-click menu) and `marquee={false}`.
  */
 
+import { Archive, ArchiveRestore, Pin, PinOff } from "lucide-react";
+
 import { ContextMenu, PanelItem } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
 
+import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 import {
   ConversationActionsMenu,
   renderConversationMenuItems,
@@ -28,6 +31,8 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 import { isConversationPinned } from "@/domains/chat/utils/group-conversations";
 import type { Conversation } from "@/types/conversation-types";
 import { canMarkRead, canMarkUnread } from "@/utils/conversation-predicates";
+import { isPointerCoarse } from "@/utils/pointer";
+import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 
 import {
   type ConversationListContextValue,
@@ -111,6 +116,64 @@ export function buildDragProps(
   };
 }
 
+/**
+ * Builds the swipe-to-reveal action arrays for a conversation row.
+ *
+ * - Swipe left (trailing) → Archive / Unarchive
+ * - Swipe right (leading) → Pin / Unpin
+ *
+ * Returns empty arrays on desktop (fine pointer) or for channel conversations
+ * (read-only — no pin/archive actions available). Actions without a callback
+ * in the context are omitted, so the swipe surface gracefully degrades when
+ * the host list doesn't provide every action.
+ */
+export function buildSwipeActions(
+  ctx: ConversationListContextValue,
+  conversation: Conversation,
+): { leadingActions: SwipeAction[]; trailingActions: SwipeAction[] } {
+  if (!isPointerCoarse()) {
+    return { leadingActions: [], trailingActions: [] };
+  }
+  const isChannel = isChannelConversation(conversation);
+
+  const leadingActions: SwipeAction[] = [];
+  const trailingActions: SwipeAction[] = [];
+
+  // Leading (swipe right): Pin / Unpin
+  if (!isChannel && ctx.onPin) {
+    const isPinned = isConversationPinned(conversation);
+    leadingActions.push({
+      id: "pin",
+      label: isPinned ? "Unpin" : "Pin",
+      icon: isPinned ? PinOff : Pin,
+      onSelect: () => ctx.onPin?.(conversation),
+    });
+  }
+
+  // Trailing (swipe left): Archive / Unarchive
+  if (!isChannel) {
+    const isArchived = conversation.archivedAt != null;
+    if (isArchived && ctx.onUnarchive) {
+      trailingActions.push({
+        id: "unarchive",
+        label: "Unarchive",
+        icon: ArchiveRestore,
+        onSelect: () => ctx.onUnarchive?.(conversation),
+      });
+    } else if (!isArchived && ctx.onArchive) {
+      trailingActions.push({
+        id: "archive",
+        label: "Archive",
+        icon: Archive,
+        variant: "destructive",
+        onSelect: () => ctx.onArchive?.(conversation),
+      });
+    }
+  }
+
+  return { leadingActions, trailingActions };
+}
+
 export function ConversationRow({
   conversation,
   dragSection,
@@ -138,21 +201,27 @@ export function ConversationRow({
     hasUnread: conversation.hasUnseenLatestAssistantMessage === true,
   };
   const dragProps = buildDragProps(ctx, conversation, dragSection, dragSiblings);
+  const { leadingActions, trailingActions } = buildSwipeActions(ctx, conversation);
 
   const panelItem = (
-    <PanelItem
-      label={conversation.title ?? "Untitled"}
-      marqueeOnHover={marquee}
-      active={conversationId === ctx.activeConversationId}
-      onSelect={() => select(conversationId)}
-      badge={hasThreadStatus(status) ? <ThreadStatusIndicator {...status} /> : undefined}
-      trailingAction={<ConversationActionsMenu {...menuProps} />}
-      {...dragProps}
-      className={cn(
-        "h-[30px] p-[6px] text-[var(--content-default)]",
-        dragProps.className,
-      )}
-    />
+    <SwipeActionReveal
+      leadingActions={leadingActions}
+      trailingActions={trailingActions}
+    >
+      <PanelItem
+        label={conversation.title ?? "Untitled"}
+        marqueeOnHover={marquee}
+        active={conversationId === ctx.activeConversationId}
+        onSelect={() => select(conversationId)}
+        badge={hasThreadStatus(status) ? <ThreadStatusIndicator {...status} /> : undefined}
+        trailingAction={<ConversationActionsMenu {...menuProps} />}
+        {...dragProps}
+        className={cn(
+          "h-[30px] p-[6px] text-[var(--content-default)]",
+          dragProps.className,
+        )}
+      />
+    </SwipeActionReveal>
   );
 
   if (!withContextMenu) {
