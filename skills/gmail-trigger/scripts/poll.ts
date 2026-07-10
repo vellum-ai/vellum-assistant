@@ -402,7 +402,7 @@ async function escalate(
     "Gmail Triggers",
     "--json",
   ]);
-  await cli<{ invoked: boolean }>([
+  const wake = await cli<{ invoked: boolean; reason?: string }>([
     "conversations",
     "wake",
     conv.id,
@@ -419,6 +419,13 @@ async function escalate(
     }),
     "--json",
   ]);
+  // A skipped wake exits 0 with invoked:false; treating it as success would
+  // report ok while the digest was never delivered.
+  if (!wake.invoked) {
+    throw new Error(
+      `wake skipped (${wake.reason ?? "unknown"}) — digest of ${total} message(s) was not delivered`,
+    );
+  }
   return conv.id;
 }
 
