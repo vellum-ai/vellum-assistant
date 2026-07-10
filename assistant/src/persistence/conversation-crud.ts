@@ -193,6 +193,17 @@ export const messageMetadataSchema = z
      * and read gate (conversation history loading) to enforce trust-aware access.
      */
     provenanceTrustClass: trustClassSchema.optional(),
+    /**
+     * Model that actually served this assistant row, carried on the agent
+     * loop's `message_complete` event (the provider's `response.model`, the
+     * same value `llm_usage` records) and persisted with the finalized content.
+     * Reflects per-call reroutes by a `pre-model-call` hook. Present only on
+     * assistant rows produced by a real model call; absent on user rows,
+     * tool-result rows, and synthetic assistant rows (provider-error / yield
+     * notices). Turn-trace assembly surfaces it as the per-message
+     * `TurnTraceMessage.model`.
+     */
+    model: z.string().optional(),
     provenanceSourceChannel: channelIdSchema.optional(),
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
@@ -3124,7 +3135,15 @@ export async function reserveMessage(
 export function updateMessageContent(
   messageId: string,
   newContent: string,
+  metadataUpdates?: Record<string, unknown>,
 ): void {
+  // When metadata updates ride along (e.g. the served model stamped at
+  // assistant-row finalize), delegate to the transactional content+metadata
+  // writer so both land atomically.
+  if (metadataUpdates) {
+    updateMessageContentAndMetadata(messageId, newContent, metadataUpdates);
+    return;
+  }
   const db = getDb();
   db.update(messages)
     .set({ content: newContent })
