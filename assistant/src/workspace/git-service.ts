@@ -1017,8 +1017,9 @@ export class WorkspaceGitService {
    * oversized blob, so the steady state is a cheap detection scan.
    *
    * Oversized blobs still referenced by replayed recent commits survive
-   * until those commits age past retention — a later run reclaims them, so
-   * bloat disappears automatically within the retention window. The working
+   * until those commits age past retention — the result carries
+   * `retryAfterMs` so the background scheduler re-runs then, and bloat
+   * disappears automatically within the retention window. The working
    * tree and index are never touched (the tip tree is reused unchanged).
    * Git notes attached to rewritten commits are orphaned; enrichment only
    * targets commits created after the rewrite, so this is cosmetic.
@@ -1034,17 +1035,13 @@ export class WorkspaceGitService {
     return this.mutex.withLock(() => this.compactHistoryLocked());
   }
 
-  private async compactHistoryLocked(): Promise<{
-    rewrote: boolean;
-    squashedCommits: number;
-    keptCommits: number;
-    retryAfterMs?: number;
-  }> {
-    const noop = { rewrote: false, squashedCommits: 0, keptCommits: 0 };
-    const limit = this.maxFileSizeBytes();
-
-    // Any oversized blobs at all? Reads object metadata only — no history
-    // walk — and bounds the cost of every boot where there is nothing to do.
+  /**
+   * Whether any blob in the object store exceeds the size limit. Reads
+   * object metadata only — no history walk.
+   */
+  private async objectStoreHasOversizedBlobLocked(
+    limit: number,
+  ): Promise<boolean> {
     const objects = await this.execGitStreaming(
       [
         "cat-file",
@@ -1054,11 +1051,24 @@ export class WorkspaceGitService {
       ],
       { timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS },
     );
-    const hasOversizedBlob = objects.stdout.split("\n").some((line) => {
+    return objects.stdout.split("\n").some((line) => {
       const [type, size] = line.split(" ");
       return type === "blob" && Number(size) > limit;
     });
-    if (!hasOversizedBlob) {
+  }
+
+  private async compactHistoryLocked(): Promise<{
+    rewrote: boolean;
+    squashedCommits: number;
+    keptCommits: number;
+    retryAfterMs?: number;
+  }> {
+    const noop = { rewrote: false, squashedCommits: 0, keptCommits: 0 };
+    const limit = this.maxFileSizeBytes();
+
+    // Any oversized blobs at all? Bounds the cost of every boot where there
+    // is nothing to do.
+    if (!(await this.objectStoreHasOversizedBlobLocked(limit))) {
       return noop;
     }
 
@@ -1184,12 +1194,29 @@ export class WorkspaceGitService {
       timeoutMs: HISTORY_COMPACTION_TIMEOUT_MS,
     });
 
+    // Blobs referenced by a replayed kept commit survive the prune (the
+    // common case: a large file untracked only days ago). Request a retry
+    // for when the oldest kept commit ages past retention, so they are
+    // reclaimed without waiting for a daemon restart.
+    let retryAfterMs: number | undefined;
+    if (await this.objectStoreHasOversizedBlobLocked(limit)) {
+      const oldestKeptSec =
+        kept[0]?.committedAtSec ?? Math.floor(Date.now() / 1000);
+      retryAfterMs = Math.max(
+        (oldestKeptSec + HISTORY_RETENTION_DAYS * 86400) * 1000 -
+          Date.now() +
+          60_000,
+        HISTORY_COMPACTION_MIN_RETRY_MS,
+      );
+    }
+
     log.info(
       {
         workspaceDir: this.workspaceDir,
         squashedCommits: splitIdx,
         keptCommits: kept.length,
         maxFileSizeBytes: limit,
+        ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
       },
       "Compacted workspace git history",
     );
@@ -1197,6 +1224,7 @@ export class WorkspaceGitService {
       rewrote: true,
       squashedCommits: splitIdx,
       keptCommits: kept.length,
+      retryAfterMs,
     };
   }
 

@@ -1946,12 +1946,14 @@ describe("WorkspaceGitService", () => {
       execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
 
       const service = new WorkspaceGitService(testDir);
-      await service.compactHistoryNow();
+      const result = await service.compactHistoryNow();
 
-      // The blob is genuinely gone from .git, not just untracked
+      // The blob is genuinely gone from .git, not just untracked — and with
+      // nothing left to reclaim, no retry is requested.
       expect(() =>
         execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir }),
       ).toThrow();
+      expect(result.retryAfterMs).toBeUndefined();
 
       const subjects = execFileSync("git", ["log", "--format=%s"], {
         cwd: testDir,
@@ -1981,6 +1983,52 @@ describe("WorkspaceGitService", () => {
       expect(result.rewrote).toBe(false);
       expect(result.retryAfterMs).toBeUndefined();
       expect(await service.getHeadHash()).toBe(headBefore);
+    });
+
+    test("history compaction reschedules when kept commits still hold blobs", async () => {
+      const gitEnvAt = (daysAgo: number) => {
+        const date = new Date(Date.now() - daysAgo * 86400_000).toISOString();
+        return {
+          ...process.env,
+          GIT_AUTHOR_DATE: date,
+          GIT_COMMITTER_DATE: date,
+        };
+      };
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // Old squashable commit, plus a RECENT commit whose tree still holds
+      // the oversized blob (tracked, added externally past the guard).
+      writeFileSync(join(testDir, "keep.txt"), "v1");
+      execFileSync("git", ["add", "keep.txt"], { cwd: testDir });
+      execFileSync("git", ["commit", "--no-verify", "-m", "old"], {
+        cwd: testDir,
+        env: gitEnvAt(30),
+      });
+      writeFileSync(join(testDir, "held.bin"), bigContent());
+      execFileSync("git", ["add", "--", ":(literal)held.bin"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["commit", "--no-verify", "-m", "recent blob"], {
+        cwd: testDir,
+      });
+
+      const blobSha = execFileSync("git", ["hash-object", "--stdin"], {
+        cwd: testDir,
+        input: bigContent(),
+        encoding: "utf-8",
+      }).trim();
+
+      const service = new WorkspaceGitService(testDir);
+      const result = await service.compactHistoryNow();
+
+      // The old prefix was squashed, but the replayed recent commit keeps
+      // the blob alive — so a retry must be requested for when it ages out.
+      expect(result.rewrote).toBe(true);
+      expect(result.retryAfterMs).toBeGreaterThan(0);
+      execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
     });
 
     test("history compaction defers with a retry when blobs are within retention", async () => {
