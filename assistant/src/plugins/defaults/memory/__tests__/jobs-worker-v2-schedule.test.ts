@@ -68,7 +68,10 @@ const { memoryJobs } = await import("../../../../persistence/schema/index.js");
 const { applyNestedDefaults } = await import("../../../../config/loader.js");
 const { getMemoryCheckpoint, setMemoryCheckpoint, deleteMemoryCheckpoint } =
   await import("../../../../persistence/checkpoints.js");
-const { maybeEnqueueGraphMaintenanceJobs } = await import("../jobs-worker.js");
+const { maybeEnqueueGraphMaintenanceJobs, consolidationFailureBackoffMs } =
+  await import("../jobs-worker.js");
+const { CONSOLIDATION_FAILURE_CHECKPOINT_KEY } =
+  await import("../v2/consolidation-job.js");
 const CONSOLIDATE_CHECKPOINT_KEY = "memory_v2_consolidate_last_run";
 
 function buildConfig(overrides: {
@@ -426,6 +429,146 @@ describe("maybeEnqueueGraphMaintenanceJobs — buffer-size trigger", () => {
     maybeEnqueueGraphMaintenanceJobs(config, Date.now());
 
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+  });
+});
+
+describe("maybeEnqueueGraphMaintenanceJobs — consolidation failure backoff", () => {
+  const MINUTE_MS = 60 * 1000;
+  const HOUR_MS = 60 * MINUTE_MS;
+
+  function seedFailureState(
+    consecutiveFailures: number,
+    lastFailureAt: number,
+  ): void {
+    setMemoryCheckpoint(
+      CONSOLIDATION_FAILURE_CHECKPOINT_KEY,
+      JSON.stringify({ consecutiveFailures, lastFailureAt }),
+    );
+  }
+
+  test("interval trigger is skipped inside the backoff window and the checkpoint does not advance", () => {
+    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+    const now = Date.now();
+    const staleCheckpoint = String(now - 2 * HOUR_MS);
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, staleCheckpoint);
+    writeBuffer(15);
+    // One failure a minute ago → 5min backoff, 4min remaining.
+    seedFailureState(1, now - MINUTE_MS);
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    expect(getMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY)).toBe(
+      staleCheckpoint,
+    );
+  });
+
+  test("size trigger is skipped inside the backoff window and the checkpoint does not advance", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+    });
+    const now = Date.now();
+    const recentCheckpoint = String(now - MINUTE_MS);
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, recentCheckpoint);
+    writeBuffer(10);
+    seedFailureState(1, now - MINUTE_MS);
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    expect(getMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY)).toBe(
+      recentCheckpoint,
+    );
+  });
+
+  test("enqueue resumes on the first tick after the backoff elapses", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+    });
+    const now = Date.now();
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - MINUTE_MS));
+    writeBuffer(10);
+    seedFailureState(1, now - MINUTE_MS);
+
+    // Inside the 5min window: skipped.
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+
+    // Past the window: the size trigger fires.
+    maybeEnqueueGraphMaintenanceJobs(config, now + 6 * MINUTE_MS);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("interval trigger resumes after the backoff elapses without waiting a full interval", () => {
+    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+    const now = Date.now();
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - 2 * HOUR_MS));
+    writeBuffer(15);
+    // 5min backoff already elapsed.
+    seedFailureState(1, now - 6 * MINUTE_MS);
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("backoff grows with the failure count", () => {
+    const config = buildConfig({
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 5,
+    });
+    const now = Date.now();
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - MINUTE_MS));
+    writeBuffer(10);
+    // Three failures → 20min backoff; 6min elapsed (past the single-failure
+    // 5min window) must still skip.
+    seedFailureState(3, now - 6 * MINUTE_MS);
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+
+    // 21min elapsed → the 20min window is over.
+    seedFailureState(3, now - 21 * MINUTE_MS);
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+
+  test("a corrupt failure-state payload does not gate enqueues", () => {
+    const config = buildConfig({ v2Enabled: true, intervalHours: 1 });
+    const now = Date.now();
+    setMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY, String(now - 2 * HOUR_MS));
+    writeBuffer(15);
+    setMemoryCheckpoint(CONSOLIDATION_FAILURE_CHECKPOINT_KEY, "not-json");
+
+    maybeEnqueueGraphMaintenanceJobs(config, now);
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(1);
+  });
+});
+
+describe("consolidationFailureBackoffMs", () => {
+  const MINUTE_MS = 60 * 1000;
+  const HOUR_MS = 60 * MINUTE_MS;
+
+  test("doubles from a 5-minute base per consecutive failure", () => {
+    expect(consolidationFailureBackoffMs(1, HOUR_MS)).toBe(5 * MINUTE_MS);
+    expect(consolidationFailureBackoffMs(2, HOUR_MS)).toBe(10 * MINUTE_MS);
+    expect(consolidationFailureBackoffMs(3, HOUR_MS)).toBe(20 * MINUTE_MS);
+    expect(consolidationFailureBackoffMs(5, HOUR_MS)).toBe(80 * MINUTE_MS);
+  });
+
+  test("caps at 6 hours for a shorter configured interval", () => {
+    expect(consolidationFailureBackoffMs(10, HOUR_MS)).toBe(6 * HOUR_MS);
+    expect(consolidationFailureBackoffMs(1000, HOUR_MS)).toBe(6 * HOUR_MS);
+  });
+
+  test("cap rises to the configured interval when it exceeds 6 hours", () => {
+    expect(consolidationFailureBackoffMs(10, 12 * HOUR_MS)).toBe(12 * HOUR_MS);
   });
 });
 

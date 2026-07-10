@@ -15,6 +15,8 @@
  *     `invoked` with `noProgress: true` and enqueues no follow-ups.
  *   - Follow-up coalescing: a pending job of a follow-up type suppresses
  *     that enqueue (the pending row already covers it).
+ *   - Consecutive-failure state: failed runs increment the durable
+ *     checkpoint, success clears it, pre-runner bail paths leave it alone.
  *
  * Tests use temp workspaces (mkdtemp) and never touch `~/.vellum/`. Sample
  * content uses generic placeholders (Alice).
@@ -119,6 +121,24 @@ mock.module("../../../../../persistence/jobs-store.js", () => ({
   isMemoryEnabled: () => true,
 }));
 
+// ── checkpoints mock ────────────────────────────────────────────────
+//
+// The handler persists consecutive-failure state through the durable
+// checkpoint helpers. An in-memory map stands in for the DB so the tests
+// can assert what the handler wrote without initializing sqlite.
+const checkpointStore = new Map<string, string>();
+
+mock.module("../../../../../persistence/checkpoints.js", () => ({
+  getMemoryCheckpoint: (key: string): string | null =>
+    checkpointStore.get(key) ?? null,
+  setMemoryCheckpoint: (key: string, value: string): void => {
+    checkpointStore.set(key, value);
+  },
+  deleteMemoryCheckpoint: (key: string): void => {
+    checkpointStore.delete(key);
+  },
+}));
+
 // ── v3 live gate mock ───────────────────────────────────────────────
 //
 // `memory.v3.live` being on appends `memory_v3_maintain` to the
@@ -158,7 +178,8 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { memoryV2ConsolidateJob } = await import("../consolidation-job.js");
+const { memoryV2ConsolidateJob, CONSOLIDATION_FAILURE_CHECKPOINT_KEY } =
+  await import("../consolidation-job.js");
 const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
 
@@ -238,6 +259,7 @@ beforeEach(() => {
   enqueuedJobs.length = 0;
   nextJobIdCounter = 0;
   pendingJobTypes = new Set();
+  checkpointStore.clear();
 
   // v3 follow-up flag default: off.
   v3FlagOn = false;
@@ -855,6 +877,135 @@ describe("memoryV2ConsolidateJob — concurrent invocations", () => {
     expect(result.kind).toBe("invoked");
     expect(runnerCalls).toBe(1);
     expect(existsSync(lockPath())).toBe(false);
+  });
+});
+
+describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
+  function readFailureState(): {
+    consecutiveFailures: number;
+    lastFailureAt: number;
+  } | null {
+    const raw = checkpointStore.get(CONSOLIDATION_FAILURE_CHECKPOINT_KEY);
+    return raw === undefined
+      ? null
+      : (JSON.parse(raw) as {
+          consecutiveFailures: number;
+          lastFailureAt: number;
+        });
+  }
+
+  function seedFailureState(
+    consecutiveFailures: number,
+    lastFailureAt: number,
+  ): void {
+    checkpointStore.set(
+      CONSOLIDATION_FAILURE_CHECKPOINT_KEY,
+      JSON.stringify({ consecutiveFailures, lastFailureAt }),
+    );
+  }
+
+  beforeEach(() => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+  });
+
+  test("a failed run records consecutiveFailures=1 with a failure timestamp", async () => {
+    runnerImpl = async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("provider refused"),
+      errorKind: "model_provider",
+    });
+
+    const before = Date.now();
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    const after = Date.now();
+
+    expect(result.kind).toBe("run_failed");
+    const state = readFailureState();
+    expect(state).not.toBeNull();
+    expect(state!.consecutiveFailures).toBe(1);
+    expect(state!.lastFailureAt).toBeGreaterThanOrEqual(before);
+    expect(state!.lastFailureAt).toBeLessThanOrEqual(after);
+  });
+
+  test("consecutive failed runs increment the count", async () => {
+    runnerImpl = async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("provider refused"),
+      errorKind: "model_provider",
+    });
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.consecutiveFailures).toBe(3);
+  });
+
+  test("a successful run clears the failure state", async () => {
+    seedFailureState(4, Date.now() - 60_000);
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(readFailureState()).toBeNull();
+  });
+
+  test("the disabled bail path leaves the failure state untouched", async () => {
+    const lastFailureAt = Date.now() - 60_000;
+    seedFailureState(2, lastFailureAt);
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG_DISABLED);
+
+    expect(result.kind).toBe("disabled");
+    expect(readFailureState()).toEqual({
+      consecutiveFailures: 2,
+      lastFailureAt,
+    });
+  });
+
+  test("the empty-buffer bail path leaves the failure state untouched", async () => {
+    rmSync(bufferPath(), { force: true });
+    const lastFailureAt = Date.now() - 60_000;
+    seedFailureState(2, lastFailureAt);
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("empty_buffer");
+    expect(readFailureState()).toEqual({
+      consecutiveFailures: 2,
+      lastFailureAt,
+    });
+  });
+
+  test("the locked bail path leaves the failure state untouched", async () => {
+    mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
+    writeFileSync(lockPath(), `${process.pid} ${Date.now()}\n`);
+    const lastFailureAt = Date.now() - 60_000;
+    seedFailureState(2, lastFailureAt);
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("locked");
+    expect(readFailureState()).toEqual({
+      consecutiveFailures: 2,
+      lastFailureAt,
+    });
+  });
+
+  test("a corrupt failure-state payload restarts the count at 1 on the next failure", async () => {
+    checkpointStore.set(CONSOLIDATION_FAILURE_CHECKPOINT_KEY, "not-json");
+    runnerImpl = async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("provider refused"),
+      errorKind: "model_provider",
+    });
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(readFailureState()!.consecutiveFailures).toBe(1);
   });
 });
 
