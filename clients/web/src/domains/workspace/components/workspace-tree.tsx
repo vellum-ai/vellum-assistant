@@ -8,50 +8,45 @@
  */
 
 import {
-    queryOptions,
-    useMutation,
-    useQuery,
-    useQueryClient,
+  type QueryClient,
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
 } from "@tanstack/react-query";
 import {
-    ArrowDownAZ,
-    ArrowDownWideNarrow,
-    ChevronDown,
-    ChevronRight,
-    Eye,
-    EyeOff,
-    FilePlus,
-    FileText,
-    Folder,
-    FolderPlus,
-    Image as ImageIcon,
-    Pencil,
-    Plus,
-    Search,
-    Trash2,
-    Video,
-    X,
+  ArrowDownAZ,
+  ArrowDownWideNarrow,
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  FilePlus,
+  FileText,
+  Folder,
+  FolderPlus,
+  Image as ImageIcon,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Video,
+  X,
 } from "lucide-react";
-import {
-    type FormEvent,
-    useCallback,
-    useMemo,
-    useRef,
-    useState,
-} from "react";
+import { type FormEvent, useCallback, useMemo, useRef, useState } from "react";
 
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
-    sortEntries,
-    type WorkspaceSortMode,
+  sortEntries,
+  type WorkspaceSortMode,
 } from "@/domains/workspace/utils/sort-entries";
 import {
-    workspaceDeletePost,
-    workspaceMkdirPost,
-    workspaceRenamePost,
-    workspaceTreeGet,
-    workspaceWritePost,
+  workspaceDeletePost,
+  workspaceMkdirPost,
+  workspaceRenamePost,
+  workspaceTreeGet,
+  workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
 import type { WorkspaceTreeGetResponse } from "@/generated/daemon/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -106,6 +101,98 @@ function workspaceTreeRetrieveOptions(opts: {
     },
     queryKey: ["assistantsWorkspaceTreeRetrieve", opts],
   });
+}
+
+const SEARCH_MAX_DEPTH = 10;
+const SEARCH_MAX_DIRS = 2000;
+
+export interface WorkspaceSearchResult {
+  /** Entries to render while searching: matches plus their ancestor directories. */
+  visiblePaths: Set<string>;
+  /** Ancestor directories force-expanded so their matching descendants are revealed. */
+  expandedPaths: Set<string>;
+  /** True when the walk hit its depth or directory budget, so matches may be missing. */
+  truncated: boolean;
+}
+
+/**
+ * Recursively walks the workspace tree collecting entries whose name contains
+ * `searchLower`. The daemon lists one directory per request, so the walk fans
+ * out through the query cache (shared with TreeNode's per-directory queries).
+ * Matched directories are not descended into — their contents stay browsable
+ * when the user expands them.
+ */
+export async function searchWorkspaceTree(
+  queryClient: QueryClient,
+  opts: {
+    assistantId: string;
+    includeDirSizes: boolean;
+    searchLower: string;
+    showHidden: boolean;
+  },
+): Promise<WorkspaceSearchResult> {
+  const visiblePaths = new Set<string>();
+  const expandedPaths = new Set<string>();
+  let dirsListed = 0;
+  let truncated = false;
+
+  async function walk(dirPath: string, depth: number): Promise<boolean> {
+    if (depth > SEARCH_MAX_DEPTH || dirsListed >= SEARCH_MAX_DIRS) {
+      truncated = true;
+      return false;
+    }
+    dirsListed++;
+
+    let entries: WorkspaceTreeEntry[];
+    try {
+      const data = await queryClient.fetchQuery({
+        ...workspaceTreeRetrieveOptions({
+          path: { assistant_id: opts.assistantId },
+          query: {
+            ...(dirPath ? { path: dirPath } : {}),
+            showHidden: opts.showHidden,
+            includeDirSizes: opts.includeDirSizes,
+          },
+        }),
+        staleTime: 30_000,
+      });
+      entries = data.entries ?? [];
+    } catch {
+      // An unreadable directory shouldn't sink the whole search.
+      return false;
+    }
+
+    let subtreeHasMatch = false;
+    const unmatchedDirs: string[] = [];
+    for (const entry of entries) {
+      const entryPath = entry.path ?? "";
+      const matches = (entry.name ?? "")
+        .toLowerCase()
+        .includes(opts.searchLower);
+      if (matches) {
+        visiblePaths.add(entryPath);
+        subtreeHasMatch = true;
+      } else if (entry.type === "directory") {
+        unmatchedDirs.push(entryPath);
+      }
+    }
+
+    const childHasMatch = await Promise.all(
+      unmatchedDirs.map((childPath) => walk(childPath, depth + 1)),
+    );
+    childHasMatch.forEach((hasMatch, i) => {
+      if (hasMatch) {
+        visiblePaths.add(unmatchedDirs[i]);
+        expandedPaths.add(unmatchedDirs[i]);
+        subtreeHasMatch = true;
+      }
+    });
+
+    return subtreeHasMatch;
+  }
+
+  await walk("", 0);
+  return { expandedPaths, truncated, visiblePaths };
 }
 
 /**
@@ -181,7 +268,8 @@ function TreeNode({
   selectedPath,
   showHidden,
   sortMode,
-  searchLower,
+  searchResult,
+  ancestorMatched,
   onToggleExpand,
   onSelectPath,
   onRequestDelete,
@@ -195,7 +283,8 @@ function TreeNode({
   selectedPath: string | null;
   showHidden: boolean;
   sortMode: WorkspaceSortMode;
-  searchLower: string;
+  searchResult: WorkspaceSearchResult | null;
+  ancestorMatched: boolean;
   onToggleExpand: (path: string) => void;
   onSelectPath: (path: string) => void;
   onRequestDelete: (target: EntryTarget) => void;
@@ -216,9 +305,11 @@ function TreeNode({
   // segments, so don't offer the context menu for them.
   const hasMenu = !isHiddenPath(entryPath);
 
-  // Expand directories whose names match during search so their children are visible.
+  // During search, force-expand the ancestor directories of matches so the
+  // matches are revealed; everything else keeps its user-driven state.
   const effectivelyExpanded =
-    isDirectory && (isExpanded || searchLower.length > 0);
+    isDirectory &&
+    (isExpanded || (searchResult?.expandedPaths.has(entryPath) ?? false));
 
   const { data } = useQuery({
     ...workspaceTreeRetrieveOptions({
@@ -236,14 +327,21 @@ function TreeNode({
     () => sortEntries(data?.entries ?? [], sortMode),
     [data?.entries, sortMode],
   );
-  const nameMatches =
-    searchLower === "" || entryName.toLowerCase().includes(searchLower);
-
-  // Filter files by name match. Directories stay visible during search so
-  // their children can mount, fetch, and reveal deeply nested matches.
-  if (searchLower !== "" && !isDirectory && !nameMatches) {
+  // While searching, render only matches, their ancestor directories, and
+  // the contents of matched directories the user expands.
+  if (
+    searchResult &&
+    !ancestorMatched &&
+    !searchResult.visiblePaths.has(entryPath)
+  ) {
     return null;
   }
+
+  // A directory rendered as a match (rather than as an ancestor of one) makes
+  // its whole subtree browsable without further filtering.
+  const childAncestorMatched =
+    ancestorMatched ||
+    (searchResult !== null && !searchResult.expandedPaths.has(entryPath));
 
   const handleClick = () => {
     if (isDirectory) {
@@ -329,7 +427,11 @@ function TreeNode({
             <ContextMenu.Item
               leftIcon={<Trash2 className="h-3.5 w-3.5" />}
               onSelect={() =>
-                onRequestDelete({ path: entryPath, name: entryName, isDirectory })
+                onRequestDelete({
+                  path: entryPath,
+                  name: entryName,
+                  isDirectory,
+                })
               }
             >
               Delete
@@ -337,7 +439,11 @@ function TreeNode({
             <ContextMenu.Item
               leftIcon={<Pencil className="h-3.5 w-3.5" />}
               onSelect={() =>
-                onRequestRename({ path: entryPath, name: entryName, isDirectory })
+                onRequestRename({
+                  path: entryPath,
+                  name: entryName,
+                  isDirectory,
+                })
               }
             >
               Rename
@@ -358,7 +464,8 @@ function TreeNode({
               selectedPath={selectedPath}
               showHidden={showHidden}
               sortMode={sortMode}
-              searchLower={searchLower}
+              searchResult={searchResult}
+              ancestorMatched={childAncestorMatched}
               onToggleExpand={onToggleExpand}
               onSelectPath={onSelectPath}
               onRequestDelete={onRequestDelete}
@@ -539,6 +646,21 @@ export function WorkspaceTree({
     }),
   );
 
+  const searchOpts = {
+    assistantId,
+    includeDirSizes: sortMode === "size",
+    searchLower,
+    showHidden,
+  };
+  const searchQuery = useQuery({
+    enabled: searchLower !== "",
+    queryKey: ["assistantsWorkspaceTreeSearch", searchOpts],
+    queryFn: () => searchWorkspaceTree(queryClient, searchOpts),
+    staleTime: 30_000,
+  });
+  // Null until the walk finishes — the tree renders unfiltered in the interim.
+  const searchResult = searchLower !== "" ? (searchQuery.data ?? null) : null;
+
   const rootEntries = useMemo(
     () => sortEntries(data?.entries ?? [], sortMode),
     [data?.entries, sortMode],
@@ -613,7 +735,12 @@ export function WorkspaceTree({
       const newPath = parentPath
         ? `${parentPath}/${input.newName}`
         : input.newName;
-      await assertNameAvailable(assistantId, parentPath, input.newName, oldName);
+      await assertNameAvailable(
+        assistantId,
+        parentPath,
+        input.newName,
+        oldName,
+      );
       const { error, response } = await workspaceRenamePost({
         path: { assistant_id: assistantId },
         body: { oldPath: input.oldPath, newPath },
@@ -786,25 +913,43 @@ export function WorkspaceTree({
           >
             No files found
           </p>
+        ) : searchResult && searchResult.visiblePaths.size === 0 ? (
+          <p
+            className="px-3 py-4 text-center text-body-medium-lighter"
+            style={{ color: "var(--content-tertiary)" }}
+          >
+            No matching files
+          </p>
         ) : (
-          rootEntries.map((entry) => (
-            <TreeNode
-              key={entry.path}
-              entry={entry}
-              assistantId={assistantId}
-              expandedPaths={expandedPaths}
-              selectedPath={selectedPath}
-              showHidden={showHidden}
-              sortMode={sortMode}
-              searchLower={searchLower}
-              onToggleExpand={onToggleExpand}
-              onSelectPath={onSelectPath}
-              onRequestDelete={handleRequestDelete}
-              onRequestRename={handleRequestRename}
-              onRequestCreate={handleRequestCreate}
-              depth={0}
-            />
-          ))
+          <>
+            {rootEntries.map((entry) => (
+              <TreeNode
+                key={entry.path}
+                entry={entry}
+                assistantId={assistantId}
+                expandedPaths={expandedPaths}
+                selectedPath={selectedPath}
+                showHidden={showHidden}
+                sortMode={sortMode}
+                searchResult={searchResult}
+                ancestorMatched={false}
+                onToggleExpand={onToggleExpand}
+                onSelectPath={onSelectPath}
+                onRequestDelete={handleRequestDelete}
+                onRequestRename={handleRequestRename}
+                onRequestCreate={handleRequestCreate}
+                depth={0}
+              />
+            ))}
+            {searchResult?.truncated && (
+              <p
+                className="px-3 py-2 text-center text-label-medium-default"
+                style={{ color: "var(--content-tertiary)" }}
+              >
+                Workspace too large to search fully — some folders were skipped.
+              </p>
+            )}
+          </>
         )}
       </div>
 
