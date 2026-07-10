@@ -60,6 +60,7 @@ mock.module("../watcher-store.js", () => ({
   completeWatcherPoll: () => {},
   failWatcherPoll: () => {},
   skipWatcherPoll: () => {},
+  hasCredentialPause: () => false,
   disableWatcher: () => {},
   insertWatcherEvent: () => true,
   getPendingEvents: () => fakePending,

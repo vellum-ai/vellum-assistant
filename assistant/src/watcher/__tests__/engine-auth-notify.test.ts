@@ -61,6 +61,11 @@ mock.module("../watcher-store.js", () => ({
   skipWatcherPoll: (watcherId: string, reason: string) => {
     skipCalls.push({ watcherId, reason });
   },
+  // This fake store does not persist credentialPausedAt, so the durable
+  // credential-scoped marker never suppresses — this suite exercises the
+  // in-process episode tracker alone (engine-credential-pause.test.ts covers
+  // the durable layer).
+  hasCredentialPause: () => false,
   disableWatcher: (watcherId: string, reason: string) => {
     disableCalls.push({ watcherId, reason });
     // A disabled watcher is no longer claimed on later ticks.

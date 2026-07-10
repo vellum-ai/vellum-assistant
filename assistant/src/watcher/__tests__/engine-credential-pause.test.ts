@@ -41,10 +41,15 @@ function findWatcher(id: string): FakeWatcher | undefined {
   return fakeWatchers.find((w) => w.id === id);
 }
 
+// Overridable so a test can claim a subset of fakeWatchers (a sibling not
+// yet due) while hasCredentialPause still sees every persisted row.
+let claimDueWatchersImpl: () => FakeWatcher[] = () =>
+  fakeWatchers.map((w) => ({ ...w }));
+
 // A store fake that persists credentialPausedAt exactly like the real store:
 // stamped (coalesced) on skip and on auth-shaped fail, cleared on success.
 mock.module("../watcher-store.js", () => ({
-  claimDueWatchers: () => fakeWatchers.map((w) => ({ ...w })),
+  claimDueWatchers: () => claimDueWatchersImpl(),
   completeWatcherPoll: (id: string) => {
     const w = findWatcher(id);
     if (w) {
@@ -72,6 +77,13 @@ mock.module("../watcher-store.js", () => ({
       w.credentialPausedAt = w.credentialPausedAt ?? Date.now();
     }
   },
+  hasCredentialPause: (credentialService: string) =>
+    fakeWatchers.some(
+      (w) =>
+        w.credentialService === credentialService &&
+        w.enabled &&
+        w.credentialPausedAt !== null,
+    ),
   disableWatcher: (id: string) => {
     fakeWatchers = fakeWatchers.filter((w) => w.id !== id);
   },
@@ -162,6 +174,7 @@ function reconnects(all: Notification[]): Notification[] {
 beforeEach(() => {
   fakeWatchers = [];
   skipCalls.length = 0;
+  claimDueWatchersImpl = () => fakeWatchers.map((w) => ({ ...w }));
   credentialHealthImpl = async () => null;
   providerFetchImpl = async () => ({ items: [], watermark: "wm" });
   _resetAuthNotificationStateForTests();
@@ -191,6 +204,50 @@ describe("runWatchersOnce — durable credential-pause marker", () => {
 
     expect(skipCalls).toEqual(["watcher-1"]);
     expect(reconnects(notes)).toHaveLength(0);
+  });
+
+  test("after a restart, an unstamped sibling on an already-stamped account does not re-notify", async () => {
+    // Watcher A was stamped before the restart; sibling B on the same
+    // account was never due, so its own row is unstamped. The dedup read is
+    // credential-scoped, so A's persisted marker must suppress B's
+    // notification even though the in-process tracker is empty.
+    const watcherA = makeWatcher({
+      id: "watcher-a",
+      name: "Outlook Mail",
+      credentialPausedAt: 1_000,
+      // A is backing off after its earlier skip; only B is due this tick.
+      nextPollAt: Date.now() + 3_600_000,
+    });
+    const watcherB = makeWatcher({
+      id: "watcher-b",
+      name: "Outlook Calendar",
+      credentialPausedAt: null,
+    });
+    fakeWatchers = [watcherA, watcherB];
+    // Only B is claimed this tick (A is not yet due).
+    const claimable = [watcherB];
+    claimDueWatchersImpl = () => claimable.map((w) => ({ ...w }));
+    credentialHealthImpl = async () => revoked;
+    const notes: Notification[] = [];
+
+    await runWatchersOnce((n) => notes.push(n));
+
+    // B is paused but the user is not told again for the same outage.
+    expect(skipCalls).toEqual(["watcher-b"]);
+    expect(reconnects(notes)).toHaveLength(0);
+    expect(watcherB.credentialPausedAt).not.toBeNull();
+
+    // Full recovery: both rows clear their markers.
+    credentialHealthImpl = async () => null;
+    claimDueWatchersImpl = () => fakeWatchers.map((w) => ({ ...w }));
+    await runWatchersOnce((n) => notes.push(n));
+    expect(watcherA.credentialPausedAt).toBeNull();
+    expect(watcherB.credentialPausedAt).toBeNull();
+
+    // A genuinely new outage notifies afresh.
+    credentialHealthImpl = async () => revoked;
+    await runWatchersOnce((n) => notes.push(n));
+    expect(reconnects(notes)).toHaveLength(1);
   });
 
   test("collapses sibling watchers on one dead account to a single notification", async () => {

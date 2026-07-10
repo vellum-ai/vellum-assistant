@@ -22,6 +22,7 @@ import {
   disableWatcher,
   failWatcherPoll,
   getPendingEvents,
+  hasCredentialPause,
   insertWatcherEvent,
   resetStuckWatchers,
   setWatcherConversationId,
@@ -86,11 +87,13 @@ export function _resetAuthNotificationStateForTests(): void {
  * later tick classifies the failure under a different status key or a sibling
  * watcher on the same account trips.
  *
- * `alreadyPausedBeforeTick` reflects the durable `credentialPausedAt` marker
- * observed at claim time. When it is set, the user was already told in an
- * earlier tick — possibly before a restart that emptied the in-process
- * tracker — so this seeds the tracker to keep the current process deduped but
- * stays silent. Returns true if a notification was sent, false if suppressed.
+ * `alreadyPausedBeforeTick` reflects the durable `credentialPausedAt` marker,
+ * read credential-scoped (`hasCredentialPause`) before the current watcher's
+ * row is stamped this tick. When it is set, the user was already told in an
+ * earlier tick — by this watcher or a sibling on the same account, possibly
+ * before a restart that emptied the in-process tracker — so this seeds the
+ * tracker to keep the current process deduped but stays silent. Returns true
+ * if a notification was sent, false if suppressed.
  */
 function notifyAuthEpisodeOnce(
   notify: WatcherNotifier,
@@ -173,10 +176,11 @@ export async function runWatchersOnce(
           health.status === "missing_token" ||
           (health.status === "expired" && !health.canAutoRecover))
       ) {
-        // Capture the durable marker before skipWatcherPoll stamps it, so a
-        // watcher already paused in an earlier tick (or before a restart)
-        // does not re-notify.
-        const alreadyPaused = watcher.credentialPausedAt != null;
+        // Consult the durable marker before skipWatcherPoll stamps this row.
+        // The read is credential-scoped: a sibling watcher on the same
+        // account stamped in an earlier tick (possibly before a restart)
+        // also means the user has already been told about this outage.
+        const alreadyPaused = hasCredentialPause(watcher.credentialService);
         skipWatcherPoll(watcher.id, `Credential unhealthy: ${health.details}`);
         notifyAuthEpisodeOnce(
           notify,
@@ -275,8 +279,10 @@ export async function runWatchersOnce(
       // user to reconnect immediately (once per episode) rather than waiting
       // for the circuit breaker to disable the watcher.
       const authShaped = isAuthConnectionError(err);
-      // Capture the durable marker before failWatcherPoll stamps it.
-      const alreadyPaused = watcher.credentialPausedAt != null;
+      // Consult the credential-scoped durable marker before failWatcherPoll
+      // stamps this row (see the credential gate above for why).
+      const alreadyPaused =
+        authShaped && hasCredentialPause(watcher.credentialService);
       failWatcherPoll(watcher.id, message, { credentialPaused: authShaped });
 
       if (authShaped) {

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, lte } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
@@ -262,6 +262,29 @@ export function skipWatcherPoll(id: string, reason: string): void {
     })
     .where(eq(watchers.id, id))
     .run();
+}
+
+/**
+ * Whether any enabled watcher on the given credential service is currently
+ * credential-paused. The engine consults this (before stamping the current
+ * watcher's row) to dedupe reconnect notifications per account outage: a
+ * sibling watcher's persisted marker means the user has already been told,
+ * even across a restart that emptied the in-process episode tracker.
+ */
+export function hasCredentialPause(credentialService: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: watchers.id })
+    .from(watchers)
+    .where(
+      and(
+        eq(watchers.credentialService, credentialService),
+        eq(watchers.enabled, true),
+        isNotNull(watchers.credentialPausedAt),
+      ),
+    )
+    .get();
+  return row !== undefined;
 }
 
 /**
