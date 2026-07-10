@@ -4,17 +4,9 @@
  * `recordSyntheticAgentErrorMessageLog`) must skip the write entirely — no
  * prompt/completion payload lands on disk — and return `null`. The read-side
  * 4xx is exercised separately at the route layer.
- *
- * Config is seeded for real rather than mocked: tests write a partial
- * `config.json` into the per-test temp workspace and the production loader
- * schema-merges it over defaults — the same path a user's config takes. This
- * also exercises the loader's file-signature cache invalidation on rewrite.
  */
-import { rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-import { invalidateConfigCache } from "../config/loader.js";
 import { getLogsDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
@@ -24,29 +16,11 @@ import {
   recordSyntheticAgentErrorMessageLog,
 } from "../persistence/llm-request-log-store.js";
 import { llmRequestLogs } from "../persistence/schema/index.js";
+import { setConfig } from "./helpers/set-config.js";
 
-const configPath = join(process.env.VELLUM_WORKSPACE_DIR!, "config.json");
-
-/**
- * Seed the workspace config the store reads via `getConfigReadOnly`. The
- * explicit cache invalidation makes the toggle deterministic even when two
- * writes land within the file-signature granularity (same size + mtime ms).
- */
 function setLlmRequestLogging(enabled: boolean): void {
-  writeFileSync(
-    configPath,
-    JSON.stringify({ llmRequestLogs: { readSource: "local", enabled } }),
-  );
-  invalidateConfigCache();
+  setConfig("llmRequestLogs", { readSource: "local", enabled });
 }
-
-// The seeded config.json is per-file state in this process's temp workspace;
-// remove it so files sharing the process in a combined `bun test` run load
-// their own view instead of inheriting this one.
-afterAll(() => {
-  rmSync(configPath, { force: true });
-  invalidateConfigCache();
-});
 
 await initializeDb();
 
