@@ -57,27 +57,20 @@ room to extend later (e.g., multi-step chains, tool-enabled tasks).
 
 ---
 
-## 2. Memory Isolation Policy
+## 2. Memory Policy
 
-Each task's memory is scoped by its task ID:
-
-```
-scope_id = "task:{task_id}"
-```
+Task runs share the single workspace memory pool — the same memory the user's
+main conversations read and write. There is no per-task memory isolation.
 
 This means:
 
-- **Cross-run learning**: All runs of the same task share the same memory
-  scope. The LLM can accumulate knowledge about the task across invocations
-  (e.g., learning the user's preferred summary style over time).
-- **Isolation from default scope**: Task memory is completely separate from the
-  user's main conversation memory (`scope_id = "default"`). A task cannot read
-  or pollute the user's chat history, and vice versa.
-- **Per-task boundaries**: Different tasks have different scopes and cannot see
-  each other's memory.
-
-This follows the same explicit `scope_id` isolation model used by workspace
-memory (`default`, `_pkb_workspace`) and subagent memory (`subagent:{id}`).
+- **Cross-run learning**: All runs of a task draw from and contribute to the
+  shared workspace memory, so the assistant can accumulate knowledge relevant
+  to a task across invocations (e.g., learning the user's preferred summary
+  style over time).
+- **Shared context**: A run can use what the assistant already knows from the
+  user's chat history, and what a run records is available to later
+  conversations and other tasks.
 
 ---
 

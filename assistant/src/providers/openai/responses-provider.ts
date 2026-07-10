@@ -2,7 +2,7 @@ import OpenAI from "openai";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
-import { ProviderError } from "../../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
@@ -556,6 +556,7 @@ export class OpenAIResponsesProvider implements Provider {
           apiErrorParam?: string;
           requestId?: string;
           rawBody?: string;
+          reason?: ProviderErrorReason;
         } = {};
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
@@ -568,6 +569,7 @@ export class OpenAIResponsesProvider implements Provider {
           errorOptions.apiErrorParam = normalized.apiErrorParam;
         if (normalized.requestId) errorOptions.requestId = normalized.requestId;
         if (normalized.rawBody) errorOptions.rawBody = normalized.rawBody;
+        if (normalized.reason) errorOptions.reason = normalized.reason;
         throw new ProviderError(
           formattedMessage,
           this.name,

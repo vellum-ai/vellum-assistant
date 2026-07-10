@@ -32,7 +32,8 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 **Context:** `InitContext`
 **When:** Once, when the plugin is first registered (on boot or install).
-**Use it to:** Validate config and open resources. Throwing aborts the plugin's load.
+**Use it to:** Validate config and open resources. This is where plugin-owned storage is set up: create data files under `pluginStorageDir` and apply the plugin's own schema, idempotently — `init` runs on every boot. Throwing aborts the plugin's load.
+**Example:** [image-fallback](https://github.com/vellum-ai/vellum-assistant/blob/main/assistant/src/plugins/defaults/image-fallback/hooks/init.ts)
 
 | Field              | Type           | Access    | Description                                                                                            |
 | ------------------ | -------------- | --------- | ------------------------------------------------------------------------------------------------------ |
@@ -165,7 +166,8 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 
 **Context:** `ShutdownContext`
 **When:** Once, when the Assistant tears down the plugin (process exit, unload).
-**Use it to:** Best-effort cleanup. Do not rely on it for critical writes; persist durably during normal operation instead.
+**Use it to:** Best-effort cleanup: close storage handles opened in `init` and release other resources. Do not rely on it for critical writes; persist durably during normal operation instead.
+**Example:** [image-fallback](https://github.com/vellum-ai/vellum-assistant/blob/main/assistant/src/plugins/defaults/image-fallback/hooks/shutdown.ts)
 
 | Field              | Type     | Access    | Description                                        |
 | ------------------ | -------- | --------- | -------------------------------------------------- |

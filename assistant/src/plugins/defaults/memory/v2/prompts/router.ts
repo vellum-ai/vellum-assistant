@@ -22,7 +22,7 @@
  * same placeholder substitution applies to overrides.
  */
 
-import { getLogger } from "../../../../../util/logger.js";
+import { getLogger } from "../../logging.js";
 import {
   loadPromptOverride,
   MAX_PROMPT_OVERRIDE_BYTES,

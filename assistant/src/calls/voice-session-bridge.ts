@@ -6,6 +6,8 @@
  * simple callbacks suitable for real-time TTS streaming.
  */
 
+import { v7 as uuidv7 } from "uuid";
+
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import type {
   ChannelId,
@@ -15,13 +17,17 @@ import type {
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
+import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
+import { recordConversationPersistedSeq } from "../persistence/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -32,19 +38,88 @@ import {
 
 const log = getLogger("voice-session-bridge");
 
+/**
+ * Exact message thrown when `opts.signal` aborts while the turn is waiting
+ * for the conversation to become available. The call controller's abort
+ * handling relies on this turn failing with a recognizable error — keep the
+ * value byte-identical across every throw site.
+ */
+export const TURN_ABORTED_WAITING_MESSAGE =
+  "Turn aborted while waiting for conversation";
+
+/**
+ * Exact message thrown when the processing-wait budget elapses without the
+ * conversation becoming available. Shared with the daemon's persist-time
+ * throw site (`conversation-messaging.ts`); the call controller's
+ * lock-contention re-prompt matches on this string.
+ */
+export { CONVERSATION_BUSY_MESSAGE };
+
 const PROCESSING_WAIT_MARGIN_MS = 1000;
 /**
  * How long startVoiceTurn waits for a prior turn to release the processing
  * lock before giving up. The prior turn can hold the lock for the abort
  * unwind budget PLUS the awaited turn-boundary commit window, so the wait
- * must cover both (+ margin) or a barge-in can still surface
- * "Conversation is already processing a message".
+ * must cover both (+ margin) or a barge-in can still fail with
+ * CONVERSATION_BUSY_MESSAGE.
  */
 export function resolveProcessingWaitMs(
   turnCommitMaxWaitMs: number,
   abortUnwindMs: number,
 ): number {
   return turnCommitMaxWaitMs + abortUnwindMs + PROCESSING_WAIT_MARGIN_MS;
+}
+
+/**
+ * Pending teardown of the most recent voice turn, per conversation id.
+ *
+ * `waitForIdle` releases on the `setProcessing(false)` transition, which the
+ * prior turn reaches BEFORE its agent-loop continuation runs
+ * `finally { cleanup() }`. A turn that starts on the idle transition alone
+ * could install its per-turn conversation state (trust context, call session
+ * id, client callback) and then have the prior turn's cleanup null that
+ * state mid-turn. The next turn awaits this promise — bounded by the same
+ * processing-wait budget — so cleanup always completes first.
+ */
+const pendingTurnTeardowns = new Map<string, Promise<void>>();
+
+/**
+ * Await a prior turn's teardown, bounded by `timeoutMs` and `signal`.
+ * Resolves `true` when the teardown settles, `false` on timeout; rejects
+ * when the signal aborts mid-wait. Timer and abort listener are removed on
+ * every exit path.
+ */
+async function waitForPriorTurnTeardown(
+  teardown: Promise<void>,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (signal?.aborted) {
+    throw new Error(TURN_ABORTED_WAITING_MESSAGE);
+  }
+  return await new Promise<boolean>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const settleWait = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
+      settleWait();
+      reject(new Error(TURN_ABORTED_WAITING_MESSAGE));
+    };
+    timer = setTimeout(() => {
+      settleWait();
+      resolve(false);
+    }, timeoutMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    void teardown.then(() => {
+      settleWait();
+      resolve(true);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +397,14 @@ export async function startVoiceTurn(
         ? "(verification completed — transitioning into conversation)"
         : opts.content;
 
+  // Opener / verification prompts are internal scaffolding: they persist a row
+  // so the model wakes, but they are not user speech and must not render as a
+  // live user bubble. Their echo is suppressed below (parity with
+  // `isEchoSuppressedUserMessage` on the text path).
+  const isSyntheticVoicePrompt =
+    opts.content === CALL_OPENING_MARKER ||
+    opts.content === CALL_VERIFICATION_COMPLETE_MARKER;
+
   // Build the call-control protocol prompt so the model knows how to emit
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
   const isCallerGuardian = opts.trustContext?.trustClass === "guardian";
@@ -339,41 +422,103 @@ export async function startVoiceTurn(
   // Get or create the conversation
   const conversation = await getOrCreateConversation(opts.conversationId);
 
-  if (conversation.isProcessing()) {
-    // Voice barge-in can race with turn teardown. Wait briefly for the
-    // previous turn to finish aborting before giving up.
-    const config = getConfig();
-    const maxWaitMs = resolveProcessingWaitMs(
-      config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
-      ABORT_WATCHDOG_MS,
-    );
-    const pollIntervalMs = 50;
-    let waited = 0;
-    while (conversation.isProcessing() && waited < maxWaitMs) {
-      if (opts.signal?.aborted) {
-        throw new Error("Turn aborted while waiting for conversation");
-      }
-      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-      waited += pollIntervalMs;
+  const config = getConfig();
+  const maxWaitMs = resolveProcessingWaitMs(
+    config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
+    ABORT_WATCHDOG_MS,
+  );
+  const waitStartedAt = Date.now();
+
+  // Three conditions must all clear before this turn may install its
+  // per-turn conversation state, and clearing one can re-raise another:
+  //
+  // - The processing lock. `waitForIdle` resolves from the
+  //   `setProcessing(false)` transition, so the turn starts on the same
+  //   tick the lock releases instead of paying up to a 50 ms poll interval
+  //   after every barge-in.
+  // - The prior turn's teardown. Its `finally { cleanup() }` runs after
+  //   `setProcessing(false)` (see `pendingTurnTeardowns`).
+  // - A queued-message drain. The `finally` that releases the lock (waking
+  //   this turn) then calls `drainQueue`, which retakes the lock for any
+  //   queued messages. When queued work is visible after a successful idle
+  //   wait, loop back and wait the drained turn out instead of racing its
+  //   persist; a drain that takes the lock without visible queued work is
+  //   covered by the persist retry below.
+  //
+  // Hence the re-check loop, bounded by one shared budget. In practice
+  // each leg settles within a few microtasks; the bound only guards a
+  // wedged prior turn.
+  // Abort is only honored inside the wait legs: a pre-aborted signal on an
+  // idle conversation still starts the turn, which the signal wiring below
+  // then aborts immediately (pinned by the pre-aborted-signal test).
+  let remainingWaitMs = maxWaitMs;
+  const consumeWaitBudget = () => {
+    remainingWaitMs = Math.max(0, maxWaitMs - (Date.now() - waitStartedAt));
+  };
+  /**
+   * Wait for the processing lock to release within the remaining budget.
+   * Maps every exit to the turn's terminal errors: signal abort → the exact
+   * turn-aborted error; timeout or exhausted budget → the exact busy error.
+   */
+  const waitOutProcessingLock = async (): Promise<void> => {
+    if (remainingWaitMs <= 0) {
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    }
+    let idle: boolean;
+    try {
+      idle = await conversation.waitForIdle({
+        timeoutMs: remainingWaitMs,
+        signal: opts.signal,
+      });
+    } catch {
+      // waitForIdle rejects only when opts.signal aborted mid-wait.
+      throw new Error(TURN_ABORTED_WAITING_MESSAGE);
     }
     if (opts.signal?.aborted) {
-      throw new Error("Turn aborted while waiting for conversation");
+      throw new Error(TURN_ABORTED_WAITING_MESSAGE);
     }
+    if (!idle) {
+      // Waited the full budget (see resolveProcessingWaitMs) without the
+      // lock releasing, so the prior turn is genuinely wedged. The
+      // controller catches this terminal error and speaks a brief
+      // non-technical re-prompt rather than staying silent.
+      throw new Error(CONVERSATION_BUSY_MESSAGE);
+    }
+    consumeWaitBudget();
+  };
+  for (;;) {
     if (conversation.isProcessing()) {
-      // Waited the full budget (see resolveProcessingWaitMs) without the lock
-      // releasing, so the prior turn is genuinely wedged. The controller
-      // catches this terminal error and speaks a brief non-technical
-      // re-prompt rather than staying silent.
-      throw new Error("Conversation is already processing a message");
+      await waitOutProcessingLock();
+      if (conversation.hasQueuedMessages?.()) {
+        continue;
+      }
     }
+    const priorTeardown = pendingTurnTeardowns.get(opts.conversationId);
+    if (priorTeardown) {
+      const torndown = await waitForPriorTurnTeardown(
+        priorTeardown,
+        remainingWaitMs,
+        opts.signal,
+      );
+      if (!torndown) {
+        throw new Error(CONVERSATION_BUSY_MESSAGE);
+      }
+      consumeWaitBudget();
+      continue;
+    }
+    break;
   }
 
-  // Hoisted so the catch below can clear partially-applied turn state
-  // when a setter or `persistUserMessage` throws — otherwise `trustContext`,
-  // `callSessionId`, etc. leak into subsequent non-voice turns on the same
-  // conversation. The client callback is only reset when this turn actually
-  // installed it (tracked via `clientCallbackInstalled`); otherwise cleanup
-  // would detach an active sender installed by a prior turn.
+  // Releases the per-turn state of a voice turn that OWNED the conversation,
+  // so `trustContext`, `callSessionId`, etc. don't leak into subsequent
+  // non-voice turns. Runs on exactly two paths: the agent-loop `finally`
+  // (the turn ran) and the first-persist non-busy failure below (the persist
+  // failed while no concurrent turn held the lock). Paths where this turn
+  // LOST the conversation to a concurrent winner must use `restoreTurnState`
+  // instead — this reset-to-defaults would clobber the winner's live state.
+  // The client callback is only reset when this turn actually installed it
+  // (tracked via `clientCallbackInstalled`); otherwise cleanup would detach
+  // an active sender installed by a prior turn.
   let clientCallbackInstalled = false;
   const cleanup = () => {
     conversation.setChannelCapabilities(null);
@@ -390,34 +535,188 @@ export async function startVoiceTurn(
     }
   };
 
-  const requestId = crypto.randomUUID();
+  const requestId = uuidv7();
   const turnId = crypto.randomUUID();
-  let messageId: string;
-  try {
-    conversation.setAssistantId(
-      opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-    );
-    conversation.callSessionId = voiceSessionId;
-    conversation.setTrustContext(opts.trustContext ?? null);
-    conversation.setCommandIntent(null);
-    conversation.setTurnChannelContext(turnChannelContext);
-    conversation.setTurnInterfaceContext?.(turnInterfaceContext);
-    conversation.setChannelCapabilities(
-      resolveChannelCapabilities(
-        turnChannelContext.userMessageChannel,
-        turnInterfaceContext.userMessageInterface,
-      ),
-    );
-    conversation.setVoiceCallControlPrompt(voiceCallControlPrompt);
-
+  const persistTurnUserMessage = async (): Promise<string> => {
     const persistResult = await conversation.persistUserMessage({
       content: persistedContent,
       requestId,
     });
-    messageId = persistResult.id;
+    return persistResult.id;
+  };
+  /**
+   * Install this turn's per-conversation state (caller trust, call session
+   * id, channel capabilities, voice control prompt, turn channel/interface
+   * contexts). Runs before every persist attempt: the busy-retry path below
+   * restores the prior owner's values via `restoreTurnState` for the
+   * duration of its wait, then re-installs before retrying.
+   */
+  // The exact values this turn installs, computed once: `restoreTurnState`
+  // recognizes by identity whether a field still holds THIS turn's value —
+  // a field a concurrent winner overwrote is the winner's to keep.
+  const voiceTurnValues = {
+    assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+    callSessionId: voiceSessionId,
+    trustContext: opts.trustContext ?? null,
+    turnChannelContext,
+    turnInterfaceContext,
+    channelCapabilities: resolveChannelCapabilities(
+      turnChannelContext.userMessageChannel,
+      turnInterfaceContext.userMessageInterface,
+    ),
+    voiceCallControlPrompt,
+  };
+  const installVoiceTurnState = () => {
+    conversation.setAssistantId(voiceTurnValues.assistantId);
+    conversation.callSessionId = voiceTurnValues.callSessionId;
+    conversation.setTrustContext(voiceTurnValues.trustContext);
+    conversation.setCommandIntent(null);
+    conversation.setTurnChannelContext(voiceTurnValues.turnChannelContext);
+    conversation.setTurnInterfaceContext?.(
+      voiceTurnValues.turnInterfaceContext,
+    );
+    conversation.setChannelCapabilities(voiceTurnValues.channelCapabilities);
+    conversation.setVoiceCallControlPrompt(
+      voiceTurnValues.voiceCallControlPrompt,
+    );
+  };
+  /**
+   * Capture every conversation value `installVoiceTurnState` overwrites
+   * (plus `forcePromptSideEffects`, cleared by `cleanup`) so a turn that
+   * never wins the conversation can put them back untouched.
+   */
+  const snapshotTurnState = () => ({
+    assistantId: conversation.assistantId,
+    callSessionId: conversation.callSessionId,
+    trustContext: conversation.trustContext,
+    commandIntent: conversation.commandIntent,
+    turnChannelContext: conversation.getTurnChannelContext?.() ?? null,
+    turnInterfaceContext: conversation.getTurnInterfaceContext?.() ?? null,
+    channelCapabilities: conversation.channelCapabilities,
+    voiceCallControlPrompt: conversation.voiceCallControlPrompt,
+    forcePromptSideEffects: conversation.forcePromptSideEffects,
+  });
+  /**
+   * Put back the values captured by `snapshotTurnState`. Used on every path
+   * where this turn LOST the conversation to a concurrent winner (the busy
+   * persist race and the retry's terminal failures): the winner is mid-run
+   * with its own per-turn state, so `cleanup()`'s reset-to-defaults would
+   * null its trust context and capabilities and leave it running as
+   * assistantId "self". A lost race must leave the conversation exactly as
+   * found. Setter order mirrors `cleanup` (trust released before the voice
+   * prompt).
+   */
+  const restoreTurnState = (snap: ReturnType<typeof snapshotTurnState>) => {
+    // Per-field compare-and-restore: `persistUserMessage` awaits actor-scoped
+    // history BEFORE its busy check, so a concurrent winner can install its
+    // own values between this turn's install and the busy throw. Revert a
+    // field only while it still holds this turn's value (identity match
+    // against `voiceTurnValues`) — anything the winner overwrote stays.
+    // Reads are normalized with `?? null` on both sides: setters store null
+    // vs undefined inconsistently for cleared values, and a normalization
+    // miss here would either skip a restore (leaking this turn's value) or
+    // clobber a winner.
+    if (
+      (conversation.channelCapabilities ?? null) ===
+      (voiceTurnValues.channelCapabilities ?? null)
+    ) {
+      conversation.setChannelCapabilities(snap.channelCapabilities ?? null);
+    }
+    if (
+      (conversation.trustContext ?? null) ===
+      (voiceTurnValues.trustContext ?? null)
+    ) {
+      conversation.setTrustContext(snap.trustContext ?? null);
+    }
+    if ((conversation.commandIntent ?? null) === null) {
+      conversation.setCommandIntent(snap.commandIntent ?? null);
+    }
+    if (
+      (conversation.assistantId ?? null) ===
+      (voiceTurnValues.assistantId ?? null)
+    ) {
+      conversation.setAssistantId(snap.assistantId ?? null);
+    }
+    if (
+      (conversation.getTurnChannelContext?.() ?? null) ===
+      voiceTurnValues.turnChannelContext
+    ) {
+      conversation.setTurnChannelContext(snap.turnChannelContext);
+    }
+    if (
+      (conversation.getTurnInterfaceContext?.() ?? null) ===
+      voiceTurnValues.turnInterfaceContext
+    ) {
+      conversation.setTurnInterfaceContext?.(snap.turnInterfaceContext);
+    }
+    if (
+      (conversation.voiceCallControlPrompt ?? null) ===
+      (voiceTurnValues.voiceCallControlPrompt ?? null)
+    ) {
+      conversation.setVoiceCallControlPrompt(
+        snap.voiceCallControlPrompt ?? null,
+      );
+    }
+    if (
+      (conversation.callSessionId ?? null) ===
+      (voiceTurnValues.callSessionId ?? null)
+    ) {
+      conversation.callSessionId = snap.callSessionId;
+    }
+    conversation.forcePromptSideEffects = snap.forcePromptSideEffects;
+  };
+  let messageId: string;
+  // Captured before the install so a lost persist race can put the prior
+  // owner's values back (see restoreTurnState).
+  const preInstallState = snapshotTurnState();
+  try {
+    installVoiceTurnState();
   } catch (err) {
-    cleanup();
+    // A partially-applied install never owned the conversation: undo it
+    // value-for-value rather than resetting shared state to defaults.
+    restoreTurnState(preInstallState);
     throw err;
+  }
+  try {
+    messageId = await persistTurnUserMessage();
+  } catch (err) {
+    // A queued-message drain can take the lock between the wait loop
+    // above and this persist — the drain reaches its own persist a few
+    // microtasks after the idle transition that released this turn.
+    // Within the remaining budget, wait the drained turn out and retry
+    // the persist once instead of failing the barge-in.
+    if (!(err instanceof Error) || err.message !== CONVERSATION_BUSY_MESSAGE) {
+      // Non-busy persist failure: no concurrent turn took the lock, so
+      // this turn still owns the state it installed. Release it to
+      // defaults, matching the agent-loop finally of a turn that ran.
+      cleanup();
+      throw err;
+    }
+    // A busy failure ALWAYS means a live winner holds the lock — even with
+    // the wait budget exhausted, its state must be restored rather than
+    // reset to defaults; `waitOutProcessingLock` throws the byte-identical
+    // busy error immediately when nothing remains of the budget.
+    // The busy error means a concurrent turn won the lock race and is
+    // running. It must not run with this turn's phone prompt, caller
+    // trust, or turn channel/interface contexts, so the winner's values
+    // are put back for the duration of the wait.
+    restoreTurnState(preInstallState);
+    // Throws the exact busy error on an exhausted budget and the exact
+    // turn-aborted error on abort; the restore above already left the
+    // conversation exactly as the winner had it.
+    await waitOutProcessingLock();
+    // Re-capture before re-installing: the winner may have changed the
+    // conversation state while it held the lock.
+    const preRetryState = snapshotTurnState();
+    try {
+      installVoiceTurnState();
+      messageId = await persistTurnUserMessage();
+    } catch (retryErr) {
+      // The retry lost again (or failed outright) without this turn ever
+      // running — leave the conversation exactly as the winner left it.
+      restoreTurnState(preRetryState);
+      throw retryErr;
+    }
   }
   try {
     opts.callbacks?.persisted_user_message_id?.(messageId);
@@ -426,6 +725,36 @@ export async function startVoiceTurn(
       { err, turnId, messageId },
       "Voice turn persisted-message callback threw",
     );
+  }
+
+  // Broadcast the user turn to hub subscribers (web / passive devices) BEFORE
+  // the assistant reply streams, mirroring the text path
+  // (`conversation-process.ts`). Without this the web client receives the
+  // assistant deltas with no preceding user-turn boundary and folds them into
+  // the previous assistant bubble until a `/messages` reconcile splits them
+  // (JARVIS-1258). Synthetic opener/verification prompts persist a row but are
+  // not user speech, so their echo is suppressed.
+  if (!isSyntheticVoicePrompt) {
+    broadcastMessage({
+      type: "user_message_echo",
+      text: persistedContent,
+      conversationId: opts.conversationId,
+      messageId,
+      requestId,
+    });
+    // The echoed row is already durably persisted and the agent loop hasn't
+    // started, so advance the snapshot↔stream anchor to the echo's seq — else
+    // `/messages` returns the row while advertising the previous flush's anchor
+    // (under-claiming). Safe to claim here for the same reason as the text path.
+    recordConversationPersistedSeq(opts.conversationId, getCurrentSeq());
+    // Nudge subscribers to refetch `/messages`. Gated to real user turns:
+    // synthetic opener/verification rows are persisted un-hidden (unlike the
+    // text path's echo-suppressed rows, which are `hidden` and safe to
+    // announce), so an early invalidation here would surface the internal
+    // "(call connected …)" prompt as a user bubble before the assistant reply
+    // streams. Synthetic prompts still reach the transcript via the normal
+    // turn-end resync.
+    publishConversationMessagesChanged(opts.conversationId);
   }
 
   // Hook into conversation to intercept confirmation_request and secret_request events.
@@ -546,6 +875,21 @@ export async function startVoiceTurn(
   });
   clientCallbackInstalled = true;
 
+  // Registered before the agent loop starts so the NEXT turn on this
+  // conversation waits for this turn's `finally { cleanup() }` — not just
+  // the processing-flag release — before installing its own per-turn state.
+  let resolveTeardown!: () => void;
+  const teardownSettled = new Promise<void>((resolve) => {
+    resolveTeardown = resolve;
+  });
+  pendingTurnTeardowns.set(opts.conversationId, teardownSettled);
+  const settleTurnTeardown = () => {
+    if (pendingTurnTeardowns.get(opts.conversationId) === teardownSettled) {
+      pendingTurnTeardowns.delete(opts.conversationId);
+    }
+    resolveTeardown();
+  };
+
   // Fire-and-forget the agent loop
   void (async () => {
     try {
@@ -600,6 +944,7 @@ export async function startVoiceTurn(
       eventSink.onError(message);
     } finally {
       cleanup();
+      settleTurnTeardown();
     }
   })();
 

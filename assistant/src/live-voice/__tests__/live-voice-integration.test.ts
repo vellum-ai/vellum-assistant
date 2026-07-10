@@ -81,6 +81,41 @@ class FakeStreamingTranscriber implements StreamingTranscriber {
   }
 }
 
+// Finalize-capable fake: with server_vad the session keeps this single
+// stream for every cycle (persistent mode). Each finalize flushes
+// "utterance <n>" as a final followed by finalized; stop() remains the
+// session-teardown path.
+class PersistentFakeStreamingTranscriber implements StreamingTranscriber {
+  readonly providerId = "deepgram" as const;
+  readonly boundaryId = "daemon-streaming" as const;
+  readonly audioChunks: Buffer[] = [];
+  startCalls = 0;
+  stopCalls = 0;
+  finalizeCalls = 0;
+  private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
+
+  async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
+    this.startCalls += 1;
+    this.onEvent = onEvent;
+  }
+
+  sendAudio(audio: Buffer): void {
+    this.audioChunks.push(Buffer.from(audio));
+    this.onEvent?.({ type: "partial", text: "hel" });
+  }
+
+  finalizeUtterance(): void {
+    this.finalizeCalls += 1;
+    this.onEvent?.({ type: "final", text: `utterance ${this.finalizeCalls}` });
+    this.onEvent?.({ type: "finalized" });
+  }
+
+  stop(): void {
+    this.stopCalls += 1;
+    this.onEvent?.({ type: "closed" });
+  }
+}
+
 function createContext(startFrame: LiveVoiceClientStartFrame = START_FRAME): {
   context: LiveVoiceSessionFactoryContext;
   frames: LiveVoiceServerFrame[];
@@ -482,6 +517,91 @@ describe("LiveVoiceSession integration smoke harness", () => {
     expect(transcribers[0]?.stopped).toBe(true);
     expect(transcribers[1]?.stopped).toBe(true);
     expect(transcribers[2]?.stopped).toBe(false);
+  });
+
+  test("runs two utterance cycles over one persistent transcriber without teardown between turns", async () => {
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.persisted_user_message_id?.("user-message-123");
+      options.callbacks?.assistant_text_delta?.(
+        makeTextDelta(`Reply to ${options.content}.`),
+      );
+      options.callbacks?.message_complete?.(makeMessageComplete());
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const transcriber = new PersistentFakeStreamingTranscriber();
+    const resolveTranscriber = mock(async () => transcriber);
+    const archiveAudio = mock(
+      async (input: LiveVoiceSessionArchiveAudioInput) =>
+        makeArchiveResult(input),
+    );
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+      return makeTtsResult(options.text);
+    });
+    const { context, frames } = createContext(VAD_START_FRAME);
+    let turnCount = 0;
+    const session = createLiveVoiceSession(context, {
+      resolveCredentialReadiness: null,
+      resolveTranscriber,
+      startVoiceTurn,
+      streamTtsAudio,
+      archiveAudio,
+      metricsClock: createClock(),
+      createTurnId: () => {
+        turnCount += 1;
+        return `live-turn-${turnCount}`;
+      },
+    });
+    const firstUtteranceAudio = loudPcmChunk(8_000);
+    const secondUtteranceAudio = loudPcmChunk(9_000);
+
+    await session.start();
+    await session.handleBinaryAudio(firstUtteranceAudio);
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 1,
+    );
+
+    await session.handleBinaryAudio(secondUtteranceAudio);
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 2,
+    );
+
+    expect(resolveTranscriber).toHaveBeenCalledTimes(1);
+    expect(transcriber.startCalls).toBe(1);
+    expect(transcriber.stopCalls).toBe(0);
+    expect(transcriber.finalizeCalls).toBe(2);
+    expect(startVoiceTurn.mock.calls.map((call) => call[0].content)).toEqual([
+      "utterance 1",
+      "utterance 2",
+    ]);
+    expect(transcriber.audioChunks).toEqual([
+      Buffer.from(firstUtteranceAudio),
+      Buffer.from(secondUtteranceAudio),
+    ]);
+    expect(
+      archiveAudio.mock.calls.map((call) => [call[0].role, call[0].turnId]),
+    ).toEqual([
+      ["user", "live-turn-1"],
+      ["assistant", "live-turn-1"],
+      ["user", "live-turn-2"],
+      ["assistant", "live-turn-2"],
+    ]);
+    // utteranceEnd → finalTranscript (the sttMs role in server_vad mode)
+    // measures the finalize flush and still populates on every turn.
+    const completedTurnMetrics = frames.flatMap((frame) =>
+      frame.type === "metrics" && frame.event === "turn_completed"
+        ? [frame]
+        : [],
+    );
+    expect(completedTurnMetrics).toHaveLength(2);
+    for (const frame of completedTurnMetrics) {
+      expect(frame.sttMs).not.toBeNull();
+    }
+
+    await session.close("websocket_close");
+    expect(transcriber.stopCalls).toBe(1);
   });
 
   test("completes a full second cycle after an interrupt mid-turn", async () => {

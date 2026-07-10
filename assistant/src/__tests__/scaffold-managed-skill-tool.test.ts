@@ -50,8 +50,10 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 }
 
 /** A retrospective-pass tool context (assistant-authored scaffolds). */
-function makeRetrospectiveContext(): ToolContext {
-  return makeContext({ requestOrigin: "memory_retrospective" });
+function makeRetrospectiveContext(
+  overrides: Partial<ToolContext> = {},
+): ToolContext {
+  return makeContext({ requestOrigin: "memory_retrospective", ...overrides });
 }
 
 function installMetaFor(skillId: string) {
@@ -824,6 +826,133 @@ describe("scaffold_managed_skill tool", () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  // ── Conversation lineage (retrospective-authored skills) ───────────────────
+
+  test("retrospective scaffold records source + retrospective conversation lineage", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "lineage-skill",
+        name: "Lineage Skill",
+        description: "Distilled from an observed procedure",
+        body_markdown: "Do the procedure.",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      {
+        getConversation: (id) =>
+          id === "retro-run-conv"
+            ? { forkParentConversationId: "source-conv" }
+            : null,
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    const meta = installMetaFor("lineage-skill");
+    expect(meta?.author).toBe("assistant");
+    expect(meta?.sourceConversationId).toBe("source-conv");
+    expect(meta?.retrospectiveConversationId).toBe("retro-run-conv");
+  });
+
+  test("user scaffold records no conversation lineage and never looks up the conversation", async () => {
+    const lookup = mock(() => ({ forkParentConversationId: "source-conv" }));
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-no-lineage",
+        name: "User No Lineage",
+        description: "Authored interactively",
+        body_markdown: "Do the thing.",
+      },
+      makeContext(),
+      { getConversation: lookup },
+    );
+
+    expect(result.isError).toBe(false);
+    const meta = installMetaFor("user-no-lineage");
+    expect(meta?.author).toBe("user");
+    expect("sourceConversationId" in meta!).toBe(false);
+    expect("retrospectiveConversationId" in meta!).toBe(false);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  test("retrospective scaffold with no resolvable parent still succeeds and omits the source lineage", async () => {
+    // Two unresolvable shapes: the conversation row is gone entirely, or it
+    // exists but is not a fork (null parent).
+    const cases = [
+      { skillId: "orphan-no-row", lookup: () => null },
+      {
+        skillId: "orphan-no-parent",
+        lookup: () => ({ forkParentConversationId: null }),
+      },
+    ];
+
+    for (const { skillId, lookup } of cases) {
+      const result = await executeScaffoldManagedSkill(
+        {
+          skill_id: skillId,
+          name: "Orphan Lineage",
+          description: "Parent not resolvable",
+          body_markdown: "Do the procedure.",
+        },
+        makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+        { getConversation: lookup },
+      );
+
+      expect(result.isError).toBe(false);
+      const meta = installMetaFor(skillId);
+      expect(meta?.author).toBe("assistant");
+      expect("sourceConversationId" in meta!).toBe(false);
+      // The authoring conversation is still known — the breadcrumb persists.
+      expect(meta?.retrospectiveConversationId).toBe("retro-run-conv");
+    }
+  });
+
+  test("a throwing conversation lookup never fails the retrospective scaffold", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "lookup-throws",
+        name: "Lookup Throws",
+        description: "DB unavailable during lineage resolution",
+        body_markdown: "Do the procedure.",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      {
+        getConversation: () => {
+          throw new Error("db unavailable");
+        },
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    const meta = installMetaFor("lookup-throws");
+    expect(meta?.author).toBe("assistant");
+    expect("sourceConversationId" in meta!).toBe(false);
+    expect(meta?.retrospectiveConversationId).toBe("retro-run-conv");
+  });
+
+  test("retrospective scaffold with no conversationId on the context omits all lineage", async () => {
+    const lookup = mock(() => ({ forkParentConversationId: "source-conv" }));
+    const context = makeRetrospectiveContext();
+    // Some runtime callers construct a partial context without a conversation.
+    delete (context as { conversationId?: string }).conversationId;
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "no-conversation",
+        name: "No Conversation",
+        description: "Context carries no conversation id",
+        body_markdown: "Do the procedure.",
+      },
+      context,
+      { getConversation: lookup },
+    );
+
+    expect(result.isError).toBe(false);
+    const meta = installMetaFor("no-conversation");
+    expect(meta?.author).toBe("assistant");
+    expect("sourceConversationId" in meta!).toBe(false);
+    expect("retrospectiveConversationId" in meta!).toBe(false);
+    expect(lookup).not.toHaveBeenCalled();
   });
 
   // ── Ownership backstop: never shadow/overwrite a non-managed skill ─────────

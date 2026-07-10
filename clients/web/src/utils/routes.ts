@@ -48,6 +48,14 @@ export const routes = {
    */
   bundleConfirm: r("/assistant/bundle/confirm"),
   remotePair: r("/assistant/pair"),
+  /**
+   * Public one-time credential entry page, opened from a single-use
+   * credential-request link (`?token=` carries the secret-request token).
+   * Same standalone pattern as `remotePair`: lives under `/assistant/*` for
+   * the Vite SPA fallback but is declared OUTSIDE the auth-protected tree in
+   * `routes.tsx` — the person opening the link may have no Vellum session.
+   */
+  credentialEntry: r("/assistant/credentials/enter"),
   quickInput: r("/assistant/quick-input"),
   conversations: r("/assistant/conversations"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
@@ -132,7 +140,21 @@ export const routes = {
   },
   identity: r("/assistant/identity"),
   plugins: r("/assistant/plugins"),
-  skills: r("/assistant/skills"),
+  /**
+   * Skills surface — the list plus a dedicated per-skill detail page.
+   * `detail` deep-links a single skill (`/assistant/skills/:skillId`).
+   *
+   * Callers pass raw skill ids. skills.sh catalog ids are namespaced with
+   * slashes (`org/repo/skill`), so `detail` percent-encodes the id to keep it
+   * a single path segment — otherwise it would never match the
+   * `skills/:skillId` route. React Router decodes route params, so
+   * `useParams()` in the detail page yields the original id unchanged.
+   */
+  skills: {
+    root: r("/assistant/skills"),
+    detail: (skillId: string) =>
+      dyn(r("/assistant/skills"), encodeURIComponent(skillId)),
+  },
   workspace: r("/assistant/workspace"),
   library: {
     root: r("/assistant/library"),
@@ -154,6 +176,7 @@ export const routes = {
     general: r("/assistant/settings/general"),
     ai: r("/assistant/settings/ai"),
     integrations: r("/assistant/settings/integrations"),
+    credentials: r("/assistant/settings/credentials"),
     notifications: r("/assistant/settings/notifications"),
     keyboardShortcuts: r("/assistant/settings/keyboard-shortcuts"),
     sounds: r("/assistant/settings/sounds"),
@@ -199,7 +222,7 @@ export const routes = {
 const ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.identity,
   routes.plugins,
-  routes.skills,
+  routes.skills.root,
   routes.workspace,
   routes.contacts.root,
   routes.channels,

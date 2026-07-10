@@ -34,16 +34,6 @@ import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
 import { resolveCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
-import { EventBus } from "../events/bus.js";
-import type { AssistantDomainEvents } from "../events/domain-events.js";
-import { createToolAuditListener } from "../events/tool-audit-listener.js";
-import { createToolDomainEventPublisher } from "../events/tool-domain-event-publisher.js";
-import { registerToolMetricsLoggingListener } from "../events/tool-metrics-listener.js";
-import { registerToolPermissionTelemetryListener } from "../events/tool-permission-telemetry-listener.js";
-import {
-  registerToolProfilingListener,
-  ToolProfiler,
-} from "../events/tool-profiling-listener.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -99,9 +89,9 @@ import {
 } from "../telemetry/activation-funnel.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { getAllToolDefinitions, getTool } from "../tools/registry.js";
-import type { ToolLifecycleEvent } from "../tools/types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
+import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import type { WorkspaceGitService } from "../workspace/git-service.js";
 import type { commitTurnChanges } from "../workspace/turn-commit.js";
@@ -112,7 +102,7 @@ import {
   runAgentLoopImpl,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
-import { isToolResultBlock, undo as undoImpl } from "./conversation-history.js";
+import { undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
@@ -143,6 +133,7 @@ import { MessageQueue } from "./conversation-queue-manager.js";
 import {
   type ChannelCapabilities,
   getSlackCompactionWatermarkForPrefix,
+  getSlackWatermarkAdvanceForRowPrefix,
   type InboundActorContext,
   loadSlackChronologicalContext,
   stripInjectionsForCompaction,
@@ -179,39 +170,37 @@ import type { ConversationTransportMetadata } from "./message-types/conversation
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
+import {
+  resolveSummarizeBoundary,
+  startsNewTurn,
+} from "./summarize-boundary.js";
 
 const log = getLogger("conversation");
 
 /**
- * Whether a persisted message starts a new conversation turn. A turn is
- * delimited by a "real" user message; a user message whose content is entirely
- * tool_result blocks is a continuation within the current turn, and assistant
- * messages never start one. Mirrors the turn-boundary definition used by
- * `getAssistantMessageIdsInTurn`/`getTurnTimeBounds` and the agent loop's
- * per-turn `turnCount++`, so counting these reconstructs `turnCount` on load.
+ * First text block of a persisted message row's content, mirroring
+ * `loadFromDb`'s parse: non-JSON / non-array content loads as a single text
+ * block holding the raw string. Returns null when the row's block array has
+ * no text block. Used to verify the row→history boundary mapping in
+ * {@link Conversation.summarizeUpToMessage}.
  */
-function startsNewTurn(role: string, content: string): boolean {
-  if (role !== "user") {
-    return false;
-  }
+function firstPersistedTextBlockText(content: string): string | null {
   try {
-    const parsed = JSON.parse(content);
-    if (
-      Array.isArray(parsed) &&
-      parsed.length > 0 &&
-      parsed.every(
-        (block: unknown) =>
-          block != null &&
-          typeof block === "object" &&
-          isToolResultBlock(block as Record<string, unknown>),
-      )
-    ) {
-      return false;
+    const parsed: unknown = JSON.parse(content);
+    if (Array.isArray(parsed)) {
+      const block = parsed.find(
+        (b): b is { type: "text"; text: string } =>
+          typeof b === "object" &&
+          b !== null &&
+          (b as { type?: unknown }).type === "text" &&
+          typeof (b as { text?: unknown }).text === "string",
+      );
+      return block?.text ?? null;
     }
   } catch {
-    // Non-JSON content is a plain user message — a turn boundary.
+    // Non-JSON content loads as a raw text block.
   }
-  return true;
+  return content;
 }
 
 export interface CleanResult {
@@ -246,7 +235,11 @@ export type {
   QueueDrainReason,
   QueuePolicy,
 } from "./conversation-queue-manager.js";
-import { isPersonalMemoryAllowed, type TrustContext } from "./trust-context.js";
+import {
+  INTERNAL_GUARDIAN_TRUST_CONTEXT,
+  isPersonalMemoryAllowed,
+} from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;
@@ -270,20 +263,37 @@ export interface ConversationConstructorOptions {
   parentConversationId?: string;
 }
 
+/**
+ * The rejection value for an aborted {@link Conversation.waitForIdle} wait:
+ * the signal's own reason when set, else a plain Error so callers always
+ * receive a throwable.
+ */
+function abortReasonOf(signal?: AbortSignal): unknown {
+  return (
+    signal?.reason ?? new Error("Aborted while waiting for conversation idle")
+  );
+}
+
 export class Conversation {
   public readonly conversationId: string;
   /** @internal */ provider: Provider;
   /** @internal */ messages: Message[] = [];
   /** @internal */ agentLoop: AgentLoop;
   private _processing = false;
+  /**
+   * Pending {@link waitForIdle} resolvers, notified from the committed
+   * `processing → false` transition inside {@link setProcessing}. Every
+   * `setProcessing(false)` call site funnels through that single method
+   * (agent-loop/messaging/lifecycle contexts receive the Conversation
+   * instance itself), so waiters cannot miss a release.
+   */
+  private idleWaiters = new Set<() => void>();
   private stale = false;
   /** @internal */ abortController: AbortController | null = null;
   /** @internal */ prompter: PermissionPrompter;
   /** @internal */ secretPrompter: SecretPrompter;
   private executor: ToolExecutor;
-  /** @internal */ profiler: ToolProfiler;
   /** @internal */ sendToClient: (msg: ServerMessage) => void;
-  /** @internal */ eventBus = new EventBus<AssistantDomainEvents>();
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
   /**
@@ -695,20 +705,11 @@ export class Conversation {
     // Register call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);
 
-    // Tool infrastructure
+    // Tool infrastructure. The executor writes audit rows, permission
+    // telemetry, and profiler timings directly to their module-level terminals
+    // (tools/executor.ts → telemetry/tool-audit.ts + tools/tool-profiler.ts),
+    // keyed by conversation id — nothing tool-side is threaded through here.
     this.executor = new ToolExecutor(this.prompter);
-    this.profiler = new ToolProfiler();
-    registerToolMetricsLoggingListener(this.eventBus);
-    registerToolProfilingListener(this.eventBus, this.profiler);
-    registerToolPermissionTelemetryListener(this.eventBus);
-    const auditToolLifecycleEvent = createToolAuditListener();
-    const publishToolDomainEvent = createToolDomainEventPublisher(
-      this.eventBus,
-    );
-    const handleToolLifecycleEvent = (event: ToolLifecycleEvent) => {
-      auditToolLifecycleEvent(event);
-      return publishToolDomainEvent(event);
-    };
 
     const toolDefs = getAllToolDefinitions();
     this.coreToolNames = new Set(toolDefs.map((d) => d.name));
@@ -717,7 +718,6 @@ export class Conversation {
       this.prompter,
       this.secretPrompter,
       this as ToolSetupContext,
-      handleToolLifecycleEvent,
     );
 
     const config = getConfig();
@@ -963,9 +963,7 @@ export class Conversation {
     // message, matching the agent loop's per-turn `turnCount++`. Counted from
     // the full unsliced history so it survives compaction and is independent of
     // the viewer's trust class.
-    this.turnCount = allDbMessages.filter((m) =>
-      startsNewTurn(m.role, m.content),
-    ).length;
+    this.turnCount = allDbMessages.filter((m) => startsNewTurn(m)).length;
 
     const conv = getConversation(this.conversationId);
     this.conversationType = conv?.conversationType ?? undefined;
@@ -1133,7 +1131,16 @@ export class Conversation {
           // itself is never rewritten — auditable and reversible); an
           // all-pruned block is skipped entirely, matching the live strip in
           // `memory/v3/prune.ts`.
-          if (typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string") {
+          // Trust-gated on `personalMemoryAllowed`, mirroring the v2 static
+          // block below and the live v3 injector: v3 cards carry personal user
+          // memory (memory pages, PKB, matched sections), so an untrusted-actor
+          // view must not read them back through persisted metadata. The tail
+          // is still rehydrated for trusted views (unlike v2) — the gate is the
+          // only constraint added here.
+          if (
+            personalMemoryAllowed &&
+            typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string"
+          ) {
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
             ] as string;
@@ -1425,7 +1432,9 @@ export class Conversation {
    * edge would put runtime-assembly's importers on that cycle).
    */
   getSubagentChildren(): SubagentState[] | null {
-    if (this.isSubagent) return null;
+    if (this.isSubagent) {
+      return null;
+    }
     return getSubagentManager().getChildrenOf(this.conversationId);
   }
 
@@ -1494,11 +1503,59 @@ export class Conversation {
       this._processing = wasProcessing;
       throw err;
     }
+    if (!value && this.idleWaiters.size > 0) {
+      // Notify only after the persisted write above committed — a thrown
+      // write reverts the in-memory flag and re-throws, so waiters must not
+      // observe a release that never happened. Copy-and-clear so a waiter
+      // registered from inside a notification can't be re-entered.
+      const waiters = [...this.idleWaiters];
+      this.idleWaiters.clear();
+      for (const notify of waiters) {
+        notify();
+      }
+    }
     if (wasProcessing && !value) {
       void publishSyncInvalidation([
         conversationMetadataSyncTag(this.conversationId),
       ]);
     }
+  }
+
+  /**
+   * Wait until this conversation's processing lock releases.
+   *
+   * Resolves `true` as soon as `processing` is false (including a
+   * synchronous fast path when it already is), resolves `false` when
+   * `timeoutMs` elapses first, and rejects with the signal's abort reason
+   * if `signal` fires while waiting. Resolution is event-driven from the
+   * `setProcessing(false)` transition — no polling — so a voice barge-in
+   * turn can start on the same tick the prior turn releases the lock.
+   * Timer and abort listener are cleaned up on every exit path.
+   */
+  waitForIdle(options: {
+    timeoutMs: number;
+    signal?: AbortSignal;
+  }): Promise<boolean> {
+    const { timeoutMs, signal } = options;
+    if (!this._processing) {
+      return Promise.resolve(true);
+    }
+    if (signal?.aborted) {
+      return Promise.reject(abortReasonOf(signal));
+    }
+    return new Promise<boolean>((resolve, reject) => {
+      const settle = (fn: () => void) => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        this.idleWaiters.delete(notify);
+        fn();
+      };
+      const notify = () => settle(() => resolve(true));
+      const onAbort = () => settle(() => reject(abortReasonOf(signal)));
+      const timer = setTimeout(() => settle(() => resolve(false)), timeoutMs);
+      this.idleWaiters.add(notify);
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
   }
 
   markStale(): void {
@@ -1851,6 +1908,100 @@ export class Conversation {
   }
 
   /**
+   * "Summarize up to here": summarize everything before the turn containing
+   * `beforeMessageId`, keeping that turn and everything after it verbatim.
+   * Runs the same durable compaction pipeline as {@link forceCompact} but
+   * with a caller-fixed tail boundary instead of the token-budget cut.
+   *
+   * Owner self-maintenance operates on the full (guardian) history, so an
+   * untrusted trust context is temporarily swapped for the internal guardian
+   * context and restored afterward — the same idiom as
+   * `resolveMetaSlashCommand`. Throws {@link UserError} (messages are
+   * user-facing) when the boundary cannot be resolved or the row→history
+   * index mapping cannot be verified.
+   */
+  async summarizeUpToMessage(
+    beforeMessageId: string,
+  ): Promise<ContextWindowResult> {
+    const priorTrustContext = this.trustContext;
+    if (!resolveCapabilities(priorTrustContext?.trustClass).canAccessMemory) {
+      this.setTrustContext(INTERNAL_GUARDIAN_TRUST_CONTEXT);
+    }
+    try {
+      // Fresh guardian-scoped load so `this.messages` and the persisted rows
+      // describe the same history (rare user action; the reload cost is
+      // acceptable).
+      await this.loadFromDb();
+      const rows = getMessages(this.conversationId);
+      const { boundaryRowIndex } = resolveSummarizeBoundary(
+        rows,
+        beforeMessageId,
+        this.contextCompactedMessageCount,
+      );
+      // Row-space → history-space: `this.messages` starts past the
+      // already-compacted row prefix and carries one leading summary message
+      // when a non-blank context summary exists (matching the `loadFromDb`
+      // prepend condition).
+      const tailIndex =
+        (this.contextSummary?.trim() ? 1 : 0) +
+        (boundaryRowIndex - this.contextCompactedMessageCount);
+      const boundaryRow = rows[boundaryRowIndex];
+      const mapped: Message | undefined = this.messages[tailIndex];
+      const rowText = firstPersistedTextBlockText(boundaryRow.content);
+      // Injection rehydration PREPENDS blocks to user messages, so the row's
+      // text must appear somewhere among the in-memory message's text blocks
+      // — never assume block 0. A mismatch means the in-memory view diverged
+      // from the persisted rows (e.g. history repair inserted a synthetic
+      // message); fail safe rather than summarize at the wrong boundary.
+      const matches =
+        mapped !== undefined &&
+        mapped.role === boundaryRow.role &&
+        (rowText === null ||
+          mapped.content.some(
+            (b) => b.type === "text" && b.text.includes(rowText),
+          ));
+      if (!matches) {
+        log.warn(
+          {
+            conversationId: this.conversationId,
+            beforeMessageId,
+            boundaryRowIndex,
+            tailIndex,
+            rowRole: boundaryRow.role,
+            mappedRole: mapped?.role,
+            rowCount: rows.length,
+            historyLength: this.messages.length,
+            contextCompactedMessageCount: this.contextCompactedMessageCount,
+          },
+          "summarizeUpToMessage: row→history boundary mapping mismatch",
+        );
+        throw new UserError(
+          "Conversation history is being reorganized — try again in a moment",
+        );
+      }
+      return await this.runCompaction(true, undefined, {
+        fixedTailStartIndex: tailIndex,
+        // Slack projections gate on the persisted watermark, not on
+        // `contextCompactedMessageCount` — without an advance, the summarized
+        // rows would reappear verbatim in the projection alongside the new
+        // summary. Null for non-Slack rows or a non-advancing boundary.
+        fixedBoundarySlackWatermarkTs: getSlackWatermarkAdvanceForRowPrefix(
+          rows,
+          boundaryRowIndex,
+          this.slackContextCompactionWatermarkTs,
+        ),
+      });
+    } finally {
+      // Only undo the temporary guardian context this method installed. If
+      // trustContext was legitimately updated at an `await` boundary, the
+      // reference differs and is left alone.
+      if (this.trustContext === INTERNAL_GUARDIAN_TRUST_CONTEXT) {
+        this.setTrustContext(priorTrustContext ?? null);
+      }
+    }
+  }
+
+  /**
    * Auto-threshold compaction gate. Runs the same durable compaction
    * pipeline as {@link forceCompact} (summary call, circuit-breaker
    * accounting, Slack provenance, in-memory + DB commit) but honors the
@@ -1875,14 +2026,23 @@ export class Conversation {
   }
 
   /**
-   * Shared compaction pipeline behind {@link forceCompact} and
-   * {@link maybeCompact}. `force` skips the auto-threshold check inside the
-   * context-window manager (user-initiated `/compact`); without it the
-   * manager no-ops below the threshold.
+   * Shared compaction pipeline behind {@link forceCompact},
+   * {@link maybeCompact}, and {@link summarizeUpToMessage}. `force` skips the
+   * auto-threshold check inside the context-window manager (user-initiated
+   * `/compact`); without it the manager no-ops below the threshold.
+   * `opts.fixedTailStartIndex` pins the kept tail to a caller-chosen history
+   * index ("summarize up to here") instead of the token-budget cut;
+   * `opts.fixedBoundarySlackWatermarkTs` is that path's row-space-derived
+   * Slack watermark (the auto/forced Slack path derives its own from the
+   * chronological projection).
    */
   private async runCompaction(
     force: boolean,
     sizing?: CompactionSizing,
+    opts?: {
+      fixedTailStartIndex?: number;
+      fixedBoundarySlackWatermarkTs?: string | null;
+    },
   ): Promise<ContextWindowResult> {
     const overrideProfile = resolveOverrideProfile(this) ?? null;
     const config = getConfig();
@@ -1910,7 +2070,15 @@ export class Conversation {
         effectiveContextWindow,
       ),
     );
+    // A caller-fixed tail boundary is computed and verified against
+    // `this.messages`; the Slack chronological projection is a different
+    // array (watermark-sliced, actor-filtered, re-rendered) whose indices
+    // don't correspond. Fixed-boundary runs therefore always compact
+    // `this.messages`; their Slack watermark arrives pre-derived in
+    // row-space via `opts.fixedBoundarySlackWatermarkTs` (a null context
+    // makes `getSlackCompactionWatermarkForPrefix` return null below).
     const slackChronologicalContext =
+      opts?.fixedTailStartIndex == null &&
       this.channelCapabilities?.channel === "slack"
         ? loadSlackChronologicalContext(
             this.conversationId,
@@ -1933,6 +2101,7 @@ export class Conversation {
       force,
       overrideProfile,
       actorTrustClass: this.trustContext?.trustClass,
+      fixedTailStartIndex: opts?.fixedTailStartIndex,
     });
     // Track circuit-breaker state for every compaction that ran a summary
     // call — user-initiated `/compact`, other forced paths, and the wake's
@@ -1949,10 +2118,12 @@ export class Conversation {
     }
     if (result.compacted) {
       await applyCompactionResult(this, result, this.sendToClient, null, {
-        slackContextCompactionWatermarkTs: getSlackCompactionWatermarkForPrefix(
-          slackChronologicalContext,
-          result.compactedMessages,
-        ),
+        slackContextCompactionWatermarkTs:
+          opts?.fixedBoundarySlackWatermarkTs ??
+          getSlackCompactionWatermarkForPrefix(
+            slackChronologicalContext,
+            result.compactedMessages,
+          ),
       });
     }
     return result;
@@ -2103,7 +2274,7 @@ export class Conversation {
     }
   }
 
-  setTurnChannelContext(ctx: TurnChannelContext): void {
+  setTurnChannelContext(ctx: TurnChannelContext | null): void {
     this.currentTurnChannelContext = ctx;
   }
 
@@ -2111,7 +2282,7 @@ export class Conversation {
     return this.currentTurnChannelContext;
   }
 
-  setTurnInterfaceContext(ctx: TurnInterfaceContext): void {
+  setTurnInterfaceContext(ctx: TurnInterfaceContext | null): void {
     this.currentTurnInterfaceContext = ctx;
   }
 

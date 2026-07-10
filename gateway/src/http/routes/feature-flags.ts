@@ -16,7 +16,7 @@ import type { GatewayRouteDefinition } from "./types.js";
 const log = getLogger("feature-flags");
 
 /**
- * Only allow simple kebab-case keys (e.g., "browser", "ces-tools").
+ * Only allow simple kebab-case keys (e.g., "browser", "voice-mode").
  */
 const ALLOWED_KEY_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -126,7 +126,7 @@ export function createFeatureFlagsPatchHandler(onFlagChanged?: () => void) {
       return Response.json(
         {
           error:
-            "Invalid flag key format. Must be a simple kebab-case string (e.g., 'browser', 'ces-tools')",
+            "Invalid flag key format. Must be a simple kebab-case string (e.g., 'browser', 'voice-mode')",
         },
         { status: 400 },
       );

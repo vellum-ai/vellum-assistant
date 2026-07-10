@@ -681,6 +681,12 @@ describe("web_search_tool_result structural guard", () => {
     // reasoning as caption-blocks.ts above.
     "providers/media-resolve.ts",
 
+    // Walks a tool_result's rich `contentBlocks` to materialize nested base64
+    // media into workspace references at persist time. web_search_tool_result
+    // blocks carry no contentBlocks, so only tool_result is relevant. Same
+    // reasoning as media-resolve.ts above.
+    "daemon/persist-media-references.ts",
+
     // Detects turn boundaries by checking whether a user message carries any
     // tool_result block (internal continuation) vs. none (genuine user prompt).
     // A web_search_tool_result-only message is also internal, but treating one

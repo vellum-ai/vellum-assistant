@@ -84,6 +84,20 @@ import {
   OnboardingStageSizeProvider,
   useElementSize,
 } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
+import { getBrowserTimezone } from "@/utils/browser-timezone";
+import {
+  checkEstablishedAssistant,
+  FRESH_ASSISTANT_CHECK,
+  type EstablishedAssistantCheck,
+} from "@/domains/onboarding/established-assistant";
+import { ExistingAssistantStep } from "@/domains/onboarding/screens/existing-assistant-step";
+
+/**
+ * How long a submit waits for the established-assistant verdict before failing
+ * open. The check starts at mount (it needs only the hatch), so by submit time
+ * it has usually settled; the race keeps a slow daemon from holding the form.
+ */
+const ESTABLISHED_CHECK_SUBMIT_WAIT_MS = 4000;
 
 /** Build the research subject from the collected form values. */
 function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject {
@@ -92,6 +106,7 @@ function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject 
     lastName: values.lastName,
     occupation: values.role,
     hobby: values.hobbies.join(", "),
+    timezone: getBrowserTimezone(),
   };
 }
 
@@ -177,6 +192,20 @@ export function ResearchOnboardingRoute() {
   const [formValues, setFormValues] = useState<ResearchOnboardingValues | null>(
     null,
   );
+  // Established-assistant guard. The verdict resolves in the background once
+  // the hatch lands (see the effect below); an intercepted submit parks its
+  // values in `gatedFormValues` — deliberately NOT `formValues`, so neither
+  // the persistence snapshot nor the resume research-refire effect can act on
+  // a journey the user hasn't confirmed. `guardOverriddenRef` releases the
+  // gate for the rest of the visit once the user explicitly chooses to redo.
+  const establishedCheckRef = useRef<Promise<EstablishedAssistantCheck> | null>(
+    null,
+  );
+  const [establishedCheck, setEstablishedCheck] =
+    useState<EstablishedAssistantCheck | null>(null);
+  const [gatedFormValues, setGatedFormValues] =
+    useState<ResearchOnboardingValues | null>(null);
+  const guardOverriddenRef = useRef(false);
   const [faceValues, setFaceValues] = useState<GiveMeAFaceValues | null>(null);
   // Personality sliders live here (not in the step) so they survive a step-back
   // and stay shown once locked. `personalityLocked` flips true on the first
@@ -289,6 +318,21 @@ export function ResearchOnboardingRoute() {
     setPendingAvatarTraits(null);
     startHatch();
   }, [exitFocus, setPendingAvatarTraits, startHatch]);
+
+  // Resolve whether the hatched assistant already has a life BEFORE the flow
+  // can fire anything at it: the research turn writes memory and the
+  // personality step rewrites the persona, so an already-customized assistant
+  // must never be run through them silently. The submit handler awaits this
+  // verdict (briefly) and branches to the "existing" guard step.
+  useEffect(() => {
+    if (establishedCheckRef.current) return;
+    const check = awaitHatchReady()
+      .then((id) => checkEstablishedAssistant(id))
+      // A failed hatch surfaces its own error downstream; the guard fails open.
+      .catch(() => FRESH_ASSISTANT_CHECK);
+    establishedCheckRef.current = check;
+    void check.then(setEstablishedCheck);
+  }, [awaitHatchReady]);
 
   // Resume a journey saved by a previous session (a page refresh). Runs once,
   // as soon as the user id is known, BEFORE the persistence write / research
@@ -531,10 +575,9 @@ export function ResearchOnboardingRoute() {
     );
   }
 
-  function handleFormSubmit(values: ResearchOnboardingValues) {
-    setFormValues(values);
-    // Fire the research turn now; the runner awaits hatch readiness internally,
-    // so it starts at the later of this submit and the background hatch.
+  // Fire the research turn; the runner awaits hatch readiness internally, so
+  // it starts at the later of the caller's submit and the background hatch.
+  function fireResearch(values: ResearchOnboardingValues) {
     research.start({
       awaitAssistantId: awaitHatchReady,
       subject: researchSubjectFrom(values),
@@ -544,6 +587,30 @@ export function ResearchOnboardingRoute() {
       // onboarding is on, so don't ask the model to generate any.
       includeSuggestions: !personalityEnabled,
     });
+  }
+
+  async function handleFormSubmit(values: ResearchOnboardingValues) {
+    // Established-assistant guard: never run the flow's side effects against
+    // an assistant that already has a life without an explicit choice. Uses
+    // the settled verdict when available, otherwise waits briefly for the
+    // in-flight check — failing open so a slow daemon can't hold the form.
+    if (!guardOverriddenRef.current) {
+      const check =
+        establishedCheck ??
+        (await Promise.race([
+          establishedCheckRef.current ?? Promise.resolve(null),
+          new Promise<null>((resolve) => {
+            setTimeout(() => resolve(null), ESTABLISHED_CHECK_SUBMIT_WAIT_MS);
+          }),
+        ]));
+      if (check?.established) {
+        setGatedFormValues(values);
+        goForwardTo("existing");
+        return;
+      }
+    }
+    setFormValues(values);
+    fireResearch(values);
     goForwardTo("face");
   }
 
@@ -839,6 +906,54 @@ export function ResearchOnboardingRoute() {
         )}
         </OnboardingStageSizeProvider>
       </div>
+    );
+  }
+
+  // Established-assistant guard: an explicit keep-or-overwrite choice. Renders
+  // instead of advancing to "face" when the submitted-to assistant already has
+  // a life (see handleFormSubmit); a genuinely new user never lands here.
+  if (step === "existing") {
+    return (
+      <ExistingAssistantStep
+        assistantName={establishedCheck?.assistantName ?? null}
+        onKeep={() => {
+          // Terminal off-ramp: leaves via navigation, not goForwardTo, so emit
+          // the step outcome here (mirrors the suggestions terminal steps).
+          emitResearchOnboardingStepCompleted(
+            RESEARCH_ONBOARDING_FUNNEL_STEPS.existing,
+            { userId, outcome: "completed" },
+          );
+          clearResearchSnapshot(userId);
+          // Pin the selection to the adopted assistant, then enter the app —
+          // with no pre-chat context, kickoff, or persona write of any kind.
+          void lifecycleService
+            .checkAssistant(hatchedAssistantId ?? undefined)
+            .finally(() => {
+              void navigate(routes.assistant, { replace: true });
+            });
+        }}
+        onRedo={() => {
+          const values = gatedFormValues;
+          if (!values) return;
+          // Deliberate overwrite: release the gate for the rest of this visit
+          // and continue exactly where the intercepted submit left off.
+          guardOverriddenRef.current = true;
+          emitResearchOnboardingStepCompleted(
+            RESEARCH_ONBOARDING_FUNNEL_STEPS.existing,
+            { userId, outcome: "skipped" },
+          );
+          setFormValues(values);
+          fireResearch(values);
+          // Mirrors goForwardTo("face") minus the step-completion emit — the
+          // guard records its own outcome above instead.
+          setForwardStack([]);
+          navTo("face");
+        }}
+        onBack={() => {
+          setGatedFormValues(null);
+          goBackTo("form");
+        }}
+      />
     );
   }
 

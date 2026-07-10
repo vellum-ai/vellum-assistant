@@ -4,6 +4,7 @@
  * POST   /v1/conversations                 — create a new conversation
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * POST   /v1/conversations/fork           — fork an existing conversation
+ * POST   /v1/conversations/summarize      — summarize context up to a message
  * PUT    /v1/conversations/:id/inference-profile — set per-conversation inference profile
  * PUT    /v1/conversations/:id/enabledplugins — set per-conversation plugin scope
  * PATCH  /v1/conversations/:id/name       — rename a conversation
@@ -20,8 +21,14 @@
 
 import { z } from "zod";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
+import { formatSummarizeUpToResult } from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
-import { destroyActiveConversation } from "../../daemon/conversation-store.js";
+import {
+  destroyActiveConversation,
+  getOrCreateConversation as getOrCreateConversationInstance,
+} from "../../daemon/conversation-store.js";
 import {
   cancelGeneration,
   clearAllConversations,
@@ -52,6 +59,8 @@ import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { silentlyWithLog } from "../../util/silently.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import {
@@ -60,8 +69,15 @@ import {
   publishConversationListChanged,
   publishConversationTitleChanged,
 } from "../sync/resource-sync-events.js";
+import { persistCannedAssistantCard } from "./canned-message-complete.js";
+import { buildChannelMetadata } from "./channel-metadata.js";
 import { conversationSummarySchema } from "./conversation-list-routes.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+} from "./errors.js";
 import { setInferenceProfileSession } from "./inference-profile-session-handler.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -75,6 +91,12 @@ function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
   if (!id) throw new NotFoundError(`Conversation ${rawId} not found`);
   return id;
+}
+
+const SUMMARIZE_UP_TO_HERE_FLAG = "summarize-up-to-here" as const;
+
+function isSummarizeUpToHereEnabled(): boolean {
+  return isAssistantFeatureFlagEnabled(SUMMARIZE_UP_TO_HERE_FLAG, getConfig());
 }
 
 async function cancelScheduleIfLast(conversationId: string): Promise<void> {
@@ -177,6 +199,102 @@ async function handleForkConversation({
     }
     throw err;
   }
+}
+
+async function handleSummarizeConversation({
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  // Flag-off behaves as an unknown endpoint — same body shape as the
+  // router's 404 — so the surface is invisible until the flag ships.
+  if (!isSummarizeUpToHereEnabled()) {
+    throw new NotFoundError("Not found");
+  }
+  const rawConversationId = body.conversationId;
+  if (!rawConversationId || typeof rawConversationId !== "string") {
+    throw new BadRequestError("Missing conversationId");
+  }
+  const beforeMessageId = body.beforeMessageId;
+  if (!beforeMessageId || typeof beforeMessageId !== "string") {
+    throw new BadRequestError("Missing beforeMessageId");
+  }
+
+  const conversationId =
+    resolveConversationId(rawConversationId) ?? rawConversationId;
+  // Gate on DB existence first: `getOrCreateConversationInstance` would
+  // otherwise create a fresh conversation and mask the not-found case.
+  if (!getConversation(conversationId)) {
+    throw new NotFoundError(`Conversation ${rawConversationId} not found`);
+  }
+  const conversation = await getOrCreateConversationInstance(conversationId);
+
+  // Synchronous check-then-claim (no await between them) so a concurrent
+  // request cannot slip past the busy gate.
+  if (conversation.isProcessing()) {
+    throw new ConflictError(
+      "The assistant is currently responding — try again when it finishes",
+    );
+  }
+  conversation.setProcessing(true);
+
+  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+
+  // The summarize action only ships from the vellum web/desktop client; the
+  // interface id is omitted because this management route (unlike the send
+  // path) does not receive one from the client.
+  const channelMeta = buildChannelMetadata("vellum", undefined, {
+    trustContext: conversation.trustContext,
+  });
+  const persistCard = (text: string) =>
+    persistCannedAssistantCard({
+      conversation,
+      conversationId,
+      text,
+      metadata: channelMeta,
+      originClientId,
+    });
+
+  // Fire-and-forget: return 202 immediately, run summarization async. The
+  // summary LLM call can exceed the client's HTTP timeout on large contexts.
+  // The `context_compacted` SSE event, usage recording, and memory hooks are
+  // all emitted inside the shared compaction write path — only the result
+  // card is the route's responsibility.
+  (async () => {
+    try {
+      conversation.emitActivityState("thinking", "context_compacting", {
+        statusText: "Summarizing conversation",
+      });
+      const result = await conversation.summarizeUpToMessage(beforeMessageId);
+      await persistCard(formatSummarizeUpToResult(result));
+    } catch (err) {
+      // Boundary/mapping UserErrors are expected user-facing outcomes, not
+      // failures: surface them as a skipped card rather than an error event.
+      if (err instanceof UserError) {
+        try {
+          await persistCard(`Summarization skipped — ${err.message}`);
+          return;
+        } catch (cardErr) {
+          err = cardErr;
+        }
+      }
+      log.error({ err, conversationId }, "Summarize command failed");
+      broadcastMessage({
+        type: "conversation_error",
+        conversationId,
+        code: "UNKNOWN",
+        userMessage: `Summarization failed: ${err instanceof Error ? err.message : String(err)}`,
+        retryable: true,
+      });
+    } finally {
+      conversation.setProcessing(false);
+      silentlyWithLog(
+        conversation.drainQueue(),
+        "summarize-command queue drain",
+      );
+    }
+  })();
+
+  return { accepted: true as const, conversationId };
 }
 
 async function handleSwitchConversation({ body = {} }: RouteHandlerArgs) {
@@ -590,6 +708,33 @@ export const ROUTES: RouteDefinition[] = [
       conversation: conversationSummarySchema,
     }),
     handler: handleForkConversation,
+  },
+  {
+    operationId: "summarizeConversation",
+    endpoint: "conversations/summarize",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Summarize a conversation up to a message",
+    description:
+      "Replace the conversation's context before the given message with a generated summary. " +
+      "The boundary snaps to the start of the turn containing beforeMessageId; that turn and " +
+      "everything after stay verbatim. Messages are never deleted.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      conversationId: z.string(),
+      beforeMessageId: z
+        .string()
+        .describe("Summarize all messages before this one"),
+    }),
+    responseBody: z.object({
+      accepted: z.literal(true),
+      conversationId: z.string(),
+    }),
+    responseStatus: "202",
+    handler: handleSummarizeConversation,
   },
   {
     operationId: "switchConversation",

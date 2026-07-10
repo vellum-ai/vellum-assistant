@@ -31,12 +31,11 @@ const enqueueCalls: Array<{
 }> = [];
 let nextJobId = 0;
 
-// Spread the real module's exports so transitive importers (e.g.
-// memory/auto-analysis-enqueue.ts pulled in via the CLI program → memory
-// indexer chain) get every named export they bind to at module-load time;
-// only `enqueueMemoryJob` is overridden so the route under test forwards
-// to the test stub. jobs-store.ts has no side-effecting top-level
-// statements, so loading it for the spread is safe.
+// Spread the real module's exports so transitive importers (pulled in via
+// the CLI program → memory indexer chain) get every named export they bind
+// to at module-load time; only `enqueueMemoryJob` is overridden so the
+// route under test forwards to the test stub. jobs-store.ts has no
+// side-effecting top-level statements, so loading it for the spread is safe.
 mock.module("../../../persistence/jobs-store.js", () => ({
   ...realJobsStore,
   enqueueMemoryJob: (type: string, payload: Record<string, unknown>) => {
@@ -44,7 +43,6 @@ mock.module("../../../persistence/jobs-store.js", () => ({
     nextJobId += 1;
     return `test-job-${nextJobId}`;
   },
-  upsertAutoAnalysisJob: () => {},
   upsertDebouncedJob: () => `test-debounced-${++nextJobId}`,
   hasActiveJobOfType: () => false,
   enqueuePruneOldLlmRequestLogsJob: () => `test-prune-${++nextJobId}`,

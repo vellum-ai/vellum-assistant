@@ -19,6 +19,7 @@ import {
 import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { invalidateAssistantSuggestedPromptsCache } from "../home/suggested-prompts-cache.js";
 import { getDb } from "../persistence/db-connection.js";
 import { rawChanges } from "../persistence/raw-query.js";
 import {
@@ -1133,17 +1134,9 @@ export async function disconnectOAuthProvider(
 
   deleteConnection(conn.id);
 
-  // Dynamic import: `suggested-prompts.ts` imports from this module, so a
-  // static import here would create a cycle. The cache invalidation is
-  // best-effort — failures must not block disconnect.
-  void import("../home/suggested-prompts.js")
-    .then((m) => m.invalidateAssistantSuggestedPromptsCache())
-    .catch((err) => {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        "Failed to invalidate suggested-prompts cache after disconnect",
-      );
-    });
+  // Best-effort cache invalidation so Home suggestions track the disconnect;
+  // the call swallows its own failures and never blocks disconnect.
+  invalidateAssistantSuggestedPromptsCache();
 
   return "disconnected";
 }

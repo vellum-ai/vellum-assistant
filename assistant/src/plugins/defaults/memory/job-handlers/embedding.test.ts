@@ -150,7 +150,6 @@ describe("embedMediaJob", () => {
     expect(call.extraPayload).toEqual({
       created_at: now,
       kind: "image",
-      memory_scope_id: "default",
       subject: "My Screenshot",
     });
   });

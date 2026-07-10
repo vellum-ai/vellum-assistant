@@ -1846,6 +1846,64 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[2].role).toBe("user");
   });
 
+  test("assistant skill_card message: ui_surface is stripped and the _surfaceFallback text reaches the wire", async () => {
+    // Contract-shaped block pair persisted by the memory retrospective's
+    // skill-card insertion (memory-retrospective-skill-card.ts): the
+    // ui_surface card plus a `_surfaceFallback` text sibling. The provider
+    // must drop the ui_surface block and send the fallback text as the
+    // assistant turn's real content — no placeholder needed.
+    const skillCardBlock = {
+      type: "ui_surface",
+      surfaceId: "skill-card-run-conv-1",
+      surfaceType: "skill_card",
+      title: "New skill learned",
+      display: "inline",
+      data: {
+        skills: [
+          {
+            skillId: "skill-1",
+            name: "Example skill",
+            description: "Does a thing",
+            emoji: null,
+          },
+        ],
+      },
+    } as unknown as ContentBlock;
+    const fallbackBlock = {
+      type: "text",
+      text: "New skill learned: Example skill",
+      _surfaceFallback: true,
+    } as unknown as ContentBlock;
+    const messages: Message[] = [
+      userMsg("Start"),
+      { role: "assistant", content: [skillCardBlock, fallbackBlock] },
+      userMsg("Continue"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    // No ui_surface block (or any of its payload) reaches the wire; the
+    // assistant turn carries the fallback text (stripped of the internal
+    // `_surfaceFallback` marker), so alternation holds without a placeholder.
+    expect(sent).toHaveLength(3);
+    expect(
+      sent.flatMap((m) => m.content).every((b) => b.type !== "ui_surface"),
+    ).toBe(true);
+    expect(JSON.stringify(sent)).not.toContain("skill_card");
+    expect(JSON.stringify(sent)).not.toContain("_surfaceFallback");
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content).toEqual([
+      { type: "text", text: "New skill learned: Example skill" },
+    ]);
+    for (let i = 1; i < sent.length; i++) {
+      expect(sent[i].role).not.toBe(sent[i - 1].role);
+    }
+  });
+
   test("assistant message with mix of known and unknown blocks keeps known blocks", async () => {
     const messages: Message[] = [
       userMsg("Start"),

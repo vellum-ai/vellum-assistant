@@ -57,7 +57,10 @@ export type ResearchStep =
   | "looking"
   | "results"
   | "suggestions"
-  | "finishing";
+  | "finishing"
+  // Established-assistant guard: the off-ramp offered when the flow would run
+  // against an assistant that already has a life (see the route's guard).
+  | "existing";
 
 /** Completed research output — only snapshotted once the turn settles "done". */
 export interface PersistedResearchResults {
@@ -166,5 +169,9 @@ export function resolveResumeStep(
   if (snapshot.step === "meeting") {
     return snapshot.checkinBooked ? "looking" : "letschat";
   }
+  // The established-assistant guard holds an intercepted submit in transient
+  // state that a snapshot can't restore, so a saved journey never resumes onto
+  // it — land on the form and let a resubmit re-evaluate the guard.
+  if (snapshot.step === "existing") return "form";
   return snapshot.step;
 }

@@ -42,7 +42,6 @@ import { ROUTES as CONSOLIDATION_ROUTES } from "./consolidation-routes.js";
 import { CONTACT_PROMPT_ROUTES } from "./contact-prompt-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
 import { ROUTES as CONTENT_SOURCE_ROUTES } from "./content-source-routes.js";
-import { ROUTES as CONVERSATION_ANALYSIS_ROUTES } from "./conversation-analysis-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
 import { ROUTES as CONVERSATION_CLI_ROUTES } from "./conversation-cli-routes.js";
 import { ROUTES as CONVERSATION_COMPACTION_ROUTES } from "./conversation-compaction-routes.js";
@@ -53,9 +52,11 @@ import { ROUTES as CONVERSATION_MESSAGE_ROUTES } from "./conversation-routes.js"
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
 import { ROUTES as CONVERSATIONS_IMPORT_ROUTES } from "./conversations-import-routes.js";
 import { ROUTES as CREDENTIAL_PROMPT_ROUTES } from "./credential-prompt-routes.js";
+import { ROUTES as CREDENTIAL_REQUEST_ROUTES } from "./credential-request-routes.js";
 import { ROUTES as CREDENTIAL_ROUTES } from "./credential-routes.js";
 import { ROUTES as DEBUG_BASH_ROUTES } from "./debug-bash-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
+import { ROUTES as DEFAULT_PROVIDER_ROUTES } from "./default-provider-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DISK_PRESSURE_ROUTES } from "./disk-pressure-routes.js";
@@ -80,7 +81,10 @@ import { ROUTES as HOST_FILE_ROUTES } from "./host-file-routes.js";
 import { ROUTES as HOST_TRANSFER_ROUTES } from "./host-transfer-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as IMAGE_GENERATION_ROUTES } from "./image-generation-routes.js";
+import { ROUTES as INFERENCE_CALLSITES_ROUTES } from "./inference-callsites-routes.js";
+import { ROUTES as INFERENCE_MODELS_ROUTES } from "./inference-models-routes.js";
 import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-session-routes.js";
+import { ROUTES as INFERENCE_PROFILES_ROUTES } from "./inference-profiles-routes.js";
 import { ROUTES as INFERENCE_PROVIDER_CONNECTION_ROUTES } from "./inference-provider-connection-routes.js";
 import { ROUTES as INFERENCE_SEND_ROUTES } from "./inference-send-routes.js";
 import { ROUTES as A2A_ROUTES } from "./integrations/a2a.js";
@@ -135,6 +139,7 @@ import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
 import { ROUTES as SURFACE_CONTENT_ROUTES } from "./surface-content-routes.js";
 import { ROUTES as TASK_ROUTES } from "./task-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
+import { ROUTES as THEME_ROUTES } from "./theme-routes.js";
 import { ROUTES as TRUST_RULES_ROUTES } from "./trust-rules-routes.js";
 import { ROUTES as TTS_ROUTES } from "./tts-routes.js";
 import type { RouteDefinition } from "./types.js";
@@ -180,7 +185,6 @@ export const ROUTES: RouteDefinition[] = [
   ...CONTENT_SOURCE_ROUTES,
   ...CONTACT_PROMPT_ROUTES,
   ...CONTACT_ROUTES,
-  ...CONVERSATION_ANALYSIS_ROUTES,
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CONVERSATION_CLI_ROUTES,
   ...CONVERSATION_LIST_ROUTES,
@@ -189,6 +193,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_MESSAGE_ROUTES,
   ...CONSOLIDATION_ROUTES,
   ...CREDENTIAL_PROMPT_ROUTES,
+  ...CREDENTIAL_REQUEST_ROUTES,
   ...CREDENTIAL_ROUTES,
   ...DEFER_ROUTES,
   ...CONVERSATION_COMPACTION_ROUTES,
@@ -196,6 +201,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_STARTER_ROUTES,
   ...DEBUG_BASH_ROUTES,
   ...DEBUG_ROUTES,
+  ...DEFAULT_PROVIDER_ROUTES,
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,
   ...DOMAIN_ROUTES,
@@ -219,7 +225,10 @@ export const ROUTES: RouteDefinition[] = [
   ...HOST_FILE_ROUTES,
   ...HOST_TRANSFER_ROUTES,
   ...IDENTITY_ROUTES,
+  ...INFERENCE_CALLSITES_ROUTES,
+  ...INFERENCE_MODELS_ROUTES,
   ...INFERENCE_PROFILE_SESSION_ROUTES,
+  ...INFERENCE_PROFILES_ROUTES,
   ...INFERENCE_PROVIDER_CONNECTION_ROUTES,
   ...INFERENCE_SEND_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
@@ -277,6 +286,7 @@ export const ROUTES: RouteDefinition[] = [
   ...TWILIO_ROUTES,
   ...TASK_ROUTES,
   ...TELEMETRY_ROUTES,
+  ...THEME_ROUTES,
   ...TRUST_RULES_ROUTES,
   ...TTS_ROUTES,
   ...UI_REQUEST_ROUTES,

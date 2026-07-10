@@ -109,7 +109,9 @@ async function waitFor(
   message = "Timed out waiting for live voice test condition",
 ): Promise<void> {
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(message);
@@ -163,6 +165,56 @@ function makeMessageComplete(): Parameters<
     messageId: "assistant-message-123",
   };
 }
+
+function b64(text: string): string {
+  return Buffer.from(text).toString("base64");
+}
+
+function ttsAudioPayloads(frames: LiveVoiceServerFrame[]): string[] {
+  return frames.flatMap((frame) =>
+    frame.type === "tts_audio" ? [frame.dataBase64] : [],
+  );
+}
+
+interface ControlledSynthesis {
+  options: LiveVoiceTtsOptions;
+  finish: () => void;
+  fail: (err: Error) => void;
+}
+
+// A TTS streamer whose per-call completion is driven by the test: chunks are
+// injected via `calls[n].options.onAudioChunk` and the provider promise
+// settles on `finish`/`fail`. `events` records call starts and settles so
+// synthesis overlap can be asserted deterministically.
+function createControlledTtsStreamer(): {
+  streamTtsAudio: LiveVoiceTtsStreamer;
+  calls: ControlledSynthesis[];
+  events: string[];
+} {
+  const calls: ControlledSynthesis[] = [];
+  const events: string[] = [];
+  const streamTtsAudio = mock((options: LiveVoiceTtsOptions) => {
+    events.push(`start:${options.text}`);
+    return new Promise<LiveVoiceTtsResult>((resolve, reject) => {
+      calls.push({
+        options,
+        finish: () => {
+          events.push(`end:${options.text}`);
+          resolve(makeTtsResult(options.text));
+        },
+        fail: (err) => {
+          events.push(`fail:${options.text}`);
+          reject(err);
+        },
+      });
+    });
+  });
+  return { streamTtsAudio, calls, events };
+}
+
+const FIRST_SENTENCE = "This is the first spoken sentence.";
+const SECOND_SENTENCE = "Here comes the second spoken sentence.";
+const THIRD_SENTENCE = "And now a third spoken sentence arrives.";
 
 describe("LiveVoiceSession TTS", () => {
   test("starts streaming TTS audio before the assistant message completes at a segment boundary", async () => {
@@ -224,7 +276,9 @@ describe("LiveVoiceSession TTS", () => {
 
     await startReleasedTurn(session);
     callbacks?.assistant_text_delta?.(
-      makeTextDelta("Sure, I can help with that, and here is more text to say."),
+      makeTextDelta(
+        "Sure, I can help with that, and here is more text to say.",
+      ),
     );
     await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
 
@@ -439,5 +493,251 @@ describe("LiveVoiceSession TTS", () => {
     expect(frames).toHaveLength(frameCountAfterInterrupt);
     expect(frames.some((frame) => frame.type === "tts_audio")).toBe(false);
     expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+  });
+
+  test("prefetches the next segment while the current one streams and emits frames strictly in order", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls, events } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    callbacks?.assistant_text_delta?.(makeTextDelta(` ${SECOND_SENTENCE}`));
+
+    // Both provider calls are in flight before either stream settles.
+    expect(events).toEqual([
+      `start:${FIRST_SENTENCE}`,
+      `start:${SECOND_SENTENCE}`,
+    ]);
+
+    // A chunk from the prefetching second segment buffers instead of
+    // jumping ahead of the still-streaming first segment.
+    calls[1]?.options.onAudioChunk(makeTtsChunk("audio:second-1"));
+    await flushAsyncCallbacks();
+    expect(ttsAudioPayloads(frames)).toEqual([]);
+
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:first-1"));
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:first-2"));
+    calls[0]?.finish();
+    await waitFor(() =>
+      frames.some(
+        (frame) =>
+          frame.type === "tts_audio" &&
+          frame.dataBase64 === b64("audio:second-1"),
+      ),
+    );
+
+    calls[1]?.options.onAudioChunk(makeTtsChunk("audio:second-2"));
+    calls[1]?.finish();
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(streamTtsAudio).toHaveBeenCalledTimes(2);
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64("audio:first-1"),
+      b64("audio:first-2"),
+      b64("audio:second-1"),
+      b64("audio:second-2"),
+    ]);
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  test("holds further segments as text until a slot frees and defers tts_done until every job drains", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    callbacks?.assistant_text_delta?.(makeTextDelta(` ${SECOND_SENTENCE}`));
+    callbacks?.assistant_text_delta?.(makeTextDelta(` ${THIRD_SENTENCE}`));
+    callbacks?.message_complete?.(makeMessageComplete());
+
+    // Two lookahead slots: the third segment stays queued as text.
+    expect(calls).toHaveLength(2);
+
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:one"));
+    calls[0]?.finish();
+    await waitFor(() => calls.length === 3);
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+
+    calls[1]?.options.onAudioChunk(makeTtsChunk("audio:two"));
+    calls[1]?.finish();
+    await flushAsyncCallbacks();
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+
+    calls[2]?.options.onAudioChunk(makeTtsChunk("audio:three"));
+    calls[2]?.finish();
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64("audio:one"),
+      b64("audio:two"),
+      b64("audio:three"),
+    ]);
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  test("overlapped synthesis finishes two delayed segments in about one delay, not two", async () => {
+    const synthesisDelayMs = 150;
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const events: string[] = [];
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      events.push(`start:${options.text}`);
+      await new Promise((resolve) => setTimeout(resolve, synthesisDelayMs));
+      options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+      events.push(`end:${options.text}`);
+      return makeTtsResult(options.text);
+    });
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    const startedAt = performance.now();
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    callbacks?.assistant_text_delta?.(makeTextDelta(` ${SECOND_SENTENCE}`));
+    callbacks?.message_complete?.(makeMessageComplete());
+    const deadline = startedAt + synthesisDelayMs * 4;
+    while (
+      !frames.some((frame) => frame.type === "tts_done") &&
+      performance.now() < deadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const elapsedMs = performance.now() - startedAt;
+
+    // Both provider calls start before either finishes, so the two
+    // first-chunk delays overlap instead of stacking.
+    expect(events.slice(0, 2)).toEqual([
+      `start:${FIRST_SENTENCE}`,
+      `start:${SECOND_SENTENCE}`,
+    ]);
+    expect(elapsedMs).toBeLessThan(synthesisDelayMs * 2);
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64(`audio:${FIRST_SENTENCE}`),
+      b64(`audio:${SECOND_SENTENCE}`),
+    ]);
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  test("drops buffered prefetch audio when the turn is cancelled mid-prefetch", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const abort = mock();
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort };
+    });
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    callbacks?.assistant_text_delta?.(makeTextDelta(` ${SECOND_SENTENCE}`));
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:first-1"));
+    calls[1]?.options.onAudioChunk(makeTtsChunk("audio:second-1"));
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+
+    // Cancellation runs the same abort path as a VAD barge-in: the shared
+    // turn signal aborts both in-flight provider streams at once.
+    await session.handleClientFrame({ type: "interrupt" });
+    const frameCountAfterInterrupt = frames.length;
+    expect(calls[0]?.options.signal?.aborted).toBe(true);
+    expect(calls[1]?.options.signal?.aborted).toBe(true);
+
+    calls[1]?.options.onAudioChunk(makeTtsChunk("audio:second-2"));
+    calls[0]?.finish();
+    calls[1]?.finish();
+    await flushAsyncCallbacks();
+
+    expect(frames).toHaveLength(frameCountAfterInterrupt);
+    expect(ttsAudioPayloads(frames)).toEqual([b64("audio:first-1")]);
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+  });
+
+  test("emits a recoverable error for a failed prefetch and keeps later segments in order", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const abort = mock();
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort };
+    });
+    const { streamTtsAudio, calls } = createControlledTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+    callbacks?.assistant_text_delta?.(makeTextDelta(` ${SECOND_SENTENCE}`));
+    callbacks?.assistant_text_delta?.(makeTextDelta(` ${THIRD_SENTENCE}`));
+    callbacks?.message_complete?.(makeMessageComplete());
+
+    // The prefetch fails while the first segment is still streaming.
+    calls[1]?.fail(new Error("prefetch exploded"));
+    calls[0]?.options.onAudioChunk(makeTtsChunk("audio:one"));
+    calls[0]?.finish();
+    await waitFor(() => calls.length === 3);
+    calls[2]?.options.onAudioChunk(makeTtsChunk("audio:three"));
+    calls[2]?.finish();
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(abort).not.toHaveBeenCalled();
+    expect(ttsAudioPayloads(frames)).toEqual([
+      b64("audio:one"),
+      b64("audio:three"),
+    ]);
+    const firstAudioIndex = frames.findIndex(
+      (frame) =>
+        frame.type === "tts_audio" && frame.dataBase64 === b64("audio:one"),
+    );
+    const errorIndex = frames.findIndex((frame) => frame.type === "error");
+    const thirdAudioIndex = frames.findIndex(
+      (frame) =>
+        frame.type === "tts_audio" && frame.dataBase64 === b64("audio:three"),
+    );
+    expect(frames[errorIndex]).toMatchObject({
+      type: "error",
+      message: expect.stringContaining("prefetch exploded"),
+      recoverable: true,
+    });
+    expect(firstAudioIndex).toBeLessThan(errorIndex);
+    expect(errorIndex).toBeLessThan(thirdAudioIndex);
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
   });
 });

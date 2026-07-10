@@ -1202,11 +1202,14 @@ describe("code-owned default profiles — leaf SET source stamping", () => {
       body: { path: "llm.profiles.balanced.model", value: "gpt-5.4" },
     });
     expect(result).toEqual({ ok: true });
-    expect(savedProfile("balanced")).toEqual({
+    // Write normalization completes the changed user entry; the guard's
+    // concern is only that `source` stays user-owned.
+    expect(savedProfile("balanced")).toMatchObject({
       source: "user",
       provider: "openai",
       model: "gpt-5.4",
     });
+    expect(savedProfile("balanced").source).toBe("user");
   });
 
   test("a leaf SET writing content to an absent default is rejected", async () => {

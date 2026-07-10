@@ -4,11 +4,11 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { basename, join } from "node:path";
 
 import type { Command } from "commander";
 
-import { getAssistantDomain } from "../../config/env.js";
 import {
   cliIpcCall,
   cliIpcCallStream,
@@ -18,6 +18,8 @@ import { readStdinSync } from "../../util/read-stdin.js";
 import { registerCommand } from "../lib/register-command.js";
 import { getCliLogger } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
+
+const loadModule = createRequire(import.meta.url);
 
 const log = getCliLogger("email");
 
@@ -49,12 +51,24 @@ function handleEmailIpcError(
   exitFromIpcResult(r, cmd);
 }
 
+/**
+ * Loaded lazily because config/env pulls the full config-loader graph. Sync
+ * require rather than import(): commander invokes help-text callbacks
+ * synchronously, so there is no place to await a module load.
+ */
+function assistantDomain(): string {
+  const { getAssistantDomain } = loadModule(
+    "../../config/env.js",
+  ) as typeof import("../../config/env.js");
+  return getAssistantDomain();
+}
+
 export function registerEmailCommand(program: Command): void {
-  const domain = getAssistantDomain();
   registerCommand(program, {
     name: "email",
     transport: "ipc",
-    description: `Get your own email address (@${domain}) — register, send, receive, and manage email natively`,
+    description:
+      "Get your own email address — register, send, receive, and manage email natively",
     build: (email) => {
       // Keep the --json option at the email namespace level
       email.option("--json", "Machine-readable compact JSON output");
@@ -78,12 +92,12 @@ Examples:
 
       email
         .command("register <username>")
-        .description(`Register an @${domain} email address for this assistant`)
+        .description("Register an email address for this assistant")
         .addHelpText(
           "after",
-          `
+          () => `
 Arguments:
-  username   The local part of the email address (e.g. "mybot" → mybot@${domain})
+  username   The local part of the email address (e.g. "mybot" → mybot@${assistantDomain()})
 
 Registers a new email address on the Vellum platform for the current
 assistant. Each assistant can have one email address. The address is
@@ -91,10 +105,10 @@ immediately active for receiving inbound email.
 
 Examples:
   $ assistant email register mybot
-  ✓ Registered mybot@${domain}
+  ✓ Registered mybot@${assistantDomain()}
 
   $ assistant email register support --json
-  {"address":"support@${domain}","id":"...","created_at":"..."}`,
+  {"address":"support@${assistantDomain()}","id":"...","created_at":"..."}`,
         )
         .action(async (username: string, _opts: unknown, cmd: Command) => {
           const r = await cliIpcCall<{
@@ -102,11 +116,12 @@ Examples:
             address: string;
             created_at: string;
           }>("email_register", { body: { username } });
-          if (!r.ok)
+          if (!r.ok) {
             return handleEmailIpcError(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, r.result);
           } else {
@@ -120,7 +135,7 @@ Examples:
         .option("--confirm", "Skip confirmation prompt")
         .addHelpText(
           "after",
-          `
+          () => `
 Removes the email address currently registered for this assistant.
 The address is deactivated immediately — inbound email will no longer
 be delivered. The username enters a cooldown period and is not
@@ -128,14 +143,14 @@ immediately available for reuse.
 
 Examples:
   $ assistant email unregister
-  Remove mybot@${domain}? (y/N) y
-  ✓ Unregistered mybot@${domain}
+  Remove mybot@${assistantDomain()}? (y/N) y
+  ✓ Unregistered mybot@${assistantDomain()}
 
   $ assistant email unregister --confirm
-  ✓ Unregistered mybot@${domain}
+  ✓ Unregistered mybot@${assistantDomain()}
 
   $ assistant email unregister --json
-  {"unregistered":"mybot@${domain}"}`,
+  {"unregistered":"mybot@${assistantDomain()}"}`,
         )
         .action(async (_opts: { confirm?: boolean }, cmd: Command) => {
           if (!_opts.confirm && !shouldOutputJson(cmd)) {
@@ -162,11 +177,12 @@ Examples:
             "email_unregister",
             {},
           );
-          if (!r.ok)
+          if (!r.ok) {
             return handleEmailIpcError(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, r.result);
           } else {
@@ -179,13 +195,13 @@ Examples:
         .description("Show email address info and usage for this assistant")
         .addHelpText(
           "after",
-          `
+          () => `
 Shows the email address registered for this assistant along with
 current usage and quota information from the platform.
 
 Examples:
   $ assistant email status
-  Address:  hi@mybot.${domain}
+  Address:  hi@mybot.${assistantDomain()}
   Status:   active
   Since:    2026-04-15
   Sent:     12 / 100 (daily)
@@ -193,7 +209,7 @@ Examples:
   Monthly:  42 sent, 18 received
 
   $ assistant email status --json
-  {"address":"hi@mybot.${domain}","status":"active","created_at":"2026-04-15T...","usage":{...}}`,
+  {"address":"hi@mybot.${assistantDomain()}","status":"active","created_at":"2026-04-15T...","usage":{...}}`,
         )
         .action(async (_opts: unknown, cmd: Command) => {
           const r = await cliIpcCall<{
@@ -208,11 +224,12 @@ Examples:
               received_this_month: number;
             };
           }>("email_status", {});
-          if (!r.ok)
+          if (!r.ok) {
             return handleEmailIpcError(
               { ok: false, error: r.error, statusCode: r.statusCode },
               cmd,
             );
+          }
           const statusData = r.result!;
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, statusData);
@@ -287,11 +304,12 @@ Examples:
               }[];
               count: number;
             }>("email_list", { queryParams: params });
-            if (!r.ok)
+            if (!r.ok) {
               return handleEmailIpcError(
                 { ok: false, error: r.error, statusCode: r.statusCode },
                 cmd,
               );
+            }
             const data = r.result!;
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, data);
@@ -327,7 +345,7 @@ Examples:
         .option("-o, --output <path>", "Write to file instead of stdout")
         .addHelpText(
           "after",
-          `
+          () => `
 Arguments:
   message-id   Email message ID (from \`assistant email list --json\`)
 
@@ -338,7 +356,7 @@ or --format json for the full message object.
 Examples:
   $ assistant email download msg_abc123
   From:    user@example.com
-  To:      mybot@${domain}
+  To:      mybot@${assistantDomain()}
   Subject: Hello
   Date:    2026-04-05 12:00:00
 
@@ -371,11 +389,12 @@ Examples:
               references: string[];
               created_at: string;
             }>("email_download", { queryParams: { messageId } });
-            if (!r.ok)
+            if (!r.ok) {
               return handleEmailIpcError(
                 { ok: false, error: r.error, statusCode: r.statusCode },
                 cmd,
               );
+            }
             const msg = r.result!;
 
             const fmt = opts.format ?? "text";
@@ -546,21 +565,32 @@ Examples:
             }
 
             const params: Record<string, unknown> = { to, text };
-            if (opts.subject) params.subject = opts.subject;
-            if (html) params.html = html;
-            if (opts.cc && opts.cc.length > 0) params.cc = opts.cc;
-            if (opts.bcc && opts.bcc.length > 0) params.bcc = opts.bcc;
-            if (opts.replyTo) params.reply_to = opts.replyTo;
+            if (opts.subject) {
+              params.subject = opts.subject;
+            }
+            if (html) {
+              params.html = html;
+            }
+            if (opts.cc && opts.cc.length > 0) {
+              params.cc = opts.cc;
+            }
+            if (opts.bcc && opts.bcc.length > 0) {
+              params.bcc = opts.bcc;
+            }
+            if (opts.replyTo) {
+              params.reply_to = opts.replyTo;
+            }
 
             const r = await cliIpcCall<{ delivery_id: string; status: string }>(
               "email_send",
               { body: params },
             );
-            if (!r.ok)
+            if (!r.ok) {
               return handleEmailIpcError(
                 { ok: false, error: r.error, statusCode: r.statusCode },
                 cmd,
               );
+            }
             const data = r.result!;
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, data);
@@ -617,11 +647,12 @@ $ assistant email attachment msg_abc1 --list --json`,
                 "email_attachment_list",
                 { queryParams: { messageId } },
               );
-              if (!r.ok)
+              if (!r.ok) {
                 return handleEmailIpcError(
                   { ok: false, error: r.error, statusCode: r.statusCode },
                   cmd,
                 );
+              }
               const data = r.result!;
               if (shouldOutputJson(cmd)) {
                 writeOutput(cmd, data);
@@ -668,7 +699,7 @@ $ assistant email attachment msg_abc1 --list --json`,
                   "email_attachment_list",
                   { queryParams: { messageId } },
                 );
-                if (!listR.ok)
+                if (!listR.ok) {
                   return handleEmailIpcError(
                     {
                       ok: false,
@@ -677,6 +708,7 @@ $ assistant email attachment msg_abc1 --list --json`,
                     },
                     cmd,
                   );
+                }
                 const attachments = listR.result!.results ?? [];
                 if (attachments.length === 0) {
                   log.error("No attachments for this message.");
@@ -717,7 +749,7 @@ $ assistant email attachment msg_abc1 --list --json`,
                   "email_attachment_list",
                   { queryParams: { messageId } },
                 );
-                if (!listR.ok)
+                if (!listR.ok) {
                   return handleEmailIpcError(
                     {
                       ok: false,
@@ -726,6 +758,7 @@ $ assistant email attachment msg_abc1 --list --json`,
                     },
                     cmd,
                   );
+                }
                 const meta = (listR.result!.results ?? []).find(
                   (a) => a.id === attachmentId,
                 );
@@ -772,8 +805,12 @@ interface AttachmentMeta {
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
@@ -790,14 +827,18 @@ async function streamDownloadAttachment(
   const r = await cliIpcCallStream("email_attachment_get", {
     queryParams: { messageId, attachmentId },
   });
-  if (!r.ok) throw new Error(r.error ?? "Stream failed");
+  if (!r.ok) {
+    throw new Error(r.error ?? "Stream failed");
+  }
 
   const fileStream = createWriteStream(dest);
   const reader = r.body.getReader();
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        break;
+      }
       await new Promise<void>((resolve, reject) =>
         fileStream.write(value, (err) => (err ? reject(err) : resolve())),
       );

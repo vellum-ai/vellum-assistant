@@ -46,6 +46,7 @@ export interface TranscriptMessageBodyProps {
     data?: Record<string, unknown>,
   ) => void;
   onForkConversation?: (messageId: string) => void;
+  onSummarizeUpToHere?: (messageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
   onOpenRuleEditor?: (context: OpenRuleEditorContext) => void;
   /** Tool-call ids whose chip should display the "command not recognized"

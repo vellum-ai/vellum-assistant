@@ -1,9 +1,9 @@
 import { embedWithRetry } from "../../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../../persistence/embeddings/embedding-backend.js";
-import { getLogger } from "../../../../../util/logger.js";
 import { searchGraphNodes } from "../../graph/graph-search.js";
 import { getNodesByIds } from "../../graph/store.js";
 import type { MemoryNode, MemoryType } from "../../graph/types.js";
+import { getLogger } from "../../logging.js";
 import type {
   RecallEvidence,
   RecallSearchContext,

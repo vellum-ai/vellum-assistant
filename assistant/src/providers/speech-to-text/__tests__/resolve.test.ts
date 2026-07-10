@@ -851,6 +851,37 @@ describe("resolveStreamingTranscriber diarize preference", () => {
     expect(options.utteranceEndMs).toBe(1000);
   });
 
+  test("utteranceBoundaryFinals with Deepgram forwards a caller-supplied utteranceEndMs", async () => {
+    mockProviderKeys["deepgram"] = "dg-key";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      utteranceBoundaryFinals: true,
+      utteranceEndMs: 2500,
+    });
+
+    expect(transcriber).not.toBeNull();
+    expect(deepgramCtorCalls).toHaveLength(1);
+    const options = deepgramCtorCalls[0]!.options as Record<string, unknown>;
+    expect(options.utteranceBoundaryFinals).toBe(true);
+    expect(options.utteranceEndMs).toBe(2500);
+  });
+
+  test("utteranceEndMs without utteranceBoundaryFinals does not reach the Deepgram constructor", async () => {
+    mockProviderKeys["deepgram"] = "dg-key";
+    mockConfig = buildConfig({ provider: "deepgram" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      utteranceEndMs: 2500,
+    });
+
+    expect(transcriber).not.toBeNull();
+    expect(deepgramCtorCalls).toHaveLength(1);
+    const options = deepgramCtorCalls[0]!.options as Record<string, unknown>;
+    expect(options).not.toHaveProperty("utteranceEndMs");
+    expect(options).not.toHaveProperty("utteranceBoundaryFinals");
+  });
+
   test("utteranceBoundaryFinals with google-gemini returns null (catalog telephonyMode is batch-only)", async () => {
     mockProviderKeys["gemini"] = "gemini-key";
     mockConfig = buildConfig({ provider: "google-gemini" });

@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 
-import type { TrustContext } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { buildChannelPermissionCellQuery } from "../../permissions/channel-permission-query.js";
 import { getAutoApproveThreshold } from "../../permissions/gateway-threshold-reader.js";
 import { isFullAccessThreshold } from "../../permissions/threshold.js";

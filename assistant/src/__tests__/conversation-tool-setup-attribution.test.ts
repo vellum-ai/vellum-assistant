@@ -38,7 +38,9 @@ const baseConfig = {
 };
 
 function mockGetConfig() {
-  if (configThrows) throw new Error("config unavailable");
+  if (configThrows) {
+    throw new Error("config unavailable");
+  }
   return { ...baseConfig, llm: mockLlmConfig };
 }
 
@@ -163,13 +165,7 @@ const noopSecretPrompter = {
 } as unknown as SecretPrompter;
 
 function makeToolFn(executor: ToolExecutor, ctx: ToolSetupContext) {
-  return createToolExecutor(
-    executor,
-    noopPrompter,
-    noopSecretPrompter,
-    ctx,
-    () => {},
-  );
+  return createToolExecutor(executor, noopPrompter, noopSecretPrompter, ctx);
 }
 
 // The module mock outlives this file when multiple test files share a

@@ -76,7 +76,12 @@ mock.module("../config/loader.js", () => ({
         },
       },
       profiles: {
+        // Complete (materialized) shape: override-or-default semantics skip
+        // profiles that don't carry their own provider+model.
         "quality-optimized": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-8",
           contextWindow: { maxInputTokens: 50000 },
         },
       },
@@ -447,8 +452,6 @@ function makeCtx(
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
 
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
-
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
     surfaceState: new Map(),
@@ -468,10 +471,6 @@ function makeCtx(
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,

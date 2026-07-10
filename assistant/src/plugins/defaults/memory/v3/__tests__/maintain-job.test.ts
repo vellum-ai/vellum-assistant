@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { SkillSummary } from "../../../../../config/skills.js";
+import type { ResolvedSkillEntry } from "@vellumai/plugin-api";
+
 import type { AssistantConfig } from "../../../../../config/types.js";
 import { EmbeddingBackendUnavailableError } from "../../../../../persistence/embeddings/embedding-backend.js";
 import { EmbeddingBillingBlockError } from "../../../../../persistence/embeddings/embedding-billing-breaker.js";
@@ -109,7 +110,6 @@ describe("maintainJob", () => {
       // Skill usage-prune stage off by default: no managed skills ⇒ nothing to
       // report or delete. The dedicated usage-prune tests below override these.
       listManagedSkills: () => [],
-      readSkillMeta: () => null,
       deleteSkill: async () => {},
       nowMs: () => Date.now(),
     };
@@ -301,7 +301,9 @@ describe("maintainJob", () => {
       listSectionArticles: async () => ["gone-1", "gone-bad", "gone-2"],
       listIndexedSlugs: async () => [],
       deleteSectionsForArticle: async (_config, article) => {
-        if (article === "gone-bad") throw new Error("delete boom");
+        if (article === "gone-bad") {
+          throw new Error("delete boom");
+        }
         calls.deleted.push(article);
       },
     });
@@ -643,7 +645,9 @@ describe("backfillAllSections", () => {
       selectAllPages: async () => ["page-1", "page-2", "page-3", "page-4"],
       upsertSections: async (_config, sections) => {
         upserts += 1;
-        if (upserts >= 2) throw new EmbeddingBackendUnavailableError();
+        if (upserts >= 2) {
+          throw new EmbeddingBackendUnavailableError();
+        }
         calls.upserted.push(sections);
       },
     });
@@ -775,15 +779,14 @@ describe("maintainJob skill usage-prune", () => {
     memoryV3LiveSlot = false;
   });
 
-  function skill(id: string): SkillSummary {
+  function skill(id: string): ResolvedSkillEntry {
     return {
       id,
-      name: id,
       displayName: id,
       description: "",
-      directoryPath: `/skills/${id}`,
-      skillFilePath: `/skills/${id}/SKILL.md`,
+      installed: true,
       source: "managed",
+      state: "enabled",
     };
   }
 
@@ -800,14 +803,18 @@ describe("maintainJob skill usage-prune", () => {
       // very old so it falls back to installedAt for the age math.
       installedAt: field === "lastUsedAt" ? new Date(NOW).toISOString() : ts,
     };
-    if (author) base.author = author;
-    if (field === "lastUsedAt") base.lastUsedAt = ts;
+    if (author) {
+      base.author = author;
+    }
+    if (field === "lastUsedAt") {
+      base.lastUsedAt = ts;
+    }
     return base;
   }
 
   /** Wire managed skills + their metas + an injected clock at NOW. */
   function pruneDeps(
-    skills: SkillSummary[],
+    skills: ResolvedSkillEntry[],
     metas: Record<string, SkillInstallMeta | null>,
     skillPruneDays: number | null,
     overrides: Partial<MaintainJobDeps> = {},
@@ -834,11 +841,8 @@ describe("maintainJob skill usage-prune", () => {
       listIndexedSlugs: async () => [],
       loadCoreSet: () => [],
       invalidateLanes: () => {},
-      listManagedSkills: () => skills,
-      readSkillMeta: (dir) => {
-        const id = dir.split("/").pop()!;
-        return metas[id] ?? null;
-      },
+      listManagedSkills: () =>
+        skills.map((s) => ({ ...s, installMeta: metas[s.id] ?? null })),
       deleteSkill: async (id) => {
         deletedSkills.push(id);
       },
@@ -976,7 +980,9 @@ describe("maintainJob skill usage-prune", () => {
         30,
         {
           deleteSkill: async (id) => {
-            if (id === "bad") throw new Error("delete boom");
+            if (id === "bad") {
+              throw new Error("delete boom");
+            }
             deleted.push(id);
           },
         },

@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+
+// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
+// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
+// llm-resolver-override-or-default.test.ts and its companion suites.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 //
@@ -28,7 +37,9 @@ const mockProviders = new Map<string, { name: string }>();
 mock.module("../registry.js", () => ({
   getProvider: (name: string) => {
     const p = mockProviders.get(name);
-    if (!p) throw new Error(`unknown provider: ${name}`);
+    if (!p) {
+      throw new Error(`unknown provider: ${name}`);
+    }
     return p;
   },
   initializeProviders: async () => {},
@@ -541,6 +552,92 @@ describe("RetryProvider — callSite resolution", () => {
     const config = seen?.config as Record<string, unknown>;
     expect(config.thinking).toBeUndefined();
     expect(config.effort).toBe("none");
+  });
+
+  test("disabled thinking forces effort none for OpenRouter and keeps the wire thinking config", async () => {
+    setLlmConfig({
+      default: {
+        provider: "openrouter",
+        model: "x-ai/grok-4",
+        effort: "high",
+        thinking: { enabled: false, streamThinking: false },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openrouter", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.effort).toBe("none");
+    // OpenRouter is thinking-aware: the wire-shape config still flows down so
+    // the client can decide its nested `reasoning` emission.
+    expect(config.thinking).toEqual({ type: "disabled" });
+  });
+
+  test("disabled thinking forces effort none for the Vercel AI Gateway", async () => {
+    setLlmConfig({
+      default: {
+        provider: "vercel-ai-gateway",
+        model: "xai/grok-4",
+        effort: "max",
+        thinking: { enabled: false, streamThinking: false },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("vercel-ai-gateway", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.effort).toBe("none");
+    expect(config.thinking).toEqual({ type: "disabled" });
+  });
+
+  test("disabled thinking keeps effort for gateway-delegated anthropic/* models", async () => {
+    setLlmConfig({
+      default: {
+        provider: "openrouter",
+        model: "anthropic/claude-opus-4-8",
+        effort: "high",
+        thinking: { enabled: false, streamThinking: false },
+      },
+      callSites: { mainAgent: {} },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openrouter", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    // The Anthropic Messages delegate honors a disabled `thinking` natively;
+    // `effort` keeps its Anthropic meaning and must match the direct
+    // `anthropic` provider's behavior.
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.effort).toBe("high");
+    expect(config.thinking).toEqual({ type: "disabled" });
   });
 
   test("preserves thinking + level for Gemini provider", async () => {

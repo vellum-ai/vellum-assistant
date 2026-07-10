@@ -1,5 +1,5 @@
 import { ArrowLeft } from "lucide-react";
-import { type ReactNode, useCallback, useRef } from "react";
+import { type ReactNode, useCallback, useLayoutEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { Button, Typography } from "@vellumai/design-library";
 
@@ -43,6 +43,17 @@ export function SidebarShell({
   // header back arrow: from a sub-page it returns to the menu root, and from
   // the menu root it exits to `backHref` (the surface that opened this shell).
   const swipeContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // All routed pages render into the same scrolling <main>, so without a
+  // reset the scroll offset of one page carries over to the next (scroll
+  // down in General, open Privacy, land mid-page). React Router's
+  // <ScrollRestoration> only manages window scroll, not nested containers,
+  // so reset this container whenever the route changes. Layout effect so the
+  // new page never paints at the stale offset.
+  const contentRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    contentRef.current?.scrollTo(0, 0);
+  }, [pathname]);
   const mobileBackHref = isMenuRoute ? backHref : menuRoute;
   const handleSwipeBack = useCallback(() => {
     navigate(mobileBackHref);
@@ -155,13 +166,17 @@ export function SidebarShell({
           </aside>
 
           {isMenuRoute ? (
-            <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-y-auto pb-6 md:hidden">
+            /* `overflow-x-hidden`: `overflow-y: auto` alone computes
+               `overflow-x: auto`, so any child overflowing horizontally makes
+               the whole page pannable sideways on touch devices. */
+            <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden pb-6 md:hidden">
               {sidebar}
             </div>
           ) : null}
 
           <main
-            className={`min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-6 md:flex md:px-6 md:pt-0 ${
+            ref={contentRef}
+            className={`min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden pb-6 md:flex md:px-6 md:pt-0 ${
               isMenuRoute ? "hidden" : "flex"
             }`}
           >

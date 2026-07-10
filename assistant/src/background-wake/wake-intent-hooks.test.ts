@@ -61,6 +61,8 @@ mock.module("../util/platform.js", () => ({
   getDataDir: () => workspacePath("data"),
   getConfigQuarantineNoticePath: () =>
     workspacePath("data", "config-quarantine-notice.json"),
+  getConfigValidationResetNoticePath: () =>
+    workspacePath("data", "config-validation-reset-notice.json"),
   getDbPath: () => workspacePath("data", "db", "assistant.db"),
   ensureDataDir: () => {
     mkdirSync(workspacePath("data", "db"), { recursive: true });

@@ -13,19 +13,19 @@ import type { CompactionCircuitClosedEvent } from "../api/events/compaction-circ
 import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circuit-open.js";
 import type { HookEventOwner } from "../api/events/hook-event.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { AssistantConfig } from "../config/types.js";
 import type {
   ChannelCapabilities,
   InboundActorContext,
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
+import type { MemoryJob } from "../persistence/jobs-store.js";
 import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
-import type { ConversationGraphMemory } from "./defaults/memory/graph/conversation-graph-memory.js";
-import type { JobHandler } from "./defaults/memory/jobs-worker.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 
@@ -67,18 +67,6 @@ export type {
   ShutdownContext,
   ShutdownReason,
 } from "../plugin-api/types.js";
-
-// ─── Memory-graph result ─────────────────────────────────────────────────────
-
-/**
- * Full output of a single memory-graph retrieval — the object returned by
- * {@link ConversationGraphMemory.prepareMemory} (injected messages, query
- * vectors, metrics). The agent loop consumes these fields directly to drive
- * PKB hint search and runtime injection.
- */
-export type GraphMemoryResult = Awaited<
-  ReturnType<ConversationGraphMemory["prepareMemory"]>
->;
 
 /**
  * The complete set of compaction circuit-breaker transition events:
@@ -335,6 +323,13 @@ export interface Injector {
  * happen to register the same regex from evicting each other's routes.
  */
 export type PluginRouteRegistration = SkillRoute;
+
+/**
+ * Processes one claimed background job: receives the claimed job row and the
+ * live assistant config. The return value is ignored — a handler signals
+ * failure by throwing, which the worker records against the job.
+ */
+export type JobHandler = (job: MemoryJob, config: AssistantConfig) => unknown;
 
 /**
  * A single background-job-handler entry: a job `type` string paired with the

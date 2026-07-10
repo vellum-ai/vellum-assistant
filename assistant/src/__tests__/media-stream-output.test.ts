@@ -25,7 +25,7 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
   resolveCallTtsProvider: jest.fn(() => ({
     provider: mockProvider,
     useSynthesizedPath: false,
-    audioFormat: "wav" as const,
+    audioFormat: "pcm" as const,
   })),
 }));
 
@@ -196,7 +196,7 @@ function useProvider(provider: unknown): void {
   mockResolveCallTtsProvider.mockImplementation(() => ({
     provider,
     useSynthesizedPath: false,
-    audioFormat: "wav" as const,
+    audioFormat: "pcm" as const,
   }));
 }
 
@@ -230,7 +230,7 @@ afterEach(() => {
   mockResolveCallTtsProvider.mockImplementation(() => ({
     provider: mockProvider,
     useSynthesizedPath: false,
-    audioFormat: "wav" as const,
+    audioFormat: "pcm" as const,
   }));
 });
 
@@ -1055,6 +1055,124 @@ describe("MediaStreamOutput", () => {
     });
   });
 
+  describe("eager first segment", () => {
+    function usePlayableWav(): void {
+      mockSynthesize.mockResolvedValue({
+        audio: makeWavBuffer([1000, 2000, 3000, 4000]),
+        contentType: "audio/wav",
+      });
+    }
+
+    test("the turn's first segment synthesizes at a clause boundary before any sentence ends", async () => {
+      usePlayableWav();
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      // No sentence has ended yet — full-sentence rules would still be
+      // buffering, but the clause-bounded prefix synthesizes immediately.
+      output.sendTextToken("Let me take a look at that, ", false);
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      expect(mockSynthesize).toHaveBeenCalledTimes(1);
+      expect(mockSynthesize.mock.calls[0][0].text).toBe(
+        "Let me take a look at that,",
+      );
+
+      output.sendTextToken("and get right back to you.", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      expect(mockSynthesize).toHaveBeenCalledTimes(2);
+      expect(mockSynthesize.mock.calls[1][0].text).toBe(
+        "and get right back to you.",
+      );
+    });
+
+    test("eager mode applies only to the first segment — later clauses wait for sentence ends", async () => {
+      usePlayableWav();
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      output.sendTextToken(
+        "Let me take a look at that, and then, after checking, I will confirm.",
+        false,
+      );
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      expect(mockSynthesize.mock.calls.map((c) => c[0].text)).toEqual([
+        "Let me take a look at that,",
+        "and then, after checking, I will confirm.",
+      ]);
+    });
+
+    test("a long unpunctuated opening flushes at the eager 60-char cap", async () => {
+      usePlayableWav();
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      // 69 chars, no punctuation: below the default 180-char cap but past
+      // the eager 60-char cap, so the opening splits at the last whitespace
+      // under 60 chars.
+      output.sendTextToken(
+        "The quick brown fox jumps over the lazy dog near the quiet river bank",
+        false,
+      );
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      expect(mockSynthesize).toHaveBeenCalledTimes(1);
+      expect(mockSynthesize.mock.calls[0][0].text).toBe(
+        "The quick brown fox jumps over the lazy dog near the quiet",
+      );
+
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      // The short remainder never reaches a boundary and force-flushes on
+      // last: true.
+      expect(mockSynthesize).toHaveBeenCalledTimes(2);
+      expect(mockSynthesize.mock.calls[1][0].text).toBe("river bank");
+    });
+
+    test("the next turn's first segment is eager again", async () => {
+      usePlayableWav();
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      output.sendTextToken("Let me take a look at that, one moment.", true);
+      await drain(() => countEvents(sent, "mark") >= 1);
+
+      output.sendTextToken("Here is the second answer, coming right up.", true);
+      await drain(() => countEvents(sent, "mark") >= 2);
+
+      expect(mockSynthesize.mock.calls.map((c) => c[0].text)).toEqual([
+        "Let me take a look at that,",
+        "one moment.",
+        "Here is the second answer,",
+        "coming right up.",
+      ]);
+    });
+
+    test("discardPendingText re-arms eager segmentation for the next turn", async () => {
+      usePlayableWav();
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+
+      output.sendTextToken("Let me take a look at that, plus extra", false);
+      await drain(() => mockSynthesize.mock.calls.length > 0);
+
+      // Turn aborted: the unsegmented remainder is dropped and the next
+      // turn's first segment is eager again.
+      output.discardPendingText();
+      output.sendTextToken("Here is the second answer, plus more", false);
+      await drain(() => mockSynthesize.mock.calls.length > 1);
+
+      expect(mockSynthesize.mock.calls.map((c) => c[0].text)).toEqual([
+        "Let me take a look at that,",
+        "Here is the second answer,",
+      ]);
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // Streaming PCM synthesis (incremental transcode)
   // ---------------------------------------------------------------------------
@@ -1209,6 +1327,253 @@ describe("MediaStreamOutput", () => {
       // transcoded once at the end.
       expect(midStreamFrames).toBe(0);
       expect(totalMulawBytes(sent)).toBe(400);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Streaming play-URL playback (processFetchUrlItem)
+  // ---------------------------------------------------------------------------
+
+  describe("sendPlayUrl streaming", () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    /** Mock global fetch to resolve with the given response for any URL. */
+    function mockFetch(response: Response): void {
+      globalThis.fetch = (async () => response) as unknown as typeof fetch;
+    }
+
+    /**
+     * A fetch response whose body is a manually driven stream, so tests
+     * control exactly when bytes arrive and when the body completes.
+     * `arrayBuffer()` throws: the streaming path must never buffer the
+     * response wholesale.
+     */
+    function fakeStreamingResponse(contentType: string): {
+      response: Response;
+      push: (bytes: Buffer) => void;
+      close: () => void;
+      cancelled: () => boolean;
+    } {
+      let controller!: ReadableStreamDefaultController<Uint8Array>;
+      let cancelled = false;
+      const stream = new ReadableStream<Uint8Array>({
+        start(c) {
+          controller = c;
+        },
+        cancel() {
+          cancelled = true;
+        },
+      });
+      const response = {
+        ok: true,
+        headers: new Headers({ "content-type": contentType }),
+        body: stream,
+        arrayBuffer: () => {
+          throw new Error(
+            "arrayBuffer must not be called on the streaming path",
+          );
+        },
+      } as unknown as Response;
+      return {
+        response,
+        push: (bytes) => {
+          try {
+            controller.enqueue(new Uint8Array(bytes));
+          } catch {
+            // Stream already cancelled/closed — stale producer push.
+          }
+        },
+        close: () => {
+          try {
+            controller.close();
+          } catch {
+            // Already cancelled.
+          }
+        },
+        cancelled: () => cancelled,
+      };
+    }
+
+    test("WAV play-URL frames go out before the response stream completes", async () => {
+      // 1280 samples at 16 kHz -> 640 at 8 kHz = four whole frames.
+      const wav = makeWavBuffer(sineSamples(1280, 440, 16000), {
+        sampleRate: 16000,
+      });
+      // Header + 320 samples: exactly one 20 ms frame after 2x decimation.
+      const firstPart = wav.subarray(0, 44 + 320 * 2);
+      const rest = wav.subarray(44 + 320 * 2);
+
+      const fake = fakeStreamingResponse("audio/wav");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/test.wav");
+
+      fake.push(firstPart);
+      await drain(() => countEvents(sent, "media") >= 1);
+
+      // The first frame went out while the body is still open.
+      expect(countEvents(sent, "media")).toBe(1);
+
+      fake.push(rest);
+      fake.close();
+      await drain(() => countEvents(sent, "media") >= 4);
+
+      // Byte-identical to the whole-buffer transcode.
+      const expected = pcm16ToMulaw(decimateByTwo(wav.subarray(44)));
+      expect(concatMulawPayloads(sent).equals(expected)).toBe(true);
+    });
+
+    test("audio/pcm play-URL streams raw PCM incrementally", async () => {
+      const pcm = pcm16Buffer(sineSamples(1280, 440, 16000));
+      const fake = fakeStreamingResponse("audio/pcm");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/test.pcm");
+
+      fake.push(pcm.subarray(0, 320 * 2)); // 320 samples -> one whole frame
+      await drain(() => countEvents(sent, "media") >= 1);
+      expect(countEvents(sent, "media")).toBe(1);
+
+      fake.push(pcm.subarray(320 * 2));
+      fake.close();
+      await drain(() => countEvents(sent, "media") >= 4);
+
+      const expected = pcm16ToMulaw(decimateByTwo(pcm));
+      expect(concatMulawPayloads(sent).equals(expected)).toBe(true);
+    });
+
+    test("clearAudio mid-stream cancels the body read and sends clear", async () => {
+      const wav = makeWavBuffer(sineSamples(1280, 440, 16000), {
+        sampleRate: 16000,
+      });
+      const fake = fakeStreamingResponse("audio/wav");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/test.wav");
+
+      fake.push(wav.subarray(0, 44 + 320 * 2));
+      await drain(() => countEvents(sent, "media") >= 1);
+      const framesBefore = countEvents(sent, "media");
+      expect(framesBefore).toBeGreaterThan(0);
+
+      output.clearAudio();
+      await drain(() => fake.cancelled());
+
+      // The in-flight body read was cancelled and Twilio's buffer cleared.
+      expect(fake.cancelled()).toBe(true);
+      expect(countEvents(sent, "clear")).toBe(1);
+
+      // Bytes arriving after the abort never become frames.
+      fake.push(wav.subarray(44 + 320 * 2));
+      await drain();
+      expect(countEvents(sent, "media")).toBe(framesBefore);
+    });
+
+    test("audio/mpeg keeps the whole-buffer path (no body streaming)", async () => {
+      const mp3Bytes = Buffer.alloc(256, 0x80);
+      mp3Bytes[0] = 0xff; // MPEG sync
+      mp3Bytes[1] = 0xfb; // MPEG Layer 3
+
+      let bodyAccessed = false;
+      let arrayBufferCalled = false;
+      const response = {
+        ok: true,
+        headers: new Headers({ "content-type": "audio/mpeg" }),
+        get body(): ReadableStream<Uint8Array> {
+          bodyAccessed = true;
+          throw new Error("body must not be streamed for compressed formats");
+        },
+        arrayBuffer: async () => {
+          arrayBufferCalled = true;
+          return mp3Bytes.buffer.slice(
+            mp3Bytes.byteOffset,
+            mp3Bytes.byteOffset + mp3Bytes.byteLength,
+          );
+        },
+      } as unknown as Response;
+      mockFetch(response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/test.mp3");
+
+      await drain(() => arrayBufferCalled);
+
+      expect(arrayBufferCalled).toBe(true);
+      expect(bodyAccessed).toBe(false);
+      // mp3 cannot be transcoded in this path, so no media frames go out.
+      expect(countEvents(sent, "media")).toBe(0);
+    });
+
+    test("non-canonical WAV (stereo) falls back to the whole-buffer path", async () => {
+      // Stereo is not streamable; the buffered path keeps the left channel.
+      const left = sineSamples(400, 440, 8000);
+      const interleaved: number[] = [];
+      for (const s of left) {
+        interleaved.push(s, -s);
+      }
+      const wav = makeWavBuffer(interleaved, { sampleRate: 8000, channels: 2 });
+
+      const fake = fakeStreamingResponse("audio/wav");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/stereo.wav");
+
+      fake.push(wav.subarray(0, 100));
+      // No frames while the fallback drains the body.
+      await drain();
+      expect(countEvents(sent, "media")).toBe(0);
+
+      fake.push(wav.subarray(100));
+      fake.close();
+      await drain(() => countEvents(sent, "media") > 0);
+
+      // Left channel of 400 pairs at 8 kHz -> 400 mu-law bytes.
+      expect(totalMulawBytes(sent)).toBe(400);
+    });
+
+    test("malformed WAV header falls back without throwing", async () => {
+      // RIFF magic but garbage after it: not streamable, and the buffered
+      // path's fixed-offset reads produce no usable frames.
+      const junk = Buffer.alloc(64, 0x42);
+      junk.write("RIFF", 0);
+
+      const fake = fakeStreamingResponse("audio/wav");
+      mockFetch(fake.response);
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendPlayUrl("http://127.0.0.1/audio/junk.wav");
+
+      fake.push(junk);
+      fake.close();
+      await drain(() => output.getPlaybackQueueLength() === 0);
+      await drain();
+
+      // No crash; a malformed WAV yields no usable frames from the
+      // buffered transcode's fixed-offset reads.
+      expect(countEvents(sent, "media")).toBe(0);
+
+      // The output still works for a subsequent playable item.
+      const good = fakeStreamingResponse("audio/pcm");
+      mockFetch(good.response);
+      output.sendPlayUrl("http://127.0.0.1/audio/good.pcm");
+      good.push(pcm16Buffer(sineSamples(320, 440, 16000)));
+      good.close();
+      await drain(() => countEvents(sent, "media") > 0);
+      expect(countEvents(sent, "media")).toBe(1);
     });
   });
 });

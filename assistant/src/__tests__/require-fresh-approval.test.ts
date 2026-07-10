@@ -1,12 +1,10 @@
 /**
  * Tests for the requireFreshApproval context flag.
  *
- * Verifies that manage_secure_command_tool cannot bypass the interactive
- * approval prompt through any of the following shortcut paths:
- *
- * 1. Persistent decisions ("Always Allow" rule creation)
- * 2. Grant-consumed short-circuit (pre-existing scoped grant)
- * 3. Non-interactive guardian auto-approve
+ * Verifies non-interactive guardian denial of requireFreshApproval tools, that
+ * the flag is not set for regular tools, and that a `run_workflow` /
+ * `manage_workflows` launch whose capability manifest grants side-effecting
+ * tools or host functions prompts for fresh approval at launch.
  */
 
 import {
@@ -20,11 +18,27 @@ import {
 } from "bun:test";
 
 import { RiskLevel, type ScopeOption } from "../permissions/types.js";
-import type { ToolPermissionPromptEvent } from "../tools/tool-types.js";
-import type {
-  ToolExecutionResult,
-  ToolLifecycleEvent,
-} from "../tools/types.js";
+import type { ToolExecutionResult } from "../tools/types.js";
+
+// ---------------------------------------------------------------------------
+// Terminal audit mock — the permission checker / executor call these directly
+// now (in place of the removed emitLifecycleEvent callback). Capture calls so
+// tests can assert a prompt was recorded.
+// ---------------------------------------------------------------------------
+
+const auditCalls = {
+  denied: [] as any[],
+  error: [] as any[],
+  executed: [] as any[],
+  prompted: [] as string[],
+};
+
+mock.module("../telemetry/tool-audit.js", () => ({
+  recordToolDenied: (e: any) => auditCalls.denied.push(e),
+  recordToolError: (e: any) => auditCalls.error.push(e),
+  recordToolExecuted: (e: any) => auditCalls.executed.push(e),
+  recordToolPermissionPrompted: (n: string) => auditCalls.prompted.push(n),
+}));
 
 // ---------------------------------------------------------------------------
 // Mock setup — mirrors tool-executor.test.ts patterns
@@ -108,7 +122,9 @@ mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => false,
   classifyRisk: async () => ({ level: riskOverride }),
   check: async () => {
-    if (checkResultOverride) return checkResultOverride;
+    if (checkResultOverride) {
+      return checkResultOverride;
+    }
     return { decision: "allow", reason: "allowed" };
   },
   generateAllowlistOptions: () => [
@@ -127,7 +143,9 @@ mock.module("../telemetry/tool-usage-store.js", () => ({
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => {
-    if (name === "unknown_tool") return undefined;
+    if (name === "unknown_tool") {
+      return undefined;
+    }
     const isGmailTool = name.startsWith("gmail_");
     return {
       name,
@@ -226,25 +244,6 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
   });
 
   afterEach(() => {});
-
-  test("manage_secure_command_tool is denied in non-interactive guardian sessions", async () => {
-    // check() returns "prompt" (which normally triggers guardian auto-approve
-    // for non-interactive sessions). With requireFreshApproval, it should
-    // fall through to the non-interactive denial path instead.
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makePrompter());
-    const result = await executor.execute(
-      "manage_secure_command_tool",
-      { action: "register", toolName: "test-tool" },
-      makeContext({ isInteractive: false, trustClass: "guardian" }),
-    );
-
-    // Should be denied because non-interactive + requireFreshApproval
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("requires user approval");
-    expect(result.content).toContain("no interactive client");
-  });
 
   test("regular tools are still auto-approved in non-interactive guardian sessions", async () => {
     // Verify that the auto-approve path still works for normal tools
@@ -396,123 +395,6 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Bypass 2: Persistent decisions (Always Allow)
-// ---------------------------------------------------------------------------
-
-describe("requireFreshApproval: persistent decisions disabled", () => {
-  beforeEach(() => {
-    fakeToolResult = { content: "ok", isError: false };
-    checkResultOverride = undefined;
-    scopeOptionsOverride = undefined;
-    riskOverride = "high";
-    thresholdOverride = "medium";
-  });
-
-  afterEach(() => {});
-
-  test("manage_secure_command_tool prompt does not offer persistent decisions", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const capturedEvents: ToolLifecycleEvent[] = [];
-    let persistentDecisionsPassedToPrompter: boolean | undefined;
-
-    const inspectingPrompter = {
-      prompt: async (
-        _toolName: string,
-        _input: Record<string, unknown>,
-        _riskLevel: string,
-        _allowlistOptions: unknown[],
-        _scopeOptions: unknown[],
-        _previewDiff: unknown,
-        _conversationId: string,
-        _executionTarget: string,
-        persistentDecisionsAllowed: boolean,
-      ) => {
-        persistentDecisionsPassedToPrompter = persistentDecisionsAllowed;
-        return { decision: "allow" as const };
-      },
-      resolveConfirmation: () => {},
-      updateSender: () => {},
-      dispose: () => {},
-    } as unknown as PermissionPrompter;
-
-    const executor = new ToolExecutor(inspectingPrompter);
-    await executor.execute(
-      "manage_secure_command_tool",
-      { action: "register", toolName: "test-tool" },
-      makeContext({
-        onToolLifecycleEvent: (e) => {
-          capturedEvents.push(e);
-        },
-      }),
-    );
-
-    // The prompter should have been told persistentDecisions are NOT allowed
-    expect(persistentDecisionsPassedToPrompter).toBe(false);
-
-    // The lifecycle event should also reflect this
-    const promptEvent = capturedEvents.find(
-      (e) => e.type === "permission_prompt",
-    ) as ToolPermissionPromptEvent | undefined;
-    expect(promptEvent).toBeDefined();
-    expect(promptEvent!.persistentDecisionsAllowed).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Bypass 3: Grant-consumed short-circuit
-// ---------------------------------------------------------------------------
-
-describe("requireFreshApproval: grant-consumed does not skip permission check", () => {
-  beforeEach(() => {
-    fakeToolResult = { content: "ok", isError: false };
-    checkResultOverride = undefined;
-    scopeOptionsOverride = undefined;
-    riskOverride = "high";
-    thresholdOverride = "medium";
-  });
-
-  afterEach(() => {});
-
-  test("manage_secure_command_tool is prompted even when executor sets requireFreshApproval and grantConsumed would normally short-circuit", async () => {
-    // This test verifies the code path in executor.ts where the
-    // condition changed from `if (!gateResult.grantConsumed)` to
-    // `if (!gateResult.grantConsumed || context.requireFreshApproval)`.
-    //
-    // In the real flow, grantConsumed=true only happens for untrusted
-    // actors. Here we verify that the requireFreshApproval flag causes
-    // the permission check to run by testing the manage_secure_command_tool
-    // path directly — it sets both forcePromptSideEffects and
-    // requireFreshApproval, so the permission check always runs.
-
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    let promptCalled = false;
-    const trackingPrompter = {
-      prompt: async () => {
-        promptCalled = true;
-        return { decision: "allow" as const };
-      },
-      resolveConfirmation: () => {},
-      updateSender: () => {},
-      dispose: () => {},
-    } as unknown as PermissionPrompter;
-
-    const executor = new ToolExecutor(trackingPrompter);
-    const result = await executor.execute(
-      "manage_secure_command_tool",
-      { action: "register", toolName: "test-tool" },
-      makeContext(),
-    );
-
-    // manage_secure_command_tool should always be prompted due to
-    // forcePromptSideEffects + isSideEffectTool being true
-    expect(promptCalled).toBe(true);
-    expect(result.isError).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Context flag propagation
 // ---------------------------------------------------------------------------
 
@@ -526,31 +408,6 @@ describe("requireFreshApproval: context flag propagation", () => {
   });
 
   afterEach(() => {});
-
-  test("manage_secure_command_tool sets both forcePromptSideEffects and requireFreshApproval", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const inspectingPrompter = {
-      prompt: async () => {
-        return { decision: "allow" as const };
-      },
-      resolveConfirmation: () => {},
-      updateSender: () => {},
-      dispose: () => {},
-    } as unknown as PermissionPrompter;
-
-    const executor = new ToolExecutor(inspectingPrompter);
-    const ctx = makeContext();
-    await executor.execute(
-      "manage_secure_command_tool",
-      { action: "register", toolName: "test-tool" },
-      ctx,
-    );
-
-    // After execution, the context should have both flags set
-    expect(ctx.forcePromptSideEffects).toBe(true);
-    expect(ctx.requireFreshApproval).toBe(true);
-  });
 
   test("regular tools do not set requireFreshApproval", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };

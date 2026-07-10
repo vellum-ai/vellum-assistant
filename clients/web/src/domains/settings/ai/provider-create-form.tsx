@@ -7,6 +7,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
+import { ChevronRight } from "lucide-react";
 
 import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
 import { secretsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -42,21 +43,14 @@ import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-c
 // same create UX, validation strings, and submit sequence
 // (`secretsPost` → `inferenceProviderconnectionsPost`).
 //
-// Edit / managed-edit live in `ProviderEditorContent` and are intentionally
-// NOT handled here — this component is create-only.
+// Edit lives in `ProviderEditorContent` and is intentionally NOT handled
+// here — this component is create-only.
 
 export interface ProviderCreateFormProps {
   assistantId: string;
   existingNames: string[];
-  /** Pre-selected provider type (e.g. when cloning a managed connection). */
+  /** Pre-selected provider type. */
   defaultProviderType?: ConnectionProvider;
-  /**
-   * Pre-selected auth type. When omitted, managed-capable providers default
-   * to `platform` (and ollama to `none`). The Save-as-New clone flow passes
-   * `api_key` here so cloning a managed connection seeds the "bring your own
-   * credential" path rather than another managed-proxy connection.
-   */
-  defaultAuthType?: AuthType;
   onCreated: (connection: ProviderConnection) => void;
   onCancel: () => void;
   /** "modal" wraps the form in Modal chrome; "inline" drops it for embedding. */
@@ -67,7 +61,6 @@ export function ProviderCreateForm({
   assistantId,
   existingNames,
   defaultProviderType,
-  defaultAuthType,
   onCreated,
   onCancel,
   variant = "modal",
@@ -89,14 +82,12 @@ export function ProviderCreateForm({
   const [label, setLabel] = useState(initialDefaults.name);
   const [name, setName] = useState(initialDefaults.key);
   const [provider, setProvider] = useState<ConnectionProvider>(initialProvider);
-  const [authType, setAuthType] = useState<AuthType>(
-    () =>
-      defaultAuthType ??
-      (initialProvider === "ollama"
-        ? "none"
-        : providerSupportsPlatformAuth(initialProvider)
-          ? "platform"
-          : "api_key"),
+  const [authType, setAuthType] = useState<AuthType>(() =>
+    initialProvider === "ollama"
+      ? "none"
+      : providerSupportsPlatformAuth(initialProvider)
+        ? "platform"
+        : "api_key",
   );
   const [credential, setCredential] = useState(() =>
     initialProvider === "ollama" ? "" : `credential/${initialProvider}/api_key`,
@@ -105,6 +96,7 @@ export function ProviderCreateForm({
   const [connectionModels, setConnectionModels] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
 
   const isOpenAICompatible = provider === "openai-compatible";
   const connectionProviderOptions = useMemo(() => {
@@ -144,7 +136,9 @@ export function ProviderCreateForm({
   });
 
   const nameError = (() => {
-    if (!name.trim()) return null;
+    if (!name.trim()) {
+      return null;
+    }
     if (existingNames.includes(name.trim())) {
       return `A connection named "${name.trim()}" already exists.`;
     }
@@ -154,7 +148,9 @@ export function ProviderCreateForm({
   const canSave = name.trim().length > 0 && !nameError;
 
   async function handleSave() {
-    if (!canSave) return;
+    if (!canSave) {
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -286,47 +282,72 @@ export function ProviderCreateForm({
     hasStoredCredential,
   );
 
+  // Display Name + Key are auto-derived from the selected provider and rarely
+  // need editing, so they live under an "Advanced" disclosure. Force it open
+  // when the Key collides with an existing connection so the error is visible.
+  const detailsOpen = isDetailsExpanded || Boolean(nameError);
+
+  const advancedDetailsSection = (
+    <div>
+      <button
+        type="button"
+        aria-expanded={detailsOpen}
+        onClick={() => setIsDetailsExpanded((v) => !v)}
+        className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
+      >
+        <ChevronRight
+          className={`h-4 w-4 transition-transform ${detailsOpen ? "rotate-90" : ""}`}
+        />
+        <span>Advanced</span>
+      </button>
+
+      {detailsOpen && (
+        <div className="mt-2 space-y-4">
+          {/* Display Name */}
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              Display Name{" "}
+              <span className="text-[var(--content-disabled)]">(optional)</span>
+            </label>
+            <Input
+              value={label}
+              onChange={(e) => handleLabelChange(e.target.value)}
+              placeholder="e.g. My Anthropic Key"
+              fullWidth
+            />
+          </div>
+
+          {/* Key — editable on create, auto-derived from label */}
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              Key
+            </label>
+            <Input
+              value={name}
+              onChange={(e) => {
+                handleNameChange(e.target.value);
+                setError(null);
+              }}
+              placeholder="e.g. anthropic-personal"
+              fullWidth
+            />
+            {nameError && (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="text-(--system-negative-strong)"
+              >
+                {nameError}
+              </Typography>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   const body = (
     <div className="space-y-4">
-      {/* Display Name */}
-      <div className="space-y-1">
-        <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Display Name{" "}
-          <span className="text-[var(--content-disabled)]">(optional)</span>
-        </label>
-        <Input
-          value={label}
-          onChange={(e) => handleLabelChange(e.target.value)}
-          placeholder="e.g. My Anthropic Key"
-          fullWidth
-        />
-      </div>
-
-      {/* Key — editable on create, auto-derived from label */}
-      <div className="space-y-1">
-        <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Key
-        </label>
-        <Input
-          value={name}
-          onChange={(e) => {
-            handleNameChange(e.target.value);
-            setError(null);
-          }}
-          placeholder="e.g. anthropic-personal"
-          fullWidth
-        />
-        {nameError && (
-          <Typography
-            variant="body-small-default"
-            as="p"
-            className="text-(--system-negative-strong)"
-          >
-            {nameError}
-          </Typography>
-        )}
-      </div>
-
       {/* Provider */}
       <div className="space-y-1">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
@@ -462,7 +483,6 @@ export function ProviderCreateForm({
           onApiKeyChange={setApiKeyValue}
           credential={credential}
           onCredentialChange={setCredential}
-          isAuthLocked={false}
           isLoadingCredential={isLoadingCredential}
           apiKeyPlaceholder={apiKeyPlaceholder}
           provider={provider}
@@ -479,6 +499,8 @@ export function ProviderCreateForm({
           onConnected={onCreated}
         />
       )}
+
+      {advancedDetailsSection}
 
       {error && (
         <Typography

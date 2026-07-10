@@ -16,10 +16,8 @@
  */
 
 import { findConversation } from "../../daemon/conversation-registry.js";
-import {
-  FALLBACK_TURN_TRUST,
-  type TrustContext,
-} from "../../daemon/trust-context.js";
+import { FALLBACK_TURN_TRUST } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { CapabilityManifestSchema } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";

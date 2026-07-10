@@ -19,6 +19,7 @@ import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 // ---------------------------------------------------------------------------
 // Params & return type
@@ -30,6 +31,10 @@ export interface UseTranscriptDataParams {
   messages: DisplayMessage[];
   /** Whether the thinking indicator is active (from `useChatUIState`). */
   showThinking: boolean;
+  /** Whether the assistant is busy on an in-flight turn (from
+   *  `useChatUIState.isAssistantBusy`). Keeps the thinking slot mounted across
+   *  the whole turn so the indicator fades instead of reflowing the list. */
+  turnActive: boolean;
   /** Status label for the thinking indicator (from `useChatUIState`). */
   thinkingLabel: string | null;
   /** Whether the onboarding choice card should appear in the transcript. */
@@ -48,6 +53,7 @@ export interface TranscriptData {
 export function useTranscriptData({
   messages,
   showThinking,
+  turnActive,
   thinkingLabel,
   showOnboardingChoice,
 }: UseTranscriptDataParams): TranscriptData {
@@ -57,6 +63,12 @@ export function useTranscriptData({
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
+
+  // Client half of the `skill-creation-card` kill-switch: with the flag off,
+  // `skill_card` surfaces are dropped at projection time so persisted
+  // card-only messages leave no blank assistant row (the in-card `null`
+  // return alone would leave the surface wrapper + hover-action trailer).
+  const skillCardsEnabled = useClientFeatureFlagStore.use.skillCreationCard();
 
   // --- Sanitise -----------------------------------------------------------
   const sanitizedMessages = useMemo(
@@ -102,9 +114,11 @@ export function useTranscriptData({
             }
           : null,
         isThinking: showThinking,
+        turnActive,
         thinkingLabel,
         ephemeralMetaResults,
         showOnboardingChoice,
+        skillCardsEnabled,
       }),
     [
       sanitizedMessages,
@@ -113,9 +127,11 @@ export function useTranscriptData({
       pendingConfirmationAttachedToToolCall,
       pendingContactRequest,
       showThinking,
+      turnActive,
       thinkingLabel,
       ephemeralMetaResults,
       showOnboardingChoice,
+      skillCardsEnabled,
     ],
   );
 

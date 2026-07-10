@@ -65,8 +65,10 @@ import type {
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import {
+  isOverrideOrDefaultResolutionEnabled,
   resolveDefaultProfileKey,
   resolveProfilelessModelKey,
+  selectWinningProfile,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -83,7 +85,7 @@ import type {
   SubagentToolGateMode,
   WakeToolContextPin,
 } from "../daemon/tool-setup-types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { resolveTurnCallSite } from "../daemon/turn-call-site.js";
 import {
   broadcastWakeSurface,
@@ -482,23 +484,13 @@ async function runSingleFlight<T>(
 }
 
 /**
- * Small helper: if a conversation reports `isProcessing()`, poll briefly
- * so we don't try to start a second agent loop concurrently. We rely
- * primarily on the single-flight chain above to serialize *wakes*; this
- * extra check catches the case where a user turn started independently
- * while our wake was queued.
+ * How long a wake waits for an in-flight turn to release the conversation's
+ * processing lock before skipping with reason "timeout". We rely primarily
+ * on the single-flight chain above to serialize *wakes*; the pre-run
+ * `waitForIdle` gate catches the case where a user turn started
+ * independently while our wake was queued.
  */
-async function waitUntilIdle(
-  conversation: Conversation,
-  nowFn: () => number,
-  timeoutMs = 30_000,
-): Promise<boolean> {
-  const deadline = nowFn() + timeoutMs;
-  while (conversation.isProcessing() && nowFn() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return !conversation.isProcessing();
-}
+const WAKE_IDLE_TIMEOUT_MS = 30_000;
 
 function classifyWakeDiskPressurePolicy(opts: WakeOptions): {
   decision: DiskPressureTurnPolicyDecision;
@@ -689,7 +681,24 @@ export async function wakeAgentForOpportunity(
       };
     }
 
-    const idle = await waitUntilIdle(conversation, nowFn);
+    // Wait for any independently started user turn to release the processing
+    // lock so we don't run a second agent loop concurrently. With no abort
+    // signal, waitForIdle never rejects — `false` means the budget elapsed
+    // with the lock still held. Idle waiters are notified FIFO from the same
+    // `setProcessing(false)` transition, so a competing waiter registered
+    // earlier (e.g. a voice turn) can re-take the lock before this
+    // continuation runs — re-check `isProcessing()` after every wakeup and
+    // re-wait on the remaining budget until the lock is observed free.
+    const idleDeadline = nowFn() + WAKE_IDLE_TIMEOUT_MS;
+    let idle = await conversation.waitForIdle({
+      timeoutMs: WAKE_IDLE_TIMEOUT_MS,
+    });
+    while (idle && conversation.isProcessing()) {
+      const remainingMs = idleDeadline - nowFn();
+      idle =
+        remainingMs > 0 &&
+        (await conversation.waitForIdle({ timeoutMs: remainingMs }));
+    }
     if (!idle) {
       log.warn(
         { conversationId, source },
@@ -724,13 +733,21 @@ export async function wakeAgentForOpportunity(
       overrideProfile,
       forceOverrideProfile,
     });
+    // Same winner-selection sourcing as the agent loop's key: under
+    // override-or-default semantics a hand-mirrored chain would disagree
+    // with dispatch (a non-forced override now wins on every call site).
     const modelProfileKey =
-      (forceOverrideProfile || callSite === "mainAgent"
-        ? overrideProfile
-        : undefined) ??
-      resolveDefaultProfileKey(callSite, config.llm) ??
-      overrideProfile ??
-      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      (isOverrideOrDefaultResolutionEnabled()
+        ? selectWinningProfile(callSite, config.llm, {
+            ...(overrideProfile != null ? { overrideProfile } : {}),
+            selectionSeed: conversationId,
+          }).profileName
+        : ((forceOverrideProfile || callSite === "mainAgent"
+            ? overrideProfile
+            : undefined) ??
+          resolveDefaultProfileKey(callSite, config.llm) ??
+          overrideProfile ??
+          resolveDefaultProfileKey("mainAgent", config.llm))) ??
       resolveProfilelessModelKey(callSite, config.llm, {
         ...(overrideProfile != null ? { overrideProfile } : {}),
         ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
@@ -761,7 +778,10 @@ export async function wakeAgentForOpportunity(
     // message arriving while the flag is set is queued by `enqueueMessage()`
     // and drained after the wake's tail is pushed + persisted. This happens
     // before applying a wake-scoped tool allowlist so a concurrent user turn
-    // cannot start under the wake's restricted tool set.
+    // cannot start under the wake's restricted tool set. The idle gate above
+    // observed the lock free, and nothing between its final `isProcessing()`
+    // check and this acquisition awaits — keep that stretch await-free so
+    // the lock cannot change hands in between.
     conversation.setProcessing(true);
 
     // ── Pre-run auto-compaction gate ──────────────────────────────────

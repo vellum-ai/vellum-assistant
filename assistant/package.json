@@ -25,9 +25,9 @@
     "lint:unused:production": "knip --production --include exports",
     "typecheck": "bunx tsc --noEmit",
     "typecheck:fast": "bunx tsgo --noEmit",
-    "test": "bash scripts/test.sh",
-    "test:coverage": "COVERAGE=true bash scripts/test.sh",
-    "test:stable": "EXCLUDE_EXPERIMENTAL=true bash scripts/test.sh",
+    "test": "bun run scripts/test.ts",
+    "test:coverage": "COVERAGE=true bun run scripts/test.ts",
+    "test:stable": "EXCLUDE_EXPERIMENTAL=true bun run scripts/test.ts",
     "test:bench": "find src -type f -name '*.benchmark.test.ts' -print0 | xargs -0 -P 1 -I {} bun test {}",
     "test:filesystem-tools": "bash scripts/test-filesystem-tools.sh",
     "postinstall": "cd .. && (git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true) && ([ -f meta/feature-flags/sync-bundled-copies.ts ] && bun run meta/feature-flags/sync-bundled-copies.ts 2>/dev/null || true)"

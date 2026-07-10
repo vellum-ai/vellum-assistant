@@ -115,6 +115,18 @@ export function classifyAttachment(mimeType: string, filename: string): Attachme
 }
 
 /**
+ * Estimate the decoded byte length of a base64-encoded string, accounting for
+ * trailing `=` padding. Mirrors the daemon's `estimateBase64Bytes` so
+ * client-derived sizes for inline tool-result images agree with the sizes the
+ * server later assigns to the persisted attachments.
+ */
+export function estimateBase64Bytes(base64: string): number {
+  const trimmed = base64.replace(/\s/g, "");
+  const padding = trimmed.endsWith("==") ? 2 : trimmed.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((trimmed.length * 3) / 4) - padding);
+}
+
+/**
  * Decode a base64 data URI into a Uint8Array. Returns null if the URI does
  * not contain a recognizable `;base64,` segment.
  */

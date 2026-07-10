@@ -592,7 +592,7 @@ describe("resolveOAuthConnection", () => {
 
   test("throws when no credential metadata exists", async () => {
     await expect(resolveOAuthConnection("unknown")).rejects.toThrow(
-      /No active OAuth connection found for "unknown"/,
+      /No active OAuth connection found for provider "unknown"/,
     );
   });
 

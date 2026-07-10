@@ -31,7 +31,6 @@ mock.module("../config/loader.js", () => ({
       },
       cleanup: {
         enabled: true,
-        enqueueIntervalMs: 60_000,
         conversationRetentionDays: 30,
         llmRequestLogRetentionMs: 60_000,
       },
@@ -120,7 +119,6 @@ mock.module("../persistence/conversation-crud.js", () => ({
     deletedSummaryIds: [],
   })),
   deleteLastExchange: mock(() => 0),
-  findAnalysisConversationFor: mock(() => null),
   forkConversation: mock(() => ({ id: "conv-fork" })),
   forkConversationForRetrospective: mock(async () => ({ id: "conv-fork" })),
   getConversationOverrideProfile: () => undefined,
@@ -195,14 +193,15 @@ mock.module("../persistence/jobs-store.js", () => ({
   MESSAGE_LEXICAL_JOB_TYPES: [],
   resetRunningJobsToPending: mock(() => 0),
   SLOW_LLM_JOB_TYPES: [],
-  upsertAutoAnalysisJob: mock(() => "job-auto-analysis"),
   upsertDebouncedJob: mock(() => "job-debounced"),
   upsertMemoryRetrospectiveJob: mock(() => "job-memory-retrospective"),
 }));
 
 const mockMaybeRunDbMaintenance = mock(() => {});
+const mockMaybeRunPassiveWalCheckpoint = mock(() => {});
 mock.module("../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: mockMaybeRunDbMaintenance,
+  maybeRunPassiveWalCheckpoint: mockMaybeRunPassiveWalCheckpoint,
 }));
 
 mock.module("../persistence/cleanup-schedule-state.js", () => ({
@@ -222,6 +221,7 @@ describe("background workers disk pressure gate", () => {
     mockFailStalledJobs.mockClear();
     mockClaimMemoryJobs.mockClear();
     mockMaybeRunDbMaintenance.mockClear();
+    mockMaybeRunPassiveWalCheckpoint.mockClear();
   });
 
   test("memory jobs worker skips before claiming or maintenance writes", async () => {
@@ -231,6 +231,7 @@ describe("background workers disk pressure gate", () => {
     expect(mockFailStalledJobs).not.toHaveBeenCalled();
     expect(mockClaimMemoryJobs).not.toHaveBeenCalled();
     expect(mockMaybeRunDbMaintenance).not.toHaveBeenCalled();
+    expect(mockMaybeRunPassiveWalCheckpoint).not.toHaveBeenCalled();
   });
 
   test("workspace heartbeat skips auto-commit checks while locked", async () => {

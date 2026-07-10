@@ -444,6 +444,13 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
     await waitForOpen(ws);
 
     ws.send(startFrame("conversation-failed"));
+    // ready precedes the arm: the STT connection is established in the
+    // background, so its failure surfaces as a post-ready error frame.
+    const readyBeforeFailure = await waitForJsonFrame(ws);
+    expect(readyBeforeFailure).toMatchObject({
+      type: "ready",
+      conversationId: "conversation-failed",
+    });
     const error = await waitForJsonFrame(ws);
     expect(error).toMatchObject({
       type: "error",

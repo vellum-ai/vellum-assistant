@@ -32,7 +32,6 @@ export const conversations = sqliteTable(
     ),
     conversationType: text("conversation_type").notNull().default("standard"),
     source: text("source").notNull().default("user"),
-    memoryScopeId: text("memory_scope_id").notNull().default("default"),
     originChannel: text("origin_channel"),
     originInterface: text("origin_interface"),
     forkParentConversationId: text("fork_parent_conversation_id"),
@@ -63,6 +62,16 @@ export const conversations = sqliteTable(
      * callers read this column directly.
      */
     processingStartedAt: integer("processing_started_at"),
+    /**
+     * Count of consecutive startup auto-resume attempts for this
+     * conversation's interrupted turn. Incremented by the startup reconciler
+     * when it wakes a conversation whose `processing_started_at` survived the
+     * previous process; reset to 0 whenever a turn ends cleanly. Caps
+     * resume-loops for turns that repeatedly take the process down.
+     */
+    processingResumeAttempts: integer("processing_resume_attempts")
+      .notNull()
+      .default(0),
     /**
      * Highest stream `seq` whose content is durably persisted to this
      * conversation's message rows. Seeded with the global high-water seq when

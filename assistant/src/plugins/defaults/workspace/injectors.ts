@@ -3,7 +3,8 @@
  *
  * Contributes the workspace-grounding per-turn injections: the disk-pressure
  * cleanup warning, the `<workspace>` top-level directory context, the
- * config-quarantine notice, and the NOW.md scratchpad. Each reads its inputs
+ * config-quarantine notice, the config-validation-reset notice, and the NOW.md
+ * scratchpad. Each reads its inputs
  * directly off the {@link TurnContext} (or the workspace files) and runs its own
  * gating; see {@link DEFAULT_INJECTOR_ORDER} for the global ordering contract.
  */
@@ -17,11 +18,12 @@ import type { InjectionMatcher } from "../../../context/strip-injections.js";
 import { findConversationOrSubagent } from "../../../daemon/conversation-registry.js";
 import { resolveWorkspaceTopLevelContext } from "../../../daemon/conversation-workspace.js";
 import { readNowScratchpad } from "../../../daemon/now-scratchpad.js";
+import { isPersonalMemoryAllowed } from "../../../daemon/trust-context.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
-  isPersonalMemoryAllowed,
-  type TrustContext,
-} from "../../../daemon/trust-context.js";
-import { getConfigQuarantineNoticePath } from "../../../util/platform.js";
+  getConfigQuarantineNoticePath,
+  getConfigValidationResetNoticePath,
+} from "../../../util/platform.js";
 import {
   type InjectionBlock,
   type Injector,
@@ -225,6 +227,114 @@ const configQuarantineNoticeInjector: Injector = {
   },
 };
 
+/**
+ * Maximum age of a config-validation-reset notice before it is considered stale.
+ * A backstop only: a validation reset is recoverable, so the config loader
+ * clears the sentinel the moment the config validates cleanly again — this
+ * age-out just bounds a notice whose config is never re-loaded/fixed.
+ */
+const CONFIG_VALIDATION_RESET_NOTICE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Shape of the config-validation-reset notice sentinel written by the config loader. */
+interface ConfigValidationResetNotice {
+  resetAt: string;
+  invalidPaths: string[];
+}
+
+/**
+ * Read and validate the config-validation-reset notice sentinel. Returns the
+ * parsed notice when the file exists and carries the expected fields, otherwise
+ * `null`. Best-effort: any read/parse error is swallowed and treated as absent.
+ */
+function readConfigValidationResetNotice(): ConfigValidationResetNotice | null {
+  const noticePath = getConfigValidationResetNoticePath();
+  if (!existsSync(noticePath)) return null;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(noticePath, "utf-8"));
+    if (parsed == null || typeof parsed !== "object") return null;
+    const { resetAt, invalidPaths } = parsed as Record<string, unknown>;
+    if (typeof resetAt !== "string") return null;
+    const paths = Array.isArray(invalidPaths)
+      ? invalidPaths.filter((p): p is string => typeof p === "string")
+      : [];
+    return { resetAt, invalidPaths: paths };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `config-validation-reset-notice` injector — order 26, prepend-user-tail.
+ *
+ * Surfaces a recent config-validation event to the agent. When `config.json`
+ * parses as JSON but fails schema validation that per-key cleanup cannot repair,
+ * the loader recovers along a ladder (see `config/loader.ts`
+ * `recoverFromInvalidConfig`) and records a sentinel. Whichever rung it lands
+ * on, the saved config is not fully in effect: a section — or the whole config —
+ * may have reverted to schema defaults, flipping a managed email/OAuth service
+ * mode back to `your-own`, or the user's most recent edit may simply never have
+ * applied. That is otherwise invisible (log-only). This injector reads the
+ * sentinel and, when it is younger than
+ * {@link CONFIG_VALIDATION_RESET_NOTICE_MAX_AGE_MS}, injects a short block so the
+ * agent can explain a setting or connection that changed without the user asking
+ * — the on-disk config is intact, so recovery is fixing the flagged entries.
+ *
+ * Mirrors {@link configQuarantineNoticeInjector}: guardian-only (workspace paths
+ * and settings state are not for non-guardian actors), active in both `full` and
+ * `minimal` mode, and non-persisted so it stops appearing once the loader clears
+ * the sentinel (config re-validates) or it ages out.
+ */
+const configValidationResetNoticeInjector: Injector = {
+  name: "config-validation-reset-notice",
+  order: DEFAULT_INJECTOR_ORDER.configValidationResetNotice,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    if (ctx.trust.trustClass !== "guardian") return null;
+
+    const notice = readConfigValidationResetNotice();
+    if (!notice) return null;
+
+    const resetAtMs = Date.parse(notice.resetAt);
+    const ageMs = Number.isNaN(resetAtMs)
+      ? Number.POSITIVE_INFINITY
+      : Date.now() - resetAtMs;
+    if (ageMs > CONFIG_VALIDATION_RESET_NOTICE_MAX_AGE_MS) {
+      try {
+        rmSync(getConfigValidationResetNoticePath(), { force: true });
+      } catch {
+        // Best-effort cleanup — a failed delete just means we re-check next turn.
+      }
+      return null;
+    }
+
+    const invalidList =
+      notice.invalidPaths.length > 0
+        ? notice.invalidPaths.join(", ")
+        : "(top-level)";
+    const text =
+      `<config_reset_notice>\n` +
+      `The user's config.json failed schema validation at ${notice.resetAt} ` +
+      `and did not fully take effect. Settings the user did not change may ` +
+      `have silently reverted to defaults — including managed email/OAuth ` +
+      `service modes (a managed connection can flip back to "your-own" and ` +
+      `break), model choices, and other customizations — and a recent edit may ` +
+      `never have applied. The on-disk config.json is intact; the invalid ` +
+      `entries just need fixing for the saved values to take effect again. ` +
+      `Invalid config path(s): ${invalidList}.\n\n` +
+      `If the user reports a connection, setting, or integration that broke or ` +
+      `changed on its own — especially email/Outlook/OAuth — do NOT trust ` +
+      `memory or the Connected Services block: run a live check ` +
+      `(\`assistant oauth status <provider>\`), explain this reset, and help ` +
+      `them fix the flagged config entries. Otherwise mention it proactively ` +
+      `only when clearly relevant — do not interrupt unrelated work.\n` +
+      `</config_reset_notice>`;
+    return {
+      id: "config-validation-reset-notice",
+      text,
+      placement: "prepend-user-tail",
+    };
+  },
+};
+
 /** Block prefixes that mark a persisted NOW.md injection. */
 const NOW_MD_BLOCK_PREFIXES = [
   "<NOW.md Always keep this up to date",
@@ -291,5 +401,6 @@ export const workspaceInjectors: Injector[] = [
   diskPressureWarningInjector,
   workspaceContextInjector,
   configQuarantineNoticeInjector,
+  configValidationResetNoticeInjector,
   nowMdInjector,
 ];

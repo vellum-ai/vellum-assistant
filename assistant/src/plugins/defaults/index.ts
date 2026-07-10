@@ -51,8 +51,10 @@ import { resetRepairStateStoreForTests } from "./history-repair/repair-state-sto
 import imageFallbackConversationDeleted from "./image-fallback/hooks/conversation-deleted.js";
 import imageFallbackInit from "./image-fallback/hooks/init.js";
 import imageFallbackPostCompact from "./image-fallback/hooks/post-compact.js";
+import imageFallbackPostModelCall from "./image-fallback/hooks/post-model-call.js";
 import imageFallbackPostToolUse from "./image-fallback/hooks/post-tool-use.js";
 import imageFallbackShutdown from "./image-fallback/hooks/shutdown.js";
+import imageFallbackStop from "./image-fallback/hooks/stop.js";
 import imageFallbackUserPromptSubmit from "./image-fallback/hooks/user-prompt-submit.js";
 import imageFallbackPkg from "./image-fallback/package.json" with { type: "json" };
 import { resetCaptionCacheForTests } from "./image-fallback/src/caption-cache.js";
@@ -106,12 +108,18 @@ import workspacePkg from "./workspace/package.json" with { type: "json" };
  * screenshot) nested in the tool result's `contentBlocks`; the `post-compact`
  * hook re-sweeps the rebuilt history after a mid-turn compaction, whose
  * retained images and persistence-restored tool results land after the
- * turn-start sweep. Fail-open with a placeholder when no vision profile is
- * configured or captioning fails. A read-through content-hash cache (in-memory
- * LRU over a plugin-owned SQLite file, opened by `init` in the plugin's
- * storage dir and closed by `shutdown`) avoids re-captioning the same image
- * across turns, compactions, and restarts; `conversation-deleted` removes the
- * deleted conversation's cache rows.
+ * turn-start sweep. The `post-model-call` hook backstops raw images that
+ * reach the provider anyway (messages joining an in-flight turn, catalog
+ * entries that call a model vision-capable when its serving endpoint rejects
+ * images): on a vision-not-supported rejection it captions the working
+ * history and retries, bounded to one pass per turn, with the `stop` hook
+ * clearing the recovery bound on a terminal stop. Fail-open with a
+ * placeholder when no vision profile is configured or captioning fails. A
+ * read-through content-hash cache (in-memory LRU over a plugin-owned SQLite
+ * file, opened by `init` in the plugin's storage dir and closed by
+ * `shutdown`) avoids re-captioning the same image across turns, compactions,
+ * and restarts; `conversation-deleted` removes the deleted conversation's
+ * cache rows.
  */
 export const defaultImageFallbackPlugin: Plugin = {
   manifest: {
@@ -124,6 +132,8 @@ export const defaultImageFallbackPlugin: Plugin = {
     "user-prompt-submit": imageFallbackUserPromptSubmit,
     "post-tool-use": imageFallbackPostToolUse,
     "post-compact": imageFallbackPostCompact,
+    "post-model-call": imageFallbackPostModelCall,
+    stop: imageFallbackStop,
     "conversation-deleted": imageFallbackConversationDeleted,
   },
 };

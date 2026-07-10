@@ -13,10 +13,6 @@ import { readFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import {
-  runToolStandalone,
-  UnknownToolError,
-} from "../../tools/run-standalone.js";
 import { registerCommand } from "../lib/register-command.js";
 
 /**
@@ -85,6 +81,10 @@ export function registerToolsRunCommand(parent: Command): void {
             opts: { input?: string; inputFile?: string; json?: boolean },
           ) => {
             const input = resolveToolInput(opts);
+
+            // Deferred: the executor graph loads only when a tool runs.
+            const { runToolStandalone, UnknownToolError } =
+              await import("../../tools/run-standalone.js");
 
             let result;
             try {

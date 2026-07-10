@@ -56,7 +56,8 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   },
 }));
 
-import type { ConversationCreateType } from "../../../persistence/conversation-crud.js";
+import { LLMConfigBase } from "../../../config/schemas/llm.js";
+import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
 import { getDb, getLogsDb } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import {
@@ -133,7 +134,6 @@ function seedConversationAndMessage(args: {
       updatedAt: now,
       source: args.source,
       conversationType: args.conversationType,
-      memoryScopeId: "default",
       ...(args.totalEstimatedCost != null
         ? { totalEstimatedCost: args.totalEstimatedCost }
         : {}),
@@ -760,11 +760,17 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
     expect(savedProfile.provider).toBe("openai");
     expect(savedProfile.model).toBe("gpt-5.5");
-    expect(savedProfile.maxTokens).toBeUndefined();
+    // Write normalization completes the entry against llm.default (schema
+    // defaults here — the fixture has none), so UI-cleared fields land as
+    // explicit values instead of inherit-by-absence.
+    const schemaDefault = LLMConfigBase.parse({});
+    expect(savedProfile.maxTokens).toBe(schemaDefault.maxTokens);
     expect(savedProfile.contextWindow).toEqual({
+      ...schemaDefault.contextWindow,
       targetBudgetRatio: 0.3,
       summaryBudgetRatio: 0.08,
       overflowRecovery: {
+        ...schemaDefault.contextWindow.overflowRecovery,
         enabled: true,
         maxAttempts: 4,
       },
@@ -792,11 +798,14 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom;
 
+    const schemaDefault = LLMConfigBase.parse({});
     expect(savedProfile.contextWindow).toEqual({
+      ...schemaDefault.contextWindow,
       maxInputTokens: 150000,
       targetBudgetRatio: 0.3,
       summaryBudgetRatio: 0.08,
       overflowRecovery: {
+        ...schemaDefault.contextWindow.overflowRecovery,
         enabled: true,
         maxAttempts: 4,
       },
@@ -1134,6 +1143,187 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(invalidateConfigCacheCalls).toBe(1);
       expect(clearEmbeddingBackendCacheCalls).toBe(1);
     });
+  });
+});
+
+describe("custom profile write normalization (complete overrides)", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+  const configSetRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
+  const distinctiveDefault = {
+    provider: "anthropic",
+    model: "claude-opus-4-8",
+    maxTokens: 12345,
+    temperature: 0.7,
+    logitBias: "suppress-cjk",
+  };
+
+  beforeEach(() => {
+    savedRawConfig = null;
+    rawConfigFixture = {
+      llm: {
+        default: structuredClone(distinctiveDefault),
+        profiles: {
+          partial: { source: "user", model: "claude-haiku-4-5-20251001" },
+        },
+      },
+    };
+  });
+
+  const savedProfiles = () =>
+    (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles;
+
+  test("PUT of a partial body stores a complete profile", async () => {
+    await replaceProfileRoute.handler({
+      pathParams: { name: "mine" },
+      body: { model: "claude-haiku-4-5-20251001" },
+    });
+    const saved = savedProfiles().mine;
+    expect(saved.model).toBe("claude-haiku-4-5-20251001");
+    expect(saved.provider).toBe("anthropic");
+    expect(saved.maxTokens).toBe(12345);
+    // Non-null default sampling is baked in; logitBias never is.
+    expect(saved.temperature).toBe(0.7);
+    expect(saved.logitBias).toBeUndefined();
+    expect(saved.thinking).toBeDefined();
+    expect(saved.contextWindow).toBeDefined();
+  });
+
+  test("PATCH creating a partial profile stores it complete", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          default: structuredClone(distinctiveDefault),
+          profiles: {
+            mine: { source: "user", model: "claude-haiku-4-5-20251001" },
+          },
+        },
+      },
+    });
+    const saved = savedProfiles().mine;
+    expect(saved.provider).toBe("anthropic");
+    expect(saved.maxTokens).toBe(12345);
+    expect(saved.temperature).toBe(0.7);
+    expect(saved.logitBias).toBeUndefined();
+  });
+
+  test("SET on a profile leaf completes the whole entry", async () => {
+    await configSetRoute.handler({
+      body: { path: "llm.profiles.partial.maxTokens", value: 999 },
+    });
+    const saved = savedProfiles().partial;
+    expect(saved.maxTokens).toBe(999);
+    expect(saved.provider).toBe("anthropic");
+    expect(saved.temperature).toBe(0.7);
+    expect(saved.model).toBe("claude-haiku-4-5-20251001");
+  });
+
+  test("an unrelated write leaves untouched partial profiles byte-identical", async () => {
+    await configSetRoute.handler({
+      body: { path: "heartbeat.activeHoursStart", value: 9 },
+    });
+    expect(savedProfiles().partial).toEqual({
+      source: "user",
+      model: "claude-haiku-4-5-20251001",
+    });
+  });
+
+  test("nested unknown keys survive completion of a touched entry", async () => {
+    (
+      rawConfigFixture.llm as { profiles: Record<string, unknown> }
+    ).profiles.partial = {
+      source: "user",
+      model: "claude-haiku-4-5-20251001",
+      contextWindow: { futureField: "keep-me", maxInputTokens: 111 },
+    };
+    await configSetRoute.handler({
+      body: { path: "llm.profiles.partial.maxTokens", value: 999 },
+    });
+    const saved = savedProfiles().partial;
+    const contextWindow = saved.contextWindow as Record<string, unknown>;
+    expect(contextWindow.futureField).toBe("keep-me");
+    expect(contextWindow.maxInputTokens).toBe(111);
+    expect(saved.provider).toBe("anthropic");
+  });
+
+  test("unknown profile keys survive completion of a touched entry", async () => {
+    (
+      rawConfigFixture.llm as { profiles: Record<string, unknown> }
+    ).profiles.partial = {
+      source: "user",
+      model: "claude-haiku-4-5-20251001",
+      futureField: "keep-me",
+    };
+    await configSetRoute.handler({
+      body: { path: "llm.profiles.partial.maxTokens", value: 999 },
+    });
+    const saved = savedProfiles().partial;
+    expect(saved.futureField).toBe("keep-me");
+    expect(saved.maxTokens).toBe(999);
+    expect(saved.provider).toBe("anthropic");
+  });
+
+  test("a bogus managed source on a non-catalog name is normalized and completed", async () => {
+    await replaceProfileRoute.handler({
+      pathParams: { name: "mine" },
+      body: { source: "managed", model: "claude-haiku-4-5-20251001" },
+    });
+    const saved = savedProfiles().mine;
+    expect(saved.source).toBe("user");
+    expect(saved.provider).toBe("anthropic");
+    expect(saved.maxTokens).toBe(12345);
+  });
+
+  test("a managed status re-enable stays a thin stub", async () => {
+    (
+      rawConfigFixture.llm as { profiles: Record<string, unknown> }
+    ).profiles.balanced = { source: "managed", status: "disabled" };
+    await replaceProfileRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { status: null },
+    });
+    expect(savedProfiles().balanced).toEqual({ source: "managed" });
+  });
+
+  test("a mix profile write is not completed", async () => {
+    await replaceProfileRoute.handler({
+      pathParams: { name: "ab" },
+      body: {
+        label: "A/B",
+        mix: [
+          { profile: "balanced", weight: 1 },
+          { profile: "cost-optimized", weight: 1 },
+        ],
+      },
+    });
+    const saved = savedProfiles().ab;
+    expect(saved.mix).toBeDefined();
+    expect(saved.provider).toBeUndefined();
+    expect(saved.model).toBeUndefined();
+    expect(saved.maxTokens).toBeUndefined();
+  });
+
+  test("re-writing a completed profile is idempotent", async () => {
+    // Deterministic connection state: the PUT handler derives a connection
+    // for provider-carrying bodies, so both writes must see the same rows.
+    getDb().delete(providerConnections).run();
+    await replaceProfileRoute.handler({
+      pathParams: { name: "mine" },
+      body: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+    });
+    const first = structuredClone(savedProfiles().mine);
+    rawConfigFixture = structuredClone(savedRawConfig!);
+    await replaceProfileRoute.handler({
+      pathParams: { name: "mine" },
+      body: first as Record<string, unknown>,
+    });
+    expect(savedProfiles().mine).toEqual(first);
   });
 });
 

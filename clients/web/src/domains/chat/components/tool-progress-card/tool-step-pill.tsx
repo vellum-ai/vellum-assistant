@@ -1,29 +1,27 @@
 /**
  * Button-based tool-call step pill matching Figma node `5010-103193`.
  *
- * A leading glyph (from `ICON_MAP`) + a truncating label + an optional
- * trailing `RiskBadge`. When an `onClick` is supplied the pill renders as a
- * real `<button>` (with hover / focus affordances); otherwise it renders a
- * non-interactive `<span>` with identical layout classes minus the
- * interactive styling, so static / no-action contexts don't get a dead
- * button.
+ * A leading glyph (from `ICON_MAP`) + a truncating label. When an `onClick`
+ * is supplied the pill renders as a real `<button>` (with hover / focus
+ * affordances); otherwise it renders a non-interactive `<span>` with
+ * identical layout classes minus the interactive styling, so static /
+ * no-action contexts don't get a dead button.
  *
- * When both `onClick` and `onRiskBadgeClick` are provided, the pill renders
- * as a `<div>` with `role="button"` so the risk badge can render its own
- * `<button>` without nesting interactive elements (invalid per HTML spec).
+ * The tool call's risk level is NOT shown here — it lives in the tool-detail
+ * drawer's "Reasoning" section (see `ToolDetailBody`), keeping the timeline
+ * pills compact.
  *
  * Props are intentionally PRIMITIVE (icon name + strings) rather than coupled
  * to `ToolCallCardStep`, so the pill is independently testable and reusable
  * outside the card pipeline.
  */
 
-import { useState, type KeyboardEvent } from "react";
+import { useState } from "react";
 
 import { Bolt } from "lucide-react";
 
 import { Typography } from "@vellumai/design-library";
 
-import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 
@@ -38,15 +36,12 @@ interface ToolStepPillBaseProps {
 
 /**
  * Default pill: a lucide glyph (from `ICON_MAP`) + label, optionally a button
- * (when `onClick` is set) with an optional trailing `RiskBadge`.
+ * (when `onClick` is set).
  */
 export interface ToolStepPillToolProps extends ToolStepPillBaseProps {
   variant?: "tool";
   iconName: IconName;
-  riskLevel?: string;
   onClick?: () => void;
-  /** Click handler for the risk badge. Opens the trust-rule editor. */
-  onRiskBadgeClick?: () => void;
   /**
    * Selected state — rendered when this pill's tool-detail drawer is open.
    * Mirrors the design-library outlined+active button (primary border, lifted
@@ -172,9 +167,7 @@ export function ToolStepPill(props: ToolStepPillProps) {
   const {
     iconName,
     label,
-    riskLevel,
     onClick,
-    onRiskBadgeClick,
     tone = "default",
     active = false,
     ariaLabel,
@@ -220,36 +213,6 @@ export function ToolStepPill(props: ToolStepPillProps) {
     // `surface-overlay`, active already there).
     const hoverClass = "hover:bg-[var(--surface-active)]";
 
-    // When onRiskBadgeClick is also provided, use a <div role="button"> as the
-    // outer wrapper so the RiskBadge can render its own <button> without
-    // nesting interactive elements (invalid per HTML spec). The div handles
-    // keyboard activation for the main action; the badge button stops event
-    // propagation to keep the two actions independent.
-    if (onRiskBadgeClick) {
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick();
-        }
-      };
-      return (
-        <div
-          role="button"
-          tabIndex={0}
-          data-testid="tool-step-pill"
-          data-active={active ? "" : undefined}
-          aria-pressed={active}
-          aria-label={ariaLabel ?? `View details: ${label}`}
-          onClick={onClick}
-          onKeyDown={handleKeyDown}
-          className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-full ${hoverClass} ${colorClasses}`}
-        >
-          {labelContent}
-          <RiskBadge level={riskLevel} onClick={onRiskBadgeClick} />
-        </div>
-      );
-    }
-
     return (
       <button
         type="button"
@@ -261,7 +224,6 @@ export function ToolStepPill(props: ToolStepPillProps) {
         className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-full ${hoverClass} ${colorClasses}`}
       >
         {labelContent}
-        <RiskBadge level={riskLevel} />
       </button>
     );
   }
@@ -272,7 +234,6 @@ export function ToolStepPill(props: ToolStepPillProps) {
       className={`${BASE_CLASSES} max-w-full ${colorClasses}`}
     >
       {labelContent}
-      <RiskBadge level={riskLevel} />
     </span>
   );
 }

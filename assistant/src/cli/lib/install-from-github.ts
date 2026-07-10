@@ -61,8 +61,7 @@ const execFileAsync = promisify(execFile);
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";
 const PLUGIN_SOURCE_PATH_PREFIX = "plugins";
-/** Default git ref to fetch from when callers don't override. */
-export const DEFAULT_PLUGIN_REF = "main";
+import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 
 /** Full Git commit SHA — 40 hex chars (SHA-1) or 64 (SHA-256). */
 const FULL_COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
@@ -482,6 +481,8 @@ export interface FinalizeStagedInstallParams {
   readonly commit: string | null;
   /** ISO-8601 committer timestamp of {@link FinalizeStagedInstallParams.commit} (UTC); null when unknown. */
   readonly committedAt: string | null;
+  /** Artifact integrity digest (`sha256:<hex>`) recorded for platform-endpoint installs; omitted for git installs. */
+  readonly etag?: string;
   /** Served plugins directory; the staging dir is swapped into `<pluginsDir>/<name>`. */
   readonly pluginsDir: string;
 }
@@ -503,6 +504,7 @@ export function finalizeStagedInstall(
     ref,
     commit,
     committedAt,
+    etag,
     pluginsDir,
   }: FinalizeStagedInstallParams,
 ): { target: string; fingerprint: Fingerprint } {
@@ -523,6 +525,7 @@ export function finalizeStagedInstall(
     ref,
     commit,
     committedAt,
+    etag,
     fingerprint,
     contentHash,
   });
@@ -637,6 +640,14 @@ export interface InstallMeta {
   readonly source: InstallMetaSource;
   /** Resolved commit SHA the source was cloned at; `null` when it could not be read at install time. */
   readonly commit: string | null;
+  /**
+   * Integrity digest of the downloaded artifact, when the install came through
+   * the platform install endpoint (`ETag: "sha256:<hex>"`). Recorded verbatim
+   * (including the `sha256:` prefix) as a stable id for caching / dedupe and to
+   * document what was verified. Absent for git-cloned installs, which have no
+   * single artifact to hash.
+   */
+  readonly etag?: string;
   /**
    * ISO-8601 committer timestamp of {@link InstallMeta.commit}, in UTC
    * (e.g. `2026-06-01T12:34:56.000Z`). This is a property of the commit
@@ -1210,6 +1221,8 @@ interface WriteInstallMetaParams {
   readonly commit: string | null;
   /** ISO-8601 committer timestamp of {@link WriteInstallMetaParams.commit} (UTC); null when unknown. */
   readonly committedAt: string | null;
+  /** Artifact integrity digest (`sha256:<hex>`) recorded for platform-endpoint installs; omitted for git installs. */
+  readonly etag?: string;
   readonly fingerprint: Fingerprint;
   readonly contentHash: string;
 }
@@ -1252,6 +1265,7 @@ function writeInstallMeta(
     ref,
     commit,
     committedAt,
+    etag,
     fingerprint,
     contentHash,
   }: WriteInstallMetaParams,
@@ -1273,6 +1287,7 @@ function writeInstallMeta(
     },
     commit,
     committedAt,
+    ...(etag ? { etag } : {}),
     fingerprint,
   };
   writeFileSync(
@@ -1347,6 +1362,7 @@ export function readInstallMeta(pluginDir: string): InstallMeta | null {
       ref: source.ref,
     },
     commit: typeof obj.commit === "string" ? obj.commit : null,
+    ...(typeof obj.etag === "string" ? { etag: obj.etag } : {}),
     committedAt: typeof obj.committedAt === "string" ? obj.committedAt : null,
     fingerprint: parseFingerprint(obj.fingerprint),
   };

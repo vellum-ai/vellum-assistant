@@ -14,10 +14,11 @@ import {
   like,
   lt,
   lte,
+  notInArray,
   or,
   sql,
 } from "drizzle-orm";
-import { v4 as uuid } from "uuid";
+import { v4 as uuid, v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
 import type { ChannelId, InterfaceId } from "../channels/types.js";
@@ -27,7 +28,7 @@ import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import type { ConversationDeletedInputContext } from "../hooks/types.js";
 import { HOOKS } from "../plugin-api/constants.js";
@@ -48,7 +49,6 @@ import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
-import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-constants.js";
 import {
   appendCompactionEvent,
   forkCompactionLedger,
@@ -67,6 +67,10 @@ import {
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
+import {
+  BACKGROUND_CONVERSATION_TYPES,
+  type ConversationCreateType,
+} from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,
@@ -86,6 +90,7 @@ import {
 } from "./job-handlers/message-lexical.js";
 import { resolveStoredMessageContent } from "./message-content-file.js";
 import {
+  rawAll,
   rawExec,
   rawGet,
   rawLogsRun,
@@ -378,7 +383,6 @@ export interface ConversationRow {
   slackContextCompactionWatermarkAt: number | null;
   conversationType: string;
   source: string;
-  memoryScopeId: string;
   originChannel: string | null;
   originInterface: string | null;
   forkParentConversationId: string | null;
@@ -416,7 +420,6 @@ export const parseConversation = createRowMapper<
   slackContextCompactionWatermarkAt: "slackContextCompactionWatermarkAt",
   conversationType: "conversationType",
   source: "source",
-  memoryScopeId: "memoryScopeId",
   originChannel: "originChannel",
   originInterface: "originInterface",
   forkParentConversationId: "forkParentConversationId",
@@ -469,8 +472,6 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
   finalized: "finalized",
 });
 
-export type ConversationCreateType = "standard" | "background" | "scheduled";
-
 /**
  * Monotonic timestamp source for message ordering. Two messages saved within
  * the same millisecond (e.g., tool_results user message + assistant message in
@@ -505,8 +506,8 @@ interface InsertMessageCoreParams {
   content: string;
   metadata?: Record<string, unknown>;
   clientMessageId?: string;
-  /** Pre-assigned message ID. When omitted, one is generated via
-   *  `uuid()`. Callers that already have a correlation ID (e.g.
+  /** Pre-assigned message ID. When omitted, a time-ordered `uuidv7()` is
+   *  generated. Callers that already have a correlation ID (e.g.
    *  `requestId` for user turns) can pass it here so the persisted
    *  row ID matches the runtime request ID. */
   id?: string;
@@ -539,7 +540,9 @@ async function insertMessageCore(
   const { conversationId, role, content, metadata, clientMessageId, id } =
     params;
   const db = getDb();
-  const messageId = id ?? uuid();
+  // Time-ordered UUIDv7 so server-generated message ids append to the tail of
+  // the WITHOUT ROWID `messages` primary key instead of scattering (v4).
+  const messageId = id ?? uuidv7();
 
   if (metadata) {
     const result = messageMetadataSchema.safeParse(metadata);
@@ -679,6 +682,13 @@ export function createConversation(
   titleOrOpts?:
     | string
     | {
+        /**
+         * Adopt an explicit conversation id instead of minting a new uuid.
+         * Callers that already hold a client-provided id and want the row to
+         * carry it verbatim (e.g. {@link ensureConversationExists}) pass it
+         * here; everyone else omits it and gets a fresh uuid.
+         */
+        id?: string;
         title?: string;
         /**
          * Override the `is_auto_title` column (schema default 1). Pass
@@ -706,8 +716,8 @@ export function createConversation(
     requestedConversationType ?? "standard";
   const source = opts.source ?? "user";
   const groupId = opts.groupId;
-  const id = uuid();
-  const memoryScopeId = "default";
+  // Time-ordered UUIDv7 for server-minted conversation ids (see message id).
+  const id = opts.id ?? uuidv7();
 
   // Ensure group_id column exists for deterministic schema readiness,
   // even when this conversation has no groupId (a subsequent query or
@@ -732,7 +742,6 @@ export function createConversation(
     slackContextCompactionWatermarkAt: null as number | null,
     conversationType,
     source,
-    memoryScopeId,
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
     // Snapshot↔stream alignment baseline, captured at the creation instant.
@@ -774,6 +783,58 @@ export function createConversation(
   return conversation;
 }
 
+/**
+ * A conversation id adopted verbatim from an untrusted source must be safe to
+ * embed as a single path component of the on-disk conversation dir
+ * (`<timestamp>_<id>/meta.json`). This pattern admits server uuids and the
+ * web client's `crypto.randomUUID()` / `draft-<ts>-<hex>` drafts while
+ * rejecting anything with path separators, `..`, or other traversal vectors.
+ */
+const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * Ensure a `conversations` row exists for `id`, creating one with default
+ * columns only when absent. Idempotent. Returns `true` iff this call inserted
+ * the row (so callers can emit a one-time creation side effect, e.g. a
+ * conversations-list invalidation).
+ *
+ * The normal text-send path persists the conversation row through the
+ * conversation-key store before the first message is written, so `messages`
+ * inserts always have their FK target. Entry points that adopt a
+ * client-provided conversation id directly — notably the live-voice session,
+ * which binds to the id from its start frame — have no such guarantee: on the
+ * first turn of a brand-new chat the row does not exist yet, and persisting
+ * the user message trips `FOREIGN KEY constraint failed`. Call this before the
+ * first persist to close that gap while keeping the adopted id verbatim.
+ *
+ * Because the id is adopted verbatim and reaches the filesystem via
+ * `createConversation` → `initConversationDir`, an id from an external client
+ * is validated first — a value like `../../tmp/x` would otherwise write
+ * `meta.json` outside the conversations directory.
+ */
+export function ensureConversationExists(id: string): boolean {
+  if (getConversation(id)) {
+    return false;
+  }
+  if (!ADOPTABLE_CONVERSATION_ID_RE.test(id)) {
+    throw new Error(
+      `Refusing to adopt unsafe conversation id: ${JSON.stringify(id)}`,
+    );
+  }
+  try {
+    createConversation({ id });
+    return true;
+  } catch (err) {
+    // A concurrent caller may have created the row between the check and the
+    // insert (UNIQUE(id) violation). That's the desired end state, so only
+    // rethrow if the row still isn't there.
+    if (!getConversation(id)) {
+      throw err;
+    }
+    return false;
+  }
+}
+
 export function getConversation(id: string): ConversationRow | null {
   const db = getDb();
   const row = db
@@ -802,40 +863,8 @@ export function countConversationsByScheduleJobId(
 }
 
 /**
- * Find the rolling analysis conversation for a given source conversation,
- * or null if none exists yet. Used by the auto-analyze loop to append
- * to an existing analysis conversation rather than creating a new one
- * each time the analyze job fires.
- *
- * Returns the most recently updated match if multiple exist (defensive —
- * shouldn't happen in normal operation but the contract is well-defined).
- *
- * Hits `idx_conversations_fork_parent_conversation_id` for the
- * `forkParentConversationId` lookup.
- */
-export function findAnalysisConversationFor(
-  parentConversationId: string,
-): { id: string } | null {
-  const db = getDb();
-  const row = db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(
-      and(
-        eq(conversations.source, AUTO_ANALYSIS_SOURCE),
-        eq(conversations.forkParentConversationId, parentConversationId),
-      ),
-    )
-    .orderBy(desc(conversations.updatedAt))
-    .limit(1)
-    .get();
-  return row ? { id: row.id } : null;
-}
-
-/**
  * Returns the `source` column for the given conversation, or null if
- * not found. Tiny convenience used by the recursion guard in the
- * auto-analyze loop.
+ * not found. Tiny convenience used by the auto-analysis legacy-row guard.
  */
 export function getConversationSource(conversationId: string): string | null {
   const db = getDb();
@@ -1034,7 +1063,7 @@ export function forkConversation(params: {
     } | null = null;
 
     const forkedMessageValues = messagesToCopy.map((message) => {
-      const forkedMessageId = uuid();
+      const forkedMessageId = uuidv7();
       forkedMessageIds.set(message.id, forkedMessageId);
 
       if (message.role === "assistant") {
@@ -1105,15 +1134,26 @@ interface PopulateForkContentsArgs {
   /** Source→fork message-id map for every copied row. */
   forkedMessageIds: Map<string, string>;
   latestForkedAssistant: { messageId: string; messageAt: number } | null;
-  /** `copyBoundaryIndex === sourceMessages.length - 1` for the source. */
+  /**
+   * True when the fork branches from the source's tip, so its rendered window
+   * equals the source's and the wholesale memory-state carry is valid.
+   */
   isFullHistoryFork: boolean;
   /**
-   * Count of leading messages behind the compaction event this fork inherits
-   * (0 when the fork branches from uncompacted history). Memory-slug seeding
-   * skips this prefix, since rows behind the fork's summary are not rendered
-   * and must stay re-injectable.
+   * Count of leading `messagesToCopy` entries behind the compaction event this
+   * fork inherits (0 when the copied range already starts at the visible
+   * window, or the fork branches from uncompacted history). Memory-slug
+   * seeding skips this prefix, since rows behind the fork's summary are not
+   * rendered and must stay re-injectable.
    */
   inheritedCompactedMessageCount: number;
+  /**
+   * When true, the source's compaction-event ledger is not copied into the
+   * fork. Set by the retrospective fork whenever it inherits a compaction —
+   * it seeds its own count-adjusted event instead, since the source events'
+   * `compactedMessageCount` values index source-space row positions.
+   */
+  skipCompactionLedgerCopy?: boolean;
   /**
    * When provided, a disk-sync entry is appended per copied message for the
    * caller to flush after commit. Omitted by the retrospective fork, whose
@@ -1146,6 +1186,7 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     latestForkedAssistant,
     isFullHistoryFork,
     inheritedCompactedMessageCount,
+    skipCompactionLedgerCopy,
     diskSyncQueue,
   } = args;
   const db = getDb();
@@ -1169,7 +1210,8 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     const uncachedAttachmentLinks = attachmentLinks.filter(
       (link) => !attachmentIdMap.has(link.attachmentId),
     );
-    const stagingMessageId = uncachedAttachmentLinks.length > 0 ? uuid() : null;
+    const stagingMessageId =
+      uncachedAttachmentLinks.length > 0 ? uuidv7() : null;
 
     if (stagingMessageId) {
       db.insert(messages)
@@ -1249,13 +1291,17 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
   });
 
   // Carry the source's compaction events that predate the fork boundary so the
-  // fork owns a correct ledger for its own future forks/compactions.
-  forkCompactionLedger(
-    db,
-    sourceConversationId,
-    fork.id,
-    messagesToCopy.at(-1)?.createdAt ?? null,
-  );
+  // fork owns a correct ledger for its own future forks/compactions. The
+  // tail-only retrospective fork opts out and seeds a single count-adjusted
+  // event of its own instead.
+  if (!skipCompactionLedgerCopy) {
+    forkCompactionLedger(
+      db,
+      sourceConversationId,
+      fork.id,
+      messagesToCopy.at(-1)?.createdAt ?? null,
+    );
+  }
 }
 
 /**
@@ -1282,17 +1328,28 @@ function latestForkedAssistantFrom(
 
 /**
  * Async variant of {@link forkConversation} for the memory-retrospective job,
- * which forks the entire source conversation into a throwaway background
- * conversation on a hot path that must not stall the daemon.
+ * which forks the source conversation's visible window into a throwaway
+ * background conversation on a hot path that must not stall the daemon.
  *
- * The dominant cost — copying every source message row — runs OFF the event
- * loop in a `sqlite3` subprocess (see {@link copyForkMessagesViaSubprocess}),
- * so `/healthz` and gateway IPC stay responsive during the copy. The cheap
- * tail (conversation row, attachment relink, memory-state seeding) runs
- * in-process and reuses {@link populateForkContentsInProcess}, the same helper
- * the synchronous fork uses, so the two paths cannot drift on that logic. The
- * boundary/compaction computation mirrors {@link forkConversation} and is
- * pinned by a parity test.
+ * Only rows at-or-after the inherited compaction boundary are copied. The
+ * retrospective wake always runs under guardian trust, whose history render
+ * slices `contextCompactedMessageCount` rows off the front and prepends the
+ * summary on `contextSummary` presence alone — so the fork carries the
+ * inherited summary with a compacted count of 0 and renders identically to
+ * the source (summary + tail) without materializing rows the agent cannot
+ * see. The user-facing {@link forkConversation} keeps the full physical
+ * history: user forks are long-lived and browsable, and untrusted-actor
+ * views render the persisted history unsliced.
+ *
+ * The dominant cost — copying the visible tail's message rows — runs OFF the
+ * event loop in a `sqlite3` subprocess (see
+ * {@link copyForkMessagesViaSubprocess}), so `/healthz` and gateway IPC stay
+ * responsive during the copy. The cheap tail (conversation row, attachment
+ * relink, memory-state seeding) runs in-process and reuses
+ * {@link populateForkContentsInProcess}, the same helper the synchronous fork
+ * uses, so the two paths cannot drift on that logic. The cutoff/boundary
+ * computation mirrors {@link forkConversation} and is pinned by a parity
+ * test.
  *
  * The disk-view projection (`syncMessageToDisk`) is intentionally skipped: the
  * fork is GC'd after the retrospective pass and never browsed, and the agent
@@ -1320,6 +1377,12 @@ export async function forkConversationForRetrospective(params: {
   }
 
   const sourceMessages = getMessages(conversationId);
+  // The render path hides the first `contextCompactedMessageCount` rows in
+  // THIS load order (`getMessages`, `createdAt` only) — capture it before the
+  // cutoff re-sort below so the tail-only drop-set matches what the source
+  // actually renders even when `createdAt` ties straddle the compaction
+  // boundary.
+  const loadOrderIds = sourceMessages.map((message) => message.id);
   if (throughMessageId != null) {
     // Re-sort on `(createdAt, id)` so the cutoff slice agrees with the cursor
     // the caller chose it from — see the matching note in `forkConversation`.
@@ -1369,6 +1432,21 @@ export async function forkConversationForRetrospective(params: {
   const inheritsLatestCompaction =
     inheritedCompaction != null &&
     inheritedCompaction.compactedAt === sourceConversation.contextCompactedAt;
+  // Copy only the visible tail: rows behind the inherited summary are never
+  // rendered on this fork (the retrospective wake runs under guardian trust,
+  // which slices `contextCompactedMessageCount` rows off the front), so
+  // copying them would hold the write lock for rows the agent cannot see.
+  // The drop-set is the first `compactedMessageCount` rows in LOAD order —
+  // the exact rows the source's render hides — rather than a positional
+  // slice of the re-sorted array, whose tie order can differ at the
+  // boundary. `slice` self-clamps when the ledger count exceeds the row
+  // count, mirroring the render path's clamp.
+  const hiddenRowIds = new Set(
+    loadOrderIds.slice(0, inheritedCompaction?.compactedMessageCount ?? 0),
+  );
+  const rowsToCopy = messagesToCopy.filter(
+    (message) => !hiddenRowIds.has(message.id),
+  );
   const forkParentMessageId = messagesToCopy.at(-1)?.id ?? null;
   const forkTitle =
     params.title ?? `${sourceConversation.title ?? "Untitled"} (Fork)`;
@@ -1376,9 +1454,9 @@ export async function forkConversationForRetrospective(params: {
 
   // Pre-generate the id map in JS so the same map drives the off-loop copy and
   // the in-process attachment relink that follows.
-  const idPairs: ForkIdPair[] = messagesToCopy.map((message) => ({
+  const idPairs: ForkIdPair[] = rowsToCopy.map((message) => ({
     oldId: message.id,
-    newId: uuid(),
+    newId: uuidv7(),
   }));
   const forkedMessageIds = new Map<string, string>(
     idPairs.map((pair) => [pair.oldId, pair.newId]),
@@ -1401,9 +1479,19 @@ export async function forkConversationForRetrospective(params: {
           .set({
             forkParentConversationId: sourceConversation.id,
             forkParentMessageId,
+            // Stamped at creation so the startup orphan sweep (which only
+            // considers rows with a non-null `lastMessageAt`) can age this
+            // fork even if the daemon crashes before the copy or the
+            // retrospective instruction lands — including the empty-tail
+            // fork, which copies no rows at all. Phase 3 re-derives the same
+            // value from the copied rows when the tail is non-empty.
+            lastMessageAt: boundaryMessageCreatedAt,
             contextSummary: inheritedCompaction?.summary ?? null,
-            contextCompactedMessageCount:
-              inheritedCompaction?.compactedMessageCount ?? 0,
+            // Zero of the fork's own rows sit behind the boundary (the
+            // compacted prefix is not copied). The summary still renders:
+            // the history render keys on `contextSummary` presence, not on
+            // this count.
+            contextCompactedMessageCount: 0,
             contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
             slackContextCompactionWatermarkTs: inheritsLatestCompaction
               ? sourceConversation.slackContextCompactionWatermarkTs
@@ -1441,22 +1529,59 @@ export async function forkConversationForRetrospective(params: {
 
     // Phase 3 (in-process): attachments + memory-state seeding, reusing the
     // same helper as the synchronous fork. Disk-view projection is skipped.
+    //
+    // The populate transaction reads (attachment links) before its first
+    // write, so a deferred BEGIN would take its snapshot as a reader and any
+    // concurrent writer committing before the first write fails the
+    // read→write upgrade with SQLITE_BUSY_SNAPSHOT — a hard error
+    // `busy_timeout` cannot wait out, which would discard the entire batch
+    // copy from phase 2. `behavior: "immediate"` acquires the write lock at
+    // BEGIN so the snapshot postdates it, and the retry absorbs residual
+    // contention: the transaction rolls back atomically, so re-running it is
+    // safe.
     const latestForkedAssistant = latestForkedAssistantFrom(
-      messagesToCopy,
+      rowsToCopy,
       forkedMessageIds,
     );
-    db.transaction(() => {
-      populateForkContentsInProcess({
-        fork,
-        sourceConversationId: sourceConversation.id,
-        messagesToCopy,
-        forkedMessageIds,
-        latestForkedAssistant,
-        isFullHistoryFork: copyBoundaryIndex === sourceMessages.length - 1,
-        inheritedCompactedMessageCount:
-          inheritedCompaction?.compactedMessageCount ?? 0,
-      });
-    });
+    await withSqliteRetry(
+      () =>
+        db.transaction(
+          () => {
+            populateForkContentsInProcess({
+              fork,
+              sourceConversationId: sourceConversation.id,
+              messagesToCopy: rowsToCopy,
+              forkedMessageIds,
+              latestForkedAssistant,
+              isFullHistoryFork:
+                copyBoundaryIndex === sourceMessages.length - 1,
+              // The copied range already starts at the visible window.
+              inheritedCompactedMessageCount: 0,
+              skipCompactionLedgerCopy: inheritedCompaction != null,
+            });
+            // The fork owns none of the source's ledger events — their
+            // counts index source-space row positions, and this fork row
+            // stores a count of 0. Seed a single event mirroring the fork
+            // row's compaction fields whenever a compaction is inherited
+            // (even when the hidden prefix fell outside the cutoff and
+            // nothing was dropped), so the ledger and the row cache agree
+            // and a fork of this fork inherits the summary with the
+            // fork-local count. With no inherited compaction the default
+            // ledger copy is a natural no-op (no source event is
+            // at-or-before the boundary). Rolls back with the transaction,
+            // so the retry unit stays atomic.
+            if (inheritedCompaction) {
+              appendCompactionEvent(fork.id, {
+                compactedAt: inheritedCompaction.compactedAt,
+                summary: inheritedCompaction.summary,
+                compactedMessageCount: 0,
+              });
+            }
+          },
+          { behavior: "immediate" },
+        ),
+      { op: "forkConversationForRetrospective.populate" },
+    );
 
     const persistedFork = getConversation(fork.id);
     if (!persistedFork) {
@@ -1763,7 +1888,6 @@ export async function addMessage(
           role: message.role,
           content: message.content,
           createdAt: message.createdAt,
-          scopeId: "default",
           provenanceTrustClass,
           automated,
         },
@@ -2168,12 +2292,29 @@ export function getLastUserTimestampBefore(
  * newest `role = "user"` row rather than a scan of the whole (potentially
  * multi-GB) table.
  */
-export function getLastUserMessageTimestamp(): number {
+/**
+ * Timestamp of the newest user-role message in an interactive
+ * (non-background) conversation, or 0 when none exists. Background machinery
+ * writes user-role rows of its own — the memory-retrospective instruction
+ * message, scheduled/heartbeat wake hints — inside background/scheduled
+ * conversations, so an unfiltered max would keep an always-on install
+ * permanently "active" for consumers gating on human quiet (the
+ * db-maintenance quiet period).
+ */
+export function getLastInteractiveUserMessageTimestamp(): number {
   const db = getDb();
   const row = db
     .select({ createdAt: messages.createdAt })
     .from(messages)
-    .where(eq(messages.role, "user"))
+    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+    .where(
+      and(
+        eq(messages.role, "user"),
+        notInArray(conversations.conversationType, [
+          ...BACKGROUND_CONVERSATION_TYPES,
+        ]),
+      ),
+    )
     .orderBy(desc(messages.createdAt))
     .limit(1)
     .get();
@@ -2329,12 +2470,21 @@ export function unarchiveConversation(id: string): boolean {
  * Persist the processing-start timestamp for a conversation. Called by
  * `Conversation.setProcessing(true)` so out-of-process callers can detect
  * mid-turn state by reading the `conversations` row directly. Pass `null`
- * to clear (turn ended).
+ * to clear (turn ended); a clean turn end also closes any interruption
+ * streak, so the startup auto-resume budget refills.
  */
 export function setConversationProcessingStartedAt(
   id: string,
   startedAt: number | null,
 ): void {
+  if (startedAt == null) {
+    rawRun(
+      "conversation:setProcessingStartedAt",
+      "UPDATE conversations SET processing_started_at = NULL, processing_resume_attempts = 0 WHERE id = ?",
+      id,
+    );
+    return;
+  }
   rawRun(
     "conversation:setProcessingStartedAt",
     "UPDATE conversations SET processing_started_at = ? WHERE id = ?",
@@ -2354,6 +2504,43 @@ export function clearStaleProcessingFlags(): number {
   return rawRun(
     "conversation:clearStaleProcessingFlags",
     "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
+  );
+}
+
+export interface InterruptedConversationRow {
+  id: string;
+  /** Consecutive startup auto-resume attempts since the last clean turn end. */
+  resumeAttempts: number;
+}
+
+/**
+ * Conversations whose persisted processing flag is still set. Read at daemon
+ * startup before {@link clearStaleProcessingFlags} so the interrupted-turn
+ * reconciler knows which conversations were mid-turn when the previous
+ * process exited.
+ */
+export function listInterruptedConversations(): InterruptedConversationRow[] {
+  return rawAll<{ id: string; processing_resume_attempts: number }>(
+    "conversation:listInterrupted",
+    "SELECT id, processing_resume_attempts FROM conversations WHERE processing_started_at IS NOT NULL",
+  ).map((row) => ({
+    id: row.id,
+    resumeAttempts: row.processing_resume_attempts,
+  }));
+}
+
+/**
+ * Bump the persisted auto-resume counter for a conversation the startup
+ * reconciler is about to resume. Intentionally left set by
+ * {@link clearStaleProcessingFlags} — the counter must survive the flag clear
+ * so the resume cap holds across boots. Reset to 0 by the clean turn-end
+ * write in {@link setConversationProcessingStartedAt}.
+ */
+export function incrementProcessingResumeAttempts(id: string): void {
+  rawRun(
+    "conversation:incrementResumeAttempts",
+    "UPDATE conversations SET processing_resume_attempts = processing_resume_attempts + 1 WHERE id = ?",
+    id,
   );
 }
 

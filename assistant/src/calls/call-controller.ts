@@ -16,7 +16,7 @@ import {
   listCanonicalGuardianDeliveries,
 } from "../contacts/canonical-guardian-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
@@ -28,6 +28,7 @@ import {
 } from "../tts/synthesis-stream.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
+import type { CallAudioFormat } from "./audio-store.js";
 import {
   getEndCallListenWindowMs,
   getMaxCallDurationMs,
@@ -59,6 +60,7 @@ import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import {
   findPlayableTelephonyTtsFallbackProvider,
   resolveCallTtsProvider,
+  resolveSynthesisFormats,
 } from "./resolve-call-tts-provider.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
 import { sanitizeForTts } from "./tts-text-sanitizer.js";
@@ -73,6 +75,7 @@ import {
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 import {
+  CONVERSATION_BUSY_MESSAGE,
   startVoiceTurn,
   type VoiceTurnHandle,
 } from "./voice-session-bridge.js";
@@ -658,12 +661,12 @@ export class CallController {
     // Native-twilio providers stream text tokens through the transport,
     // which re-synthesizes them via daemon TTS on media-stream.
     //
-    // When the transport requires WAV (media-stream), request WAV so
+    // When the transport requires PCM (media-stream), request PCM so
     // the audio store entry and any downstream fetch/transcode receives
-    // PCM that audioBufferToFrames can convert to mu-law.
+    // raw PCM that audioBufferToFrames can convert to mu-law.
     const { provider, useSynthesizedPath, audioFormat } =
       await resolveCallTtsProvider({
-        preferWav: this.transport.requiresWavAudio,
+        requiresPcmAudio: this.transport.requiresPcmAudio,
       });
 
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
@@ -678,16 +681,20 @@ export class CallController {
     // (transport FIFO gives gapless playback).
     const synthProvider = useSynthesizedPath ? provider : null;
     let pendingSynthText = "";
+    // Eager segmentation applies until the turn's first segment is
+    // enqueued: the opening clause flushes early so speech onset does not
+    // wait for a full sentence.
+    let firstSynthSegmentEnqueued = false;
     let synthesisChain: Promise<void> = Promise.resolve();
     // After a segment fails, the rest of the turn stays off the primary
-    // provider so text is never spoken out of order: non-WAV transports
-    // send native tokens; WAV-requiring transports (media-stream) retry
+    // provider so text is never spoken out of order: non-PCM transports
+    // send native tokens; PCM-requiring transports (media-stream) retry
     // through a playable fallback provider.
     let synthesisFellBack = false;
-    // Fallback provider for WAV-requiring transports, resolved once per
+    // Fallback provider for PCM-requiring transports, resolved once per
     // turn. `undefined` = not yet resolved; `null` = none available (or
     // the fallback failed too) — affected segments are skipped.
-    let wavFallbackProvider: TtsProvider | null | undefined;
+    let pcmFallbackProvider: TtsProvider | null | undefined;
     // Non-recoverable failure (allowNativeFallback: false providers):
     // remaining segments are skipped and the error rethrows after the
     // chain drains so the outer handler speaks the generic recovery copy.
@@ -696,21 +703,21 @@ export class CallController {
     // chain links check it to keep stale speech off the recovery prompt.
     let synthesisCancelled = false;
 
-    // WAV-requiring transports re-synthesize native tokens through the
+    // PCM-requiring transports re-synthesize native tokens through the
     // same failing provider path, so a failed segment (and the rest of
     // the turn) is spoken through a playable fallback provider instead.
-    const speakSegmentViaWavFallback = async (
+    const speakSegmentViaPcmFallback = async (
       failedProviderId: string,
       segment: string,
     ): Promise<void> => {
-      if (wavFallbackProvider === undefined) {
-        wavFallbackProvider =
+      if (pcmFallbackProvider === undefined) {
+        pcmFallbackProvider =
           await findPlayableTelephonyTtsFallbackProvider(failedProviderId);
-        if (wavFallbackProvider) {
+        if (pcmFallbackProvider) {
           log.warn(
             {
               provider: failedProviderId,
-              fallbackProvider: wavFallbackProvider.id,
+              fallbackProvider: pcmFallbackProvider.id,
             },
             "Speaking remaining TTS segments via fallback provider",
           );
@@ -722,21 +729,21 @@ export class CallController {
         }
       }
       if (
-        !wavFallbackProvider ||
+        !pcmFallbackProvider ||
         synthesisCancelled ||
         !this.isCurrentRun(runVersion)
       ) {
         return;
       }
       const fallbackStatus = await this.synthesizeAndStreamAudio(
-        wavFallbackProvider,
+        pcmFallbackProvider,
         segment,
         runVersion,
         audioFormat,
       );
       if (fallbackStatus !== "ok") {
         // The fallback provider is failing too — stop retrying.
-        wavFallbackProvider = null;
+        pcmFallbackProvider = null;
       }
     };
 
@@ -751,6 +758,7 @@ export class CallController {
         if (segment.length === 0) {
           continue;
         }
+        firstSynthSegmentEnqueued = true;
         synthesisChain = synthesisChain.then(async () => {
           if (
             !this.isCurrentRun(runVersion) ||
@@ -771,7 +779,7 @@ export class CallController {
                 return;
               }
               synthesisFellBack = true;
-              if (!this.transport.requiresWavAudio) {
+              if (!this.transport.requiresPcmAudio) {
                 // synthesizeAndStreamAudio already handled the failed
                 // segment: its text went out as native tokens, or its
                 // partially-played audio stands.
@@ -784,14 +792,14 @@ export class CallController {
                 // segments still route through the fallback provider.
                 return;
               }
-            } else if (!this.transport.requiresWavAudio) {
+            } else if (!this.transport.requiresPcmAudio) {
               // Native route. Segments are trimmed, so restore the
               // inter-segment separator.
               this.beginSpeakingOnAudioStart(runVersion);
               this.transport.sendTextToken(`${segment} `, false);
               return;
             }
-            await speakSegmentViaWavFallback(ttsProvider.id, segment);
+            await speakSegmentViaPcmFallback(ttsProvider.id, segment);
           } catch (err) {
             synthesisFailure = { err };
           }
@@ -808,6 +816,7 @@ export class CallController {
         const { segments, remainder } = extractSpeakableSegments(
           pendingSynthText,
           false,
+          { eager: !firstSynthSegmentEnqueued },
         );
         pendingSynthText = remainder;
         enqueueSynthesisSegments(synthProvider, segments);
@@ -990,7 +999,7 @@ export class CallController {
    * @returns `"ok"` on success or abort. On a handled provider failure,
    *   `"failed-before-audio"` when the segment's play URL never went out:
    *   on transports that accept text tokens the failed text has already
-   *   been sent natively; on WAV-requiring transports nothing was sent —
+   *   been sent natively; on PCM-requiring transports nothing was sent —
    *   the caller owns the fallback-provider retry. `"failed-after-audio"`
    *   when the provider failed mid-stream after the play URL was
    *   delivered: the caller hears the truncated audio and nothing more is
@@ -1003,25 +1012,15 @@ export class CallController {
     provider: TtsProvider,
     text: string,
     runVersion: number,
-    format: "mp3" | "wav" | "opus" = "mp3",
+    format: CallAudioFormat = "mp3",
   ): Promise<SegmentSynthesisStatus> {
     let sink: AudioStoreSink | null = null;
     let playUrlSent = false;
     const abortController = new AbortController();
     try {
-      // When format is WAV (media-stream transport), request raw PCM from
-      // the provider so the audio bytes match the store's content-type.
-      // Without this, providers like Fish Audio still return mp3 and the
-      // downstream mu-law transcoder fails on the format mismatch.
-      const outputFormat = format === "wav" ? ("pcm" as const) : undefined;
-
-      // Use "pcm" as the store format when requesting PCM output so the
-      // audio store entry's content-type (audio/pcm) matches the raw PCM
-      // bytes providers return. Without this, the store says "audio/wav"
-      // but the bytes have no RIFF header, causing audioBufferToFrames to
-      // fall through to the wrong decode path.
+      const { outputFormat, storeFormat } = resolveSynthesisFormats(format);
       sink = createAudioStoreSink({
-        format: outputFormat ? "pcm" : format,
+        format: storeFormat,
         onPlayUrl: (url) => {
           // Audio is now reaching the caller (or, on transports with an
           // audio-start signal, will be the moment the first fetched frame
@@ -1083,7 +1082,7 @@ export class CallController {
           { err, provider: provider.id, errName, errCode },
           "TTS synthesis failed — falling back to native token TTS",
         );
-        // If synthesis fails before any audio has started on a non-WAV
+        // If synthesis fails before any audio has started on a non-PCM
         // transport, degrade to token-based speech so the caller still
         // hears a response instead of silence. This fallback is only
         // used for providers whose catalog entry allows native fallback.
@@ -1091,7 +1090,7 @@ export class CallController {
         // leak into the next caller turn.
         if (
           !playUrlSent &&
-          !this.transport.requiresWavAudio &&
+          !this.transport.requiresPcmAudio &&
           this.isCurrentRun(runVersion)
         ) {
           this.beginSpeakingOnAudioStart(runVersion);
@@ -1455,8 +1454,7 @@ export class CallController {
    */
   private isLockContentionError(err: unknown): boolean {
     return (
-      err instanceof Error &&
-      err.message.includes("already processing a message")
+      err instanceof Error && err.message.includes(CONVERSATION_BUSY_MESSAGE)
     );
   }
 

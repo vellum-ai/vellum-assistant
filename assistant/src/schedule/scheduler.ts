@@ -16,6 +16,7 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
 import { runSequencesOnce } from "../sequence/engine.js";
+import type { TurnFailure } from "../telemetry/turn-outcome.js";
 import { areCoreToolsInitialized } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { runWatchersOnce } from "../watcher/engine.js";
@@ -52,13 +53,17 @@ import type { ScheduleMessageOptions } from "./scheduler-types.js";
 /**
  * Run a scheduled message through the daemon's agent pipeline, translating the
  * schedule's `trustClass` into the trust context `processMessage` expects.
+ *
+ * Returns the turn's failure outcome (if any) so the caller can record a run
+ * whose LLM call failed as an error. Such a turn resolves normally rather than
+ * throwing, so `turnFailure` is the only failure signal on the happy return.
  */
 async function dispatchScheduleMessage(
   conversationId: string,
   message: string,
   options?: ScheduleMessageOptions,
-): Promise<void> {
-  await processMessage(
+): Promise<{ turnFailure?: TurnFailure }> {
+  const { turnFailure } = await processMessage(
     conversationId,
     message,
     options
@@ -79,6 +84,14 @@ async function dispatchScheduleMessage(
         }
       : undefined,
   );
+  return { ...(turnFailure ? { turnFailure } : {}) };
+}
+
+/** Build a schedule-run error message from a turn's failure outcome. */
+function describeTurnFailure(turnFailure: TurnFailure): string {
+  return turnFailure.failureCode
+    ? `Agent turn failed during its LLM call (${turnFailure.failureCode})`
+    : "Agent turn failed during its LLM call";
 }
 
 /** Emit the attention signal for a `notify`-mode schedule firing. */
@@ -88,6 +101,7 @@ async function emitScheduleNotifySignal(payload: {
   message: string;
   routingIntent: RoutingIntent;
   routingHints: Record<string, unknown>;
+  deepLinkConversationId?: string;
 }): Promise<void> {
   await emitNotificationSignal({
     sourceEventName: "schedule.notify",
@@ -103,6 +117,9 @@ async function emitScheduleNotifySignal(payload: {
       scheduleId: payload.id,
       label: payload.label,
       message: payload.message,
+      ...(payload.deepLinkConversationId
+        ? { deepLinkConversationId: payload.deepLinkConversationId }
+        : {}),
     },
     routingIntent: payload.routingIntent,
     routingHints: payload.routingHints,
@@ -436,6 +453,9 @@ export async function runDueSchedulesOnce(
           message: job.message,
           routingIntent: job.routingIntent,
           routingHints: job.routingHints,
+          ...(job.createdFromConversationId
+            ? { deepLinkConversationId: job.createdFromConversationId }
+            : {}),
         });
         if (isOneShot) {
           const successRunId = await createScheduleRun(
@@ -747,14 +767,25 @@ export async function runDueSchedulesOnce(
             scheduleJobId: job.id,
           },
           async (conversationId, message, taskRunId) => {
-            await dispatchScheduleMessage(conversationId, message, {
-              trustClass: "guardian",
-              taskRunId,
-              cronRunId: runId,
-              ...(job.inferenceProfile
-                ? { overrideProfile: job.inferenceProfile }
-                : {}),
-            });
+            const { turnFailure } = await dispatchScheduleMessage(
+              conversationId,
+              message,
+              {
+                trustClass: "guardian",
+                taskRunId,
+                cronRunId: runId,
+                ...(job.inferenceProfile
+                  ? { overrideProfile: job.inferenceProfile }
+                  : {}),
+              },
+            );
+            // A failed LLM call (e.g. an invalid provider) ends the turn
+            // without throwing. Throw here so `runTask` records the task run as
+            // failed instead of completing it — otherwise the task/cron run
+            // would be marked ok despite the failure.
+            if (turnFailure) {
+              throw new Error(describeTurnFailure(turnFailure));
+            }
           },
         );
 
@@ -886,14 +917,26 @@ export async function runDueSchedulesOnce(
         title: job.name,
       });
       try {
-        await dispatchScheduleMessage(conversationId, job.message, {
-          trustClass: "guardian",
-          cronRunId: runId,
-          ...(job.inferenceProfile
-            ? { overrideProfile: job.inferenceProfile }
-            : {}),
-        });
-        ok = true;
+        const { turnFailure } = await dispatchScheduleMessage(
+          conversationId,
+          job.message,
+          {
+            trustClass: "guardian",
+            cronRunId: runId,
+            ...(job.inferenceProfile
+              ? { overrideProfile: job.inferenceProfile }
+              : {}),
+          },
+        );
+        // A failed LLM call (e.g. an invalid provider) ends the turn without
+        // throwing, so treat a reported turn failure as a run error rather
+        // than recording "ok".
+        if (turnFailure) {
+          ok = false;
+          errorMsg = describeTurnFailure(turnFailure);
+        } else {
+          ok = true;
+        }
       } catch (err) {
         ok = false;
         errorMsg = err instanceof Error ? err.message : String(err);

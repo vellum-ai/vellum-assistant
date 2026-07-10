@@ -26,8 +26,8 @@ export const MEMORY_RETROSPECTIVE_SOURCES: readonly string[] = [
 
 /**
  * Whether a conversation `source` value marks a memory-retrospective
- * background conversation (either kind). Shared predicate for the recursion
- * and auto-analysis guards.
+ * background conversation (either kind). Shared predicate for recursion
+ * guards.
  */
 export function isMemoryRetrospectiveSource(source: string): boolean {
   return MEMORY_RETROSPECTIVE_SOURCES.includes(source);
@@ -35,19 +35,31 @@ export function isMemoryRetrospectiveSource(source: string): boolean {
 
 /**
  * Dedicated `group_id` value for memory-retrospective background
- * conversations. Placed under `system:background` alongside auto-analysis,
- * heartbeat, and filing conversations.
+ * conversations. Placed under `system:background` alongside heartbeat and
+ * filing conversations.
  */
 export const MEMORY_RETROSPECTIVE_GROUP_ID = "system:background";
 
 /**
  * `metadata.kind` value stamped on the user-role instruction message that
- * fork-based retrospectives append to the forked conversation. Used purely
- * for observability — operators inspecting a retrospective fork's history
- * can tell the user-role message apart from a real user turn.
+ * fork-based retrospectives append to the forked conversation. Doubles as
+ * the empty-prefix discriminator in fork-boundary detection: a stampless
+ * fork-kind conversation whose first row carries this kind is run-authored
+ * end-to-end (see `memory-retrospective-fork-boundary.ts`). Also lets
+ * operators inspecting a fork's history tell the instruction apart from a
+ * real user turn.
  */
 export const MEMORY_RETROSPECTIVE_INSTRUCTION_KIND =
   "memory_retrospective_instruction";
+
+/**
+ * `metadata.kind` value stamped on the assistant-role message carrying the
+ * `skill_card` ui_surface that a retrospective inserts into its SOURCE
+ * conversation after authoring new skills. Lets clients and operators
+ * identify the card row; the block itself is provider-stripped so it never
+ * reaches the model as renderable content.
+ */
+export const SKILL_CARD_MESSAGE_KIND = "skill-authored-card";
 
 /**
  * Request-origin tag the fork wake stamps onto `ToolContext.requestOrigin`

@@ -114,7 +114,7 @@ import {
   ToolApprovalHandler,
   waitForInlineGrant,
 } from "../tools/tool-approval-handler.js";
-import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
 /** Short wait config for tests — avoids blocking test suite on the 60s default. */
 const TEST_INLINE_WAIT_CONFIG = { maxWaitMs: 100, intervalMs: 20 };
@@ -190,14 +190,9 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
   const handler = new ToolApprovalHandler({
     inlineGrantWait: TEST_INLINE_WAIT_CONFIG,
   });
-  const events: ToolLifecycleEvent[] = [];
-  const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
-    events.push(event);
-  };
 
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
   });
@@ -211,10 +206,8 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
       "bash",
       { command: "ls -la" },
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     // Trusted contact with a guardian binding: an escalation request is
@@ -254,14 +247,14 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
     // Should get the generic denial message, not escalation
     expect(result.result.content).toContain("verified channel identity");
 
@@ -305,7 +298,9 @@ describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.grantMinted).toBe(true);
 
     // Verify canonical request is approved
@@ -335,7 +330,9 @@ describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.grantMinted).toBe(false);
 
     const resolved = getCanonicalGuardianRequest(req.id);
@@ -365,7 +362,9 @@ describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("identity_mismatch");
 
     const unchanged = getCanonicalGuardianRequest(req.id);
@@ -432,14 +431,8 @@ describe("end-to-end: tool grant escalation -> approval -> consume", () => {
 // ---------------------------------------------------------------------------
 
 describe("inline wait-and-resume", () => {
-  const events: ToolLifecycleEvent[] = [];
-  const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
-    events.push(event);
-  };
-
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
   });
@@ -693,15 +686,15 @@ describe("inline wait-and-resume", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
     const elapsed = Date.now() - start;
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
     // Unknown actors get the generic fail-closed message, not the wait behavior
     expect(result.result.content).toContain("verified channel identity");
     // Should be near-instant, no waiting

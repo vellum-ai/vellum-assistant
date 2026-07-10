@@ -137,8 +137,8 @@ describe("HostBashProxy", () => {
 
       const resultPromise = proxy.request(
         {
-          command: "echo locked",
-          env: { VELLUM_UNTRUSTED_SHELL: "1" },
+          command: "echo hi",
+          env: { __CONVERSATION_ID: "conv-1" },
         },
         "session-1",
       );
@@ -146,7 +146,7 @@ describe("HostBashProxy", () => {
       expect(sentMessages).toHaveLength(1);
       const sent = sentMessages[0] as Record<string, unknown>;
       expect(sent.type).toBe("host_bash_request");
-      expect(sent.env).toEqual({ VELLUM_UNTRUSTED_SHELL: "1" });
+      expect(sent.env).toEqual({ __CONVERSATION_ID: "conv-1" });
 
       const requestId = sent.requestId as string;
       proxy.resolveResult(requestId, {

@@ -14,8 +14,8 @@ import {
   AttentionHintsSchema,
   NotificationSourceChannelSchema,
   RoutingIntentSchema,
-  UrgencySchema,
 } from "../../notifications/signal.js";
+import { UrgencySchema } from "../../notifications/urgency.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { notificationDeliveries } from "../../persistence/schema/index.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";

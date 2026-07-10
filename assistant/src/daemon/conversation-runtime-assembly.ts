@@ -78,7 +78,7 @@ import type {
   SurfaceType,
 } from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 // The compaction strip lives in the compaction layer (`context/`) so the agent
 // loop can own it; re-exported here for this module's existing consumers.
@@ -1208,6 +1208,53 @@ export function getSlackCompactionWatermarkForPrefix(
       .slice(start, end)
       .map((entry) => entry.sourceChannelTs),
   );
+}
+
+/**
+ * Highest Slack `channelTs` carried by the persisted rows
+ * `rows[0..endExclusive)`, or `null` when it would not advance past
+ * `existingWatermarkTs`. Backs fixed-boundary summarization ("summarize up
+ * to here"), which compacts the in-memory history rather than the Slack
+ * chronological projection: the watermark is derived in row-space — the same
+ * space the boundary was resolved in — so the next turn's Slack projection
+ * excludes exactly the rows the new summary covers. The advance-only check
+ * keeps the watermark monotonic: a summarize range whose Slack rows all sit
+ * at or before the existing watermark is already excluded from the
+ * projection, so persisting nothing is correct.
+ *
+ * Row order is not guaranteed to match Slack channel order (late-delivered
+ * rows), so a kept-tail row past the boundary can carry an OLDER `channelTs`
+ * than the prefix max. Advancing anyway would drop that row from every
+ * future projection (`isSlackTsAfter` keeps strictly-after) while the
+ * summary doesn't cover it either — silent loss. When any kept row's
+ * `channelTs` sits at or before the candidate, the advance is skipped
+ * entirely, degrading to bounded duplication of already-summarized rows: the
+ * conservative direction.
+ */
+export function getSlackWatermarkAdvanceForRowPrefix(
+  rows: MessageRow[],
+  endExclusive: number,
+  existingWatermarkTs: string | null,
+): string | null {
+  const channelTsForRow = (row: MessageRow): string | null =>
+    readSlackMetadataFromMessageMetadata(row.metadata, {
+      allowFlatLegacy: true,
+    })?.channelTs ?? null;
+  const ts = maxSlackTs(rows.slice(0, endExclusive).map(channelTsForRow));
+  if (ts === null) return null;
+  if (
+    existingWatermarkTs !== null &&
+    !isSlackTsAfter(ts, existingWatermarkTs)
+  ) {
+    return null;
+  }
+  for (const row of rows.slice(endExclusive)) {
+    const keptTs = channelTsForRow(row);
+    if (keptTs !== null && !isSlackTsAfter(keptTs, ts)) {
+      return null;
+    }
+  }
+  return ts;
 }
 
 function assembleSlackChronologicalContext(

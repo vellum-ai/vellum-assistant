@@ -70,7 +70,6 @@ function insertPlaybookGraphNode(
     priority: number;
     fidelity: string;
     significance: number;
-    scopeId: string;
     statement: string;
   }> = {},
 ): string {
@@ -83,7 +82,6 @@ function insertPlaybookGraphNode(
   const priority = overrides.priority ?? 0;
   const fidelity = overrides.fidelity ?? "vivid";
   const significance = overrides.significance ?? 0.8;
-  const scopeId = overrides.scopeId ?? "default";
 
   const statement =
     overrides.statement ??
@@ -112,8 +110,8 @@ function insertPlaybookGraphNode(
       id, content, type, created, last_accessed, last_consolidated,
       emotional_charge, fidelity, confidence, significance,
       stability, reinforcement_count, last_reinforced,
-      source_conversations, source_type, scope_id
-    ) VALUES (?, ?, 'semantic', ?, ?, ?, ?, ?, 0.95, ?, 14, 0, ?, ?, 'direct', ?)`,
+      source_conversations, source_type
+    ) VALUES (?, ?, 'semantic', ?, ?, ?, ?, ?, 0.95, ?, 14, 0, ?, ?, 'direct')`,
     [
       id,
       content,
@@ -125,7 +123,6 @@ function insertPlaybookGraphNode(
       significance,
       now,
       sourceConversations,
-      scopeId,
     ],
   );
 
@@ -323,27 +320,6 @@ describe("compilePlaybooks", () => {
     expect(result.includedCount).toBe(1);
     expect(result.text).toContain("active");
     expect(result.text).not.toContain("deleted");
-  });
-
-  test("scopes playbooks by scopeId", () => {
-    insertPlaybookGraphNode({
-      trigger: "default scope",
-      action: "yes",
-      scopeId: "default",
-    });
-    insertPlaybookGraphNode({
-      trigger: "other scope",
-      action: "no",
-      scopeId: "workspace-2",
-    });
-
-    const defaultResult = compilePlaybooks();
-    expect(defaultResult.includedCount).toBe(1);
-    expect(defaultResult.text).toContain("default scope");
-
-    const otherResult = compilePlaybooks({ scopeId: "workspace-2" });
-    expect(otherResult.includedCount).toBe(1);
-    expect(otherResult.text).toContain("other scope");
   });
 
   test("skips rows with unparseable statements", () => {

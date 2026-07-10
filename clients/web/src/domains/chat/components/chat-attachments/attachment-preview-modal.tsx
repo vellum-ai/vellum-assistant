@@ -262,7 +262,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     if (isVideo && effectiveUrl) {
       return (
         <video
+          data-testid="video-preview"
           src={effectiveUrl}
+          poster={attachment.thumbnailUrl ?? undefined}
           controls
           className="max-h-[80vh] max-w-[90vw] rounded"
         />
@@ -323,16 +325,53 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       onKeyDown={handleKeyDown}
       onClick={handleBackdropClick}
     >
-      <Button
-        ref={closeButtonRef}
-        variant="ghost"
-        iconOnly={<X />}
-        expandOnMobile={false}
-        onClick={onClose}
-        aria-label="Close preview"
-        className="absolute right-4 top-4 z-10 h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
-        tintColor="currentColor"
-      />
+      {/* Top chrome: file size (left), filename (center), download + close
+          (right). Absolute children anchor to the overlay's padding box, so the
+          parent's safe-area paddingTop does not offset them — the bar carries
+          the top inset itself to clear the notch/status bar. */}
+      <div
+        className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 px-4"
+        style={{
+          paddingTop:
+            "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1rem)",
+        }}
+      >
+        <Typography
+          variant="body-small-default"
+          className="w-11 shrink-0 truncate text-white/50"
+        >
+          {formatAttachmentSize(attachment.sizeBytes)}
+        </Typography>
+        <Typography
+          as="div"
+          variant="body-medium-lighter"
+          className="min-w-0 flex-1 truncate text-center text-white/90"
+        >
+          {attachment.filename}
+        </Typography>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            iconOnly={<Download />}
+            expandOnMobile={false}
+            onClick={handleDownload}
+            disabled={!effectiveUrl}
+            aria-label={`Download ${attachment.filename}`}
+            className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            tintColor="currentColor"
+          />
+          <Button
+            ref={closeButtonRef}
+            variant="ghost"
+            iconOnly={<X />}
+            expandOnMobile={false}
+            onClick={onClose}
+            aria-label="Close preview"
+            className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            tintColor="currentColor"
+          />
+        </div>
+      </div>
 
       {hasGallery && (
         <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between px-4">
@@ -364,43 +403,23 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         {renderContent()}
       </div>
 
-      <div
-        className="mt-4 flex w-full max-w-[800px] items-center justify-between rounded-lg px-4 py-2"
-        style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <Typography
-            variant="body-medium-lighter"
-            className="truncate text-white/90"
-          >
-            {attachment.filename}
+      {hasGallery && (
+        // Position counter, centered ~32px above the bottom safe-area line.
+        // Absolute children ignore the overlay's safe-area paddingBottom, so the
+        // counter carries the bottom inset itself.
+        <div
+          className="absolute inset-x-0 bottom-0 z-10 flex justify-center"
+          style={{
+            paddingBottom:
+              "calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 2rem)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Typography variant="body-small-default" className="text-white/50">
+            {currentIndex + 1} / {siblingAttachments!.length}
           </Typography>
-          <Typography
-            variant="body-small-default"
-            className="shrink-0 text-white/50"
-          >
-            {formatAttachmentSize(attachment.sizeBytes)}
-          </Typography>
-          {hasGallery && (
-            <Typography
-              variant="body-small-default"
-              className="shrink-0 text-white/50"
-            >
-              {currentIndex + 1} / {siblingAttachments!.length}
-            </Typography>
-          )}
         </div>
-        <Button
-          variant="ghost"
-          iconOnly={<Download />}
-          onClick={handleDownload}
-          disabled={!effectiveUrl}
-          aria-label={`Download ${attachment.filename}`}
-          className="shrink-0 text-white/70 hover:bg-white/10 hover:text-white max-md:bg-transparent max-md:hover:bg-white/10 max-md:active:bg-white/10"
-          tintColor="currentColor"
-        />
-      </div>
+      )}
     </div>,
     document.body,
   );

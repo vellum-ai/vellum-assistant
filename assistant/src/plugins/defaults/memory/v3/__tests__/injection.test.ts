@@ -44,6 +44,7 @@ import {
 const realConfigLoader = {
   ...(await import("../../../../../config/loader.js")),
 };
+const realMemoryConfig = { ...(await import("../../config.js")) };
 const realFlags = {
   ...(await import("../../../../../config/assistant-feature-flags.js")),
 };
@@ -140,6 +141,22 @@ mock.module("../../../../../config/loader.js", () => ({
           },
         }
       : realConfigLoader.getConfig(),
+}));
+
+// Memory code resolves its config through the plugin's own accessor, not
+// getConfig(); stub the same conditional slice there.
+mock.module("../../config.js", () => ({
+  getMemoryConfig: () =>
+    injectionMockActive
+      ? {
+          enabled: memoryEnabled,
+          v3: {
+            live: liveEnabled,
+            spotlight: spotlightConfig,
+            prune: pruneConfig ?? undefined,
+          },
+        }
+      : realMemoryConfig.getMemoryConfig(),
 }));
 
 // The prune valve resolves the live conversation through the daemon registry

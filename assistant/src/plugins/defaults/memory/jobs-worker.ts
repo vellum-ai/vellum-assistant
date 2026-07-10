@@ -13,10 +13,14 @@ import {
   setMemoryCheckpoint,
 } from "../../../persistence/checkpoints.js";
 import {
+  type CleanupJobKind,
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
 } from "../../../persistence/cleanup-schedule-state.js";
-import { maybeRunDbMaintenance } from "../../../persistence/db-maintenance.js";
+import {
+  maybeRunDbMaintenance,
+  maybeRunPassiveWalCheckpoint,
+} from "../../../persistence/db-maintenance.js";
 import {
   EmbeddingBillingBlockError,
   extractHttpStatus,
@@ -49,21 +53,14 @@ import {
   SLOW_LLM_JOB_TYPES,
 } from "../../../persistence/jobs-store.js";
 import { spawnMemoryWorkerProcess } from "../../../persistence/worker-control.js";
-import { getLogger } from "../../../util/logger.js";
-import { getWorkspaceDir } from "../../../util/platform.js";
+import type { JobHandler } from "../../types.js";
+import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
+import { getWorkspaceDir } from "./paths.js";
 import { hasPkbBufferContent } from "./pkb-schedule.js";
 import { countBufferLines } from "./v2/consolidation-job.js";
 
 const log = getLogger("memory-jobs-worker");
-
-/**
- * A per-job-type handler. The owning feature (e.g. memory) registers handlers
- * via {@link registerJobHandler}; the worker dispatches each claimed job to its
- * registered handler. Decoupling registration from the worker keeps the queue
- * mechanics generic and free of feature-specific handler imports.
- */
-export type JobHandler = (job: MemoryJob, config: AssistantConfig) => unknown;
 
 const jobHandlers = new Map<string, JobHandler>();
 
@@ -131,6 +128,9 @@ const LEGACY_JOB_TYPES = new Set([
   "memory_v3_index_maintenance",
   "memory_v3_edge_learning",
   "memory_proc_distill",
+  // Retired analyze-conversation job type — pre-upgrade pending rows drop
+  // gracefully.
+  "conversation_analyze",
 ]);
 
 export const POLL_INTERVAL_MIN_MS = 1_500;
@@ -240,18 +240,35 @@ export function startInProcessMemoryJobsWorker(
     log.info({ recovered }, "Recovered stale running memory jobs");
   }
 
+  // Restore each cleanup job's cadence from its persisted checkpoint so a
+  // restart resumes counting from the last enqueue instead of re-firing every
+  // job on boot. Runs after resetRunningJobsToPending (which has already
+  // touched the DB), so migrations are settled. Best-effort: on failure the
+  // throttle stays at 0 and jobs fire on the first tick (the pre-persistence
+  // behavior), which is a safe degradation.
+  try {
+    seedCleanupScheduleFromCheckpoints();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to seed cleanup schedule from checkpoints; jobs will fire on the first tick",
+    );
+  }
+
   // After running-job recovery (so legitimate in-flight retries aren't
   // swept), clean up orphan memory-retrospective background conversations
-  // left behind by daemon crashes mid-job. Best-effort — never block worker
-  // startup on cleanup failures.
-  try {
-    sweepOrphanMemoryRetrospectiveConversations();
-  } catch (err) {
+  // left behind by daemon crashes mid-job. Best-effort and detached — worker
+  // startup never blocks on the sweep, and failures only log. Concurrent
+  // ticking is safe: the sweep reads the active-job set and the orphan
+  // candidates in one synchronous block after its awaited baseline loads, so
+  // a retrospective forked by a mid-sweep tick is protected by its
+  // pending/running job.
+  void sweepOrphanMemoryRetrospectiveConversations().catch((err: unknown) => {
     log.warn(
       { err },
       "Memory-retrospective startup cleanup failed; continuing worker startup",
     );
-  }
+  });
 
   let stopped = false;
   let tickRunning = false;
@@ -395,6 +412,7 @@ export async function runMemoryJobsOnce(
     maybeEnqueueGraphMaintenanceJobs(config);
     if (memoryEnabled) {
       await maybeRunDbMaintenance();
+      await maybeRunPassiveWalCheckpoint();
     }
     return 0;
   }
@@ -462,6 +480,7 @@ export async function runMemoryJobsOnce(
   }
   maybeEnqueueGraphMaintenanceJobs(config);
   await maybeRunDbMaintenance();
+  await maybeRunPassiveWalCheckpoint();
   return slowProcessed + fastProcessed + embedProcessed;
 }
 
@@ -657,11 +676,74 @@ async function processJob(
   throw new Error(`Unknown memory job type: ${rawType}`);
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const CLEANUP_JOB_KINDS: readonly CleanupJobKind[] = [
+  "conversations",
+  "llm_request_logs",
+  "tool_invocations",
+];
+
+const CLEANUP_ENQUEUE_CHECKPOINT_KEYS: Record<CleanupJobKind, string> = {
+  conversations: "cleanup:last_enqueue:conversations",
+  llm_request_logs: "cleanup:last_enqueue:llm_request_logs",
+  tool_invocations: "cleanup:last_enqueue:tool_invocations",
+};
+
 /**
- * Enqueue periodic cleanup jobs using config-driven retention windows.
- * Enqueue is deduped in jobs-store, so repeated calls remain safe.
+ * Seed the in-memory cleanup throttle from persisted checkpoints so each job's
+ * cadence survives a daemon restart. Without this the throttle would start at 0
+ * on every boot, re-firing every cleanup job immediately regardless of when it
+ * last ran — which for a long retention window (e.g. 30-day conversation
+ * pruning) turns a frequent restart cycle into a prune on every boot.
+ *
+ * A job with no checkpoint (never enqueued on this instance) keeps its default
+ * 0, so it fires once on the first tick and then persists its timestamp. On a
+ * fresh instance that first prune is a harmless no-op (nothing is old enough to
+ * delete yet); on an upgrade it clears whatever has already aged out.
+ *
+ * Must run after DB migrations settle — the worker startup path already
+ * satisfies this (it touches the DB before calling here).
  */
-function maybeEnqueueScheduledCleanupJobs(
+export function seedCleanupScheduleFromCheckpoints(): void {
+  for (const kind of CLEANUP_JOB_KINDS) {
+    const raw = getMemoryCheckpoint(CLEANUP_ENQUEUE_CHECKPOINT_KEYS[kind]);
+    if (raw === null) {
+      continue;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      markScheduledCleanupEnqueued(kind, parsed);
+    }
+  }
+}
+
+/**
+ * Record that a cleanup job for `kind` was just enqueued: advance the in-memory
+ * throttle and persist the timestamp so the cadence survives a restart. A
+ * config-driven throttle reset (ConfigWatcher) only clears the in-memory value;
+ * the next enqueue re-persists here, so the checkpoint self-heals on the tick
+ * after a retention change.
+ */
+function recordCleanupEnqueued(kind: CleanupJobKind, nowMs: number): void {
+  markScheduledCleanupEnqueued(kind, nowMs);
+  setMemoryCheckpoint(CLEANUP_ENQUEUE_CHECKPOINT_KEYS[kind], String(nowMs));
+}
+
+/**
+ * Enqueue periodic cleanup jobs, each on a cadence equal to its own retention
+ * window. A job that keeps data for N is re-enqueued at most once per N:
+ * pruning that retains LLM logs for 1h runs hourly, pruning that retains
+ * conversations for 30d runs every 30d. Each job's throttle is tracked
+ * independently in cleanup-schedule-state (and persisted via checkpoints so the
+ * cadence survives restarts), and enqueue is deduped in jobs-store, so repeated
+ * calls remain safe.
+ *
+ * Exported for tests; the worker calls it on every idle/drain tick.
+ *
+ * Returns true if at least one job was enqueued this call.
+ */
+export function maybeEnqueueScheduledCleanupJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
 ): boolean {
@@ -669,38 +751,65 @@ function maybeEnqueueScheduledCleanupJobs(
   if (!cleanup.enabled) {
     return false;
   }
-  if (nowMs - getLastScheduledCleanupEnqueueMs() < cleanup.enqueueIntervalMs) {
-    return false;
+
+  // A job is due when at least its full retention window has elapsed since the
+  // last enqueue for that job. The throttle is seeded from a persisted
+  // checkpoint at startup and reset to 0 when ConfigWatcher observes a
+  // retention change, so a due job also fires promptly after a config change
+  // while an unchanged one resumes its cadence across restarts.
+  const isDue = (kind: CleanupJobKind, intervalMs: number): boolean =>
+    nowMs - getLastScheduledCleanupEnqueueMs(kind) >= intervalMs;
+
+  let enqueuedAny = false;
+
+  if (
+    cleanup.conversationRetentionDays > 0 &&
+    isDue("conversations", cleanup.conversationRetentionDays * MS_PER_DAY)
+  ) {
+    const jobId = enqueuePruneOldConversationsJob(
+      cleanup.conversationRetentionDays,
+    );
+    recordCleanupEnqueued("conversations", nowMs);
+    enqueuedAny = true;
+    log.debug(
+      { jobId, retentionDays: cleanup.conversationRetentionDays },
+      "Enqueued scheduled prune_old_conversations",
+    );
   }
 
-  const pruneConversationsJobId =
-    cleanup.conversationRetentionDays > 0
-      ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
-      : null;
-  const pruneLlmRequestLogsJobId =
-    cleanup.llmRequestLogRetentionMs !== null
-      ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
-      : null;
+  if (
+    cleanup.llmRequestLogRetentionMs !== null &&
+    isDue("llm_request_logs", cleanup.llmRequestLogRetentionMs)
+  ) {
+    const jobId = enqueuePruneOldLlmRequestLogsJob(
+      cleanup.llmRequestLogRetentionMs,
+    );
+    recordCleanupEnqueued("llm_request_logs", nowMs);
+    enqueuedAny = true;
+    log.debug(
+      { jobId, retentionMs: cleanup.llmRequestLogRetentionMs },
+      "Enqueued scheduled prune_old_llm_request_logs",
+    );
+  }
+
   // Audit-log (tool_invocations) retention is configured separately under
-  // `auditLog.retentionDays`, but rides this same cleanup cadence for now.
-  const pruneToolInvocationsJobId =
-    config.auditLog.retentionDays > 0
-      ? enqueuePruneOldToolInvocationsJob(config.auditLog.retentionDays)
-      : null;
-  markScheduledCleanupEnqueued(nowMs);
-  log.debug(
-    {
-      pruneConversationsJobId,
-      pruneLlmRequestLogsJobId,
-      pruneToolInvocationsJobId,
-      enqueueIntervalMs: cleanup.enqueueIntervalMs,
-      conversationRetentionDays: cleanup.conversationRetentionDays,
-      llmRequestLogRetentionMs: cleanup.llmRequestLogRetentionMs,
-      auditLogRetentionDays: config.auditLog.retentionDays,
-    },
-    "Enqueued scheduled memory cleanup jobs",
-  );
-  return true;
+  // `auditLog.retentionDays`; its prune cadence follows that window.
+  if (
+    config.auditLog.retentionDays > 0 &&
+    isDue("tool_invocations", config.auditLog.retentionDays * MS_PER_DAY)
+  ) {
+    const jobId = enqueuePruneOldToolInvocationsJob(
+      config.auditLog.retentionDays,
+    );
+    recordCleanupEnqueued("tool_invocations", nowMs);
+    enqueuedAny = true;
+    log.debug(
+      { jobId, retentionDays: config.auditLog.retentionDays },
+      "Enqueued scheduled prune_old_tool_invocations",
+    );
+  }
+
+  return enqueuedAny;
 }
 
 // ── Graph maintenance scheduling ──────────────────────────────────
@@ -765,7 +874,9 @@ function isWithinPkbActiveHours(
   start: number | null,
   end: number | null,
 ): boolean {
-  if (start == null || end == null) return true;
+  if (start == null || end == null) {
+    return true;
+  }
   if (start <= end) {
     return hour >= start && hour < end;
   }

@@ -13,6 +13,7 @@ describe("LiveVoiceVadConfigSchema", () => {
       speechEnergyThreshold: 800,
       silenceThresholdMs: 800,
       maxTurnDurationMs: 30_000,
+      bargeInMinSpeechMs: 60,
     });
   });
 
@@ -21,10 +22,24 @@ describe("LiveVoiceVadConfigSchema", () => {
       speechEnergyThreshold: 1200,
       silenceThresholdMs: 500,
       maxTurnDurationMs: 60_000,
+      bargeInMinSpeechMs: 120,
     });
     expect(parsed.speechEnergyThreshold).toBe(1200);
     expect(parsed.silenceThresholdMs).toBe(500);
     expect(parsed.maxTurnDurationMs).toBe(60_000);
+    expect(parsed.bargeInMinSpeechMs).toBe(120);
+  });
+
+  test("accepts a bargeInMinSpeechMs of 0 (guard disabled)", () => {
+    const parsed = LiveVoiceVadConfigSchema.parse({ bargeInMinSpeechMs: 0 });
+    expect(parsed.bargeInMinSpeechMs).toBe(0);
+  });
+
+  test("rejects negative bargeInMinSpeechMs", () => {
+    const result = LiveVoiceVadConfigSchema.safeParse({
+      bargeInMinSpeechMs: -1,
+    });
+    expect(result.success).toBe(false);
   });
 
   test("rejects non-positive speechEnergyThreshold", () => {
@@ -51,6 +66,7 @@ describe("LiveVoiceConfigSchema", () => {
         speechEnergyThreshold: 800,
         silenceThresholdMs: 800,
         maxTurnDurationMs: 30_000,
+        bargeInMinSpeechMs: 60,
       },
       maxSessionDurationSeconds: 1800,
     });
