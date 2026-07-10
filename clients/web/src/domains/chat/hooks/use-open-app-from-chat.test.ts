@@ -179,34 +179,56 @@ describe("useOpenAppFromChat", () => {
     expect(enterAppEditingMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
   });
+
+  test("with bindConversation: false, loads the app but never binds or enters editing", async () => {
+    useConversationStore.setState({ activeConversationId: "conv-7" });
+    const { result } = renderHook(() =>
+      useOpenAppFromChat({ bindConversation: false }),
+    );
+
+    await result.current("app-42");
+
+    expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
+    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+    expect(enterAppEditingMock).not.toHaveBeenCalled();
+  });
+
+  test("with bindConversation: false on mobile, loads the app but never binds", async () => {
+    mobileRef.current = true;
+    useConversationStore.setState({ activeConversationId: "conv-7" });
+    const { result } = renderHook(() =>
+      useOpenAppFromChat({ bindConversation: false }),
+    );
+
+    await result.current("app-42");
+
+    expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
+    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+    expect(enterAppEditingMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("chooseSidebarOpenAppDestination", () => {
   test("returns null on the chat index path (viewer mounts here via ConversationRedirect)", () => {
-    expect(chooseSidebarOpenAppDestination("/assistant", "conv-7")).toBeNull();
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/", "conv-7"),
-    ).toBeNull();
+    expect(chooseSidebarOpenAppDestination("/assistant")).toBeNull();
+    expect(chooseSidebarOpenAppDestination("/assistant/")).toBeNull();
   });
 
   test("returns null on a conversation route (viewer mounts under ChatPage)", () => {
     expect(
-      chooseSidebarOpenAppDestination(
-        "/assistant/conversations/abc",
-        "conv-7",
-      ),
+      chooseSidebarOpenAppDestination("/assistant/conversations/abc"),
     ).toBeNull();
   });
 
-  test("navigates to the active conversation when off-chat (e.g. library)", () => {
+  test("navigates to the chat index when off-chat (e.g. library)", () => {
     expect(
-      chooseSidebarOpenAppDestination("/assistant/library", "conv-7"),
-    ).toBe("/assistant/conversations/conv-7");
+      chooseSidebarOpenAppDestination("/assistant/library"),
+    ).toBe("/assistant");
   });
 
-  test("navigates to the chat index when off-chat with no active conversation", () => {
+  test("navigates to the chat index when off-chat from home", () => {
     expect(
-      chooseSidebarOpenAppDestination("/assistant/home", null),
+      chooseSidebarOpenAppDestination("/assistant/home"),
     ).toBe("/assistant");
   });
 
@@ -214,14 +236,13 @@ describe("chooseSidebarOpenAppDestination", () => {
     expect(
       chooseSidebarOpenAppDestination(
         "/assistant/conversations/abc/inspect",
-        "conv-7",
       ),
-    ).toBe("/assistant/conversations/conv-7");
+    ).toBe("/assistant");
   });
 
-  test("identity / settings paths route to the active conversation", () => {
+  test("identity / settings paths route to the chat index", () => {
     expect(
-      chooseSidebarOpenAppDestination("/assistant/identity", "conv-7"),
-    ).toBe("/assistant/conversations/conv-7");
+      chooseSidebarOpenAppDestination("/assistant/identity"),
+    ).toBe("/assistant");
   });
 });

@@ -24,6 +24,7 @@ import {
 } from "@/utils/local-settings";
 import {
   isAboutAssistantPath,
+  isConversationChatPath,
   isConversationPath,
   routes,
 } from "@/utils/routes";
@@ -617,20 +618,23 @@ export function ChatLayout() {
   //
   // See `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow
   // shared with the transcript / assets-pill open path.
-  const openAppFromChat = useOpenAppFromChat();
+  const openAppFromChat = useOpenAppFromChat({
+    // When the user is off a chat route (home, library, identity, …), do
+    // not bind the stale `activeConversationId` as the editing target —
+    // the store value persists across route changes for SSE / attention
+    // consumers and doesn't reflect the user's current intent (LUM-2691).
+    bindConversation: isConversationChatPath(location.pathname),
+  });
   const activeAppId = useViewerStore.use.activeAppId();
   const handleOpenAppFromSidebar = useCallback(
     async (appId: string) => {
-      const dest = chooseSidebarOpenAppDestination(
-        location.pathname,
-        activeConversationId,
-      );
+      const dest = chooseSidebarOpenAppDestination(location.pathname);
       if (dest) {
         void navigate(dest);
       }
       await openAppFromChat(appId);
     },
-    [location.pathname, navigate, activeConversationId, openAppFromChat],
+    [location.pathname, navigate, openAppFromChat],
   );
 
   // Inspector affordance for the sidebar context menu. The topbar variant
