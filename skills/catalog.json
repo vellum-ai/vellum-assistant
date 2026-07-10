@@ -443,7 +443,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-07-10T00:03:30.000Z"
+      "updatedAt": "2026-07-10T04:19:46.000Z"
     },
     {
       "id": "llm-provider-setup",
@@ -456,7 +456,7 @@
           "display-name": "LLM Provider Setup"
         }
       },
-      "updatedAt": "2026-07-10T00:03:30.000Z"
+      "updatedAt": "2026-07-10T04:28:57.000Z"
     },
     {
       "id": "macos-automation",
