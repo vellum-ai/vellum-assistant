@@ -72,10 +72,42 @@ const TOKEN_TO_CSS_VARS: Record<
   assistantBubbleText: [],
 };
 
+/**
+ * The design-library text color that renders on top of `--primary-base`
+ * (e.g. the Button primary label, via `--content-inset`). When `accent`
+ * recolors the primary fill, this is re-derived to stay legible — the daemon
+ * does not contrast-check `accent` against the fixed on-primary text.
+ */
+const ON_ACCENT_VAR = "--content-inset";
+const ON_ACCENT_DARK = "#17191c";
+const ON_ACCENT_LIGHT = "#fdfdfc";
+
 /** The full set of CSS variables this layer may set — used to clear cleanly. */
-export const WORKSPACE_THEME_CSS_VARS: readonly string[] = Object.values(
-  TOKEN_TO_CSS_VARS,
-).flat();
+export const WORKSPACE_THEME_CSS_VARS: readonly string[] = [
+  ...Object.values(TOKEN_TO_CSS_VARS).flat(),
+  ON_ACCENT_VAR,
+];
+
+/** Perceived luminance (0–1) of a 3- or 6-digit hex color, sRGB-weighted. */
+function hexLuminance(hex: string): number {
+  const raw = hex.replace("#", "");
+  const full =
+    raw.length === 3
+      ? raw
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : raw;
+  const [r, g, b] = [0, 2, 4].map(
+    (offset) => parseInt(full.slice(offset, offset + 2), 16) / 255,
+  );
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** Near-black or near-white, whichever reads better on the given fill. */
+export function readableOnColor(hex: string): string {
+  return hexLuminance(hex) > 0.5 ? ON_ACCENT_DARK : ON_ACCENT_LIGHT;
+}
 
 /**
  * Resolve a theme's tokens into the flat `{ cssVar: value }` overrides to
@@ -96,6 +128,11 @@ export function resolveThemeCssVars(
     for (const cssVar of cssVars ?? []) {
       vars[cssVar] = value;
     }
+  }
+  // `accent` recolors the primary fill; keep on-primary text legible against
+  // it since the daemon does not contrast-check `accent`.
+  if (tokens.accent) {
+    vars[ON_ACCENT_VAR] = readableOnColor(tokens.accent);
   }
   return vars;
 }

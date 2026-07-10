@@ -55,13 +55,13 @@ export function useWorkspaceTheme(
 
   const theme = (data?.theme ?? null) as WorkspaceTheme | null;
 
-  // Apply on every resolved theme; clearing when the theme is removed reverts
-  // to the base-theme values. This hook is the sole writer of these vars.
+  // Apply on every resolved theme; clearing when the theme is removed, or when
+  // the hook is disabled (assistant inactive / unsupported / switched away),
+  // reverts to the base-theme values. These vars live outside React on
+  // <html>, so a disabled hook must actively clear a prior assistant's theme
+  // rather than leave it applied. This hook is the sole writer of these vars.
   useEffect(() => {
-    if (!enabled) {
-      return;
-    }
-    applyWorkspaceThemeTokens(theme?.tokens);
+    applyWorkspaceThemeTokens(enabled ? theme?.tokens : undefined);
   }, [enabled, theme]);
 
   const invalidate = () => {

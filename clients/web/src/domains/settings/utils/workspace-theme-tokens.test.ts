@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   applyWorkspaceThemeTokens,
+  readableOnColor,
   resolveThemeCssVars,
   WORKSPACE_THEME_CSS_VARS,
 } from "./workspace-theme-tokens";
@@ -47,6 +48,31 @@ describe("resolveThemeCssVars", () => {
     const vars = resolveThemeCssVars({ accent: "", background: "#000000" });
     expect(vars["--primary-base"]).toBeUndefined();
     expect(vars["--background"]).toBe("#000000");
+  });
+
+  test("derives a legible on-primary text color for a light accent", () => {
+    const vars = resolveThemeCssVars({ accent: "#ffffff" });
+    expect(vars["--primary-base"]).toBe("#ffffff");
+    expect(vars["--content-inset"]).toBe("#17191c");
+  });
+
+  test("derives a legible on-primary text color for a dark accent", () => {
+    const vars = resolveThemeCssVars({ accent: "#1a1a1a" });
+    expect(vars["--content-inset"]).toBe("#fdfdfc");
+  });
+
+  test("does not touch on-primary text when accent is unset", () => {
+    const vars = resolveThemeCssVars({ background: "#000000" });
+    expect(vars["--content-inset"]).toBeUndefined();
+  });
+});
+
+describe("readableOnColor", () => {
+  test("returns dark text on light fills and light text on dark fills", () => {
+    expect(readableOnColor("#ffffff")).toBe("#17191c");
+    expect(readableOnColor("#000000")).toBe("#fdfdfc");
+    expect(readableOnColor("#ffd700")).toBe("#17191c");
+    expect(readableOnColor("#4b0082")).toBe("#fdfdfc");
   });
 });
 
