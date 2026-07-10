@@ -10,7 +10,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { stripCommentLines } from "../../../util/strip-comment-lines.js";
+import { stripCommentLines } from "./host-utils.js";
 import { getWorkspaceDir } from "./paths.js";
 
 /**

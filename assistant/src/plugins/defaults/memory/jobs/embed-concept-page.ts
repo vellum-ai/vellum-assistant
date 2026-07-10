@@ -38,9 +38,9 @@ import {
   type MemoryJob,
 } from "../../../../persistence/jobs-store.js";
 import { memoryEmbeddings } from "../../../../persistence/schema/index.js";
-import { BackendUnavailableError } from "../../../../util/errors.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embeddings.js";
+import { BackendUnavailableError } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
 import { readPage } from "../v2/page-store.js";

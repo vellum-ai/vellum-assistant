@@ -75,8 +75,8 @@ import {
   type MemoryJobType,
 } from "../../../../persistence/jobs-store.js";
 import { runBackgroundJob } from "../../../../runtime/background-job-runner.js";
-import { isProcessAlive } from "../../../../util/process-liveness.js";
 import { formatBufferTimestamp } from "../graph/tool-handlers.js";
+import { isProcessAlive } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
