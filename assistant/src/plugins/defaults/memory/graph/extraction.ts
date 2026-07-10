@@ -585,7 +585,6 @@ export interface DeferredEdge {
 export function parseExtractionResponse(
   input: Record<string, unknown>,
   conversationId: string,
-  scopeId: string,
   candidateNodeIds: Set<string>,
   /** Epoch ms — when the conversation happened (not extraction time). */
   conversationTimestamp: number,
@@ -674,7 +673,6 @@ export function parseExtractionResponse(
       narrativeRole: null,
       partOfStory: null,
       imageRefs: null,
-      scopeId,
     };
 
     // Prospective nodes (tasks, plans, upcoming events) are inherently transient.
@@ -991,7 +989,6 @@ export interface ExtractionResult {
  */
 export async function runGraphExtraction(
   conversationId: string,
-  scopeId: string,
   config: AssistantConfig,
   opts?: {
     /** Pre-loaded transcript text (skips disk read). Used by bootstrap. */
@@ -1068,7 +1065,6 @@ export async function runGraphExtraction(
   // 3. Find candidate existing nodes
   const candidateNodes = await findCandidateNodes(
     transcript,
-    scopeId,
     config,
     opts?.activeContextNodeIds,
     opts?.skipQdrant,
@@ -1140,7 +1136,6 @@ export async function runGraphExtraction(
   const { diff, deferredEdges, deferredTriggers } = parseExtractionResponse(
     toolBlock.input as Record<string, unknown>,
     conversationId,
-    scopeId,
     candidateNodeIds,
     conversationTimestamp,
   );
@@ -1488,7 +1483,6 @@ function loadTranscriptWithImages(
 
 async function findCandidateNodes(
   transcript: string,
-  scopeId: string,
   config: AssistantConfig,
   activeContextNodeIds?: string[],
   skipQdrant?: boolean,
@@ -1499,7 +1493,6 @@ async function findCandidateNodes(
     // Bootstrap mode: load candidates directly from DB (embeddings may not be ready).
     // Get the most recent and most significant non-gone nodes.
     const dbCandidates = queryNodes({
-      scopeId,
       fidelityNot: ["gone"],
       limit: 100,
     });

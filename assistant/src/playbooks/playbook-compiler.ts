@@ -4,7 +4,7 @@
  * graph.
  */
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, sql } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
 import { memoryGraphNodes } from "../persistence/schema/index.js";
@@ -20,19 +20,12 @@ export interface CompiledPlaybooks {
   includedCount: number;
 }
 
-export interface CompilePlaybooksOptions {
-  scopeId?: string;
-}
-
 interface PlaybookRow {
   id: string;
   content: string;
 }
 
-export function compilePlaybooks(
-  options?: CompilePlaybooksOptions,
-): CompiledPlaybooks {
-  const scopeId = options?.scopeId ?? "default";
+export function compilePlaybooks(): CompiledPlaybooks {
   const db = getDb();
 
   const rows: PlaybookRow[] = db
@@ -43,7 +36,6 @@ export function compilePlaybooks(
     .from(memoryGraphNodes)
     .where(
       and(
-        eq(memoryGraphNodes.scopeId, scopeId),
         sql`${memoryGraphNodes.sourceConversations} LIKE '%playbook:%'`,
         sql`${memoryGraphNodes.fidelity} != 'gone'`,
       ),

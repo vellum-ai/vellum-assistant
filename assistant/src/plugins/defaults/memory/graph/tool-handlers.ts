@@ -194,7 +194,6 @@ function enqueuePkbReindex(pkbRoot: string, absPath: string): void {
 // Shared helpers for delete / update / list
 // ---------------------------------------------------------------------------
 
-const MEMORY_SCOPE_DEFAULT = "default";
 const SNIPPET_LENGTH = 80;
 
 // ---------------------------------------------------------------------------
@@ -228,7 +227,6 @@ export function handleDeleteMemory(
 
   const search = input.content.trim().toLowerCase();
   const nodes = queryNodes({
-    scopeId: MEMORY_SCOPE_DEFAULT,
     fidelityNot: ["gone"],
   });
 
@@ -304,7 +302,6 @@ export function handleUpdateMemory(
   const search = input.old_content.trim().toLowerCase();
   const newContent = input.new_content.trim();
   const nodes = queryNodes({
-    scopeId: MEMORY_SCOPE_DEFAULT,
     fidelityNot: ["gone"],
   });
 
@@ -409,7 +406,6 @@ export function handleListMemory(
   // exhaustive regardless of graph size. Without a limit the DB still orders by
   // significance DESC, so the most relevant matches surface first after slicing.
   const allNodes = queryNodes({
-    scopeId: MEMORY_SCOPE_DEFAULT,
     fidelityNot: ["gone"],
     ...(search ? {} : { limit }),
   });

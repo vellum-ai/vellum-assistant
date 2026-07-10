@@ -163,19 +163,6 @@ export interface ToolExecutionResult {
   isContainerized?: boolean;
   /** Scope options ladder for the rule editor (narrowest to broadest). */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
-  /**
-   * When present, indicates that a CES tool returned an `approval_required`
-   * response. The executor uses the approval bridge to prompt the guardian,
-   * commit the grant decision to CES, and retry the original tool invocation
-   * with the granted grantId. CES tools populate this field rather than
-   * returning a textual error so the executor can intercept and handle the
-   * approval flow transparently.
-   *
-   * Declared as `unknown` here to keep this package free of CES runtime
-   * imports; the assistant narrows it back to the concrete `ApprovalRequired`
-   * shape via intersection.
-   */
-  cesApprovalRequired?: unknown;
 }
 
 export type ProxyToolResolver = (

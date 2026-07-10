@@ -80,7 +80,6 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onArchiveAllInGroup?: (groupName: string, conversations: Conversation[]) => void;
   processingConversationIds?: Set<string>;
   activeConversationProcessing?: boolean;
-  onAnalyze?: (conversation: Conversation) => void;
   onOpenInNewWindow?: (conversation: Conversation) => void;
   onShareFeedback?: () => void;
   onInspect?: (conversation: Conversation) => void;
@@ -166,7 +165,6 @@ export function AssistantSideMenu({
   processingConversationIds,
   attentionConversationIds,
   activeConversationProcessing,
-  onAnalyze,
   onOpenInNewWindow,
   onShareFeedback,
   onInspect,
@@ -237,7 +235,6 @@ export function AssistantSideMenu({
     onUnarchive: onUnarchiveConversation,
     onMarkRead: onMarkConversationRead,
     onMarkUnread: onMarkConversationUnread,
-    onAnalyze,
     onOpenInNewWindow,
     onShareFeedback,
     onInspect,

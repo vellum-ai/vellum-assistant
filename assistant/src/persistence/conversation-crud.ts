@@ -1552,39 +1552,59 @@ export async function forkConversationForRetrospective(params: {
 
     // Phase 3 (in-process): attachments + memory-state seeding, reusing the
     // same helper as the synchronous fork. Disk-view projection is skipped.
+    //
+    // The populate transaction reads (attachment links) before its first
+    // write, so a deferred BEGIN would take its snapshot as a reader and any
+    // concurrent writer committing before the first write fails the
+    // read→write upgrade with SQLITE_BUSY_SNAPSHOT — a hard error
+    // `busy_timeout` cannot wait out, which would discard the entire batch
+    // copy from phase 2. `behavior: "immediate"` acquires the write lock at
+    // BEGIN so the snapshot postdates it, and the retry absorbs residual
+    // contention: the transaction rolls back atomically, so re-running it is
+    // safe.
     const latestForkedAssistant = latestForkedAssistantFrom(
       rowsToCopy,
       forkedMessageIds,
     );
-    db.transaction(() => {
-      populateForkContentsInProcess({
-        fork,
-        sourceConversationId: sourceConversation.id,
-        messagesToCopy: rowsToCopy,
-        forkedMessageIds,
-        latestForkedAssistant,
-        isFullHistoryFork: copyBoundaryIndex === sourceMessages.length - 1,
-        // The copied range already starts at the visible window.
-        inheritedCompactedMessageCount: 0,
-        skipCompactionLedgerCopy: inheritedCompaction != null,
-      });
-      // The fork owns none of the source's ledger events — their counts
-      // index source-space row positions, and this fork row stores a count
-      // of 0. Seed a single event mirroring the fork row's compaction
-      // fields whenever a compaction is inherited (even when the hidden
-      // prefix fell outside the cutoff and nothing was dropped), so the
-      // ledger and the row cache agree and a fork of this fork inherits the
-      // summary with the fork-local count. With no inherited compaction the
-      // default ledger copy is a natural no-op (no source event is
-      // at-or-before the boundary).
-      if (inheritedCompaction) {
-        appendCompactionEvent(fork.id, {
-          compactedAt: inheritedCompaction.compactedAt,
-          summary: inheritedCompaction.summary,
-          compactedMessageCount: 0,
-        });
-      }
-    });
+    await withSqliteRetry(
+      () =>
+        db.transaction(
+          () => {
+            populateForkContentsInProcess({
+              fork,
+              sourceConversationId: sourceConversation.id,
+              messagesToCopy: rowsToCopy,
+              forkedMessageIds,
+              latestForkedAssistant,
+              isFullHistoryFork:
+                copyBoundaryIndex === sourceMessages.length - 1,
+              // The copied range already starts at the visible window.
+              inheritedCompactedMessageCount: 0,
+              skipCompactionLedgerCopy: inheritedCompaction != null,
+            });
+            // The fork owns none of the source's ledger events — their
+            // counts index source-space row positions, and this fork row
+            // stores a count of 0. Seed a single event mirroring the fork
+            // row's compaction fields whenever a compaction is inherited
+            // (even when the hidden prefix fell outside the cutoff and
+            // nothing was dropped), so the ledger and the row cache agree
+            // and a fork of this fork inherits the summary with the
+            // fork-local count. With no inherited compaction the default
+            // ledger copy is a natural no-op (no source event is
+            // at-or-before the boundary). Rolls back with the transaction,
+            // so the retry unit stays atomic.
+            if (inheritedCompaction) {
+              appendCompactionEvent(fork.id, {
+                compactedAt: inheritedCompaction.compactedAt,
+                summary: inheritedCompaction.summary,
+                compactedMessageCount: 0,
+              });
+            }
+          },
+          { behavior: "immediate" },
+        ),
+      { op: "forkConversationForRetrospective.populate" },
+    );
 
     const persistedFork = getConversation(fork.id);
     if (!persistedFork) {
@@ -1891,7 +1911,6 @@ export async function addMessage(
           role: message.role,
           content: message.content,
           createdAt: message.createdAt,
-          scopeId: "default",
           provenanceTrustClass,
           automated,
         },

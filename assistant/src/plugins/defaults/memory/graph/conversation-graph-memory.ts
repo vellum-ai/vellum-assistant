@@ -574,7 +574,6 @@ export class ConversationGraphMemory {
 
     // v1 fallback — only reached when the v2 flag or workspace config is off.
     const result = await loadContextMemory({
-      scopeId: "default",
       recentSummaries,
       userQuery,
       config,
@@ -743,7 +742,6 @@ export class ConversationGraphMemory {
       assistantLastMessage: assistantLast,
       userLastMessage: userLast,
       userLastMessageBlocks: userLastBlocks,
-      scopeId: "default",
       config,
       tracker: this.tracker,
       signal,
