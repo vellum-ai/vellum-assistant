@@ -51,6 +51,7 @@ COPY --from=builder --chown=gateway:gateway /app /app
 # Copy source after installing dependencies for better layer caching.
 COPY --chown=gateway:gateway packages/assistant-client /app/packages/assistant-client
 COPY --chown=gateway:gateway packages/ces-client /app/packages/ces-client
+COPY --chown=gateway:gateway packages/download-validation /app/packages/download-validation
 COPY --chown=gateway:gateway packages/gateway-client /app/packages/gateway-client
 COPY --chown=gateway:gateway packages/ipc-server-utils /app/packages/ipc-server-utils
 COPY --chown=gateway:gateway packages/service-contracts /app/packages/service-contracts

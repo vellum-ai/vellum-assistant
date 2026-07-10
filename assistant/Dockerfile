@@ -120,6 +120,7 @@ COPY --from=builder /app /app
 COPY packages/ces-client /app/packages/ces-client
 COPY packages/service-contracts /app/packages/service-contracts
 COPY packages/credential-storage /app/packages/credential-storage
+COPY packages/download-validation /app/packages/download-validation
 COPY packages/egress-proxy /app/packages/egress-proxy
 COPY packages/environments /app/packages/environments
 COPY packages/gateway-client /app/packages/gateway-client
