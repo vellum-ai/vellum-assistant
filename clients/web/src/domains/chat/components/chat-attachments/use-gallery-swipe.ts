@@ -44,7 +44,8 @@ interface UseGallerySwipeResult {
   isDragging: boolean;
   onTouchStart: (e: ReactTouchEvent) => void;
   onTouchMove: (e: ReactTouchEvent) => void;
-  onTouchEnd: () => void;
+  onTouchEnd: (e: ReactTouchEvent) => void;
+  onTouchCancel: () => void;
 }
 
 /**
@@ -75,6 +76,11 @@ export function useGallerySwipe({
     startX: number;
     startY: number;
     axis: GestureAxis;
+    // Latest raw horizontal delta (px), tracked here rather than derived from
+    // the rendered `dragOffset` state so the commit decision on touchend reads
+    // the true final position — React may batch the last touchmove's state
+    // update, and a fast flick's final delta can arrive only on touchend.
+    lastDx: number;
   } | null>(null);
 
   const reset = useCallback(() => {
@@ -92,6 +98,7 @@ export function useGallerySwipe({
         startX: t.clientX,
         startY: t.clientY,
         axis: "undecided",
+        lastDx: 0,
       };
     },
     [enabled],
@@ -113,6 +120,7 @@ export function useGallerySwipe({
       if (t.identifier !== g.touchId) return;
       const dx = t.clientX - g.startX;
       const dy = t.clientY - g.startY;
+      g.lastDx = dx;
 
       if (g.axis === "undecided") {
         if (Math.abs(dx) < DIRECTION_DEADZONE_PX && Math.abs(dy) < DIRECTION_DEADZONE_PX) {
@@ -141,21 +149,41 @@ export function useGallerySwipe({
     [reset],
   );
 
-  const onTouchEnd = useCallback(() => {
-    const g = gesture.current;
-    if (!g || g.axis !== "horizontal") {
+  const onTouchEnd = useCallback(
+    (e: ReactTouchEvent) => {
+      const g = gesture.current;
+      if (!g || g.axis !== "horizontal") {
+        reset();
+        return;
+      }
+      // Decide from the true final delta, not the rendered `dragOffset`: prefer
+      // the released touch's position (a fast flick's final move can land only
+      // on `changedTouches`), and fall back to the last delta seen in touchmove.
+      const released = Array.from(e.changedTouches).find(
+        (t) => t.identifier === g.touchId,
+      );
+      const finalDx = released ? released.clientX - g.startX : g.lastDx;
+      if (finalDx <= -COMMIT_THRESHOLD_PX) {
+        haptic.light();
+        onNext();
+      } else if (finalDx >= COMMIT_THRESHOLD_PX) {
+        haptic.light();
+        onPrev();
+      }
       reset();
-      return;
-    }
-    if (dragOffset <= -COMMIT_THRESHOLD_PX) {
-      haptic.light();
-      onNext();
-    } else if (dragOffset >= COMMIT_THRESHOLD_PX) {
-      haptic.light();
-      onPrev();
-    }
-    reset();
-  }, [dragOffset, onNext, onPrev, reset]);
+    },
+    [onNext, onPrev, reset],
+  );
 
-  return { dragOffset, isDragging, onTouchStart, onTouchMove, onTouchEnd };
+  return {
+    dragOffset,
+    isDragging,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    // Browser-initiated cancellation (iOS system gesture, interruption) fires
+    // touchcancel, not touchend — route it to the same reset so the content
+    // never stays translated with transitions disabled.
+    onTouchCancel: reset,
+  };
 }

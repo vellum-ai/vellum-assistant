@@ -192,8 +192,14 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   // keyboard arrows — never a replacement. The buttons stay rendered on touch
   // so users who can't swipe (assistive tech: VoiceOver, Switch Control) keep
   // an operable control.
-  const { dragOffset, isDragging, onTouchStart, onTouchMove, onTouchEnd } =
-    useGallerySwipe({ enabled: hasGallery, onPrev: goToPrev, onNext: goToNext });
+  const {
+    dragOffset,
+    isDragging,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onTouchCancel,
+  } = useGallerySwipe({ enabled: hasGallery, onPrev: goToPrev, onNext: goToNext });
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -436,6 +442,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
         {renderContent()}
       </div>
