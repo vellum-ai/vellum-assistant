@@ -167,6 +167,16 @@ const HISTORY_RETENTION_DAYS = 7;
 /** Timeout for one-shot history rewrite / gc operations. */
 const HISTORY_COMPACTION_TIMEOUT_MS = 10 * 60_000;
 
+/**
+ * Delay between init and the first compaction attempt, so boot-time
+ * foreground work (first turn commit, status reads) never queues on the
+ * git mutex behind a detection scan or rewrite.
+ */
+const HISTORY_COMPACTION_INITIAL_DELAY_MS = 60_000;
+
+/** Lower bound between compaction retries while blobs wait out retention. */
+const HISTORY_COMPACTION_MIN_RETRY_MS = 60 * 60_000;
+
 const WORKSPACE_BRANCH_GUARD_HOOK = `#!/bin/sh
 set -eu
 
@@ -273,7 +283,7 @@ export class WorkspaceGitService {
   private initNextAllowedAttemptMs = 0;
   /** Oversized paths already logged, to avoid re-warning every commit cycle. */
   private readonly warnedOversizedPaths = new Set<string>();
-  private historyCompactionScheduled = false;
+  private historyCompactionTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(workspaceDir: string) {
     this.workspaceDir = workspaceDir;
@@ -555,8 +565,6 @@ export class WorkspaceGitService {
                 await this.untrackOversizedFilesLocked();
                 this.initialized = true;
                 this.recordInitSuccess();
-                // Fire-and-forget: queues behind this locked section, so
-                // init and the first commit are never blocked by a rewrite.
                 this.scheduleHistoryCompaction();
                 return;
               }
@@ -963,21 +971,40 @@ export class WorkspaceGitService {
   }
 
   /**
-   * Fire-and-forget history compaction, scheduled once per service instance
-   * when an existing repo finishes initialization. Best-effort like the
+   * Schedule a background history compaction attempt. The delay keeps the
+   * run off the git mutex during boot, so foreground commits and status
+   * reads are never queued behind a rewrite. When blobs exist but all
+   * history is still within retention, the attempt reschedules itself for
+   * when the oldest commit ages past the cutoff. Best-effort like the
    * untrack sweeps: failures are logged and never affect commits.
    */
-  private scheduleHistoryCompaction(): void {
-    if (this.historyCompactionScheduled) {
+  private scheduleHistoryCompaction(
+    delayMs = HISTORY_COMPACTION_INITIAL_DELAY_MS,
+  ): void {
+    if (this.historyCompactionTimer) {
       return;
     }
-    this.historyCompactionScheduled = true;
-    void this.compactHistoryNow().catch((err) => {
-      log.warn(
-        { err, workspaceDir: this.workspaceDir },
-        "Workspace history compaction failed",
-      );
-    });
+    const timer = setTimeout(() => {
+      void (async () => {
+        let retryAfterMs: number | undefined;
+        try {
+          const result = await this.compactHistoryNow();
+          retryAfterMs = result.retryAfterMs;
+        } catch (err) {
+          log.warn(
+            { err, workspaceDir: this.workspaceDir },
+            "Workspace history compaction failed",
+          );
+        }
+        this.historyCompactionTimer = null;
+        if (retryAfterMs !== undefined) {
+          this.scheduleHistoryCompaction(retryAfterMs);
+        }
+      })();
+    }, delayMs);
+    // Never keep the process alive just for maintenance.
+    timer.unref?.();
+    this.historyCompactionTimer = timer;
   }
 
   /**
@@ -1000,6 +1027,8 @@ export class WorkspaceGitService {
     rewrote: boolean;
     squashedCommits: number;
     keptCommits: number;
+    /** Set when blobs remain but history must first age past retention. */
+    retryAfterMs?: number;
   }> {
     await this.ensureInitialized();
     return this.mutex.withLock(() => this.compactHistoryLocked());
@@ -1009,6 +1038,7 @@ export class WorkspaceGitService {
     rewrote: boolean;
     squashedCommits: number;
     keptCommits: number;
+    retryAfterMs?: number;
   }> {
     const noop = { rewrote: false, squashedCommits: 0, keptCommits: 0 };
     const limit = this.maxFileSizeBytes();
@@ -1081,13 +1111,23 @@ export class WorkspaceGitService {
       splitIdx = commits.length;
     }
     if (splitIdx === 0) {
-      // Blobs live only in commits still within retention; a later run
-      // compacts them once they age out.
+      // Blobs live only in commits still within retention. Report when the
+      // oldest commit ages past the cutoff so the caller can retry then —
+      // otherwise a long-running daemon would keep the bloat until restart.
+      const oldestCommittedAtSec = commits[0]?.committedAtSec ?? cutoffSec;
+      const oldestAgesOutMs =
+        (oldestCommittedAtSec + HISTORY_RETENTION_DAYS * 86400) * 1000 -
+        Date.now() +
+        60_000;
+      const retryAfterMs = Math.max(
+        oldestAgesOutMs,
+        HISTORY_COMPACTION_MIN_RETRY_MS,
+      );
       log.debug(
-        { workspaceDir: this.workspaceDir },
+        { workspaceDir: this.workspaceDir, retryAfterMs },
         "Oversized blobs present but all history is within retention",
       );
-      return { ...noop, keptCommits: commits.length };
+      return { ...noop, keptCommits: commits.length, retryAfterMs };
     }
 
     const kept = commits.slice(splitIdx);

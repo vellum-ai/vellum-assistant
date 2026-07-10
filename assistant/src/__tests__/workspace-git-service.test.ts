@@ -1979,6 +1979,30 @@ describe("WorkspaceGitService", () => {
       const result = await service.compactHistoryNow();
 
       expect(result.rewrote).toBe(false);
+      expect(result.retryAfterMs).toBeUndefined();
+      expect(await service.getHeadHash()).toBe(headBefore);
+    });
+
+    test("history compaction defers with a retry when blobs are within retention", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      // Blob enters history via a recent commit (guard bypassed externally)
+      writeFileSync(join(testDir, "fresh.bin"), bigContent());
+      execFileSync("git", ["add", "--", ":(literal)fresh.bin"], {
+        cwd: testDir,
+      });
+      execFileSync("git", ["commit", "--no-verify", "-m", "fresh blob"], {
+        cwd: testDir,
+      });
+
+      const headBefore = await service.getHeadHash();
+      const result = await service.compactHistoryNow();
+
+      // Nothing is old enough to squash yet, but a retry is requested for
+      // when the oldest commit ages past retention.
+      expect(result.rewrote).toBe(false);
+      expect(result.retryAfterMs).toBeGreaterThan(0);
       expect(await service.getHeadHash()).toBe(headBefore);
     });
 
