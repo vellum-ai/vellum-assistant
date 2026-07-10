@@ -585,6 +585,9 @@ describe("forkConversationForRetrospective — compacted source", () => {
     expect(fork.contextCompactedMessageCount).toBe(0);
     expect(fork.contextCompactedAt).toBe(tip.createdAt);
     expect(fork.forkParentMessageId).toBe(tip.id);
+    // Ageable despite copying no rows, so the startup orphan sweep (which
+    // skips null `lastMessageAt` rows) can reclaim it after a crash.
+    expect(fork.lastMessageAt).toBe(tip.createdAt);
 
     // With no stamped copied rows the copied prefix is empty, so the whole
     // conversation is the run's own output — run messages still feed the

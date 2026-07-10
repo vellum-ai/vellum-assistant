@@ -1493,6 +1493,13 @@ export async function forkConversationForRetrospective(params: {
           .set({
             forkParentConversationId: sourceConversation.id,
             forkParentMessageId,
+            // Stamped at creation so the startup orphan sweep (which only
+            // considers rows with a non-null `lastMessageAt`) can age this
+            // fork even if the daemon crashes before the copy or the
+            // retrospective instruction lands — including the empty-tail
+            // fork, which copies no rows at all. Phase 3 re-derives the same
+            // value from the copied rows when the tail is non-empty.
+            lastMessageAt: boundaryMessageCreatedAt,
             contextSummary: inheritedCompaction?.summary ?? null,
             // Zero of the fork's own rows sit behind the boundary (the
             // compacted prefix is not copied). The summary still renders:
