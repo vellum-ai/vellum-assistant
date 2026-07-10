@@ -6,6 +6,7 @@ import {
   getTtsProvider,
   listCatalogProviderIds,
 } from "../provider-catalog.js";
+import { resolveTtsConfig } from "../tts-config-resolver.js";
 import type { TtsProvider } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -79,5 +80,30 @@ describe("TTS provider resolution", () => {
     const resolved = getTtsProvider("elevenlabs");
     expect(resolved).not.toBe(stub);
     expect(resolved.id).toBe("elevenlabs");
+  });
+});
+
+describe("managed TTS mode resolution", () => {
+  const configWith = (tts: Record<string, unknown>) =>
+    ({ services: { tts } }) as unknown as Parameters<
+      typeof resolveTtsConfig
+    >[0];
+
+  test("managed mode resolves provider vellum regardless of the BYOK choice", () => {
+    const config = configWith({
+      mode: "managed",
+      provider: "elevenlabs",
+      providers: {},
+    });
+    expect(resolveTtsConfig(config).provider).toBe("vellum");
+  });
+
+  test("your-own mode still resolves the configured provider", () => {
+    const config = configWith({
+      mode: "your-own",
+      provider: "deepgram",
+      providers: {},
+    });
+    expect(resolveTtsConfig(config).provider).toBe("deepgram");
   });
 });

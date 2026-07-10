@@ -210,6 +210,21 @@ export const TtsXaiProviderConfigSchema = z
 
 export type TtsXaiProviderConfig = z.infer<typeof TtsXaiProviderConfigSchema>;
 
+/**
+ * Vellum managed provider configuration under `services.tts.providers`.
+ *
+ * Intentionally empty: the platform pins the voice and model, so there is
+ * nothing to configure yet. The block exists to satisfy the
+ * catalog-completeness guard and to give future options a home.
+ */
+const TtsVellumProviderConfigSchema = z
+  .object({})
+  .describe("Vellum managed provider configuration under services.tts");
+
+export type TtsVellumProviderConfig = z.infer<
+  typeof TtsVellumProviderConfigSchema
+>;
+
 const TtsProvidersSchema = z.object({
   elevenlabs: TtsElevenLabsProviderConfigSchema.default(
     TtsElevenLabsProviderConfigSchema.parse({}),
@@ -221,6 +236,9 @@ const TtsProvidersSchema = z.object({
     TtsDeepgramProviderConfigSchema.parse({}),
   ),
   xai: TtsXaiProviderConfigSchema.default(TtsXaiProviderConfigSchema.parse({})),
+  vellum: TtsVellumProviderConfigSchema.default(
+    TtsVellumProviderConfigSchema.parse({}),
+  ),
 });
 export type TtsProviders = z.infer<typeof TtsProvidersSchema>;
 
@@ -255,19 +273,21 @@ for (const id of schemaKeys) {
 /**
  * Canonical TTS service configuration.
  *
- * `mode` is locked to `"your-own"` — managed TTS is not supported.
- * Attempting to set `mode: "managed"` will fail schema validation.
+ * `mode` selects between the user's own provider key (`"your-own"`) and
+ * Vellum-managed synthesis billed to Vellum credits (`"managed"`). The
+ * `provider` field always holds the user's BYOK choice so switching back
+ * from managed mode restores it; use {@link effectiveTtsProvider} to
+ * resolve which provider is actually active.
  */
 export const TtsServiceSchema = z
   .object({
     mode: z
-      .literal("your-own", {
-        error:
-          'services.tts.mode must be "your-own" — managed TTS is not supported',
+      .enum(["your-own", "managed"], {
+        error: 'services.tts.mode must be "your-own" or "managed"',
       })
       .default("your-own" as const)
       .describe(
-        'TTS service mode — only "your-own" is supported (managed TTS is not available)',
+        'TTS service mode — "your-own" uses the configured provider with your API key; "managed" synthesizes through your Vellum account',
       ),
     provider: z
       .enum(TTS_PROVIDER_IDS, {
@@ -277,8 +297,35 @@ export const TtsServiceSchema = z
       .describe("Active TTS provider used for speech synthesis"),
     providers: TtsProvidersSchema.default(TtsProvidersSchema.parse({})),
   })
+  .superRefine((service, ctx) => {
+    if (service.provider === "vellum" && service.mode !== "managed") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["provider"],
+        message:
+          'services.tts.provider "vellum" requires services.tts.mode "managed"',
+      });
+    }
+  })
   .describe(
     "Text-to-speech service configuration — provider selection and per-provider settings",
   );
 
 export type TtsService = z.infer<typeof TtsServiceSchema>;
+
+/**
+ * Resolve the provider that is actually active for the service config.
+ *
+ * Managed mode always routes to the `vellum` provider while leaving the
+ * user's BYOK `provider` choice untouched, so toggling back to
+ * `"your-own"` restores their previous setup.
+ */
+export function effectiveTtsProvider(service: {
+  mode: TtsService["mode"];
+  provider?: string;
+}): string {
+  if (service.mode === "managed") {
+    return "vellum";
+  }
+  return service.provider ?? "elevenlabs";
+}
