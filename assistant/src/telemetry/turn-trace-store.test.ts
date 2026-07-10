@@ -42,7 +42,7 @@ mock.module("../tools/registry.js", () => ({
     mockToolDescriptions[name]
       ? { description: mockToolDescriptions[name], input_schema: {} }
       : undefined,
-  peekTool: (name: string) =>
+  resolveTool: (name: string) =>
     mockToolDescriptions[name]
       ? { description: mockToolDescriptions[name], input_schema: {} }
       : undefined,

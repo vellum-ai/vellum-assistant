@@ -7,7 +7,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { __clearRegistryForTesting, peekTool } from "../tools/registry.js";
+import { __clearRegistryForTesting, getTool } from "../tools/registry.js";
 import { registerSystemTools } from "../tools/system/register.js";
 
 beforeEach(() => {
@@ -22,6 +22,6 @@ describe("set_permission_mode removal", () => {
   test("tool is not registered when system tools are initialized", () => {
     registerSystemTools();
 
-    expect(peekTool("set_permission_mode")).toBeUndefined();
+    expect(getTool("set_permission_mode")).toBeUndefined();
   });
 });

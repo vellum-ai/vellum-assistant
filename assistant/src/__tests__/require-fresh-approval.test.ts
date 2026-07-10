@@ -157,7 +157,7 @@ mock.module("../tools/registry.js", () => ({
       execute: async () => fakeToolResult,
     };
   },
-  peekTool: (name: string) => {
+  resolveTool: (name: string) => {
     if (name === "unknown_tool") {
       return undefined;
     }

@@ -3,7 +3,7 @@ import { and, asc, eq, gt, lt, lte, or, sql } from "drizzle-orm";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { getDb } from "../persistence/db-connection.js";
 import { messages, toolInvocations } from "../persistence/schema/index.js";
-import { peekTool } from "../tools/registry.js";
+import { getTool } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import type {
   TurnTrace,
@@ -318,7 +318,7 @@ export function assembleTurnTrace(boundary: TurnTraceBoundary): TurnTrace {
     ? Array.from(conversation.getRegisteredToolNames())
         .sort((a, b) => a.localeCompare(b))
         .map((name) => {
-          const tool = peekTool(name);
+          const tool = getTool(name);
           return {
             name,
             description: tool?.description ?? "",

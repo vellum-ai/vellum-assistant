@@ -26,10 +26,10 @@ import type { ToolExecutor } from "../tools/executor.js";
 import {
   getMcpToolDefinitions,
   getPluginToolDefinitions,
+  getTool,
   getToolOwner,
   getWorkspaceToolDefinitions,
   getWorkspaceToolNames,
-  peekTool,
 } from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
@@ -381,7 +381,7 @@ export function createToolExecutor(
       const rawToolName =
         typeof envelope.tool === "string" ? envelope.tool : "";
       const innerSchema = rawToolName
-        ? peekTool(rawToolName)?.input_schema
+        ? getTool(rawToolName)?.input_schema
         : undefined;
       const rawToolInput = resolveSkillExecuteInput(envelope, innerSchema);
 

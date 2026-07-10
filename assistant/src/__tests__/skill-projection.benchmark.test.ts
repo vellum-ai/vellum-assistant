@@ -188,7 +188,7 @@ mock.module("../tools/registry.js", () => ({
     }
   },
   getTool: (name: string) => benchmarkRegistry.get(name)?.tool,
-  peekTool: (name: string) => benchmarkRegistry.get(name)?.tool,
+  resolveTool: (name: string) => benchmarkRegistry.get(name)?.tool,
   getToolOwner: (name: string) => {
     const entry = benchmarkRegistry.get(name);
     return entry ? { kind: "skill" as const, id: entry.skillId } : undefined;

@@ -13,11 +13,11 @@ import {
   getToolOwner,
   getWorkspaceToolNames,
   initializeTools,
-  peekTool,
   registerPluginTools,
   registerSkillTools,
   registerTool,
   registerWorkspaceTools,
+  resolveTool,
   unregisterSkillTools,
   unregisterWorkspaceTool,
 } from "../tools/registry.js";
@@ -38,7 +38,7 @@ function makeFakeTool(name: string): Tool {
     defaultRiskLevel: RiskLevel.Low,
     executionTarget: "sandbox",
     // Match the finalized shape the registry stores, so identity comparisons
-    // (`peekTool(name)` toEqual coreTool) hold after registration fills defaults.
+    // (`getTool(name)` toEqual coreTool) hold after registration fills defaults.
     exclusive: false,
     input_schema: { type: "object", properties: {}, required: [] },
     async execute(
@@ -69,7 +69,7 @@ describe("tool registry host tools", () => {
     ] as const;
 
     for (const toolName of hostToolNames) {
-      const tool = peekTool(toolName);
+      const tool = getTool(toolName);
       expect(tool).toBeDefined();
       expect(tool?.defaultRiskLevel).toBe(RiskLevel.Medium);
     }
@@ -85,7 +85,7 @@ describe("tool registry dynamic-tools tools", () => {
   test("registers skill_load tool", async () => {
     await initializeTools();
 
-    const tool = peekTool("skill_load");
+    const tool = getTool("skill_load");
     expect(tool).toBeDefined();
 
     const definitionNames = getAllToolDefinitions().map((def) => def.name);
@@ -98,32 +98,32 @@ describe("tool registry dynamic-tools tools", () => {
     // skill-management bundled skill — they are no longer registered as core
     // tools. Their High risk classification is handled by classifyRisk() in
     // checker.ts so security behavior is preserved.
-    expect(peekTool("scaffold_managed_skill")).toBeUndefined();
-    expect(peekTool("delete_managed_skill")).toBeUndefined();
+    expect(getTool("scaffold_managed_skill")).toBeUndefined();
+    expect(getTool("delete_managed_skill")).toBeUndefined();
   });
 
   test("skill_load is registered as Low risk", async () => {
     await initializeTools();
-    const tool = peekTool("skill_load");
+    const tool = getTool("skill_load");
     expect(tool).toBeDefined();
     expect(tool?.defaultRiskLevel).toBe(RiskLevel.Low);
   });
 });
 
-describe("getTool lazy initialization", () => {
-  test("await getTool initializes a cold registry, then sync peekTool sees it", async () => {
+describe("resolveTool lazy initialization", () => {
+  test("await resolveTool initializes a cold registry, then sync getTool sees it", async () => {
     // Empty the registry and clear the cached init promise.
     __clearRegistryForTesting();
     // A synchronous peek sees nothing yet — the registry is cold.
-    expect(peekTool("file_read")).toBeUndefined();
+    expect(getTool("file_read")).toBeUndefined();
 
     // The async getter awaits initialization (like getHooksFor awaits its
     // reconcile), so it resolves the built-in instead of a spurious undefined.
-    const tool = await getTool("file_read");
+    const tool = await resolveTool("file_read");
     expect(tool?.name).toBe("file_read");
 
     // After the ensure, the synchronous hot-path read sees it too.
-    expect(peekTool("file_read")?.name).toBe("file_read");
+    expect(getTool("file_read")?.name).toBe("file_read");
   });
 });
 
@@ -147,7 +147,7 @@ describe("tool manifest", () => {
 describe("baseline characterization: hardcoded tool loading", () => {
   test("version is NOT registered in the global registry after initializeTools()", async () => {
     await initializeTools();
-    expect(peekTool("version")).toBeUndefined();
+    expect(getTool("version")).toBeUndefined();
   });
 
   test("gmail tools are NOT registered in the global registry after initializeTools()", async () => {
@@ -204,7 +204,7 @@ describe("baseline characterization: core app tool surface", () => {
     ];
 
     for (const name of nonProxyAppTools) {
-      const tool = peekTool(name);
+      const tool = getTool(name);
       expect(tool).toBeUndefined();
     }
 
@@ -217,7 +217,7 @@ describe("baseline characterization: core app tool surface", () => {
   test("core registry includes app_open proxy tool", async () => {
     await initializeTools();
 
-    const tool = peekTool("app_open");
+    const tool = getTool("app_open");
     expect(tool).toBeDefined();
 
     // app_open is core-owned (no skill owner) so it flows through
@@ -249,7 +249,7 @@ describe("tool ownership metadata", () => {
   test("registerTool reports the default owner (bare-install path)", () => {
     registerTool(makeFakeTool("test-bare-tool"));
 
-    expect(peekTool("test-bare-tool")).toBeDefined();
+    expect(getTool("test-bare-tool")).toBeDefined();
     // `registerTool` is the bare-install path used by tests + built-in
     // bootstraps; it records no explicit owner. A registered tool without an
     // explicit owner is a built-in, so `getToolOwner` synthesizes the shared
@@ -266,7 +266,7 @@ describe("tool ownership metadata", () => {
   test("built-in tools report the default owner", async () => {
     await initializeTools();
 
-    expect(peekTool("host_file_read")).toBeDefined();
+    expect(getTool("host_file_read")).toBeDefined();
     expect(getToolOwner("host_file_read")).toEqual({
       kind: "default",
       id: "default",
@@ -285,13 +285,13 @@ describe("dynamic skill tool registry", () => {
       makeSkillTool("sk_tool_b"),
     ]);
 
-    expect(peekTool("sk_tool_a")).toBeDefined();
+    expect(getTool("sk_tool_a")).toBeDefined();
     expect(getToolOwner("sk_tool_a")).toEqual({
       kind: "skill",
       id: "my-skill",
     });
 
-    expect(peekTool("sk_tool_b")).toBeDefined();
+    expect(getTool("sk_tool_b")).toBeDefined();
     expect(getToolOwner("sk_tool_b")).toEqual({
       kind: "skill",
       id: "my-skill",
@@ -309,7 +309,7 @@ describe("dynamic skill tool registry", () => {
     // The colliding tool should be silently skipped
     expect(accepted).toHaveLength(0);
     // The built-in tool should still be in place (not overwritten by the skill)
-    expect(peekTool("host_file_read")).toBeDefined();
+    expect(getTool("host_file_read")).toBeDefined();
     expect(getToolOwner("host_file_read")?.kind).toBe("default");
   });
 
@@ -323,7 +323,7 @@ describe("dynamic skill tool registry", () => {
     // Should not throw
     registerSkillTools("owner-skill", [replacement]);
 
-    const retrieved = peekTool("sk_replaceable");
+    const retrieved = getTool("sk_replaceable");
     expect(retrieved?.description).toBe("Updated description");
   });
 
@@ -340,13 +340,13 @@ describe("dynamic skill tool registry", () => {
       makeSkillTool("sk_rm_1"),
       makeSkillTool("sk_rm_2"),
     ]);
-    expect(peekTool("sk_rm_1")).toBeDefined();
-    expect(peekTool("sk_rm_2")).toBeDefined();
+    expect(getTool("sk_rm_1")).toBeDefined();
+    expect(getTool("sk_rm_2")).toBeDefined();
 
     unregisterSkillTools("removable-skill");
 
-    expect(peekTool("sk_rm_1")).toBeUndefined();
-    expect(peekTool("sk_rm_2")).toBeUndefined();
+    expect(getTool("sk_rm_1")).toBeUndefined();
+    expect(getTool("sk_rm_2")).toBeUndefined();
     // Ownership map is cleared in lockstep with the tools map.
     expect(getToolOwner("sk_rm_1")).toBeUndefined();
     expect(getToolOwner("sk_rm_2")).toBeUndefined();
@@ -358,8 +358,8 @@ describe("dynamic skill tool registry", () => {
 
     unregisterSkillTools("nuke-skill");
 
-    expect(peekTool("sk_keep")).toBeDefined();
-    expect(peekTool("sk_remove")).toBeUndefined();
+    expect(getTool("sk_keep")).toBeDefined();
+    expect(getTool("sk_remove")).toBeUndefined();
     expect(getToolOwner("sk_keep")).toEqual({
       kind: "skill",
       id: "keep-skill",
@@ -394,13 +394,13 @@ describe("dynamic skill tool registry", () => {
     expect(accepted).toHaveLength(1);
     expect(accepted[0].name).toBe("sk_atomic_ok");
     // The non-colliding tool should be registered with the correct owner
-    expect(peekTool("sk_atomic_ok")).toBeDefined();
+    expect(getTool("sk_atomic_ok")).toBeDefined();
     expect(getToolOwner("sk_atomic_ok")).toEqual({
       kind: "skill",
       id: "atomic-skill",
     });
     // The built-in tool should be untouched (still default-owned, not the skill)
-    expect(peekTool("host_file_read")).toBeDefined();
+    expect(getTool("host_file_read")).toBeDefined();
     expect(getToolOwner("host_file_read")?.kind).toBe("default");
   });
 });
@@ -427,7 +427,7 @@ describe("skill tool reference counting", () => {
     unregisterSkillTools("rc-multi");
     expect(getSkillRefCount("rc-multi")).toBe(1);
     // Tools still present
-    expect(peekTool("rc_keep")).toBeDefined();
+    expect(getTool("rc_keep")).toBeDefined();
   });
 
   test("tools are removed only when last reference is unregistered", () => {
@@ -435,10 +435,10 @@ describe("skill tool reference counting", () => {
     registerSkillTools("rc-final", [makeSkillTool("rc_last")]);
 
     unregisterSkillTools("rc-final");
-    expect(peekTool("rc_last")).toBeDefined();
+    expect(getTool("rc_last")).toBeDefined();
 
     unregisterSkillTools("rc-final");
-    expect(peekTool("rc_last")).toBeUndefined();
+    expect(getTool("rc_last")).toBeUndefined();
     expect(getSkillRefCount("rc-final")).toBe(0);
   });
 
@@ -509,7 +509,7 @@ describe("workspace tool registry", () => {
     const accepted = registerWorkspaceTools([makeWorkspaceInput("new_tool")]);
 
     expect(accepted).toHaveLength(1);
-    const tool = peekTool("new_tool");
+    const tool = getTool("new_tool");
     expect(tool).toBeDefined();
     expect(getToolOwner("new_tool")).toEqual({
       kind: "workspace",
@@ -523,12 +523,12 @@ describe("workspace tool registry", () => {
     __clearRegistryForTesting();
     const coreTool = makeFakeTool("override_target");
     registerTool(coreTool);
-    expect(peekTool("override_target")).toEqual(coreTool);
+    expect(getTool("override_target")).toEqual(coreTool);
 
     registerWorkspaceTools([makeWorkspaceInput("override_target")]);
 
     // Live registry now points at the workspace tool.
-    const live = peekTool("override_target");
+    const live = getTool("override_target");
     expect(live).toBeDefined();
     expect(getToolOwner("override_target")?.kind).toBe("workspace");
     expect(getToolOwner("override_target")?.kind).toBe("workspace");
@@ -546,7 +546,7 @@ describe("workspace tool registry", () => {
 
     unregisterWorkspaceTool("restore_me");
 
-    expect(peekTool("restore_me")).toEqual(coreTool);
+    expect(getTool("restore_me")).toEqual(coreTool);
     expect(getCoreToolOverride("restore_me")).toBeUndefined();
     expect(getWorkspaceToolNames()).toEqual([]);
   });
@@ -554,11 +554,11 @@ describe("workspace tool registry", () => {
   test("unregister deletes the tool when no core counterpart was stashed", () => {
     __clearRegistryForTesting();
     registerWorkspaceTools([makeWorkspaceInput("only_workspace")]);
-    expect(peekTool("only_workspace")).toBeDefined();
+    expect(getTool("only_workspace")).toBeDefined();
 
     unregisterWorkspaceTool("only_workspace");
 
-    expect(peekTool("only_workspace")).toBeUndefined();
+    expect(getTool("only_workspace")).toBeUndefined();
     expect(getCoreToolOverride("only_workspace")).toBeUndefined();
   });
 
@@ -570,7 +570,7 @@ describe("workspace tool registry", () => {
     unregisterWorkspaceTool("not_workspace");
     unregisterWorkspaceTool("never_existed");
 
-    expect(peekTool("not_workspace")).toEqual(coreTool);
+    expect(getTool("not_workspace")).toEqual(coreTool);
   });
 
   test("re-registering an existing workspace tool throws (single canonical source)", () => {
@@ -597,7 +597,7 @@ describe("workspace tool registry", () => {
     ).toThrow(/duplicate name/);
 
     // Mutation phase never ran — registry stays empty for this name.
-    expect(peekTool("twin")).toBeUndefined();
+    expect(getTool("twin")).toBeUndefined();
     expect(getWorkspaceToolNames()).toEqual([]);
   });
 
@@ -617,8 +617,8 @@ describe("workspace tool registry", () => {
       ]),
     ).toThrow(/conflicts with an existing/);
 
-    expect(peekTool("ok_a")).toBeUndefined();
-    expect(peekTool("ok_b")).toBeUndefined();
+    expect(getTool("ok_a")).toBeUndefined();
+    expect(getTool("ok_b")).toBeUndefined();
     // The skill tool is still in the registry, untouched.
     expect(getToolOwner("guarded")?.kind).toBe("skill");
   });

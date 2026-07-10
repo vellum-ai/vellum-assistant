@@ -159,7 +159,7 @@ const mockToolLookup = (name: string) => {
 
 mock.module("../tools/registry.js", () => ({
   getTool: mockToolLookup,
-  peekTool: mockToolLookup,
+  resolveTool: mockToolLookup,
   getAllTools: () => (getAllToolsOverride ? getAllToolsOverride() : []),
   // Ownership lives on the registry post-refactor; production reads it via
   // getToolOwner(name) rather than a field on the Tool object. Mirror that by

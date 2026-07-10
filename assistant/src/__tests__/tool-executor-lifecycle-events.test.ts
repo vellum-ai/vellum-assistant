@@ -245,7 +245,7 @@ mock.module("../tools/registry.js", () => {
   };
   return {
     getTool: lookup,
-    peekTool: lookup,
+    resolveTool: lookup,
     // Ownership lives on the registry post-refactor. Mirror that by surfacing
     // the optional `owner`-shaped field set inline on the override-produced
     // tool (see the skill_* branches above).

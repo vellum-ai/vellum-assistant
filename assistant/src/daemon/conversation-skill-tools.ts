@@ -28,8 +28,8 @@ import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import { recordSkillLoadedEvent } from "../telemetry/skill-loaded-events-store.js";
 import {
+  getTool,
   getToolOwner,
-  peekTool,
   registerSkillTools,
   unregisterSkillTools,
 } from "../tools/registry.js";
@@ -528,7 +528,7 @@ export function projectSkillTools(
         // because the permission checker derives bundled state from the
         // live catalog instead of a stamped tool field.
         accepted = tools.filter((t) => {
-          if (peekTool(t.name) === undefined) {
+          if (getTool(t.name) === undefined) {
             return false;
           }
           const owner = getToolOwner(t.name);

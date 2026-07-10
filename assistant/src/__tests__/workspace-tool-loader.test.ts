@@ -36,9 +36,9 @@ import {
   __clearRegistryForTesting,
   getCoreToolOverride,
   getStrippedCoreToolNames,
+  getTool,
   getToolOwner,
   getWorkspaceToolNames,
-  peekTool,
   registerTool,
 } from "../tools/registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
@@ -170,7 +170,7 @@ describe("workspace tool loader", () => {
 
     await loadWorkspaceTools();
 
-    const tool = peekTool("hello_workspace");
+    const tool = getTool("hello_workspace");
     expect(tool).toBeDefined();
     expect(getToolOwner("hello_workspace")?.kind).toBe("workspace");
     expect(tool?.description).toBe("from workspace");
@@ -186,7 +186,7 @@ describe("workspace tool loader", () => {
 
     await loadWorkspaceTools();
 
-    const live = peekTool("override_me");
+    const live = getTool("override_me");
     expect(live).toBeDefined();
     expect(getToolOwner("override_me")?.kind).toBe("workspace");
     expect(live?.description).toBe("from workspace");
@@ -199,7 +199,7 @@ describe("workspace tool loader", () => {
 
     await loadWorkspaceTools();
 
-    const tool = peekTool("dual_ext");
+    const tool = getTool("dual_ext");
     expect(tool).toBeDefined();
     // JS wins — body said "from workspace js"
     expect(tool?.description).toBe("from workspace js");
@@ -218,7 +218,7 @@ describe("workspace tool loader", () => {
 
     await loadWorkspaceTools();
 
-    const tool = peekTool("data_only");
+    const tool = getTool("data_only");
     expect(tool).toBeDefined();
     expect(getToolOwner("data_only")?.kind).toBe("workspace");
     expect(tool?.description).toBe("json spec");
@@ -234,13 +234,13 @@ describe("workspace tool loader", () => {
   test(".removed sentinel strips a core tool from the registry", async () => {
     const core = makeFakeCoreTool("strip_me");
     registerTool(core);
-    expect(peekTool("strip_me")).toBeDefined();
+    expect(getTool("strip_me")).toBeDefined();
 
     writeRemovedSentinel("strip_me");
 
     await loadWorkspaceTools();
 
-    expect(peekTool("strip_me")).toBeUndefined();
+    expect(getTool("strip_me")).toBeUndefined();
     expect(getStrippedCoreToolNames()).toContain("strip_me");
     // The stashed core tool is preserved for later restoration.
     expect(getCoreToolOverride("strip_me")).toEqual(core);
@@ -251,7 +251,7 @@ describe("workspace tool loader", () => {
 
     await loadWorkspaceTools();
 
-    expect(peekTool("never_was_a_tool")).toBeUndefined();
+    expect(getTool("never_was_a_tool")).toBeUndefined();
     expect(getStrippedCoreToolNames()).not.toContain("never_was_a_tool");
   });
 
@@ -266,8 +266,8 @@ throw new Error("boom at import time");
 
     await loadWorkspaceTools();
 
-    expect(peekTool("broken_at_import")).toBeUndefined();
-    expect(peekTool("good_one")).toBeDefined();
+    expect(getTool("broken_at_import")).toBeUndefined();
+    expect(getTool("good_one")).toBeDefined();
     expect(getToolOwner("good_one")?.kind).toBe("workspace");
   });
 
@@ -281,7 +281,7 @@ export const named = { description: "wrong shape" };
 
     await loadWorkspaceTools();
 
-    expect(peekTool("no_default")).toBeUndefined();
+    expect(getTool("no_default")).toBeUndefined();
   });
 
   test("non-object default export logs + skips without crashing", async () => {
@@ -294,7 +294,7 @@ export default 42;
 
     await loadWorkspaceTools();
 
-    expect(peekTool("wrong_type")).toBeUndefined();
+    expect(getTool("wrong_type")).toBeUndefined();
   });
 
   test("no <workspaceDir>/tools/ directory is a no-op", async () => {
@@ -355,7 +355,7 @@ export default 42;
     // the mtime cache recognizes the unchanged file and skips re-import.
     await loadWorkspaceTools();
 
-    expect(peekTool("stable_tool")).toBeDefined();
+    expect(getTool("stable_tool")).toBeDefined();
     expect(getWorkspaceToolNames()).toEqual(["stable_tool"]);
   });
 
@@ -373,7 +373,7 @@ export default 42;
   test("a changed file is re-imported on the next reconcile", async () => {
     writeTool("mutable", WELL_FORMED_BODY);
     await loadWorkspaceTools();
-    expect(peekTool("mutable")?.description).toBe("from workspace");
+    expect(getTool("mutable")?.description).toBe("from workspace");
 
     rewriteTool(
       "mutable",
@@ -390,18 +390,18 @@ export default {
     );
     await loadWorkspaceTools();
 
-    expect(peekTool("mutable")?.description).toBe("edited in place");
+    expect(getTool("mutable")?.description).toBe("edited in place");
   });
 
   test("a deleted net-new tool file is unregistered on the next reconcile", async () => {
     writeTool("ephemeral", WELL_FORMED_BODY);
     await loadWorkspaceTools();
-    expect(peekTool("ephemeral")).toBeDefined();
+    expect(getTool("ephemeral")).toBeDefined();
 
     removeToolFile("ephemeral");
     await loadWorkspaceTools();
 
-    expect(peekTool("ephemeral")).toBeUndefined();
+    expect(getTool("ephemeral")).toBeUndefined();
     expect(getWorkspaceToolNames()).toEqual([]);
   });
 
@@ -421,7 +421,7 @@ export default {
       kind: "default",
       id: "default",
     });
-    expect(peekTool("restore_me")).toEqual(core);
+    expect(getTool("restore_me")).toEqual(core);
     expect(getCoreToolOverride("restore_me")).toBeUndefined();
   });
 
@@ -431,13 +431,13 @@ export default {
     writeRemovedSentinel("strip_then_restore");
 
     await loadWorkspaceTools();
-    expect(peekTool("strip_then_restore")).toBeUndefined();
+    expect(getTool("strip_then_restore")).toBeUndefined();
     expect(getStrippedCoreToolNames()).toContain("strip_then_restore");
 
     removeToolFile("strip_then_restore", ".removed");
     await loadWorkspaceTools();
 
-    expect(peekTool("strip_then_restore")).toEqual(core);
+    expect(getTool("strip_then_restore")).toEqual(core);
     expect(getStrippedCoreToolNames()).not.toContain("strip_then_restore");
   });
 
@@ -462,21 +462,21 @@ export default {
 
     await loadWorkspaceTools();
 
-    expect(peekTool("stem_wins")).toBeDefined();
-    expect(peekTool("different_name")).toBeUndefined();
+    expect(getTool("stem_wins")).toBeDefined();
+    expect(getTool("different_name")).toBeUndefined();
     expect(getWorkspaceToolNames()).toEqual(["stem_wins"]);
 
     // Deleting the file unregisters by stem — no leaked "different_name".
     removeToolFile("stem_wins");
     await loadWorkspaceTools();
-    expect(peekTool("stem_wins")).toBeUndefined();
-    expect(peekTool("different_name")).toBeUndefined();
+    expect(getTool("stem_wins")).toBeUndefined();
+    expect(getTool("different_name")).toBeUndefined();
   });
 
   test("per-tool isolation on reconcile: a bad file does not drop a valid edited tool", async () => {
     writeTool("good_edit", WELL_FORMED_BODY);
     await loadWorkspaceTools();
-    expect(peekTool("good_edit")?.description).toBe("from workspace");
+    expect(getTool("good_edit")?.description).toBe("from workspace");
 
     // Add a file that throws at import, and edit the good tool, in the same
     // reconcile. The broken file must not prevent the edited tool from
@@ -497,20 +497,20 @@ export default {
     );
     await loadWorkspaceTools();
 
-    expect(peekTool("broken_now")).toBeUndefined();
-    expect(peekTool("good_edit")?.description).toBe("edited and still here");
+    expect(getTool("broken_now")).toBeUndefined();
+    expect(getTool("good_edit")?.description).toBe("edited and still here");
   });
 
   test("an edit that breaks an existing tool keeps the prior registration", async () => {
     writeTool("was_good", WELL_FORMED_BODY);
     await loadWorkspaceTools();
-    expect(peekTool("was_good")?.description).toBe("from workspace");
+    expect(getTool("was_good")?.description).toBe("from workspace");
 
     // Rewrite the file into something that throws at import. The prior,
     // working registration must stay in place rather than being torn down.
     rewriteTool("was_good", `throw new Error("now broken");`);
     await loadWorkspaceTools();
 
-    expect(peekTool("was_good")?.description).toBe("from workspace");
+    expect(getTool("was_good")?.description).toBe("from workspace");
   });
 });

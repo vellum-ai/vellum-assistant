@@ -1,4 +1,4 @@
-import { getAllTools, getToolOwner, peekTool } from "../tools/registry.js";
+import { getAllTools, getTool, getToolOwner } from "../tools/registry.js";
 
 /**
  * Deduplicate and sort a list of tool names, validating against the live
@@ -33,6 +33,6 @@ export function getRegisteredToolNames(): string[] {
 
 /** Look up the human-readable description for a tool from the registry. */
 export function getToolDescription(tool: string): string {
-  const registered = peekTool(tool);
+  const registered = getTool(tool);
   return registered?.description ?? tool;
 }

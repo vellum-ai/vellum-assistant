@@ -227,8 +227,13 @@ export function registerTool(definition: ToolDefinition): void {
  * initialized first. Mirrors `getHooksFor`, which awaits its reconcile before
  * reading — so a caller on a cold registry gets a populated result instead of
  * a spurious `undefined`. Prefer this in any async context.
+ *
+ * `initializeTools()` is idempotent: the first call does the work and caches
+ * its promise, so every later `resolveTool` just awaits the already-settled
+ * promise (an `await` on a resolved value — no re-initialization). The per-call
+ * cost past init is a single map lookup.
  */
-export async function getTool(name: string): Promise<Tool | undefined> {
+export async function resolveTool(name: string): Promise<Tool | undefined> {
   await initializeTools();
   return tools.get(name);
 }
@@ -238,9 +243,9 @@ export async function getTool(name: string): Promise<Tool | undefined> {
  * that run only after the registry is known to be populated — e.g. the agent
  * loop's exclusive-tool predicate, invoked mid-turn once tools are resolved.
  * Returns `undefined` if the tool is absent or the registry is not yet
- * initialized; use {@link getTool} when readiness is not already guaranteed.
+ * initialized; use {@link resolveTool} when readiness is not already guaranteed.
  */
-export function peekTool(name: string): Tool | undefined {
+export function getTool(name: string): Tool | undefined {
   return tools.get(name);
 }
 

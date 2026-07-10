@@ -152,7 +152,7 @@ mock.module("../tools/registry.js", () => ({
     }
     return found;
   },
-  peekTool: (name: string) => {
+  resolveTool: (name: string) => {
     let found: Tool | undefined;
     for (const tools of mockRegisteredTools.values()) {
       for (const tool of tools) {

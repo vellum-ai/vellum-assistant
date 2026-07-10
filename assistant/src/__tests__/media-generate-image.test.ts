@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 
-import { __resetRegistryForTesting, peekTool } from "../tools/registry.js";
+import { __resetRegistryForTesting, getTool } from "../tools/registry.js";
 import type { ToolContext } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
@@ -144,9 +144,9 @@ const fakeContext = {
 
 describe("image-studio skill script wrapper", () => {
   test("exports a run function without registering media_generate_image in the tool registry", async () => {
-    expect(peekTool("media_generate_image")).toBeUndefined();
+    expect(getTool("media_generate_image")).toBeUndefined();
     expect(typeof run).toBe("function");
-    expect(peekTool("media_generate_image")).toBeUndefined();
+    expect(getTool("media_generate_image")).toBeUndefined();
   });
 
   test("returns error when no API key and no managed proxy", async () => {

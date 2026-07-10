@@ -186,8 +186,8 @@ mock.module("../tools/registry.js", () => ({
     return found;
   },
   // Sync peek mirrors getTool — the skill-tool projection path reads via
-  // peekTool synchronously.
-  peekTool: (name: string): Tool | undefined => {
+  // resolveTool synchronously.
+  resolveTool: (name: string): Tool | undefined => {
     let found: Tool | undefined;
     for (const tools of mockRegisteredTools.values()) {
       for (const tool of tools) {

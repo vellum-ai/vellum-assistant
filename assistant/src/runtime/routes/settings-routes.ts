@@ -58,8 +58,8 @@ import {
   getAllToolDefinitions,
   getAllTools,
   getEnabledTools,
+  getTool,
   getToolOwner,
-  peekTool,
 } from "../../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
@@ -384,7 +384,7 @@ function handleWorkspaceFileRead({ queryParams = {} }: RouteHandlerArgs) {
 function resolveManifestOverride(
   toolName: string,
 ): ManifestOverride | undefined {
-  if (peekTool(toolName)) {
+  if (getTool(toolName)) {
     return undefined;
   }
   try {
@@ -636,7 +636,7 @@ interface ToolListEntry {
  * referencing a since-unloaded skill tool).
  */
 function toolEntryForName(name: string): ToolListEntry {
-  const tool = peekTool(name);
+  const tool = getTool(name);
   const owner = getToolOwner(name);
   return {
     name,
@@ -689,7 +689,7 @@ async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
     // Permission Simulator path: registered tool wins, then explicit
     // manifest override, then the standard inference rules.
     const executionTarget =
-      peekTool(toolName)?.executionTarget ??
+      getTool(toolName)?.executionTarget ??
       manifestOverride?.execution_target ??
       resolveExecutionTarget({ name: toolName });
     const executionContext =

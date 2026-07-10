@@ -85,8 +85,8 @@ import { getWorkspaceToolsDir } from "../../util/platform.js";
 import { isProviderSafeToolName } from "../provider-tool-name.js";
 import {
   getCoreToolOverride,
+  getTool,
   getToolOwner,
-  peekTool,
   registerWorkspaceTools,
   removeCoreToolViaWorkspace,
   restoreStrippedCoreTool,
@@ -544,7 +544,7 @@ function teardownStem(stem: string): void {
   if (getToolOwner(stem)?.kind === "workspace") {
     unregisterWorkspaceTool(stem);
   }
-  if (getCoreToolOverride(stem) && !peekTool(stem)) {
+  if (getCoreToolOverride(stem) && !getTool(stem)) {
     restoreStrippedCoreTool(stem);
   }
 }
@@ -722,7 +722,7 @@ async function reconcileWorkspaceTools(
     if (getToolOwner(stem)?.kind === "workspace") {
       unregisterWorkspaceTool(stem);
     }
-    if (getCoreToolOverride(stem) && !peekTool(stem)) {
+    if (getCoreToolOverride(stem) && !getTool(stem)) {
       restoreStrippedCoreTool(stem);
     }
 
@@ -757,7 +757,7 @@ async function reconcileWorkspaceTools(
     } else if (
       entry.kind === "removed" &&
       getCoreToolOverride(stem) &&
-      !peekTool(stem)
+      !getTool(stem)
     ) {
       removed.push(stem);
     }

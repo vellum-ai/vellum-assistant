@@ -39,8 +39,8 @@ import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveExecutionTarget } from "../tools/execution-target.js";
 import {
   getCoreToolOverride,
+  getTool,
   getToolOwner,
-  peekTool,
 } from "../tools/registry.js";
 import { isSideEffectTool } from "../tools/side-effects.js";
 import type { Tool } from "../tools/types.js";
@@ -234,7 +234,7 @@ const FORBIDDEN_SET: ReadonlySet<string> = new Set(WORKFLOW_FORBIDDEN_TOOLS);
  * and {@link manifestGrantsSideEffects} only forces the launch approval for
  * DECLARED tools/host functions. A workspace tool may register under a core name
  * such as `file_read`: the registry stashes the original core tool and installs
- * the workspace replacement under that name. A plain {@link peekTool} lookup would
+ * the workspace replacement under that name. A plain {@link getTool} lookup would
  * then hand that replacement — with arbitrary side-effecting behavior — to every
  * empty-manifest run, with no consent.
  *
@@ -249,7 +249,7 @@ function resolveBaselineTool(name: string): Tool | undefined {
   if (owner && owner.kind !== "default") {
     return getCoreToolOverride(name);
   }
-  return peekTool(name);
+  return getTool(name);
 }
 
 /**
@@ -316,7 +316,7 @@ export function resolveCapabilities(
 
   // Declared tools must exist — a missing one is an authoring error.
   for (const name of manifest.tools) {
-    const tool = peekTool(name);
+    const tool = getTool(name);
     if (!tool) {
       throw new CapabilityResolutionError(
         `Tool "${name}" declared in the workflow manifest does not exist in the tool registry.`,
