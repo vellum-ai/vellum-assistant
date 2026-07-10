@@ -15,6 +15,9 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import { readStdinSync } from "../../util/read-stdin.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { attachCallsitesSubcommand } from "./inference-callsites.js";
+import { attachModelsSubcommand } from "./inference-models.js";
+import { attachProfilesSubcommand } from "./inference-profiles.js";
 import { attachProvidersSubcommand } from "./inference-providers.js";
 import { attachSessionSubcommand } from "./inference-session.js";
 
@@ -248,6 +251,9 @@ Examples:
       attachSendSubcommand(inference);
       attachSessionSubcommand(inference);
       attachProvidersSubcommand(inference);
+      attachModelsSubcommand(inference);
+      attachProfilesSubcommand(inference);
+      attachCallsitesSubcommand(inference);
     },
   });
 

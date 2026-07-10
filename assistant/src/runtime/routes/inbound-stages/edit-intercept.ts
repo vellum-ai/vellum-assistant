@@ -29,6 +29,7 @@ import {
   recordInbound,
 } from "../../../persistence/delivery-crud.js";
 import { enqueueLexicalIndexForMessage } from "../../../persistence/job-handlers/message-lexical.js";
+import { stringifyMessageContent } from "../../../persistence/message-content.js";
 import { safeParseRecord } from "../../../util/json.js";
 import { getLogger } from "../../../util/logger.js";
 
@@ -127,7 +128,10 @@ export async function handleEditIntercept(
     // authoritative previous text once the original row is located, so
     // this check lives after the lookup.
     const existingRow = getMessageById(original.messageId);
-    if (existingRow && existingRow.content === newContent) {
+    if (
+      existingRow &&
+      stringifyMessageContent(existingRow.content) === newContent
+    ) {
       log.debug(
         {
           assistantId,

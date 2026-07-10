@@ -20,14 +20,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Platform + logger mocks (must come before any source imports) ────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // ── Config mock ─────────────────────────────────────────────────────
 
 mock.module("../config/loader.js", () => ({
@@ -139,7 +131,6 @@ function createMockSession(opts?: {
 
   const session = {
     isProcessing: () => false,
-    memoryPolicy: {},
     setAssistantId: () => {},
     setTrustContext: () => {},
     setCommandIntent: () => {},

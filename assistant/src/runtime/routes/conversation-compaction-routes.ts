@@ -62,6 +62,7 @@ import {
   type LlmContextSummary,
   normalizeLlmContextPayloads,
 } from "./llm-context-normalization.js";
+import { assertLlmRequestLoggingEnabled } from "./llm-request-logs-access.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("conversation-compaction-routes");
@@ -256,6 +257,10 @@ async function handleGetCompactionTrail({
   pathParams = {},
   queryParams = {},
 }: RouteHandlerArgs): Promise<CompactionTrailResponse> {
+  // The compaction trail reads LLM-derived log data (metadata + the
+  // compactionAgent projection over `llm_request_logs`), so it honours the
+  // same opt-out as the other inspector reads.
+  assertLlmRequestLoggingEnabled();
   const conversationId = pathParams.id;
   const callId = queryParams.callId;
 

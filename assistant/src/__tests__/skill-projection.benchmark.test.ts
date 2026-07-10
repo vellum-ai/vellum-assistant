@@ -17,11 +17,6 @@ import type { Message } from "../providers/types.js";
 // Mocks — must be registered before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Mock config loader and feature flags to avoid filesystem reads on CI.
 // The benchmark fixture treats every feature flag as enabled.
 mock.module("../config/loader.js", () => ({
@@ -175,15 +170,20 @@ mock.module("../tools/registry.js", () => ({
     skillId: string,
     tools: Array<{ name: string; [k: string]: unknown }>,
   ) => {
-    for (const t of tools) benchmarkRegistry.set(t.name, { tool: t, skillId });
+    for (const t of tools) {
+      benchmarkRegistry.set(t.name, { tool: t, skillId });
+    }
     return tools;
   },
   unregisterSkillTools: (skillId: string) => {
     for (const [name, entry] of benchmarkRegistry) {
-      if (entry.skillId === skillId) benchmarkRegistry.delete(name);
+      if (entry.skillId === skillId) {
+        benchmarkRegistry.delete(name);
+      }
     }
   },
   getTool: (name: string) => benchmarkRegistry.get(name)?.tool,
+  resolveTool: (name: string) => benchmarkRegistry.get(name)?.tool,
   getToolOwner: (name: string) => {
     const entry = benchmarkRegistry.get(name);
     return entry ? { kind: "skill" as const, id: entry.skillId } : undefined;

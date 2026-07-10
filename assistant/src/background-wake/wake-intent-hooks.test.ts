@@ -29,14 +29,6 @@ mock.module("./platform-client.js", () => ({
   clearBackgroundWakeIntent: mockClearBackgroundWakeIntent,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // Replace `publishSchedulesChanged` while keeping the rest of the module REAL
 // — a partial mock that drops the other exports breaks any transitively loaded
 // module that imports them (the conversation write paths reach this module
@@ -61,6 +53,8 @@ mock.module("../util/platform.js", () => ({
   getDataDir: () => workspacePath("data"),
   getConfigQuarantineNoticePath: () =>
     workspacePath("data", "config-quarantine-notice.json"),
+  getConfigValidationResetNoticePath: () =>
+    workspacePath("data", "config-validation-reset-notice.json"),
   getDbPath: () => workspacePath("data", "db", "assistant.db"),
   ensureDataDir: () => {
     mkdirSync(workspacePath("data", "db"), { recursive: true });
@@ -95,8 +89,6 @@ mock.module("../util/platform.js", () => ({
   getProfilerRunsDir: () => workspacePath("data", "profiler", "runs"),
   getProfilerRunDir: (runId: string) =>
     workspacePath("data", "profiler", "runs", runId),
-  getSkillRuntimePath: () => undefined,
-  getBundledBunPath: () => undefined,
 }));
 
 const {

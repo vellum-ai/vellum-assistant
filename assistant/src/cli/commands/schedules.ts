@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { formatCostUsd } from "../lib/cli-output.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
@@ -54,6 +55,7 @@ interface ScheduleRunRecord {
   output: string | null;
   error: string | null;
   conversationId: string | null;
+  estimatedCostUsd: number;
   createdAt: number;
 }
 
@@ -360,6 +362,7 @@ Examples:
               startedAt: formatTimestamp(run.startedAt),
               finishedAt: formatNullableTimestamp(run.finishedAt),
               duration: formatDuration(run.durationMs),
+              cost: formatRunCost(run.estimatedCostUsd),
               conversation: run.conversationId ?? "—",
               error: run.error ?? "—",
             }));
@@ -370,6 +373,7 @@ Examples:
               "STARTED",
               "FINISHED",
               "DURATION",
+              "COST",
               "CONVERSATION",
               "ERROR",
             ];
@@ -381,6 +385,7 @@ Examples:
               headers[4].length,
               headers[5].length,
               headers[6].length,
+              headers[7].length,
             ];
 
             for (const row of rows) {
@@ -389,8 +394,9 @@ Examples:
               widths[2] = Math.max(widths[2], row.startedAt.length);
               widths[3] = Math.max(widths[3], row.finishedAt.length);
               widths[4] = Math.max(widths[4], row.duration.length);
-              widths[5] = Math.max(widths[5], row.conversation.length);
-              widths[6] = Math.max(widths[6], row.error.length);
+              widths[5] = Math.max(widths[5], row.cost.length);
+              widths[6] = Math.max(widths[6], row.conversation.length);
+              widths[7] = Math.max(widths[7], row.error.length);
             }
 
             const pad = (value: string, width: number) => value.padEnd(width);
@@ -408,6 +414,7 @@ Examples:
                   row.startedAt,
                   row.finishedAt,
                   row.duration,
+                  row.cost,
                   row.conversation,
                   row.error,
                 ]
@@ -1167,6 +1174,14 @@ function formatTimestamp(value: number): string {
 
 function formatNullableTimestamp(value: number | null): string {
   return value == null ? "—" : formatTimestamp(value);
+}
+
+/** Run costs render "—" when absent or zero; positive values use the shared USD formatter. */
+function formatRunCost(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value) || value <= 0) {
+    return "—";
+  }
+  return formatCostUsd(value);
 }
 
 function formatDuration(value: number | null): string {

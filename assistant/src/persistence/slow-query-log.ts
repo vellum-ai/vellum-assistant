@@ -19,11 +19,16 @@
  * Drizzle or {@link ./raw-query}.
  *
  * Attribution: raw-query callers attach a curated `.label()` (e.g.
- * `"schedule:claimDue"`). Drizzle's fluent API has no chokepoint to label, so
- * for any query without an explicit label the reporter derives a `caller` from
- * the stack — `path:function:line` of the application frame that issued it —
- * captured only on the slow path. Between the two, every slow query is
- * attributable to its call site with no per-query annotation of Drizzle code.
+ * `"schedule:claimDue"`). Wrappers that know the operation they run publish an
+ * ambient label ({@link ../util/sqlite-query-label} — e.g. `withSqliteRetry`
+ * publishes its `op`), picked up here when no statement label is set. Drizzle's
+ * fluent API has no chokepoint to label, so for any query without a label the
+ * reporter derives a `caller` from the stack — `path:function:line` of the
+ * nearest *named* application frame, so a query issued inside an anonymous
+ * transaction callback is attributed to the enclosing function rather than
+ * `<anonymous>` — captured only on the slow path. Between the three, every
+ * slow query is attributable to its call site with no per-query annotation of
+ * Drizzle code.
  *
  * The same per-statement chokepoint also surfaces *failed* executions: when a
  * statement throws, the error is handed to {@link observeSqliteStatementError}
@@ -42,6 +47,7 @@ import type { Database, Statement } from "bun:sqlite";
 
 import { observeSqliteStatementError } from "../daemon/sqlite-corruption-watchdog.js";
 import { getLogger } from "../util/logger.js";
+import { getAmbientSqliteQueryLabel } from "../util/sqlite-query-label.js";
 
 const log = getLogger("slow-query");
 
@@ -75,12 +81,19 @@ export interface SlowQueryEvent {
   sql: string;
   /** Number of rows returned, when the execution produced an array result. */
   rowCount?: number;
-  /** Caller-supplied attribution tag, when the query was issued via `.label()`. */
+  /**
+   * Caller-supplied attribution tag: the statement's `.label()` when set,
+   * otherwise the ambient label published by an enclosing wrapper (e.g.
+   * `withSqliteRetry`'s `op` — see {@link ../util/sqlite-query-label}).
+   */
   label?: string;
   /**
-   * Auto-derived call site (`path:function:line`) for queries with no explicit
-   * `.label()` — notably every Drizzle query, which has no chokepoint to attach
-   * a label to. Captured from the stack only on the slow path.
+   * Auto-derived call site (`path:function:line` of the nearest named
+   * application frame) for queries with no explicit `.label()` — notably every
+   * Drizzle query, which has no chokepoint to attach a label to. Captured from
+   * the stack only on the slow path. Present alongside an *ambient* label
+   * (which marks an outer boundary, not the statement's own call site) but
+   * suppressed by an explicit `.label()`.
    */
   caller?: string;
 }
@@ -127,13 +140,26 @@ function shortenStackFile(file: string): string {
   return file.split("/").pop() ?? file;
 }
 
+/** Function names Bun uses for frames with no name of their own. */
+function isAnonymousFunctionName(name: string): boolean {
+  return name === "<anonymous>" || name === "anonymous";
+}
+
 /**
- * Best-effort attribution for a query with no explicit label: the first stack
- * frame outside this module, dependencies, and the runtime — i.e. the
- * application code that issued the query. Returns e.g.
- * `persistence/conversation-crud.ts:insertMessageCore:474`. Only called on the
- * slow path (a query already past the threshold), so the `Error().stack` cost is
- * incurred rarely. Accepts an explicit `stack` for testing.
+ * Best-effort attribution for a query with no explicit label: the nearest
+ * *named* stack frame outside this module, dependencies, and the runtime —
+ * i.e. the application function accountable for the query. Returns e.g.
+ * `persistence/conversation-crud.ts:insertMessageCore:474`.
+ *
+ * Anonymous application frames are skipped in favor of a named frame further
+ * up: a statement run inside `db.transaction((tx) => …)` sits in an anonymous
+ * callback, and attributing it there (`file:<anonymous>:line`) hides which
+ * operation issued it. The innermost anonymous frame is kept as a fallback for
+ * stacks with no named application frame at all.
+ *
+ * Only called on the slow path (a query already past the threshold), so the
+ * `Error().stack` cost is incurred rarely. Accepts an explicit `stack` for
+ * testing.
  *
  * @internal exported only for unit tests.
  */
@@ -142,6 +168,7 @@ export function callerFromStack(
 ): string | undefined {
   if (!stack) return undefined;
   const lines = stack.split("\n");
+  let anonymousFallback: string | undefined;
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (!line.includes("at ")) continue;
@@ -152,14 +179,19 @@ export function callerFromStack(
       /at (?:async )?([^\s(]+) \((.+?):(\d+)(?::\d+)?\)/,
     );
     if (withFn) {
-      return `${shortenStackFile(withFn[2])}:${withFn[1]}:${withFn[3]}`;
+      const caller = `${shortenStackFile(withFn[2])}:${withFn[1]}:${withFn[3]}`;
+      if (isAnonymousFunctionName(withFn[1])) {
+        anonymousFallback ??= caller;
+        continue;
+      }
+      return caller;
     }
     const noFn = line.match(/at (?:async )?(.+?):(\d+)(?::\d+)?$/);
     if (noFn) {
-      return `${shortenStackFile(noFn[1])}:${noFn[2]}`;
+      anonymousFallback ??= `${shortenStackFile(noFn[1])}:${noFn[2]}`;
     }
   }
-  return undefined;
+  return anonymousFallback;
 }
 
 /** Log a slow statement execution at WARN with its SQL and duration. */
@@ -251,14 +283,19 @@ export function wrapSqliteForSlowQueryLogging(
     durationMs: number,
     result: unknown,
   ): void => {
-    // Only ever called on the slow path, so building the payload — including the
-    // stack walk for unlabeled (Drizzle) queries — is fine.
+    // Only ever called on the slow path, so building the payload — including
+    // the ambient-label read and the stack walk for unlabeled (Drizzle)
+    // queries — is fine. An explicit `.label()` marks the statement's own
+    // call site, so the stack adds nothing; an ambient label marks an outer
+    // boundary (e.g. a `withSqliteRetry` op), so the call site is still
+    // derived alongside it.
+    const effectiveLabel = label ?? getAmbientSqliteQueryLabel();
     const caller = label === undefined ? callerFromStack() : undefined;
     onSlowQuery({
       durationMs,
       sql: sql.slice(0, SQL_PREVIEW_MAX),
       ...(Array.isArray(result) ? { rowCount: result.length } : {}),
-      ...(label === undefined ? {} : { label }),
+      ...(effectiveLabel === undefined ? {} : { label: effectiveLabel }),
       ...(caller === undefined ? {} : { caller }),
     });
   };

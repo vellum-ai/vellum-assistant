@@ -15,11 +15,6 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
@@ -105,10 +100,6 @@ mock.module("../persistence/conversation-queries.js", () => ({
 // background work doesn't reach into real subsystems during the test.
 mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
-}));
-
-mock.module("../runtime/services/auto-analysis-enqueue.js", () => ({
-  enqueueAutoAnalysisIfEnabled: () => {},
 }));
 
 mock.module("../runtime/services/auto-analysis-guard.js", () => ({

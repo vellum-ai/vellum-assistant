@@ -9,11 +9,6 @@ import type { Message, ProviderResponse } from "../providers/types.js";
 // Mocks — must precede the Conversation import so Bun applies them at load time.
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},

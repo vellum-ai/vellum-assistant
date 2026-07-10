@@ -41,7 +41,7 @@ import {
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
-import { isProviderSelectableForAssistant } from "@/domains/settings/ai/provider-availability";
+import { providersServedByConnections } from "@/domains/settings/ai/provider-availability";
 import type {
   ConnectionProvider,
   ProviderConnection,
@@ -49,7 +49,6 @@ import type {
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
@@ -206,7 +205,6 @@ function ProfileEditorModalInner({
   // daemon rejects for managed profiles.
   const isReadOnly = effectiveMode === "view" || isInvariant;
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
-  const isMobile = useIsMobile();
 
   // Baseline for `hasViewModeChanges`: the enable flip is the only edit
   // read-only mode permits.
@@ -371,7 +369,7 @@ function ProfileEditorModalInner({
   const queryClient = useQueryClient();
 
   // Create-mode-only UI: whether the inline "+ Create new provider" sub-form
-  // is mounted, and whether the advanced-params disclosure is expanded.
+  // is mounted, and whether the Advanced disclosure is expanded.
   const [creatingProvider, setCreatingProvider] = useState(false);
   const [advancedExpanded, setAdvancedExpanded] = useState(false);
   // One-time helper note shown after an inline provider create succeeds.
@@ -653,9 +651,8 @@ function ProfileEditorModalInner({
         ? "Edit Profile"
         : (initialValues?.label ?? profileName ?? "Profile");
 
-  // Create mode uses the provider-first layout (Provider -> Model -> Name ->
-  // Key -> Description -> collapsed Advanced) with pre-fill. Edit and view
-  // modes use the legacy layout below.
+  // Create mode uses the provider-first layout, with derived identity fields
+  // grouped under Advanced. Edit and view modes use the legacy layout below.
   const useProviderFirst = effectiveMode === "create";
 
   // ---- Reusable field nodes (shared by create + edit/view bodies) ----
@@ -782,28 +779,16 @@ function ProfileEditorModalInner({
   // Providers with at least one connection, plus the always-present "+ Create
   // new provider" sentinel. First-run empty state shows ONLY the sentinel.
   const createModeProviderOptions = useMemo(() => {
-    const seen = new Set<ConnectionProvider>();
     const opts: {
       value: ConnectionProvider | typeof CREATE_NEW_PROVIDER_SENTINEL;
       label: string;
-    }[] = [];
-    for (const c of effectiveConnections) {
-      if (
-        !isProviderSelectableForAssistant(
-          c.provider,
-          activeAssistantIsSelfHosted,
-        )
-      ) {
-        continue;
-      }
-      if (!seen.has(c.provider)) {
-        seen.add(c.provider);
-        opts.push({
-          value: c.provider,
-          label: PROVIDER_DISPLAY_NAMES[c.provider] ?? c.provider,
-        });
-      }
-    }
+    }[] = providersServedByConnections(
+      effectiveConnections,
+      activeAssistantIsSelfHosted,
+    ).map((p) => ({
+      value: p,
+      label: PROVIDER_DISPLAY_NAMES[p] ?? p,
+    }));
     opts.push({
       value: CREATE_NEW_PROVIDER_SENTINEL,
       label: "+ Create new provider",
@@ -814,19 +799,12 @@ function ProfileEditorModalInner({
   const createProviderSection = (
     <div className="space-y-4">
       <div className="space-y-1">
-        <div className="flex items-center justify-between gap-2">
-          <label
-            id="profile-editor-provider-label"
-            className="block text-body-small-default text-[var(--content-tertiary)]"
-          >
-            Provider
-          </label>
-          {providerMissing && !creatingProvider && !isMobile ? (
-            <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
-              Pick a provider
-            </span>
-          ) : null}
-        </div>
+        <label
+          id="profile-editor-provider-label"
+          className="block text-body-small-default text-[var(--content-tertiary)]"
+        >
+          Provider
+        </label>
         <Dropdown
           value={creatingProvider ? CREATE_NEW_PROVIDER_SENTINEL : provider}
           onChange={(next) => {
@@ -835,7 +813,9 @@ function ProfileEditorModalInner({
               setNewProviderNote(false);
               return;
             }
-            if (!next) return;
+            if (!next) {
+              return;
+            }
             setCreatingProvider(false);
             handleProviderChange(next);
           }}
@@ -881,25 +861,30 @@ function ProfileEditorModalInner({
     </div>
   );
 
-  // Only surface Advanced once a model is chosen — the advanced params are
-  // model-dependent (effort/thinking/token ranges resolve from the selected
-  // model), so showing the disclosure before then is meaningless.
+  // Only surface Advanced once a model is chosen: Name and Key derive from the
+  // model, and the model controls the available advanced parameters.
+  const createAdvancedOpen =
+    advancedExpanded || (Boolean(keyError) && getDirty());
   const createAdvancedDisclosure =
     model !== "" ? (
       <div>
         <button
           type="button"
-          aria-expanded={advancedExpanded}
+          aria-expanded={createAdvancedOpen}
           onClick={() => setAdvancedExpanded((v) => !v)}
           className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
         >
           <ChevronRight
-            className={`h-4 w-4 transition-transform ${advancedExpanded ? "rotate-90" : ""}`}
+            className={`h-4 w-4 transition-transform ${createAdvancedOpen ? "rotate-90" : ""}`}
           />
           <span>Advanced</span>
         </button>
-        {advancedExpanded ? (
-          <div className="mt-4">{advancedParamsNode}</div>
+        {createAdvancedOpen ? (
+          <div className="mt-4 space-y-4">
+            {displayNameField}
+            {keyField}
+            {advancedParamsNode}
+          </div>
         ) : null}
       </div>
     ) : null;
@@ -920,12 +905,10 @@ function ProfileEditorModalInner({
       <Modal.Body>
         {useProviderFirst ? (
           // Create mode is provider-first: Provider (with inline create) ->
-          // Model -> Name -> Key -> Description -> collapsed Advanced.
+          // Model -> Description -> Active -> collapsed Advanced.
           <div className="space-y-4">
             {createProviderSection}
 
-            {displayNameField}
-            {keyField}
             {descriptionField}
             {activeToggle}
 

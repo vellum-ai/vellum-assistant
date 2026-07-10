@@ -4,13 +4,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Module mocks — must appear before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => "test-fish-api-key",
 }));
@@ -41,10 +34,12 @@ let capturedBody = "";
 beforeEach(() => {
   originalFetch = globalThis.fetch;
   capturedBody = "";
-  globalThis.fetch = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
-    capturedBody = init?.body as string;
-    return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
-  }) as unknown as typeof globalThis.fetch;
+  globalThis.fetch = mock(
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedBody = init?.body as string;
+      return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+    },
+  ) as unknown as typeof globalThis.fetch;
 });
 
 afterEach(() => {
@@ -81,5 +76,22 @@ describe("synthesizeWithFishAudio request body", () => {
     const body = JSON.parse(capturedBody);
     expect(body.format).toBe("pcm");
     expect(body.sample_rate).toBe(24000);
+  });
+});
+
+describe("synthesizeWithFishAudio response consumption", () => {
+  test("rejects when the response body closes after zero bytes", async () => {
+    globalThis.fetch = mock(async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      });
+      return new Response(body, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    await expect(synthesizeWithFishAudio("hello", config)).rejects.toThrow(
+      "Fish Audio API returned empty audio",
+    );
   });
 });

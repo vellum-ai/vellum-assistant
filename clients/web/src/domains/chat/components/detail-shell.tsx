@@ -19,7 +19,14 @@ export interface DetailShellProps {
   Glyph?: LucideIcon;
   /** Pre-rendered icon element (e.g. an <img>). Takes precedence over `Glyph`. */
   icon?: ReactNode;
-  title: string;
+  title?: string;
+  /**
+   * Pre-composed title cluster rendered in place of the default truncating
+   * `title` Typography — for headers whose title mixes several inline pieces
+   * (e.g. the activity-steps panel's "Thinking · 6 steps"). Takes precedence
+   * over `title`.
+   */
+  titleNode?: ReactNode;
   /** Inline slot next to the title (e.g. a status badge), before the spacer. */
   headerTrailing?: ReactNode;
   /** Right-aligned action cluster after the spacer, before close (e.g. a Stop button). */
@@ -29,38 +36,46 @@ export interface DetailShellProps {
   closeVariant?: "ghost" | "outlined";
   onClose: () => void;
   children: ReactNode;
+  /** Pinned action row below the scrollable body (e.g. a primary CTA). */
+  footer?: ReactNode;
 }
 
 export function DetailShell({
   Glyph,
   icon,
   title,
+  titleNode,
   headerTrailing,
   headerActions,
   closeLabel = "Close panel",
   closeVariant = "ghost",
   onClose,
   children,
+  footer,
 }: DetailShellProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] px-5 py-4">
+      {/* Header. Divider uses `--border-hover` (the Figma sidepanel divider,
+          #F6F5F4 in light) rather than `--border-base`, which equals the
+          drawer's `--surface-lift` in dark mode and would render invisible. */}
+      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-hover)] px-5 py-4">
         {icon ?? (Glyph ? (
           <Glyph
             className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
             aria-hidden
           />
         ) : null)}
-        <Typography
-          variant="title-medium"
-          // `title-medium` ships a tight line-height; combined with `truncate`
-          // (overflow:hidden) it clips descenders (e.g. the "p" in "process").
-          // Bump leading + small vertical padding so glyphs get breathing room.
-          className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
-        >
-          {title}
-        </Typography>
+        {titleNode ?? (
+          <Typography
+            variant="title-medium"
+            // `title-medium` ships a tight line-height; combined with `truncate`
+            // (overflow:hidden) it clips descenders (e.g. the "p" in "process").
+            // Bump leading + small vertical padding so glyphs get breathing room.
+            className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
+          >
+            {title}
+          </Typography>
+        )}
         {headerTrailing}
         <span className="flex-1" />
         {headerActions}
@@ -76,6 +91,13 @@ export function DetailShell({
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
+
+      {/* Pinned footer */}
+      {footer && (
+        <div className="shrink-0 border-t border-[var(--border-base)] px-5 py-4">
+          {footer}
+        </div>
+      )}
     </div>
   );
 }

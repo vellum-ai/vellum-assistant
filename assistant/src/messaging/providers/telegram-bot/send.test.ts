@@ -15,13 +15,6 @@ const callTelegramBotApiMock = mock<CallTelegramBotApi>(
   async () => ({}) as never,
 );
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("./api.js", () => ({
   callTelegramBotApi: (method: string, body: Record<string, unknown>) =>
     callTelegramBotApiMock(method, body),

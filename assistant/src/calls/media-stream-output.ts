@@ -15,7 +15,9 @@
  *   An empty token with `last: true` sends only the mark.
  *
  * - `sendPlayUrl()` — Fetches audio from the given URL, transcodes it
- *   to mu-law 8 kHz, and streams the resulting frames to Twilio.
+ *   to mu-law 8 kHz, and streams the resulting frames to Twilio. WAV
+ *   and raw-PCM bodies are transcoded incrementally as they download,
+ *   so playback starts before the response completes.
  *
  * - `endSession()` — Closes the underlying WebSocket, which triggers
  *   Twilio to tear down the media stream and (eventually) the call.
@@ -38,6 +40,7 @@ import type { ServerWebSocket } from "bun";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { synthesizeAndEmit } from "../tts/synthesis-stream.js";
 import { getLogger } from "../util/logger.js";
+import type { CallAudioFormat } from "./audio-store.js";
 import type { CallTransport } from "./call-transport.js";
 import {
   chunkMulawToBase64Frames,
@@ -66,6 +69,28 @@ const TELEPHONY_SAMPLE_RATE_HZ = 8000;
 const STREAMING_PCM_SAMPLE_RATE_HZ = 16_000;
 
 /**
+ * Size of the canonical WAV header: RIFF descriptor + 16-byte PCM fmt
+ * chunk + data chunk header.
+ */
+const WAV_HEADER_BYTES = 44;
+
+/** WAV files always start with the ASCII magic "RIFF" (0x52494646). */
+function hasRiffMagic(audio: Buffer): boolean {
+  return (
+    audio.length >= 4 &&
+    audio[0] === 0x52 && // R
+    audio[1] === 0x49 && // I
+    audio[2] === 0x46 && // F
+    audio[3] === 0x46 // F
+  );
+}
+
+/** Wrap a Uint8Array's memory as a Buffer without copying. */
+function viewToBuffer(view: Uint8Array): Buffer {
+  return Buffer.from(view.buffer, view.byteOffset, view.byteLength);
+}
+
+/**
  * Keep every `factor`-th 16-bit LE sample. Cheap decimation (no anti-alias
  * filter) for rates that are integer multiples of the telephony rate; also
  * extracts the left channel from interleaved stereo when factor is 2.
@@ -79,6 +104,169 @@ function decimatePcm16(pcm: Buffer, factor: number): Buffer {
     out[i * 2 + 1] = pcm[i * factor * 2 + 1];
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Incremental PCM16 → mu-law frame encoding
+// ---------------------------------------------------------------------------
+
+/**
+ * Incrementally converts 16-bit LE PCM chunks — at an integer multiple of
+ * the telephony rate — into base64 mu-law frames, emitting each frame as
+ * soon as it fills.
+ *
+ * Chunk boundaries can split a 16-bit sample or a decimation group; the
+ * unprocessable tail (less than one output sample's worth of bytes)
+ * carries into the next chunk so sample alignment and decimation phase
+ * stay stable across chunks. Mu-law bytes short of a whole 20 ms frame
+ * are carried likewise.
+ */
+class IncrementalMulawFrameEncoder {
+  /** PCM tail below one output sample, awaiting the next chunk. */
+  private pcmCarry: Buffer | undefined;
+
+  /** Mu-law bytes short of a whole frame, awaiting the next chunk. */
+  private mulawCarry: Buffer = Buffer.alloc(0);
+
+  /** Bytes per output sample: 2 input bytes per sample × decimation factor. */
+  private readonly pcmAlignBytes: number;
+
+  constructor(
+    private readonly decimationFactor: number,
+    private readonly emitFrames: (frames: string[]) => void,
+  ) {
+    this.pcmAlignBytes = 2 * decimationFactor;
+  }
+
+  /** Bytes currently held back waiting for sample alignment. */
+  get pcmCarryBytes(): number {
+    return this.pcmCarry?.length ?? 0;
+  }
+
+  /** Transcode a PCM16 LE chunk, emitting every frame that fills. */
+  push(chunk: Buffer): void {
+    const combined = this.pcmCarry
+      ? Buffer.concat([this.pcmCarry, chunk])
+      : chunk;
+    const usableBytes =
+      combined.length - (combined.length % this.pcmAlignBytes);
+    this.pcmCarry =
+      usableBytes < combined.length
+        ? combined.subarray(usableBytes)
+        : undefined;
+    if (usableBytes === 0) {
+      return;
+    }
+    const pcm8k = decimatePcm16(
+      combined.subarray(0, usableBytes),
+      this.decimationFactor,
+    );
+    this.sendMulaw(pcm16ToMulaw(pcm8k), false);
+  }
+
+  /**
+   * Emit the final partial frame — the whole-buffer path sends a short
+   * trailing frame the same way.
+   */
+  flush(): void {
+    this.sendMulaw(Buffer.alloc(0), true);
+  }
+
+  private sendMulaw(mulaw: Buffer, flushPartialFrame: boolean): void {
+    this.mulawCarry =
+      this.mulawCarry.length > 0
+        ? Buffer.concat([this.mulawCarry, mulaw])
+        : mulaw;
+    const sendableBytes = flushPartialFrame
+      ? this.mulawCarry.length
+      : this.mulawCarry.length - (this.mulawCarry.length % MULAW_FRAME_SIZE);
+    if (sendableBytes === 0) {
+      return;
+    }
+    const frames = chunkMulawToBase64Frames(
+      this.mulawCarry.subarray(0, sendableBytes),
+    );
+    this.mulawCarry = this.mulawCarry.subarray(sendableBytes);
+    this.emitFrames(frames);
+  }
+}
+
+/** Outcome of an incremental body transcode attempt. */
+type BodyStreamResult =
+  | { outcome: "streamed" }
+  | { outcome: "aborted" }
+  | { outcome: "fallback"; buffered: Buffer };
+
+type HeaderSniffDecision =
+  | { kind: "need-more-bytes" }
+  | { kind: "fallback" }
+  | { kind: "stream"; decimationFactor: number; payloadOffset: number };
+
+/**
+ * Decide from a body's leading bytes whether it can be transcoded
+ * incrementally — and with which decimation factor — or must fall back
+ * to the whole-buffer path.
+ *
+ * Sniffs the actual bytes rather than trusting the declared format,
+ * mirroring `audioBufferToFrames`: a RIFF header wins over the declared
+ * content type. Only inputs the incremental encoder transcodes exactly
+ * like the whole-buffer path are streamed: canonical-header PCM16 mono
+ * WAV at an integer multiple of the telephony rate, or headerless raw
+ * PCM (assumed 16 kHz). Anything else — RIFF layouts with extra chunks,
+ * stereo, non-16-bit samples, fractional rates (44.1 kHz needs an
+ * interpolating resample), compressed bytes under a WAV content type —
+ * falls back.
+ */
+function sniffStreamableHeader(
+  pending: Buffer,
+  format: "wav" | "pcm",
+): HeaderSniffDecision {
+  if (pending.length < 4) {
+    return { kind: "need-more-bytes" };
+  }
+
+  if (!hasRiffMagic(pending)) {
+    // Headerless raw PCM streams at the assumed 16 kHz (matching the
+    // whole-buffer path). WAV-declared bytes without a RIFF header need
+    // the whole-buffer path's compressed-format sniffing.
+    return format === "pcm"
+      ? {
+          kind: "stream",
+          decimationFactor:
+            STREAMING_PCM_SAMPLE_RATE_HZ / TELEPHONY_SAMPLE_RATE_HZ,
+          payloadOffset: 0,
+        }
+      : { kind: "fallback" };
+  }
+
+  if (pending.length < WAV_HEADER_BYTES) {
+    return { kind: "need-more-bytes" };
+  }
+
+  // Only the canonical 44-byte layout is streamed: fmt chunk at fixed
+  // offsets, PCM16 mono, "data" chunk immediately after.
+  const isCanonicalPcm16Mono =
+    pending.toString("ascii", 8, 16) === "WAVEfmt " &&
+    pending.readUInt32LE(16) === 16 && // fmt chunk size (plain PCM)
+    pending.readUInt16LE(20) === 1 && // format tag: PCM
+    pending.readUInt16LE(22) === 1 && // mono
+    pending.readUInt16LE(34) === 16 && // 16 bits per sample
+    pending.toString("ascii", 36, 40) === "data";
+  const sampleRate = pending.readUInt32LE(24);
+
+  if (
+    !isCanonicalPcm16Mono ||
+    sampleRate <= 0 ||
+    sampleRate % TELEPHONY_SAMPLE_RATE_HZ !== 0
+  ) {
+    return { kind: "fallback" };
+  }
+
+  return {
+    kind: "stream",
+    decimationFactor: sampleRate / TELEPHONY_SAMPLE_RATE_HZ,
+    payloadOffset: WAV_HEADER_BYTES,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +305,15 @@ export class MediaStreamOutput implements CallTransport {
    */
   private textBuffer = "";
 
+  /**
+   * True once the current turn's first speakable segment has been queued
+   * for synthesis. Gates eager segmentation: each turn's opening clause
+   * flushes early so speech onset does not wait for a full sentence.
+   * Cleared when a turn completes (`last: true`) or its pending text is
+   * discarded, so the next turn's first segment is eager again.
+   */
+  private turnSegmentEnqueued = false;
+
   /** FIFO queue of playback items awaiting delivery. */
   private playbackQueue: PlaybackItem[] = [];
 
@@ -139,10 +336,10 @@ export class MediaStreamOutput implements CallTransport {
   private audioStartCallback: (() => void) | null = null;
 
   /**
-   * The media-stream transport requires WAV (PCM) audio because its
+   * The media-stream transport requires raw PCM audio because its
    * mu-law transcoder cannot decode compressed formats (mp3, opus).
    */
-  readonly requiresWavAudio = true;
+  readonly requiresPcmAudio = true;
 
   constructor(ws: ServerWebSocket<unknown>, streamSid: string) {
     this.ws = ws;
@@ -172,16 +369,19 @@ export class MediaStreamOutput implements CallTransport {
     const { segments, remainder } = extractSpeakableSegments(
       this.textBuffer,
       last,
+      { eager: !this.turnSegmentEnqueued },
     );
     this.textBuffer = remainder;
     for (const segment of segments) {
       this.enqueuePlayback({ type: "synthesize", text: segment });
+      this.turnSegmentEnqueued = true;
     }
 
     if (last) {
       // Always send an end-of-turn mark so the media-stream server
       // can detect turn boundaries.
       this.enqueuePlayback({ type: "mark", name: "end-of-turn" });
+      this.turnSegmentEnqueued = false;
     }
   }
 
@@ -193,7 +393,9 @@ export class MediaStreamOutput implements CallTransport {
    * PCM, and re-encode as mu-law frames for Twilio.
    */
   sendPlayUrl(url: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.enqueuePlayback({ type: "fetch-url", url });
   }
 
@@ -213,6 +415,7 @@ export class MediaStreamOutput implements CallTransport {
    */
   discardPendingText(): void {
     this.textBuffer = "";
+    this.turnSegmentEnqueued = false;
   }
 
   /**
@@ -231,7 +434,9 @@ export class MediaStreamOutput implements CallTransport {
    * closes.
    */
   endSession(reason?: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.state = "closed";
 
     // Cancel any in-flight playback
@@ -258,7 +463,9 @@ export class MediaStreamOutput implements CallTransport {
    * Send a base64-encoded audio frame to Twilio for playback.
    */
   sendAudioPayload(base64Payload: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     const command: MediaStreamSendMediaCommand = {
       event: "media",
@@ -283,7 +490,9 @@ export class MediaStreamOutput implements CallTransport {
    * back a `mark` event when the caller reaches this point in playback.
    */
   sendMark(name: string): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     const command: MediaStreamSendMarkCommand = {
       event: "mark",
@@ -317,7 +526,9 @@ export class MediaStreamOutput implements CallTransport {
    * when it actually aborts the turn.
    */
   clearAudio(): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     // Flush our internal playback queue and abort in-flight work.
     this.flushPlaybackQueue();
@@ -337,7 +548,9 @@ export class MediaStreamOutput implements CallTransport {
    * (initial greeting, setup handoff prompt) survives to play after.
    */
   clearBufferedAudio(): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
     this.sendClearCommand();
   }
 
@@ -431,7 +644,9 @@ export class MediaStreamOutput implements CallTransport {
    * before sending.
    */
   private async drainPlaybackQueue(): Promise<void> {
-    if (this.draining) return;
+    if (this.draining) {
+      return;
+    }
     this.draining = true;
 
     try {
@@ -459,7 +674,9 @@ export class MediaStreamOutput implements CallTransport {
 
         // If the playback version changed (clearAudio was called), stop
         // processing stale items.
-        if (version !== this.playbackVersion) break;
+        if (version !== this.playbackVersion) {
+          break;
+        }
       }
     } finally {
       this.draining = false;
@@ -477,7 +694,9 @@ export class MediaStreamOutput implements CallTransport {
    * the one-shot audio-start signal before the first frame goes out.
    */
   private sendFrames(frames: string[]): void {
-    if (frames.length === 0) return;
+    if (frames.length === 0) {
+      return;
+    }
     const audioStartCallback = this.audioStartCallback;
     if (audioStartCallback) {
       this.audioStartCallback = null;
@@ -503,11 +722,11 @@ export class MediaStreamOutput implements CallTransport {
     this.activePlaybackAbort = abortController;
 
     try {
-      // Request WAV so audioBufferToFrames gets PCM it can transcode
+      // Request PCM so audioBufferToFrames gets raw PCM it can transcode
       // to mu-law. Compressed formats (mp3, opus) would be sent as raw
       // bytes and produce garbled audio.
       const { provider, audioFormat } = await resolveCallTtsProvider({
-        preferWav: true,
+        requiresPcmAudio: true,
       });
       if (!provider) {
         log.warn(
@@ -531,28 +750,12 @@ export class MediaStreamOutput implements CallTransport {
       const streamsPcm = provider.capabilities.supportedFormats.includes("pcm");
       const bufferedChunks: Buffer[] = [];
 
-      // Chunk boundaries can split a 16-bit sample or a decimation pair;
-      // the unprocessable tail (< 4 bytes) carries into the next chunk so
-      // sample alignment and decimation phase stay stable across chunks.
-      let pcmCarry: Buffer | undefined;
-      // Mu-law bytes short of a whole 20 ms frame, carried likewise.
-      let mulawCarry: Buffer = Buffer.alloc(0);
-
-      const sendMulaw = (mulaw: Buffer, flushPartialFrame: boolean): void => {
-        mulawCarry =
-          mulawCarry.length > 0 ? Buffer.concat([mulawCarry, mulaw]) : mulaw;
-        const sendableBytes = flushPartialFrame
-          ? mulawCarry.length
-          : mulawCarry.length - (mulawCarry.length % MULAW_FRAME_SIZE);
-        if (sendableBytes === 0) {
-          return;
-        }
-        const frames = chunkMulawToBase64Frames(
-          mulawCarry.subarray(0, sendableBytes),
-        );
-        mulawCarry = mulawCarry.subarray(sendableBytes);
-        this.sendFrames(frames);
-      };
+      const encoder = streamsPcm
+        ? new IncrementalMulawFrameEncoder(
+            STREAMING_PCM_SAMPLE_RATE_HZ / TELEPHONY_SAMPLE_RATE_HZ,
+            (frames) => this.sendFrames(frames),
+          )
+        : null;
 
       // Synthesize the text. Request PCM output so the media-stream
       // transport receives raw samples it can transcode to mu-law.
@@ -568,30 +771,14 @@ export class MediaStreamOutput implements CallTransport {
         signal: abortController.signal,
         isCurrent,
         onChunk: (chunk) => {
-          if (!streamsPcm) {
+          if (!encoder) {
             bufferedChunks.push(chunk.audio);
             return;
           }
           if (!isCurrent()) {
             return;
           }
-          const combined = pcmCarry
-            ? Buffer.concat([pcmCarry, chunk.audio])
-            : chunk.audio;
-          // 4 bytes = two 16 kHz samples = one 8 kHz output sample.
-          const usableBytes = combined.length & ~3;
-          pcmCarry =
-            usableBytes < combined.length
-              ? combined.subarray(usableBytes)
-              : undefined;
-          if (usableBytes === 0) {
-            return;
-          }
-          const pcm8k = this.pcm16ToTelephonyRate(
-            combined.subarray(0, usableBytes),
-            STREAMING_PCM_SAMPLE_RATE_HZ,
-          );
-          sendMulaw(pcm16ToMulaw(pcm8k), false);
+          encoder.push(chunk.audio);
         },
       });
 
@@ -599,18 +786,18 @@ export class MediaStreamOutput implements CallTransport {
         return;
       }
 
-      if (streamsPcm) {
-        if (pcmCarry) {
+      if (encoder) {
+        if (encoder.pcmCarryBytes > 0) {
           // A sub-sample tail is malformed provider output; decimation
           // would drop it anyway.
           log.debug(
-            { streamSid: this.streamSid, carryBytes: pcmCarry.length },
+            { streamSid: this.streamSid, carryBytes: encoder.pcmCarryBytes },
             "Dropping sub-sample tail from PCM16 TTS stream",
           );
         }
         // Flush the final partial frame — the whole-buffer path sends a
         // short trailing frame the same way.
-        sendMulaw(Buffer.alloc(0), true);
+        encoder.flush();
         return;
       }
 
@@ -621,9 +808,11 @@ export class MediaStreamOutput implements CallTransport {
 
       // Derive the format from the provider's actual content type rather
       // than the declared audioFormat. The declared format may not match
-      // reality (e.g. preferWav requests WAV but the provider returns mp3).
-      // audioBufferToFrames also sniffs magic bytes as a safety net.
-      const actualFormat: "mp3" | "wav" | "opus" | "pcm" =
+      // reality (e.g. requiresPcmAudio requests PCM but the provider
+      // returns mp3). For unknown content types, fall back to the declared
+      // format (PCM on this path — the bytes were requested as raw PCM,
+      // and audioBufferToFrames sniffs magic bytes as a safety net).
+      const actualFormat: CallAudioFormat =
         result.contentType.includes("wav") ||
         result.contentType.includes("x-wav")
           ? "wav"
@@ -667,6 +856,13 @@ export class MediaStreamOutput implements CallTransport {
   /**
    * Fetch audio from a URL (typically the audio store), transcode to
    * mu-law frames, and send to Twilio.
+   *
+   * WAV and raw-PCM bodies are transcoded incrementally — the first frame
+   * goes out as soon as enough bytes arrive, which matters for
+   * synthesized-play segments whose store entry fills only as fast as the
+   * provider synthesizes. Compressed and unknown formats (and bodies the
+   * incremental encoder cannot transcode exactly) buffer the whole
+   * response and use the buffered conversion path.
    */
   private async processFetchUrlItem(
     url: string,
@@ -685,13 +881,13 @@ export class MediaStreamOutput implements CallTransport {
         return;
       }
 
-      if (version !== this.playbackVersion || this.isClosed()) return;
+      if (version !== this.playbackVersion || this.isClosed()) {
+        return;
+      }
 
-      const buffer = Buffer.from(await response.arrayBuffer());
-      if (version !== this.playbackVersion || this.isClosed()) return;
 
       const contentType = response.headers.get("content-type") ?? "audio/mpeg";
-      const format: "mp3" | "wav" | "opus" | "pcm" = contentType.includes("wav")
+      const format: CallAudioFormat = contentType.includes("wav")
         ? "wav"
         : contentType.includes("opus")
           ? "opus"
@@ -699,8 +895,27 @@ export class MediaStreamOutput implements CallTransport {
             ? "pcm"
             : "mp3";
 
-      const frames = this.audioBufferToFrames(buffer, format);
+      let buffer: Buffer;
+      if ((format === "wav" || format === "pcm") && response.body) {
+        const result = await this.streamBodyToFrames(
+          response.body,
+          format,
+          version,
+          abortController.signal,
+        );
+        if (result.outcome !== "fallback") return;
+        // The body could not be transcoded incrementally and was drained
+        // instead; transcode it through the whole-buffer path.
+        buffer = result.buffered;
+      } else {
+        buffer = Buffer.from(await response.arrayBuffer());
+      }
       if (version !== this.playbackVersion || this.isClosed()) return;
+
+      const frames = this.audioBufferToFrames(buffer, format);
+      if (version !== this.playbackVersion || this.isClosed()) {
+        return;
+      }
 
       this.sendFrames(frames);
     } catch (err) {
@@ -723,13 +938,89 @@ export class MediaStreamOutput implements CallTransport {
   }
 
   /**
+   * Incrementally read a WAV or raw-PCM response body, sending mu-law
+   * frames as they fill so playback starts before the body completes.
+   *
+   * Streams only what {@link sniffStreamableHeader} accepts; on any other
+   * input the remaining body is drained and returned so the caller can
+   * run the whole-buffer path, keeping output byte-identical to the
+   * buffered transcode in every case.
+   *
+   * Aborting `signal` (clearAudio / cancelPendingSpeech) cancels the
+   * reader, which settles an in-flight read so the loop exits promptly.
+   */
+  private async streamBodyToFrames(
+    body: ReadableStream<Uint8Array>,
+    format: "wav" | "pcm",
+    version: number,
+    signal: AbortSignal,
+  ): Promise<BodyStreamResult> {
+    const reader = body.getReader();
+    const onAbort = (): void => {
+      reader.cancel().catch(() => {});
+    };
+    signal.addEventListener("abort", onAbort);
+    const isCurrent = (): boolean =>
+      version === this.playbackVersion && !this.isClosed() && !signal.aborted;
+
+    try {
+      let encoder: IncrementalMulawFrameEncoder | null = null;
+      // Bytes accumulated while sniffing the header, before streaming starts.
+      let pending: Buffer = Buffer.alloc(0);
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (!isCurrent()) return { outcome: "aborted" };
+        if (done || !value) break;
+        let chunk = viewToBuffer(value);
+
+        if (!encoder) {
+          pending =
+            pending.length > 0 ? Buffer.concat([pending, chunk]) : chunk;
+          const decision = sniffStreamableHeader(pending, format);
+          if (decision.kind === "need-more-bytes") continue;
+          if (decision.kind === "fallback") {
+            const rest: Buffer[] = [pending];
+            for (;;) {
+              const next = await reader.read();
+              if (!isCurrent()) return { outcome: "aborted" };
+              if (next.done || !next.value) break;
+              rest.push(viewToBuffer(next.value));
+            }
+            return { outcome: "fallback", buffered: Buffer.concat(rest) };
+          }
+          encoder = new IncrementalMulawFrameEncoder(
+            decision.decimationFactor,
+            (frames) => this.sendFrames(frames),
+          );
+          chunk = pending.subarray(decision.payloadOffset);
+          if (chunk.length === 0) continue;
+        }
+
+        encoder.push(chunk);
+      }
+
+      if (!encoder) {
+        // The body ended before the header could be sniffed; the
+        // whole-buffer path handles undersized buffers.
+        return { outcome: "fallback", buffered: pending };
+      }
+      encoder.flush();
+      return { outcome: "streamed" };
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+      reader.releaseLock();
+    }
+  }
+
+  /**
    * Convert an audio buffer (from TTS synthesis or URL fetch) into
    * base64-encoded mu-law frames.
    *
    * Rather than trusting the declared `format` parameter (which may not
-   * match the actual bytes — e.g. when a provider is asked for WAV but
-   * returns mp3), this method **sniffs the magic bytes** to detect the
-   * real format:
+   * match the actual bytes — e.g. the declared format may be pcm while
+   * the provider returned mp3), this method **sniffs the magic bytes**
+   * to detect the real format:
    *
    * - **WAV** (`RIFF` header, bytes `0x52 0x49 0x46 0x46`): extracts
    *   raw PCM data from the WAV container, converts it to 8 kHz using the
@@ -743,16 +1034,10 @@ export class MediaStreamOutput implements CallTransport {
    */
   private audioBufferToFrames(
     audio: Buffer,
-    format: "mp3" | "wav" | "opus" | "pcm",
+    format: CallAudioFormat,
   ): string[] {
     // Sniff the actual bytes rather than trusting the declared format.
-    // WAV files always start with the ASCII magic "RIFF" (0x52494646).
-    const isWav =
-      audio.length >= 44 &&
-      audio[0] === 0x52 && // R
-      audio[1] === 0x49 && // I
-      audio[2] === 0x46 && // F
-      audio[3] === 0x46; // F
+    const isWav = audio.length >= WAV_HEADER_BYTES && hasRiffMagic(audio);
 
     if (isWav) {
       // Extract raw PCM from the WAV container, honoring the fmt-chunk
@@ -761,8 +1046,10 @@ export class MediaStreamOutput implements CallTransport {
       const channels = audio.readUInt16LE(22);
       const sampleRate = audio.readUInt32LE(24);
       const bitsPerSample = audio.readUInt16LE(34);
-      let pcmData: Buffer = audio.subarray(44);
-      if (pcmData.length < 2) return [];
+      let pcmData: Buffer = audio.subarray(WAV_HEADER_BYTES);
+      if (pcmData.length < 2) {
+        return [];
+      }
 
       if (bitsPerSample !== 16 || channels > 2 || channels === 0) {
         // Limitation: only 16-bit mono/stereo PCM is decoded here.
@@ -783,8 +1070,9 @@ export class MediaStreamOutput implements CallTransport {
 
     // When the declared format is "wav" but the RIFF check failed, the
     // bytes might be either:
-    // (a) Raw PCM stored under audio/wav content-type (when
-    //     outputFormat: "pcm" is used with createStreamingEntry("wav"))
+    // (a) Raw PCM served under a wav content-type (declared "wav" only
+    //     arrives via content-type sniffing; some providers label raw
+    //     PCM streams audio/wav)
     // (b) Compressed audio (mp3/opus) from a provider that ignores
     //     outputFormat (e.g. Fish Audio defaults to mp3)
     //
@@ -827,7 +1115,9 @@ export class MediaStreamOutput implements CallTransport {
     // ElevenLabs pcm_16000 produces 16-bit signed LE at 16 kHz. Twilio
     // needs 8 kHz mu-law, so we downsample by taking every other sample.
     if (format === "pcm" || format === "wav") {
-      if (audio.length < 2) return [];
+      if (audio.length < 2) {
+        return [];
+      }
       // Headerless PCM carries no declared rate; assume the 16 kHz that
       // ElevenLabs pcm_16000 produces and downsample to 8 kHz.
       const downsampled = decimatePcm16(audio, 2);
@@ -876,7 +1166,9 @@ export class MediaStreamOutput implements CallTransport {
    * assumption with a warning.
    */
   private pcm16ToTelephonyRate(pcm: Buffer, sampleRate: number): Buffer {
-    if (sampleRate === TELEPHONY_SAMPLE_RATE_HZ) return pcm;
+    if (sampleRate === TELEPHONY_SAMPLE_RATE_HZ) {
+      return pcm;
+    }
     if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
       log.warn(
         { streamSid: this.streamSid, sampleRate },

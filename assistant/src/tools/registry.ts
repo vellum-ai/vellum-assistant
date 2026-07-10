@@ -10,6 +10,7 @@ import { hostShellTool } from "./host-terminal/host-shell.js";
 import { toProviderSafeToolName } from "./provider-tool-name.js";
 import { registerSystemTools } from "./system/register.js";
 import { finalizeTool } from "./tool-defaults.js";
+import { explicitTools } from "./tool-manifest.js";
 import type { OwnerInfo, Tool, ToolDefinition } from "./types.js";
 import { allUiSurfaceTools } from "./ui-surface/definitions.js";
 import { registerUiSurfaceTools } from "./ui-surface/registry.js";
@@ -22,70 +23,33 @@ const tools = new Map<string, Tool>();
 // `register*` functions and read by `getToolOwner()`. Lives on the registry
 // (not on the `Tool` object) so callers cannot spoof ownership by writing a
 // field on the manifest — the only way to claim a tool is to go through a
-// `register*` function, which stamps the owner from its arguments. Core
-// tools intentionally have no entry here; `getToolOwner` returns `undefined`
-// for them.
+// `register*` function, which stamps the owner from its arguments. Built-in
+// tools are stamped with the shared {@link DEFAULT_TOOL_OWNER} by
+// `registerTool`, so every registered tool has an entry and `getToolOwner` is a
+// plain lookup — a missing entry means the name is not registered at all.
 const ownersByName = new Map<string, OwnerInfo>();
 
-// ── External tool registry ───────────────────────────────────────────
-// Skills register their tools here at initialization time so the tool
-// manifest can include them without importing from `../skills/`.
-//
-// Each registration is stored as a provider closure. Closures are
-// resolved at `getExternalTools()` time (which `initializeTools()`
-// calls), not at registration time — this lets a skill defer its
-// feature-flag check until after the daemon has run
-// `mergeDefaultWorkspaceConfig()`, so skills see the merged config
-// instead of forcing an early `loadConfig()` against unmerged defaults.
-const externalToolProviders: Array<{
-  owner: OwnerInfo;
-  provider: () => Tool[];
-}> = [];
+// Owner recorded for built-in tools — those registered via `registerTool`
+// without an explicit extension owner. One frozen instance is shared across all
+// built-ins; `id` is a constant sentinel because built-ins are not a distinct
+// installable extension.
+const DEFAULT_TOOL_OWNER: OwnerInfo = Object.freeze({
+  kind: "default",
+  id: "default",
+});
 
-/**
- * Register tools provided by an external skill. Called during skill
- * initialization (e.g. meet-join bootstrap).
- *
- * Accepts either a concrete `Tool[]` (resolved eagerly at the caller)
- * or a `() => Tool[]` closure (resolved lazily inside
- * `getExternalTools()`). Skills that perform feature-flag or config
- * reads to decide which tools to surface must pass a closure so the
- * read happens after daemon-startup config merging.
- *
- * Lives in registry.ts (not tool-manifest.ts) to avoid a circular
- * dependency: skills/load.ts → … → meet-join/register.ts → tool-manifest.ts
- * → skills/load.ts. Keeping it here lets external skill bootstraps import
- * from registry.ts, which is already a leaf in the dependency graph.
- *
- * `owner` records which extension produced these tools — typed
- * {@link OwnerInfo} so ownership flows through `ownersByName` at
- * `initializeTools()` time, the same way `register*` registers it for
- * IPC-loaded tools. Eager (boot-time) skill bootstraps go through this
- * path rather than `registerSkillTools`, so this is where their owner
- * lookup gets established.
- */
-export function registerExternalTools(
-  owner: OwnerInfo,
-  toolsOrProvider: Tool[] | (() => Tool[]),
-): void {
-  const provider =
-    typeof toolsOrProvider === "function"
-      ? toolsOrProvider
-      : () => toolsOrProvider;
-  externalToolProviders.push({ owner, provider });
-}
+// Snapshot of core tools (with their owners) captured after initializeTools()
+// completes. Lets __resetRegistryForTesting() restore the core baseline — tools
+// and ownership together — synchronously, without re-running the async
+// initializeTools() bootstrap.
+let coreToolsSnapshot: Map<string, { tool: Tool; owner: OwnerInfo }> | null =
+  null;
 
-/** Return all externally registered tools paired with their owners. */
-function getExternalTools(): Array<{ owner: OwnerInfo; tool: Tool }> {
-  return externalToolProviders.flatMap(({ owner, provider }) =>
-    provider().map((tool) => ({ owner, tool })),
-  );
-}
-
-// Snapshot of core tools captured after initializeTools() completes.
-// Lets __resetRegistryForTesting() restore the core baseline synchronously,
-// without re-running the async initializeTools() bootstrap.
-let coreToolsSnapshot: Map<string, Tool> | null = null;
+// Cached promise for the one-time tool-registry initialization. `initializeTools`
+// returns this so repeated calls (across entry points, or an eventual
+// getter-triggered ensure) run the underlying work exactly once. Cleared by the
+// test-reset helpers so each test can re-initialize from a clean baseline.
+let toolsInitPromise: Promise<void> | null = null;
 
 // Tracks how many sessions are currently using each skill's tools.
 // Tools are only removed from the global registry when this drops to 0.
@@ -97,6 +61,17 @@ const skillRefCount = new Map<string, number>();
 // separate and covers the case of two extensions choosing the same tool name.
 const pluginRefCount = new Map<string, number>();
 
+// Fingerprints of the user-plugin tool sets `loadPluginTools` last pulled
+// from the plugin mtime-cache, keyed by plugin name. The pull reconcile diffs
+// the cache's current fingerprints against this map, so it only ever touches
+// registrations it created itself — plugin-owned tools registered by other
+// callers (the in-process default-plugin bootstrap) are never disturbed.
+const pulledPluginFingerprints = new Map<string, string>();
+
+// In-flight plugin pull — concurrent `loadPluginTools` callers coalesce onto
+// a single reconcile (mirrors `loadWorkspaceTools`).
+let pluginToolsReconcileInFlight: Promise<void> | null = null;
+
 /**
  * Format an owner for log messages and error strings. Returns a stable
  * human-readable description (e.g. `skill "deploy"`, `plugin "weather"`,
@@ -105,7 +80,9 @@ const pluginRefCount = new Map<string, number>();
  * string so log/error sites never produce `undefined` interpolations.
  */
 function describeOwner(owner: OwnerInfo | undefined): string {
-  if (!owner) return "core tool";
+  if (!owner) {
+    return "core tool";
+  }
   switch (owner.kind) {
     case "skill":
       return `skill "${owner.id}"`;
@@ -188,13 +165,41 @@ export function registerTool(definition: ToolDefinition): void {
   }
   const existing = tools.get(name);
   if (existing) {
-    if (existing === tool) return; // same definition re-registered, skip
+    if (existing === tool) {
+      return;
+    } // same definition re-registered, skip
     log.warn({ name }, "Tool already registered, overwriting");
   }
   tools.set(name, tool);
+  // A tool registered through this bare path has no explicit extension owner,
+  // so it is a built-in: record the shared `default` owner by name.
+  ownersByName.set(name, DEFAULT_TOOL_OWNER);
   log.info({ name, category: tool.category }, "Tool registered");
 }
 
+/**
+ * Resolve a registered tool by name, ensuring the registry has been
+ * initialized first. Mirrors `getHooksFor`, which awaits its reconcile before
+ * reading — so a caller on a cold registry gets a populated result instead of
+ * a spurious `undefined`. Prefer this in any async context.
+ *
+ * `initializeTools()` is idempotent: the first call does the work and caches
+ * its promise, so every later `resolveTool` just awaits the already-settled
+ * promise (an `await` on a resolved value — no re-initialization). The per-call
+ * cost past init is a single map lookup.
+ */
+export async function resolveTool(name: string): Promise<Tool | undefined> {
+  await initializeTools();
+  return tools.get(name);
+}
+
+/**
+ * Synchronous read that does NOT trigger initialization. For hot-path callers
+ * that run only after the registry is known to be populated — e.g. the agent
+ * loop's exclusive-tool predicate, invoked mid-turn once tools are resolved.
+ * Returns `undefined` if the tool is absent or the registry is not yet
+ * initialized; use {@link resolveTool} when readiness is not already guaranteed.
+ */
 export function getTool(name: string): Tool | undefined {
   return tools.get(name);
 }
@@ -235,12 +240,20 @@ export function getEnabledTools(): Tool[] {
 }
 
 /**
- * Return the recorded owner for a tool, or `undefined` if the tool is
- * core-origin (no owner) or unknown. Consumers that need to gate behavior on
- * which extension contributed a tool (permissions checker, approval-handler
- * load hints, conversation-skill-tools projection) call this rather than
- * reading owner off the `Tool` object — the registry is the single source of
- * truth for ownership.
+ * Return the owner recorded for a tool. Extension tools return their
+ * {@link OwnerInfo} (skill / plugin / MCP / workspace); built-ins return the
+ * shared {@link DEFAULT_TOOL_OWNER} (`kind: "default"`) that `registerTool`
+ * stamps by name. Returns `undefined` only when `name` is not registered at all
+ * — an unknown tool, which callers treat as "not a real tool" (skip / deny),
+ * never as a built-in.
+ *
+ * Because a tool cannot be invoked unless it was registered first, an invocable
+ * tool always has a defined owner in practice.
+ *
+ * Consumers that gate behavior on which extension contributed a tool
+ * (permissions checker, approval-handler load hints, conversation-skill-tools
+ * projection) call this rather than reading owner off the `Tool` object — the
+ * registry is the single source of truth for ownership.
  */
 export function getToolOwner(name: string): OwnerInfo | undefined {
   return ownersByName.get(name);
@@ -279,7 +292,7 @@ export function registerSkillTools(skillId: string, newTools: Tool[]): Tool[] {
     const existing = tools.get(tool.name);
     if (existing) {
       const existingOwner = ownersByName.get(tool.name);
-      const existingIsCore = !existingOwner;
+      const existingIsCore = !existingOwner || existingOwner.kind === "default";
       if (existingIsCore) {
         log.warn(
           { toolName: tool.name, ownerSkillId: skillId },
@@ -364,7 +377,8 @@ export function registerPluginTools(
     }
     const existing = tools.get(tool.name);
     if (existing) {
-      const existingIsCore = !ownersByName.has(tool.name);
+      const existingOwner = ownersByName.get(tool.name);
+      const existingIsCore = !existingOwner || existingOwner.kind === "default";
       if (existingIsCore) {
         log.warn(
           { toolName: tool.name, ownerPluginId: pluginName },
@@ -372,7 +386,6 @@ export function registerPluginTools(
         );
         continue;
       }
-      const existingOwner = ownersByName.get(tool.name);
       if (existingOwner?.kind === "workspace") {
         log.warn(
           { toolName: tool.name, pluginName },
@@ -440,6 +453,93 @@ export function unregisterPluginTools(pluginName: string): void {
 }
 
 /**
+ * Pull the active user-plugin tool set from the plugin mtime-cache into the
+ * registry. This is the pull half of the plugin-tool relationship — the
+ * mtime-cache never writes to the registry; instead this reconcile reads
+ * {@link import("../plugins/mtime-cache.js").getActiveUserPluginTools} (which
+ * syncs against the source-versions sentinel first) and diffs the result into
+ * the registry: plugins that vanished are unregistered, new plugins register,
+ * and a plugin whose per-tool source mtimes moved is re-registered. Mirrors
+ * how hooks resolve through `getUserHookEntriesFor`.
+ *
+ * Idempotent, cheap when nothing changed (one sentinel stat + fingerprint
+ * compares), and concurrency-safe (concurrent callers coalesce onto one
+ * in-flight reconcile). Runs as the final step of `initializeTools()` (at
+ * daemon boot the plugin cache is already populated by then), and
+ * fire-and-forget from the per-turn conversation tool resolver — the same
+ * cadence `loadWorkspaceTools` runs on.
+ */
+export function loadPluginTools(): Promise<void> {
+  if (pluginToolsReconcileInFlight) {
+    return pluginToolsReconcileInFlight;
+  }
+  // `reconcilePluginToolsFromCache` never rejects (failures are caught and
+  // logged); `.finally` clears the slot either way so the next caller pulls
+  // fresh.
+  pluginToolsReconcileInFlight = reconcilePluginToolsFromCache().finally(() => {
+    pluginToolsReconcileInFlight = null;
+  });
+  return pluginToolsReconcileInFlight;
+}
+
+async function reconcilePluginToolsFromCache(): Promise<void> {
+  // Dynamic import: the mtime-cache pulls the plugin-loader subtree in with
+  // it, which must stay out of this module's eager import graph — the
+  // registry is a widely-imported leaf.
+  let active: Map<string, { fingerprint: string; tools: Tool[] }>;
+  try {
+    const { getActiveUserPluginTools } =
+      await import("../plugins/mtime-cache.js");
+    active = await getActiveUserPluginTools();
+  } catch (err) {
+    log.warn(
+      { err },
+      "loadPluginTools: plugin cache pull failed — keeping current registrations",
+    );
+    return;
+  }
+
+  // Tear down plugins this reconcile registered that are no longer active
+  // (uninstalled, disabled, or their last tool file was deleted).
+  for (const pluginName of pulledPluginFingerprints.keys()) {
+    if (!active.has(pluginName)) {
+      unregisterPluginTools(pluginName);
+      pulledPluginFingerprints.delete(pluginName);
+    }
+  }
+
+  // Register new plugins; re-register ones whose tool set changed. Per-plugin
+  // isolation: one plugin's conflict/failure never blocks the others.
+  for (const [pluginName, { fingerprint, tools: pluginTools }] of active) {
+    const prev = pulledPluginFingerprints.get(pluginName);
+    if (prev === fingerprint) {
+      continue;
+    }
+    try {
+      if (prev !== undefined) {
+        // Changed tool set: drop the previous registration first so tools
+        // removed in the new set don't linger (re-registering alone would
+        // only overwrite the survivors).
+        unregisterPluginTools(pluginName);
+      }
+      registerPluginTools(pluginName, pluginTools);
+      pulledPluginFingerprints.set(pluginName, fingerprint);
+      log.info(
+        { plugin: pluginName, count: pluginTools.length },
+        "user plugin tools registered",
+      );
+    } catch (err) {
+      // Leave no fingerprint so the next reconcile retries this plugin.
+      pulledPluginFingerprints.delete(pluginName);
+      log.error(
+        { err, plugin: pluginName },
+        `Failed to register tools for user plugin ${pluginName}`,
+      );
+    }
+  }
+}
+
+/**
  * Return the current reference count for a plugin's tools. Exposed for testing.
  */
 export function getPluginRefCount(pluginName: string): number {
@@ -496,7 +596,8 @@ export function registerMcpTools(serverId: string, newTools: Tool[]): Tool[] {
     }
     const existing = tools.get(tool.name);
     if (existing) {
-      const existingIsCore = !ownersByName.has(tool.name);
+      const existingOwner = ownersByName.get(tool.name);
+      const existingIsCore = !existingOwner || existingOwner.kind === "default";
       if (existingIsCore) {
         log.warn(
           { toolName: tool.name, ownerMcpServerId: serverId },
@@ -504,7 +605,6 @@ export function registerMcpTools(serverId: string, newTools: Tool[]): Tool[] {
         );
         continue;
       }
-      const existingOwner = ownersByName.get(tool.name);
       if (existingOwner?.kind === "workspace") {
         log.warn(
           { toolName: tool.name, serverId },
@@ -578,7 +678,9 @@ export function getMcpToolDefinitions(): Tool[] {
 export function getPluginToolDefinitions(): Tool[] {
   return Array.from(tools.values()).filter((t) => {
     const owner = ownersByName.get(t.name);
-    if (owner?.kind !== "plugin") return false;
+    if (owner?.kind !== "plugin") {
+      return false;
+    }
     // Filter out tools contributed by disabled plugins at read time so
     // `assistant plugins disable <name>` takes effect on the next turn
     // without a daemon restart. Mirrors the `.disabled` sentinel filtering
@@ -594,9 +696,13 @@ export function getPluginToolDefinitions(): Tool[] {
 export function getMcpToolsByServer(): Map<string, Tool[]> {
   const byServer = new Map<string, Tool[]>();
   for (const [name, owner] of ownersByName) {
-    if (owner.kind !== "mcp") continue;
+    if (owner.kind !== "mcp") {
+      continue;
+    }
     const tool = tools.get(name);
-    if (!tool) continue;
+    if (!tool) {
+      continue;
+    }
     let list = byServer.get(owner.id);
     if (!list) {
       list = [];
@@ -675,7 +781,9 @@ export function registerWorkspaceTools(
     seenInBatch.add(tool.name);
 
     const existing = tools.get(tool.name);
-    if (!existing) continue;
+    if (!existing) {
+      continue;
+    }
 
     const existingOwner = ownersByName.get(tool.name);
     if (existingOwner?.kind === "workspace") {
@@ -684,7 +792,12 @@ export function registerWorkspaceTools(
       );
     }
 
-    if (!existingOwner) continue; // Core tool — override allowed, handled in mutation phase below.
+    // Built-in (default) tool — override allowed, handled in the mutation
+    // phase below. `undefined` shouldn't occur (every registered tool has an
+    // owner) but is treated the same as a built-in for safety.
+    if (!existingOwner || existingOwner.kind === "default") {
+      continue;
+    }
 
     throw new Error(
       `Workspace tool "${tool.name}" conflicts with an existing ${describeOwner(existingOwner)}. Workspace tools must register before other extension categories.`,
@@ -693,7 +806,9 @@ export function registerWorkspaceTools(
 
   for (const { tool, workspacePath } of stamped) {
     const existing = tools.get(tool.name);
-    const existingIsCore = existing && !ownersByName.has(tool.name);
+    const existingOwner = ownersByName.get(tool.name);
+    const existingIsCore =
+      existing && (!existingOwner || existingOwner.kind === "default");
     if (existingIsCore) {
       coreToolOverrides.set(tool.name, existing);
       log.info(
@@ -735,7 +850,9 @@ export function unregisterWorkspaceTool(name: string): void {
   const stashed = coreToolOverrides.get(name);
   if (stashed) {
     tools.set(name, stashed);
-    ownersByName.delete(name);
+    // The stash only ever holds a displaced built-in, so restore its `default`
+    // owner rather than deleting the entry.
+    ownersByName.set(name, DEFAULT_TOOL_OWNER);
     coreToolOverrides.delete(name);
     log.info(
       { name, workspacePath },
@@ -795,7 +912,7 @@ export function removeCoreToolViaWorkspace(name: string): void {
     );
   }
 
-  if (existingOwner) {
+  if (existingOwner && existingOwner.kind !== "default") {
     log.warn(
       { name, owner: existingOwner },
       `removeCoreToolViaWorkspace: "${name}" is owned by ${describeOwner(existingOwner)}, not a core tool — cannot strip from workspace. Resolve at the source (uninstall the ${existingOwner.kind}).`,
@@ -805,6 +922,9 @@ export function removeCoreToolViaWorkspace(name: string): void {
 
   coreToolOverrides.set(name, existing);
   tools.delete(name);
+  // The stripped built-in no longer has a live entry; drop its owner so
+  // `getToolOwner` reports the name as unregistered until it is restored.
+  ownersByName.delete(name);
   log.info(
     { name },
     "Stripped core tool via workspace .removed sentinel — stashed for potential restore",
@@ -849,6 +969,7 @@ export function restoreStrippedCoreTool(name: string): void {
     return;
   }
   tools.set(name, stashed);
+  ownersByName.set(name, DEFAULT_TOOL_OWNER);
   coreToolOverrides.delete(name);
   log.info(
     { name },
@@ -887,7 +1008,9 @@ export function getWorkspaceToolDefinitions(): Tool[] {
 export function getStrippedCoreToolNames(): string[] {
   const stripped: string[] = [];
   for (const name of coreToolOverrides.keys()) {
-    if (!tools.has(name)) stripped.push(name);
+    if (!tools.has(name)) {
+      stripped.push(name);
+    }
   }
   return stripped;
 }
@@ -932,10 +1055,32 @@ export function getAllToolDefinitions(): Tool[] {
   );
 }
 
-export async function initializeTools(): Promise<void> {
-  const { explicitTools, getCesToolsIfEnabled, cesTools } =
-    await import("./tool-manifest.js");
+/**
+ * Idempotent, cached tool-registry initialization: resolve the tool manifest,
+ * register the built-in (default) tools, and load workspace overrides. The
+ * first call runs the work; every later call returns the same settled promise
+ * without repeating it, so it is safe to call from multiple entry points or
+ * lazily on demand.
+ *
+ * This is the tool-registry analogue of the hook registry's
+ * `maybeReconcileFromSentinel()` — the lazy "make sure the registry is
+ * populated" step. As the registry read getters migrate to async (mirroring
+ * `getHooksFor`), they will `await` this before reading the map, so a read can
+ * no longer observe an un-initialized registry.
+ */
+export function initializeTools(): Promise<void> {
+  if (!toolsInitPromise) {
+    toolsInitPromise = runToolInitialization().catch((err) => {
+      // Don't cache a failed init: clear the slot so a later call retries
+      // rather than returning the same rejected promise forever.
+      toolsInitPromise = null;
+      throw err;
+    });
+  }
+  return toolsInitPromise;
+}
 
+async function runToolInitialization(): Promise<void> {
   // Capture tool names already in the registry before any manifest
   // registrations.  In production this is empty; in tests a non-skill tool
   // may have been registered before the first initializeTools() call.
@@ -943,18 +1088,6 @@ export async function initializeTools(): Promise<void> {
 
   for (const tool of explicitTools) {
     registerTool(tool);
-  }
-
-  // External skill tools — registered by skill bootstrap modules via
-  // `registerExternalTools()`. Called at init time (not spread into
-  // `explicitTools`) so registrations that happen between module-load
-  // and `initializeTools()` are picked up. Each provider pairs its tools
-  // with an OwnerInfo so the registry can record ownership in
-  // {@link ownersByName} alongside the bare `registerTool()` install.
-  const extEntries = getExternalTools();
-  for (const { owner, tool } of extEntries) {
-    registerTool(tool);
-    ownersByName.set(tool.name, owner);
   }
 
   // Host tools are registered here so host access stays opt-in until this
@@ -970,12 +1103,6 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
-  // CES tools - registered only when the CES feature flag is enabled.
-  const activeCesTools = getCesToolsIfEnabled();
-  for (const tool of activeCesTools) {
-    registerTool(tool);
-  }
-
   registerUiSurfaceTools();
   registerAppTools();
   registerSystemTools();
@@ -985,29 +1112,32 @@ export async function initializeTools(): Promise<void> {
   // arbitrary test tools that were registered before init.
   //
   // A pre-existing tool is included only if it is a known manifest tool
-  // (declared in explicitTools, hostTools, or any registered external
-  // skill tool) — e.g. a test registered a manifest tool directly before
-  // its first initializeTools() call.
+  // (declared in explicitTools or hostTools) — e.g. a test registered a
+  // manifest tool directly before its first initializeTools() call.
   if (!coreToolsSnapshot) {
     // Core tool literals always set `name` (verified by `registerTool` —
     // it throws on missing name). The `!` assertions reflect that
     // invariant at the iteration sites.
     const manifestToolNames = new Set<string>([
       ...explicitTools.map((t) => t.name!),
-      ...extEntries.map(({ tool }) => tool.name),
       ...hostTools.map((t) => t.name!),
-      ...cesTools.map((t) => t.name!),
       ...allUiSurfaceTools.map((t) => t.name!),
       ...coreAppProxyTools.map((t) => t.name!),
     ]);
 
-    coreToolsSnapshot = new Map<string, Tool>();
+    coreToolsSnapshot = new Map<string, { tool: Tool; owner: OwnerInfo }>();
     for (const [name, tool] of tools) {
-      const ownerKind = ownersByName.get(name)?.kind;
-      if (ownerKind === "skill" || ownerKind === "plugin") continue;
+      const owner = ownersByName.get(name);
+      if (owner?.kind === "skill" || owner?.kind === "plugin") {
+        continue;
+      }
       // Exclude pre-existing tools not declared in the manifest
-      if (preExisting.has(name) && !manifestToolNames.has(name)) continue;
-      coreToolsSnapshot.set(name, tool);
+      if (preExisting.has(name) && !manifestToolNames.has(name)) {
+        continue;
+      }
+      // Every registered tool carries an owner (built-ins get DEFAULT_TOOL_OWNER
+      // stamped by registerTool), so `owner` is defined here.
+      coreToolsSnapshot.set(name, { tool, owner: owner! });
     }
   }
 
@@ -1030,46 +1160,15 @@ export async function initializeTools(): Promise<void> {
   // here would create a registry ↔ loader cycle.
   const { loadWorkspaceTools } = await import("./workspace-tools/loader.js");
   await loadWorkspaceTools();
-}
 
-/**
- * Register any feature-flag-gated tools (CES `ces-tools`) that are enabled but
- * not yet in the registry. Idempotent and safe to call repeatedly.
- *
- * `initializeTools()` registers the gated tools once at startup, but feature-flag
- * overrides are fetched from the gateway ASYNCHRONOUSLY and non-blocking (see
- * `lifecycle.ts` — `initFeatureFlagOverrides()` is fired with `void`), so
- * `initializeTools()` can run BEFORE the flag value is known and register
- * nothing. The daemon receives ALL overrides (local `protected/feature-flags.json`
- * and remote/LaunchDarkly alike) through that async fetch, so this race affects
- * every install — without this follow-up sync a flag-enabled assistant would
- * never see the gated tools until a restart, which can lose the same race again.
- * Call this once the override fetch resolves.
- *
- * Enable-direction only: it does not unregister tools whose flag was turned OFF
- * (a live flip to OFF still requires a restart to drop them — the expected
- * behavior for daemon-gating flags). Never throws.
- */
-export async function syncFlagGatedTools(): Promise<void> {
-  try {
-    const { getCesToolsIfEnabled } = await import("./tool-manifest.js");
-    const enabled = [...getCesToolsIfEnabled()];
-    const added: string[] = [];
-    for (const tool of enabled) {
-      if (tool.name && !tools.has(tool.name)) {
-        registerTool(tool);
-        added.push(tool.name);
-      }
-    }
-    if (added.length > 0) {
-      log.info({ tools: added }, "Registered flag-gated tools after flag load");
-    }
-  } catch (err) {
-    log.warn(
-      { err },
-      "syncFlagGatedTools failed; flag-gated tools may stay unregistered until restart",
-    );
-  }
+  // Pull the active user-plugin tool set last, so core and workspace
+  // registrations already own their names when plugin conflicts resolve.
+  // At daemon boot the plugin mtime-cache is populated before this runs
+  // (`initializePlugins()` precedes `initializeTools()` in the lifecycle);
+  // in worker/standalone processes the cache is empty and this is a no-op.
+  // Runtime changes keep flowing through the same reconcile, re-fired by
+  // the per-turn conversation tool resolver.
+  await loadPluginTools();
 }
 
 /**
@@ -1086,15 +1185,20 @@ export function __resetRegistryForTesting(): void {
   ownersByName.clear();
   skillRefCount.clear();
   pluginRefCount.clear();
+  pulledPluginFingerprints.clear();
   // Drop the override stash too — the snapshot already represents the
   // pre-override baseline, so leaving stashed entries here would let a
   // later registerWorkspaceTools() falsely report "overridesCore: true"
   // against a fresh registry.
   coreToolOverrides.clear();
+  // Clear the cached init promise so a later initializeTools() re-runs against
+  // the freshly reset registry rather than returning the previous settled run.
+  toolsInitPromise = null;
 
   if (coreToolsSnapshot) {
-    for (const [name, tool] of coreToolsSnapshot) {
+    for (const [name, { tool, owner }] of coreToolsSnapshot) {
       tools.set(name, tool);
+      ownersByName.set(name, owner);
     }
   }
 }
@@ -1109,16 +1213,7 @@ export function __clearRegistryForTesting(): void {
   ownersByName.clear();
   skillRefCount.clear();
   pluginRefCount.clear();
+  pulledPluginFingerprints.clear();
   coreToolOverrides.clear();
-}
-
-/**
- * Drop every registered external-tool provider. Exposed exclusively for
- * tests that want to verify a single `registerExternalTools()` call in
- * isolation — the provider array otherwise accumulates across cases
- * because ESM import caching prevents re-running the tool-manifest
- * bootstrap.
- */
-export function __clearExternalToolProvidersForTesting(): void {
-  externalToolProviders.length = 0;
+  toolsInitPromise = null;
 }

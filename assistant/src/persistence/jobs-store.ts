@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, notInArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
@@ -37,7 +37,6 @@ export type MemoryJobType =
   | "prune_old_llm_request_logs"
   | "prune_old_tool_invocations"
   | "build_conversation_summary"
-  | "conversation_analyze"
   | "backfill"
   | "rebuild_index"
   | "delete_qdrant_vectors"
@@ -67,11 +66,13 @@ export type MemoryJobType =
   | "purge_conversation_lexical"
   | "delete_message_lexical"
   | "backfill_lexical_index"
+  | "skill_card_insert"
   // Retired/legacy — no live handler; persisted rows drop via LEGACY_JOB_TYPES.
   | "memory_v3_consolidate"
   | "memory_v3_index_maintenance"
   | "memory_v3_edge_learning"
-  | "memory_retrospective";
+  | "memory_retrospective"
+  | "conversation_analyze";
 
 export const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_segment",
@@ -230,89 +231,6 @@ export function upsertDebouncedJob(
 }
 
 /**
- * Upsert a pending `conversation_analyze` job keyed by both
- * `conversationId` and `triggerGroup`. Immediate triggers (batch,
- * compaction) and debounced triggers (idle, lifecycle) live in separate
- * rows so an idle enqueue cannot push an already-scheduled immediate
- * row's `runAfter` into the future (and vice versa). Each group still
- * coalesces within itself: two batch crossings, or two idle triggers,
- * collapse to a single pending row.
- */
-export function upsertAutoAnalysisJob(
-  payload: {
-    conversationId: string;
-    triggerGroup: "immediate" | "debounced";
-  },
-  runAfter: number,
-  dbOverride?: Parameters<DrizzleDb["transaction"]>[0] extends (
-    tx: infer T,
-  ) => unknown
-    ? T
-    : never,
-): void {
-  const db = dbOverride ?? memoryDb();
-  // Match rows with the same triggerGroup OR legacy rows without triggerGroup
-  // (from older builds that used upsertDebouncedJob before triggerGroup was
-  // introduced). Without the IS NULL fallback, the next enqueue would insert
-  // a duplicate pending row for the same conversation.
-  const existing = db
-    .select()
-    .from(memoryJobs)
-    .where(
-      and(
-        eq(memoryJobs.type, "conversation_analyze"),
-        eq(memoryJobs.status, "pending"),
-        sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`,
-        or(
-          sql`json_extract(${memoryJobs.payload}, '$.triggerGroup') = ${payload.triggerGroup}`,
-          sql`json_extract(${memoryJobs.payload}, '$.triggerGroup') IS NULL`,
-        ),
-      ),
-    )
-    .get();
-  if (existing) {
-    // Merge triggerGroup into legacy rows so subsequent lookups use the new key.
-    const existingPayload = JSON.parse(existing.payload) as Record<
-      string,
-      unknown
-    >;
-    const needsPayloadUpdate = !existingPayload.triggerGroup;
-    db.update(memoryJobs)
-      .set({
-        runAfter,
-        updatedAt: Date.now(),
-        ...(needsPayloadUpdate
-          ? {
-              payload: JSON.stringify({ ...existingPayload, ...payload }),
-            }
-          : {}),
-      })
-      .where(eq(memoryJobs.id, existing.id))
-      .run();
-  } else {
-    enqueueMemoryJob("conversation_analyze", payload, runAfter, dbOverride);
-  }
-
-  // When an immediate trigger fires (batch/compaction), cancel any pending
-  // debounced row for the same conversation — the immediate analysis covers
-  // those messages, making the debounced pass redundant. Without this, both
-  // rows fire independently and double the LLM cost per batch crossing.
-  if (payload.triggerGroup === "immediate") {
-    db.update(memoryJobs)
-      .set({ status: "completed", updatedAt: Date.now() })
-      .where(
-        and(
-          eq(memoryJobs.type, "conversation_analyze"),
-          eq(memoryJobs.status, "pending"),
-          sql`json_extract(${memoryJobs.payload}, '$.conversationId') = ${payload.conversationId}`,
-          sql`json_extract(${memoryJobs.payload}, '$.triggerGroup') = 'debounced'`,
-        ),
-      )
-      .run();
-  }
-}
-
-/**
  * Upsert a pending `memory_retrospective` job keyed by `conversationId`. All
  * four retrospective triggers (interval, message_count, compaction,
  * lifecycle) collapse into a single pending row per conversation — rapid
@@ -357,6 +275,51 @@ export function upsertMemoryRetrospectiveJob(
     return;
   }
   enqueueMemoryJob("memory_retrospective", payload, runAfter, dbOverride);
+}
+
+/**
+ * Upsert a pending `skill_card_insert` job — the deferred delivery of a
+ * retrospective run's skill card into a source conversation that was mid-turn
+ * at insert time (see `memory-retrospective-skill-card.ts`). Keyed by
+ * `runConversationId`: one pending delivery exists per authoring run, so the
+ * handler's own still-mid-turn re-upsert (and any duplicate enqueue) coalesces
+ * into a single row instead of stacking deliveries — the message-level
+ * `clientMessageId` dedup remains the final backstop against a double card.
+ * The earliest `runAfter` wins, mirroring `upsertMemoryRetrospectiveJob`; the
+ * stored payload is kept as-is since every enqueue for a given run carries the
+ * same snapshot (the skill list is derived from that run's persisted
+ * messages).
+ */
+export function upsertSkillCardInsertJob(
+  payload: {
+    sourceConversationId: string;
+    runConversationId: string;
+  } & Record<string, unknown>,
+  runAfter: number = Date.now(),
+): void {
+  const db = memoryDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "skill_card_insert"),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.runConversationId') = ${payload.runConversationId}`,
+      ),
+    )
+    .get();
+  if (existing) {
+    const nextRunAfter = Math.min(existing.runAfter, runAfter);
+    if (nextRunAfter !== existing.runAfter) {
+      db.update(memoryJobs)
+        .set({ runAfter: nextRunAfter, updatedAt: Date.now() })
+        .where(eq(memoryJobs.id, existing.id))
+        .run();
+    }
+    return;
+  }
+  enqueueMemoryJob("skill_card_insert", payload, runAfter);
 }
 
 /**

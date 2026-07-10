@@ -70,3 +70,8 @@ export const Overflowing: Story = {
 export const Single: Story = {
   render: () => <StripHarness initialCount={1} />,
 };
+
+/** Starts empty; click "Stage another" to confirm the very first chip animates in. */
+export const Empty: Story = {
+  render: () => <StripHarness initialCount={0} />,
+};

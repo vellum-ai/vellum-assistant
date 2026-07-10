@@ -217,6 +217,42 @@ describe("mapPersistedMessagesToEntries", () => {
     expect(entries[0]!.content).toBe("Session ended with error");
   });
 
+  test("maps status 'feedback_prompt' to a feedback prompt entry", () => {
+    const entries = mapPersistedMessagesToEntries([
+      msg({
+        kind: "status",
+        content: "feedback_prompt",
+        metadata: { summary: "The app colors are ugly." },
+      }),
+    ]);
+    expect(entries).toEqual([
+      {
+        id: "msg-1",
+        kind: "feedback_prompt",
+        content: "The app colors are ugly.",
+        timestamp: Date.parse("2026-01-01T00:00:00Z"),
+      },
+    ]);
+  });
+
+  test("maps status 'feedback_prompt' metadata classification to a reason", () => {
+    const entries = mapPersistedMessagesToEntries([
+      msg({
+        kind: "status",
+        content: "feedback_prompt",
+        metadata: {
+          summary: "Compact mode would help.",
+          classification: "feature_request",
+        },
+      }),
+    ]);
+    expect(entries[0]).toMatchObject({
+      kind: "feedback_prompt",
+      content: "Compact mode would help.",
+      meta: { reason: "feature_request" },
+    });
+  });
+
   test("skips unknown status content", () => {
     const entries = mapPersistedMessagesToEntries([
       msg({ kind: "status", content: "active" }),
@@ -371,7 +407,7 @@ describe("Doctor source event ID helpers", () => {
 // ---------------------------------------------------------------------------
 
 describe("hasPendingApproval", () => {
-  test("returns true when last non-status entry is approval", () => {
+  test("returns true when last actionable entry is approval", () => {
     const entries: ChatEntry[] = [
       { id: "1", kind: "user", content: "x", timestamp: 0 },
       {
@@ -381,7 +417,13 @@ describe("hasPendingApproval", () => {
         timestamp: 0,
         meta: { toolName: "exec", input: {}, toolCallId: "tc-1", description: "" },
       },
-      { id: "3", kind: "status", content: "active", timestamp: 0 },
+      {
+        id: "3",
+        kind: "feedback_prompt",
+        content: "Share feedback",
+        timestamp: 0,
+      },
+      { id: "4", kind: "status", content: "active", timestamp: 0 },
     ];
     expect(hasPendingApproval(entries)).toBe(true);
   });
@@ -410,7 +452,7 @@ describe("hasPendingApproval", () => {
 // ---------------------------------------------------------------------------
 
 describe("hasPendingBackup", () => {
-  test("returns true when last non-status entry is backup_prompt", () => {
+  test("returns true when last actionable entry is backup_prompt", () => {
     const entries: ChatEntry[] = [
       { id: "1", kind: "user", content: "x", timestamp: 0 },
       {
@@ -419,6 +461,12 @@ describe("hasPendingBackup", () => {
         content: "tool",
         timestamp: 0,
         meta: { toolName: "tool" },
+      },
+      {
+        id: "3",
+        kind: "feedback_prompt",
+        content: "Share feedback",
+        timestamp: 0,
       },
     ];
     expect(hasPendingBackup(entries)).toBe(true);

@@ -2,14 +2,6 @@
   "version": 1,
   "flags": [
     {
-      "id": "auto-analyze",
-      "scope": "assistant",
-      "key": "auto-analyze",
-      "label": "Auto-analyze conversations",
-      "description": "Automatically trigger conversation analysis on the same cadence as memory extraction (batch threshold, idle debounce, end-of-conversation). The analysis agent has full tool access and writes back to memory and skills without user approval.",
-      "defaultEnabled": false
-    },
-    {
       "id": "user-hosted-enabled",
       "scope": "client",
       "key": "user-hosted-enabled",
@@ -80,38 +72,6 @@
       "key": "developer-menu-items",
       "label": "Developer Menu Items",
       "description": "Show Component Gallery and Replay Onboarding in the menu bar",
-      "defaultEnabled": false
-    },
-    {
-      "id": "ces-tools",
-      "scope": "assistant",
-      "key": "ces-tools",
-      "label": "CES Tool Exposure",
-      "description": "Register Credential Execution Service tools (credential-grant, credential-revoke, credential-list) in the agent loop",
-      "defaultEnabled": false
-    },
-    {
-      "id": "ces-shell-lockdown",
-      "scope": "assistant",
-      "key": "ces-shell-lockdown",
-      "label": "CES Shell Lockdown",
-      "description": "Enforce untrusted-agent shell lockdown when CES credentials are active, restricting direct shell access to credentialed services",
-      "defaultEnabled": false
-    },
-    {
-      "id": "ces-secure-install",
-      "scope": "assistant",
-      "key": "ces-secure-install",
-      "label": "CES Secure Command Installation",
-      "description": "Enable secure tool/command installation via CES instead of direct shell execution for untrusted agents",
-      "defaultEnabled": false
-    },
-    {
-      "id": "ces-grant-audit",
-      "scope": "assistant",
-      "key": "ces-grant-audit",
-      "label": "CES Grant & Audit Inspection",
-      "description": "Surface credential grant and audit inspection endpoints for reviewing active grants and access logs",
       "defaultEnabled": false
     },
     {
@@ -240,14 +200,6 @@
       "key": "app-control",
       "label": "App Control",
       "description": "Enable the app-control skill (per-app screenshot + raw input bypassing AX tree)",
-      "defaultEnabled": false
-    },
-    {
-      "id": "analyze-conversation",
-      "scope": "assistant",
-      "key": "analyze-conversation",
-      "label": "Analyze Conversation",
-      "description": "Show the 'Analyze' / 'Analyze conversation' option in conversation context menus and the conversation title actions dropdown.",
       "defaultEnabled": false
     },
     {
@@ -391,8 +343,8 @@
       "scope": "assistant",
       "key": "channel-trust-floors",
       "label": "Channel Trust Floors",
-      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. Off by default while the feature is in development.",
-      "defaultEnabled": false
+      "description": "Expose the Channel Trust Floors settings card (per-channel inbound admission policy) on the Privacy settings page. When off, the card is hidden and channels fall back to their default admission floors. On by default; disable to hide the card.",
+      "defaultEnabled": true
     },
     {
       "id": "mcp-add-server",
@@ -441,6 +393,22 @@
       "label": "One-time credential request links",
       "description": "Enable one-time credential-request links: the generate-link action in settings, the public credential entry page, and assistant-initiated links on channels without secure input.",
       "defaultEnabled": false
+    },
+    {
+      "id": "summarize-up-to-here",
+      "scope": "both",
+      "key": "summarize-up-to-here",
+      "label": "Summarize Up To Here",
+      "description": "Show the per-message Summarize up to here action and enable the conversation summarize endpoint",
+      "defaultEnabled": false
+    },
+    {
+      "id": "override-or-default-resolution",
+      "scope": "assistant",
+      "key": "override-or-default-resolution",
+      "label": "Override-or-Default Profile Resolution",
+      "description": "Resolve inference profiles as single complete overrides (or the call site's default intent through the default provider) instead of the legacy deep-merge cascade. Ships enabled; disable as a kill switch to restore merge semantics.",
+      "defaultEnabled": true
     }
   ]
 }

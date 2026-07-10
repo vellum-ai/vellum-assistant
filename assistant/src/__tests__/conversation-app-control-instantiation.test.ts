@@ -43,15 +43,12 @@ import type { Tool } from "../tools/types.js";
 // Module mocks for the skill-projection layer
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 let appControlFlagEnabled = false;
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) => {
-    if (key === "app-control") return appControlFlagEnabled;
+    if (key === "app-control") {
+      return appControlFlagEnabled;
+    }
     return true;
   },
   loadDefaultsRegistry: () => ({}),
@@ -143,7 +140,20 @@ mock.module("../tools/registry.js", () => ({
     let found: Tool | undefined;
     for (const tools of mockRegisteredTools.values()) {
       for (const tool of tools) {
-        if (tool.name === name) found = tool;
+        if (tool.name === name) {
+          found = tool;
+        }
+      }
+    }
+    return found;
+  },
+  resolveTool: (name: string) => {
+    let found: Tool | undefined;
+    for (const tools of mockRegisteredTools.values()) {
+      for (const tool of tools) {
+        if (tool.name === name) {
+          found = tool;
+        }
       }
     }
     return found;
@@ -158,7 +168,9 @@ mock.module("../tools/registry.js", () => ({
     let ownerSkillId: string | undefined;
     for (const [skillId, tools] of mockRegisteredTools.entries()) {
       for (const tool of tools) {
-        if (tool.name === name) ownerSkillId = skillId;
+        if (tool.name === name) {
+          ownerSkillId = skillId;
+        }
       }
     }
     return ownerSkillId === undefined

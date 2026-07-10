@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
 import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import {
@@ -57,14 +58,19 @@ function normalizeOptionalStringArray(
  * Core execution logic for scaffold_managed_skill.
  * Exported so bundled-skill executors and tests can call it directly.
  *
- * `deps` injects the catalog seam so the ownership backstop's non-managed
- * collision check can be exercised without standing up a real bundled/plugin
- * catalog.
+ * `deps` injects the catalog and conversation-lookup seams so the ownership
+ * backstop's non-managed collision check and the lineage resolution can be
+ * exercised without standing up a real bundled/plugin catalog or a live DB.
  */
 export async function executeScaffoldManagedSkill(
   input: Record<string, unknown>,
   context: ToolContext,
-  deps: { loadCatalog?: () => { id: string; source: SkillSource }[] } = {},
+  deps: {
+    loadCatalog?: () => { id: string; source: SkillSource }[];
+    getConversation?: (
+      id: string,
+    ) => { forkParentConversationId: string | null } | null;
+  } = {},
 ): Promise<ToolExecutionResult> {
   const skillId = input.skill_id;
   if (typeof skillId !== "string" || !skillId.trim()) {
@@ -230,6 +236,25 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
+  // Conversation lineage (retrospective origin only). The retrospective runs
+  // in a background fork of the conversation it distilled the procedure from,
+  // so the fork's parent is this skill's durable source conversation.
+  // Resolution is best-effort: a missing or unresolvable parent must never
+  // fail the scaffold.
+  let sourceConversationId: string | undefined;
+  let retrospectiveConversationId: string | undefined;
+  if (fromRetrospective && context.conversationId) {
+    retrospectiveConversationId = context.conversationId;
+    try {
+      const lookupConversation = deps.getConversation ?? getConversation;
+      sourceConversationId =
+        lookupConversation(context.conversationId)?.forkParentConversationId ??
+        undefined;
+    } catch {
+      // Lineage stays unset; the scaffold itself still proceeds.
+    }
+  }
+
   const result = createManagedSkill({
     id,
     name: sanitizeFrontmatterValue(name),
@@ -246,6 +271,8 @@ export async function executeScaffoldManagedSkill(
     category,
     files,
     author,
+    sourceConversationId,
+    retrospectiveConversationId,
   });
 
   if (!result.created) {

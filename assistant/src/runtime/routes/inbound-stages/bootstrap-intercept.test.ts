@@ -16,11 +16,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { createGatewayVerificationSessionsStub } from "../../../__tests__/helpers/gateway-verification-sessions-stub.js";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Gateway-backed session client (async IPC); throw toggles simulate an
 // unreachable gateway per lifecycle call.
 const gatewaySessions = createGatewayVerificationSessionsStub({

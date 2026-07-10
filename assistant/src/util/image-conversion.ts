@@ -86,6 +86,12 @@ function evictIfNeeded(dir: string): void {
 export interface ConvertToJpegOptions {
   /** Downscale so neither side exceeds this; omit to keep full resolution. */
   maxDimensionPx?: number;
+  /**
+   * Resample to exactly these pixel dimensions (up- or downscaling). The
+   * caller is responsible for preserving aspect ratio. Mutually exclusive
+   * with `maxDimensionPx`; when both are set this wins.
+   */
+  resizeToPx?: { width: number; height: number };
   /** JPEG quality 1-100 (default 80). */
   quality?: number;
 }
@@ -99,10 +105,18 @@ function runSips(
   const outPath = join(tmpdir(), `vellum-img-opt-${stamp}-out.jpg`);
   try {
     writeFileSync(srcPath, inputBytes);
+    // `-z` resamples to an exact height/width (the only sips mode that can
+    // upscale); `--resampleHeightWidthMax` only caps the longest side.
     const args =
-      options.maxDimensionPx != null
-        ? ["--resampleHeightWidthMax", String(options.maxDimensionPx)]
-        : [];
+      options.resizeToPx != null
+        ? [
+            "-z",
+            String(options.resizeToPx.height),
+            String(options.resizeToPx.width),
+          ]
+        : options.maxDimensionPx != null
+          ? ["--resampleHeightWidthMax", String(options.maxDimensionPx)]
+          : [];
     args.push(
       "-s",
       "format",
@@ -142,8 +156,12 @@ export function convertImageToJpeg(
 ): Buffer | null {
   const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
   // Options qualify the key so full-resolution storage conversions and
-  // downscaled transport conversions of the same source never collide.
-  const cacheKey = `${hash}-${options.maxDimensionPx ?? "full"}-q${options.quality ?? DEFAULT_JPEG_QUALITY}`;
+  // resized transport conversions of the same source never collide.
+  const sizeKey =
+    options.resizeToPx != null
+      ? `${options.resizeToPx.width}x${options.resizeToPx.height}`
+      : (options.maxDimensionPx ?? "full");
+  const cacheKey = `${hash}-${sizeKey}-q${options.quality ?? DEFAULT_JPEG_QUALITY}`;
 
   const cached = readFromCache(cacheKey);
   if (cached) return cached;

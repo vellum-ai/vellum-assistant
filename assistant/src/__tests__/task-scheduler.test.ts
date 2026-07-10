@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mock the shared `runBackgroundJob` runner so the scheduler's fresh-bootstrap
 // talk-mode path stays observable. Each invocation creates a new conversation
 // row and pushes the prompt onto the per-test handler set via
@@ -95,11 +88,17 @@ let processMessageImpl: (
   options?: unknown,
 ) => Promise<unknown> = async () => {};
 mock.module("../daemon/process-message.js", () => ({
-  processMessage: (
+  // Normalize to the real `processMessage` contract: it always resolves to
+  // `{ messageId, turnFailure? }`. The scheduler destructures `turnFailure`
+  // off it, so a test impl that returns nothing still yields a valid object.
+  processMessage: async (
     conversationId: string,
     message: string,
     options?: unknown,
-  ) => processMessageImpl(conversationId, message, options),
+  ) => {
+    const res = await processMessageImpl(conversationId, message, options);
+    return res ?? { messageId: "test-message-id" };
+  },
 }));
 
 import { loadRawConfig, saveRawConfig } from "../config/loader.js";
@@ -426,6 +425,38 @@ describe("scheduler run_task detection", () => {
       totalEstimatedCostUsd: 0.25,
       eventCount: 1,
     });
+  });
+
+  test("records a task run as error when the turn fails without throwing", async () => {
+    // A run_task:<id> schedule whose LLM call fails (e.g. an invalid provider)
+    // ends the turn without throwing — processMessage resolves and reports the
+    // failure via turnFailure. The task callback must turn that into a failed
+    // task result so the run is recorded as error, not ok.
+    const task = createTask({
+      title: "Bad Creds Task",
+      template: "Spend scheduled tokens",
+    });
+    const schedule = await scheduleTask({
+      taskId: task.id,
+      name: "Bad Creds Schedule",
+      cronExpression: "* * * * *",
+    });
+    forceScheduleDue(schedule.id);
+
+    processMessageImpl = async () => ({
+      messageId: "test-message-id",
+      turnFailure: { failureCode: "provider_error" },
+    });
+
+    const result = await runScheduleDueWorkOnce();
+
+    expect(result.completed).toBe(0);
+    expect(result.failed).toBe(1);
+
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].status).toBe("error");
+    expect(runs[0].error).toContain("provider_error");
   });
 
   test("opens a normal execute schedule run before fresh background processing and records the conversation id", async () => {

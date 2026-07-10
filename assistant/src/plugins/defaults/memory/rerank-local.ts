@@ -3,10 +3,9 @@ import { existsSync } from "node:fs";
 
 import type { RerankDtype } from "../../../config/schemas/memory-v2.js";
 import { EmbeddingRuntimeManager } from "../../../persistence/embeddings/embedding-runtime-manager.js";
-import { getLogger } from "../../../util/logger.js";
-import { getEmbeddingModelsDir } from "../../../util/platform.js";
-import { PromiseGuard } from "../../../util/promise-guard.js";
-import { workerMemoryEnv } from "../../../util/worker-memory.js";
+import { PromiseGuard, workerMemoryEnv } from "./host-utils.js";
+import { getLogger } from "./logging.js";
+import { getEmbeddingModelsDir } from "./paths.js";
 
 const log = getLogger("memory-rerank-local");
 

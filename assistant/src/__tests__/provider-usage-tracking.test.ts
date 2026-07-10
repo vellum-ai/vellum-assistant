@@ -1,6 +1,13 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
+// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
+// llm-resolver-override-or-default.test.ts and its companion suites.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 let mockLlmConfig: Record<string, unknown> = {};
 
@@ -8,10 +15,6 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     llm: mockLlmConfig,
   }),
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
 }));
 
 import { LLMSchema } from "../config/schemas/llm.js";

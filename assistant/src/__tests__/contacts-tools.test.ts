@@ -11,13 +11,6 @@ import {
 // Track the gateway URL; updated once the test server starts.
 let testGatewayUrl = "http://127.0.0.1:0";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},

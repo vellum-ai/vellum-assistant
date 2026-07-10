@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
   getSourcePathsForAttachments: () => new Map<string, string>(),
@@ -23,6 +18,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   isConversationProcessing: () => false,
   addMessage: async () => ({ id: "message-id" }),
   getConversation: () => null,
+  getMessageById: () => null,
   provenanceFromTrustContext: () => ({}),
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
@@ -313,8 +309,11 @@ describe("processMessageInBackground Slack option propagation", () => {
     expect(observedMessages).toEqual([delta]);
 
     activeConversation.__loopDeferred.resolve();
+    // processMessage now also reports the turn's failure outcome, read back
+    // from the stamped metadata — null here since the turn replied normally.
     await expect(processing).resolves.toEqual({
       messageId: "persisted-user-message-id",
+      turnFailure: null,
     });
   });
 

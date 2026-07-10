@@ -54,7 +54,6 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
     narrativeRole: row.narrativeRole,
     partOfStory: row.partOfStory,
     imageRefs: row.imageRefs ? (JSON.parse(row.imageRefs) as ImageRef[]) : null,
-    scopeId: row.scopeId,
   };
 }
 
@@ -79,7 +78,6 @@ function nodeToInsertValues(node: NewNode, id: string) {
     narrativeRole: node.narrativeRole,
     partOfStory: node.partOfStory,
     imageRefs: node.imageRefs ? JSON.stringify(node.imageRefs) : null,
-    scopeId: node.scopeId,
   };
 }
 
@@ -243,7 +241,6 @@ export function updateNode(
     updates.imageRefs = changes.imageRefs
       ? JSON.stringify(changes.imageRefs)
       : null;
-  if (changes.scopeId !== undefined) updates.scopeId = changes.scopeId;
   if (changes.eventDate !== undefined) updates.eventDate = changes.eventDate;
 
   if (Object.keys(updates).length === 0) return;
@@ -286,7 +283,6 @@ export function deleteNode(id: string): void {
 // ---------------------------------------------------------------------------
 
 export interface NodeQueryFilters {
-  scopeId?: string;
   types?: MemoryType[];
   fidelityNot?: Fidelity[];
   minSignificance?: number;
@@ -302,9 +298,6 @@ export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
   const db = getDb();
   const conditions = [];
 
-  if (filters.scopeId) {
-    conditions.push(eq(memoryGraphNodes.scopeId, filters.scopeId));
-  }
   if (filters.types && filters.types.length > 0) {
     conditions.push(inArray(memoryGraphNodes.type, filters.types));
   }
@@ -370,17 +363,13 @@ export function queryNodes(filters: NodeQueryFilters): MemoryNode[] {
  * whose embedding jobs haven't completed yet). The content-pattern filter
  * prevents organic procedural memories from crowding out real capabilities.
  */
-export function queryCapabilityNodes(
-  scopeId: string,
-  limit: number,
-): MemoryNode[] {
+export function queryCapabilityNodes(limit: number): MemoryNode[] {
   const db = getDb();
   const rows = db
     .select()
     .from(memoryGraphNodes)
     .where(
       and(
-        eq(memoryGraphNodes.scopeId, scopeId),
         eq(memoryGraphNodes.type, "procedural"),
         sql`${memoryGraphNodes.fidelity} != 'gone'`,
         or(
@@ -399,18 +388,13 @@ export function queryCapabilityNodes(
   return rows.map(rowToNode);
 }
 
-/** Count all non-gone nodes in a scope. */
-export function countNodes(scopeId: string): number {
+/** Count all non-gone nodes in the workspace memory pool. */
+export function countNodes(): number {
   const db = getDb();
   const result = db
     .select({ count: sql<number>`count(*)` })
     .from(memoryGraphNodes)
-    .where(
-      and(
-        eq(memoryGraphNodes.scopeId, scopeId),
-        sql`${memoryGraphNodes.fidelity} != 'gone'`,
-      ),
-    )
+    .where(sql`${memoryGraphNodes.fidelity} != 'gone'`)
     .get();
   return result?.count ?? 0;
 }
@@ -541,7 +525,6 @@ export function getTriggersForNode(nodeId: string): MemoryTrigger[] {
 
 export function getActiveTriggersByType(
   type: MemoryTrigger["type"],
-  scopeId?: string,
 ): MemoryTrigger[] {
   const db = getDb();
   const conditions = [
@@ -549,28 +532,7 @@ export function getActiveTriggersByType(
     eq(memoryGraphTriggers.consumed, false),
   ];
 
-  // Join to nodes table to filter by scope if needed
-  if (scopeId) {
-    const rows = db
-      .select({
-        trigger: memoryGraphTriggers,
-      })
-      .from(memoryGraphTriggers)
-      .innerJoin(
-        memoryGraphNodes,
-        eq(memoryGraphTriggers.nodeId, memoryGraphNodes.id),
-      )
-      .where(
-        and(
-          ...conditions,
-          eq(memoryGraphNodes.scopeId, scopeId),
-          sql`${memoryGraphNodes.fidelity} != 'gone'`,
-        ),
-      )
-      .all();
-    return rows.map((r) => rowToTrigger(r.trigger));
-  }
-
+  // Join to nodes table to exclude triggers whose node is soft-deleted.
   const rows = db
     .select({
       trigger: memoryGraphTriggers,

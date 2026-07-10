@@ -1,26 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
@@ -53,6 +32,20 @@ Earlier turns summarized here.
 </key_state>
 
 <tail_start timestamp="${TAIL_TIMESTAMP}" preview="tail anchor message" />
+</compaction_result>
+`;
+
+// The emergency prompt asks for summary + key_state only — no tail_start —
+// so the emergency test's canned response mirrors a prompt-following model.
+const emergencyCompactionResponse = `
+<compaction_result>
+<summary>
+Earlier turns summarized here.
+</summary>
+
+<key_state>
+- Nothing critical pending.
+</key_state>
 </compaction_result>
 `;
 
@@ -114,13 +107,16 @@ function serializeBlocks(messages: Message[]): string {
 }
 
 // Records the exact message list the provider is asked to summarize.
-function recordingProvider(sink: { sent: Message[] }): Provider {
+function recordingProvider(
+  sink: { sent: Message[] },
+  response: string,
+): Provider {
   return {
     name: "mock-provider",
     sendMessage: async (msgs: Message[]) => {
       sink.sent = msgs;
       return {
-        content: [{ type: "text", text: compactionResponse }],
+        content: [{ type: "text", text: response }],
         model: "mock-model",
         usage: { inputTokens: 100, outputTokens: 50 },
         stopReason: "end_turn",
@@ -151,7 +147,7 @@ describe("compaction summary calls — historical web-search sanitization", () =
     const result = await runAssistantDrivenCompaction({
       conversationId: "conv-web-search",
       messages,
-      provider: recordingProvider(sink),
+      provider: recordingProvider(sink, compactionResponse),
       systemPrompt: "system",
       compaction: { enabled: true, autoThreshold: 0.7 },
       maxInputTokens: 1000,
@@ -192,7 +188,7 @@ describe("compaction summary calls — historical web-search sanitization", () =
     const result = await runEmergencyCompaction({
       conversationId: "conv-web-search-emergency",
       messages,
-      provider: recordingProvider(sink),
+      provider: recordingProvider(sink, emergencyCompactionResponse),
       systemPrompt: "system",
       compaction: { enabled: true, autoThreshold: 0.7 },
       // Large budget so the prefix is not front-truncated — this test exercises

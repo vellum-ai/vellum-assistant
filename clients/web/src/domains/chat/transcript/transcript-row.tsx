@@ -1,6 +1,7 @@
 import { memo, type ReactNode } from "react";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
@@ -30,6 +31,7 @@ export interface TranscriptRowProps {
     data?: Record<string, unknown>,
   ) => void;
   onForkConversation?: (messageId: string) => void;
+  onSummarizeUpToHere?: (messageId: string) => void;
   onInspectMessage?: (messageId: string) => void;
   /** Render-prop for `kind: "onboardingChoice"` items. Onboarding depends on
    *  props from the parent (sendMessage, didOnboarding, etc.) and has a
@@ -74,6 +76,10 @@ export interface TranscriptRowProps {
    *  `TranscriptMessageBody` so the streaming message's last tool-call group
    *  defaults open. History rows leave it `false`. */
   isStreaming?: boolean;
+  /** True for the final item of the latest turn. Forwarded to
+   *  `TranscriptMessageBody` so the message directly above the parked avatar
+   *  collapses its hover-actions row and animates it open on hover. */
+  isLatestMessage?: boolean;
 }
 
 export const TranscriptRow = memo(function TranscriptRow({
@@ -82,6 +88,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   assistantDisplayName,
   onSurfaceAction,
   onForkConversation,
+  onSummarizeUpToHere,
   onInspectMessage,
   renderOnboardingChoice,
   onOpenRuleEditor,
@@ -97,6 +104,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   onWorkflowClick,
   onStopWorkflow,
   isStreaming,
+  isLatestMessage,
 }: TranscriptRowProps) {
   switch (item.kind) {
     case "message": {
@@ -107,6 +115,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           assistantDisplayName={assistantDisplayName}
           onSurfaceAction={onSurfaceAction}
           onForkConversation={onForkConversation}
+          onSummarizeUpToHere={onSummarizeUpToHere}
           onInspectMessage={onInspectMessage}
           onOpenRuleEditor={onOpenRuleEditor}
           unknownNudgeToolCallIds={unknownNudgeToolCallIds}
@@ -121,6 +130,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           onWorkflowClick={onWorkflowClick}
           onStopWorkflow={onStopWorkflow}
           isStreaming={isStreaming}
+          isLatestMessage={isLatestMessage}
         />
       );
     }
@@ -138,27 +148,27 @@ export const TranscriptRow = memo(function TranscriptRow({
       );
 
     case "thinking":
+      // The turn-status slot. Mounted for the WHOLE in-flight turn; `item.active`
+      // brings the shimmering label in only during the gaps where no other
+      // affordance owns the progress signal — it hides while assistant text
+      // streams, while an inline `SingleActivity` thinking link shimmers, and
+      // while a prompt is pending (see `shouldShowThinkingIndicator`). While
+      // inactive the slot animates closed (h-0) instead of holding a blank
+      // fixed-height band above the avatar; the height transition keeps the
+      // show/hide handoff a smooth slide rather than a reflow jump. Same bare
+      // avatar-tinted shimmer treatment as the inline link so the handoff
+      // reads as one continuous "Thinking" state; the three-dot typing pill it
+      // replaces read as a competing third loading affordance.
       return (
-        <div className="flex justify-start">
-          <div className="flex items-center gap-[5px] rounded-[var(--radius-lg)] bg-[var(--surface-overlay)] px-4 py-3">
-            {/* Delays produce left→right wave: dot 0 peaks at ~0.17s,
-                dot 1 at ~0.5s, dot 2 at ~0.83s — matching macOS
-                TypingIndicatorView phase offsets of -index × 2π/3. */}
-            {([-0.333, 0, -0.667] as const).map((delay, i) => (
-              <span
-                key={i}
-                aria-hidden
-                className="typing-dot block h-2 w-2 rounded-full bg-[var(--content-tertiary)]"
-                style={{
-                  animation: "typing-dot-pulse 1s ease-in-out infinite",
-                  animationDelay: `${delay}s`,
-                }}
-              />
-            ))}
-            <span className="ml-1 text-body-small-default text-[var(--content-secondary)]">
-              {item.label ?? "Thinking…"}
-            </span>
-          </div>
+        <div
+          data-testid="transcript-thinking-row"
+          data-active={item.active ? "true" : "false"}
+          aria-hidden={!item.active}
+          className={`flex items-center overflow-hidden text-[13px] font-medium text-[var(--content-secondary)] transition-[height,opacity] duration-300 ease-out motion-reduce:transition-none ${
+            item.active ? "h-7 opacity-100" : "h-0 opacity-0"
+          }`}
+        >
+          <StreamingShimmerText>{item.label ?? "Thinking"}</StreamingShimmerText>
         </div>
       );
 

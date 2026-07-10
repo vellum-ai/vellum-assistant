@@ -23,11 +23,6 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 // reach the preactivation block; they must not be allowed to touch a real DB.
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 /**
  * Per-test capability client roster. Set in individual tests to simulate
  * a connected macOS client for cross-client drain-path coverage. Reset in

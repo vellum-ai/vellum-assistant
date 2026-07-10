@@ -21,6 +21,7 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
+import { CONVERSATION_BUSY_MESSAGE } from "../../../daemon/conversation-messaging.js";
 import type { ServerMessage } from "../../../daemon/message-protocol.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import {
@@ -297,7 +298,7 @@ export function processChannelMessageInBackground(
         if (
           slackMappingMutated &&
           err instanceof Error &&
-          err.message.includes("already processing a message")
+          err.message.includes(CONVERSATION_BUSY_MESSAGE)
         ) {
           if (priorSlackMapping) {
             setThreadTs(

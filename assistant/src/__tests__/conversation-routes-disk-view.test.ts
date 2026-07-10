@@ -30,13 +30,6 @@ const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const conversationsDir = join(testDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -146,10 +139,6 @@ function createFakeConversation(conversationId: string): Conversation {
     messages: [] as Array<unknown>,
     hostCuProxy: undefined as unknown,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     isProcessing(this: { processing: boolean }) {
       return this.processing;
     },

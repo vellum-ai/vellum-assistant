@@ -44,13 +44,6 @@ mock.module("../config/loader.js", () => ({
   getConfigReadOnly: () => mockConfig,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Import SUT after mocks ─────────────────────────────────────────────────────
 
 const { ROUTES } = await import("../runtime/routes/mcp-auth-routes.js");
@@ -70,7 +63,7 @@ describe("mcp-auth-routes", () => {
     mockOrchestrateConnect.mockClear();
     mockGetMcpAuthState.mockClear();
     mockGetMcpAuthState.mockImplementation(() => null);
-    mockReloadMcpServers.mockClear();  // ← add this line
+    mockReloadMcpServers.mockClear(); // ← add this line
   });
 
   describe("POST internal/mcp/auth/start", () => {

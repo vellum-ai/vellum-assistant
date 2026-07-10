@@ -271,6 +271,12 @@ export interface ResolveStreamingTranscriberOptions {
    * Default: false.
    */
   utteranceBoundaryFinals?: boolean;
+  /**
+   * Silence window (ms) the provider waits before finalizing an utterance
+   * when `utteranceBoundaryFinals` is enabled (Deepgram `utterance_end_ms`).
+   * Ignored without `utteranceBoundaryFinals`. Default: 1000.
+   */
+  utteranceEndMs?: number;
 }
 
 /**
@@ -357,14 +363,17 @@ export async function resolveStreamingTranscriber(
     sampleRate: options.sampleRate,
     diarize: enableDiarization,
     utteranceBoundaryFinals: options.utteranceBoundaryFinals ?? false,
+    utteranceEndMs: options.utteranceEndMs,
   });
 }
 
 /**
- * Deepgram `utterance_end_ms` used when utterance-boundary finals are
- * requested. Deepgram requires >= 1000 ms; this is the pause length after
- * which an `UtteranceEnd` frame confirms the utterance is complete even
- * when `speech_final` endpointing never fired (e.g. background noise).
+ * Default Deepgram `utterance_end_ms` used when utterance-boundary finals
+ * are requested and the caller supplies no override. This is the pause
+ * length after which an `UtteranceEnd` frame confirms the utterance is
+ * complete even when `speech_final` endpointing never fired (e.g.
+ * background noise). Telephony callers override it via
+ * `calls.voice.utteranceEndMs`.
  */
 const UTTERANCE_BOUNDARY_END_MS = 1_000;
 
@@ -387,6 +396,12 @@ interface CreateStreamingTranscriberOptions {
    * `null` instead).
    */
   utteranceBoundaryFinals?: boolean;
+  /**
+   * Silence window (ms) before an utterance is finalized. Only forwarded
+   * to Deepgram (as `utterance_end_ms`) when `utteranceBoundaryFinals`
+   * is set. Defaults to {@link UTTERANCE_BOUNDARY_END_MS}.
+   */
+  utteranceEndMs?: number;
 }
 
 /**
@@ -413,7 +428,8 @@ async function createStreamingTranscriber(
         ...(options.utteranceBoundaryFinals
           ? {
               utteranceBoundaryFinals: true,
-              utteranceEndMs: UTTERANCE_BOUNDARY_END_MS,
+              utteranceEndMs:
+                options.utteranceEndMs ?? UTTERANCE_BOUNDARY_END_MS,
             }
           : {}),
       });

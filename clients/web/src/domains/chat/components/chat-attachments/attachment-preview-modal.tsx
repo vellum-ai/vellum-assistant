@@ -11,6 +11,8 @@ import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-previ
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
 import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
+import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
+import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
 // File extensions routed to the inline text preview even when the upstream
@@ -77,13 +79,29 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   onNavigate,
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
+  // Focus the overlay itself (not a child button) on open so the keydown
+  // handler receives ArrowLeft/ArrowRight reliably — a focused child can steal
+  // arrow semantics, and once a child button is clicked focus would otherwise
+  // leave the dialog entirely.
   useEffect(() => {
     if (open) {
-      closeButtonRef.current?.focus();
+      overlayRef.current?.focus();
     }
   }, [open]);
+
+  // While the full-screen preview is open, claim the left-edge swipe gesture so
+  // the page-level swipe-to-open-menu drawer stays suppressed. Both listen on
+  // `document`, so without this a rightward gallery swipe starting in the left
+  // half of the viewport would fire goToPrev *and* open the sidebar. The
+  // arbiter is the same single-owner mechanism back-swipe pages use.
+  const registerBackOwner = useEdgeSwipeArbiterStore.use.registerBackOwner();
+  const unregisterBackOwner = useEdgeSwipeArbiterStore.use.unregisterBackOwner();
+  useEffect(() => {
+    if (!open) return;
+    registerBackOwner();
+    return () => unregisterBackOwner();
+  }, [open, registerBackOwner, unregisterBackOwner]);
 
   // Synthetic IDs from the text-parsing history fallback
   // (parseAttachmentSummariesFromContent) can never resolve against the
@@ -168,6 +186,20 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     const nextIndex = (currentIndex + 1) % siblingAttachments.length;
     onNavigate(siblingAttachments[nextIndex]!);
   }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
+
+  // Touch-first navigation (primarily iOS): swipe left/right to change item.
+  // This is an *additional* affordance on top of the chevron buttons and
+  // keyboard arrows — never a replacement. The buttons stay rendered on touch
+  // so users who can't swipe (assistive tech: VoiceOver, Switch Control) keep
+  // an operable control.
+  const {
+    dragOffset,
+    isDragging,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    onTouchCancel,
+  } = useGallerySwipe({ enabled: hasGallery, onPrev: goToPrev, onNext: goToNext });
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -312,7 +344,10 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label={`Preview of ${attachment.filename}`}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 [-webkit-app-region:no-drag]"
+      // Focusable so the overlay can hold keyboard focus for the arrow-key
+      // handler; the ring is suppressed since the dialog is the whole screen.
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 outline-none [-webkit-app-region:no-drag]"
       style={{
         paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
         paddingBottom:
@@ -325,16 +360,52 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       onKeyDown={handleKeyDown}
       onClick={handleBackdropClick}
     >
-      <Button
-        ref={closeButtonRef}
-        variant="ghost"
-        iconOnly={<X />}
-        expandOnMobile={false}
-        onClick={onClose}
-        aria-label="Close preview"
-        className="absolute right-4 top-4 z-10 h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
-        tintColor="currentColor"
-      />
+      {/* Top chrome: file size (left), filename (center), download + close
+          (right). Absolute children anchor to the overlay's padding box, so the
+          parent's safe-area paddingTop does not offset them — the bar carries
+          the top inset itself to clear the notch/status bar. */}
+      <div
+        className="absolute inset-x-0 top-0 z-10 flex items-center gap-3 px-4"
+        style={{
+          paddingTop:
+            "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1rem)",
+        }}
+      >
+        <Typography
+          variant="body-small-default"
+          className="w-11 shrink-0 truncate text-white/50"
+        >
+          {formatAttachmentSize(attachment.sizeBytes)}
+        </Typography>
+        <Typography
+          as="div"
+          variant="body-medium-lighter"
+          className="min-w-0 flex-1 truncate text-center text-white/90"
+        >
+          {attachment.filename}
+        </Typography>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            iconOnly={<Download />}
+            expandOnMobile={false}
+            onClick={handleDownload}
+            disabled={!effectiveUrl}
+            aria-label={`Download ${attachment.filename}`}
+            className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            tintColor="currentColor"
+          />
+          <Button
+            variant="ghost"
+            iconOnly={<X />}
+            expandOnMobile={false}
+            onClick={onClose}
+            aria-label="Close preview"
+            className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            tintColor="currentColor"
+          />
+        </div>
+      </div>
 
       {hasGallery && (
         <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between px-4">
@@ -361,48 +432,38 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
 
       <div
         className="flex items-center justify-center"
+        style={{
+          transform: `translateX(${dragOffset}px)`,
+          // Spring back smoothly on release; follow the finger 1:1 while dragging.
+          transition: isDragging ? "none" : "transform 200ms ease-out",
+          touchAction: "pan-y",
+        }}
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
         {renderContent()}
       </div>
 
-      <div
-        className="mt-4 flex w-full max-w-[800px] items-center justify-between rounded-lg px-4 py-2"
-        style={{ backgroundColor: "rgba(0, 0, 0, 0.5)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <Typography
-            variant="body-medium-lighter"
-            className="truncate text-white/90"
-          >
-            {attachment.filename}
+      {hasGallery && (
+        // Position counter, centered ~32px above the bottom safe-area line.
+        // Absolute children ignore the overlay's safe-area paddingBottom, so the
+        // counter carries the bottom inset itself.
+        <div
+          className="absolute inset-x-0 bottom-0 z-10 flex justify-center"
+          style={{
+            paddingBottom:
+              "calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 2rem)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Typography variant="body-small-default" className="text-white/50">
+            {currentIndex + 1} / {siblingAttachments!.length}
           </Typography>
-          <Typography
-            variant="body-small-default"
-            className="shrink-0 text-white/50"
-          >
-            {formatAttachmentSize(attachment.sizeBytes)}
-          </Typography>
-          {hasGallery && (
-            <Typography
-              variant="body-small-default"
-              className="shrink-0 text-white/50"
-            >
-              {currentIndex + 1} / {siblingAttachments!.length}
-            </Typography>
-          )}
         </div>
-        <Button
-          variant="ghost"
-          iconOnly={<Download />}
-          onClick={handleDownload}
-          disabled={!effectiveUrl}
-          aria-label={`Download ${attachment.filename}`}
-          className="shrink-0 text-white/70 hover:bg-white/10 hover:text-white max-md:bg-transparent max-md:hover:bg-white/10 max-md:active:bg-white/10"
-          tintColor="currentColor"
-        />
-      </div>
+      )}
     </div>,
     document.body,
   );

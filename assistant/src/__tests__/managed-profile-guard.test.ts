@@ -20,12 +20,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Imported before the `mock.module` below so the mock can pass the real
 // implementation through instead of hand-copying it.
 import { setNestedValue } from "../config/loader.js";
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 let savedRaw: Record<string, unknown> | null = null;
 let rawConfig: Record<string, unknown>;
 // Counters so tests can assert whether `commitConfigWrite` ran its post-write
@@ -1202,11 +1196,14 @@ describe("code-owned default profiles — leaf SET source stamping", () => {
       body: { path: "llm.profiles.balanced.model", value: "gpt-5.4" },
     });
     expect(result).toEqual({ ok: true });
-    expect(savedProfile("balanced")).toEqual({
+    // Write normalization completes the changed user entry; the guard's
+    // concern is only that `source` stays user-owned.
+    expect(savedProfile("balanced")).toMatchObject({
       source: "user",
       provider: "openai",
       model: "gpt-5.4",
     });
+    expect(savedProfile("balanced").source).toBe("user");
   });
 
   test("a leaf SET writing content to an absent default is rejected", async () => {

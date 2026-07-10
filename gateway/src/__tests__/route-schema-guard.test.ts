@@ -8,6 +8,7 @@ import {
 } from "@vellumai/service-contracts/twilio-ingress";
 import { A2A_AGENT_CARD_PATH } from "../http/routes/a2a-routes.js";
 import { buildSchema } from "../schema.js";
+import { buildMarkedContactRoutes } from "./helpers/contact-route-table.js";
 
 /** A route extracted from source: path + optional HTTP method. */
 interface ExtractedRoute {
@@ -25,9 +26,10 @@ const ROUTE_PATH_CONSTANTS: Record<string, string> = {
 /**
  * Extracts route paths from the gateway index.ts source code.
  *
- * Routes are defined in two places:
+ * Routes are defined in three places:
  * 1. The `routes` array (RouteDefinition[]) — matched by the router
  * 2. Pre-router paths in the `fetch()` handler (healthz, readyz, schema, WS upgrades)
+ * 3. The contact-family route table spread into the array (imported directly)
  *
  * We parse the source text rather than importing index.ts because it calls
  * `main()` at module scope which starts the server.
@@ -97,7 +99,30 @@ function extractRoutesFromSource(): ExtractedRoute[] {
     }
   }
 
+  // The contact family is registered via a spread of the shared route table;
+  // extract it from the real builder rather than source text.
+  if (!src.includes("...buildContactsControlPlaneRoutes(")) {
+    throw new Error(
+      "index.ts no longer spreads buildContactsControlPlaneRoutes — update this guard",
+    );
+  }
+  routes.push(...extractContactTableRoutes());
+
   return routes;
+}
+
+/** Contact-family routes from the builder index.ts spreads. */
+function extractContactTableRoutes(): ExtractedRoute[] {
+  return buildMarkedContactRoutes().flatMap((route) => {
+    const method = route.method ?? null;
+    if (typeof route.path === "string") {
+      return [{ path: route.path, method }];
+    }
+    const converted = regexToOpenApiPath(
+      route.path.source.replace(/^\^/, "").replace(/\$$/, ""),
+    );
+    return converted ? [{ path: converted, method }] : [];
+  });
 }
 
 /**

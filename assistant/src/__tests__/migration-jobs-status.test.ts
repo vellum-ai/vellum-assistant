@@ -13,13 +13,6 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -101,7 +94,10 @@ describe("GET /v1/migrations/jobs/:job_id", () => {
   });
 
   test("complete status includes the runner's result", async () => {
-    const resultPayload = { files_written: 3, manifest: { schema: "vbundle/1" } };
+    const resultPayload = {
+      files_written: 3,
+      manifest: { schema: "vbundle/1" },
+    };
 
     const job = migrationJobs.startJob("export", async () => resultPayload);
     await flushMicrotasks();
@@ -153,9 +149,10 @@ describe("GET /v1/migrations/jobs/:job_id", () => {
     });
     await flushMicrotasks();
 
-    const body = (await handleMigrationJobStatus(
-      makeArgs(job.id),
-    )) as Record<string, unknown>;
+    const body = (await handleMigrationJobStatus(makeArgs(job.id))) as Record<
+      string,
+      unknown
+    >;
     expect(body.status).toBe("failed");
     expect(body.error).toBe("invalid manifest");
     expect(body.error_code).toBe("invalid_manifest");

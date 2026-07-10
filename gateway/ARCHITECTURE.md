@@ -174,7 +174,9 @@ Runtime health is exposed directly by the gateway at `GET /v1/health` and forwar
 
 ### Telegram + Contacts Control-Plane Proxies
 
-Telegram integration setup/config endpoints and contacts/invites endpoints are also exposed directly by the gateway for dedicated auth handling. Contact endpoints forward to runtime handlers; invite endpoints are gateway-native — they run against the gateway DB's `ingress_invites` table with no runtime round-trip (the outbound-call relay is the one exception: the gateway validates its invite row, then delegates the provider call to the assistant).
+Telegram integration setup/config endpoints and contacts/invites endpoints are also exposed directly by the gateway for dedicated auth handling. Contact endpoints are gateway-native — the gateway DB is the ACL source of truth, with a best-effort identity/info mirror to the assistant DB; search-filtered list reads relay through the runtime (which owns filter/search + info) and get an authoritative gateway ACL overlay. Invite endpoints are gateway-native — they run against the gateway DB's `ingress_invites` table with no runtime round-trip (the outbound-call relay is the one exception: the gateway validates its invite row, then delegates the provider call to the assistant).
+
+All contact paths are registered flat only (`/v1/contacts...`, `/v1/contact-channels...`); the gateway registers no assistant-scoped contact variants. Clients emit assistant-scoped URLs (`/v1/assistants/{id}/...`), and the deployment boundary strips the prefix before the gateway routes the request: cloud's Django `RuntimeProxyView` strips it for every route, and the self-hosted web client's `rewriteForSelfHostedIngress` (`clients/web/src/lib/api-interceptors.ts`) flattens the contact family the same way.
 
 **Forwarded Telegram endpoints:**
 
@@ -184,14 +186,17 @@ Telegram integration setup/config endpoints and contacts/invites endpoints are a
 | POST            | `/v1/integrations/telegram/commands` |
 | POST            | `/v1/integrations/telegram/setup`    |
 
-**Forwarded contact endpoints:**
+**Contact endpoints (gateway-native):**
 
-| Method   | Path                                     |
-| -------- | ---------------------------------------- |
-| GET/POST | `/v1/contacts`                           |
-| GET      | `/v1/contacts/:contactId`                |
-| POST     | `/v1/contacts/merge`                     |
-| PATCH    | `/v1/contact-channels/:contactChannelId` |
+| Method     | Path                                            |
+| ---------- | ----------------------------------------------- |
+| GET/POST   | `/v1/contacts`                                  |
+| GET/DELETE | `/v1/contacts/:contactId`                       |
+| POST       | `/v1/contacts/merge`                            |
+| POST       | `/v1/contacts/prompt/submit`                    |
+| POST       | `/v1/contacts/guardian/channel`                 |
+| PATCH      | `/v1/contact-channels/:contactChannelId`        |
+| POST       | `/v1/contact-channels/:contactChannelId/verify` |
 
 **Gateway-native invite endpoints:**
 
@@ -205,7 +210,7 @@ Telegram integration setup/config endpoints and contacts/invites endpoints are a
 **Authentication boundary:**
 
 - Gateway validates the caller's JWT bearer token.
-- Forwarded requests reach runtime with a minted JWT (`gateway_ingress_v1` or `gateway_service_v1` scope profile); invite endpoints are served from the gateway DB after the same bearer-auth check.
+- Native contact/invite endpoints are served from the gateway DB after that bearer-auth check; runtime-relayed requests (Telegram control plane, contact search reads) reach the runtime with a minted JWT (`gateway_ingress_v1` or `gateway_service_v1` scope profile).
 - Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
 
 **Key source files:**
@@ -213,8 +218,8 @@ Telegram integration setup/config endpoints and contacts/invites endpoints are a
 | File                                                      | Purpose                                                                                                       |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `gateway/src/http/routes/telegram-control-plane-proxy.ts` | Telegram control-plane proxy handlers and upstream forwarding                                                 |
-| `gateway/src/http/routes/contacts-control-plane-proxy.ts` | Contact proxy handlers plus gateway-native invite handlers (mint, list, revoke, redeem, call relay)           |
-| `gateway/src/index.ts`                                    | Route registration and bearer-auth enforcement for `/v1/integrations/telegram/*` and `/v1/contacts/invites/*` |
+| `gateway/src/http/routes/contacts-control-plane-proxy.ts` | Gateway-native contact handlers (with runtime search relay) plus gateway-native invite handlers (mint, list, revoke, redeem, call relay) |
+| `gateway/src/index.ts`                                    | Route registration and bearer-auth enforcement for `/v1/integrations/telegram/*` and `/v1/contacts*`          |
 
 ### Twilio Control-Plane Proxy
 
@@ -634,14 +639,14 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 
 #### SQLite Tables
 
-**Assistant DB** (`assistant.db` — current owner of contact info, migrating to gateway):
+**Assistant DB** (`assistant.db` — owner of contact identity/info; ACL fields are a best-effort mirror of the gateway DB):
 
 | Table              | Purpose                                                                |
 | ------------------ | ---------------------------------------------------------------------- |
 | `contacts`         | Contact records with role, relationship, and per-contact metadata      |
 | `contact_channels` | Channel bindings per contact with access policy (allow/deny/escalate)  |
 
-**Gateway DB** (`gateway.sqlite` — canonical owner of invites, future owner of auth/authz):
+**Gateway DB** (`gateway.sqlite` — canonical owner of invites and contact auth/authz):
 
 | Table              | Purpose                                                                 |
 | ------------------ | ----------------------------------------------------------------------- |
@@ -651,7 +656,7 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 
 The gateway's `ingress_invites` table is the sole invite store: mint, list, revoke, and redemption all run gateway-natively, and the daemon relays its invite surfaces here over IPC. The gateway data migrations `m0007`/`m0009` reference `assistant_ingress_invites` — a legacy assistant table absent from the current assistant schema — only as a one-time backfill source.
 
-The gateway declares `contacts` and `contact_channels` tables and exposes them via IPC (`list_contacts`, `get_contact`, `get_contact_by_channel`, `get_channels_for_contact`). Contact endpoint cutover and data migration are in progress — the gateway will become the canonical owner once dual-writing is enabled.
+The gateway declares `contacts` and `contact_channels` tables and exposes them via IPC (`list_contacts`, `get_contact`, `get_contact_by_channel`, `get_channels_for_contact`). The gateway DB is the canonical owner of contact ACL (role, principal, channel status/policy/verification): contact writes land gateway-first, with identity/info fields mirrored to the assistant DB best-effort.
 
 #### Key Modules
 

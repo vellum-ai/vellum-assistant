@@ -98,14 +98,6 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => false,
   classifyRisk: async () => ({ level: "low" }),
@@ -116,9 +108,12 @@ mock.module("../permissions/checker.js", () => ({
     policyContext?: PolicyContext,
   ) => {
     lastCheckArgs = { toolName, input, workingDir, policyContext };
-    if (checkFnOverride)
+    if (checkFnOverride) {
       return checkFnOverride(toolName, input, workingDir, policyContext);
-    if (checkResultOverride) return checkResultOverride;
+    }
+    if (checkResultOverride) {
+      return checkResultOverride;
+    }
     return { decision: "allow", reason: "allowed" };
   },
   generateAllowlistOptions: () => [
@@ -137,19 +132,26 @@ mock.module("../telemetry/tool-usage-store.js", () => ({
   rotateToolInvocations: async () => 0,
 }));
 
+const mockToolLookup = (name: string) => {
+  if (getToolOverride) {
+    return getToolOverride(name);
+  }
+  if (name === "unknown_tool") {
+    return undefined;
+  }
+  return {
+    name,
+    description: "test tool",
+    category: "test",
+    defaultRiskLevel: "low",
+    input_schema: {},
+    execute: async () => fakeToolResult,
+  };
+};
+
 mock.module("../tools/registry.js", () => ({
-  getTool: (name: string) => {
-    if (getToolOverride) return getToolOverride(name);
-    if (name === "unknown_tool") return undefined;
-    return {
-      name,
-      description: "test tool",
-      category: "test",
-      defaultRiskLevel: "low",
-      input_schema: {},
-      execute: async () => fakeToolResult,
-    };
-  },
+  getTool: mockToolLookup,
+  resolveTool: mockToolLookup,
   getAllTools: () => (getAllToolsOverride ? getAllToolsOverride() : []),
   // Ownership lives on the registry post-refactor; production reads it via
   // getToolOwner(name) rather than a field on the Tool object. Mirror that by
@@ -386,7 +388,9 @@ describe("ToolExecutor allowedToolNames gating", () => {
   test("inactive skill tool names the owning skill in the load hint", async () => {
     const executor = new ToolExecutor(makePrompter());
     getToolOverride = (name: string) => {
-      if (name !== "skill_tool_x") return undefined;
+      if (name !== "skill_tool_x") {
+        return undefined;
+      }
       return {
         name,
         description: "tool from a skill",
@@ -423,7 +427,9 @@ describe("ToolExecutor policy context plumbing", () => {
 
   test("passes PolicyContext with executionTarget for skill-origin tools", async () => {
     getToolOverride = (name: string) => {
-      if (name === "unknown_tool") return undefined;
+      if (name === "unknown_tool") {
+        return undefined;
+      }
       return {
         name,
         description: "skill tool",
@@ -487,7 +493,9 @@ describe("ToolExecutor policy context plumbing", () => {
 
   test('passes undefined policyContext for tools with origin "core"', async () => {
     getToolOverride = (name: string) => {
-      if (name === "unknown_tool") return undefined;
+      if (name === "unknown_tool") {
+        return undefined;
+      }
       return {
         name,
         description: "core tool",
@@ -520,7 +528,9 @@ describe("ToolExecutor policy context plumbing", () => {
 
   test('includes executionTarget "host" from skill tool metadata', async () => {
     getToolOverride = (name: string) => {
-      if (name === "unknown_tool") return undefined;
+      if (name === "unknown_tool") {
+        return undefined;
+      }
       return {
         name,
         description: "host skill tool",

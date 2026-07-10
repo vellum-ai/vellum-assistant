@@ -10,20 +10,22 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import {
+  getConfiguredProvider,
+  getConversationDirPath,
+} from "@vellumai/plugin-api";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getConversationDirPath } from "../../../../persistence/conversation-disk-view.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
   conversations,
   messages,
 } from "../../../../persistence/schema/index.js";
-import { buildCoreIdentityContext } from "../../../../prompts/system-prompt.js";
-import { BackendUnavailableError } from "../../../../util/errors.js";
-import { getLogger } from "../../../../util/logger.js";
+import { BackendUnavailableError } from "../host-utils.js";
+import { buildIdentityContext } from "../identity-context.js";
 import { extractToolUse, userMessage } from "../llm-helpers.js";
+import { getLogger } from "../logging.js";
 import {
   enqueueGraphNodeEmbed,
   enqueueGraphTriggerEmbed,
@@ -557,7 +559,9 @@ function clamp(v: number, min: number, max: number): number {
 
 /** Coerce an LLM-returned event_date to number | null, guarding against string values. */
 export function parseEpochMs(value: unknown): number | null {
-  if (value == null || value === "") return null;
+  if (value == null || value === "") {
+    return null;
+  }
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -581,7 +585,6 @@ export interface DeferredEdge {
 export function parseExtractionResponse(
   input: Record<string, unknown>,
   conversationId: string,
-  scopeId: string,
   candidateNodeIds: Set<string>,
   /** Epoch ms — when the conversation happened (not extraction time). */
   conversationTimestamp: number,
@@ -631,8 +634,12 @@ export function parseExtractionResponse(
   // Parse new nodes
   for (let i = 0; i < createNodes.length; i++) {
     const raw = createNodes[i];
-    if (!raw.content || typeof raw.content !== "string") continue;
-    if (!raw.type || !VALID_TYPES.has(raw.type)) continue;
+    if (!raw.content || typeof raw.content !== "string") {
+      continue;
+    }
+    if (!raw.type || !VALID_TYPES.has(raw.type)) {
+      continue;
+    }
 
     const charge = raw.emotional_charge ?? {};
     const emotionalCharge: EmotionalCharge = {
@@ -666,7 +673,6 @@ export function parseExtractionResponse(
       narrativeRole: null,
       partOfStory: null,
       imageRefs: null,
-      scopeId,
     };
 
     // Prospective nodes (tasks, plans, upcoming events) are inherently transient.
@@ -695,7 +701,9 @@ export function parseExtractionResponse(
     // Collect triggers
     if (Array.isArray(raw.triggers)) {
       for (const t of raw.triggers) {
-        if (!t.type || !VALID_TRIGGER_TYPES.has(t.type)) continue;
+        if (!t.type || !VALID_TRIGGER_TYPES.has(t.type)) {
+          continue;
+        }
         deferredTriggers.push({
           newNodeIndex: nodeIndex,
           trigger: {
@@ -762,16 +770,23 @@ export function parseExtractionResponse(
     if (Array.isArray(raw.image_refs)) {
       const validRefs: ImageRef[] = [];
       for (const ref of raw.image_refs) {
-        if (!ref.message_id || typeof ref.message_id !== "string") continue;
-        if (typeof ref.block_index !== "number" || ref.block_index < 0)
+        if (!ref.message_id || typeof ref.message_id !== "string") {
           continue;
-        if (!ref.description || typeof ref.description !== "string") continue;
+        }
+        if (typeof ref.block_index !== "number" || ref.block_index < 0) {
+          continue;
+        }
+        if (!ref.description || typeof ref.description !== "string") {
+          continue;
+        }
         const mimeType = resolveImageRefMimeType(
           ref.message_id,
           ref.block_index,
           conversationId,
         );
-        if (!mimeType) continue;
+        if (!mimeType) {
+          continue;
+        }
         validRefs.push({
           messageId: ref.message_id,
           blockIndex: ref.block_index,
@@ -791,18 +806,30 @@ export function parseExtractionResponse(
   for (let i = 0; i < createNodes.length; i++) {
     const raw = createNodes[i];
     const tempId = raw?.temp_id;
-    if (typeof tempId !== "string" || tempId.length === 0) continue;
-    if (candidateNodeIds.has(tempId)) continue;
-    if (tempIdToDiffIndex.has(tempId)) continue; // first writer wins
+    if (typeof tempId !== "string" || tempId.length === 0) {
+      continue;
+    }
+    if (candidateNodeIds.has(tempId)) {
+      continue;
+    }
+    if (tempIdToDiffIndex.has(tempId)) {
+      continue;
+    } // first writer wins
     const diffIndex = rawIndexToDiffIndex.get(i);
-    if (diffIndex == null) continue; // raw node was rejected during validation
+    if (diffIndex == null) {
+      continue;
+    } // raw node was rejected during validation
     tempIdToDiffIndex.set(tempId, diffIndex);
   }
 
   const resolveEndpoint = (id: string): DeferredEdgeEndpoint | null => {
-    if (candidateNodeIds.has(id)) return { kind: "existing", nodeId: id };
+    if (candidateNodeIds.has(id)) {
+      return { kind: "existing", nodeId: id };
+    }
     const idx = tempIdToDiffIndex.get(id);
-    if (idx != null) return { kind: "new", newNodeIndex: idx };
+    if (idx != null) {
+      return { kind: "new", newNodeIndex: idx };
+    }
     return null;
   };
 
@@ -833,22 +860,32 @@ export function parseExtractionResponse(
   for (let i = 0; i < createNodes.length; i++) {
     const raw = createNodes[i];
     const sourceDiffIndex = rawIndexToDiffIndex.get(i);
-    if (sourceDiffIndex == null) continue;
-    if (!Array.isArray(raw.edges_to_existing)) continue;
+    if (sourceDiffIndex == null) {
+      continue;
+    }
+    if (!Array.isArray(raw.edges_to_existing)) {
+      continue;
+    }
 
     for (const edge of raw.edges_to_existing) {
-      if (!edge.target_node_id) continue;
-      if (!edge.relationship || !VALID_RELATIONSHIPS.has(edge.relationship))
+      if (!edge.target_node_id) {
         continue;
+      }
+      if (!edge.relationship || !VALID_RELATIONSHIPS.has(edge.relationship)) {
+        continue;
+      }
       const target = resolveEndpoint(edge.target_node_id);
-      if (!target) continue;
+      if (!target) {
+        continue;
+      }
       const source: DeferredEdgeEndpoint = {
         kind: "new",
         newNodeIndex: sourceDiffIndex,
       };
       // Skip self-loops.
-      if (target.kind === "new" && target.newNodeIndex === sourceDiffIndex)
+      if (target.kind === "new" && target.newNodeIndex === sourceDiffIndex) {
         continue;
+      }
       pushResolvedEdge(
         source,
         target,
@@ -860,20 +897,28 @@ export function parseExtractionResponse(
 
   // Parse updates
   for (const raw of updateNodes) {
-    if (!raw.id || !candidateNodeIds.has(raw.id)) continue;
+    if (!raw.id || !candidateNodeIds.has(raw.id)) {
+      continue;
+    }
     const changes: Record<string, unknown> = {};
-    if (raw.content) changes.content = raw.content;
-    if (raw.significance != null)
+    if (raw.content) {
+      changes.content = raw.content;
+    }
+    if (raw.significance != null) {
       changes.significance = clamp(raw.significance, 0, 1);
-    if (raw.confidence != null)
+    }
+    if (raw.confidence != null) {
       changes.confidence = clamp(raw.confidence, 0, 1);
+    }
     if (
       raw.fidelity &&
       ["vivid", "clear", "faded", "gist"].includes(raw.fidelity)
-    )
+    ) {
       changes.fidelity = raw.fidelity;
-    if (raw.event_date !== undefined)
+    }
+    if (raw.event_date !== undefined) {
       changes.eventDate = parseEpochMs(raw.event_date);
+    }
     if (Object.keys(changes).length > 0) {
       diff.updateNodes.push({ id: raw.id, changes });
     }
@@ -882,25 +927,32 @@ export function parseExtractionResponse(
   // Parse top-level edges — each endpoint may be an existing candidate ID or
   // the temp_id of a new node declared in create_nodes.
   for (const raw of newEdges) {
-    if (!raw.source_node_id || !raw.target_node_id) continue;
-    if (!raw.relationship || !VALID_RELATIONSHIPS.has(raw.relationship))
+    if (!raw.source_node_id || !raw.target_node_id) {
       continue;
+    }
+    if (!raw.relationship || !VALID_RELATIONSHIPS.has(raw.relationship)) {
+      continue;
+    }
     const source = resolveEndpoint(raw.source_node_id);
     const target = resolveEndpoint(raw.target_node_id);
-    if (!source || !target) continue;
+    if (!source || !target) {
+      continue;
+    }
     // Skip self-loops.
     if (
       source.kind === "new" &&
       target.kind === "new" &&
       source.newNodeIndex === target.newNodeIndex
-    )
+    ) {
       continue;
+    }
     if (
       source.kind === "existing" &&
       target.kind === "existing" &&
       source.nodeId === target.nodeId
-    )
+    ) {
       continue;
+    }
     pushResolvedEdge(
       source,
       target,
@@ -937,7 +989,6 @@ export interface ExtractionResult {
  */
 export async function runGraphExtraction(
   conversationId: string,
-  scopeId: string,
   config: AssistantConfig,
   opts?: {
     /** Pre-loaded transcript text (skips disk read). Used by bootstrap. */
@@ -977,7 +1028,8 @@ export async function runGraphExtraction(
   let transcript = opts?.transcript;
   if (!transcript) {
     transcript =
-      loadTranscriptFromDisk(conversationId, opts?.afterTimestamp) ?? undefined;
+      (await loadTranscriptFromDisk(conversationId, opts?.afterTimestamp)) ??
+      undefined;
     if (!transcript) {
       // If we have a multimodal result but no disk transcript, extract text
       // from the multimodal message content blocks for candidate search.
@@ -1013,7 +1065,6 @@ export async function runGraphExtraction(
   // 3. Find candidate existing nodes
   const candidateNodes = await findCandidateNodes(
     transcript,
-    scopeId,
     config,
     opts?.activeContextNodeIds,
     opts?.skipQdrant,
@@ -1021,7 +1072,7 @@ export async function runGraphExtraction(
   const candidateNodeIds = new Set(candidateNodes.map((n) => n.id));
 
   // 4. Build prompt
-  const identityContext = buildCoreIdentityContext();
+  const identityContext = buildIdentityContext();
 
   const activeSet = opts?.activeContextNodeIds
     ? new Set(opts.activeContextNodeIds)
@@ -1085,7 +1136,6 @@ export async function runGraphExtraction(
   const { diff, deferredEdges, deferredTriggers } = parseExtractionResponse(
     toolBlock.input as Record<string, unknown>,
     conversationId,
-    scopeId,
     candidateNodeIds,
     conversationTimestamp,
   );
@@ -1115,14 +1165,18 @@ export async function runGraphExtraction(
   let triggersCreated = result.triggersCreated;
 
   const resolveCreatedEndpoint = (ep: DeferredEdgeEndpoint): string | null => {
-    if (ep.kind === "existing") return ep.nodeId;
+    if (ep.kind === "existing") {
+      return ep.nodeId;
+    }
     return createdNodeIds[ep.newNodeIndex] ?? null;
   };
 
   for (const de of deferredEdges) {
     const sourceNodeId = resolveCreatedEndpoint(de.source);
     const targetNodeId = resolveCreatedEndpoint(de.target);
-    if (!sourceNodeId || !targetNodeId) continue;
+    if (!sourceNodeId || !targetNodeId) {
+      continue;
+    }
 
     createEdge({
       sourceNodeId,
@@ -1138,7 +1192,9 @@ export async function runGraphExtraction(
 
   for (const dt of deferredTriggers) {
     const newNodeId = createdNodeIds[dt.newNodeIndex];
-    if (!newNodeId) continue;
+    if (!newNodeId) {
+      continue;
+    }
 
     const trigger = createTrigger({
       ...dt.trigger,
@@ -1211,7 +1267,9 @@ function resolveConversationTimestamp(conversationId: string): number | null {
     .orderBy(desc(messages.createdAt))
     .limit(1)
     .get();
-  if (lastMsg) return lastMsg.createdAt;
+  if (lastMsg) {
+    return lastMsg.createdAt;
+  }
 
   // Fallback to conversation creation time if no messages in DB
   const conv = db
@@ -1238,7 +1296,9 @@ function resolveImageRefMimeType(
       ),
     )
     .get();
-  if (!msg) return null;
+  if (!msg) {
+    return null;
+  }
 
   try {
     const blocks = JSON.parse(msg.content) as Array<{
@@ -1246,17 +1306,19 @@ function resolveImageRefMimeType(
       source?: { media_type?: string };
     }>;
     const block = blocks[blockIndex];
-    if (!block || block.type !== "image") return null;
+    if (!block || block.type !== "image") {
+      return null;
+    }
     return block.source?.media_type ?? null;
   } catch {
     return null;
   }
 }
 
-function loadTranscriptFromDisk(
+async function loadTranscriptFromDisk(
   conversationId: string,
   afterTimestamp?: number,
-): string | null {
+): Promise<string | null> {
   const db = getDb();
   const conv = db
     .select({ createdAt: conversations.createdAt })
@@ -1264,10 +1326,15 @@ function loadTranscriptFromDisk(
     .where(eq(conversations.id, conversationId))
     .get();
 
-  if (!conv) return null;
+  if (!conv) {
+    return null;
+  }
 
   try {
-    const dirPath = getConversationDirPath(conversationId, conv.createdAt);
+    const dirPath = await getConversationDirPath(
+      conversationId,
+      conv.createdAt,
+    );
     const messagesPath = join(dirPath, "messages.jsonl");
     const content = readFileSync(messagesPath, "utf-8");
 
@@ -1284,12 +1351,16 @@ function loadTranscriptFromDisk(
           content?: string;
           ts?: string;
         };
-        if (!msg.role || !msg.content) continue;
+        if (!msg.role || !msg.content) {
+          continue;
+        }
 
         // Filter by timestamp for incremental extraction
         if (afterTimestamp && msg.ts) {
           const msgTime = new Date(msg.ts).getTime();
-          if (msgTime <= afterTimestamp) continue;
+          if (msgTime <= afterTimestamp) {
+            continue;
+          }
         }
 
         parts.push(`[${msg.role}]: ${msg.content}`);
@@ -1340,7 +1411,9 @@ function loadTranscriptWithImages(
     .orderBy(asc(messages.createdAt))
     .all();
 
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    return null;
+  }
 
   const MAX_IMAGES = 10;
   let imageCount = 0;
@@ -1396,7 +1469,9 @@ function loadTranscriptWithImages(
   }
 
   // Skip if transcript is too short (images count toward the threshold)
-  if (totalTextLength < 100 && !hasImagesFlag) return null;
+  if (totalTextLength < 100 && !hasImagesFlag) {
+    return null;
+  }
 
   const message: Message = {
     role: "user",
@@ -1408,7 +1483,6 @@ function loadTranscriptWithImages(
 
 async function findCandidateNodes(
   transcript: string,
-  scopeId: string,
   config: AssistantConfig,
   activeContextNodeIds?: string[],
   skipQdrant?: boolean,
@@ -1419,11 +1493,12 @@ async function findCandidateNodes(
     // Bootstrap mode: load candidates directly from DB (embeddings may not be ready).
     // Get the most recent and most significant non-gone nodes.
     const dbCandidates = queryNodes({
-      scopeId,
       fidelityNot: ["gone"],
       limit: 100,
     });
-    for (const node of dbCandidates) allNodeIds.add(node.id);
+    for (const node of dbCandidates) {
+      allNodeIds.add(node.id);
+    }
   } else {
     // Live mode: semantic search via Qdrant
     const { embedWithRetry } =
@@ -1438,7 +1513,9 @@ async function findCandidateNodes(
       const queryVector = embedding.vectors[0];
       if (queryVector) {
         const searchResults = await searchGraphNodes(queryVector, 100);
-        for (const r of searchResults) allNodeIds.add(r.nodeId);
+        for (const r of searchResults) {
+          allNodeIds.add(r.nodeId);
+        }
       }
     } catch (err) {
       log.warn(
@@ -1450,10 +1527,14 @@ async function findCandidateNodes(
 
   // Combine with active context nodes
   if (activeContextNodeIds) {
-    for (const id of activeContextNodeIds) allNodeIds.add(id);
+    for (const id of activeContextNodeIds) {
+      allNodeIds.add(id);
+    }
   }
 
-  if (allNodeIds.size === 0) return [];
+  if (allNodeIds.size === 0) {
+    return [];
+  }
 
   return getNodesByIds([...allNodeIds]);
 }

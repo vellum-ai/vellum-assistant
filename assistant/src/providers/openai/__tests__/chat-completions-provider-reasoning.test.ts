@@ -528,3 +528,115 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
     expect(params.messages[0].reasoning_content).toBe("deepseek thinking");
   });
 });
+
+describe("reasoning opt-out rejection fallback", () => {
+  function stubProviderWithErrors(
+    errors: unknown[],
+    chunks: MockChunk[],
+  ): { provider: OpenAIChatCompletionsProvider; requests: unknown[] } {
+    const provider = new OpenAIChatCompletionsProvider(
+      "test-key",
+      "test-model",
+    );
+    const requests: unknown[] = [];
+    const pending = [...errors];
+    (provider as unknown as { client: unknown }).client = {
+      chat: {
+        completions: {
+          create: async (params: unknown) => {
+            // Snapshot: the fallback mutates `params` between attempts.
+            requests.push(JSON.parse(JSON.stringify(params)));
+            const error = pending.shift();
+            if (error !== undefined) {
+              throw error;
+            }
+            return makeStream(chunks);
+          },
+        },
+      },
+    };
+    return { provider, requests };
+  }
+
+  const okChunks: MockChunk[] = [
+    {
+      choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    },
+  ];
+
+  function rejection(message: string, status = 400): Error {
+    return Object.assign(new Error(message), { status });
+  }
+
+  test("retries once without reasoning params when a model rejects the explicit opt-out", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("reasoning_effort 'none' is not supported for this model")],
+      okChunks,
+    );
+
+    const response = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { config: { effort: "none" } },
+    );
+
+    expect(requests).toHaveLength(2);
+    const first = requests[0] as { reasoning_effort?: string };
+    const second = requests[1] as {
+      reasoning_effort?: string;
+      reasoning?: unknown;
+    };
+    expect(first.reasoning_effort).toBe("none");
+    expect(second.reasoning_effort).toBeUndefined();
+    expect(second.reasoning).toBeUndefined();
+    const text = response.content.find((b) => b.type === "text") as
+      | { type: "text"; text: string }
+      | undefined;
+    expect(text?.text).toBe("ok");
+  });
+
+  test("does not retry when the request did not opt out of reasoning", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("reasoning_effort is invalid")],
+      okChunks,
+    );
+
+    await expect(
+      provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        { config: { effort: "high" } },
+      ),
+    ).rejects.toThrow();
+    expect(requests).toHaveLength(1);
+  });
+
+  test("does not retry a 4xx that does not name reasoning", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("invalid api key")],
+      okChunks,
+    );
+
+    await expect(
+      provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        { config: { effort: "none" } },
+      ),
+    ).rejects.toThrow();
+    expect(requests).toHaveLength(1);
+  });
+
+  test("does not retry server errors", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("reasoning backend unavailable", 500)],
+      okChunks,
+    );
+
+    await expect(
+      provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        { config: { effort: "none" } },
+      ),
+    ).rejects.toThrow();
+    expect(requests).toHaveLength(1);
+  });
+});

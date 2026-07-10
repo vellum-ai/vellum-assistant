@@ -69,13 +69,6 @@ const setConversationEnabledPluginsMock = mock(
   (_conversationId: string, _plugins: string[] | null) => {},
 );
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-plugins-test" }),
   getConversationByKey: () => null,
@@ -153,9 +146,8 @@ mock.module("../daemon/conversation-process.js", () => ({
   formatCompactResult: () => "",
 }));
 
-const realLocalActorIdentity = await import(
-  "../runtime/local-actor-identity.js"
-);
+const realLocalActorIdentity =
+  await import("../runtime/local-actor-identity.js");
 mock.module("../runtime/local-actor-identity.js", () => ({
   ...realLocalActorIdentity,
 }));

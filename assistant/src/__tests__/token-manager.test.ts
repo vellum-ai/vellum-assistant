@@ -16,18 +16,9 @@ import {
 // ---------------------------------------------------------------------------
 // Mock logger
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
-
 import { _resetBackend, setSecureKeyAsync } from "../security/secure-keys.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 

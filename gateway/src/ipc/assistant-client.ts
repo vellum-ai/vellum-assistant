@@ -94,24 +94,26 @@ function getAssistantSocketPath(): string {
  * - On transport failure (socket not found, timeout, parse error, closed
  *   before response): throws {@link IpcTransportError}.
  *
- * Uses a 30-second call timeout to accommodate LLM latency on the
- * assistant side.
+ * `opts.timeoutMs` bounds the whole call (connect + response) and tears the
+ * socket down on expiry; defaults to 30 seconds to accommodate LLM latency
+ * on the assistant side.
  */
 export async function ipcCallAssistant(
   method: string,
   params?: Record<string, unknown>,
+  opts?: { timeoutMs?: number },
 ): Promise<unknown> {
   const socketPath = getAssistantSocketPath();
+  const callTimeoutMs = opts?.timeoutMs ?? CALL_TIMEOUT_MS;
 
   return new Promise<unknown>((resolve, reject) => {
     let settled = false;
-    let callTimer: ReturnType<typeof setTimeout> | undefined;
 
     const finish = (value: unknown, error?: Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(connectTimer);
-      if (callTimer) clearTimeout(callTimer);
+      clearTimeout(callTimer);
       socket.destroy();
       if (error) {
         reject(error);
@@ -129,6 +131,13 @@ export async function ipcCallAssistant(
       );
     }, CONNECT_TIMEOUT_MS);
 
+    const callTimer = setTimeout(() => {
+      finish(
+        undefined,
+        new IpcTransportError(`Call timed out after ${callTimeoutMs}ms`),
+      );
+    }, callTimeoutMs);
+
     const socket: Socket = connect(socketPath);
     socket.unref();
 
@@ -139,13 +148,6 @@ export async function ipcCallAssistant(
       clearTimeout(connectTimer);
       const req: IpcRequest = { id: reqId, method, params };
       socket.write(JSON.stringify(req) + "\n");
-
-      callTimer = setTimeout(() => {
-        finish(
-          undefined,
-          new IpcTransportError(`Call timed out after ${CALL_TIMEOUT_MS}ms`),
-        );
-      }, CALL_TIMEOUT_MS);
 
       socket.on("data", (chunk) => {
         buffer += chunk.toString();

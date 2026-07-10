@@ -131,6 +131,8 @@ export interface ChatMainPanelProps {
 
   // Conversation secondary actions (orchestration dependency)
   handleForkConversation: (throughMessageId: string) => Promise<void>;
+  /** Opens the "Summarize up to here" confirm dialog for a message. */
+  onSummarizeUpToHere?: (messageId: string) => void;
   handleInspectMessage?: (messageId: string) => void;
 
   // History pagination (from useConversationLoader in ActiveChatView)
@@ -211,6 +213,7 @@ export function ChatMainPanel({
   handleSteerMessage,
   handleEditQueueTail,
   handleForkConversation,
+  onSummarizeUpToHere,
   handleInspectMessage,
   historyPagination,
   diskPressure,
@@ -238,8 +241,7 @@ export function ChatMainPanel({
     uiContext,
     isIdle,
     showThinking,
-    isAssistantStreaming,
-    canStopGenerating,
+    isAssistantBusy,
     isSendDisabledFromTurn,
     thinkingLabel,
     liveAssistantMessageId,
@@ -506,6 +508,7 @@ export function ChatMainPanel({
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
     messages,
     showThinking,
+    turnActive: isAssistantBusy,
     thinkingLabel,
     showOnboardingChoice,
   });
@@ -554,7 +557,7 @@ export function ChatMainPanel({
     // streaming reply materializes (notably across the onboarding draft→real
     // conversation switch, which resets the snapshot mid-turn).
     !activeConversationIsProcessing &&
-    !isAssistantStreaming &&
+    !isAssistantBusy &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
 
   const showDoctorAction =
@@ -845,8 +848,7 @@ export function ChatMainPanel({
     avatar,
     mainView,
     openedAppState,
-    isAssistantStreaming,
-    activeConversationIsProcessing,
+    isAssistantBusy,
     onSelectStarter: handleSelectStarter,
     onSelectSuggestion: newThreadSuggestionsEnabled
       ? setSelectedSuggestion
@@ -891,6 +893,7 @@ export function ChatMainPanel({
     onConfirmationSubmit: handleConfirmationSubmit,
     onAllowAndCreateRule: handleAllowAndCreateRule,
     onForkConversation: handleForkConversationCallback,
+    onSummarizeUpToHere,
     onInspectMessage: handleInspectMessage,
     renderAvatar,
     onPullRefresh: handlePullRefresh,
@@ -929,7 +932,7 @@ export function ChatMainPanel({
       onVoiceError={setVoiceError}
       onVoiceBeforeStart={handleVoiceBeforeStart}
       onStopGenerating={handleStopGenerating}
-      canStopGenerating={canStopGenerating}
+      isAssistantBusy={isAssistantBusy}
       assistantId={assistantId}
       // Routing-truth id (NOT `activeConversation?.conversationId`, which is
       // transiently undefined until the row loads and always undefined for
@@ -1046,7 +1049,7 @@ export function ChatMainPanel({
         scrollCoordinator.showScrollToLatest && messages.length > 0
       }
       onScrollToLatest={handleScrollToLatest}
-      isStreaming={isAssistantStreaming}
+      isAssistantBusy={isAssistantBusy}
       refreshFeedback={refreshFeedback}
       onDismissRefreshFeedback={handleDismissRefreshFeedback}
       onRetryRefresh={handleRetryRefreshFromPill}

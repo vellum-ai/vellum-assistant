@@ -459,7 +459,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
       "Assistant connects to the CES sidecar's bootstrap Unix socket (CES_BOOTSTRAP_SOCKET) for RPC in managed/Docker mode.",
     callerGlobs: ["assistant/src/credential-execution/process-manager.ts"],
     calleeGlobs: [
-      "credential-executor/src/managed-main.ts",
+      "credential-executor/src/main.ts",
       "credential-executor/src/server.ts",
     ],
   },

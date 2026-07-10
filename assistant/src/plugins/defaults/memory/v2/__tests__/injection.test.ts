@@ -43,16 +43,11 @@ import {
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { z } from "zod";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
 import type { AssistantConfig } from "../../../../../config/types.js";
 
 // ---------------------------------------------------------------------------
 // Module-level mocks
 // ---------------------------------------------------------------------------
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 const STUB_QDRANT_CONFIG = {
   memory: {

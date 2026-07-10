@@ -118,13 +118,6 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // `handleAddSecret` fires this detached when a managed-proxy credential lands —
 // a v2-memory side effect outside this suite's provider-registry scope. Stub it
 // to a no-op; its behavior is covered by memory-v2-startup.test.ts.

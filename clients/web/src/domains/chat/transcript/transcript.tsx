@@ -47,6 +47,8 @@ export interface TranscriptProps {
   ) => void;
   /** Callback for "Fork from here" from a message's hover actions. */
   onForkConversation?: (messageId: string) => void;
+  /** Callback for "Summarize up to here" from a message's hover actions. */
+  onSummarizeUpToHere?: (messageId: string) => void;
   /** Callback for "Inspect" from a message's hover actions. */
   onInspectMessage?: (messageId: string) => void;
 
@@ -175,6 +177,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
 
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
+    const latestHistoryMessageIndex = partition.anchorMessage
+      ? -1
+      : partition.historyItems.findLastIndex(
+          (item) => item.kind === "message",
+        );
 
     useImperativeHandle(
       ref,
@@ -239,6 +246,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       conversationId,
       onSurfaceAction: rest.onSurfaceAction,
       onForkConversation: rest.onForkConversation,
+      onSummarizeUpToHere: rest.onSummarizeUpToHere,
       onInspectMessage: rest.onInspectMessage,
       renderOnboardingChoice: rest.renderOnboardingChoice,
       assistantDisplayName: rest.assistantDisplayName,
@@ -269,11 +277,22 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
          *  streaming growth). Wrapping all rows in a single observed
          *  element is cheaper than observing each row individually. */}
         <div ref={contentRef} className="flex w-full flex-col">
-          {/* History items in chronological order — oldest at top. */}
-          {partition.historyItems.map((item) => (
+          {/* History items in chronological order — oldest at top. In the
+           *  no-anchor mode (assistant-only history, e.g. recovered
+           *  conversation) the avatar renders directly below the history
+           *  list, so its last message-kind item is the "latest message" and
+           *  collapses its hover-actions row — trailing non-message rows
+           *  (thinking slot, pending prompts, ephemeral meta) carry no
+           *  trailer, so the flag skips past them. With an anchor present
+           *  the latest turn owns the flag instead (see `LatestTurnRow`). */}
+          {partition.historyItems.map((item, i) => (
             <Fragment key={item.key}>
               <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
-                <TranscriptRow item={item} {...rowProps} />
+                <TranscriptRow
+                  item={item}
+                  {...rowProps}
+                  isLatestMessage={i === latestHistoryMessageIndex}
+                />
               </div>
             </Fragment>
           ))}

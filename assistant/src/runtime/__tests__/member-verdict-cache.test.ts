@@ -3,14 +3,9 @@
  * expiry, memberless verdicts not cached, and max-size eviction.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { TrustVerdict } from "@vellumai/gateway-client";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
 
 import {
   __resetMemberVerdictCacheForTest,
@@ -20,9 +15,7 @@ import {
 
 const PHONE = "+15559871234";
 
-function memberVerdict(
-  overrides: Partial<TrustVerdict> = {},
-): TrustVerdict {
+function memberVerdict(overrides: Partial<TrustVerdict> = {}): TrustVerdict {
   return {
     trustClass: "trusted_contact",
     canonicalSenderId: PHONE,

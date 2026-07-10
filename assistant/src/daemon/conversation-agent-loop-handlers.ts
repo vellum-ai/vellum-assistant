@@ -101,6 +101,7 @@ import type {
   WebSearchMetadata,
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
+import { referenceMediaBlocksForPersist } from "./persist-media-references.js";
 import type { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("agent-loop-handlers");
@@ -588,12 +589,20 @@ async function persistLoopMessageContent(
   contentJson: string,
   op: string,
   rlog: pino.Logger,
+  metadataUpdates?: Record<string, unknown>,
 ): Promise<boolean> {
   try {
-    await withSqliteRetry(() => updateMessageContent(messageId, contentJson), {
-      op,
-      context: { messageId },
-    });
+    // Metadata updates (e.g. the served model at finalize) ride the same
+    // write as the content — `updateMessageContent` commits both atomically —
+    // so a partial write can't leave them out of sync; the updates
+    // shallow-merge onto the channel provenance stamped at reserve.
+    await withSqliteRetry(
+      () => updateMessageContent(messageId, contentJson, metadataUpdates),
+      {
+        op,
+        context: { messageId },
+      },
+    );
     return true;
   } catch (err) {
     rlog.error(
@@ -1287,8 +1296,24 @@ export async function finalizePendingToolResultRow(
     conversationId,
     metadata,
   );
+  // `getConversation` returns `ConversationRow | null`, so `!= null` gates on a
+  // real row (skipping media referencing / disk sync when the conversation was
+  // not found rather than asking those helpers to resolve a missing id).
+  const conv = getConversation(conversationId);
+  // Swap any base64 media the tools produced (screenshots, generated images)
+  // for workspace references so the blob stays in the attachment store, out of
+  // this row and the lexical index. Runs once, here at finalize (on-arrival
+  // writes keep base64 for durability); the send boundary re-inflates the refs.
+  const blocks = buildToolResultBlocks(state.pendingToolResults);
   const contentJson = JSON.stringify(
-    buildToolResultBlocks(state.pendingToolResults),
+    conv != null
+      ? referenceMediaBlocksForPersist(
+          conversationId,
+          conv.createdAt,
+          rowId,
+          blocks as ContentBlock[],
+        )
+      : blocks,
   );
   await persistLoopMessageContent(
     rowId,
@@ -1297,10 +1322,6 @@ export async function finalizePendingToolResultRow(
     rlog,
   );
   // Sync the row to the JSONL disk view so it stays in lockstep with the DB.
-  // `getConversation` returns `ConversationRow | null`, so `!= null` gates on a
-  // real row (skipping the sync when the conversation was not found rather than
-  // asking the disk-view to resolve a missing id).
-  const conv = getConversation(conversationId);
   if (conv != null) {
     syncMessageToDisk(conversationId, rowId, conv.createdAt);
   }
@@ -1338,7 +1359,6 @@ export async function finalizePendingToolResultRow(
           role: "user",
           content: contentJson,
           createdAt: row.createdAt,
-          scopeId: "default",
           provenanceTrustClass,
           automated,
         },
@@ -1592,12 +1612,7 @@ function recordToolStartOnPersistedMessage(
     return;
   }
 
-  let content: ContentBlock[];
-  try {
-    content = JSON.parse(row.content) as ContentBlock[];
-  } catch {
-    return;
-  }
+  const content: ContentBlock[] = row.content;
 
   for (const block of content) {
     if (block.type !== "tool_use") {
@@ -1651,12 +1666,7 @@ function recordToolPreviewStartOnPersistedMessage(
     return;
   }
 
-  let content: ContentBlock[];
-  try {
-    content = JSON.parse(row.content) as ContentBlock[];
-  } catch {
-    return;
-  }
+  const content: ContentBlock[] = row.content;
 
   for (const block of content) {
     if (block.type !== "tool_use") {
@@ -1705,12 +1715,7 @@ function annotatePersistedAssistantMessage(
     return;
   }
 
-  let content: ContentBlock[];
-  try {
-    content = JSON.parse(row.content) as ContentBlock[];
-  } catch {
-    return;
-  }
+  const content: ContentBlock[] = row.content;
 
   let modified = false;
   for (const block of content) {
@@ -2062,11 +2067,17 @@ export async function handleMessageComplete(
     );
   }
   const contentJson = JSON.stringify(contentForPersistence);
+  // Stamp the served model carried on the event (`response.model`, the same
+  // value `llm_usage` records) onto the row alongside the content, so turn-trace
+  // assembly can attribute each assistant message to the model that actually
+  // ran it — including per-call reroutes by a `pre-model-call` hook. Absent on
+  // synthesized completions with no provider response; the key is omitted then.
   const persisted = await persistLoopMessageContent(
     assistantMessageId,
     contentJson,
     "finalize_assistant_message",
     deps.rlog,
+    event.model ? { model: event.model } : undefined,
   );
   state.assistantRowAwaitingFinalization = false;
   // The assistant row now holds the authoritative content (text + thinking +

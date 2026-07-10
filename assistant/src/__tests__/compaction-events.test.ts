@@ -20,27 +20,6 @@ import type { Message, ProviderResponse } from "../providers/types.js";
 // Mocks — must precede Conversation import
 // ---------------------------------------------------------------------------
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
@@ -79,9 +58,15 @@ mock.module("../config/loader.js", () => ({
         "cost-optimized": { source: "managed", status: "disabled" },
       },
       callSites: {
-        // Resolves a SMALLER window than mainAgent (which inherits
-        // llm.default's 100000) — exercised by the maybeCompact gate-sizing
-        // tests below.
+        // This file's blanket assistant-feature-flags mock forces the
+        // override-or-default resolution flag ON, so the windows the
+        // gate-sizing tests depend on live in call-site tweaks (which apply
+        // under both resolution semantics) rather than llm.default.
+        mainAgent: {
+          contextWindow: { maxInputTokens: 100000 },
+        },
+        // Resolves a SMALLER window than mainAgent — exercised by the
+        // maybeCompact gate-sizing tests below.
         memoryRetrospective: {
           contextWindow: { maxInputTokens: 50000 },
         },
@@ -231,10 +216,6 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
 mock.module("../persistence/llm-usage-store.js", () => ({
   recordUsageEvent: () => ({ id: "mock-id", createdAt: Date.now() }),
   listUsageEvents: () => [],
-}));
-
-mock.module("../runtime/services/auto-analysis-enqueue.js", () => ({
-  enqueueAutoAnalysisOnCompaction: () => {},
 }));
 
 mock.module("../agent/loop.js", () => ({

@@ -1,13 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // The scheduler's fresh-bootstrap path routes through `runBackgroundJob`,
 // which invokes the real `processMessage` from `daemon/process-message.ts`
 // instead of the test-injected callback. To keep these tests focused on

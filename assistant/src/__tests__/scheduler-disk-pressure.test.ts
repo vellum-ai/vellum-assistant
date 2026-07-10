@@ -1,15 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    debug: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-  truncateForLog: (value: string) => value,
-}));
-
 mock.module("../runtime/agent-wake.js", () => ({
   wakeAgentForOpportunity: mock(() =>
     Promise.resolve({ invoked: true, producedToolCalls: false }),

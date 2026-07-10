@@ -85,8 +85,6 @@ mock.module("../../util/platform.js", () => ({
   getProfilerRunsDir: () => join(workspaceDir ?? fallbackDir, "profiler/runs"),
   getProfilerRunDir: (runId: string) =>
     join(workspaceDir ?? fallbackDir, "profiler/runs", runId),
-  getSkillRuntimePath: () => join(workspaceDir ?? fallbackDir, "skill-runtime"),
-  getBundledBunPath: () => undefined,
   ensureDataDir: () => {},
 }));
 

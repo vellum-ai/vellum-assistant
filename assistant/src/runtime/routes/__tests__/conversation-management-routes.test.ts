@@ -10,13 +10,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Stub the event hub to avoid spinning up real SSE infrastructure.
 mock.module("../../assistant-event-hub.js", () => ({
   assistantEventHub: {
@@ -109,7 +102,6 @@ function seedConversation(id: string): void {
       updatedAt: now,
       source: "test",
       conversationType: "standard",
-      memoryScopeId: "default",
     })
     .run();
 }

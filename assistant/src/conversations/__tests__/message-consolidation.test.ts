@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { MessageRow } from "../../persistence/conversation-crud.js";
+import { resolveMessageContentBlocks } from "../../persistence/message-content-file.js";
 import {
   findDisplayTurnEndIndex,
   isToolResultOnlyUserMessage,
@@ -17,7 +18,7 @@ function makeMsg(
     id: `msg-${Math.random().toString(36).slice(2, 10)}`,
     conversationId: "conv-1",
     role,
-    content,
+    content: resolveMessageContentBlocks(content),
     createdAt: Date.now(),
     displayOrder: 0,
     seen: 1,
@@ -254,7 +255,7 @@ describe("mergeToolResultsIntoAssistantMessages", () => {
     const merged = mergeToolResultsIntoAssistantMessages(messages);
     expect(merged).toHaveLength(1);
     expect(merged[0].role).toBe("assistant");
-    const blocks = JSON.parse(merged[0].content) as Array<{ type: string }>;
+    const blocks = merged[0].content as Array<{ type: string }>;
     expect(blocks.map((b) => b.type)).toEqual(["tool_use", "tool_result"]);
   });
 
@@ -275,7 +276,7 @@ describe("mergeToolResultsIntoAssistantMessages", () => {
     const merged = mergeToolResultsIntoAssistantMessages(messages);
     expect(merged).toHaveLength(2);
     expect(merged[1].role).toBe("user");
-    const userBlocks = JSON.parse(merged[1].content) as Array<{ type: string }>;
+    const userBlocks = merged[1].content as Array<{ type: string }>;
     expect(userBlocks.map((b) => b.type)).toEqual(["text"]);
   });
 
@@ -283,7 +284,7 @@ describe("mergeToolResultsIntoAssistantMessages", () => {
     const messages = [makeMsg("user", "hi"), makeMsg("assistant", "hello")];
     const merged = mergeToolResultsIntoAssistantMessages(messages);
     expect(merged).toHaveLength(2);
-    expect(merged[0].content).toBe("hi");
+    expect(merged[0].content).toEqual([{ type: "text", text: "hi" }]);
   });
 });
 
@@ -306,7 +307,7 @@ describe("mergeConsecutiveAssistantMessages", () => {
     ]);
     expect(messages).toHaveLength(2);
     expect(messages[1].id).toBe("anchor");
-    const blocks = JSON.parse(messages[1].content) as Array<{ text: string }>;
+    const blocks = messages[1].content as Array<{ text: string }>;
     expect(blocks.map((blk) => blk.text)).toEqual(["part 1", "part 2"]);
     expect(mergedIdMap.get("anchor")).toEqual(["tail"]);
   });

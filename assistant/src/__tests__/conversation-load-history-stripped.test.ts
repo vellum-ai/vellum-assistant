@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
@@ -63,7 +58,7 @@ mock.module("../security/secret-allowlist.js", () => ({
 let mockDbMessages: Array<{
   id: string;
   role: string;
-  content: string;
+  content: unknown;
   createdAt: number;
   metadata?: string | null;
 }> = [];
@@ -147,31 +142,31 @@ describe("loadFromDb with historyStrippedAt", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([
+        content: [
           {
             type: "text",
             text: "<channel_capabilities>old</channel_capabilities>",
           },
           { type: "text", text: "Hello" },
-        ]),
+        ],
         createdAt: 500,
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hi back" }]),
+        content: [{ type: "text", text: "Hi back" }],
         createdAt: 600,
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([
+        content: [
           {
             type: "text",
             text: "<channel_capabilities>fresh</channel_capabilities>",
           },
           { type: "text", text: "Second turn" },
-        ]),
+        ],
         createdAt: 1500,
       },
     ];
@@ -204,7 +199,7 @@ describe("loadFromDb with historyStrippedAt", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Pre-strip turn" }]),
+        content: [{ type: "text", text: "Pre-strip turn" }],
         createdAt: 500,
         metadata: JSON.stringify({
           pkbContextBlock: "<knowledge_base>stale</knowledge_base>",
@@ -213,15 +208,13 @@ describe("loadFromDb with historyStrippedAt", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
         createdAt: 600,
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([
-          { type: "text", text: "Mid post-strip turn" },
-        ]),
+        content: [{ type: "text", text: "Mid post-strip turn" }],
         createdAt: 1500,
         metadata: JSON.stringify({
           pkbContextBlock: "<knowledge_base>kept</knowledge_base>",
@@ -230,7 +223,7 @@ describe("loadFromDb with historyStrippedAt", () => {
       {
         id: "m4",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Tail reply" }]),
+        content: [{ type: "text", text: "Tail reply" }],
         createdAt: 1600,
       },
     ];
@@ -259,13 +252,13 @@ describe("loadFromDb with historyStrippedAt", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([
+        content: [
           {
             type: "text",
             text: "<channel_capabilities>kept</channel_capabilities>",
           },
           { type: "text", text: "Hi" },
-        ]),
+        ],
         createdAt: 500,
       },
     ];

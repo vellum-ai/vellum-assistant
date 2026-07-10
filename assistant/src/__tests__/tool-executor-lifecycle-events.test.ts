@@ -124,14 +124,6 @@ mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => true,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => false,
   classifyRisk: async () => ({ level: checkerRisk }),
@@ -158,8 +150,8 @@ mock.module("../telemetry/tool-usage-store.js", () => ({
   rotateToolInvocations: async () => 0,
 }));
 
-mock.module("../tools/registry.js", () => ({
-  getTool: (name: string) => {
+mock.module("../tools/registry.js", () => {
+  const lookup = (name: string) => {
     if (name === "unknown_tool") {
       return undefined;
     }
@@ -242,21 +234,25 @@ mock.module("../tools/registry.js", () => ({
         return fakeToolResult;
       },
     };
-  },
-  // Ownership lives on the registry post-refactor. Mirror that by surfacing
-  // the optional `owner`-shaped field set inline on the override-produced
-  // tool (see the skill_* branches above).
-  getToolOwner: (name: string) => {
-    if (
-      name === "skill_host_tool" ||
-      name === "skill_sandbox_tool" ||
-      name === "host_skill_sandboxed"
-    ) {
-      return { kind: "skill" as const, id: "test-skill" };
-    }
-    return undefined;
-  },
-}));
+  };
+  return {
+    getTool: lookup,
+    resolveTool: lookup,
+    // Ownership lives on the registry post-refactor. Mirror that by surfacing
+    // the optional `owner`-shaped field set inline on the override-produced
+    // tool (see the skill_* branches above).
+    getToolOwner: (name: string) => {
+      if (
+        name === "skill_host_tool" ||
+        name === "skill_sandbox_tool" ||
+        name === "host_skill_sandboxed"
+      ) {
+        return { kind: "skill" as const, id: "test-skill" };
+      }
+      return undefined;
+    },
+  };
+});
 
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   sandboxPolicy: () => ({ ok: false }),

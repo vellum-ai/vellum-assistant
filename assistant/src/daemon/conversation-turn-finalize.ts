@@ -85,7 +85,6 @@ export function buildDeferredFinalizeEffect(params: {
           role: "assistant",
           content: contentJson,
           createdAt: finalizedRow.createdAt,
-          scopeId: "default",
           provenanceTrustClass: metadata?.provenanceTrustClass,
           automated: metadata?.automated,
         },

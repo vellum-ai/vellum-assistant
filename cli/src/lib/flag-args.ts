@@ -1,4 +1,4 @@
-/** Only allow simple kebab-case keys (e.g. "voice-mode", "ces-tools"). */
+/** Only allow simple kebab-case keys (e.g. "voice-mode", "browser"). */
 const ALLOWED_KEY_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 /**

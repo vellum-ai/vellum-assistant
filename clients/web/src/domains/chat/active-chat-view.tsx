@@ -21,6 +21,7 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAuthStore } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -62,6 +63,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
 const AddCreditsModal = lazy(() =>
   import("@/components/add-credits-modal").then((m) => ({
@@ -225,7 +227,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const {
     refreshConversations,
-    switchConversation,
     startNewConversation,
     conversationExistsOnServer,
     historyResult,
@@ -381,14 +382,14 @@ export function ActiveChatView() {
   });
 
   // -------------------------------------------------------------------------
-  // Conversation secondary actions (fork, analyze, inspect, copy, etc.)
+  // Conversation secondary actions (fork, inspect, copy, etc.)
   // Primary actions (archive, pin, rename, mark-read) are owned by
   // ChatConversationHeader in chat-layout.tsx.
   // -------------------------------------------------------------------------
   const {
     handleForkConversation,
     handleForkConversationFromMenu,
-    handleAnalyzeConversation,
+    handleSummarizeUpToMessage,
     handleOpenInNewWindow,
     handleInspectConversation,
     handleInspectMessage,
@@ -396,8 +397,35 @@ export function ActiveChatView() {
   } = useConversationSecondaryActions({
     activeConversation: activeConversation ?? null,
     refreshConversations,
-    switchConversation,
   });
+
+  // "Summarize up to here" confirm dialog. The hover action only records the
+  // target message; the POST fires from the dialog's confirm button — a
+  // misfired summarize mutates the assistant's live context with no undo, so
+  // it always goes through an explicit confirmation. Gated by the
+  // `summarize-up-to-here` flag at the callback source: with the flag off no
+  // `onSummarizeUpToHere` is provided, so the hover button never renders and
+  // the dialog is unreachable.
+  const summarizeUpToHereEnabled =
+    useClientFeatureFlagStore.use.summarizeUpToHere();
+  const [pendingSummarizeMessageId, setPendingSummarizeMessageId] =
+    useState<string | null>(null);
+  const [summarizePending, setSummarizePending] = useState(false);
+  const handleSummarizeUpToHere = useCallback((messageId: string) => {
+    setPendingSummarizeMessageId(messageId);
+  }, []);
+  const handleConfirmSummarize = useCallback(() => {
+    if (!pendingSummarizeMessageId) return;
+    setSummarizePending(true);
+    // Errors toast inside the handler; the dialog just closes.
+    void handleSummarizeUpToMessage(pendingSummarizeMessageId).finally(() => {
+      setSummarizePending(false);
+      setPendingSummarizeMessageId(null);
+    });
+  }, [pendingSummarizeMessageId, handleSummarizeUpToMessage]);
+  const handleCancelSummarize = useCallback(() => {
+    setPendingSummarizeMessageId(null);
+  }, []);
 
   // Manual "Refresh" menu item — re-fetch the latest history page through the
   // same TanStack Query invalidation the pull-to-refresh gesture uses, so the
@@ -412,7 +440,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   useChatHeaderRegistration({
     assetsRefreshKey,
-    handleAnalyzeConversation,
     handleForkConversationFromMenu,
     handleOpenInNewWindow,
     handleInspectConversation,
@@ -464,6 +491,9 @@ export function ActiveChatView() {
 
     // Conversation secondary actions
     handleForkConversation,
+    onSummarizeUpToHere: summarizeUpToHereEnabled
+      ? handleSummarizeUpToHere
+      : undefined,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
 
     // History pagination
@@ -510,6 +540,15 @@ export function ActiveChatView() {
           />
         </LazyBoundary>
       ) : null}
+      <ConfirmDialog
+        open={pendingSummarizeMessageId !== null}
+        title="Summarize up to here?"
+        message="The assistant will summarize the conversation before this point and carry only the summary in its working memory going forward. Messages stay visible and are never deleted."
+        confirmLabel="Summarize"
+        isPending={summarizePending}
+        onConfirm={handleConfirmSummarize}
+        onCancel={handleCancelSummarize}
+      />
       <MobileChatOverlays />
     </>
   );

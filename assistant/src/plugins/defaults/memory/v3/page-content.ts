@@ -1,4 +1,4 @@
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getWorkspaceDir } from "../paths.js";
 import { injectedConceptHeader } from "../v2/injected-block-slugs.js";
 import { readPage, renderPageContent } from "../v2/page-store.js";
 import { renderCapabilityContent } from "./capabilities.js";

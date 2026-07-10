@@ -25,12 +25,12 @@
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import type { DrizzleDb } from "../../../../persistence/db-connection.js";
-import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getLogger } from "../logging.js";
 import {
   type MemoryV2ConceptRowRecord,
   recordMemoryV2ActivationLog,
 } from "../memory-v2-activation-log-store.js";
+import { getWorkspaceDir } from "../paths.js";
 import {
   computeOwnActivation,
   selectCandidates,
@@ -612,7 +612,6 @@ async function injectViaRouter(args: {
     nowText,
     priorEverInjected,
     config,
-    database,
     ...(signal ? { signal } : {}),
   });
 
@@ -622,7 +621,7 @@ async function injectViaRouter(args: {
   // errors — a SQLite write must not abort the turn on top of a successful
   // routing decision the rest of this function depends on.
   if (routerResult.failureReason === null) {
-    recordInjectionEvents(database, routerResult.selectedSlugs, Date.now());
+    recordInjectionEvents(routerResult.selectedSlugs, Date.now());
   }
 
   if (routerResult.failureReason !== null) {

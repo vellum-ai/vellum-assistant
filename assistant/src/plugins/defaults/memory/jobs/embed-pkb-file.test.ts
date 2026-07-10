@@ -1,27 +1,15 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Track calls to indexPkbFile so we can assert the handler forwards payload
 // fields correctly.
 const indexPkbFileCalls: Array<{
   pkbRoot: string;
   absPath: string;
-  memoryScopeId: string;
 }> = [];
 
 mock.module("../pkb/pkb-index.js", () => ({
-  indexPkbFile: async (
-    pkbRoot: string,
-    absPath: string,
-    memoryScopeId: string,
-  ) => {
-    indexPkbFileCalls.push({ pkbRoot, absPath, memoryScopeId });
+  indexPkbFile: async (pkbRoot: string, absPath: string) => {
+    indexPkbFileCalls.push({ pkbRoot, absPath });
   },
 }));
 
@@ -29,6 +17,14 @@ mock.module("../../../../config/loader.js", () => ({
   loadConfig: () => ({}),
   getConfig: () => ({}),
   invalidateConfigCache: () => {},
+}));
+
+// Controls the enqueue gate: PKB index jobs are v1-only, so the enqueue
+// helper consults memory.v2.enabled.
+let v2Enabled = false;
+
+mock.module("../config.js", () => ({
+  getMemoryConfig: () => ({ v2: { enabled: v2Enabled } }),
 }));
 
 import { DEFAULT_CONFIG } from "../../../../config/defaults.js";
@@ -77,7 +73,6 @@ describe("embedPkbFileJob", () => {
       makeJob({
         pkbRoot: "/pkb/root",
         absPath: "/pkb/root/note.md",
-        memoryScopeId: "scope-123",
       }),
       TEST_CONFIG,
     );
@@ -86,32 +81,39 @@ describe("embedPkbFileJob", () => {
     expect(indexPkbFileCalls[0]).toEqual({
       pkbRoot: "/pkb/root",
       absPath: "/pkb/root/note.md",
-      memoryScopeId: "scope-123",
     });
   });
 
   test("skips when pkbRoot is missing", async () => {
     await embedPkbFileJob(
-      makeJob({ absPath: "/pkb/root/note.md", memoryScopeId: "scope-123" }),
+      makeJob({ absPath: "/pkb/root/note.md" }),
       TEST_CONFIG,
     );
     expect(indexPkbFileCalls).toHaveLength(0);
   });
 
   test("skips when absPath is missing", async () => {
-    await embedPkbFileJob(
-      makeJob({ pkbRoot: "/pkb/root", memoryScopeId: "scope-123" }),
-      TEST_CONFIG,
-    );
+    await embedPkbFileJob(makeJob({ pkbRoot: "/pkb/root" }), TEST_CONFIG);
     expect(indexPkbFileCalls).toHaveLength(0);
   });
 
-  test("skips when memoryScopeId is missing", async () => {
+  test("processes a legacy payload that still carries a memoryScopeId key", async () => {
+    // Rows enqueued before scope removal persist in the job queue with the
+    // extra key; the handler reads only pkbRoot/absPath and must not skip.
     await embedPkbFileJob(
-      makeJob({ pkbRoot: "/pkb/root", absPath: "/pkb/root/note.md" }),
+      makeJob({
+        pkbRoot: "/pkb/root",
+        absPath: "/pkb/root/note.md",
+        memoryScopeId: "legacy-scope",
+      }),
       TEST_CONFIG,
     );
-    expect(indexPkbFileCalls).toHaveLength(0);
+
+    expect(indexPkbFileCalls).toHaveLength(1);
+    expect(indexPkbFileCalls[0]).toEqual({
+      pkbRoot: "/pkb/root",
+      absPath: "/pkb/root/note.md",
+    });
   });
 });
 
@@ -122,15 +124,29 @@ describe("enqueuePkbIndexJob", () => {
 
   beforeEach(() => {
     indexPkbFileCalls.length = 0;
+    v2Enabled = false;
     const db = getMemoryDb()!;
     db.delete(memoryJobs).run();
+  });
+
+  test("does not enqueue when memory v2 is enabled", () => {
+    v2Enabled = true;
+
+    const id = enqueuePkbIndexJob({
+      pkbRoot: "/pkb/root",
+      absPath: "/pkb/root/note.md",
+    });
+
+    expect(id).toBe("");
+    expect(claimMemoryJobs({ slowLlm: 10, fast: 10, embed: 10 })).toHaveLength(
+      0,
+    );
   });
 
   test("enqueues a pending embed_pkb_file job with payload", () => {
     const id = enqueuePkbIndexJob({
       pkbRoot: "/pkb/root",
       absPath: "/pkb/root/note.md",
-      memoryScopeId: "scope-abc",
     });
     expect(id).toBeTruthy();
 
@@ -142,7 +158,6 @@ describe("enqueuePkbIndexJob", () => {
     expect(job.payload).toEqual({
       pkbRoot: "/pkb/root",
       absPath: "/pkb/root/note.md",
-      memoryScopeId: "scope-abc",
     });
   });
 
@@ -150,7 +165,6 @@ describe("enqueuePkbIndexJob", () => {
     enqueuePkbIndexJob({
       pkbRoot: "/pkb/root",
       absPath: "/pkb/root/note.md",
-      memoryScopeId: "scope-rt",
     });
 
     const claimed = claimMemoryJobs({ slowLlm: 10, fast: 10, embed: 10 });
@@ -163,7 +177,6 @@ describe("enqueuePkbIndexJob", () => {
     expect(indexPkbFileCalls[0]).toEqual({
       pkbRoot: "/pkb/root",
       absPath: "/pkb/root/note.md",
-      memoryScopeId: "scope-rt",
     });
   });
 });

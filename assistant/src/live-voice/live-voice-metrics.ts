@@ -1,3 +1,7 @@
+import { getLogger } from "../util/logger.js";
+
+const log = getLogger("live-voice-metrics");
+
 export type LiveVoiceMetricsClock = () => number;
 
 export type LiveVoiceMetricsEvent =
@@ -74,6 +78,9 @@ interface LiveVoiceTurnDurations {
   utteranceEndToFinalTranscriptMs: number | null;
   finalTranscriptToFirstAssistantDeltaMs: number | null;
   firstAssistantDeltaToFirstTtsAudioMs: number | null;
+  // End-of-speech (utterance_end, or ptt_release in manual mode) to first
+  // TTS audio: the server-side turn round trip.
+  roundTripMs: number | null;
   totalTurnDurationMs: number | null;
 }
 
@@ -101,6 +108,7 @@ interface LiveVoiceMetricsSummary {
     utteranceEndToFinalTranscriptMs: LiveVoiceDurationSummary;
     finalTranscriptToFirstAssistantDeltaMs: LiveVoiceDurationSummary;
     firstAssistantDeltaToFirstTtsAudioMs: LiveVoiceDurationSummary;
+    roundTripMs: LiveVoiceDurationSummary;
     totalTurnDurationMs: LiveVoiceDurationSummary;
   };
 }
@@ -116,6 +124,7 @@ interface LiveVoiceMetricsAggregateFields {
   sttMs: number | null;
   llmFirstDeltaMs: number | null;
   ttsFirstAudioMs: number | null;
+  roundTripMs: number | null;
   totalMs: number | null;
 }
 
@@ -365,6 +374,26 @@ export class LiveVoiceMetricsCollector {
     while (this.recentTurns.length > this.recentTurnLimit) {
       this.recentTurns.shift();
     }
+    this.logFinishedTurn(turn);
+  }
+
+  // One structured line per finished turn so latency is greppable from
+  // daemon logs without a connected client.
+  private logFinishedTurn(turn: MutableTurn): void {
+    const finishReason =
+      turn.status === "completed"
+        ? "completed"
+        : (turn.cancellationReason ?? "cancelled");
+    log.info(
+      {
+        sessionId: this.sessionId,
+        conversationId: this.conversationId,
+        turnId: turn.turnId,
+        finishReason,
+        ...aggregateFieldsForTurn(snapshotTurn(turn)),
+      },
+      "Live voice turn latency",
+    );
   }
 
   private timestamp(): number {
@@ -413,10 +442,17 @@ export function getLiveVoiceMetricsAggregateFields(
       sttMs: null,
       llmFirstDeltaMs: null,
       ttsFirstAudioMs: null,
+      roundTripMs: null,
       totalMs: null,
     };
   }
 
+  return aggregateFieldsForTurn(turn);
+}
+
+function aggregateFieldsForTurn(
+  turn: LiveVoiceTurnMetrics,
+): LiveVoiceMetricsAggregateFields {
   return {
     // Manual mode stamps ptt_release; server-VAD sessions stamp utterance_end
     // instead, so the VAD boundary plays the sttMs role there.
@@ -425,6 +461,7 @@ export function getLiveVoiceMetricsAggregateFields(
       turn.durations.utteranceEndToFinalTranscriptMs,
     llmFirstDeltaMs: turn.durations.finalTranscriptToFirstAssistantDeltaMs,
     ttsFirstAudioMs: turn.durations.firstAssistantDeltaToFirstTtsAudioMs,
+    roundTripMs: turn.durations.roundTripMs,
     totalMs: turn.durations.totalTurnDurationMs,
   };
 }
@@ -491,6 +528,10 @@ function snapshotTurn(turn: MutableTurn): LiveVoiceTurnMetrics {
         timestamps.firstAssistantDeltaAtMs,
         timestamps.firstTtsAudioAtMs,
       ),
+      roundTripMs: duration(
+        timestamps.utteranceEndAtMs ?? timestamps.pttReleaseAtMs,
+        timestamps.firstTtsAudioAtMs,
+      ),
       totalTurnDurationMs: duration(
         timestamps.startedAtMs,
         timestamps.completedAtMs ?? timestamps.cancelledAtMs,
@@ -524,6 +565,9 @@ function summarizeTurns(turns: MutableTurn[]): LiveVoiceMetricsSummary {
       ),
       firstAssistantDeltaToFirstTtsAudioMs: summarizeDuration(
         durations.map((value) => value.firstAssistantDeltaToFirstTtsAudioMs),
+      ),
+      roundTripMs: summarizeDuration(
+        durations.map((value) => value.roundTripMs),
       ),
       totalTurnDurationMs: summarizeDuration(
         durations.map((value) => value.totalTurnDurationMs),

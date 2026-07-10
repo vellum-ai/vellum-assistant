@@ -44,7 +44,9 @@ const CLI_CONVERSATION_KEY = "builtin-cli:default";
 
 export function sanitizeUrlForDisplay(rawUrl: unknown): string {
   const value = typeof rawUrl === "string" ? rawUrl : String(rawUrl ?? "");
-  if (!value) return "";
+  if (!value) {
+    return "";
+  }
 
   try {
     const parsed = new URL(value);
@@ -167,7 +169,9 @@ export async function startCli(): Promise<void> {
           error?: string;
           message?: string;
         }): void => {
-          if (settled) return;
+          if (settled) {
+            return;
+          }
           settled = true;
           watcher.close();
           clearTimeout(timeoutId);
@@ -455,7 +459,9 @@ export async function startCli(): Promise<void> {
         break;
 
       case "tool_result":
-        if (!toolStreaming) spinner.stop();
+        if (!toolStreaming) {
+          spinner.stop();
+        }
         if (toolStreaming) {
           if (msg.status) {
             process.stdout.write(`\n${msg.status}`);
@@ -596,8 +602,12 @@ export async function startCli(): Promise<void> {
 
   function handleLine(line: string): void {
     const content = line.trim();
-    if (!content) return;
-    if (pendingSessionPick) return;
+    if (!content) {
+      return;
+    }
+    if (pendingSessionPick) {
+      return;
+    }
 
     // Persist to history file (ensure parent directory exists)
     try {
@@ -669,12 +679,7 @@ export async function startCli(): Promise<void> {
             process.stdout.write("  No messages in this conversation.\n");
           } else {
             for (const msg of rawMessages) {
-              let parsedContent: unknown;
-              try {
-                parsedContent = JSON.parse(msg.content);
-              } catch {
-                parsedContent = msg.content;
-              }
+              const parsedContent: unknown = msg.content;
               const text = renderHistoryContent(parsedContent).text;
               const label = msg.role === "user" ? "you" : "assistant";
               const preview = truncate(text, 120);
@@ -724,8 +729,12 @@ export async function startCli(): Promise<void> {
               requestId?: string;
               error?: string;
             };
-            if (result.requestId !== requestId) return;
-            if (settled) return;
+            if (result.requestId !== requestId) {
+              return;
+            }
+            if (settled) {
+              return;
+            }
             settled = true;
             undoWatcher.close();
             clearTimeout(undoTimeoutId);

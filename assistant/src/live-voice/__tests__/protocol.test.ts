@@ -506,6 +506,7 @@ describe("LiveVoiceServerFrameSequencer", () => {
       sttMs: 25,
       llmFirstDeltaMs: null,
       ttsFirstAudioMs: null,
+      roundTripMs: null,
       totalMs: 100,
     });
 
@@ -515,6 +516,7 @@ describe("LiveVoiceServerFrameSequencer", () => {
       sttMs: 25,
       llmFirstDeltaMs: null,
       ttsFirstAudioMs: null,
+      roundTripMs: null,
       totalMs: 100,
       seq: 42,
     });

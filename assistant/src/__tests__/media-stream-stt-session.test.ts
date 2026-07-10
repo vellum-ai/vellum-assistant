@@ -28,20 +28,15 @@ mock.module("../providers/speech-to-text/resolve.js", () => ({
 
 // Mock the config loader so the session's telephony-streaming flag read
 // never touches the real filesystem config.
-const configState = { telephonyStreaming: true };
+const configState = { telephonyStreaming: true, utteranceEndMs: 1000 };
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
-    calls: { voice: { telephonyStreaming: configState.telephonyStreaming } },
-  }),
-}));
-
-// Mock the logger to suppress output during tests
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
+    calls: {
+      voice: {
+        telephonyStreaming: configState.telephonyStreaming,
+        utteranceEndMs: configState.utteranceEndMs,
+      },
+    },
   }),
 }));
 
@@ -198,6 +193,7 @@ describe("MediaStreamSttSession", () => {
     // session selects batch mode deterministically. Streaming-mode tests
     // set it back to true.
     configState.telephonyStreaming = false;
+    configState.utteranceEndMs = 1000;
 
     // Default: provider is supported and transcriber is available
     (resolveTelephonySttCapability as jest.Mock).mockResolvedValue({
@@ -692,7 +688,10 @@ describe("MediaStreamSttSession", () => {
     async function startStreamingSession(
       callbacks: ConstructorParameters<typeof MediaStreamSttSession>[1] = {},
       config: ConstructorParameters<typeof MediaStreamSttSession>[0] = {},
-    ): Promise<{ session: MediaStreamSttSession; fake: FakeStreamingTranscriber }> {
+    ): Promise<{
+      session: MediaStreamSttSession;
+      fake: FakeStreamingTranscriber;
+    }> {
       const fake = new FakeStreamingTranscriber();
       (resolveStreamingTranscriber as jest.Mock).mockResolvedValue(fake);
 
@@ -710,6 +709,20 @@ describe("MediaStreamSttSession", () => {
       expect(resolveStreamingTranscriber).toHaveBeenCalledWith({
         sampleRate: 16_000,
         utteranceBoundaryFinals: true,
+        utteranceEndMs: 1000,
+      });
+
+      session.dispose();
+    });
+
+    test("forwards the configured calls.voice.utteranceEndMs to the resolver", async () => {
+      configState.utteranceEndMs = 2500;
+      const { session } = await startStreamingSession();
+
+      expect(resolveStreamingTranscriber).toHaveBeenCalledWith({
+        sampleRate: 16_000,
+        utteranceBoundaryFinals: true,
+        utteranceEndMs: 2500,
       });
 
       session.dispose();

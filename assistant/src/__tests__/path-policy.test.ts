@@ -30,13 +30,6 @@ mock.module("../config/skills.js", () => ({
   getBundledSkillsDir: () => MOCK_BUNDLED_DIR,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const {
   isSkillSourcePath,
   normalizeDirPath,

@@ -45,22 +45,17 @@ describe("completeCustomProfile", () => {
       logitBias: "suppress-cjk",
     });
     const completed = completeCustomProfile(dflt, { model: "claude-fable-5" });
-    // The resolver leaves llm.default's base sampling standing when no
-    // profile opts in, so non-null defaults must be baked in.
     expect(completed.temperature).toBe(0.7);
     expect(completed.topP).toBe(0.9);
-    // logitBias is deleted post-merge unless the winning profile set it.
+    // The resolver deletes non-profile logitBias post-merge, unlike sampling.
     expect(completed.logitBias).toBeUndefined();
-    // The profile's own sampling wins over the default's.
     const own = completeCustomProfile(dflt, { temperature: 0.2 });
     expect(own.temperature).toBe(0.2);
     expect(own.topP).toBe(0.9);
-    // A null schema-default is skipped, not baked in as an explicit null.
     const nullDefaults = completeCustomProfile(fullDefault, {});
     expect(nullDefaults.temperature).toBeUndefined();
     expect(nullDefaults.topP).toBeUndefined();
-    // A profile's explicit null is preserved (it clears the default's value
-    // in the resolver, and must keep doing so standalone).
+    // Explicit null differs from undefined: it clears the default's value.
     const explicitNull = completeCustomProfile(dflt, { temperature: null });
     expect(explicitNull.temperature).toBeNull();
   });
@@ -95,9 +90,8 @@ describe("completeCustomProfile", () => {
   test("stamps the catalog owner for a model the default provider does not serve, and drops the default's connection", () => {
     const completed = completeCustomProfile(fullDefault, { model: "gpt-5.5" });
     expect(completed.provider).toBe("openai");
-    // anthropic-personal belongs to the replaced provider; dispatch
-    // auto-resolves an absent connection by provider, same as the partial
-    // profile resolves today.
+    // Provider-specific connections don't cross providers; dispatch
+    // auto-resolves an absent connection.
     expect(completed.provider_connection).toBeUndefined();
   });
 
@@ -119,14 +113,11 @@ describe("completeCustomProfile", () => {
     expect(completed.provider_connection).toBeUndefined();
   });
 
-  test("always inherits the provider-agnostic vellum managed connection, even across an implied provider change", () => {
+  test("inherits the vellum managed connection across a provider change, but only onto managed-routable providers", () => {
     const managedDefault = LLMConfigBase.parse({
       ...fullDefault,
       provider_connection: VELLUM_MANAGED_CONNECTION_NAME,
     });
-    // Model implication flips the provider, but the vellum connection routes
-    // any managed provider via `expectedProvider` — dropping it would cut the
-    // profile off from platform-proxy routing.
     const implied = completeCustomProfile(managedDefault, { model: "gpt-5.5" });
     expect(implied.provider).toBe("openai");
     expect(implied.provider_connection).toBe(VELLUM_MANAGED_CONNECTION_NAME);
@@ -136,6 +127,14 @@ describe("completeCustomProfile", () => {
       model: "gpt-5.4",
     });
     expect(explicit.provider_connection).toBe(VELLUM_MANAGED_CONNECTION_NAME);
+
+    // The vellum connection can't route a non-managed provider; baking it in
+    // would fail dispatch's mismatch path instead of auto-resolving.
+    const nonRoutable = completeCustomProfile(managedDefault, {
+      provider: "openrouter",
+      model: "minimax/minimax-m3",
+    });
+    expect(nonRoutable.provider_connection).toBeUndefined();
   });
 
   test("keeps the inherited provider for a model unknown to the catalog", () => {
@@ -274,6 +273,11 @@ describe("completeCustomProfile — resolver equivalence", () => {
     });
     return resolveCallSiteConfig("vision", llm, {
       overrideProfile: "custom-x",
+      // The equivalence contract is a legacy-cascade property by definition:
+      // materialization pins what the MERGE produced. Under
+      // override-or-default semantics a partial profile falls back instead
+      // of merging (pinned by llm-resolver-override-or-default.test.ts).
+      resolutionSemantics: "legacy-merge",
     });
   };
 

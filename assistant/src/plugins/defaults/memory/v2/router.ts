@@ -33,21 +33,20 @@
  */
 
 import type { Message } from "@vellumai/plugin-api";
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import {
+  getAssistantName,
+  getConfiguredProvider,
+  resolveUserName,
+} from "@vellumai/plugin-api";
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import {
-  getAssistantName,
-  resolveUserName,
-} from "../../../../daemon/identity-helpers.js";
-import type { DrizzleDb } from "../../../../persistence/db-connection.js";
-import { getLogger } from "../../../../util/logger.js";
 import {
   cachedTextBlock,
   extractToolUse,
   type ToolDefinition,
 } from "../llm-helpers.js";
+import { getLogger } from "../logging.js";
 import { computeInjectionScores } from "./injection-events.js";
 import type { PageIndex } from "./page-index.js";
 import {
@@ -187,13 +186,6 @@ interface RunRouterParams {
   config: AssistantConfig;
   signal?: AbortSignal;
   /**
-   * Database handle for reading EMA scores when `tier2_size` is set. When
-   * absent, tier 2 is silently skipped (pages flow tier 1 → tier 3). The
-   * production caller (`injectViaRouter`) always passes it; tests that
-   * only exercise tier 1 / tier 3 paths can omit it.
-   */
-  database?: DrizzleDb;
-  /**
    * Per-call profile override forwarded to `getConfiguredProvider`. When
    * set, the `memoryRouter` call site resolves against this profile name
    * instead of the workspace active profile. The simulator route uses
@@ -271,16 +263,14 @@ export async function runRouter(
 
   let tier2: PageIndex | null = null;
   let afterTier2: PageIndex = afterTier1;
-  if (tier2Size !== null && params.database && afterTier1.entries.length > 0) {
+  if (tier2Size !== null && afterTier1.entries.length > 0) {
+    // EMA scores come from the dedicated memory connection; when it is
+    // unavailable the scores read as all-zero and tier 2 selects nothing.
     const slugs = afterTier1.entries.map((e) => e.slug);
-    const scores = computeInjectionScores(params.database, slugs, Date.now());
+    const scores = computeInjectionScores(slugs, Date.now());
     const split = splitTier2(afterTier1, tier2Size, scores);
     tier2 = split.tier2;
     afterTier2 = split.rest;
-  } else if (tier2Size !== null && !params.database) {
-    log.warn(
-      "tier2_size set but no database passed to runRouter; skipping tier 2",
-    );
   }
 
   const tier3Batches = partitionPageIndex(afterTier2, batchSize).filter(

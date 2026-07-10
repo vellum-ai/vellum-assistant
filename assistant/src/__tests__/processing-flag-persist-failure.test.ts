@@ -18,11 +18,6 @@ import type { Message, ProviderResponse } from "../providers/types.js";
 
 let persistShouldThrow = false;
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
