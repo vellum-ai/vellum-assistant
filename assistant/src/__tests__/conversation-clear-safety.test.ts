@@ -34,7 +34,7 @@ import {
   createConversation,
   getConversation,
 } from "../persistence/conversation-crud.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getTelemetrySqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { enforcePolicy } from "../runtime/auth/route-policy.js";
 import type { AuthContext, Scope } from "../runtime/auth/types.js";
@@ -177,12 +177,8 @@ describe("DELETE /v1/conversations — route handler", () => {
       headers: { "x-confirm-destructive": "clear-all-conversations" },
     });
 
-    const raw = (
-      getDb() as unknown as {
-        $client: import("bun:sqlite").Database;
-      }
-    ).$client;
-    const rows = raw
+    // The audit row lives in the dedicated telemetry DB (migration 329).
+    const rows = getTelemetrySqlite()!
       .query(
         "SELECT event_name FROM lifecycle_events WHERE event_name = 'conversations_clear_all'",
       )
