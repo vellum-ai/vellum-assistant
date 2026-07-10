@@ -13,7 +13,6 @@ import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bu
 import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachment-naming";
 
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
-import { downloadWorkspaceFile } from "@/domains/workspace/utils/download-workspace-file";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -64,6 +63,8 @@ import {
   type TranscriptMessageBodyProps,
   workflowRunIdForCall,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
+import { workspaceFileContentGet } from "@/generated/daemon/sdk.gen";
+import { saveFile } from "@/runtime/native-file";
 
 /**
  * Word-fade cutoff for the streaming trailing text group. The fade wraps
@@ -332,7 +333,8 @@ export function TranscriptMessageBody({
         // TEXT blocks, not from dynamic_page surface HTML, so a file cited
         // only in a component never becomes an attachment. Fetch it by path
         // from the workspace file content endpoint instead — the same route
-        // the workspace browser uses.
+        // the workspace browser uses. Inlined here to avoid a cross-domain
+        // import (chat -> workspace).
         const WORKSPACE_PREFIX = "vellum://workspace/";
         let filePath = href.slice(WORKSPACE_PREFIX.length);
         try {
@@ -340,15 +342,23 @@ export function TranscriptMessageBody({
         } catch {
           // Malformed percent-encoding — use the raw path.
         }
-        void downloadWorkspaceFile({
-          assistantId: assistantId ?? "",
-          path: filePath,
-          filename: linkText || pathBasename,
-        }).catch(() => {
-          toast.error("Failed to download file", {
-            description: linkText || pathBasename,
-          });
-        });
+        const filename = linkText || pathBasename;
+        void (async () => {
+          try {
+            const { data, error } = await workspaceFileContentGet({
+              path: { assistant_id: assistantId ?? "" },
+              query: { path: filePath },
+              parseAs: "blob",
+              throwOnError: false,
+            });
+            if (error || !(data instanceof Blob)) {
+              throw new Error("workspace file content fetch failed");
+            }
+            await saveFile(data, filename);
+          } catch {
+            toast.error("Failed to download file", { description: filename });
+          }
+        })();
       } else {
         const isHost = href.startsWith("vellum://host/");
         toast.error(
