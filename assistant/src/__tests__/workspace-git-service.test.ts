@@ -2050,6 +2050,26 @@ describe("WorkspaceGitService", () => {
       expect(_hasPendingHistoryCompaction(service)).toBe(true);
     });
 
+    test("a sooner compaction request replaces a later pending timer", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const internal = service as unknown as {
+        scheduleHistoryCompaction: (delayMs?: number) => void;
+        historyCompactionDueAtMs: number;
+      };
+      internal.scheduleHistoryCompaction(24 * 60 * 60_000);
+      const farDueAt = internal.historyCompactionDueAtMs;
+
+      internal.scheduleHistoryCompaction(60_000);
+      const nearDueAt = internal.historyCompactionDueAtMs;
+      expect(nearDueAt).toBeLessThan(farDueAt);
+
+      // A later request never displaces the sooner pending one
+      internal.scheduleHistoryCompaction(24 * 60 * 60_000);
+      expect(internal.historyCompactionDueAtMs).toBe(nearDueAt);
+    });
+
     test("history compaction prunes unreachable oversized blobs immediately", async () => {
       const service = new WorkspaceGitService(testDir);
       await service.ensureInitialized();

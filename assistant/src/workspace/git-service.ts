@@ -284,6 +284,7 @@ export class WorkspaceGitService {
   /** Oversized paths already logged, to avoid re-warning every commit cycle. */
   private readonly warnedOversizedPaths = new Set<string>();
   private historyCompactionTimer: ReturnType<typeof setTimeout> | null = null;
+  private historyCompactionDueAtMs = 0;
 
   constructor(workspaceDir: string) {
     this.workspaceDir = workspaceDir;
@@ -981,8 +982,16 @@ export class WorkspaceGitService {
   private scheduleHistoryCompaction(
     delayMs = HISTORY_COMPACTION_INITIAL_DELAY_MS,
   ): void {
+    const dueAtMs = Date.now() + delayMs;
     if (this.historyCompactionTimer) {
-      return;
+      if (dueAtMs >= this.historyCompactionDueAtMs) {
+        // An earlier-or-equal run is already pending; it covers this request.
+        return;
+      }
+      // A retention retry can be days out — a fresh request (e.g. a newly
+      // unstaged external blob) must not wait behind it.
+      clearTimeout(this.historyCompactionTimer);
+      this.historyCompactionTimer = null;
     }
     const timer = setTimeout(() => {
       void (async () => {
@@ -1005,6 +1014,7 @@ export class WorkspaceGitService {
     // Never keep the process alive just for maintenance.
     timer.unref?.();
     this.historyCompactionTimer = timer;
+    this.historyCompactionDueAtMs = dueAtMs;
   }
 
   /**
