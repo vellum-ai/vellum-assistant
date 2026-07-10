@@ -21,7 +21,7 @@ import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { recordToolDenied, recordToolError } from "../telemetry/tool-audit.js";
 import { getLogger } from "../util/logger.js";
 import { resolveExecutionTarget } from "./execution-target.js";
-import { getAllTools, getTool, getToolOwner } from "./registry.js";
+import { getAllTools, getToolOwner, peekTool } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
 import { suggestToolName } from "./tool-name-aliases.js";
@@ -452,7 +452,7 @@ export class ToolApprovalHandler {
     // "unknown tool" gate further down. Looking it up here also means the
     // sandbox/host routing reflects the tool actually registered under this
     // name at execution time.
-    const tool = getTool(name);
+    const tool = peekTool(name);
     const executionTarget = resolveExecutionTarget(tool ?? { name });
 
     // Determine whether this invocation requires a scoped grant. Capture

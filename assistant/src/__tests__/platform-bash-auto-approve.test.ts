@@ -85,7 +85,9 @@ mock.module("../permissions/checker.js", () => ({
   isDynamicSkillLoadInvocation: () => false,
   classifyRisk: async () => ({ level: riskOverride }),
   check: async () => {
-    if (checkResultOverride) return checkResultOverride;
+    if (checkResultOverride) {
+      return checkResultOverride;
+    }
     return { decision: "allow", reason: "allowed" };
   },
   generateAllowlistOptions: () => [
@@ -106,7 +108,22 @@ mock.module("../telemetry/tool-usage-store.js", () => ({
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => {
-    if (name === "unknown_tool") return undefined;
+    if (name === "unknown_tool") {
+      return undefined;
+    }
+    return {
+      name,
+      description: "test tool",
+      category: "shell",
+      defaultRiskLevel: "medium",
+      input_schema: {},
+      execute: async () => fakeToolResult,
+    };
+  },
+  peekTool: (name: string) => {
+    if (name === "unknown_tool") {
+      return undefined;
+    }
     return {
       name,
       description: "test tool",

@@ -52,6 +52,7 @@ mock.module("../config/skills.js", () => ({
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => localRegistry.get(name),
+  peekTool: (name: string) => localRegistry.get(name),
   getAllTools: () => Array.from(localRegistry.values()),
   registerTool: (tool: import("../tools/types.js").Tool) => {
     localRegistry.set(tool.name, tool);

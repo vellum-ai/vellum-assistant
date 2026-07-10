@@ -175,15 +175,20 @@ mock.module("../tools/registry.js", () => ({
     skillId: string,
     tools: Array<{ name: string; [k: string]: unknown }>,
   ) => {
-    for (const t of tools) benchmarkRegistry.set(t.name, { tool: t, skillId });
+    for (const t of tools) {
+      benchmarkRegistry.set(t.name, { tool: t, skillId });
+    }
     return tools;
   },
   unregisterSkillTools: (skillId: string) => {
     for (const [name, entry] of benchmarkRegistry) {
-      if (entry.skillId === skillId) benchmarkRegistry.delete(name);
+      if (entry.skillId === skillId) {
+        benchmarkRegistry.delete(name);
+      }
     }
   },
   getTool: (name: string) => benchmarkRegistry.get(name)?.tool,
+  peekTool: (name: string) => benchmarkRegistry.get(name)?.tool,
   getToolOwner: (name: string) => {
     const entry = benchmarkRegistry.get(name);
     return entry ? { kind: "skill" as const, id: entry.skillId } : undefined;

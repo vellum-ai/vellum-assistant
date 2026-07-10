@@ -28,8 +28,8 @@ import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import { recordSkillLoadedEvent } from "../telemetry/skill-loaded-events-store.js";
 import {
-  getTool,
   getToolOwner,
+  peekTool,
   registerSkillTools,
   unregisterSkillTools,
 } from "../tools/registry.js";
@@ -168,7 +168,9 @@ function loadManifestForSkill(skill: SkillSummary): SkillToolManifest | null {
  * never emit.
  */
 function isVellumProducedSkill(skill: SkillSummary): boolean {
-  if (skill.source === "bundled") return true;
+  if (skill.source === "bundled") {
+    return true;
+  }
   if (skill.source === "managed") {
     return readInstallMeta(skill.directoryPath)?.origin === "vellum";
   }
@@ -186,9 +188,13 @@ function recordSkillLoadedTelemetry(
   skill: SkillSummary,
   telemetry: ProjectSkillToolsOptions["telemetry"],
 ): void {
-  if (!telemetry) return;
+  if (!telemetry) {
+    return;
+  }
   try {
-    if (!isVellumProducedSkill(skill)) return;
+    if (!isVellumProducedSkill(skill)) {
+      return;
+    }
     const catalogEntry = getCachedCatalogSync().find((s) => s.id === skill.id);
     recordSkillLoadedEvent({
       conversationId: telemetry.conversationId,
@@ -213,7 +219,9 @@ function recordSkillLoadedTelemetry(
  * plugin skills are skipped. Best-effort: the underlying write never throws.
  */
 function stampManagedSkillUsage(skill: SkillSummary): void {
-  if (skill.source !== "managed") return;
+  if (skill.source !== "managed") {
+    return;
+  }
   try {
     const today = new Date().toLocaleDateString("en-CA");
     touchSkillLastUsed(skill.directoryPath, today);
@@ -243,7 +251,9 @@ function getCachedActiveSkills(
   history: Message[],
   cache?: SkillProjectionCache,
 ): ActiveSkillEntry[] {
-  if (!cache) return deriveActiveSkills(history);
+  if (!cache) {
+    return deriveActiveSkills(history);
+  }
 
   const cached = cache.derived;
 
@@ -306,7 +316,9 @@ function getCachedActiveSkills(
  * directories changed on disk while the conversation is still processing).
  */
 function getCachedCatalog(cache?: SkillProjectionCache): SkillSummary[] {
-  if (!cache) return loadSkillCatalog();
+  if (!cache) {
+    return loadSkillCatalog();
+  }
 
   if (!cache.catalog) {
     cache.catalog = loadSkillCatalog();
@@ -386,7 +398,9 @@ export function projectSkillTools(
   // with the no-tools sentinel never registered anything — skip them so we
   // don't decrement refcounts held by other conversations.
   for (const id of removedIds) {
-    if (!hasRegisteredTools(prevActive.get(id))) continue;
+    if (!hasRegisteredTools(prevActive.get(id))) {
+      continue;
+    }
     log.info({ skillId: id }, "Unregistering tools for deactivated skill");
     unregisterSkillTools(id);
   }
@@ -514,7 +528,9 @@ export function projectSkillTools(
         // because the permission checker derives bundled state from the
         // live catalog instead of a stamped tool field.
         accepted = tools.filter((t) => {
-          if (getTool(t.name) === undefined) return false;
+          if (peekTool(t.name) === undefined) {
+            return false;
+          }
           const owner = getToolOwner(t.name);
           return owner?.kind === "skill" && owner.id === skillId;
         });
@@ -572,7 +588,9 @@ export function resetSkillToolProjection(
       // Sentinel entries (active skills without a manifest) registered no
       // tools — skip them so we don't decrement refcounts held by other
       // conversations.
-      if (!hasRegisteredTools(hash)) continue;
+      if (!hasRegisteredTools(hash)) {
+        continue;
+      }
       unregisterSkillTools(id);
     }
     trackedIds.clear();

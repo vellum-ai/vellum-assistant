@@ -66,6 +66,7 @@ const fakeTool = {
 };
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => (name === "bash" ? fakeTool : undefined),
+  peekTool: (name: string) => (name === "bash" ? fakeTool : undefined),
   getAllTools: () => [fakeTool],
 }));
 

@@ -16,7 +16,7 @@ import {
   looksLikeHostPortShorthand,
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
-import { getTool, getToolOwner } from "../tools/registry.js";
+import { getTool, getToolOwner, peekTool } from "../tools/registry.js";
 import { resolveRealPath } from "../tools/shared/filesystem/path-policy.js";
 import type { Tool } from "../tools/types.js";
 import {
@@ -614,7 +614,7 @@ function buildClassifyRiskParams(
   // Forward the tool's registry default risk level so the gateway can use it
   // instead of hardcoding medium for unknown tools. When the tool is not in the
   // registry but a manifestOverride provides a risk, use that instead.
-  const tool = getTool(toolName);
+  const tool = peekTool(toolName);
   let registryDefaultRisk: string | undefined;
   if (tool) {
     registryDefaultRisk =
@@ -862,7 +862,7 @@ export async function check(
   const hasSandboxAutoApprove = classification.sandboxAutoApprove ?? false;
 
   // Build approval context from local variables
-  const tool = getTool(toolName);
+  const tool = await getTool(toolName);
   const cellQuery = buildChannelPermissionCellQuery(policyContext);
   const threshold = await getAutoApproveThreshold(
     policyContext?.conversationId,

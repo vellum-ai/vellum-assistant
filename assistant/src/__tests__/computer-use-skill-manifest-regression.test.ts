@@ -6,8 +6,8 @@ import { RiskLevel } from "../permissions/types.js";
 import { allComputerUseTools } from "../tools/computer-use/definitions.js";
 import {
   __resetRegistryForTesting,
-  getTool,
   initializeTools,
+  peekTool,
   registerSkillTools,
   unregisterSkillTools,
 } from "../tools/registry.js";
@@ -105,7 +105,7 @@ describe("computer-use skill manifest regression", () => {
     // after initializeTools(). If they were, registerSkillTools() would skip
     // them as core tool collisions when the computer-use skill is activated.
     for (const name of COMPUTER_USE_TOOL_NAMES) {
-      expect(getTool(name)).toBeUndefined();
+      expect(peekTool(name)).toBeUndefined();
     }
   });
 

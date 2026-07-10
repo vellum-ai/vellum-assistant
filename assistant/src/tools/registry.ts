@@ -123,7 +123,9 @@ const pluginRefCount = new Map<string, number>();
  * string so log/error sites never produce `undefined` interpolations.
  */
 function describeOwner(owner: OwnerInfo | undefined): string {
-  if (!owner) return "core tool";
+  if (!owner) {
+    return "core tool";
+  }
   switch (owner.kind) {
     case "skill":
       return `skill "${owner.id}"`;
@@ -206,7 +208,9 @@ export function registerTool(definition: ToolDefinition): void {
   }
   const existing = tools.get(name);
   if (existing) {
-    if (existing === tool) return; // same definition re-registered, skip
+    if (existing === tool) {
+      return;
+    } // same definition re-registered, skip
     log.warn({ name }, "Tool already registered, overwriting");
   }
   tools.set(name, tool);
@@ -218,7 +222,25 @@ export function registerTool(definition: ToolDefinition): void {
   log.info({ name, category: tool.category }, "Tool registered");
 }
 
-export function getTool(name: string): Tool | undefined {
+/**
+ * Resolve a registered tool by name, ensuring the registry has been
+ * initialized first. Mirrors `getHooksFor`, which awaits its reconcile before
+ * reading — so a caller on a cold registry gets a populated result instead of
+ * a spurious `undefined`. Prefer this in any async context.
+ */
+export async function getTool(name: string): Promise<Tool | undefined> {
+  await initializeTools();
+  return tools.get(name);
+}
+
+/**
+ * Synchronous read that does NOT trigger initialization. For hot-path callers
+ * that run only after the registry is known to be populated — e.g. the agent
+ * loop's exclusive-tool predicate, invoked mid-turn once tools are resolved.
+ * Returns `undefined` if the tool is absent or the registry is not yet
+ * initialized; use {@link getTool} when readiness is not already guaranteed.
+ */
+export function peekTool(name: string): Tool | undefined {
   return tools.get(name);
 }
 
@@ -609,7 +631,9 @@ export function getMcpToolDefinitions(): Tool[] {
 export function getPluginToolDefinitions(): Tool[] {
   return Array.from(tools.values()).filter((t) => {
     const owner = ownersByName.get(t.name);
-    if (owner?.kind !== "plugin") return false;
+    if (owner?.kind !== "plugin") {
+      return false;
+    }
     // Filter out tools contributed by disabled plugins at read time so
     // `assistant plugins disable <name>` takes effect on the next turn
     // without a daemon restart. Mirrors the `.disabled` sentinel filtering
@@ -625,9 +649,13 @@ export function getPluginToolDefinitions(): Tool[] {
 export function getMcpToolsByServer(): Map<string, Tool[]> {
   const byServer = new Map<string, Tool[]>();
   for (const [name, owner] of ownersByName) {
-    if (owner.kind !== "mcp") continue;
+    if (owner.kind !== "mcp") {
+      continue;
+    }
     const tool = tools.get(name);
-    if (!tool) continue;
+    if (!tool) {
+      continue;
+    }
     let list = byServer.get(owner.id);
     if (!list) {
       list = [];
@@ -706,7 +734,9 @@ export function registerWorkspaceTools(
     seenInBatch.add(tool.name);
 
     const existing = tools.get(tool.name);
-    if (!existing) continue;
+    if (!existing) {
+      continue;
+    }
 
     const existingOwner = ownersByName.get(tool.name);
     if (existingOwner?.kind === "workspace") {
@@ -718,7 +748,9 @@ export function registerWorkspaceTools(
     // Built-in (default) tool — override allowed, handled in the mutation
     // phase below. `undefined` shouldn't occur (every registered tool has an
     // owner) but is treated the same as a built-in for safety.
-    if (!existingOwner || existingOwner.kind === "default") continue;
+    if (!existingOwner || existingOwner.kind === "default") {
+      continue;
+    }
 
     throw new Error(
       `Workspace tool "${tool.name}" conflicts with an existing ${describeOwner(existingOwner)}. Workspace tools must register before other extension categories.`,
@@ -929,7 +961,9 @@ export function getWorkspaceToolDefinitions(): Tool[] {
 export function getStrippedCoreToolNames(): string[] {
   const stripped: string[] = [];
   for (const name of coreToolOverrides.keys()) {
-    if (!tools.has(name)) stripped.push(name);
+    if (!tools.has(name)) {
+      stripped.push(name);
+    }
   }
   return stripped;
 }
@@ -1063,9 +1097,13 @@ async function runToolInitialization(): Promise<void> {
     coreToolsSnapshot = new Map<string, { tool: Tool; owner: OwnerInfo }>();
     for (const [name, tool] of tools) {
       const owner = ownersByName.get(name);
-      if (owner?.kind === "skill" || owner?.kind === "plugin") continue;
+      if (owner?.kind === "skill" || owner?.kind === "plugin") {
+        continue;
+      }
       // Exclude pre-existing tools not declared in the manifest
-      if (preExisting.has(name) && !manifestToolNames.has(name)) continue;
+      if (preExisting.has(name) && !manifestToolNames.has(name)) {
+        continue;
+      }
       // Every registered tool carries an owner (built-ins get DEFAULT_TOOL_OWNER
       // stamped by registerTool), so `owner` is defined here.
       coreToolsSnapshot.set(name, { tool, owner: owner! });

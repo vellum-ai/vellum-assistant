@@ -5,7 +5,7 @@
  * manifest and have them surface through the global tool registry:
  *
  * - Registering a plugin with `tools: Tool[]`, running `bootstrapPlugins`,
- *   and observing the contributed tool via `getAllTools()` / `getTool()`.
+ *   and observing the contributed tool via `getAllTools()` / `peekTool()`.
  * - Tool ownership (`owner: { kind: "plugin", id: <plugin> }`) recorded
  *   authoritatively by `registerPluginTools` into the registry's
  *   `ownersByName` map (queried via `getToolOwner(name)`), regardless of
@@ -38,8 +38,8 @@ import {
   __resetRegistryForTesting,
   getAllTools,
   getPluginRefCount,
-  getTool,
   getToolOwner,
+  peekTool,
   registerPluginTools,
   unregisterPluginTools,
 } from "../tools/registry.js";
@@ -133,7 +133,7 @@ describe("plugin tool contributions", () => {
 
     await bootstrapPlugins();
 
-    const retrieved = getTool("plugin-contrib-tool");
+    const retrieved = peekTool("plugin-contrib-tool");
     expect(retrieved).toBeDefined();
     // Ownership is recorded authoritatively by the bootstrap into the
     // registry's `ownersByName` map (keyed by tool name, accessed via
@@ -177,10 +177,10 @@ describe("plugin tool contributions", () => {
     });
     registerPlugin(plugin);
 
-    expect(getTool("charlie-tool")).toBeUndefined();
+    expect(peekTool("charlie-tool")).toBeUndefined();
 
     await bootstrapPlugins();
-    expect(getTool("charlie-tool")).toBeDefined();
+    expect(peekTool("charlie-tool")).toBeDefined();
   });
 
   test("tools are only registered after init() succeeds", async () => {
@@ -199,7 +199,7 @@ describe("plugin tool contributions", () => {
 
     // AND the failing plugin's tool is rolled back, never leaking into the
     // registry
-    expect(getTool("delta-tool")).toBeUndefined();
+    expect(peekTool("delta-tool")).toBeUndefined();
   });
 });
 
@@ -223,7 +223,7 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
       id: "my-plugin",
     });
 
-    const retrieved = getTool("pt_stamped");
+    const retrieved = peekTool("pt_stamped");
     expect(retrieved?.category).toBe("plugin");
   });
 
@@ -242,7 +242,7 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     const alias = accepted[0]!.name;
     expect(alias).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
     expect(alias.startsWith("Stripe_Link_CLI__")).toBe(true);
-    expect(getTool(alias)).toBeDefined();
+    expect(peekTool(alias)).toBeDefined();
     expect(accepted[0]!.name).toBe(alias);
 
     await accepted[0]!.execute(
@@ -270,8 +270,8 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
 
     const paddedAlias = aliases.find((name) => name !== "deploy");
     expect(paddedAlias).toMatch(/^deploy__[a-f0-9]{12}$/);
-    expect(getTool("deploy")).toBeDefined();
-    expect(getTool(paddedAlias!)).toBeDefined();
+    expect(peekTool("deploy")).toBeDefined();
+    expect(peekTool(paddedAlias!)).toBeDefined();
   });
 
   test("registerPluginTools ignores forged ownership fields on the incoming tool", () => {
@@ -291,7 +291,7 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
       owner: { kind: "skill", id: "some-other-skill" },
     } as unknown as Tool;
     registerPluginTools("my-plugin", [spoofed]);
-    expect(getTool("pt_spoof")).toBeDefined();
+    expect(peekTool("pt_spoof")).toBeDefined();
     expect(getToolOwner("pt_spoof")).toEqual({
       kind: "plugin",
       id: "my-plugin",
@@ -303,13 +303,13 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
       makeFakeTool("pt_rm_a"),
       makeFakeTool("pt_rm_b"),
     ]);
-    expect(getTool("pt_rm_a")).toBeDefined();
-    expect(getTool("pt_rm_b")).toBeDefined();
+    expect(peekTool("pt_rm_a")).toBeDefined();
+    expect(peekTool("pt_rm_b")).toBeDefined();
 
     unregisterPluginTools("rm-plugin");
 
-    expect(getTool("pt_rm_a")).toBeUndefined();
-    expect(getTool("pt_rm_b")).toBeUndefined();
+    expect(peekTool("pt_rm_a")).toBeUndefined();
+    expect(peekTool("pt_rm_b")).toBeUndefined();
   });
 
   test("unregisterPluginTools is a no-op for plugins that never contributed", () => {
@@ -322,10 +322,10 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     expect(getPluginRefCount("rc-plugin")).toBe(2);
 
     unregisterPluginTools("rc-plugin");
-    expect(getTool("pt_rc")).toBeDefined();
+    expect(peekTool("pt_rc")).toBeDefined();
 
     unregisterPluginTools("rc-plugin");
-    expect(getTool("pt_rc")).toBeUndefined();
+    expect(peekTool("pt_rc")).toBeUndefined();
     expect(getPluginRefCount("rc-plugin")).toBe(0);
   });
 });

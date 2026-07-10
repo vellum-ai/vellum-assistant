@@ -57,7 +57,9 @@ mock.module("../config/skills.js", () => ({
       ? skills
       : skills.filter((skill) => {
           const owner = skill.owner;
-          if (owner?.kind !== "plugin") return true;
+          if (owner?.kind !== "plugin") {
+            return true;
+          }
           return effectiveEnabledPluginSet.has(owner.id);
         }),
 }));
@@ -82,10 +84,16 @@ mock.module("../skills/active-skill-tools.js", () => {
     const entries: Array<{ id: string; version?: string }> = [];
     for (const msg of messages) {
       for (const block of msg.content) {
-        if (block.type !== "tool_result") continue;
-        if (!skillLoadUseIds.has(block.tool_use_id)) continue;
+        if (block.type !== "tool_result") {
+          continue;
+        }
+        if (!skillLoadUseIds.has(block.tool_use_id)) {
+          continue;
+        }
         const text = block.content;
-        if (!text) continue;
+        if (!text) {
+          continue;
+        }
         for (const match of text.matchAll(re)) {
           if (!seen.has(match[1])) {
             seen.add(match[1]);
@@ -170,7 +178,22 @@ mock.module("../tools/registry.js", () => ({
     let found: Tool | undefined;
     for (const tools of mockRegisteredTools.values()) {
       for (const tool of tools) {
-        if (tool.name === name) found = tool;
+        if (tool.name === name) {
+          found = tool;
+        }
+      }
+    }
+    return found;
+  },
+  // Sync peek mirrors getTool — the skill-tool projection path reads via
+  // peekTool synchronously.
+  peekTool: (name: string): Tool | undefined => {
+    let found: Tool | undefined;
+    for (const tools of mockRegisteredTools.values()) {
+      for (const tool of tools) {
+        if (tool.name === name) {
+          found = tool;
+        }
       }
     }
     return found;
@@ -184,7 +207,9 @@ mock.module("../tools/registry.js", () => ({
     let ownerSkillId: string | undefined;
     for (const [skillId, tools] of mockRegisteredTools.entries()) {
       for (const tool of tools) {
-        if (tool.name === name) ownerSkillId = skillId;
+        if (tool.name === name) {
+          ownerSkillId = skillId;
+        }
       }
     }
     return ownerSkillId === undefined

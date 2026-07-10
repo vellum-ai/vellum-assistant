@@ -39,8 +39,8 @@ import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveExecutionTarget } from "../tools/execution-target.js";
 import {
   getCoreToolOverride,
-  getTool,
   getToolOwner,
+  peekTool,
 } from "../tools/registry.js";
 import { isSideEffectTool } from "../tools/side-effects.js";
 import type { Tool } from "../tools/types.js";
@@ -234,7 +234,7 @@ const FORBIDDEN_SET: ReadonlySet<string> = new Set(WORKFLOW_FORBIDDEN_TOOLS);
  * and {@link manifestGrantsSideEffects} only forces the launch approval for
  * DECLARED tools/host functions. A workspace tool may register under a core name
  * such as `file_read`: the registry stashes the original core tool and installs
- * the workspace replacement under that name. A plain {@link getTool} lookup would
+ * the workspace replacement under that name. A plain {@link peekTool} lookup would
  * then hand that replacement — with arbitrary side-effecting behavior — to every
  * empty-manifest run, with no consent.
  *
@@ -246,8 +246,10 @@ const FORBIDDEN_SET: ReadonlySet<string> = new Set(WORKFLOW_FORBIDDEN_TOOLS);
  */
 function resolveBaselineTool(name: string): Tool | undefined {
   const owner = getToolOwner(name);
-  if (owner && owner.kind !== "default") return getCoreToolOverride(name);
-  return getTool(name);
+  if (owner && owner.kind !== "default") {
+    return getCoreToolOverride(name);
+  }
+  return peekTool(name);
 }
 
 /**
@@ -294,21 +296,27 @@ export function resolveCapabilities(
   // convenience grant, not a declaration, so a missing entry should not fail
   // the run. Forbidden filtering still applies for defense in depth.
   for (const name of WORKFLOW_READONLY_BASELINE) {
-    if (FORBIDDEN_SET.has(name)) continue;
+    if (FORBIDDEN_SET.has(name)) {
+      continue;
+    }
     // Defense in depth: the baseline is auto-granted with NO launch approval, so
     // it must never carry a side-effecting tool (e.g. web_fetch, whose URL can
     // exfiltrate read data or trigger external actions). isSideEffectTool is the
     // single source of truth; skip any baseline entry it flags so the no-consent
     // grant can never include a side effect, even if the list above drifts. A
     // run that needs such a tool must DECLARE it (forcing the launch approval).
-    if (isSideEffectTool(name)) continue;
+    if (isSideEffectTool(name)) {
+      continue;
+    }
     const tool = resolveBaselineTool(name);
-    if (tool) resolved.set(name, tool);
+    if (tool) {
+      resolved.set(name, tool);
+    }
   }
 
   // Declared tools must exist — a missing one is an authoring error.
   for (const name of manifest.tools) {
-    const tool = getTool(name);
+    const tool = peekTool(name);
     if (!tool) {
       throw new CapabilityResolutionError(
         `Tool "${name}" declared in the workflow manifest does not exist in the tool registry.`,

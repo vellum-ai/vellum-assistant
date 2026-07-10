@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 
-import { __resetRegistryForTesting, getTool } from "../tools/registry.js";
+import { __resetRegistryForTesting, peekTool } from "../tools/registry.js";
 import type { ToolContext } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
@@ -44,13 +44,21 @@ mock.module("../config/loader.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string) => {
-    if (account === "gemini") return mockGeminiKey;
-    if (account === "openai") return mockOpenAIKey;
+    if (account === "gemini") {
+      return mockGeminiKey;
+    }
+    if (account === "openai") {
+      return mockOpenAIKey;
+    }
     return undefined;
   },
   getProviderKeyAsync: async (provider: string) => {
-    if (provider === "gemini") return mockGeminiKey;
-    if (provider === "openai") return mockOpenAIKey;
+    if (provider === "gemini") {
+      return mockGeminiKey;
+    }
+    if (provider === "openai") {
+      return mockOpenAIKey;
+    }
     return undefined;
   },
 }));
@@ -63,13 +71,16 @@ mock.module("../media/image-service.js", () => ({
   ) => {
     lastGenerateProvider = provider;
     lastGenerateCredentials = credentials;
-    if (mockGenerateError) throw mockGenerateError;
+    if (mockGenerateError) {
+      throw mockGenerateError;
+    }
     return mockGenerateResult;
   },
   mapImageGenError: (provider: unknown, error: unknown) => {
     const providerLabel = provider === "openai" ? "OpenAI" : "Gemini";
-    if (error instanceof Error)
+    if (error instanceof Error) {
       return `Mock ${providerLabel} error: ${error.message}`;
+    }
     return `Mock ${providerLabel} unknown error`;
   },
 }));
@@ -133,9 +144,9 @@ const fakeContext = {
 
 describe("image-studio skill script wrapper", () => {
   test("exports a run function without registering media_generate_image in the tool registry", async () => {
-    expect(getTool("media_generate_image")).toBeUndefined();
+    expect(peekTool("media_generate_image")).toBeUndefined();
     expect(typeof run).toBe("function");
-    expect(getTool("media_generate_image")).toBeUndefined();
+    expect(peekTool("media_generate_image")).toBeUndefined();
   });
 
   test("returns error when no API key and no managed proxy", async () => {
@@ -394,7 +405,9 @@ describe("image-studio skill script wrapper", () => {
       expect(result.content).toContain("Generated 1 image");
     } finally {
       const { unlink } = await import("fs/promises");
-      if (await Bun.file(tmpPath).exists()) await unlink(tmpPath);
+      if (await Bun.file(tmpPath).exists()) {
+        await unlink(tmpPath);
+      }
     }
   });
 
