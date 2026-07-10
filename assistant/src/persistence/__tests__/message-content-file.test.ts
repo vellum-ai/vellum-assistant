@@ -1,8 +1,9 @@
 /**
  * Tests for the file-backed message content module: the JSONL delta fold
- * semantics, the append/fold roundtrip, and `resolveStoredMessageContent`'s
- * union handling (inline passthrough, ref resolution, missing-file and
- * workspace-escape fallbacks).
+ * semantics, the append/fold roundtrip, the reserved-path ref discriminator,
+ * and both resolver forms (expressive `ContentBlock[]` and the row-mapper
+ * string shim) across inline passthrough, ref resolution, missing-file and
+ * workspace-escape fallbacks.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,6 +16,7 @@ import {
   foldContentDeltas,
   foldContentFile,
   isMessageContentRef,
+  resolveMessageContentBlocks,
   resolveStoredMessageContent,
 } from "../message-content-file.js";
 
@@ -44,6 +46,8 @@ describe("foldContentDeltas", () => {
       "\n" +
       "not json\n" +
       JSON.stringify({ seq: 2, block: textBlock("missing index") }) +
+      "\n" +
+      JSON.stringify({ i: 2, seq: 4, block: { typo: "no type field" } }) +
       "\n" +
       '{"i": 1, "seq": 3, "block": {"type": "text", "te'; // truncated
     expect(foldContentDeltas(text)).toEqual([textBlock("kept")]);
@@ -82,20 +86,46 @@ describe("appendContentDeltas + foldContentFile", () => {
 });
 
 describe("isMessageContentRef", () => {
-  test("accepts exactly { ref: string }", () => {
-    expect(isMessageContentRef({ ref: "a/b.jsonl" })).toBe(true);
+  test("accepts exactly { ref } naming a reserved conversations/ .jsonl path", () => {
+    expect(
+      isMessageContentRef({ ref: "conversations/a/inflight/b.jsonl" }),
+    ).toBe(true);
+  });
+
+  test("rejects non-reserved paths — the legacy-text discriminator", () => {
+    expect(isMessageContentRef({ ref: "a/b.jsonl" })).toBe(false);
+    expect(isMessageContentRef({ ref: "conversations/a/b.txt" })).toBe(false);
+    expect(isMessageContentRef({ ref: "/etc/passwd" })).toBe(false);
+    expect(isMessageContentRef({ ref: "../../../etc/passwd" })).toBe(false);
   });
 
   test("rejects arrays, extra keys, empty and non-string refs", () => {
     expect(isMessageContentRef([textBlock("x")])).toBe(false);
-    expect(isMessageContentRef({ ref: "a", other: 1 })).toBe(false);
+    expect(
+      isMessageContentRef({ ref: "conversations/a/b.jsonl", other: 1 }),
+    ).toBe(false);
     expect(isMessageContentRef({ ref: "" })).toBe(false);
     expect(isMessageContentRef({ ref: 42 })).toBe(false);
     expect(isMessageContentRef(null)).toBe(false);
   });
 });
 
-describe("resolveStoredMessageContent", () => {
+function writeRefFixture(dir: string, file: string): string {
+  const rel = join("conversations", dir, "inflight", file);
+  mkdirSync(join(getWorkspaceDir(), "conversations", dir, "inflight"), {
+    recursive: true,
+  });
+  writeFileSync(
+    join(getWorkspaceDir(), rel),
+    [
+      JSON.stringify({ i: 0, seq: 1, block: textBlock("partial") }),
+      JSON.stringify({ i: 0, seq: 2, block: textBlock("final") }),
+    ].join("\n") + "\n",
+  );
+  return rel;
+}
+
+describe("resolveStoredMessageContent (row-mapper string shim)", () => {
   test("passes inline ContentBlock[] JSON through by identity", () => {
     const inline = JSON.stringify([textBlock("hello")]);
     expect(resolveStoredMessageContent(inline)).toBe(inline);
@@ -110,41 +140,66 @@ describe("resolveStoredMessageContent", () => {
     expect(resolveStoredMessageContent(objectButNotRef)).toBe(objectButNotRef);
   });
 
-  test("resolves a ref to the folded file content", () => {
-    const rel = join("conversations", "test-resolve", "inflight", "m.jsonl");
-    const abs = join(getWorkspaceDir(), rel);
-    mkdirSync(
-      join(getWorkspaceDir(), "conversations", "test-resolve", "inflight"),
-      {
-        recursive: true,
-      },
+  test("passes legacy text shaped like a ref to a NON-reserved path through untouched", () => {
+    const legacyRefLikeText = JSON.stringify({ ref: "missing.jsonl" });
+    expect(resolveStoredMessageContent(legacyRefLikeText)).toBe(
+      legacyRefLikeText,
     );
-    writeFileSync(
-      abs,
-      [
-        JSON.stringify({ i: 0, seq: 1, block: textBlock("partial") }),
-        JSON.stringify({ i: 0, seq: 2, block: textBlock("final") }),
-      ].join("\n") + "\n",
-    );
+  });
+
+  test("resolves a reserved-path ref to the folded file content", () => {
+    const rel = writeRefFixture("test-resolve", "m.jsonl");
     expect(resolveStoredMessageContent(JSON.stringify({ ref: rel }))).toBe(
       JSON.stringify([textBlock("final")]),
     );
   });
 
-  test("resolves a ref to a missing file as empty content", () => {
+  test("resolves a reserved-path ref to a missing file as empty content", () => {
     expect(
-      resolveStoredMessageContent(JSON.stringify({ ref: "gone/m.jsonl" })),
+      resolveStoredMessageContent(
+        JSON.stringify({ ref: "conversations/gone/inflight/m.jsonl" }),
+      ),
     ).toBe("[]");
   });
 
-  test("rejects refs that escape the workspace directory", () => {
+  test("resolves a reserved-prefix ref that escapes the workspace as empty content", () => {
     expect(
       resolveStoredMessageContent(
-        JSON.stringify({ ref: "../../../etc/passwd" }),
+        JSON.stringify({ ref: "conversations/../../../etc/evil.jsonl" }),
       ),
     ).toBe("[]");
+  });
+});
+
+describe("resolveMessageContentBlocks (expressive form)", () => {
+  test("parses inline ContentBlock[] JSON to blocks", () => {
     expect(
-      resolveStoredMessageContent(JSON.stringify({ ref: "/etc/passwd" })),
-    ).toBe("[]");
+      resolveMessageContentBlocks(JSON.stringify([textBlock("hello")])),
+    ).toEqual([textBlock("hello")]);
+  });
+
+  test("folds a reserved-path ref to blocks", () => {
+    const rel = writeRefFixture("test-resolve-blocks", "m.jsonl");
+    expect(resolveMessageContentBlocks(JSON.stringify({ ref: rel }))).toEqual([
+      textBlock("final"),
+    ]);
+  });
+
+  test("wraps legacy plain strings in a single text block", () => {
+    expect(resolveMessageContentBlocks("plain old text")).toEqual([
+      textBlock("plain old text"),
+    ]);
+    const legacyRefLikeText = JSON.stringify({ ref: "missing.jsonl" });
+    expect(resolveMessageContentBlocks(legacyRefLikeText)).toEqual([
+      textBlock(legacyRefLikeText),
+    ]);
+  });
+
+  test("resolves a missing ref file to empty blocks", () => {
+    expect(
+      resolveMessageContentBlocks(
+        JSON.stringify({ ref: "conversations/gone/inflight/m.jsonl" }),
+      ),
+    ).toEqual([]);
   });
 });
