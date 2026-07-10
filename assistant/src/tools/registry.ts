@@ -115,6 +115,17 @@ const skillRefCount = new Map<string, number>();
 // separate and covers the case of two extensions choosing the same tool name.
 const pluginRefCount = new Map<string, number>();
 
+// Fingerprints of the user-plugin tool sets `loadPluginTools` last pulled
+// from the plugin mtime-cache, keyed by plugin name. The pull reconcile diffs
+// the cache's current fingerprints against this map, so it only ever touches
+// registrations it created itself — plugin-owned tools registered by other
+// callers (the in-process default-plugin bootstrap) are never disturbed.
+const pulledPluginFingerprints = new Map<string, string>();
+
+// In-flight plugin pull — concurrent `loadPluginTools` callers coalesce onto
+// a single reconcile (mirrors `loadWorkspaceTools`).
+let pluginToolsReconcileInFlight: Promise<void> | null = null;
+
 /**
  * Format an owner for log messages and error strings. Returns a stable
  * human-readable description (e.g. `skill "deploy"`, `plugin "weather"`,
@@ -493,6 +504,92 @@ export function unregisterPluginTools(pluginName: string): void {
       tools.delete(name);
       ownersByName.delete(name);
       log.info({ name, ownerPluginId: pluginName }, "Plugin tool unregistered");
+    }
+  }
+}
+
+/**
+ * Pull the active user-plugin tool set from the plugin mtime-cache into the
+ * registry. This is the pull half of the plugin-tool relationship — the
+ * mtime-cache never writes to the registry; instead this reconcile reads
+ * {@link import("../plugins/mtime-cache.js").getActiveUserPluginTools} (which
+ * syncs against the source-versions sentinel first) and diffs the result into
+ * the registry: plugins that vanished are unregistered, new plugins register,
+ * and a plugin whose per-tool source mtimes moved is re-registered. Mirrors
+ * how hooks resolve through `getUserHookEntriesFor`.
+ *
+ * Idempotent, cheap when nothing changed (one sentinel stat + fingerprint
+ * compares), and concurrency-safe (concurrent callers coalesce onto one
+ * in-flight reconcile). Called at boot after `loadUserPlugins()` populates
+ * the cache, and fire-and-forget from the per-turn conversation tool
+ * resolver — the same cadence `loadWorkspaceTools` runs on.
+ */
+export function loadPluginTools(): Promise<void> {
+  if (pluginToolsReconcileInFlight) {
+    return pluginToolsReconcileInFlight;
+  }
+  // `reconcilePluginToolsFromCache` never rejects (failures are caught and
+  // logged); `.finally` clears the slot either way so the next caller pulls
+  // fresh.
+  pluginToolsReconcileInFlight = reconcilePluginToolsFromCache().finally(() => {
+    pluginToolsReconcileInFlight = null;
+  });
+  return pluginToolsReconcileInFlight;
+}
+
+async function reconcilePluginToolsFromCache(): Promise<void> {
+  // Dynamic import: the mtime-cache pulls the plugin-loader subtree in with
+  // it, which must stay out of this module's eager import graph — the
+  // registry is a widely-imported leaf.
+  let active: Map<string, { fingerprint: string; tools: Tool[] }>;
+  try {
+    const { getActiveUserPluginTools } =
+      await import("../plugins/mtime-cache.js");
+    active = await getActiveUserPluginTools();
+  } catch (err) {
+    log.warn(
+      { err },
+      "loadPluginTools: plugin cache pull failed — keeping current registrations",
+    );
+    return;
+  }
+
+  // Tear down plugins this reconcile registered that are no longer active
+  // (uninstalled, disabled, or their last tool file was deleted).
+  for (const pluginName of pulledPluginFingerprints.keys()) {
+    if (!active.has(pluginName)) {
+      unregisterPluginTools(pluginName);
+      pulledPluginFingerprints.delete(pluginName);
+    }
+  }
+
+  // Register new plugins; re-register ones whose tool set changed. Per-plugin
+  // isolation: one plugin's conflict/failure never blocks the others.
+  for (const [pluginName, { fingerprint, tools: pluginTools }] of active) {
+    const prev = pulledPluginFingerprints.get(pluginName);
+    if (prev === fingerprint) {
+      continue;
+    }
+    try {
+      if (prev !== undefined) {
+        // Changed tool set: drop the previous registration first so tools
+        // removed in the new set don't linger (re-registering alone would
+        // only overwrite the survivors).
+        unregisterPluginTools(pluginName);
+      }
+      registerPluginTools(pluginName, pluginTools);
+      pulledPluginFingerprints.set(pluginName, fingerprint);
+      log.info(
+        { plugin: pluginName, count: pluginTools.length },
+        "user plugin tools registered",
+      );
+    } catch (err) {
+      // Leave no fingerprint so the next reconcile retries this plugin.
+      pulledPluginFingerprints.delete(pluginName);
+      log.error(
+        { err, plugin: pluginName },
+        `Failed to register tools for user plugin ${pluginName}`,
+      );
     }
   }
 }
@@ -1150,6 +1247,7 @@ export function __resetRegistryForTesting(): void {
   ownersByName.clear();
   skillRefCount.clear();
   pluginRefCount.clear();
+  pulledPluginFingerprints.clear();
   // Drop the override stash too — the snapshot already represents the
   // pre-override baseline, so leaving stashed entries here would let a
   // later registerWorkspaceTools() falsely report "overridesCore: true"
@@ -1177,6 +1275,7 @@ export function __clearRegistryForTesting(): void {
   ownersByName.clear();
   skillRefCount.clear();
   pluginRefCount.clear();
+  pulledPluginFingerprints.clear();
   coreToolOverrides.clear();
   toolsInitPromise = null;
 }
