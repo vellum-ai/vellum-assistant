@@ -13,6 +13,7 @@
     "packages/ces-client",
     "packages/credential-storage",
     "packages/design-library",
+    "packages/download-validation",
     "packages/egress-proxy",
     "packages/environments",
     "packages/gateway-client",

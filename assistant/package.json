@@ -43,6 +43,7 @@
     "@slack/types": "2.21.1",
     "@vellumai/ces-client": "workspace:*",
     "@vellumai/credential-storage": "workspace:*",
+    "@vellumai/download-validation": "workspace:*",
     "@vellumai/egress-proxy": "workspace:*",
     "@vellumai/environments": "workspace:*",
     "@vellumai/gateway-client": "workspace:*",
@@ -85,6 +86,7 @@
   "bundledDependencies": [
     "@vellumai/ces-client",
     "@vellumai/credential-storage",
+    "@vellumai/download-validation",
     "@vellumai/service-contracts",
     "@vellumai/egress-proxy",
     "@vellumai/environments",

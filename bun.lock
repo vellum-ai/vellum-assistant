@@ -22,6 +22,7 @@
         "@slack/types": "2.21.1",
         "@vellumai/ces-client": "workspace:*",
         "@vellumai/credential-storage": "workspace:*",
+        "@vellumai/download-validation": "workspace:*",
         "@vellumai/egress-proxy": "workspace:*",
         "@vellumai/environments": "workspace:*",
         "@vellumai/gateway-client": "workspace:*",
@@ -275,6 +276,7 @@
         "@slack/types": "2.21.1",
         "@vellumai/assistant-client": "workspace:*",
         "@vellumai/ces-client": "workspace:*",
+        "@vellumai/download-validation": "workspace:*",
         "@vellumai/gateway-client": "workspace:*",
         "@vellumai/ipc-server-utils": "workspace:*",
         "@vellumai/service-contracts": "workspace:*",
@@ -406,6 +408,17 @@
         "tailwind-merge": ">=3.6.0",
         "tailwindcss": ">=4.0.0",
         "unified": ">=11.0.0",
+      },
+    },
+    "packages/download-validation": {
+      "name": "@vellumai/download-validation",
+      "version": "0.0.1",
+      "dependencies": {
+        "file-type": "21.3.0",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3.10",
+        "typescript": "5.9.3",
       },
     },
     "packages/egress-proxy": {
@@ -1558,6 +1571,8 @@
     "@vellumai/credential-storage": ["@vellumai/credential-storage@workspace:packages/credential-storage"],
 
     "@vellumai/design-library": ["@vellumai/design-library@workspace:packages/design-library"],
+
+    "@vellumai/download-validation": ["@vellumai/download-validation@workspace:packages/download-validation"],
 
     "@vellumai/egress-proxy": ["@vellumai/egress-proxy@workspace:packages/egress-proxy"],
 

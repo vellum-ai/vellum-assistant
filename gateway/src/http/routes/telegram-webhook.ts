@@ -6,7 +6,7 @@ import { credentialKey } from "../../credential-key.js";
 import { verifySecretWithRefresh } from "../../credential-refresh.js";
 import { recordDenialReplyIfAllowed } from "../../db/denial-reply-rate-limiter.js";
 import { DedupCache } from "../../dedup-cache.js";
-import { ContentMismatchError } from "../../download-validation.js";
+import { ContentMismatchError } from "@vellumai/download-validation";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { readLimitedBody } from "../read-limited-body.js";

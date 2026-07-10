@@ -1,3 +1,16 @@
+/**
+ * Shared validation for downloaded channel attachments.
+ *
+ * The gateway's live inbound path and the assistant's thread-backfill path
+ * both download files from channel CDNs (Slack, WhatsApp, Telegram) that may
+ * return an HTML auth/error page with an HTTP 200 status instead of the
+ * requested binary. Base64-encoding that HTML and forwarding it to an LLM
+ * provider as e.g. `image/png` causes the provider to reject the request.
+ *
+ * Both packages import this module so the byte-level guard stays identical
+ * across the two download paths.
+ */
+
 import { fileTypeFromBuffer } from "file-type";
 
 export class ContentMismatchError extends Error {

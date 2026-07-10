@@ -5,6 +5,7 @@
  * Invite token/code redemption is intercepted at gateway ingress before
  * messages reach this handler.
  */
+import { ContentMismatchError } from "@vellumai/download-validation";
 import type { SourceMetadata } from "@vellumai/gateway-client";
 import {
   ADMISSION_POLICY_DEFAULT,
@@ -1769,6 +1770,18 @@ async function persistBackfilledSlackMessage(params: {
             data: downloaded.data,
           });
         } catch (err) {
+          if (err instanceof ContentMismatchError) {
+            log.warn(
+              {
+                fileId: file.id,
+                filename: file.name,
+                error: err.message,
+                channelTs: message.id,
+              },
+              "Skipping backfilled Slack image: content did not match declared type",
+            );
+            continue;
+          }
           if (err instanceof AttachmentUploadError) {
             log.warn(
               {
