@@ -278,11 +278,27 @@ function normalizeSendMessageOptions(
   delete nextConfig.usageAttributionHeaders;
   delete nextConfig.usageTracking;
 
+  // Preserve the per-conversation prompt-cache key before `selectionSeed` is
+  // stripped below. Gated to the `openai` provider (the Responses client
+  // consumes it as `prompt_cache_key`); creating it for other providers would
+  // leak a non-wire field through clients that spread config into request
+  // bodies (AnthropicProvider's `...restConfig` → 400 "Extra inputs are not
+  // permitted"). An explicit caller-set value wins.
+  if (
+    providerName === "openai" &&
+    nextConfig.promptCacheKey === undefined &&
+    typeof config.selectionSeed === "string" &&
+    config.selectionSeed.length > 0
+  ) {
+    nextConfig.promptCacheKey = config.selectionSeed;
+  }
+
   // `overrideProfile`, `forceOverrideProfile`, and `selectionSeed` are
   // routing/resolution-time concerns (consumed by the resolver below and
   // `CallSiteRoutingProvider`'s provider selection); none is a wire-format
-  // field. Strip unconditionally so they never leak into provider request
-  // bodies even when callers set them without a `callSite`.
+  // field. Strip unconditionally (after the `openai` promptCacheKey copy
+  // above) so they never leak into provider request bodies even when callers
+  // set them without a `callSite`.
   delete nextConfig.overrideProfile;
   delete nextConfig.forceOverrideProfile;
   delete nextConfig.selectionSeed;

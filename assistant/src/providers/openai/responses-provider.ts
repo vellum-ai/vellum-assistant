@@ -7,6 +7,7 @@ import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
+import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
@@ -144,6 +145,29 @@ const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 
+/** Direct-OpenAI models that use explicit prompt-cache breakpoints (GPT-5.6+).
+ *  Built once from the catalog, mirroring the Fireworks effort-ceiling map
+ *  (fireworks/client.ts). */
+const PROMPT_CACHE_BREAKPOINT_MODELS: ReadonlySet<string> = new Set(
+  PROVIDER_CATALOG.find((p) => p.id === "openai")?.models.flatMap((m) =>
+    m.supportsPromptCacheBreakpoints ? [m.id] : [],
+  ) ?? [],
+);
+
+/** Content-part types that accept a `prompt_cache_breakpoint` marker. */
+const STAMPABLE_PART_TYPES = new Set([
+  "input_text",
+  "input_image",
+  "input_file",
+]);
+
+/** Minimal structural view of a Responses `input` message item. */
+interface ResponsesMessageItem {
+  type?: string;
+  role?: string;
+  content?: Array<Record<string, unknown>>;
+}
+
 /**
  * OpenAI Responses API transport.
  *
@@ -203,12 +227,22 @@ export class OpenAIResponsesProvider implements Provider {
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
+    const mutableLatestUserMessage =
+      configObj?.mutableLatestUserMessage === true;
+    const disableCache = configObj?.disableCache === true;
+    const disableTurnStartCache = configObj?.disableTurnStartCache === true;
+    const promptCacheKey =
+      typeof configObj?.promptCacheKey === "string" &&
+      configObj.promptCacheKey.length > 0
+        ? (configObj.promptCacheKey as string)
+        : undefined;
 
     try {
+      const effectiveModel = modelOverride ?? this.model;
       const input = this.toResponsesInput(messages);
 
       const params: Record<string, unknown> = {
-        model: modelOverride ?? this.model,
+        model: effectiveModel,
         input,
         ...(this.codexSubscription ? { store: false } : {}),
       };
@@ -218,6 +252,33 @@ export class OpenAIResponsesProvider implements Provider {
           SYSTEM_PROMPT_CACHE_BOUNDARY,
           "\n\n",
         );
+      }
+
+      // Explicit prompt-cache mode (GPT-5.6+ semantics, direct API only).
+      // Explicit mode disables the implicit latest-message breakpoint — under
+      // implicit mode a volatile latest user message (mutableLatestUserMessage)
+      // makes every cached entry end at content that never recurs: zero reads
+      // plus a full-prompt 1.25x write per turn. With explicit markers we
+      // choose the stable boundaries ourselves. Under `disableCache` we still
+      // send explicit mode but stamp no markers: a request with no explicit
+      // breakpoints neither uses the cache nor incurs cache-write charges,
+      // which is exactly the opt-out `disableCache` wants (omitting the param
+      // would re-enable implicit mode). The Codex subscription endpoint
+      // rejects extra params, so cache params are skipped entirely there.
+      if (
+        !this.codexSubscription &&
+        PROMPT_CACHE_BREAKPOINT_MODELS.has(effectiveModel)
+      ) {
+        params.prompt_cache_options = { mode: "explicit" };
+        if (promptCacheKey) {
+          params.prompt_cache_key = promptCacheKey;
+        }
+        if (!disableCache) {
+          this.applyPromptCacheBreakpoints(input, {
+            mutableLatestUserMessage,
+            disableTurnStartCache,
+          });
+        }
       }
 
       if (maxTokens && !this.codexSubscription) {
@@ -619,6 +680,120 @@ export class OpenAIResponsesProvider implements Provider {
     }
 
     return result;
+  }
+
+  /**
+   * Stamp explicit prompt-cache breakpoints onto the built Responses input
+   * items. Mirrors the Anthropic client's anchor placement
+   * (anthropic/client.ts): a turn-start anchor, a previous-turn anchor on
+   * first-of-turn requests, and an advancing tail — all sharing OpenAI's
+   * fixed 30m TTL (no long-vs-short TTL split, so no `ttl` field is sent).
+   * Operates on the provider-local wire items only; the caller's Message[]
+   * objects are never touched.
+   *
+   * Placement constraints on this API: breakpoints attach only to
+   * input_text / input_image / input_file parts of user message items —
+   * function_call / function_call_output items cannot carry one, so during a
+   * pure tool loop the tail cannot advance past the most recent user item
+   * with parts (the loop delta is re-billed as plain input until a text- or
+   * image-bearing user item appears).
+   *
+   * The system prompt rides the `instructions` request param and cannot
+   * carry a block marker, but it precedes `input` in the cached prefix, so
+   * the first stamped message covers instructions and tools implicitly. Any
+   * instructions/tools change invalidates all previously written prefixes
+   * (exact-prefix matching) — the same blast radius implicit mode has.
+   *
+   * At most 2 positions are marked per request (turn-start + prev-turn, or
+   * prev-turn + tail, or turn-start + tail), within OpenAI's 4 write slots;
+   * positions matching an already-written prefix are reads, not new writes.
+   */
+  private applyPromptCacheBreakpoints(
+    input: unknown[],
+    opts: { mutableLatestUserMessage: boolean; disableTurnStartCache: boolean },
+  ): void {
+    const items = input as ResponsesMessageItem[];
+    const isUserMessageItem = (it: ResponsesMessageItem | undefined): boolean =>
+      it?.type === "message" &&
+      it.role === "user" &&
+      Array.isArray(it.content) &&
+      it.content.length > 0;
+    // Anchor candidates need a real text part (mirror of the Anthropic
+    // client's findUserTextMsgIdx).
+    const findUserTextItemIdx = (startIdx: number): number => {
+      for (let i = startIdx; i >= 0; i--) {
+        const it = items[i];
+        if (!isUserMessageItem(it)) {
+          continue;
+        }
+        const hasText = it.content!.some(
+          (p) =>
+            p.type === "input_text" &&
+            typeof p.text === "string" &&
+            p.text.length > 0,
+        );
+        if (hasText) {
+          return i;
+        }
+      }
+      return -1;
+    };
+    const stampLastPart = (itemIdx: number): void => {
+      const content = items[itemIdx]?.content;
+      if (!Array.isArray(content) || content.length === 0) {
+        return;
+      }
+      const last = content[content.length - 1];
+      if (last && STAMPABLE_PART_TYPES.has(last.type as string)) {
+        last.prompt_cache_breakpoint = { mode: "explicit" };
+      }
+    };
+
+    const turnStartIdx = findUserTextItemIdx(items.length - 1);
+    // Volatile latest user message that is itself the turn start: skip the
+    // anchor — it would write a prefix that never recurs across turns.
+    const skipVolatileTurnStartAnchor =
+      opts.mutableLatestUserMessage && turnStartIdx === items.length - 1;
+
+    // Turn-start anchor: stable within the turn; tool-loop iterations re-send
+    // this exact prefix and read it.
+    if (
+      turnStartIdx >= 0 &&
+      !opts.disableTurnStartCache &&
+      !skipVolatileTurnStartAnchor
+    ) {
+      stampLastPart(turnStartIdx);
+    }
+
+    // Previous-turn anchor (first-of-turn only): the durable cross-turn
+    // boundary. In the volatile flow this is the primary stable breakpoint
+    // (the turn-start anchor above was skipped); in the stable flow it
+    // usually coincides with an already-written prefix and is a read.
+    if (turnStartIdx === items.length - 1 && turnStartIdx > 0) {
+      const prevIdx = findUserTextItemIdx(turnStartIdx - 1);
+      if (prevIdx >= 0) {
+        stampLastPart(prevIdx);
+      }
+    }
+
+    // Advancing tail: the latest stampable user item. Fires during tool
+    // loops and on volatile first-of-turn requests (prepaying the volatile
+    // segment so in-turn tool iterations read it). May resolve to the
+    // turn-start item itself in a pure tool loop — re-stamping is a no-op.
+    if (
+      turnStartIdx >= 0 &&
+      (turnStartIdx < items.length - 1 ||
+        (skipVolatileTurnStartAnchor &&
+          turnStartIdx > 0 &&
+          !opts.disableTurnStartCache))
+    ) {
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (isUserMessageItem(items[i])) {
+          stampLastPart(i);
+          break;
+        }
+      }
+    }
   }
 
   /** Convert an assistant message's content blocks to Responses input items. */

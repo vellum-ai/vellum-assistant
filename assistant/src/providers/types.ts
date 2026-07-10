@@ -247,6 +247,16 @@ export interface SendMessageConfig {
    */
   selectionSeed?: string;
   /**
+   * Per-conversation prompt-cache key for providers with explicit prompt
+   * caching (sent as the OpenAI `prompt_cache_key` request param). Set by
+   * `RetryProvider` from `selectionSeed` (the durable conversation id) for
+   * the `openai` provider only — GPT-5.6+ requires the key for reliable
+   * breakpoint matching, and OpenAI's ~15 req/min-per-key routing guidance
+   * is satisfied by per-conversation ids. A non-wire field for every other
+   * provider client; the request param is omitted when absent.
+   */
+  promptCacheKey?: string;
+  /**
    * Internal per-request HTTP headers for managed-proxy usage attribution.
    * Provider clients may pass these through SDK request options only when the
    * transport is Vellum-managed, and must never include this object in provider

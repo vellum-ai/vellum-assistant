@@ -61,6 +61,14 @@ export interface CatalogModel {
    * default.
    */
   maxEffort?: "high" | "xhigh" | "max";
+  /**
+   * Daemon-only: when true, the direct-OpenAI Responses transport sends
+   * explicit prompt-cache breakpoints for this model (GPT-5.6+ semantics:
+   * request-wide `prompt_cache_options: { mode: "explicit" }` plus
+   * block-level `prompt_cache_breakpoint` markers and `prompt_cache_key`).
+   * Not projected into the client catalog (see scripts/sync-llm-catalog.ts).
+   */
+  supportsPromptCacheBreakpoints?: boolean;
   /** When set, this model is only visible when the named feature flag is enabled. */
   featureFlag?: string;
 }
@@ -342,6 +350,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
         pricing: {
           inputPer1mTokens: 5.0,
           outputPer1mTokens: 30.0,
@@ -369,6 +378,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
         pricing: {
           inputPer1mTokens: 2.5,
           outputPer1mTokens: 15.0,
@@ -396,6 +406,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
         pricing: {
           inputPer1mTokens: 1.0,
           outputPer1mTokens: 6.0,
