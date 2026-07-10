@@ -1,10 +1,11 @@
 /**
- * When ClickHouse owns LLM-request-log writes, the store's SQLite row mutators
- * must skip — otherwise they mutate stale local rows left over from earlier
- * local-mode turns (e.g. `setAgentLoopExitReasonOnLatestLog` would stamp this
- * turn's reason onto an unrelated prior call). These tests seed a local row in
- * local mode, flip `readSource` to `clickhouse`, and assert each mutator leaves
- * the local row untouched.
+ * When ClickHouse owns LLM-request-log writes, the store's post-hoc mutators
+ * dispatch to the ClickHouse writer, whose mutation methods are no-ops
+ * (INSERT-only backend) — so stale local SQLite rows from earlier local-mode
+ * turns are never touched (e.g. `setAgentLoopExitReasonOnLatestLog` must not
+ * stamp this turn's reason onto an unrelated prior call). These tests seed a
+ * local row in local mode, flip `readSource` to `clickhouse`, and assert each
+ * mutator leaves the local row untouched.
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -13,11 +14,21 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-// Mutable read source drives both the write routing and the mutator guards.
+// Mutable read source drives the writer resolution: local SQLite writer vs
+// the ClickHouse sink (whose mutators are no-ops).
 let readSource: "local" | "clickhouse" = "local";
+const CLICKHOUSE_CONFIG = {
+  database: "default",
+  table: "llm_request_logs",
+  user: "default",
+};
 mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llmRequestLogs: { readSource } }),
-  getConfigReadOnly: () => ({ llmRequestLogs: { readSource } }),
+  getConfig: () => ({
+    llmRequestLogs: { readSource, clickhouse: CLICKHOUSE_CONFIG },
+  }),
+  getConfigReadOnly: () => ({
+    llmRequestLogs: { readSource, clickhouse: CLICKHOUSE_CONFIG },
+  }),
 }));
 
 afterAll(() => {
