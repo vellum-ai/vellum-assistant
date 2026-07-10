@@ -894,20 +894,26 @@ export class CallController {
       routingLeg: VoiceRoutingLeg | undefined,
     ): Promise<string> => {
       let legText = "";
-      // Once the front-door leg emits [ESCALATE], nothing more it says is
-      // spoken: only the holding phrase preceding the marker reaches the
-      // caller. Guards against a model that ignores "stop after [ESCALATE]"
-      // and keeps answering — that weak answer must never be heard.
+      // Once the front-door leg emits [ESCALATE], the leg is done as far as
+      // this turn is concerned: only the holding phrase preceding the marker
+      // reaches the caller, and nothing after the marker is spoken, recorded,
+      // or acted on. Guards against a model that ignores "stop after
+      // [ESCALATE]" and keeps answering.
       let legSpeechSuppressed = false;
+      let legHandle: VoiceTurnHandle | null = null;
       const turnComplete = new Promise<void>((resolve, reject) => {
         const onTextDelta = (text: string): void => {
           if (!this.isCurrentRun(runVersion)) return;
           legText += text;
-          fullResponseText += text;
+          // After the marker, drop everything: not spoken, and not appended to
+          // fullResponseText — handleTurnCompletion scans that string for
+          // [END_CALL]/[ASK_GUARDIAN] and records it as the transcript, so an
+          // ignored weak answer must not reach it.
           if (legSpeechSuppressed) return;
+          fullResponseText += text;
           ttsBuffer += text;
           if (routingLeg === "front-door") {
-            // Speak only up to the marker, then suppress the rest of this leg.
+            // Speak only up to the marker, then end this leg immediately.
             const markerIdx = ttsBuffer.indexOf(ESCALATE_MARKER);
             if (markerIdx !== -1) {
               ttsBuffer = stripInternalSpeechMarkers(
@@ -915,7 +921,16 @@ export class CallController {
               );
               flushSafeText();
               ttsBuffer = "";
+              const fullMarkerIdx = fullResponseText.indexOf(ESCALATE_MARKER);
+              if (fullMarkerIdx !== -1) {
+                fullResponseText = fullResponseText.slice(0, fullMarkerIdx);
+              }
               legSpeechSuppressed = true;
+              // Abort the front-door turn and settle the leg now so a model
+              // that keeps generating past the marker doesn't add silent
+              // latency before the escalated leg starts.
+              legHandle?.abort();
+              resolve();
               return;
             }
           }
@@ -949,10 +964,12 @@ export class CallController {
           ...(routingLeg != null ? { routingLeg } : {}),
         })
           .then((handle) => {
-            if (this.isCurrentRun(runVersion)) {
+            legHandle = handle;
+            if (this.isCurrentRun(runVersion) && !legSpeechSuppressed) {
               this.currentTurnHandle = handle;
             } else {
-              // Turn was superseded before handle arrived; abort immediately
+              // Turn was superseded, or the front-door leg already handed off
+              // before the handle arrived — abort immediately.
               handle.abort();
             }
           })
@@ -1010,15 +1027,25 @@ export class CallController {
     }
 
     // Escalation: the front-door model handed off. Its holding phrase already
-    // streamed to TTS and its onTextDelta stopped speaking at the marker, so
-    // nothing it said after [ESCALATE] was spoken. Clear any residual buffer
-    // before the quality leg as a belt-and-suspenders guard.
+    // streamed to TTS and its onTextDelta stopped speaking, dropped the marker,
+    // and aborted the leg. Clear any residual buffer before the quality leg as
+    // a belt-and-suspenders guard.
     if (escalateEnabled && frontDoorText.includes(ESCALATE_MARKER)) {
       ttsBuffer = "";
       // If the front-door model emitted no meaningful holding phrase before the
       // marker, speak a canned bridge so the hand-off has no dead air.
       if (needsFallbackBridge(frontDoorText)) {
         emitSafeChunk(`${FALLBACK_ESCALATION_BRIDGE} `);
+      }
+      // Force-synthesize the bridge now. On the synthesized-TTS path text is
+      // held in pendingSynthText until a sentence boundary, so an unpunctuated
+      // bridge ("Give me one second") would otherwise sit unspoken until the
+      // post-leg drain — leaving the caller in silence during the escalated
+      // model's call, the exact gap the bridge exists to mask.
+      if (synthProvider) {
+        const { segments } = extractSpeakableSegments(pendingSynthText, true);
+        pendingSynthText = "";
+        enqueueSynthesisSegments(synthProvider, segments);
       }
       await runVoiceLeg(
         ESCALATION_CONTINUATION_CONTENT,

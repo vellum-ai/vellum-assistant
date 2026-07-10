@@ -129,6 +129,18 @@ describe("call-controller escalation orchestration (integration — TODO)", () =
     () => {},
   );
   test.todo(
+    "post-[ESCALATE] front-door text is dropped from the completion text — no spurious [END_CALL]/[ASK_GUARDIAN], no transcript pollution",
+    () => {},
+  );
+  test.todo(
+    "the front-door leg is aborted on [ESCALATE] so a model that keeps generating does not delay the escalated leg",
+    () => {},
+  );
+  test.todo(
+    "an unpunctuated bridge is force-synthesized before the escalated leg so the caller is not left in silence during the strong-model call",
+    () => {},
+  );
+  test.todo(
     "bare [ESCALATE] with no holding phrase injects the fallback bridge before the quality leg so there is no dead air",
     () => {},
   );
