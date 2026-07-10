@@ -22,10 +22,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 
-import {
-  chooseSidebarOpenAppDestination,
-  useOpenAppFromChat,
-} from "./use-open-app-from-chat";
+import { useOpenAppFromChat } from "./use-open-app-from-chat";
 
 // We can't safely `mock.module(...)` core stores like viewer/conversation
 // because Bun module mocks are process-global — they leak into every
@@ -205,44 +202,5 @@ describe("useOpenAppFromChat", () => {
     expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).not.toHaveBeenCalled();
-  });
-});
-
-describe("chooseSidebarOpenAppDestination", () => {
-  test("returns null on the chat index path (viewer mounts here via ConversationRedirect)", () => {
-    expect(chooseSidebarOpenAppDestination("/assistant")).toBeNull();
-    expect(chooseSidebarOpenAppDestination("/assistant/")).toBeNull();
-  });
-
-  test("returns null on a conversation route (viewer mounts under ChatPage)", () => {
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/conversations/abc"),
-    ).toBeNull();
-  });
-
-  test("navigates to the chat index when off-chat (e.g. library)", () => {
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/library"),
-    ).toBe("/assistant");
-  });
-
-  test("navigates to the chat index when off-chat from home", () => {
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/home"),
-    ).toBe("/assistant");
-  });
-
-  test("inspector subpath counts as off-chat (viewer panel is not mounted under InspectPage)", () => {
-    expect(
-      chooseSidebarOpenAppDestination(
-        "/assistant/conversations/abc/inspect",
-      ),
-    ).toBe("/assistant");
-  });
-
-  test("identity / settings paths route to the chat index", () => {
-    expect(
-      chooseSidebarOpenAppDestination("/assistant/identity"),
-    ).toBe("/assistant");
   });
 });
