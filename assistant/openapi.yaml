@@ -16664,6 +16664,147 @@ paths:
                 additionalProperties: false
         "409":
           description: Another memory item with this content already exists
+  /v1/memory-nodes:
+    get:
+      operationId: memorynodes_get
+      summary: List memory graph nodes
+      description:
+        Return active memory graph nodes ordered by significance. With `search`, all nodes are scanned so the
+        content filter is exhaustive; without it the query is capped at `limit` rows.
+      tags:
+        - memory
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter nodes whose content contains the query
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max results (default 50, max 200)
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  nodes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        content:
+                          type: string
+                        type:
+                          type: string
+                        fidelity:
+                          type: string
+                        created:
+                          type: number
+                      required:
+                        - id
+                        - content
+                        - type
+                        - fidelity
+                        - created
+                      additionalProperties: false
+                  total:
+                    type: number
+                required:
+                  - success
+                  - message
+                  - nodes
+                  - total
+                additionalProperties: false
+  /v1/memory-nodes/delete:
+    post:
+      operationId: memorynodes_delete_post
+      summary: Delete a memory graph node by content match
+      description:
+        "Delete the single memory graph node matching `content`: a case-insensitive exact match takes priority;
+        with no exact match, a substring match is tried. Fails as `{ success: false }` when zero or multiple nodes
+        match."
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+              required:
+                - content
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - success
+                  - message
+                additionalProperties: false
+  /v1/memory-nodes/update:
+    post:
+      operationId: memorynodes_update_post
+      summary: Update a memory graph node by content match
+      description:
+        "Replace the content of the single memory graph node matching `oldContent`: a case-insensitive exact match
+        takes priority; with no exact match, a substring match is tried. Fails as `{ success: false }` when zero or
+        multiple nodes match, or when another active node already has `newContent`."
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                oldContent:
+                  type: string
+                newContent:
+                  type: string
+              required:
+                - oldContent
+                - newContent
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - success
+                  - message
+                additionalProperties: false
   /v1/memory/eval/run:
     post:
       operationId: memory_eval_run_post

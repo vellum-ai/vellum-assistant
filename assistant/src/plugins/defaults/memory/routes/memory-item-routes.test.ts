@@ -4,7 +4,15 @@
  * Covers: list with filters, get by ID, create + duplicate rejection,
  * update + fingerprint collision, delete + 404.
  */
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 mock.module("../../../../util/logger.js", () => ({
   getLogger: () =>
@@ -916,6 +924,146 @@ describe("Memory Item Routes", () => {
       const payload = JSON.parse(deleteJobs[0].payload);
       expect(payload.targetType).toBe("graph_node");
       expect(payload.targetId).toBe("i1");
+    });
+  });
+  // ── Memory nodes (content-addressed) ──────────────────────────────────────
+
+  describe("memory nodes routes", () => {
+    const cfg = mockConfig as { memory: { v2: { enabled: boolean } } };
+
+    beforeEach(() => {
+      cfg.memory.v2.enabled = true;
+    });
+
+    afterEach(() => {
+      cfg.memory.v2.enabled = false;
+    });
+
+    interface NodesListBody {
+      success: boolean;
+      message: string;
+      nodes: Array<{ id: string; content: string }>;
+      total: number;
+    }
+
+    interface NodesMutationBody {
+      success: boolean;
+      message: string;
+    }
+
+    test("listMemoryNodes lists seeded nodes and filters by search", async () => {
+      insertItem({
+        id: "n1",
+        type: "semantic",
+        content: "User prefers TypeScript",
+        significance: 0.9,
+      });
+      insertItem({
+        id: "n2",
+        type: "episodic",
+        content: "User visited Springfield",
+        significance: 0.5,
+      });
+
+      const route = getRoute("memory-nodes", "GET");
+      const all = (await (
+        await callHandler(route, { queryParams: {} })
+      ).json()) as NodesListBody;
+      expect(all.success).toBe(true);
+      expect(all.total).toBe(2);
+
+      const filtered = (await (
+        await callHandler(route, {
+          queryParams: { search: "TypeScript", limit: "10" },
+        })
+      ).json()) as NodesListBody;
+      expect(filtered.success).toBe(true);
+      expect(filtered.nodes.map((n) => n.id)).toEqual(["n1"]);
+    });
+
+    test("listMemoryNodes reports memory v2 disabled as a business failure", async () => {
+      cfg.memory.v2.enabled = false;
+      const body = (await (
+        await callHandler(getRoute("memory-nodes", "GET"), { queryParams: {} })
+      ).json()) as NodesListBody;
+      expect(body.success).toBe(false);
+      expect(body.message.length).toBeGreaterThan(0);
+    });
+
+    test("deleteMemoryNode deletes the node matching exact content", async () => {
+      insertItem({
+        id: "n1",
+        type: "semantic",
+        content: "User prefers TypeScript",
+      });
+
+      const body = (await (
+        await callHandler(getRoute("memory-nodes/delete", "POST"), {
+          body: { content: "User prefers TypeScript" },
+        })
+      ).json()) as NodesMutationBody;
+      expect(body.success).toBe(true);
+
+      const after = (await (
+        await callHandler(getRoute("memory-nodes", "GET"), { queryParams: {} })
+      ).json()) as NodesListBody;
+      expect(after.nodes.map((n) => n.id)).not.toContain("n1");
+    });
+
+    test("listMemoryNodes rejects a non-numeric limit as 400", async () => {
+      const res = await callHandler(getRoute("memory-nodes", "GET"), {
+        queryParams: { limit: "abc" },
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test("deleteMemoryNode rejects a missing content body as 400", async () => {
+      const res = await callHandler(getRoute("memory-nodes/delete", "POST"), {
+        body: {},
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test("updateMemoryNode rejects a non-string body field as 400", async () => {
+      const res = await callHandler(getRoute("memory-nodes/update", "POST"), {
+        body: { oldContent: "x", newContent: 42 },
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test("deleteMemoryNode fails as data when nothing matches", async () => {
+      const body = (await (
+        await callHandler(getRoute("memory-nodes/delete", "POST"), {
+          body: { content: "does not exist anywhere" },
+        })
+      ).json()) as NodesMutationBody;
+      expect(body.success).toBe(false);
+      expect(body.message.length).toBeGreaterThan(0);
+    });
+
+    test("updateMemoryNode replaces content on the exact-match node", async () => {
+      insertItem({
+        id: "n1",
+        type: "semantic",
+        content: "User prefers TypeScript",
+      });
+
+      const body = (await (
+        await callHandler(getRoute("memory-nodes/update", "POST"), {
+          body: {
+            oldContent: "User prefers TypeScript",
+            newContent: "User prefers TypeScript and Bun",
+          },
+        })
+      ).json()) as NodesMutationBody;
+      expect(body.success).toBe(true);
+
+      const after = (await (
+        await callHandler(getRoute("memory-nodes", "GET"), { queryParams: {} })
+      ).json()) as NodesListBody;
+      expect(after.nodes.map((n) => n.content)).toContain(
+        "User prefers TypeScript and Bun",
+      );
     });
   });
 });
