@@ -46,6 +46,15 @@ export function useLongPress(
       startPosRef.current = { x: touch.clientX, y: touch.clientY };
       clearTimer();
       timerRef.current = setTimeout(() => {
+        // Skip if the user has selected text — the browser's text
+        // selection long-press is the user's intent, not the action
+        // sheet. Without this, selecting text to copy would also
+        // pop the BottomSheet.
+        const selection = window.getSelection();
+        if (selection && selection.toString().length > 0) {
+          clearTimer();
+          return;
+        }
         haptic.light();
         callback();
       }, threshold);
