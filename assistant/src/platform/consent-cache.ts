@@ -4,8 +4,8 @@
  * Three values are cached, all refreshed from the same owner-consent fetch:
  *  - `share_analytics`: gates usage telemetry collection.
  *  - `share_diagnostics`: gates crash diagnostics (read by Sentry `beforeSend`),
- *    and composes the per-turn trace-collection gate alongside the
- *    `trace-collection` feature flag.
+ *    and composes the per-turn trace-collection gate alongside the accepted
+ *    consent version.
  *  - `share_diagnostics_accepted_version`: the consent version the owner
  *    accepted; the disclosing-version half of the trace-collection gate (see
  *    telemetry/trace-collection-policy.ts).

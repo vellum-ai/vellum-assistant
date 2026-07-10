@@ -51,14 +51,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "trace-collection",
-      "scope": "assistant",
-      "key": "trace-collection",
-      "label": "Trace Collection",
-      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) \u2014 the live value is delivered from LaunchDarkly.",
-      "defaultEnabled": false
-    },
-    {
       "id": "settings-developer-nav",
       "scope": "assistant",
       "key": "settings-developer-nav",
