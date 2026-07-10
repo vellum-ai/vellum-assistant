@@ -1,7 +1,6 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
-import { isWeakOpenModel } from "../../../util/weak-open-model.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
 /**
@@ -11,8 +10,10 @@ import { shouldOutputJson, writeOutput } from "../../output.js";
  * they get an explicit single next action: render the core `oauth_connect`
  * surface directly. Capable models keep the terse default.
  */
-export function noConnectionsMessage(provider: string): string {
+export async function noConnectionsMessage(provider: string): Promise<string> {
   const base = `No active connections for ${provider}.`;
+  const { isWeakOpenModel } =
+    await import("../../../providers/weak-open-model.js");
   if (isWeakOpenModel(process.env.__RESOLVED_MODEL)) {
     return (
       `${base}\nTo let the user connect, render the connect button: call ` +
@@ -118,7 +119,7 @@ Examples:
 
           // Text output
           if (connections.length === 0) {
-            process.stdout.write(noConnectionsMessage(provider));
+            process.stdout.write(await noConnectionsMessage(provider));
             return;
           }
 
