@@ -364,6 +364,18 @@
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/vellum-client-qa",
       "license": "MIT"
+    },
+    {
+      "name": "originkit",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/originkit",
+        "ref": "9aa260c2561ad9e765832dc342e9bbb5138858a4"
+      },
+      "description": "Browse and import animated UI components from Originkit, a free library of 50 animated components. Browse by category or search term without an API key; fetch component source code (React, Next.js, Vite, Framer) with a free key from originkit.dev.",
+      "category": "productivity",
+      "homepage": "https://github.com/vellum-ai/originkit",
+      "license": "MIT"
     }
   ]
 }
