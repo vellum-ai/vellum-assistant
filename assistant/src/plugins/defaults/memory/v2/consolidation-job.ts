@@ -75,10 +75,10 @@ import {
   type MemoryJobType,
 } from "../../../../persistence/jobs-store.js";
 import { runBackgroundJob } from "../../../../runtime/background-job-runner.js";
-import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
 import { isProcessAlive } from "../../../../util/process-liveness.js";
 import { formatBufferTimestamp } from "../graph/tool-handlers.js";
+import { getLogger } from "../logging.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 

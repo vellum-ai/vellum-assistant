@@ -14,7 +14,6 @@
 
 import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
-import { getLogger } from "../../../util/logger.js";
 import type { JobHandlerEntry } from "../../types.js";
 import { pkbCompactionJob, pkbFilingJob } from "./filing-jobs.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
@@ -40,6 +39,7 @@ import {
 } from "./job-handlers/index-maintenance.js";
 import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
+import { getLogger } from "./logging.js";
 import { memoryRetrospectiveJob } from "./memory-retrospective-job.js";
 import { skillCardInsertJob } from "./memory-retrospective-skill-card.js";
 import {

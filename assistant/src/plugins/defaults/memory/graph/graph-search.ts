@@ -23,7 +23,7 @@ import {
   isMemoryEnabled,
   type MemoryJob,
 } from "../../../../persistence/jobs-store.js";
-import { getLogger } from "../../../../util/logger.js";
+import { getLogger } from "../logging.js";
 import { loadImageRefData } from "./image-ref-utils.js";
 import { getNode } from "./store.js";
 import type { MemoryNode } from "./types.js";

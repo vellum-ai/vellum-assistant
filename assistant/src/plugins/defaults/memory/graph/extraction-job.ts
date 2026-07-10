@@ -13,7 +13,7 @@ import {
 } from "../../../../persistence/checkpoints.js";
 import { asString } from "../../../../persistence/job-utils.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { getLogger } from "../../../../util/logger.js";
+import { getLogger } from "../logging.js";
 import { runGraphExtraction } from "./extraction.js";
 
 const log = getLogger("graph-extraction-job");

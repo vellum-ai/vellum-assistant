@@ -61,8 +61,8 @@
 import type { ContentBlock, Message } from "@vellumai/plugin-api";
 
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
-import { getLogger } from "../../../../util/logger.js";
 import { getMemoryConfig } from "../config.js";
+import { getLogger } from "../logging.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
 import {
   INJECTED_CONCEPT_HEADER_REGEX,

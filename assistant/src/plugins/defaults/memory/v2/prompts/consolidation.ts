@@ -18,8 +18,8 @@
  * the convention established for the sweep prompt.
  */
 
-import { getLogger } from "../../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../../util/platform.js";
+import { getLogger } from "../../logging.js";
 import { loadPromptOverride } from "../../prompt-override.js";
 
 const log = getLogger("memory-v2-consolidate-prompt");

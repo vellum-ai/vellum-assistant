@@ -3,7 +3,7 @@ import {
   rawMemoryRun,
   rawRun,
 } from "../../../persistence/raw-query.js";
-import { getLogger } from "../../../util/logger.js";
+import { getLogger } from "./logging.js";
 
 const log = getLogger("task-memory-cleanup");
 

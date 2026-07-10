@@ -14,8 +14,8 @@
 import { join } from "node:path";
 
 import { getQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
-import { getLogger } from "../../../../util/logger.js";
 import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
+import { getLogger } from "../logging.js";
 import { deletePkbFilePoints, scanPkbFiles } from "./pkb-index.js";
 import { PKB_TARGET_TYPE } from "./types.js";
 

@@ -17,8 +17,8 @@
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { isEmbeddingDimensionAvailable } from "../../../../persistence/embeddings/embedding-backend.js";
-import { getLogger } from "../../../../util/logger.js";
 import { embedWithBackend } from "../embeddings.js";
+import { getLogger } from "../logging.js";
 import {
   getSectionDenseClient,
   SECTION_COLLECTION,

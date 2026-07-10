@@ -21,7 +21,7 @@ import {
   memorySummaries,
   messages,
 } from "../../../../persistence/schema/index.js";
-import { getLogger } from "../../../../util/logger.js";
+import { getLogger } from "../logging.js";
 import { extractMediaBlockMeta } from "../message-media.js";
 
 const log = getLogger("memory-jobs-worker");
