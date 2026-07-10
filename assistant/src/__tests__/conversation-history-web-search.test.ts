@@ -15,11 +15,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // ── DB layer mocks for session-history ───────────────────────────────
 
 /** In-memory message store for the fake DB layer. */

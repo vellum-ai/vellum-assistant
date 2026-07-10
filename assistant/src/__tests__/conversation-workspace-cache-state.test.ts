@@ -12,11 +12,6 @@ import type { Message, ProviderResponse } from "../providers/types.js";
 // Mock dependencies — follows conversation-profile-injection.test.ts pattern
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},

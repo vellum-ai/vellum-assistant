@@ -26,12 +26,6 @@ beforeAll(() => {
   setOverridesForTesting({ "override-or-default-resolution": false });
 });
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 import { AgentLoop } from "../agent/loop.js";
 import type {
   Message,

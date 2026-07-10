@@ -18,13 +18,6 @@ let syncManualTokenCalls: string[] = [];
 // Module mocks (must precede imports of the module under test)
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("./oauth-store.js", () => ({
   getProvider: () => mockProvider,
   getActiveConnections: (

@@ -1,10 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Only mock sleep so retries complete instantly; keep real retry logic.
 // NOTE: We must NOT use `await import()` inside mock.module — it deadlocks
 // bun's module resolver. Instead, inline the real exports and only replace sleep.
@@ -449,7 +444,11 @@ describe("RetryProvider — server error retries", () => {
 // ---------------------------------------------------------------------------
 
 describe("RetryProvider — reason-driven retryability", () => {
-  for (const reason of ["rate_limited", "overloaded", "server_error"] as const) {
+  for (const reason of [
+    "rate_limited",
+    "overloaded",
+    "server_error",
+  ] as const) {
     test(`retries a ProviderError with reason=${reason}`, async () => {
       const inner = makeFlaky(
         1,

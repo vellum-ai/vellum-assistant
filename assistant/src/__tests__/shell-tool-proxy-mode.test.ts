@@ -51,13 +51,6 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../security/secret-scanner.js", () => ({
   redactSecrets: (s: string) => s,
 }));

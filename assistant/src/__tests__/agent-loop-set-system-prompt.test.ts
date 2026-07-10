@@ -13,12 +13,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Standard logger stub (same shape as the rest of the suite).
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // Pass-through plugin pipeline: the `pre-model-call` hook returns its context
 // unchanged, so `providerOptions.systemPrompt` stays exactly the prompt the
 // loop snapshotted for the run.

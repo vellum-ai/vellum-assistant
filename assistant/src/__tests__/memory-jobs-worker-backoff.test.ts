@@ -9,13 +9,6 @@ import { describe, expect, mock, test } from "bun:test";
 
 // ── Mocks (must precede imports of tested module) ──────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mock config — memory disabled so runMemoryJobsOnce returns 0 immediately
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({

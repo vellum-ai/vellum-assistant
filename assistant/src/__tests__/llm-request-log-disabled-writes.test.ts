@@ -7,13 +7,6 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mutable so each test toggles the flag the store reads via `getConfigReadOnly`.
 let enabled = true;
 mock.module("../config/loader.js", () => ({

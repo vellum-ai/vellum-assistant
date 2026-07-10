@@ -9,13 +9,6 @@ beforeAll(() => {
   setOverridesForTesting({ "override-or-default-resolution": false });
 });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Prevent ensureTelegramBotUsernameResolved() from reading real credentials
 // and calling the Telegram API.
 mock.module("../security/secure-keys.js", () => ({

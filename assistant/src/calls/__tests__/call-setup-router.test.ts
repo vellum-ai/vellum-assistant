@@ -31,11 +31,6 @@ import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 import type { TrustClass } from "../../runtime/actor-trust-resolver.js";
 import type { CallSession } from "../types.js";
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../../config/loader.js", () => ({
   getConfig: () => ({ calls: { verification: { enabled: false } } }),
 }));
@@ -191,57 +186,59 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("routeSetup — unusable verdict fails closed", () => {
-  const unusableVerdicts: Array<{ name: string; verdict: TrustVerdict | null }> =
-    [
-      { name: "null verdict", verdict: null },
-      {
-        name: "resolutionFailed verdict",
-        verdict: makeVerdict({ resolutionFailed: true }),
-      },
-      {
-        name: "member identity with missing status",
-        verdict: makeVerdict({
-          trustClass: "trusted_contact",
-          contactId: "ct_1",
-          channelId: "ch_1",
-          policy: "allow",
-        }),
-      },
-      {
-        name: "member identity with unknown status",
-        verdict: makeVerdict({
-          trustClass: "trusted_contact",
-          contactId: "ct_1",
-          channelId: "ch_1",
-          status: "bogus",
-          policy: "allow",
-        }),
-      },
-      {
-        name: "member identity with unknown policy",
-        verdict: makeVerdict({
-          trustClass: "trusted_contact",
-          contactId: "ct_1",
-          channelId: "ch_1",
-          status: "active",
-          policy: "bogus",
-        }),
-      },
-      {
-        name: "unrecognized trust class (version skew)",
-        verdict: makeVerdict({
-          trustClass: "superadmin" as TrustVerdict["trustClass"],
-          canonicalSenderId: "+12025550142",
-        }),
-      },
-      {
-        // Contradictory: the gateway proves guardian identity via a
-        // same-channel member row, so a memberless guardian claim must
-        // never confer guardian capabilities (or even a normal_call).
-        name: "memberless guardian claim",
-        verdict: makeVerdict({ trustClass: "guardian" }),
-      },
-    ];
+  const unusableVerdicts: Array<{
+    name: string;
+    verdict: TrustVerdict | null;
+  }> = [
+    { name: "null verdict", verdict: null },
+    {
+      name: "resolutionFailed verdict",
+      verdict: makeVerdict({ resolutionFailed: true }),
+    },
+    {
+      name: "member identity with missing status",
+      verdict: makeVerdict({
+        trustClass: "trusted_contact",
+        contactId: "ct_1",
+        channelId: "ch_1",
+        policy: "allow",
+      }),
+    },
+    {
+      name: "member identity with unknown status",
+      verdict: makeVerdict({
+        trustClass: "trusted_contact",
+        contactId: "ct_1",
+        channelId: "ch_1",
+        status: "bogus",
+        policy: "allow",
+      }),
+    },
+    {
+      name: "member identity with unknown policy",
+      verdict: makeVerdict({
+        trustClass: "trusted_contact",
+        contactId: "ct_1",
+        channelId: "ch_1",
+        status: "active",
+        policy: "bogus",
+      }),
+    },
+    {
+      name: "unrecognized trust class (version skew)",
+      verdict: makeVerdict({
+        trustClass: "superadmin" as TrustVerdict["trustClass"],
+        canonicalSenderId: "+12025550142",
+      }),
+    },
+    {
+      // Contradictory: the gateway proves guardian identity via a
+      // same-channel member row, so a memberless guardian claim must
+      // never confer guardian capabilities (or even a normal_call).
+      name: "memberless guardian claim",
+      verdict: makeVerdict({ trustClass: "guardian" }),
+    },
+  ];
 
   for (const { name, verdict } of unusableVerdicts) {
     test(`inbound ${name} → deny with no local resolve, no session read, no stranger flows`, async () => {
@@ -308,9 +305,13 @@ describe("routeSetup — verdict session stamp gates getPendingSession", () => {
   test("stamp false skips the pending-session read", async () => {
     const { outcome } = await route(
       null,
-      makeMemberVerdict("trusted_contact", { status: "active" }, {
-        hasInterceptableVerificationSession: false,
-      }),
+      makeMemberVerdict(
+        "trusted_contact",
+        { status: "active" },
+        {
+          hasInterceptableVerificationSession: false,
+        },
+      ),
     );
 
     expect(getPendingSessionCalls).toBe(0);
@@ -320,9 +321,13 @@ describe("routeSetup — verdict session stamp gates getPendingSession", () => {
   test("stamp false + floor deny makes zero verification-read IPC calls", async () => {
     const { outcome } = await route(
       "guardian_only",
-      makeMemberVerdict("trusted_contact", { status: "active" }, {
-        hasInterceptableVerificationSession: false,
-      }),
+      makeMemberVerdict(
+        "trusted_contact",
+        { status: "active" },
+        {
+          hasInterceptableVerificationSession: false,
+        },
+      ),
     );
 
     expect(outcome.action).toBe("deny");
@@ -333,9 +338,13 @@ describe("routeSetup — verdict session stamp gates getPendingSession", () => {
     pendingChallenge = { id: "vs_1" };
     const { outcome } = await route(
       null,
-      makeMemberVerdict("trusted_contact", { status: "active" }, {
-        hasInterceptableVerificationSession: false,
-      }),
+      makeMemberVerdict(
+        "trusted_contact",
+        { status: "active" },
+        {
+          hasInterceptableVerificationSession: false,
+        },
+      ),
     );
 
     expect(getPendingSessionCalls).toBe(0);
@@ -346,9 +355,13 @@ describe("routeSetup — verdict session stamp gates getPendingSession", () => {
     pendingChallenge = { id: "vs_1" };
     const { outcome } = await route(
       null,
-      makeMemberVerdict("trusted_contact", { status: "active" }, {
-        hasInterceptableVerificationSession: true,
-      }),
+      makeMemberVerdict(
+        "trusted_contact",
+        { status: "active" },
+        {
+          hasInterceptableVerificationSession: true,
+        },
+      ),
     );
 
     expect(getPendingSessionCalls).toBe(1);
@@ -457,9 +470,9 @@ describe("routeSetup — no policy preserves current behavior", () => {
     expect((await route(null, verdictFor("unknown"))).outcome.action).toBe(
       "name_capture",
     );
-    expect(
-      (await route(undefined, verdictFor("unknown"))).outcome.action,
-    ).toBe("name_capture");
+    expect((await route(undefined, verdictFor("unknown"))).outcome.action).toBe(
+      "name_capture",
+    );
   });
 
   test("unverified known caller → unverified_caller", async () => {

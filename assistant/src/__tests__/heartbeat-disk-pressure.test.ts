@@ -7,15 +7,6 @@ mock.module("../runtime/pre-first-message-gate.js", () => ({
   _resetPreFirstMessageGateCacheForTests: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    debug: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     heartbeat: {

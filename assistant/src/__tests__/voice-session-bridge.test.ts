@@ -23,13 +23,6 @@ let mockedConfig: {
   memory: { enabled: false },
 };
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockedConfig,
 }));

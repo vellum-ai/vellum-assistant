@@ -51,14 +51,6 @@ mock.module("../security/oauth2.js", () => ({
   },
 }));
 
-// Mock logger
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mock identity verifier — returns a stable account identifier
 let mockIdentityResult: string | undefined = "user@example.com";
 

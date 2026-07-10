@@ -2,12 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Message } from "../providers/types.js";
 
-// Stub out heavy dependencies before importing Conversation
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},

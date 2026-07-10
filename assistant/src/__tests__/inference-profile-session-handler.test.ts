@@ -6,15 +6,9 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 // Stub the event hub so tests don't need a running event bus.
 // Exposed as a `mock(...)` so individual tests can assert publish calls.

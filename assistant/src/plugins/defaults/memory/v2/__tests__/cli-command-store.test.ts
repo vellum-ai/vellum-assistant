@@ -21,12 +21,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // ---------------------------------------------------------------------------
 // Programmable test state
 // ---------------------------------------------------------------------------

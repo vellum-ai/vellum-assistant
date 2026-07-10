@@ -8,21 +8,12 @@ import {
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mock logger (no-op — compatible with other test files' identical mock)
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 import type { CesClient } from "../credential-execution/client.js";
 import * as encryptedStore from "../security/encrypted-store.js";
 import {

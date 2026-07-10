@@ -41,15 +41,6 @@ mock.module("../../../stt/daemon-batch-transcriber.js", () => ({
   },
 }));
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
-
 // Import after mocks are installed
 const { tryTranscribeAudioAttachments } = await import("./transcribe-audio.js");
 

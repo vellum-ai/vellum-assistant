@@ -19,15 +19,9 @@
  */
 
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
-
-import { makeMockLogger } from "../../../../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
 
 import type { DrizzleDb } from "../../../../../persistence/db-connection.js";
 import { getSqliteFrom } from "../../../../../persistence/db-connection.js";

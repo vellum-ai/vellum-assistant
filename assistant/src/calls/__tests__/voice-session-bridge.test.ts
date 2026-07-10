@@ -17,13 +17,6 @@ import { describe, expect, mock, setSystemTime, test } from "bun:test";
 // Mocks — declared before importing voice-session-bridge
 // ---------------------------------------------------------------------------
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../../config/loader.js", () => ({
   getConfig: () => ({
     workspaceGit: { turnCommitMaxWaitMs: 100 },
@@ -553,7 +546,9 @@ describe("startVoiceTurn queued-message drain race", () => {
     };
     conv.setTrustContext = (ctx) => {
       conv.trustContext = ctx ?? undefined;
-      events.push(ctx === null || ctx === undefined ? "trust:clear" : "trust:install");
+      events.push(
+        ctx === null || ctx === undefined ? "trust:clear" : "trust:install",
+      );
     };
     fakeConversation = fake.conversation;
 

@@ -25,12 +25,6 @@ import {
 
 import { eq } from "drizzle-orm";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 // Stub the segment indexer so the persist path's memory indexing runs cheaply.
 // The lexical enqueue is a separate call on the persist path and still fires.
 // Other exports are provided so any transitive importer of this module

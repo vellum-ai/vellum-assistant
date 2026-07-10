@@ -20,13 +20,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 let broadcastMessages: ServerMessage[] = [];
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: ServerMessage) => broadcastMessages.push(msg),

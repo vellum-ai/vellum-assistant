@@ -2,14 +2,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // Mock verification control-plane policy -- not targeting control-plane by default
 mock.module("../tools/verification-control-plane-policy.js", () => ({
   enforceVerificationControlPlanePolicy: () => ({ denied: false }),

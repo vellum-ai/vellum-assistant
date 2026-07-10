@@ -1,13 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // These tests exercise the PATCH-side `workflowName` validation.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     migrations: { worker: { enabled: false } },

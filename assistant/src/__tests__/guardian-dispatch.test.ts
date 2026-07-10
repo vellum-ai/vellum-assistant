@@ -3,13 +3,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ConversationCreatedInfo } from "../notifications/broadcaster.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Note: stale mock for channel-guardian-store.js removed — the barrel was
 // deleted and none of the functions it mocked (getActiveBinding, createBinding,
 // listActiveBindingsByAssistant) existed in the barrel.

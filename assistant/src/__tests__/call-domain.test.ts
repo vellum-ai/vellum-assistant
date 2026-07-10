@@ -9,13 +9,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Track whether the Twilio provider's initiateCall should succeed or throw
 let twilioInitiateCallBehavior: "success" | "error" = "success";
 let twilioInitiateCallCount = 0;

@@ -99,14 +99,6 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 /**
  * Sentinel cell query the mocked builder returns. When set, the permission
  * checker must thread it into every gateway threshold read for the

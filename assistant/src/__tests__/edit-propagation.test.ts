@@ -7,16 +7,9 @@
  *  - Is idempotent across successive edits (subsequent edits keep updating).
  *  - Treats missing-target edits as a silent no-op (no throw, no row change).
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
 
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { addMessage } from "../persistence/conversation-crud.js";

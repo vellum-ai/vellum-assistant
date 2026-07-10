@@ -42,11 +42,6 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // ── Real imports (after mocks) ────────────────────────────────────────────────
 
 import { getDb } from "../../../persistence/db-connection.js";
@@ -283,7 +278,10 @@ describe("DELETE inference/profiles/:name reference guard", () => {
       llm: {
         profiles: {
           "my-fast": { source: "user", provider: "anthropic" },
-          "my-mix": { source: "user", mix: [{ profile: "my-fast", weight: 1 }] },
+          "my-mix": {
+            source: "user",
+            mix: [{ profile: "my-fast", weight: 1 }],
+          },
         },
       },
     };

@@ -26,13 +26,6 @@ import { describe, expect, mock, test } from "bun:test";
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 mkdirSync(testWorkspaceDir, { recursive: true });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mock getSecureKeyAsync to avoid credential store access during tests
 mock.module("../util/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,

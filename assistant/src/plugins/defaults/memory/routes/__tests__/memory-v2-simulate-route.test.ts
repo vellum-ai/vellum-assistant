@@ -31,13 +31,6 @@ import type { ToolDefinition } from "../../llm-helpers.js";
 // Mocks (installed before the route module is imported)
 // ---------------------------------------------------------------------------
 
-mock.module("../../../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Skill store: empty by default so the page index only contains test pages.
 mock.module("../../v2/skill-store.js", () => ({
   SKILL_SLUG_PREFIX: "skills/",

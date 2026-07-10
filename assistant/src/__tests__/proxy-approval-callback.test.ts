@@ -23,11 +23,6 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../security/redaction.js", () => ({
   redactSensitiveFields: (input: Record<string, unknown>) => input,
 }));

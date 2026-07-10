@@ -1,11 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { AUTO_ANALYSIS_SOURCE } from "../../../persistence/auto-analysis-constants.js";
 import { createConversation } from "../../../persistence/conversation-crud.js";
