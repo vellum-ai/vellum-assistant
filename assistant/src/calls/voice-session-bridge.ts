@@ -438,6 +438,17 @@ export async function startVoiceTurn(
     opts.content === CALL_VERIFICATION_COMPLETE_MARKER ||
     opts.content === ESCALATION_CONTINUATION_CONTENT;
 
+  // The escalation-continuation prompt is a pure internal instruction ("give
+  // the full answer now"), not a real utterance and not the sort of scaffolding
+  // an opener is — it must never surface as a user message. Unlike the
+  // opener/verification rows (persisted un-hidden), persist it `hidden` so
+  // `/messages` filters it out after a refetch/reload, and flag the turn as a
+  // hidden prompt so prompt-as-user-speech consumers (e.g. title generation)
+  // skip it. The escalated model still sees the row in context — `hidden` only
+  // affects client display.
+  const isHiddenSyntheticPrompt =
+    opts.content === ESCALATION_CONTINUATION_CONTENT;
+
   // Build the call-control protocol prompt so the model knows how to emit
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
   const isCallerGuardian = opts.trustContext?.trustClass === "guardian";
@@ -575,6 +586,7 @@ export async function startVoiceTurn(
     const persistResult = await conversation.persistUserMessage({
       content: persistedContent,
       requestId,
+      ...(isHiddenSyntheticPrompt ? { metadata: { hidden: true } } : {}),
     });
     return persistResult.id;
   };
@@ -965,6 +977,11 @@ export async function startVoiceTurn(
           // Voice only reacts to the definitive tool_use_start event.
         },
         callSite: "callAgent",
+        // The escalation-continuation prompt is a transcript-suppressed machine
+        // signal (persisted `hidden`), so flag the turn to match — keeps
+        // prompt-as-user-speech consumers (e.g. title generation) from treating
+        // it as user speech.
+        ...(isHiddenSyntheticPrompt ? { isHiddenPrompt: true } : {}),
         // Triage-and-escalate routing pins this turn to the fast front-door or
         // strong escalation profile. `forceOverrideProfile` floats it above the
         // callAgent call-site layers (callAgent is not `mainAgent`, so the

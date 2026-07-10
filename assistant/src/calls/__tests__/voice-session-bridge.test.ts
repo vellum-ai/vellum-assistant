@@ -41,6 +41,7 @@ mock.module("../../daemon/conversation-store.js", () => ({
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
 import { startVoiceTurn } from "../voice-session-bridge.js";
+import { ESCALATION_CONTINUATION_CONTENT } from "../voice-triage-escalate.js";
 
 // ---------------------------------------------------------------------------
 // Fake conversation
@@ -69,6 +70,7 @@ interface FakeConversation {
   persistUserMessage: (opts: {
     content: string;
     requestId: string;
+    metadata?: Record<string, unknown>;
   }) => Promise<{ id: string }>;
   updateClient: (cb: unknown, reset?: boolean) => void;
   runAgentLoop: (...args: unknown[]) => Promise<void>;
@@ -87,6 +89,9 @@ function makeFakeConversation(opts: {
 }) {
   const waitForIdleCalls: WaitForIdleCall[] = [];
   let persistCount = 0;
+  let lastPersistOpts:
+    | { content: string; requestId: string; metadata?: Record<string, unknown> }
+    | undefined;
   const conversation: FakeConversation = {
     conversationId: "conv-voice-bridge-test",
     callSessionId: undefined,
@@ -108,8 +113,9 @@ function makeFakeConversation(opts: {
     setTurnInterfaceContext: () => {},
     setChannelCapabilities: () => {},
     setVoiceCallControlPrompt: () => {},
-    persistUserMessage: async () => {
+    persistUserMessage: async (persistOpts) => {
       persistCount += 1;
+      lastPersistOpts = persistOpts;
       // Recorded before `onPersist` so scripted persist FAILURES also
       // appear in the event stream — ordering tests need the losing
       // attempt visible.
@@ -129,6 +135,7 @@ function makeFakeConversation(opts: {
     conversation,
     waitForIdleCalls,
     persistCount: () => persistCount,
+    lastPersistOpts: () => lastPersistOpts,
     setProcessingFlag: (value: boolean) => {
       opts.processing = value;
     },
@@ -262,6 +269,35 @@ const flushMicrotasks = async () => {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("startVoiceTurn escalation-continuation persistence", () => {
+  test("persists the escalation-continuation prompt as a hidden row", async () => {
+    // The continuation is a pure internal instruction — it must be persisted
+    // `hidden` so `/messages` filters it out of the transcript after a reload,
+    // not merely echo-suppressed live.
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: ESCALATION_CONTINUATION_CONTENT,
+    });
+
+    expect(fake.lastPersistOpts()?.content).toBe(
+      ESCALATION_CONTINUATION_CONTENT,
+    );
+    expect(fake.lastPersistOpts()?.metadata).toEqual({ hidden: true });
+  });
+
+  test("the opener prompt is persisted un-hidden (unchanged)", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn(makeTurnOptions()); // content: CALL_OPENING_MARKER
+
+    expect(fake.lastPersistOpts()?.metadata).toBeUndefined();
+  });
+});
 
 describe("startVoiceTurn conversation-lock wait", () => {
   test("an idle conversation starts the turn without consulting waitForIdle", async () => {
@@ -553,7 +589,9 @@ describe("startVoiceTurn queued-message drain race", () => {
     };
     conv.setTrustContext = (ctx) => {
       conv.trustContext = ctx ?? undefined;
-      events.push(ctx === null || ctx === undefined ? "trust:clear" : "trust:install");
+      events.push(
+        ctx === null || ctx === undefined ? "trust:clear" : "trust:install",
+      );
     };
     fakeConversation = fake.conversation;
 
