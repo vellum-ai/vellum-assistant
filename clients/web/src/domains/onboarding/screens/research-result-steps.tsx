@@ -433,7 +433,10 @@ export function ResearchResultsStep({
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
-      <div className="absolute left-1/2 top-[14%] sm:top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6">
+      {/* Bounded to the viewport bottom so a long claims list can't push the
+          continue button off-screen on short windows — the list (the only
+          child allowed to shrink, via min-h-0) scrolls instead. */}
+      <div className="absolute bottom-0 left-1/2 top-[14%] sm:top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6 pb-8">
         <div className="flex items-center gap-3">
           <MiniAssistant />
           <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
@@ -450,7 +453,7 @@ export function ResearchResultsStep({
               : "I didn’t turn up much — we can fill it in as we chat."}
         </p>
 
-        <div className="flex flex-col gap-3">
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
           <AnimatePresence>
             {visible.map((fact) => (
               <motion.div
@@ -502,7 +505,7 @@ export function ResearchResultsStep({
           type="button"
           onClick={() => onContinue([...removed])}
           disabled={!canContinue}
-          className="mt-8 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-8 flex cursor-pointer h-11 w-[200px] shrink-0 items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
