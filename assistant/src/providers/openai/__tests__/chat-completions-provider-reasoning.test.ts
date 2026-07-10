@@ -26,6 +26,10 @@ type MockChunk = {
   usage?: {
     prompt_tokens: number;
     completion_tokens: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      cache_write_tokens?: number;
+    };
   };
 };
 
@@ -638,5 +642,55 @@ describe("reasoning opt-out rejection fallback", () => {
       ),
     ).rejects.toThrow();
     expect(requests).toHaveLength(1);
+  });
+});
+
+describe("OpenAIChatCompletionsProvider cache usage parsing", () => {
+  test("maps prompt_tokens_details cache fields into usage", async () => {
+    // prompt_tokens is the inclusive total; the cached subset surfaces as
+    // cacheReadInputTokens and the written subset (GPT-5.6+
+    // cache_write_tokens, billed at 1.25x input) as cacheCreationInputTokens.
+    const { provider } = stubProvider([
+      { choices: [{ delta: { content: "ok" } }] },
+      {
+        choices: [{ delta: {}, finish_reason: "stop" }],
+        usage: {
+          prompt_tokens: 2_006,
+          completion_tokens: 300,
+          prompt_tokens_details: {
+            cached_tokens: 1_920,
+            cache_write_tokens: 64,
+          },
+        },
+      },
+    ]);
+
+    const response = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ]);
+
+    expect(response.usage).toEqual({
+      inputTokens: 2_006,
+      outputTokens: 300,
+      cacheReadInputTokens: 1_920,
+      cacheCreationInputTokens: 64,
+    });
+  });
+
+  test("omits cache fields when prompt_tokens_details is absent", async () => {
+    const { provider } = stubProvider([
+      { choices: [{ delta: { content: "ok" } }] },
+      {
+        choices: [{ delta: {}, finish_reason: "stop" }],
+        usage: { prompt_tokens: 10, completion_tokens: 2 },
+      },
+    ]);
+
+    const response = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ]);
+
+    expect(response.usage).not.toHaveProperty("cacheReadInputTokens");
+    expect(response.usage).not.toHaveProperty("cacheCreationInputTokens");
   });
 });

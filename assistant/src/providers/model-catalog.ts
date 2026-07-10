@@ -326,11 +326,11 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       // GPT-5.6 family (Sol / Terra / Luna). cacheRead is the 90% cached-read
-      // discount; long-context (>272K input) is 2x input / 1.5x output / 2x
-      // cache-read for the whole request, per OpenAI's model cards. GPT-5.6+
-      // also bills cache *writes* at 1.25x input, but that isn't represented
-      // here — the managed proxy's OpenAI billing path emits no cache-write
-      // token class (Anthropic-only today).
+      // discount; cacheWrite is the 1.25x-input rate GPT-5.6+ bills for
+      // prompt tokens written to the cache (reported as `cache_write_tokens`
+      // in usage, tracked as `cacheCreationInputTokens`). Long-context
+      // (>272K input) is 2x input / 1.5x output / 2x cache-read+write for
+      // the whole request, per OpenAI's model cards.
       {
         id: "gpt-5.6-sol",
         displayName: "GPT-5.6 Sol",
@@ -345,12 +345,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 5.0,
           outputPer1mTokens: 30.0,
+          cacheWritePer1mTokens: 6.25,
           cacheReadPer1mTokens: 0.5,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 10,
               outputPer1mTokens: 45,
+              cacheWritePer1mTokens: 12.5,
               cacheReadPer1mTokens: 1,
             },
           ],
@@ -370,12 +372,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 2.5,
           outputPer1mTokens: 15.0,
+          cacheWritePer1mTokens: 3.125,
           cacheReadPer1mTokens: 0.25,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 5,
               outputPer1mTokens: 22.5,
+              cacheWritePer1mTokens: 6.25,
               cacheReadPer1mTokens: 0.5,
             },
           ],
@@ -395,12 +399,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 1.0,
           outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
           cacheReadPer1mTokens: 0.1,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 2,
               outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
               cacheReadPer1mTokens: 0.2,
             },
           ],
@@ -1091,11 +1097,12 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // OpenAI
       // GPT-5.6 family (Sol / Terra / Luna). The `*-pro` slugs are the same
       // underlying models served with `reasoning.mode: pro` at identical
-      // rates. Long-context (>272K input) is 2x input / 1.5x output / 2x
-      // cache-read for the whole request, per OpenAI's model cards. GPT-5.6+
-      // also bills cache *writes* at 1.25x input, but that isn't represented
-      // here — the chat-completions usage path reports no cache-write token
-      // class, only cached (read) tokens.
+      // rates. cacheWrite is the 1.25x-input rate GPT-5.6+ bills for prompt
+      // tokens written to the cache (reported as `cache_write_tokens` in
+      // usage when the route forwards it, tracked as
+      // `cacheCreationInputTokens`). Long-context (>272K input) is 2x input
+      // / 1.5x output / 2x cache-read+write for the whole request, per
+      // OpenAI's model cards.
       {
         id: "openai/gpt-5.6-sol",
         displayName: "GPT-5.6 Sol",
@@ -1110,12 +1117,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 5.0,
           outputPer1mTokens: 30.0,
+          cacheWritePer1mTokens: 6.25,
           cacheReadPer1mTokens: 0.5,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 10,
               outputPer1mTokens: 45,
+              cacheWritePer1mTokens: 12.5,
               cacheReadPer1mTokens: 1,
             },
           ],
@@ -1135,12 +1144,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 5.0,
           outputPer1mTokens: 30.0,
+          cacheWritePer1mTokens: 6.25,
           cacheReadPer1mTokens: 0.5,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 10,
               outputPer1mTokens: 45,
+              cacheWritePer1mTokens: 12.5,
               cacheReadPer1mTokens: 1,
             },
           ],
@@ -1160,12 +1171,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 2.5,
           outputPer1mTokens: 15.0,
+          cacheWritePer1mTokens: 3.125,
           cacheReadPer1mTokens: 0.25,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 5,
               outputPer1mTokens: 22.5,
+              cacheWritePer1mTokens: 6.25,
               cacheReadPer1mTokens: 0.5,
             },
           ],
@@ -1185,12 +1198,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 2.5,
           outputPer1mTokens: 15.0,
+          cacheWritePer1mTokens: 3.125,
           cacheReadPer1mTokens: 0.25,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 5,
               outputPer1mTokens: 22.5,
+              cacheWritePer1mTokens: 6.25,
               cacheReadPer1mTokens: 0.5,
             },
           ],
@@ -1210,12 +1225,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 1.0,
           outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
           cacheReadPer1mTokens: 0.1,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 2,
               outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
               cacheReadPer1mTokens: 0.2,
             },
           ],
@@ -1235,12 +1252,14 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: {
           inputPer1mTokens: 1.0,
           outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
           cacheReadPer1mTokens: 0.1,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
               inputPer1mTokens: 2,
               outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
               cacheReadPer1mTokens: 0.2,
             },
           ],
