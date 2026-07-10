@@ -32,7 +32,6 @@ export const conversations = sqliteTable(
     ),
     conversationType: text("conversation_type").notNull().default("standard"),
     source: text("source").notNull().default("user"),
-    memoryScopeId: text("memory_scope_id").notNull().default("default"),
     originChannel: text("origin_channel"),
     originInterface: text("origin_interface"),
     forkParentConversationId: text("fork_parent_conversation_id"),

@@ -34,7 +34,6 @@ function makeConversationRow(
     slackContextCompactionWatermarkAt: null,
     conversationType: "background",
     source: "task",
-    memoryScopeId: "default",
     originChannel: null,
     originInterface: null,
     forkParentConversationId: null,

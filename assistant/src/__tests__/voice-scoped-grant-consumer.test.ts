@@ -139,7 +139,6 @@ function createMockSession(opts?: {
 
   const session = {
     isProcessing: () => false,
-    memoryPolicy: {},
     setAssistantId: () => {},
     setTrustContext: () => {},
     setCommandIntent: () => {},

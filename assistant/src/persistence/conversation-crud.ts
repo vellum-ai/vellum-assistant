@@ -379,7 +379,6 @@ export interface ConversationRow {
   slackContextCompactionWatermarkAt: number | null;
   conversationType: string;
   source: string;
-  memoryScopeId: string;
   originChannel: string | null;
   originInterface: string | null;
   forkParentConversationId: string | null;
@@ -417,7 +416,6 @@ export const parseConversation = createRowMapper<
   slackContextCompactionWatermarkAt: "slackContextCompactionWatermarkAt",
   conversationType: "conversationType",
   source: "source",
-  memoryScopeId: "memoryScopeId",
   originChannel: "originChannel",
   originInterface: "originInterface",
   forkParentConversationId: "forkParentConversationId",
@@ -707,7 +705,6 @@ export function createConversation(
   const groupId = opts.groupId;
   // Time-ordered UUIDv7 for server-minted conversation ids (see message id).
   const id = opts.id ?? uuidv7();
-  const memoryScopeId = "default";
 
   // Ensure group_id column exists for deterministic schema readiness,
   // even when this conversation has no groupId (a subsequent query or
@@ -732,7 +729,6 @@ export function createConversation(
     slackContextCompactionWatermarkAt: null as number | null,
     conversationType,
     source,
-    memoryScopeId,
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
     // Snapshot↔stream alignment baseline, captured at the creation instant.
