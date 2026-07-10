@@ -5,18 +5,20 @@
  *
  * Mounted once from the root layout. Three responsibilities:
  *
- *  1. Fetch the validated theme from `GET /v1/workspace/theme` (version-gated;
- *     older assistants that lack the route apply nothing) and push its token
- *     overrides onto the document root.
+ *  1. Fetch the validated theme from `GET /v1/workspace/theme` and push its
+ *     token overrides onto the document root. Deliberately not version-gated:
+ *     an older assistant 404s the read-only query, which the app QueryClient
+ *     never retries (4xx rule) and which degrades to exactly the unthemed
+ *     state — see "When a gate is unnecessary" in BACKWARDS_COMPAT.md.
  *  2. Refetch on the `assistant:self:theme` sync tag and on non-fresh SSE
  *     reconnect, so a theme the assistant (or another client) writes shows up
  *     without a reload — the daemon's config watcher emits the invalidation.
+ *     Focus refetches are disabled: those are the only two change vectors.
  *  3. Surface a change made elsewhere as a small toast, the way an avatar or
  *     identity change is announced.
  *
  * References:
  * - EVENT_BUS.md — bus subscription contract
- * - BACKWARDS_COMPAT.md — version gating
  */
 
 import { useEffect } from "react";
@@ -30,7 +32,6 @@ import {
   workspaceThemeGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { useSupportsWorkspaceTheme } from "@/lib/backwards-compat/workspace-theme";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import {
@@ -43,23 +44,23 @@ export function useWorkspaceTheme(
   isAssistantActive: boolean,
 ): void {
   const queryClient = useQueryClient();
-  const supportsWorkspaceTheme = useSupportsWorkspaceTheme();
-  const enabled = isAssistantActive && !!assistantId && supportsWorkspaceTheme;
+  const enabled = isAssistantActive && !!assistantId;
 
   const { data } = useQuery({
     ...workspaceThemeGetOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
     enabled,
+    refetchOnWindowFocus: false,
   });
 
   const theme = (data?.theme ?? null) as WorkspaceTheme | null;
 
   // Apply on every resolved theme; clearing when the theme is removed, or when
-  // the hook is disabled (assistant inactive / unsupported / switched away),
-  // reverts to the base-theme values. These vars live outside React on
-  // <html>, so a disabled hook must actively clear a prior assistant's theme
-  // rather than leave it applied. This hook is the sole writer of these vars.
+  // the hook is disabled (assistant inactive / switched away), reverts to the
+  // base-theme values. These vars live outside React on <html>, so a disabled
+  // hook must actively clear a prior assistant's theme rather than leave it
+  // applied. This hook is the sole writer of these vars.
   useEffect(() => {
     applyWorkspaceThemeTokens(enabled ? theme?.tokens : undefined);
   }, [enabled, theme]);
