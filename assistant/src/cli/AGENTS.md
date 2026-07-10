@@ -30,7 +30,7 @@ Every namespace that manages a resource (schedules, contacts, tasks, …) must e
 
 CLI commands use one of two transport patterns depending on whether they need a running daemon:
 
-- **`ipc`-tagged commands** call `cliIpcCall` from `../../ipc/cli-client.js`. They are thin wrappers that forward requests to the daemon over the IPC socket and never import daemon-internal modules.
+- **`ipc`-tagged commands** call `cliIpcCall` from `../../ipc/cli-client.js`. They forward requests to the daemon over the IPC socket for state the daemon owns.
 - **`local`-tagged commands** read or write workspace files directly (config, autonomy, completions, etc.) using the same config/store helpers the daemon uses internally. They do not require the daemon to be running.
 
 Both transport classes avoid proxying through the gateway HTTP API. `ipc` commands reach the daemon directly via the socket; `local` commands bypass the daemon entirely. The transport tag is declared via `registerCommand({ transport, ... })` — see the "Transport tagging" section below.
@@ -40,19 +40,22 @@ Both transport classes avoid proxying through the gateway HTTP API. `ipc` comman
 Every command file declares its transport class via `registerCommand({ transport, ... })`
 from `../lib/register-command.ts`. The three transport classes are:
 
-| Class | Rule | When to use |
-|---|---|---|
-| `ipc` | Wraps exactly one IPC method per subcommand. No daemon-internal imports. | Commands that call the daemon |
-| `local` | Touches only static workspace files / shell artifacts. | Commands that work without a running daemon |
-| `bootstrap` | Runs before the daemon is up (e.g. `assistant config init`). | Pre-daemon setup |
+| Class       | Rule                                                            | When to use                                 |
+| ----------- | --------------------------------------------------------------- | ------------------------------------------- |
+| `ipc`       | Reaches the daemon (over IPC, or in-process via a lazy import). | Commands that call the daemon               |
+| `local`     | Touches only static workspace files / shell artifacts.          | Commands that work without a running daemon |
+| `bootstrap` | Runs before the daemon is up (e.g. `assistant config init`).    | Pre-daemon setup                            |
 
-The ESLint rule `cli/no-daemon-internals` enforces import allowlists per class.
+The tag is descriptive metadata; keep it accurate so readers can tell at a
+glance whether a command needs a running daemon.
 
 ## Anatomy of an `ipc` command
 
-The thin-wrapper pattern. Every `ipc`-tagged subcommand action does three
-things: parse argv → call one IPC method → format output. The business
-logic lives in the daemon route, not the CLI.
+An `ipc`-tagged subcommand action parses argv, reaches the daemon — over
+IPC for daemon-owned state, or by running a lazily-imported helper
+in-process — and formats output. Prefer in-process where it saves an IPC
+round-trip; prefer IPC when the daemon owns the state or a running
+instance must do the work.
 
 ### Required shape
 
@@ -100,41 +103,43 @@ registerFooCommand(program);
 
 ### Rules
 
-1. **One `registerCommand` call per file.** The options object MUST be
-   passed inline as an object literal; `name` and `transport` MUST be
-   string literals. Hoisted variables and `as const` casts break the
-   static analysis tools rely on.
+1. **Keep hoisted imports inside the CLI.** A command module's top-level
+   (hoisted) imports are loaded on every `assistant …` invocation, so
+   they must stay light. You may hoist Node/npm packages, modules within
+   `assistant/src/cli`, and the shared non-daemon leaf zones `util/`,
+   `ipc/` (the IPC client + socket path), `types/`, and `version`.
+   Type-only imports (`import type …`) are always fine — they are erased
+   and cost nothing at runtime.
 
-2. **No daemon-internal imports.** An `ipc` command file can import:
+   **Do not hoist imports of daemon functionality** — anything else
+   outside `assistant/src/cli` (`runtime/`, `daemon/`, `persistence/`,
+   `providers/`, `platform/`, `security/`, …). Hoisting it pulls the
+   daemon's module graph into every CLI process and inflates its memory
+   footprint. This is enforced by the `cli/no-daemon-internals` ESLint
+   rule (`error`): a hoisted import that resolves outside the CLI tree and
+   the leaf zones above fails lint. Lazy-import it instead (rule 2).
 
-   - the IPC client (`../../ipc/cli-client`)
-   - the Commander framework + Node stdlib (`commander`, `node:*`)
-   - shared CLI helpers (`../logger`, `../output`, `../lib/*`,
-     `../../utils/*`)
-   - sibling subcommand modules (`./connect`, etc. — for namespace
-     parents like `oauth/index.ts`)
+2. **Lazy-import daemon functionality inside the action.** Running daemon
+   logic in-process is encouraged where it avoids an IPC round-trip (which
+   otherwise adds main-process event-loop congestion). Reach that code
+   with a dynamic import inside the action, so it loads only when the
+   command actually runs:
 
-   It **cannot** import anything under `runtime/`, `services/`,
-   `agents/`, `llm/`, `skills/`, or any other daemon-internal namespace.
-   The `cli/no-daemon-internals` ESLint rule enforces this at `"error"`
-   severity. See `assistant/eslint-rules/cli-no-daemon-internals.js` for
-   the per-transport allowlist (including per-command escape hatches for
-   things like the `keys` security helpers and `credential-execution`
-   bridge).
+   ```ts
+   .action(async (opts) => {
+     const { doTheThing } = await import("../../runtime/foo.js");
+     await doTheThing(opts);
+   });
+   ```
 
-3. **One IPC call per subcommand action.** A thin wrapper does not
-   compose multiple IPC methods, does not validate beyond Commander's
-   argument parsing, and does not reshape the daemon response.
-   Composition belongs on the daemon side, in a route.
-
-4. **Always check `r.ok` before reading `r.result`.** `cliIpcCall`
+3. **Always check `r.ok` before reading `r.result`.** `cliIpcCall`
    returns `CliIpcCallResult<T>` — either `{ ok: true, result }` or
    `{ ok: false, error, statusCode?, errorCode?, errorDetails? }`. Use
    `exitFromIpcResult(r)` to surface failure: it writes the error to
    stderr and exits with a code derived from the daemon-side
    `statusCode` (10 connect failure, 3 5xx, 2 4xx, 1 other).
 
-5. **Output via `writeOutput(cmd, payload)`.** The shared helper writes
+4. **Output via `writeOutput(cmd, payload)`.** The shared helper writes
    JSON to stdout — compact with `--json`, pretty otherwise — and
    respects `--json` inherited from parent commands. Don't
    `console.log` results directly; that bypasses the convention and
@@ -142,21 +147,15 @@ registerFooCommand(program);
 
 ### Anti-patterns
 
-- ❌ `import { something } from "../../runtime/foo.js"` from an
-  `ipc`-tagged command. The ESLint rule rejects this at `"error"`.
-- ❌ `registerCommand(program, opts)` where `opts` is a hoisted
-  variable. Inline the literal so the transport tag is statically
-  visible.
-- ❌ Multiple `registerCommand` calls in one file.
-- ❌ Reshaping `r.result` to differ from what the route returns. If the
-  CLI shape needs to diverge from the daemon response, change the
-  route — the CLI is just a transport.
+- ❌ Hoisting a daemon import — `import { x } from "../../runtime/foo.js"`
+  at module top (caught by `cli/no-daemon-internals`). Lazy-import it
+  inside the action instead so it loads only when the command runs.
 - ❌ Bypassing `exitFromIpcResult` to format your own error output.
   The shared helper gives consistent exit codes across the surface so
   scripts can branch on them.
 - ❌ Calling the gateway HTTP API (`fetch`, `axios`) from a CLI
-  command. All daemon work goes through IPC; the gateway is for
-  external clients.
+  command. Reach the daemon over IPC or via a lazily-imported in-process
+  helper; the gateway is for external clients.
 
 ## IPC operation IDs and routes
 
@@ -174,7 +173,7 @@ served by the daemon's IPC server. Two route surfaces exist:
   shouldn't be exposed over HTTP — when in doubt, default to the
   shared surface.
 
-Operation IDs are snake_case. The conventional shape is
+Operation IDs are `snake_case`. The conventional shape is
 `<command>_<subcommand>` (`pending_list`, `oauth_connect`,
 `cache_get`), but verb-first names are also used where they read more
 naturally (`upsert_contact`, `wake_conversation`, `conversations_import`).
@@ -189,6 +188,7 @@ response. When you add a new CLI verb you're almost always also adding
 
 `commands/pending.ts` is the reference implementation. Read it first
 when migrating a legacy command or unsure about a pattern.
+
 - Clean error handling via `exitFromIpcResult`
 - No daemon-internal imports
 

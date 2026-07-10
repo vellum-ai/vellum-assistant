@@ -47,9 +47,8 @@ const CONV_ID_HELP =
 
 /**
  * Action IDs reserved for internal use. Inlined from
- * `interactive-ui-types.ts` to avoid a runtime import from daemon
- * internals (the ESLint `cli/no-daemon-internals` rule forbids it for
- * `ipc`-tagged commands).
+ * `interactive-ui-types.ts` to avoid a hoisted runtime import from daemon
+ * internals, which would pull that module into every CLI invocation.
  */
 const RESERVED_ACTION_IDS = new Set([
   "selection_changed",

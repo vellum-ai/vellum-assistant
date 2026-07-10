@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
-import { isWeakOpenModel } from "../../../providers/weak-open-model.js";
+import { isWeakOpenModel } from "../../../util/weak-open-model.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
 /**
@@ -53,9 +53,12 @@ function formatConnection(c: ConnectionSummary, mode: string): string {
     lines.push(`    Granted scopes: (none)`);
   }
   if (mode === "byo") {
-    if (c.expiresAt) lines.push(`    Expires: ${c.expiresAt}`);
-    if (c.hasRefreshToken !== undefined)
+    if (c.expiresAt) {
+      lines.push(`    Expires: ${c.expiresAt}`);
+    }
+    if (c.hasRefreshToken !== undefined) {
       lines.push(`    Refresh token: ${c.hasRefreshToken ? "yes" : "no"}`);
+    }
   }
   return lines.join("\n");
 }
@@ -101,7 +104,9 @@ Examples:
             queryParams: { provider },
           });
 
-          if (!r.ok) return exitFromIpcResult(r);
+          if (!r.ok) {
+            return exitFromIpcResult(r);
+          }
 
           const result = r.result!;
           const { connections, mode } = result;

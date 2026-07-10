@@ -8,8 +8,8 @@
  */
 
 import { RiskLevel } from "../../permissions/types.js";
-import { isWeakOpenModel } from "../../providers/weak-open-model.js";
 import { ACTIVATION_MOMENT_PARAMS } from "../../telemetry/activation-funnel.js";
+import { isWeakOpenModel } from "../../util/weak-open-model.js";
 import type {
   ToolContext,
   ToolDefinition,

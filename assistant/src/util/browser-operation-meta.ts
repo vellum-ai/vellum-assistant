@@ -3,7 +3,7 @@
  * the Playwright-backed browser stack.
  */
 
-import type { BrowserOperationMeta } from "./types.js";
+import type { BrowserOperationMeta } from "../browser/types.js";
 
 /**
  * Metadata for every browser operation, describing fields, types, and

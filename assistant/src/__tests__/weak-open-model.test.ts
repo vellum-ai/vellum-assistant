@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { isWeakOpenModel } from "../providers/weak-open-model.js";
+import { isWeakOpenModel } from "../util/weak-open-model.js";
 
 describe("isWeakOpenModel", () => {
   test("matches weak open models across provider naming conventions", () => {

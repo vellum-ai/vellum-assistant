@@ -11,12 +11,12 @@ import { writeFileSync } from "node:fs";
 
 import { type Command, Option } from "commander";
 
-import { BROWSER_OPERATION_META } from "../../browser/operation-meta.js";
 import type {
   BrowserOperationMeta,
   OperationField,
 } from "../../browser/types.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import { BROWSER_OPERATION_META } from "../../util/browser-operation-meta.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
@@ -98,7 +98,9 @@ function parseFieldValue(
   value: unknown,
   field: OperationField,
 ): string | number | boolean {
-  if (field.type === "boolean") return Boolean(value);
+  if (field.type === "boolean") {
+    return Boolean(value);
+  }
   if (field.type === "number") {
     const num = Number(value);
     if (!Number.isFinite(num)) {
@@ -192,8 +194,12 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
     }
 
     for (const [key, value] of Object.entries(opts)) {
-      if (excludeKeys.has(key)) continue;
-      if (value === undefined) continue;
+      if (excludeKeys.has(key)) {
+        continue;
+      }
+      if (value === undefined) {
+        continue;
+      }
 
       const snakeKey = camelToSnake(key);
       // Find the matching field for type coercion

@@ -151,4 +151,4 @@ export async function executeBrowserOperation(
 
 // ── Command-oriented metadata ────────────────────────────────────────
 
-export { BROWSER_OPERATION_META } from "./operation-meta.js";
+export { BROWSER_OPERATION_META } from "../util/browser-operation-meta.js";
