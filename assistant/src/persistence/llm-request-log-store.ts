@@ -16,13 +16,7 @@ import {
 import { v4 as uuid } from "uuid";
 
 import { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "../api/constants/call-sites.js";
-// Namespace import (not a named `getConfigReadOnly` import) on purpose: the
-// store is reached transitively by a large number of tests that stub
-// `config/loader` with a partial mock exposing only `getConfig`. A named
-// import would fail to link against those mocks ("Export … not found"); a
-// namespace access degrades to `undefined` at call time instead, which the
-// try/catch in `llmRequestLoggingEnabled` treats as "enabled".
-import * as configLoader from "../config/loader.js";
+import { getConfigReadOnly } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { AssistantError, ProviderError } from "../util/errors.js";
 import {
@@ -64,7 +58,7 @@ function logsDb(): DrizzleDb {
  */
 export function llmRequestLoggingEnabled(): boolean {
   try {
-    return configLoader.getConfigReadOnly().llmRequestLogs?.enabled !== false;
+    return getConfigReadOnly().llmRequestLogs?.enabled !== false;
   } catch {
     return true;
   }
