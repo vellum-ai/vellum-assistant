@@ -342,7 +342,11 @@ export function TranscriptMessageBody({
         } catch {
           // Malformed percent-encoding — use the raw path.
         }
-        const filename = linkText || pathBasename;
+        const filename = resolveAttachmentFilename(
+          linkText || undefined,
+          pathBasename,
+          "label",
+        );
         void (async () => {
           try {
             const { data, error } = await workspaceFileContentGet({

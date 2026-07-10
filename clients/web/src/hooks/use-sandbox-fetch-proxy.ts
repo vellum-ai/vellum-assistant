@@ -62,6 +62,13 @@ export function useSandboxFetchProxy(
       }
 
       if (msg.type === "vellum_open_link") {
+        // Guard against untrusted iframe abuse: the sandboxed component
+        // can read its embedded frameId and send vellum_open_link without
+        // a user click. Only honor the message when there is an active
+        // user activation (transient — typically ~5s after a user
+        // gesture), so programmatic spam on load or in a loop can't
+        // trigger unsolicited downloads.
+        if (!navigator.userActivation?.isActive) return;
         onOpenVellumLink?.(msg.href, msg.linkText);
         return;
       }
