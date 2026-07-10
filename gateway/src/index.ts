@@ -215,6 +215,7 @@ import { runPostAssistantReady } from "./post-assistant-ready.js";
 import {
   clearManagedPublicBaseUrl,
   createVelayTunnelClient,
+  enablePublicIngress,
 } from "./velay/client.js";
 import { VERSION_HEADER_NAME, VERSION_HEADER_VALUE } from "./version.js";
 
@@ -414,6 +415,41 @@ async function main() {
     log.info({ reason }, "Starting Velay tunnel after live voice enabled");
     velayTunnelClient.start();
     return true;
+  }
+
+  /**
+   * Start the Velay tunnel when a credential link is minted. Unlike the Twilio
+   * and live-voice paths this has no precondition: creating a one-time
+   * credential link is itself the request to expose public ingress, and the
+   * tunnel is the browser's route to the credential-entry page. Shares the
+   * `velayStartRequested` latch — one tunnel serves every ingress consumer —
+   * and `velayTunnelClient.start()` is idempotent.
+   */
+  function maybeStartVelayTunnelForCredentialLink(reason: string): boolean {
+    if (velayStartRequested || !velayTunnelClient) {
+      return velayStartRequested;
+    }
+    velayStartRequested = true;
+    log.info({ reason }, "Starting Velay tunnel after credential link minted");
+    velayTunnelClient.start();
+    return true;
+  }
+
+  /**
+   * Make public ingress live for a freshly minted credential link: enable it
+   * when explicitly disabled (only an explicit `false` — a default `undefined`
+   * already means enabled on platform) and start the Velay tunnel so the link
+   * is actually reachable.
+   */
+  async function ensurePublicIngressLiveForCredentialLink(): Promise<void> {
+    if (
+      configFileCache.getBoolean("ingress", "enabled", { force: true }) ===
+      false
+    ) {
+      await enablePublicIngress(configFileCache);
+      log.info("Auto-enabled public ingress for credential link creation");
+    }
+    maybeStartVelayTunnelForCredentialLink("credential link minted");
   }
 
   async function readTwilioCredentialsForVelayStartup(): Promise<Record<
@@ -2557,7 +2593,12 @@ async function main() {
     ...createLogTailRoutes(config),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
-    ...createCredentialRequestIpcRoutes(configFileCache),
+    ...createCredentialRequestIpcRoutes(
+      config,
+      configFileCache,
+      credentialCache,
+      ensurePublicIngressLiveForCredentialLink,
+    ),
   ]);
   ipcServer.start();
 
