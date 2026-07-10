@@ -14,6 +14,7 @@
     "@microsoft/api-extractor",
     "@vellumai/ces-client",
     "@vellumai/credential-storage",
+    "@vellumai/download-validation",
     "@vellumai/egress-proxy",
     "@vellumai/environments",
     "@vellumai/gateway-client",

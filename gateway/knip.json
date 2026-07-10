@@ -5,6 +5,7 @@
     "@slack/types",
     "@vellumai/assistant-client",
     "@vellumai/ces-client",
+    "@vellumai/download-validation",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
     "@vellumai/service-contracts",
