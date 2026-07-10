@@ -685,6 +685,34 @@ async function writeManagedPublicBaseUrl(
   );
 }
 
+/**
+ * Enable public ingress by setting `ingress.enabled = true` in the gateway
+ * config file. No-op when it is already truthy (the mutate callback returns
+ * `false`, so nothing is written).
+ *
+ * Flipping `enabled` from `false` → `true` triggers the gateway config
+ * watcher, which lets the Velay reconnect loop (`connect()` re-checks
+ * `isPublicIngressDisabled()` on each attempt) establish the tunnel and
+ * publish the public URL.
+ */
+export async function enablePublicIngress(
+  configFile: ConfigFileCache,
+): Promise<void> {
+  return mutateGatewayConfigFile(
+    configFile,
+    "Cannot enable public ingress because config.json is malformed",
+    (data) => {
+      const ingress = getMutableIngress(data);
+      if (ingress.enabled === true) {
+        return false;
+      }
+      ingress.enabled = true;
+      data.ingress = ingress;
+      return true;
+    },
+  );
+}
+
 export async function clearManagedPublicBaseUrl(
   configFile: ConfigFileCache,
   expectedPublicUrl?: string,

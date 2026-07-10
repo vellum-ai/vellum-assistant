@@ -26,9 +26,16 @@ const {
   downloadAttachment,
   forwardTwilioVoiceWebhook,
   forwardTwilioStatusWebhook,
+  resolvePublicHttpBaseUrl,
   CircuitBreakerOpenError,
   resetCircuitBreaker,
 } = await import("../runtime/client.js");
+
+const fakeConfigFile = (publicBaseUrl?: string) =>
+  ({
+    getString: (_section: string, field: string) =>
+      field === "publicBaseUrl" ? publicBaseUrl : undefined,
+  }) as unknown as import("../config-file-cache.js").ConfigFileCache;
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -407,6 +414,48 @@ describe("forwardTwilioVoiceWebhook", () => {
   });
 });
 
+describe("resolvePublicHttpBaseUrl", () => {
+  test("prefers the config publicBaseUrl and strips its trailing slash", () => {
+    const result = resolvePublicHttpBaseUrl(
+      makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai" }),
+      fakeConfigFile("https://assistant.example.com/"),
+      "assistant-123",
+    );
+    expect(result).toBe("https://assistant.example.com");
+  });
+
+  test("falls back to velayBaseUrl + platform assistant id when config is empty", () => {
+    const result = resolvePublicHttpBaseUrl(
+      makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai" }),
+      fakeConfigFile(undefined),
+      "assistant-123",
+    );
+    expect(result).toBe("https://velay-dev.vellum.ai/assistant-123");
+  });
+
+  test("strips a trailing slash on velayBaseUrl before joining the assistant id", () => {
+    const result = resolvePublicHttpBaseUrl(
+      makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai/" }),
+      fakeConfigFile(undefined),
+      "assistant-123",
+    );
+    expect(result).toBe("https://velay-dev.vellum.ai/assistant-123");
+  });
+
+  test("returns undefined when neither the config URL nor the velay fallback resolve", () => {
+    expect(
+      resolvePublicHttpBaseUrl(makeConfig(), fakeConfigFile(undefined)),
+    ).toBeUndefined();
+    // velayBaseUrl present but no platform assistant id → no fallback.
+    expect(
+      resolvePublicHttpBaseUrl(
+        makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai" }),
+        fakeConfigFile(undefined),
+      ),
+    ).toBeUndefined();
+  });
+});
+
 describe("forwardTwilioStatusWebhook", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
@@ -430,4 +479,3 @@ describe("forwardTwilioStatusWebhook", () => {
     expect(sentBody.params).toEqual(params);
   });
 });
-

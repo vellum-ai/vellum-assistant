@@ -561,7 +561,11 @@ async function main() {
   const handleChannelPermissionResolve =
     createChannelPermissionResolveHandler();
 
-  const handleAgentCard = createAgentCardHandler(configFileCache);
+  const handleAgentCard = createAgentCardHandler(
+    config,
+    configFileCache,
+    credentialCache,
+  );
 
   const audioProxy = createAudioProxyHandler(config);
 
@@ -2675,7 +2679,11 @@ async function main() {
     ...createLogTailRoutes(config),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
-    ...createCredentialRequestIpcRoutes(configFileCache),
+    ...createCredentialRequestIpcRoutes(
+      config,
+      configFileCache,
+      credentialCache,
+    ),
   ]);
   ipcServer.start();
 

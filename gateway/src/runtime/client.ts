@@ -6,6 +6,7 @@ import {
   normalizePublicBaseUrl,
   TWILIO_PUBLIC_BASE_WSS_PLACEHOLDER,
 } from "@vellumai/service-contracts/twilio-ingress";
+import { normalizeHttpPublicBaseUrl } from "@vellumai/service-contracts/ingress";
 
 import type { RuntimeInboundPayload } from "@vellumai/gateway-client";
 import type { ChannelId } from "../channels/types.js";
@@ -574,6 +575,41 @@ export function resolvePublicBaseWssUrl(
     config,
     configuredCallbackAssistantId ?? platformAssistantId,
   );
+}
+
+/**
+ * Resolve the public base URL as an HTTP(S) URL — the HTTP sibling of
+ * {@link resolvePublicBaseWssUrl}. Used by surfaces that build a public
+ * browser-facing link (credential-collection links, the A2A agent card).
+ *
+ * Sources (in priority order):
+ * 1. `ingress.publicBaseUrl` from the config file — written by Velay after
+ *    tunnel registration, or set manually for self-hosted.
+ * 2. `VELAY_BASE_URL` + the platform assistant ID. This mirrors the Twilio
+ *    resolver's fallback and stays valid even while the tunnel is briefly
+ *    disconnected (Velay clears the config value on every reconnect), so
+ *    these links no longer break on a tunnel flap.
+ *
+ * Returns `undefined` when no source provides a value.
+ */
+export function resolvePublicHttpBaseUrl(
+  config: GatewayConfig,
+  configFile?: ConfigFileCache,
+  platformAssistantId?: string,
+): string | undefined {
+  const fromVelay =
+    config.velayBaseUrl && platformAssistantId
+      ? config.velayBaseUrl.replace(/\/+$/, "") + "/" + platformAssistantId
+      : undefined;
+
+  const resolved =
+    normalizeHttpPublicBaseUrl(
+      configFile?.getString("ingress", "publicBaseUrl"),
+    ) ?? normalizeHttpPublicBaseUrl(fromVelay);
+
+  // Drop a root-path trailing slash so callers can append `/…` without
+  // producing a `//`.
+  return resolved ? resolved.replace(/\/+$/, "") : undefined;
 }
 
 /**

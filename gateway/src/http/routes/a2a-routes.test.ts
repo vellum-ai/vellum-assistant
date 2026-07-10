@@ -39,6 +39,14 @@ function makeConfigFileCache(overrides?: {
   } as import("../../config-file-cache.js").ConfigFileCache;
 }
 
+const makeGatewayConfig = (velayBaseUrl?: string) =>
+  ({ velayBaseUrl }) as unknown as import("../../config.js").GatewayConfig;
+
+const makeCredentialCache = (platformAssistantId?: string) =>
+  ({
+    get: async () => platformAssistantId,
+  }) as unknown as import("../../credential-cache.js").CredentialCache;
+
 // --- Setup / teardown -------------------------------------------------------
 
 beforeEach(() => {
@@ -54,7 +62,11 @@ afterEach(() => {
 describe("Agent Card", () => {
   it("returns 404 when A2A is not enabled", async () => {
     const configFile = makeConfigFileCache({ a2aEnabled: false });
-    const handler = createAgentCardHandler(configFile);
+    const handler = createAgentCardHandler(
+      makeGatewayConfig(),
+      configFile,
+      makeCredentialCache(),
+    );
 
     const res = await handler(
       new Request("http://localhost:7830/.well-known/agent-card.json"),
@@ -70,7 +82,11 @@ describe("Agent Card", () => {
       a2aEnabled: true,
       publicBaseUrl: "https://my-assistant.example.com",
     });
-    const handler = createAgentCardHandler(configFile);
+    const handler = createAgentCardHandler(
+      makeGatewayConfig(),
+      configFile,
+      makeCredentialCache(),
+    );
 
     const res = await handler(
       new Request("http://localhost:7830/.well-known/agent-card.json"),
@@ -101,7 +117,11 @@ describe("Agent Card", () => {
       a2aEnabled: true,
       publicBaseUrl: "https://alice.example.com",
     });
-    const handler = createAgentCardHandler(configFile);
+    const handler = createAgentCardHandler(
+      makeGatewayConfig(),
+      configFile,
+      makeCredentialCache(),
+    );
 
     const res = await handler(
       new Request("http://localhost:7830/.well-known/agent-card.json"),
@@ -118,12 +138,40 @@ describe("Agent Card", () => {
       a2aEnabled: true,
       publicBaseUrl: "",
     });
-    const handler = createAgentCardHandler(configFile);
+    const handler = createAgentCardHandler(
+      makeGatewayConfig(),
+      configFile,
+      makeCredentialCache(),
+    );
 
     const res = await handler(
       new Request("http://localhost:7830/.well-known/agent-card.json"),
     );
 
     expect(res.status).toBe(503);
+  });
+
+  it("falls back to VELAY_BASE_URL + platform assistant id when the config URL is empty", async () => {
+    const configFile = makeConfigFileCache({
+      a2aEnabled: true,
+      publicBaseUrl: "",
+    });
+    const handler = createAgentCardHandler(
+      makeGatewayConfig("https://velay-dev.vellum.ai"),
+      configFile,
+      makeCredentialCache("assistant-123"),
+    );
+
+    const res = await handler(
+      new Request("http://localhost:7830/.well-known/agent-card.json"),
+    );
+
+    expect(res.status).toBe(200);
+    const card = (await res.json()) as {
+      supported_interfaces: Array<{ url: string }>;
+    };
+    expect(card.supported_interfaces[0].url).toBe(
+      "https://velay-dev.vellum.ai/assistant-123/a2a/message:send",
+    );
   });
 });

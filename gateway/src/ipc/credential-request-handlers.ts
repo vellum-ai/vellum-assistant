@@ -13,13 +13,18 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { generateInviteToken, hashInviteToken } from "@vellumai/gateway-client";
+import type { GatewayConfig } from "../config.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
+import type { CredentialCache } from "../credential-cache.js";
+import { credentialKey } from "../credential-key.js";
 import {
   CredentialRequestStore,
   MAX_ACTIVE_CREDENTIAL_REQUESTS,
 } from "../db/credential-request-store.js";
 import { isFeatureFlagEnabled } from "../feature-flag-resolver.js";
 import { getLogger } from "../logger.js";
+import { resolvePublicHttpBaseUrl } from "../runtime/client.js";
+import { enablePublicIngress } from "../velay/client.js";
 import type { IpcRoute } from "./server.js";
 
 const log = getLogger("credential-requests");
@@ -74,31 +79,59 @@ export type CreateCredentialRequestResult =
     };
 
 export function createCredentialRequestIpcRoutes(
+  config: GatewayConfig,
   configFile: ConfigFileCache,
+  credentials: CredentialCache,
 ): IpcRoute[] {
   return [
     {
       method: "create_credential_request",
       schema: CreateCredentialRequestSchema,
-      handler: (params?: Record<string, unknown>) => {
+      handler: async (params?: Record<string, unknown>) => {
         const parsed = CreateCredentialRequestSchema.parse(params ?? {});
-        return createCredentialRequest(configFile, parsed);
+        const platformAssistantId = (
+          await credentials.get(
+            credentialKey("vellum", "platform_assistant_id"),
+          )
+        )?.trim();
+        return createCredentialRequest(
+          config,
+          configFile,
+          parsed,
+          platformAssistantId,
+        );
       },
     },
   ];
 }
 
-export function createCredentialRequest(
+export async function createCredentialRequest(
+  config: GatewayConfig,
   configFile: ConfigFileCache,
   params: z.infer<typeof CreateCredentialRequestSchema>,
-): CreateCredentialRequestResult {
+  platformAssistantId?: string,
+): Promise<CreateCredentialRequestResult> {
   if (!isFeatureFlagEnabled(CREDENTIAL_REQUESTS_FLAG)) {
     return { ok: false, error: "flag_disabled" };
   }
 
-  const publicBaseUrl = configFile
-    .getString("ingress", "publicBaseUrl")
-    ?.replace(/\/+$/, "");
+  // Minting a credential link is an explicit request to expose the public
+  // credential-entry page, so auto-enable public ingress when it was
+  // explicitly disabled. Only flip an explicit `false` — a default `undefined`
+  // already means "enabled" on platform (the Velay tunnel connects). Flipping
+  // it lets the Velay reconnect loop establish the tunnel; the mint still
+  // returns immediately using the resolved fallback URL below, and the link
+  // becomes reachable within a few seconds once the tunnel registers.
+  if (configFile.getBoolean("ingress", "enabled", { force: true }) === false) {
+    await enablePublicIngress(configFile);
+    log.info("Auto-enabled public ingress for credential link creation");
+  }
+
+  const publicBaseUrl = resolvePublicHttpBaseUrl(
+    config,
+    configFile,
+    platformAssistantId,
+  );
   if (!publicBaseUrl) {
     return { ok: false, error: "no_public_base_url" };
   }

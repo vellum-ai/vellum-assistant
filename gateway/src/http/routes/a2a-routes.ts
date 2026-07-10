@@ -6,9 +6,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { GatewayConfig } from "../../config.js";
 import type { ConfigFileCache } from "../../config-file-cache.js";
+import type { CredentialCache } from "../../credential-cache.js";
+import { credentialKey } from "../../credential-key.js";
 import { getWorkspaceDir } from "../../credential-reader.js";
 import { getLogger } from "../../logger.js";
+import { resolvePublicHttpBaseUrl } from "../../runtime/client.js";
 
 const log = getLogger("a2a-routes");
 
@@ -89,7 +93,11 @@ function readAssistantName(): string {
 
 // ── Route handler factory ──────────────────────────────────────────
 
-export function createAgentCardHandler(configFile: ConfigFileCache) {
+export function createAgentCardHandler(
+  config: GatewayConfig,
+  configFile: ConfigFileCache,
+  credentials: CredentialCache,
+) {
   return async (_req: Request): Promise<Response> => {
     const enabled = configFile.getBoolean("a2a", "enabled") ?? false;
     if (!enabled) {
@@ -99,8 +107,17 @@ export function createAgentCardHandler(configFile: ConfigFileCache) {
       );
     }
 
-    const publicBaseUrl =
-      configFile.getString("ingress", "publicBaseUrl") ?? "";
+    // GET handler — resolve the public URL (with the Velay fallback) but never
+    // mutate config here; auto-enabling ingress is reserved for the explicit
+    // credential-mint action.
+    const platformAssistantId = (
+      await credentials.get(credentialKey("vellum", "platform_assistant_id"))
+    )?.trim();
+    const publicBaseUrl = resolvePublicHttpBaseUrl(
+      config,
+      configFile,
+      platformAssistantId,
+    );
     if (!publicBaseUrl) {
       log.warn("Agent card requested but no public base URL configured");
       return Response.json(
