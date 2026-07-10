@@ -389,11 +389,11 @@ export async function enforceIngressAcl(
         const nonMemberSenderId = canonicalSenderId ?? rawSenderId;
         const terminallyDenied =
           !!nonMemberSenderId &&
-          isAccessRequestDenied({
+          (await isAccessRequestDenied({
             canonicalAssistantId,
             sourceChannel,
             actorExternalId: nonMemberSenderId,
-          });
+          }));
 
         // Slack-specific: send a verification challenge directly to the
         // user's DM instead of requiring guardian-mediated approval. The
@@ -544,7 +544,7 @@ export async function enforceIngressAcl(
         let guardianNotified = false;
         let handshakeInProgress = false;
         if (isCallbackInteraction) {
-          handshakeInProgress = isApprovalHandshakeInProgress({
+          handshakeInProgress = await isApprovalHandshakeInProgress({
             canonicalAssistantId,
             sourceChannel,
             actorExternalId: (canonicalSenderId ?? rawSenderId)!,
@@ -700,11 +700,11 @@ export async function enforceIngressAcl(
           const terminallyDenied =
             !isBlockedMember &&
             !!inactiveSenderId &&
-            isAccessRequestDenied({
+            (await isAccessRequestDenied({
               canonicalAssistantId,
               sourceChannel,
               actorExternalId: inactiveSenderId,
-            });
+            }));
 
           // Slack-specific: re-verify inactive members via DM challenge
           // (same as non-member path). Blocked members are excluded —
@@ -799,7 +799,7 @@ export async function enforceIngressAcl(
           let handshakeInProgress = false;
           if (resolvedMember.status !== "blocked") {
             if (isCallbackInteraction) {
-              handshakeInProgress = isApprovalHandshakeInProgress({
+              handshakeInProgress = await isApprovalHandshakeInProgress({
                 canonicalAssistantId,
                 sourceChannel,
                 actorExternalId: (canonicalSenderId ?? rawSenderId)!,

@@ -11,11 +11,11 @@
  * principal so access requests cannot bind to stale/cross-assistant contacts.
  */
 
-import type { ChannelId } from "../channels/types.js";
 import {
-  createCanonicalGuardianRequest,
-  listCanonicalGuardianRequests,
-} from "../contacts/canonical-guardian-store.js";
+  createGuardianRequest,
+  listGuardianRequestsOrEmpty,
+} from "../channels/gateway-guardian-requests.js";
+import type { ChannelId } from "../channels/types.js";
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import type { ChannelStatus } from "../contacts/types.js";
 import {
@@ -24,6 +24,7 @@ import {
 } from "../notifications/canonical-delivery-recorder.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { GuardianResolutionSource } from "../notifications/signal.js";
+import { IntegrityError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { resolveAnchoredGuardian } from "./anchored-guardian.js";
 import { CHALLENGE_TTL_MS } from "./channel-verification-service.js";
@@ -98,26 +99,29 @@ export function accessRequestConversationId(
  * the guardian prompt and the self-verify challenge — for a sender the guardian
  * explicitly rejected. Reads the retained `denied` canonical request scoped by
  * the assistant-scoped conversation id.
+ *
+ * Gateway-unreachable degrades to `false` (no suppression data): callers then
+ * proceed toward creation, where the fail-closed create throw is the backstop
+ * against prompting without a persisted request.
  */
-export function isAccessRequestDenied(params: {
+export async function isAccessRequestDenied(params: {
   canonicalAssistantId: string;
   sourceChannel: string;
   actorExternalId: string;
-}): boolean {
+}): Promise<boolean> {
   const conversationId = accessRequestConversationId(
     params.canonicalAssistantId,
     params.sourceChannel,
     params.actorExternalId,
   );
-  return (
-    listCanonicalGuardianRequests({
-      status: "denied",
-      requesterExternalUserId: params.actorExternalId,
-      sourceChannel: params.sourceChannel,
-      kind: "access_request",
-      conversationId,
-    }).length > 0
-  );
+  const denied = await listGuardianRequestsOrEmpty({
+    status: "denied",
+    requesterExternalUserId: params.actorExternalId,
+    sourceChannel: params.sourceChannel,
+    kind: "access_request",
+    sourceConversationId: conversationId,
+  });
+  return denied.length > 0;
 }
 
 /**
@@ -136,12 +140,16 @@ export function isAccessRequestDenied(params: {
  *
  * Voice is excluded: phone approvals activate the caller directly and never
  * mint a code.
+ *
+ * Gateway-unreachable degrades to `false` (window unknown → treat as closed);
+ * the worst case is a redundant re-prompt attempt whose create is itself
+ * fail-closed.
  */
-export function isApprovalHandshakeInProgress(params: {
+export async function isApprovalHandshakeInProgress(params: {
   canonicalAssistantId: string;
   sourceChannel: string;
   actorExternalId: string;
-}): boolean {
+}): Promise<boolean> {
   if (params.sourceChannel === "phone") {
     return false;
   }
@@ -151,13 +159,14 @@ export function isApprovalHandshakeInProgress(params: {
     params.actorExternalId,
   );
   const windowStart = Date.now() - CHALLENGE_TTL_MS;
-  return listCanonicalGuardianRequests({
+  const approved = await listGuardianRequestsOrEmpty({
     status: "approved",
     requesterExternalUserId: params.actorExternalId,
     sourceChannel: params.sourceChannel,
     kind: "access_request",
-    conversationId,
-  }).some((request) => request.updatedAt >= windowStart);
+    sourceConversationId: conversationId,
+  });
+  return approved.some((request) => request.updatedAt >= windowStart);
 }
 
 // ---------------------------------------------------------------------------
@@ -237,13 +246,14 @@ export async function notifyGuardianOfAccessRequest(
   // Deduplicate: skip creation if there is already a pending canonical request
   // for the same requester on this channel *and* assistant. Still return
   // notified: true with the existing request ID so callers know the guardian
-  // was already notified.
-  const existingCanonical = listCanonicalGuardianRequests({
+  // was already notified. A degraded (empty) read falls through to creation,
+  // whose fail-closed throw prevents a prompt without a persisted request.
+  const existingCanonical = await listGuardianRequestsOrEmpty({
     status: "pending",
     requesterExternalUserId: actorExternalId,
     sourceChannel,
     kind: "access_request",
-    conversationId,
+    sourceConversationId: conversationId,
   });
   if (existingCanonical.length > 0) {
     log.debug(
@@ -266,7 +276,7 @@ export async function notifyGuardianOfAccessRequest(
   // handshake window below so a standing deny always wins over an earlier
   // approval.
   if (
-    isAccessRequestDenied({
+    await isAccessRequestDenied({
       canonicalAssistantId,
       sourceChannel,
       actorExternalId,
@@ -285,7 +295,7 @@ export async function notifyGuardianOfAccessRequest(
   // request or re-notify the guardian; once the window lapses unconsumed,
   // re-prompting is allowed again.
   if (
-    isApprovalHandshakeInProgress({
+    await isApprovalHandshakeInProgress({
       canonicalAssistantId,
       sourceChannel,
       actorExternalId,
@@ -301,16 +311,23 @@ export async function notifyGuardianOfAccessRequest(
   const senderIdentifier = actorDisplayName || actorUsername || actorExternalId;
   const requestId = `access-req-${canonicalAssistantId}-${sourceChannel}-${actorExternalId}-${Date.now()}`;
 
-  const canonicalRequest = createCanonicalGuardianRequest({
+  // Access requests are decisionable: without a bound principal nobody could
+  // ever decide them (mirrors the gateway create's integrity guard).
+  if (!guardianPrincipalId) {
+    throw new IntegrityError(
+      "Cannot create access_request without guardianPrincipalId",
+    );
+  }
+
+  const canonicalRequest = await createGuardianRequest({
     id: requestId,
     kind: "access_request",
-    sourceType: "channel",
     sourceChannel,
-    conversationId,
+    sourceConversationId: conversationId,
     requesterExternalUserId: actorExternalId,
     requesterChatId: conversationExternalId,
     guardianExternalUserId: guardianExternalUserId ?? undefined,
-    guardianPrincipalId: guardianPrincipalId ?? undefined,
+    guardianPrincipalId,
     toolName: "ingress_access_request",
     questionText: introductionMode(trigger).questionText(senderIdentifier),
     requesterSignals: serializeRequesterSignals({
@@ -320,11 +337,11 @@ export async function notifyGuardianOfAccessRequest(
     }),
     // Persisted so decision-time policy (resolvers, expiry sweep) can
     // suppress requester-facing lifecycle notices for admitted-mode nudges.
-    ...(trigger === "admitted" ? { trigger } : {}),
+    ...(trigger === "admitted" ? { requestTrigger: trigger } : {}),
     expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
   });
 
-  let vellumDeliveryId: string | undefined;
+  let vellumDeliveryIdPromise: Promise<string | undefined> | undefined;
   // When the access request originates from a text channel with
   // notification delivery support (Slack, Telegram) and the guardian was
   // resolved via a verified same-channel contact, route the notification
@@ -375,29 +392,31 @@ export async function notifyGuardianOfAccessRequest(
       ...(trigger === "admitted" ? { trigger } : {}),
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
+    // The callback must stay synchronous; the write is kicked off here and
+    // awaited before the post-broadcast recording loop reuses its row id.
     onConversationCreated: (info) => {
       if (
         info.sourceEventName !== "ingress.access_request" ||
-        vellumDeliveryId
+        vellumDeliveryIdPromise
       ) {
         return;
       }
-      vellumDeliveryId = recordApprovalCardDelivery({
+      vellumDeliveryIdPromise = recordApprovalCardDelivery({
         requestId: canonicalRequest.id,
         channel: "vellum",
         conversationId: info.conversationId,
-      })?.id;
+      }).then((delivery) => delivery?.id);
     },
   })
-    .then((signalResult) => {
-      vellumDeliveryId = recordGuardianRequestDeliveries({
+    .then(async (signalResult) => {
+      const vellumDeliveryId = await recordGuardianRequestDeliveries({
         requestId: canonicalRequest.id,
         deliveryResults: signalResult.deliveryResults,
-        vellumDeliveryId,
+        vellumDeliveryId: await vellumDeliveryIdPromise,
       });
 
       if (!vellumDeliveryId && !sameChannelOnly) {
-        recordApprovalCardDelivery({
+        await recordApprovalCardDelivery({
           requestId: canonicalRequest.id,
           channel: "vellum",
           status: "failed",
@@ -461,12 +480,15 @@ export async function maybeNotifyGuardianOfAdmittedContact(
     params.sourceChannel,
     params.actorExternalId,
   );
-  const alreadyIntroducedHere = listCanonicalGuardianRequests({
+  // Degraded (empty) read lets the nudge proceed; the inner suppressions and
+  // the fail-closed create still bound it to at most one live card.
+  const priorRequests = await listGuardianRequestsOrEmpty({
     kind: "access_request",
     requesterExternalUserId: params.actorExternalId,
     sourceChannel: params.sourceChannel,
-    conversationId,
-  }).some(
+    sourceConversationId: conversationId,
+  });
+  const alreadyIntroducedHere = priorRequests.some(
     (request) => request.requesterChatId === params.conversationExternalId,
   );
   if (alreadyIntroducedHere) {

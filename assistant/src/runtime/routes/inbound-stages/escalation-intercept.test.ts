@@ -37,8 +37,8 @@ mock.module("../../local-actor-identity.js", () => ({
 }));
 
 const createdRequests: Array<Record<string, unknown>> = [];
-mock.module("../../../contacts/canonical-guardian-store.js", () => ({
-  createCanonicalGuardianRequest: (params: Record<string, unknown>) => {
+mock.module("../../../channels/gateway-guardian-requests.js", () => ({
+  createGuardianRequest: async (params: Record<string, unknown>) => {
     createdRequests.push(params);
     return { ...params, requestCode: "ABC123" };
   },

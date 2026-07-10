@@ -165,6 +165,19 @@ mock.module("../config/env.js", () => ({
 // Production imports (AFTER mocks)
 // ---------------------------------------------------------------------------
 
+// Guardian-request creation and delivery recording go through the gateway
+// client; serve that surface from the local canonical store the rest of the
+// flow (decision primitive, inline-grant wait) still reads.
+import {
+  gatewayGuardianRequestsStoreBridge,
+  toGuardianRequestWire,
+} from "./helpers/gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
+
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
@@ -358,7 +371,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     const trustContext = makeTrustedContactTrustContext();
 
     const result = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      canonicalRequest: toGuardianRequestWire(canonicalRequest),
       trustContext,
       conversationId: "conv-bridge-1",
       toolName: "bash",
@@ -397,7 +410,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     const trustContext = makeTrustedContactTrustContext();
 
     await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      canonicalRequest: toGuardianRequestWire(canonicalRequest),
       trustContext,
       conversationId: "conv-unified-1",
       toolName: "bash",
@@ -454,7 +467,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
     const trustContext = makeTrustedContactTrustContext();
 
     const result = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      canonicalRequest: toGuardianRequestWire(canonicalRequest),
       trustContext,
       conversationId: "conv-nobinding",
       toolName: "bash",
@@ -567,7 +580,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
     };
 
     const result = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      canonicalRequest: toGuardianRequestWire(canonicalRequest),
       trustContext,
       conversationId: "conv-unknown",
       toolName: "bash",
@@ -988,7 +1001,7 @@ describe("cross-milestone integration checks", () => {
     const trustContext = makeTrustedContactTrustContext();
 
     const bridgeResult = await bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
+      canonicalRequest: toGuardianRequestWire(canonicalRequest),
       trustContext,
       conversationId: "conv-consistency",
       toolName: "bash",
