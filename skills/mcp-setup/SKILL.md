@@ -52,10 +52,10 @@ Try `host_bash`:
 echo "desktop ok"
 ```
 
-- If it succeeds → you are on the **desktop app**. Use `host_bash` for all commands, including `auth` (opens a local browser).
-- If it is unavailable → you are on the **web app** (or a cloud-hosted session). Use `bash` for all commands, including `auth` (the platform handles the browser redirect).
+- If it succeeds → you are on the **desktop app**. Use `host_bash` for all commands so they run against the host-installed CLI.
+- If it is unavailable → you are on the **web app** (or a cloud-hosted session). Use `bash` for all commands.
 
-Both environments fully support MCP. The only difference is which tool runs the commands.
+Both environments fully support MCP, including OAuth: the non-blocking `auth --no-wait` flow (see "Authenticate (OAuth)") relays the authorization URL to the user, so neither environment needs a local browser tool. The only difference is which shell tool runs the commands.
 
 ## Step 2 — Check the recipe table
 
@@ -104,7 +104,7 @@ server authenticates:
 
 ## Reference: All Commands
 
-Run all `mcp` commands — `list`, `add`, `remove`, `reload`, and `auth` — via `bash` on both environments. The non-blocking OAuth flow (below) relays the authorization URL to the user, so no local browser tool is needed.
+Run all `mcp` commands — `list`, `add`, `remove`, `reload`, and `auth` — via the shell tool from Step 1 (`host_bash` on desktop, `bash` on web). The non-blocking OAuth flow (below) relays the authorization URL to the user, so no local browser tool is needed.
 
 ### List servers
 
