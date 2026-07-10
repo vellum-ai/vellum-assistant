@@ -9,6 +9,13 @@
  * POST   /v1/memory-items        — create a new memory item
  * PATCH  /v1/memory-items/:id    — update an existing memory item
  * DELETE /v1/memory-items/:id    — delete a memory item and its embeddings
+ *
+ * Plus the content-addressed "memory nodes" operator surface over the same
+ * graph (see the section in ROUTES):
+ *
+ * GET    /v1/memory-nodes        — list nodes (significance-ordered, content search)
+ * POST   /v1/memory-nodes/delete — delete the node matching exact content
+ * POST   /v1/memory-nodes/update — replace content on the node matching exact content
  */
 
 import {
@@ -46,6 +53,11 @@ import {
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
 import { embedWithBackend } from "../embeddings.js";
 import { createNode, deleteNode, getNode, updateNode } from "../graph/store.js";
+import {
+  handleDeleteMemory,
+  handleListMemory,
+  handleUpdateMemory,
+} from "../graph/tool-handlers.js";
 import type {
   Fidelity,
   ImageRef,
@@ -272,7 +284,9 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
 
   if (!isValidSortField(sortParam)) {
     throw new BadRequestError(
-      `Invalid sort "${sortParam}". Must be one of: ${VALID_SORT_FIELDS.join(", ")}`,
+      `Invalid sort "${sortParam}". Must be one of: ${VALID_SORT_FIELDS.join(
+        ", ",
+      )}`,
     );
   }
 
@@ -802,5 +816,117 @@ export const ROUTES: RouteDefinition[] = [
     description: "Delete a memory graph node and its embeddings.",
     tags: ["memory"],
     handler: ({ pathParams }) => handleDeleteMemoryItem(pathParams!.id),
+  },
+
+  // ── Memory nodes (content-addressed) ───────────────────────────────────────
+  // Operator surface over raw graph nodes addressed by content text rather
+  // than UUID, mirroring how the model-facing memory tools address them. The
+  // handlers return business failures ({ success: false, message }) as data —
+  // the same shape the memory tools hand the model — so callers branch on
+  // `success` instead of catching transport errors.
+
+  {
+    operationId: "listMemoryNodes",
+    endpoint: "memory-nodes",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List memory graph nodes",
+    description:
+      "Return active memory graph nodes ordered by significance. With `search`, all nodes are scanned so the content filter is exhaustive; without it the query is capped at `limit` rows.",
+    tags: ["memory"],
+    queryParams: [
+      {
+        name: "search",
+        schema: { type: "string" },
+        description: "Filter nodes whose content contains the query",
+      },
+      {
+        name: "limit",
+        schema: { type: "integer" },
+        description: "Max results (default 50, max 200)",
+      },
+    ],
+    responseBody: z.object({
+      success: z.boolean(),
+      message: z.string(),
+      nodes: z.array(
+        z.object({
+          id: z.string(),
+          content: z.string(),
+          type: z.string(),
+          fidelity: z.string(),
+          created: z.number(),
+        }),
+      ),
+      total: z.number(),
+    }),
+    handler: ({ queryParams }) => {
+      const limitRaw = queryParams?.limit;
+      const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+      return handleListMemory(
+        { search: queryParams?.search, limit },
+        getConfig(),
+      );
+    },
+  },
+
+  {
+    operationId: "deleteMemoryNode",
+    endpoint: "memory-nodes/delete",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Delete a memory graph node by content",
+    description:
+      "Delete the memory graph node whose content exactly matches the given text.",
+    tags: ["memory"],
+    requestBody: z.object({
+      content: z.string(),
+    }),
+    responseBody: z.object({
+      success: z.boolean(),
+      message: z.string(),
+    }),
+    handler: ({ body }) => {
+      const { content } = z.object({ content: z.string() }).parse(body ?? {});
+      return handleDeleteMemory({ content }, getConfig());
+    },
+  },
+
+  {
+    operationId: "updateMemoryNode",
+    endpoint: "memory-nodes/update",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Update a memory graph node by content",
+    description:
+      "Replace the content of the memory graph node whose content exactly matches `oldContent`.",
+    tags: ["memory"],
+    requestBody: z.object({
+      oldContent: z.string(),
+      newContent: z.string(),
+    }),
+    responseBody: z.object({
+      success: z.boolean(),
+      message: z.string(),
+    }),
+    handler: ({ body }) => {
+      const { oldContent, newContent } = z
+        .object({ oldContent: z.string(), newContent: z.string() })
+        .parse(body ?? {});
+      return handleUpdateMemory(
+        { old_content: oldContent, new_content: newContent },
+        "cli",
+        getConfig(),
+      );
+    },
   },
 ];
