@@ -42,7 +42,6 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useLongPress } from "@/hooks/use-long-press";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
@@ -162,7 +161,7 @@ export function TranscriptMessageBody({
   const [revealed, setRevealed] = useState(false);
   const slackMessageUrl = getExternalLinkUrl(message.slackMessage?.messageLink);
 
-  const isMobile = useIsMobile();
+  const isTouch = isPointerCoarse();
   const [longPressOpen, setLongPressOpen] = useState(false);
   const longPressFiredRef = useRef(false);
 
@@ -769,7 +768,7 @@ export function TranscriptMessageBody({
         message={message}
         assistantDisplayName={assistantDisplayName}
       />
-      {!isMobile && (
+      {!isTouch && (
         <div
           className={`${trailerHeightClass} opacity-0 transition-[height,margin,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
         >
@@ -816,17 +815,19 @@ export function TranscriptMessageBody({
           {renderUserContent(userItems)}
           {trailer}
         </div>
-        {isMobile && (
-          <MessageLongPressActions
-            message={message}
-            conversationId={conversationId}
-            openInSlackUrl={slackMessageUrl}
-            onFork={forkHandler}
-            onSummarizeUpToHere={summarizeHandler}
-            onInspect={inspectHandler}
-            open={longPressOpen}
-            onOpenChange={setLongPressOpen}
-          />
+        {isTouch && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <MessageLongPressActions
+              message={message}
+              conversationId={conversationId}
+              openInSlackUrl={slackMessageUrl}
+              onFork={forkHandler}
+              onSummarizeUpToHere={summarizeHandler}
+              onInspect={inspectHandler}
+              open={longPressOpen}
+              onOpenChange={setLongPressOpen}
+            />
+          </div>
         )}
       </div>
     );
@@ -856,17 +857,19 @@ export function TranscriptMessageBody({
         )}
         {trailer}
       </div>
-      {isMobile && (
-        <MessageLongPressActions
-          message={message}
-          conversationId={conversationId}
-          openInSlackUrl={slackMessageUrl}
-          onFork={forkHandler}
-          onSummarizeUpToHere={summarizeHandler}
-          onInspect={inspectHandler}
-          open={longPressOpen}
-          onOpenChange={setLongPressOpen}
-        />
+      {isTouch && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <MessageLongPressActions
+            message={message}
+            conversationId={conversationId}
+            openInSlackUrl={slackMessageUrl}
+            onFork={forkHandler}
+            onSummarizeUpToHere={summarizeHandler}
+            onInspect={inspectHandler}
+            open={longPressOpen}
+            onOpenChange={setLongPressOpen}
+          />
+        </div>
       )}
     </div>
   );
