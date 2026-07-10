@@ -15,7 +15,7 @@
 
 import type { Command } from "commander";
 
-import { cliIpcCall } from "../../../ipc/cli-client.js";
+import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { writeOutput } from "../../output.js";
@@ -107,9 +107,7 @@ Examples:
               { queryParams },
             );
             if (!r.ok) {
-              log.error(r.error ?? "Failed to list memory nodes");
-              process.exitCode = 1;
-              return;
+              exitFromIpcResult(r, cmd);
             }
             const result = r.result!;
 
@@ -216,9 +214,7 @@ Examples:
               { body: { content } },
             );
             if (!r.ok) {
-              log.error(r.error ?? "Failed to delete the memory node");
-              process.exitCode = 1;
-              return;
+              exitFromIpcResult(r, cmd);
             }
             const result = r.result!;
 
@@ -282,9 +278,7 @@ Examples:
               { body: { oldContent, newContent } },
             );
             if (!r.ok) {
-              log.error(r.error ?? "Failed to update the memory node");
-              process.exitCode = 1;
-              return;
+              exitFromIpcResult(r, cmd);
             }
             const result = r.result!;
 

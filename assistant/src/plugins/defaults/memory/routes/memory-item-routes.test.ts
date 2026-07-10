@@ -1010,6 +1010,20 @@ describe("Memory Item Routes", () => {
       expect(after.nodes.map((n) => n.id)).not.toContain("n1");
     });
 
+    test("deleteMemoryNode rejects a missing content body as 400", async () => {
+      const res = await callHandler(getRoute("memory-nodes/delete", "POST"), {
+        body: {},
+      });
+      expect(res.status).toBe(400);
+    });
+
+    test("updateMemoryNode rejects a non-string body field as 400", async () => {
+      const res = await callHandler(getRoute("memory-nodes/update", "POST"), {
+        body: { oldContent: "x", newContent: 42 },
+      });
+      expect(res.status).toBe(400);
+    });
+
     test("deleteMemoryNode fails as data when nothing matches", async () => {
       const body = (await (
         await callHandler(getRoute("memory-nodes/delete", "POST"), {

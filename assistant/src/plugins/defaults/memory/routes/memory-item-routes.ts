@@ -893,8 +893,11 @@ export const ROUTES: RouteDefinition[] = [
       message: z.string(),
     }),
     handler: ({ body }) => {
-      const { content } = z.object({ content: z.string() }).parse(body ?? {});
-      return handleDeleteMemory({ content }, getConfig());
+      const parsed = z.object({ content: z.string() }).safeParse(body ?? {});
+      if (!parsed.success) {
+        throw new BadRequestError("content (string) is required");
+      }
+      return handleDeleteMemory({ content: parsed.data.content }, getConfig());
     },
   },
 
@@ -919,11 +922,19 @@ export const ROUTES: RouteDefinition[] = [
       message: z.string(),
     }),
     handler: ({ body }) => {
-      const { oldContent, newContent } = z
+      const parsed = z
         .object({ oldContent: z.string(), newContent: z.string() })
-        .parse(body ?? {});
+        .safeParse(body ?? {});
+      if (!parsed.success) {
+        throw new BadRequestError(
+          "oldContent and newContent (strings) are required",
+        );
+      }
       return handleUpdateMemory(
-        { old_content: oldContent, new_content: newContent },
+        {
+          old_content: parsed.data.oldContent,
+          new_content: parsed.data.newContent,
+        },
         "cli",
         getConfig(),
       );
