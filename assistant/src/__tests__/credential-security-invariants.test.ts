@@ -208,6 +208,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
       "persistence/embeddings/embedding-backend.ts", // embedding backend API key lookup
       "persistence/llm-request-log-source-clickhouse.ts", // ClickHouse read source — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped mirror reads
+      "persistence/llm-request-log-sink-clickhouse.ts", // ClickHouse write sink — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped log writes
       "persistence/compaction-log-store-clickhouse.ts", // ClickHouse compaction log writer — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped event writes
       "daemon/providers-setup.ts", // provider initialization API key lookup
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
