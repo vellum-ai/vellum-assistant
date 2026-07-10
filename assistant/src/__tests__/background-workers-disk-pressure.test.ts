@@ -198,8 +198,10 @@ mock.module("../persistence/jobs-store.js", () => ({
 }));
 
 const mockMaybeRunDbMaintenance = mock(() => {});
+const mockMaybeRunPassiveWalCheckpoint = mock(() => {});
 mock.module("../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: mockMaybeRunDbMaintenance,
+  maybeRunPassiveWalCheckpoint: mockMaybeRunPassiveWalCheckpoint,
 }));
 
 mock.module("../persistence/cleanup-schedule-state.js", () => ({
@@ -219,6 +221,7 @@ describe("background workers disk pressure gate", () => {
     mockFailStalledJobs.mockClear();
     mockClaimMemoryJobs.mockClear();
     mockMaybeRunDbMaintenance.mockClear();
+    mockMaybeRunPassiveWalCheckpoint.mockClear();
   });
 
   test("memory jobs worker skips before claiming or maintenance writes", async () => {
@@ -228,6 +231,7 @@ describe("background workers disk pressure gate", () => {
     expect(mockFailStalledJobs).not.toHaveBeenCalled();
     expect(mockClaimMemoryJobs).not.toHaveBeenCalled();
     expect(mockMaybeRunDbMaintenance).not.toHaveBeenCalled();
+    expect(mockMaybeRunPassiveWalCheckpoint).not.toHaveBeenCalled();
   });
 
   test("workspace heartbeat skips auto-commit checks while locked", async () => {
