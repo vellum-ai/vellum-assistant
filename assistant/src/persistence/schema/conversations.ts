@@ -104,10 +104,25 @@ export const messages = sqliteTable(
       .notNull()
       .references(() => conversations.id, { onDelete: "cascade" }),
     role: text("role").notNull(),
+    /**
+     * Union of two JSON shapes: an inline `ContentBlock[]` (or a legacy
+     * plain string), or `{ ref: "<workspace-relative path>" }` pointing at
+     * a file-backed content payload. Always read through the message row
+     * mapper (which applies `resolveStoredMessageContent`) — never parse
+     * this column raw.
+     */
     content: text("content").notNull(),
     createdAt: integer("created_at").notNull(),
     metadata: text("metadata"),
     clientMessageId: text("client_message_id"),
+    /**
+     * 1 (default) = `content` is the complete, immutable value (inline or
+     * `{ ref }`). 0 = the message is still streaming and `content` is a
+     * `{ ref }` to its in-flight delta file. Batch readers (search, memory
+     * indexing, fork) must filter `finalized = 1`; only the live turn and
+     * crash recovery read unfinalized rows.
+     */
+    finalized: integer("finalized").notNull().default(1),
   },
   (table) => [
     uniqueIndex("idx_messages_conv_client_msg_id")
