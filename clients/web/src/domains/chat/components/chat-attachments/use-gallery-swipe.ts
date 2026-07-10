@@ -91,7 +91,15 @@ export function useGallerySwipe({
 
   const onTouchStart = useCallback(
     (e: ReactTouchEvent) => {
-      if (!enabled || e.touches.length !== 1) return;
+      if (!enabled) return;
+      // A second finger landing while a gesture is armed cancels the swipe —
+      // otherwise a release with no intervening touchmove would let touchend
+      // commit from the stale horizontal gesture. Mirrors the multi-touch
+      // reset in onTouchMove. Full reset, not an early return.
+      if (e.touches.length !== 1) {
+        reset();
+        return;
+      }
       const t = e.touches[0]!;
       gesture.current = {
         touchId: t.identifier,
@@ -101,7 +109,7 @@ export function useGallerySwipe({
         lastDx: 0,
       };
     },
-    [enabled],
+    [enabled, reset],
   );
 
   const onTouchMove = useCallback(
