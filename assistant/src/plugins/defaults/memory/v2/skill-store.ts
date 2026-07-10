@@ -26,9 +26,9 @@ import { listCatalogSkills, listInstalledSkills } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
-import { getLogger } from "../../../../util/logger.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embeddings.js";
+import { getLogger } from "../logging.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
   backfillKindOnPointsWithPrefix,

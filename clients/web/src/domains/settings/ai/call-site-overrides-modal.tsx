@@ -9,7 +9,6 @@ import {
   visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
 import { getDefaultModelForProvider } from "@/assistant/llm-model-catalog";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   CUSTOM_SENTINEL,
   draftsEqual,
@@ -136,8 +135,6 @@ function CallSiteOverridesModalInner({
   >({});
   const [saving, setSaving] = useState(false);
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
-  const analyzeConversationEnabled =
-    useAssistantFeatureFlagStore.use.analyzeConversation();
 
   const {
     data: catalog,
@@ -153,13 +150,10 @@ function CallSiteOverridesModalInner({
     refetchOnWindowFocus: false,
   });
 
-  const gatedCallSites = useMemo(() => {
-    let all = (catalog?.callSites ?? []).filter((cs) => cs.id !== "mainAgent");
-    if (!analyzeConversationEnabled) {
-      all = all.filter((cs) => cs.id !== "analyzeConversation");
-    }
-    return all;
-  }, [catalog, analyzeConversationEnabled]);
+  const gatedCallSites = useMemo(
+    () => (catalog?.callSites ?? []).filter((cs) => cs.id !== "mainAgent"),
+    [catalog],
+  );
 
   const catalogLoaded = !isLoading && !isError && !!catalog;
   const daemonConfigLoaded = !!daemonConfig;

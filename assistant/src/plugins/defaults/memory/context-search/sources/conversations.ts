@@ -12,7 +12,7 @@ import {
   parseExternalContentEnvelope,
   wrapUntrustedContent,
 } from "../../../../../security/untrusted-content.js";
-import { getLogger } from "../../../../../util/logger.js";
+import { getLogger } from "../../logging.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 
 const log = getLogger("recall-conversations-source");

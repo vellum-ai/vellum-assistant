@@ -25,7 +25,7 @@ import {
   getCachedCatalogSync,
   getCatalog,
 } from "../../../../skills/catalog-cache.js";
-import { getLogger } from "../../../../util/logger.js";
+import { getLogger } from "../logging.js";
 import type { SkillCapabilityInput } from "../v2/skill-content.js";
 import { createNode } from "./store.js";
 
@@ -270,10 +270,7 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     .select()
     .from(memoryGraphNodes)
     .where(
-      and(
-        eq(memoryGraphNodes.scopeId, "default"),
-        eq(memoryGraphNodes.sourceConversations, JSON.stringify([sourceKey])),
-      ),
+      eq(memoryGraphNodes.sourceConversations, JSON.stringify([sourceKey])),
     )
     .get();
 
@@ -340,7 +337,6 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     narrativeRole: null,
     partOfStory: null,
     imageRefs: null,
-    scopeId: "default",
   });
 
   if (isMemoryEnabled()) {
@@ -358,10 +354,7 @@ function deleteCapabilityNode(sourceKey: string): void {
     .select()
     .from(memoryGraphNodes)
     .where(
-      and(
-        eq(memoryGraphNodes.scopeId, "default"),
-        eq(memoryGraphNodes.sourceConversations, JSON.stringify([sourceKey])),
-      ),
+      eq(memoryGraphNodes.sourceConversations, JSON.stringify([sourceKey])),
     )
     .get();
 
@@ -396,7 +389,6 @@ function cleanupOldFormatCapabilityNodes(): void {
     .where(
       and(
         eq(memoryGraphNodes.type, "procedural"),
-        eq(memoryGraphNodes.scopeId, "default"),
         sql`${memoryGraphNodes.fidelity} != 'gone'`,
         sql`${memoryGraphNodes.content} LIKE 'skill:%'`,
       ),
@@ -427,7 +419,6 @@ function cleanupOldFormatCapabilityNodes(): void {
     .where(
       and(
         eq(memoryGraphNodes.type, "procedural"),
-        eq(memoryGraphNodes.scopeId, "default"),
         sql`${memoryGraphNodes.fidelity} != 'gone'`,
         sql`${memoryGraphNodes.content} LIKE 'cli:%'`,
       ),
@@ -458,12 +449,7 @@ function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
   const allCapabilities = db
     .select()
     .from(memoryGraphNodes)
-    .where(
-      and(
-        eq(memoryGraphNodes.scopeId, "default"),
-        like(memoryGraphNodes.sourceConversations, `%${prefix}%`),
-      ),
-    )
+    .where(like(memoryGraphNodes.sourceConversations, `%${prefix}%`))
     .all();
 
   const now = Date.now();

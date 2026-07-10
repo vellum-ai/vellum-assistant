@@ -27,7 +27,6 @@ function upsertMemoryItem(opts: {
   subject: string;
   statement: string;
   importance: number;
-  scopeId: string;
 }): void {
   const db = getDb();
   const now = Date.now();
@@ -39,7 +38,6 @@ function upsertMemoryItem(opts: {
     .where(
       and(
         eq(memoryGraphNodes.content, content),
-        eq(memoryGraphNodes.scopeId, opts.scopeId),
         sql`${memoryGraphNodes.fidelity} != 'gone'`,
       ),
     )
@@ -84,7 +82,6 @@ function upsertMemoryItem(opts: {
         sourceType: "inferred",
         narrativeRole: null,
         partOfStory: null,
-        scopeId: opts.scopeId,
       })
       .run();
     if (isMemoryEnabled()) {
@@ -127,7 +124,6 @@ export async function run(
       return err("No style patterns were extracted. Try with more messages.");
     }
 
-    const scopeId = "default";
     let savedCount = 0;
 
     for (const pattern of result.stylePatterns) {
@@ -140,7 +136,6 @@ export async function run(
         subject,
         statement: pattern.summary,
         importance,
-        scopeId,
       });
       savedCount++;
     }
@@ -157,7 +152,6 @@ export async function run(
           "",
         ),
         importance: 0.6,
-        scopeId,
       });
       savedCount++;
     }

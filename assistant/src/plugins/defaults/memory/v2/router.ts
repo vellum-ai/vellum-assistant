@@ -42,12 +42,12 @@ import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import type { DrizzleDb } from "../../../../persistence/db-connection.js";
-import { getLogger } from "../../../../util/logger.js";
 import {
   cachedTextBlock,
   extractToolUse,
   type ToolDefinition,
 } from "../llm-helpers.js";
+import { getLogger } from "../logging.js";
 import { computeInjectionScores } from "./injection-events.js";
 import type { PageIndex } from "./page-index.js";
 import {

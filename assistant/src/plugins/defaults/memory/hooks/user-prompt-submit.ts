@@ -45,7 +45,7 @@ import {
 import type { MemoryRecalled } from "../../../../daemon/message-types/memory.js";
 import { resolveTrustClass } from "../../../../daemon/trust-context.js";
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
-import type { GraphMemoryResult } from "../../../types.js";
+import type { GraphMemoryResult } from "../graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
 

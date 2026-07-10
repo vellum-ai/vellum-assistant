@@ -17,7 +17,10 @@ import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
 } from "../../../persistence/cleanup-schedule-state.js";
-import { maybeRunDbMaintenance } from "../../../persistence/db-maintenance.js";
+import {
+  maybeRunDbMaintenance,
+  maybeRunPassiveWalCheckpoint,
+} from "../../../persistence/db-maintenance.js";
 import {
   EmbeddingBillingBlockError,
   extractHttpStatus,
@@ -50,21 +53,14 @@ import {
   SLOW_LLM_JOB_TYPES,
 } from "../../../persistence/jobs-store.js";
 import { spawnMemoryWorkerProcess } from "../../../persistence/worker-control.js";
-import { getLogger } from "../../../util/logger.js";
-import { getWorkspaceDir } from "../../../util/platform.js";
+import type { JobHandler } from "../../types.js";
+import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
+import { getWorkspaceDir } from "./paths.js";
 import { hasPkbBufferContent } from "./pkb-schedule.js";
 import { countBufferLines } from "./v2/consolidation-job.js";
 
 const log = getLogger("memory-jobs-worker");
-
-/**
- * A per-job-type handler. The owning feature (e.g. memory) registers handlers
- * via {@link registerJobHandler}; the worker dispatches each claimed job to its
- * registered handler. Decoupling registration from the worker keeps the queue
- * mechanics generic and free of feature-specific handler imports.
- */
-export type JobHandler = (job: MemoryJob, config: AssistantConfig) => unknown;
 
 const jobHandlers = new Map<string, JobHandler>();
 
@@ -132,6 +128,9 @@ const LEGACY_JOB_TYPES = new Set([
   "memory_v3_index_maintenance",
   "memory_v3_edge_learning",
   "memory_proc_distill",
+  // Retired analyze-conversation job type — pre-upgrade pending rows drop
+  // gracefully.
+  "conversation_analyze",
 ]);
 
 export const POLL_INTERVAL_MIN_MS = 1_500;
@@ -258,16 +257,18 @@ export function startInProcessMemoryJobsWorker(
 
   // After running-job recovery (so legitimate in-flight retries aren't
   // swept), clean up orphan memory-retrospective background conversations
-  // left behind by daemon crashes mid-job. Best-effort — never block worker
-  // startup on cleanup failures.
-  try {
-    sweepOrphanMemoryRetrospectiveConversations();
-  } catch (err) {
+  // left behind by daemon crashes mid-job. Best-effort and detached — worker
+  // startup never blocks on the sweep, and failures only log. Concurrent
+  // ticking is safe: the sweep reads the active-job set and the orphan
+  // candidates in one synchronous block after its awaited baseline loads, so
+  // a retrospective forked by a mid-sweep tick is protected by its
+  // pending/running job.
+  void sweepOrphanMemoryRetrospectiveConversations().catch((err: unknown) => {
     log.warn(
       { err },
       "Memory-retrospective startup cleanup failed; continuing worker startup",
     );
-  }
+  });
 
   let stopped = false;
   let tickRunning = false;
@@ -411,6 +412,7 @@ export async function runMemoryJobsOnce(
     maybeEnqueueGraphMaintenanceJobs(config);
     if (memoryEnabled) {
       await maybeRunDbMaintenance();
+      await maybeRunPassiveWalCheckpoint();
     }
     return 0;
   }
@@ -478,6 +480,7 @@ export async function runMemoryJobsOnce(
   }
   maybeEnqueueGraphMaintenanceJobs(config);
   await maybeRunDbMaintenance();
+  await maybeRunPassiveWalCheckpoint();
   return slowProcessed + fastProcessed + embedProcessed;
 }
 
@@ -871,7 +874,9 @@ function isWithinPkbActiveHours(
   start: number | null,
   end: number | null,
 ): boolean {
-  if (start == null || end == null) return true;
+  if (start == null || end == null) {
+    return true;
+  }
   if (start <= end) {
     return hour >= start && hour < end;
   }

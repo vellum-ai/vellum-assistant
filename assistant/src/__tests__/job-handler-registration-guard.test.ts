@@ -53,7 +53,6 @@ const NON_PLUGIN_JOB_TYPES = [
   "backfill_lexical_index",
   "build_conversation_summary",
   "media_processing",
-  "conversation_analyze",
   "generate_conversation_starters",
 ].sort();
 

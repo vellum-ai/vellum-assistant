@@ -5,7 +5,7 @@
  * DELETE /v1/conversation-starters/:id — remove a conversation starter chip
  */
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -55,7 +55,7 @@ export const CONVERSATION_STARTERS_STALE_TTL_MS = 4 * 60 * 60 * 1000;
  *  when generation repeatedly fails or produces 0 valid starters). */
 const REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 
-function hasActiveConversationStarterJob(scopeId: string): boolean {
+function hasActiveConversationStarterJob(): boolean {
   const memoryDb = getMemoryDb();
   if (!memoryDb) return false;
   return (
@@ -66,7 +66,6 @@ function hasActiveConversationStarterJob(scopeId: string): boolean {
         and(
           eq(memoryJobs.type, "generate_conversation_starters"),
           inArray(memoryJobs.status, ["pending", "running"]),
-          sql`json_extract(${memoryJobs.payload}, '$.scopeId') = ${scopeId}`,
         ),
       )
       .get() != null
@@ -161,7 +160,6 @@ function handleListConversationStarters({
 }: RouteHandlerArgs) {
   const limitParam = Math.min(Math.max(1, Number(queryParams.limit ?? 4)), 20);
   const offsetParam = Math.max(0, Number(queryParams.offset ?? 0));
-  const scopeId = queryParams.scope_id ?? "default";
 
   const db = getDb();
 
@@ -174,12 +172,7 @@ function handleListConversationStarters({
       batch: conversationStarters.generationBatch,
     })
     .from(conversationStarters)
-    .where(
-      and(
-        eq(conversationStarters.scopeId, scopeId),
-        eq(conversationStarters.cardType, "chip"),
-      ),
-    )
+    .where(eq(conversationStarters.cardType, "chip"))
     .orderBy(
       desc(conversationStarters.generationBatch),
       desc(conversationStarters.createdAt),
@@ -194,20 +187,20 @@ function handleListConversationStarters({
   const total = validItems.length;
 
   if (allItems.length > 0) {
-    const totalActive = countActiveMemoryNodes(scopeId);
+    const totalActive = countActiveMemoryNodes();
     const lastCount = parseCheckpointInt(
-      getCheckpointValue(checkpointKey(CK_ITEM_COUNT, scopeId)),
+      getCheckpointValue(checkpointKey(CK_ITEM_COUNT)),
     );
     const lastGenAt = parseCheckpointInt(
-      getCheckpointValue(checkpointKey(CK_LAST_GEN_AT, scopeId)),
+      getCheckpointValue(checkpointKey(CK_LAST_GEN_AT)),
     );
     const staleByAge =
       lastGenAt == null ||
       Date.now() - lastGenAt >= CONVERSATION_STARTERS_STALE_TTL_MS;
     const checkpointAhead = lastCount != null && totalActive < lastCount;
-    let hasActiveJob = hasActiveConversationStarterJob(scopeId);
+    let hasActiveJob = hasActiveConversationStarterJob();
     const lastAttemptAt = parseCheckpointInt(
-      getCheckpointValue(checkpointKey(CK_LAST_ATTEMPT_AT, scopeId)),
+      getCheckpointValue(checkpointKey(CK_LAST_ATTEMPT_AT)),
     );
     const withinCooldown =
       lastAttemptAt != null && Date.now() - lastAttemptAt < REFRESH_COOLDOWN_MS;
@@ -218,7 +211,7 @@ function handleListConversationStarters({
         (invalidItemCount > 0 && totalActive > 0));
 
     if (shouldRefresh && !hasActiveJob && isMemoryEnabled()) {
-      enqueueMemoryJob("generate_conversation_starters", { scopeId });
+      enqueueMemoryJob("generate_conversation_starters", {});
       hasActiveJob = true;
     }
 
@@ -231,16 +224,16 @@ function handleListConversationStarters({
     };
   }
 
-  const memoryCount = countActiveMemoryNodes(scopeId);
+  const memoryCount = countActiveMemoryNodes();
 
   if (memoryCount === 0) {
     return { starters: [], total: 0, status: "empty" };
   }
 
-  const existing = hasActiveConversationStarterJob(scopeId);
+  const existing = hasActiveConversationStarterJob();
 
   if (!existing && isMemoryEnabled()) {
-    enqueueMemoryJob("generate_conversation_starters", { scopeId });
+    enqueueMemoryJob("generate_conversation_starters", {});
   }
 
   return { starters: [], total: 0, status: "generating" };
@@ -306,10 +299,6 @@ export const ROUTES: RouteDefinition[] = [
         name: "offset",
         type: "integer",
         description: "Pagination offset (default 0)",
-      },
-      {
-        name: "scope_id",
-        description: 'Scope ID (default "default")',
       },
     ],
     responseBody: z.object({

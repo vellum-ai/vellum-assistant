@@ -1207,12 +1207,54 @@ describe("memoryRetrospectiveJob", () => {
     expect(instructionText).not.toContain("(none)");
   });
 
-  test("prior fork-kind retrospective with no copied messages degrades to empty dedup", async () => {
-    // Corrupted/empty fork-kind prior: no message carries
-    // `forkSourceMessageId`. The detector should return null and the
-    // handler should treat dedup as empty rather than dumping everything
-    // (which would leak any pre-fork content into the baseline).
+  test("prior fork-kind retrospective with an empty copied prefix attributes rows to the run", async () => {
+    // Empty-prefix fork-kind prior (a tail-only fork whose inherited
+    // compaction covered the whole cutoff range): no message carries
+    // `forkSourceMessageId` and the conversation opens with the run's own
+    // instruction row, so every row is the run's output and its saves feed
+    // the dedup baseline.
     priorRetroId = "prior-fork-retro-2";
+
+    conversationOverrides[priorRetroId] = {
+      source: "memory-retrospective-fork",
+      forkParentMessageId: "m-src-2",
+    };
+    messagesByConversationId[priorRetroId] = [
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "review the above" }]),
+        createdAt: 900,
+        metadata: JSON.stringify({
+          kind: "memory_retrospective_instruction",
+          hidden: true,
+        }),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            name: "remember",
+            input: { content: "empty-prefix save" },
+          },
+        ]),
+        createdAt: 1000,
+        metadata: null,
+      },
+    ];
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    const instructionText = persistedInstructionText();
+    expect(instructionText).toContain("- empty-prefix save");
+    expect(instructionText).not.toContain("(none)");
+  });
+
+  test("prior fork-kind retrospective with missing stamps degrades to empty dedup", async () => {
+    // Stampless rows with no leading instruction row are indeterminate
+    // (copied rows whose metadata lost its stamps): treating them as run
+    // output would leak pre-fork content into the baseline.
+    priorRetroId = "prior-fork-retro-3";
 
     conversationOverrides[priorRetroId] = {
       source: "memory-retrospective-fork",

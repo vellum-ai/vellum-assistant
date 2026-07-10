@@ -134,7 +134,6 @@ function seedConversationAndMessage(args: {
       updatedAt: now,
       source: args.source,
       conversationType: args.conversationType,
-      memoryScopeId: "default",
       ...(args.totalEstimatedCost != null
         ? { totalEstimatedCost: args.totalEstimatedCost }
         : {}),

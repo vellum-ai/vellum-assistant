@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { optimizeImageForTransport } from "../../../../agent/image-optimize.js";
-import { getLogger } from "../../../../util/logger.js";
+import { getLogger } from "../logging.js";
 import { loadImageRefData } from "./image-ref-utils.js";
 import type { MemoryNode, ScoredNode } from "./types.js";
 import { isCapabilityNode } from "./types.js";

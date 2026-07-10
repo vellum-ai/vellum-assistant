@@ -176,8 +176,8 @@ export function chunkPkbFile(content: string): string[] {
  * `pkbRoot`.
  *
  * Write-then-cleanup: enumerate the existing chunk target_ids for this
- * (scope, path), upsert every new chunk, then delete only the stale
- * target_ids (those the fresh content no longer produces). Upsert dedupes on
+ * path, upsert every new chunk, then delete only the stale target_ids
+ * (those the fresh content no longer produces). Upsert dedupes on
  * (target_type, target_id), so matching chunk indexes are replaced in place
  * and the prior index stays queryable if any embed/upsert call throws. A
  * pre-delete would instead leave the file unsearchable on transient failure
@@ -186,7 +186,6 @@ export function chunkPkbFile(content: string): string[] {
 export async function indexPkbFile(
   pkbRoot: string,
   absPath: string,
-  memoryScopeId: string,
 ): Promise<void> {
   const content = await readFile(absPath, "utf8");
   const st = await stat(absPath);
@@ -198,7 +197,6 @@ export async function indexPkbFile(
   const qdrant = getQdrantClient();
   const existing = await withQdrantBreaker(() =>
     qdrant.scrollByTargetType(PKB_TARGET_TYPE, {
-      memoryScopeId,
       path: relPath,
     }),
   );
@@ -206,11 +204,7 @@ export async function indexPkbFile(
   const newTargetIds = new Set<string>();
   for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
     const chunk = chunks[chunkIndex];
-    // Scope-namespace the target_id so `qdrant.upsert` — which dedupes on
-    // (target_type, target_id) — cannot collapse distinct scopes' chunks of
-    // the same relpath into a single point. Without the scope prefix, the
-    // second scope to index a shared path would overwrite the first's vectors.
-    const targetId = `${memoryScopeId}:${relPath}#${chunkIndex}`;
+    const targetId = `${relPath}#${chunkIndex}`;
     newTargetIds.add(targetId);
     await embedAndUpsert(
       PKB_TARGET_TYPE,
@@ -221,7 +215,6 @@ export async function indexPkbFile(
         mtime_ms: mtimeMs,
         chunk_index: chunkIndex,
         content_hash: contentHash,
-        memory_scope_id: memoryScopeId,
       },
     );
   }
@@ -243,18 +236,13 @@ export async function indexPkbFile(
 }
 
 /**
- * Remove every Qdrant point belonging to a given PKB file (all chunks) within
- * a single memory scope. `relPath` must match the `path` payload written by
- * `indexPkbFile`. The `memoryScopeId` filter is required — omitting it would
- * wipe that relpath's chunks across every scope that indexes the same file.
+ * Remove every Qdrant point belonging to a given PKB file (all chunks).
+ * `relPath` must match the `path` payload written by `indexPkbFile`.
  */
-export async function deletePkbFilePoints(
-  relPath: string,
-  memoryScopeId: string,
-): Promise<void> {
+export async function deletePkbFilePoints(relPath: string): Promise<void> {
   const qdrant = getQdrantClient();
   await withQdrantBreaker(() =>
-    qdrant.deleteByTargetTypeAndPath(PKB_TARGET_TYPE, relPath, memoryScopeId),
+    qdrant.deleteByTargetTypeAndPath(PKB_TARGET_TYPE, relPath),
   );
 }
 

@@ -61,7 +61,6 @@ export async function backfillJob(
           role: message.role,
           content: message.content,
           createdAt: message.createdAt,
-          scopeId: "default",
           provenanceTrustClass: meta?.provenanceTrustClass,
           automated: meta?.automated,
         },

@@ -136,6 +136,7 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
   publishConfigChanged: () => {},
   publishSoundsConfigUpdated: () => {},
   publishAvatarChanged: () => {},
+  publishWorkspaceThemeChanged: () => {},
 }));
 
 mock.module("../platform/sync-identity.js", () => ({

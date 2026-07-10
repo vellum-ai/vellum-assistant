@@ -14,8 +14,8 @@
 import { join } from "node:path";
 
 import { getQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
-import { getLogger } from "../../../../util/logger.js";
 import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
+import { getLogger } from "../logging.js";
 import { deletePkbFilePoints, scanPkbFiles } from "./pkb-index.js";
 import { PKB_TARGET_TYPE } from "./types.js";
 
@@ -37,7 +37,6 @@ export interface ReconcilePkbIndexResult {
  */
 export async function reconcilePkbIndex(
   pkbRoot: string,
-  memoryScopeId: string,
 ): Promise<ReconcilePkbIndexResult> {
   // Build the on-disk view keyed by relative path. `scanPkbFiles` emits one
   // entry per chunk — every chunk of the same file shares the same
@@ -52,7 +51,7 @@ export async function reconcilePkbIndex(
   const diskEntries = await scanPkbFiles(pkbRoot);
   if (diskEntries === null) {
     log.warn(
-      { pkbRoot, memoryScopeId },
+      { pkbRoot },
       "PKB root directory missing — skipping reconciliation to avoid wiping the index",
     );
     return { enqueued: 0, deleted: 0 };
@@ -72,9 +71,7 @@ export async function reconcilePkbIndex(
   // chunks remain searchable as long as the first chunk's hash happened to
   // match the current disk content.
   const qdrant = getQdrantClient();
-  const points = await qdrant.scrollByTargetType(PKB_TARGET_TYPE, {
-    memoryScopeId,
-  });
+  const points = await qdrant.scrollByTargetType(PKB_TARGET_TYPE);
   const indexedByPath = new Map<
     string,
     { contentHash: string; mixed: boolean }
@@ -105,7 +102,6 @@ export async function reconcilePkbIndex(
       enqueuePkbIndexJob({
         pkbRoot,
         absPath: join(pkbRoot, relPath),
-        memoryScopeId,
       });
       enqueued++;
     }
@@ -115,7 +111,7 @@ export async function reconcilePkbIndex(
   for (const relPath of indexedByPath.keys()) {
     if (!diskByPath.has(relPath)) {
       try {
-        await deletePkbFilePoints(relPath, memoryScopeId);
+        await deletePkbFilePoints(relPath);
         deleted++;
       } catch (err) {
         log.warn(
@@ -130,7 +126,6 @@ export async function reconcilePkbIndex(
     log.info(
       {
         pkbRoot,
-        memoryScopeId,
         enqueued,
         deleted,
         diskCount: diskByPath.size,

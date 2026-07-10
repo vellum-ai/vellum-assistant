@@ -17,8 +17,8 @@ import type { AssistantConfig } from "../../../../config/types.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
 import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdrant-client.js";
-import { getLogger } from "../../../../util/logger.js";
 import { extractToolUse, userMessage } from "../llm-helpers.js";
+import { getLogger } from "../logging.js";
 import { searchGraphNodes } from "./graph-search.js";
 import type { InContextTracker } from "./injection.js";
 import {
@@ -363,8 +363,6 @@ async function dedupCrossCategory(
 // ---------------------------------------------------------------------------
 
 interface ContextLoadOpts {
-  /** Scope for memory isolation. */
-  scopeId: string;
   /** Recent conversation summaries (used as retrieval queries). */
   recentSummaries: string[];
   /** Embedding config. */
@@ -574,7 +572,6 @@ export async function loadContextMemory(
 
   // Also include top-significance nodes as a fallback
   const topSignificance = queryNodes({
-    scopeId: opts.scopeId,
     fidelityNot: ["gone"],
     limit: maxNodes,
   });
@@ -588,7 +585,6 @@ export async function loadContextMemory(
   // Exclude procedural nodes (capabilities) — they have reserved slots
   // and shouldn't compete with organic memories on recency alone.
   const recentNodes = queryNodes({
-    scopeId: opts.scopeId,
     fidelityNot: ["gone"],
     createdAfter: nowMs - 7 * 24 * 60 * 60 * 1000,
     limit: maxNodes,
@@ -608,9 +604,9 @@ export async function loadContextMemory(
   const nodeMap = new Map(candidateNodes.map((n) => [n.id, n]));
 
   // 3. Evaluate triggers
-  const temporalTriggers = getActiveTriggersByType("temporal", opts.scopeId);
-  const semanticTriggers = getActiveTriggersByType("semantic", opts.scopeId);
-  const eventTriggers = getActiveTriggersByType("event", opts.scopeId);
+  const temporalTriggers = getActiveTriggersByType("temporal");
+  const semanticTriggers = getActiveTriggersByType("semantic");
+  const eventTriggers = getActiveTriggersByType("event");
 
   const triggeredTemporal = evaluateTemporalTriggers(temporalTriggers, now);
   const triggeredSemantic = queryVector
@@ -747,10 +743,7 @@ export async function loadContextMemory(
     const distinctCount = uniqueCapabilityIds.size + untaggedCount;
     if (distinctCount < capabilityReserve) {
       const alreadySeen = new Set(capabilityEntries.map((e) => e.node.id));
-      const fallback = queryCapabilityNodes(
-        opts.scopeId,
-        capabilityReserve * 4,
-      );
+      const fallback = queryCapabilityNodes(capabilityReserve * 4);
       for (const node of fallback) {
         if (alreadySeen.has(node.id)) {
           continue;
@@ -908,7 +901,6 @@ interface TurnRetrievalOpts {
   userLastMessage: string;
   /** Raw content blocks from the user's last message (for image extraction). */
   userLastMessageBlocks?: ContentBlock[];
-  scopeId: string;
   config: AssistantConfig;
   tracker: InContextTracker;
   signal?: AbortSignal;
@@ -1175,7 +1167,7 @@ export async function retrieveForTurn(
   const pureSemanticHits = allCandidateIds.size;
 
   // 3. Evaluate semantic triggers
-  const semanticTriggers = getActiveTriggersByType("semantic", opts.scopeId);
+  const semanticTriggers = getActiveTriggersByType("semantic");
   const triggeredSemantic =
     queryEmbeddings.length > 0
       ? evaluateSemanticTriggers(semanticTriggers, queryEmbeddings[0])

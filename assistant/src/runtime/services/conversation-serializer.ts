@@ -2,9 +2,8 @@
  * Standalone helpers for serializing conversation summaries and detail
  * responses.
  *
- * Extracted from RuntimeHttpServer so that route handlers (e.g.
- * conversation-analysis-routes) can build detail responses without
- * depending on the server class.
+ * Extracted from RuntimeHttpServer so that route handlers can build
+ * detail responses without depending on the server class.
  */
 
 import { parseChannelId } from "../../channels/types.js";

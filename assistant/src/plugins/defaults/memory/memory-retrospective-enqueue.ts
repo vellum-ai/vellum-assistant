@@ -25,7 +25,7 @@ import {
 } from "../../../persistence/jobs-store.js";
 import { type TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../../../runtime/capabilities.js";
-import { getLogger } from "../../../util/logger.js";
+import { getLogger } from "./logging.js";
 import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./v2/constants.js";
 
@@ -107,11 +107,10 @@ function isLowYieldRetrospectiveSource(conversationId: string): boolean {
 }
 
 /**
- * Fire a memory-retrospective enqueue from the compaction site. Mirrors
- * `enqueueAutoAnalysisOnCompaction` — same trust-class gate (don't run a
- * guardian-trust background loop over untrusted-actor conversations) and
- * same best-effort error swallowing (never block compaction on enqueue
- * failures).
+ * Fire a memory-retrospective enqueue from the compaction site. Trust-class
+ * gated (don't run a guardian-trust background loop over untrusted-actor
+ * conversations) with best-effort error swallowing (never block compaction
+ * on enqueue failures).
  */
 export function enqueueMemoryRetrospectiveOnCompaction(
   conversationId: string,

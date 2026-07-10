@@ -139,7 +139,6 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     contextCompactedAt: null,
     conversationType: "background",
     source: "memory",
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
     surfaceState: new Map(),

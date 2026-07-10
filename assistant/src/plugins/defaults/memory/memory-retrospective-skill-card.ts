@@ -40,7 +40,7 @@ import {
   upsertSkillCardInsertJob,
 } from "../../../persistence/jobs-store.js";
 import { publishConversationMessagesChanged } from "../../../runtime/sync/resource-sync-events.js";
-import { getLogger } from "../../../util/logger.js";
+import { getLogger } from "./logging.js";
 import { SKILL_CARD_MESSAGE_KIND } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
 
@@ -79,7 +79,7 @@ export interface AuthoredSkill {
 export async function extractRetrospectiveRunSkillScaffolds(
   retrospectiveConversationId: string,
 ): Promise<AuthoredSkill[]> {
-  const runMessages = loadRetrospectiveRunMessages(
+  const runMessages = await loadRetrospectiveRunMessages(
     retrospectiveConversationId,
     (await getConversation(retrospectiveConversationId))?.source ?? null,
   );

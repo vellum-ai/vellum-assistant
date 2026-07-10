@@ -6143,12 +6143,6 @@ paths:
           schema:
             type: integer
           description: Pagination offset (default 0)
-        - name: scope_id
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Scope ID (default "default")
       responses:
         "200":
           description: Successful response
@@ -6648,221 +6642,6 @@ paths:
       operationId: conversations_by_id_get
       summary: Get conversation detail
       description: Retrieve a single conversation with full metadata.
-      tags:
-        - conversations
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  conversation:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                      title:
-                        type: string
-                      createdAt:
-                        type: number
-                      updatedAt:
-                        type: number
-                      lastMessageAt:
-                        anyOf:
-                          - type: number
-                          - type: "null"
-                      conversationType:
-                        type: string
-                        enum:
-                          - standard
-                          - background
-                          - scheduled
-                      source:
-                        type: string
-                      scheduleJobId:
-                        type: string
-                      channelBinding:
-                        type: object
-                        properties:
-                          sourceChannel:
-                            type: string
-                          externalChatId:
-                            type: string
-                          externalChatName:
-                            type: string
-                          externalThreadId:
-                            type: string
-                          externalUserId:
-                            anyOf:
-                              - type: string
-                              - type: "null"
-                          displayName:
-                            anyOf:
-                              - type: string
-                              - type: "null"
-                          username:
-                            anyOf:
-                              - type: string
-                              - type: "null"
-                          slackThread:
-                            type: object
-                            properties:
-                              channelId:
-                                type: string
-                              threadTs:
-                                type: string
-                              link:
-                                type: object
-                                properties:
-                                  appUrl:
-                                    type: string
-                                  webUrl:
-                                    type: string
-                                additionalProperties: false
-                            required:
-                              - channelId
-                              - threadTs
-                            additionalProperties: false
-                          slackChannel:
-                            type: object
-                            properties:
-                              channelId:
-                                type: string
-                              name:
-                                type: string
-                              link:
-                                type: object
-                                properties:
-                                  webUrl:
-                                    type: string
-                                required:
-                                  - webUrl
-                                additionalProperties: false
-                            required:
-                              - channelId
-                            additionalProperties: false
-                          sourceLink:
-                            type: object
-                            properties:
-                              appUrl:
-                                type: string
-                              webUrl:
-                                type: string
-                            additionalProperties: false
-                        required:
-                          - sourceChannel
-                          - externalChatId
-                          - externalUserId
-                          - displayName
-                          - username
-                        additionalProperties: false
-                      conversationOriginChannel:
-                        anyOf:
-                          - type: string
-                            enum:
-                              - telegram
-                              - phone
-                              - vellum
-                              - whatsapp
-                              - slack
-                              - email
-                              - platform
-                              - a2a
-                          - type: "null"
-                      assistantAttention:
-                        type: object
-                        properties:
-                          hasUnseenLatestAssistantMessage:
-                            type: boolean
-                          latestAssistantMessageAt:
-                            type: number
-                          lastSeenAssistantMessageAt:
-                            type: number
-                          lastSeenConfidence:
-                            type: string
-                            enum:
-                              - explicit
-                              - inferred
-                          lastSeenSignalType:
-                            type: string
-                            enum:
-                              - macos_notification_view
-                              - macos_conversation_opened
-                              - ios_conversation_opened
-                              - web_bulk_mark_read
-                              - telegram_inbound_message
-                              - telegram_callback
-                              - slack_inbound_message
-                              - slack_callback
-                        required:
-                          - hasUnseenLatestAssistantMessage
-                        additionalProperties: false
-                      isPinned:
-                        type: boolean
-                        const: true
-                      displayOrder:
-                        anyOf:
-                          - type: number
-                          - type: "null"
-                      groupId:
-                        anyOf:
-                          - type: string
-                          - type: "null"
-                      forkParent:
-                        type: object
-                        properties:
-                          conversationId:
-                            type: string
-                          messageId:
-                            type: string
-                          title:
-                            type: string
-                        required:
-                          - conversationId
-                          - messageId
-                          - title
-                        additionalProperties: false
-                      archivedAt:
-                        type: number
-                      surfacedAt:
-                        type: number
-                      inferenceProfile:
-                        type: string
-                      enabledPlugins:
-                        anyOf:
-                          - type: array
-                            items:
-                              type: string
-                          - type: "null"
-                      isProcessing:
-                        type: boolean
-                    required:
-                      - id
-                      - title
-                      - createdAt
-                      - updatedAt
-                      - lastMessageAt
-                      - conversationType
-                      - source
-                      - groupId
-                      - isProcessing
-                    additionalProperties: false
-                required:
-                  - conversation
-                additionalProperties: false
-  /v1/conversations/{id}/analyze:
-    post:
-      operationId: conversations_by_id_analyze_post
-      summary: Analyze a conversation
-      description: Create a new conversation with a structured self-assessment of an existing conversation.
       tags:
         - conversations
       parameters:
@@ -16791,7 +16570,7 @@ paths:
                     type: object
                     properties: {}
                     additionalProperties: {}
-                    description: Memory item with scopeLabel and graph metadata
+                    description: Memory item with graph metadata
                 required:
                   - item
                 additionalProperties: false
@@ -31482,6 +31261,93 @@ paths:
                 required:
                   - oldPath
                   - newPath
+                additionalProperties: false
+  /v1/workspace/theme:
+    get:
+      operationId: workspace_theme_get
+      summary: Get workspace theme
+      description:
+        "Return validated design-token overrides from the workspace ui/theme.json. Absent or rejected files yield
+        theme: null with the rejection reasons in issues; clients fall back to built-in theme defaults."
+      tags:
+        - workspace
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  theme:
+                    anyOf:
+                      - type: object
+                        properties:
+                          version:
+                            type: number
+                            const: 1
+                          base:
+                            type: string
+                            enum:
+                              - light
+                              - dark
+                              - velvet
+                              - system
+                          tokens:
+                            type: object
+                            properties:
+                              accent:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              background:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              surface:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              surfaceRaised:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              border:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              text:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              textMuted:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              assistantBubbleBackground:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              assistantBubbleText:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              userBubbleBackground:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                              userBubbleText:
+                                type: string
+                                pattern: ^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$
+                            additionalProperties: false
+                        required:
+                          - version
+                        additionalProperties: false
+                      - type: "null"
+                  source:
+                    type: string
+                    enum:
+                      - workspace
+                      - invalid
+                      - none
+                  issues:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - theme
+                  - source
+                  - issues
                 additionalProperties: false
   /v1/workspace/tree:
     get:

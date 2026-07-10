@@ -26,7 +26,6 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   mainAgent: { profile: "balanced" },
   subagentSpawn: { profile: "balanced" },
   compactionAgent: { profile: "balanced" },
-  analyzeConversation: { profile: "balanced" },
   patternScan: { profile: "balanced" },
   narrativeRefinement: { profile: "balanced" },
   callAgent: { profile: "balanced" },

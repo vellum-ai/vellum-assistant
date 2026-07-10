@@ -41,7 +41,6 @@ export const rememberTool = {
     const result = handleRemember(
       typedInput,
       context.conversationId,
-      "default",
       getConfig(),
     );
     return {
