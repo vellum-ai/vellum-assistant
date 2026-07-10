@@ -97,8 +97,6 @@ mock.module("../util/platform.js", () => ({
   getProfilerRunsDir: () => workspacePath("data", "profiler", "runs"),
   getProfilerRunDir: (runId: string) =>
     workspacePath("data", "profiler", "runs", runId),
-  getSkillRuntimePath: () => undefined,
-  getBundledBunPath: () => undefined,
 }));
 
 const {

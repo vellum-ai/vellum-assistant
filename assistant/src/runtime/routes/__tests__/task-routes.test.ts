@@ -242,8 +242,6 @@ mock.module("../../../util/platform.js", () => {
     getProfilerRootDir: stub,
     getProfilerRunsDir: stub,
     getProfilerRunDir: stub,
-    getSkillRuntimePath: stub,
-    getBundledBunPath: () => undefined,
     ensureDataDir: () => {},
   };
 });

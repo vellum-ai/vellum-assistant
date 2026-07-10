@@ -127,12 +127,11 @@ on the incoming tool.
 ## Lifecycle position
 
 ```
+loadUserPlugins()             # populates the plugin mtime-cache (no registry writes)
 initializeTools()             # core tools register
   → loadWorkspaceTools()      # initial workspace tool reconcile
+  → loadPluginTools()         # registry pulls the active user-plugin tool set
     → MCP tool registration
-    → loadUserPlugins()       # populates the plugin mtime-cache (no registry writes)
-    → loadPluginTools()       # registry pulls the active user-plugin tool set
-    → bootstrapPlugins()
 
 # on every conversation turn (createResolveToolsCallback):
 resolveTools(history)
