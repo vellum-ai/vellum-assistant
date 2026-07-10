@@ -661,6 +661,17 @@ export function WorkspaceTree({
   // Null until the walk finishes — the tree renders unfiltered in the interim.
   const searchResult = searchLower !== "" ? (searchQuery.data ?? null) : null;
 
+  // Rendered with results and with the no-match empty state alike: a
+  // truncated walk means matches may exist in folders it never reached.
+  const truncationNotice = searchResult?.truncated ? (
+    <p
+      className="px-3 py-2 text-center text-label-medium-default"
+      style={{ color: "var(--content-tertiary)" }}
+    >
+      Workspace too large to search fully — some folders were skipped.
+    </p>
+  ) : null;
+
   const rootEntries = useMemo(
     () => sortEntries(data?.entries ?? [], sortMode),
     [data?.entries, sortMode],
@@ -915,12 +926,15 @@ export function WorkspaceTree({
             No files found
           </p>
         ) : searchResult && searchResult.visiblePaths.size === 0 ? (
-          <p
-            className="px-3 py-4 text-center text-body-medium-lighter"
-            style={{ color: "var(--content-tertiary)" }}
-          >
-            No matching files
-          </p>
+          <>
+            <p
+              className="px-3 py-4 text-center text-body-medium-lighter"
+              style={{ color: "var(--content-tertiary)" }}
+            >
+              No matching files
+            </p>
+            {truncationNotice}
+          </>
         ) : (
           <>
             {rootEntries.map((entry) => (
@@ -942,14 +956,7 @@ export function WorkspaceTree({
                 depth={0}
               />
             ))}
-            {searchResult?.truncated && (
-              <p
-                className="px-3 py-2 text-center text-label-medium-default"
-                style={{ color: "var(--content-tertiary)" }}
-              >
-                Workspace too large to search fully — some folders were skipped.
-              </p>
-            )}
+            {truncationNotice}
           </>
         )}
       </div>
