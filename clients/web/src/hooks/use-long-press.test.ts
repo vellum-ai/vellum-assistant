@@ -1,1 +1,200 @@
-aW1wb3J0IHsgYWZ0ZXJFYWNoLCBiZWZvcmVFYWNoLCBkZXNjcmliZSwgZXhwZWN0LCBtb2NrLCB0ZXN0IH0gZnJvbSAiYnVuOnRlc3QiOwppbXBvcnQgeyBjbGVhbnVwLCByZW5kZXJIb29rIH0gZnJvbSAiQHRlc3RpbmctbGlicmFyeS9yZWFjdCI7CgppbXBvcnQgeyB1c2VMb25nUHJlc3MgfSBmcm9tICJAL2hvb2tzL3VzZS1sb25nLXByZXNzIjsKCi8qKgogKiBIZWxwZXI6IGluc3RhbGwgYSB3aW5kb3cubWF0Y2hNZWRpYSBzdHViIHRoYXQgcmVwb3J0cyBgY29hcnNlYCBmb3IgdGhlCiAqIGAocG9pbnRlcjogY29hcnNlKWAgcXVlcnkuIFJlc3RvcmVkIGluIGBhZnRlckVhY2hgLgogKi8KZnVuY3Rpb24gc2V0UG9pbnRlckNvYXJzZShjb2Fyc2U6IGJvb2xlYW4pIHsKICBjb25zdCBvcmlnaW5hbCA9IHdpbmRvdy5tYXRjaE1lZGlhOwogIE9iamVjdC5kZWZpbmVQcm9wZXJ0eSh3aW5kb3csICJtYXRjaE1lZGlhIiwgewogICAgY29uZmlndXJhYmxlOiB0cnVlLAogICAgd3JpdGFibGU6IHRydWUsCiAgICB2YWx1ZTogbW9jaygocXVlcnk6IHN0cmluZykgPT4gKHsKICAgICAgbWF0Y2hlczogY29hcnNlICYmIHF1ZXJ5ID09PSAiKHBvaW50ZXI6IGNvYXJzZSkiLAogICAgICBtZWRpYTogcXVlcnksCiAgICAgIG9uY2hhbmdlOiBudWxsLAogICAgICBhZGRMaXN0ZW5lcjogbW9jaygoKSA9PiB7fSksCiAgICAgIHJlbW92ZUxpc3RlbmVyOiBtb2NrKCgpID0+IHt9KSwKICAgICAgYWRkRXZlbnRMaXN0ZW5lcjogbW9jaygoKSA9PiB7fSksCiAgICAgIHJlbW92ZUV2ZW50TGlzdGVuZXI6IG1vY2soKCkgPT4ge30pLAogICAgICBkaXNwYXRjaEV2ZW50OiBtb2NrKCgpID0+IGZhbHNlKSwKICAgIH0pKSwKICB9KTsKICByZXR1cm4gKCkgPT4gewogICAgT2JqZWN0LmRlZmluZVByb3BlcnR5KHdpbmRvdywgIm1hdGNoTWVkaWEiLCB7CiAgICAgIGNvbmZpZ3VyYWJsZTogdHJ1ZSwKICAgICAgd3JpdGFibGU6IHRydWUsCiAgICAgIHZhbHVlOiBvcmlnaW5hbCwKICAgIH0pOwogIH07Cn0KCmZ1bmN0aW9uIG1ha2VUb3VjaEV2ZW50KAogIHg6IG51bWJlciwKICB5OiBudW1iZXIsCiAgdGFyZ2V0OiBFbGVtZW50IHwgbnVsbCA9IG51bGwsCik6IFJlYWN0LlRvdWNoRXZlbnQ8SFRNTEVsZW1lbnQ+IHsKICByZXR1cm4gewogICAgdG91Y2hlczogW3sgY2xpZW50WDogeCwgY2xpZW50WTogeSB9IGFzIFRvdWNoXSwKICAgIHRhcmdldCwKICB9IGFzIHVua25vd24gYXMgUmVhY3QuVG91Y2hFdmVudDxIVE1MRWxlbWVudD47Cn0KCmJlZm9yZUVhY2goKCkgPT4gewogIHNldFBvaW50ZXJDb2Fyc2UodHJ1ZSk7Cn0pOwoKYWZ0ZXJFYWNoKCgpID0+IHsKICBjbGVhbnVwKCk7CiAgLy8gbWF0Y2hNZWRpYSByZXN0b3JlIGlzIGhhbmRsZWQgYnkgc2V0UG9pbnRlckNvYXJzZSdzIHJldHVybiwgYnV0IHdlCiAgLy8gY2FsbCBzZXRQb2ludGVyQ29hcnNlKGZhbHNlKSB0byByZXNldCB0byBhIGtub3duIHN0YXRlIGZvciB0aGUgbmV4dCB0ZXN0LgogIHNldFBvaW50ZXJDb2Fyc2UoZmFsc2UpOwogIC8vIFJlLWVuYWJsZSBjb2Fyc2UgZm9yIHRoZSBuZXh0IHRlc3QgdmlhIGJlZm9yZUVhY2guCn0pOwoKZGVzY3JpYmUoInVzZUxvbmdQcmVzcyIsICgpID0+IHsKICB0ZXN0KCJmaXJlcyBjYWxsYmFjayBhZnRlciB0aGUgdGhyZXNob2xkIGVsYXBzZXMiLCBhc3luYyAoKSA9PiB7CiAgICBjb25zdCBjYWxsYmFjayA9IG1vY2soKCkgPT4ge30pOwogICAgY29uc3QgeyByZXN1bHQgfSA9IHJlbmRlckhvb2soKCkgPT4gdXNlTG9uZ1ByZXNzKGNhbGxiYWNrLCAxMDApKTsKCiAgICByZXN1bHQuY3VycmVudC5vblRvdWNoU3RhcnQobWFrZVRvdWNoRXZlbnQoMTAwLCAyMDApKTsKCiAgICAvLyBDYWxsYmFjayBzaG91bGQgbm90IGZpcmUgaW1tZWRpYXRlbHkuCiAgICBleHBlY3QoY2FsbGJhY2spLm5vdC50b0hhdmVCZWVuQ2FsbGVkKCk7CgogICAgLy8gV2FpdCBwYXN0IHRoZSB0aHJlc2hvbGQuCiAgICBhd2FpdCBuZXcgUHJvbWlzZSgocikgPT4gc2V0VGltZW91dChyLCAxNTApKTsKCiAgICBleHBlY3QoY2FsbGJhY2spLnRvSGF2ZUJlZW5DYWxsZWRUaW1lcygxKTsKICB9KTsKCiAgdGVzdCgiY2FuY2VscyB3aGVuIHRoZSB1c2VyIG1vdmVzIGJleW9uZCB0aGUgdG9sZXJhbmNlIiwgYXN5bmMgKCkgPT4gewogICAgY29uc3QgY2FsbGJhY2sgPSBtb2NrKCgpID0+IHt9KTsKICAgIGNvbnN0IHsgcmVzdWx0IH0gPSByZW5kZXJIb29rKCgpID0+IHVzZUxvbmdQcmVzcyhjYWxsYmFjaywgMTAwKSk7CgogICAgcmVzdWx0LmN1cnJlbnQub25Ub3VjaFN0YXJ0KG1ha2VUb3VjaEV2ZW50KDEwMCwgMjAwKSk7CiAgICAvLyBNb3ZlIDIwcHgg4oCUIGV4Y2VlZHMgdGhlIDEwcHggdG9sZXJhbmNlLgogICAgcmVzdWx0LmN1cnJlbnQub25Ub3VjaE1vdmUobWFrZVRvdWNoRXZlbnQoMTIwLCAyMDApKTsKCiAgICBhd2FpdCBuZXcgUHJvbWlzZSgocikgPT4gc2V0VGltZW91dChyLCAxNTApKTsKCiAgICBleHBlY3QoY2FsbGJhY2spLm5vdC50b0hhdmVCZWVuQ2FsbGVkKCk7CiAgfSk7CgogIHRlc3QoImRvZXMgbm90IGNhbmNlbCBmb3Igc21hbGwgbW92ZW1lbnRzIHdpdGhpbiB0b2xlcmFuY2UiLCBhc3luYyAoKSA9PiB7CiAgICBjb25zdCBjYWxsYmFjayA9IG1vY2soKCkgPT4ge30pOwogICAgY29uc3QgeyByZXN1bHQgfSA9IHJlbmRlckhvb2soKCkgPT4gdXNlTG9uZ1ByZXNzKGNhbGxiYWNrLCAxMDApKTsKCiAgICByZXN1bHQuY3VycmVudC5vblRvdWNoU3RhcnQobWFrZVRvdWNoRXZlbnQoMTAwLCAyMDApKTsKICAgIC8vIE1vdmUgNXB4IOKAlCB3aXRoaW4gdGhlIDEwcHggdG9sZXJhbmNlLgogICAgcmVzdWx0LmN1cnJlbnQub25Ub3VjaE1vdmUobWFrZVRvdWNoRXZlbnQoMTA1LCAyMDApKTsKCiAgICBhd2FpdCBuZXcgUHJvbWlzZSgocikgPT4gc2V0VGltZW91dChyLCAxNTApKTsKCiAgICBleHBlY3QoY2FsbGJhY2spLnRvSGF2ZUJlZW5DYWxsZWRUaW1lcygxKTsKICB9KTsKCiAgdGVzdCgiY2FuY2VscyBvbiB0b3VjaCBlbmQgYmVmb3JlIHRocmVzaG9sZCIsIGFzeW5jICgpID0+IHsKICAgIGNvbnN0IGNhbGxiYWNrID0gbW9jaygoKSA9PiB7fSk7CiAgICBjb25zdCB7IHJlc3VsdCB9ID0gcmVuZGVySG9vaygoKSA9PiB1c2VMb25nUHJlc3MoY2FsbGJhY2ssIDEwMCkpOwoKICAgIHJlc3VsdC5jdXJyZW50Lm9uVG91Y2hTdGFydChtYWtlVG91Y2hFdmVudCgxMDAsIDIwMCkpOwogICAgcmVzdWx0LmN1cnJlbnQub25Ub3VjaEVuZCgpOwoKICAgIGF3YWl0IG5ldyBQcm9taXNlKChyKSA9PiBzZXRUaW1lb3V0KHIsIDE1MCkpOwoKICAgIGV4cGVjdChjYWxsYmFjaykubm90LnRvSGF2ZUJlZW5DYWxsZWQoKTsKICB9KTsKCiAgdGVzdCgiY2FuY2VscyBvbiB0b3VjaCBjYW5jZWwgYmVmb3JlIHRocmVzaG9sZCIsIGFzeW5jICgpID0+IHsKICAgIGNvbnN0IGNhbGxiYWNrID0gbW9jaygoKSA9PiB7fSk7CiAgICBjb25zdCB7IHJlc3VsdCB9ID0gcmVuZGVySG9vaygoKSA9PiB1c2VMb25nUHJlc3MoY2FsbGJhY2ssIDEwMCkpOwoKICAgIHJlc3VsdC5jdXJyZW50Lm9uVG91Y2hTdGFydChtYWtlVG91Y2hFdmVudCgxMDAsIDIwMCkpOwogICAgcmVzdWx0LmN1cnJlbnQub25Ub3VjaENhbmNlbCgpOwoKICAgIGF3YWl0IG5ldyBQcm9taXNlKChyKSA9PiBzZXRUaW1lb3V0KHIsIDE1MCkpOwoKICAgIGV4cGVjdChjYWxsYmFjaykubm90LnRvSGF2ZUJlZW5DYWxsZWQoKTsKICB9KTsKCiAgdGVzdCgiZG9lcyBub3QgZmlyZSBvbiBub24tY29hcnNlIChkZXNrdG9wKSBwb2ludGVycyIsIGFzeW5jICgpID0+IHsKICAgIGNvbnN0IHJlc3RvcmUgPSBzZXRQb2ludGVyQ29hcnNlKGZhbHNlKTsKICAgIGNvbnN0IGNhbGxiYWNrID0gbW9jaygoKSA9PiB7fSk7CiAgICBjb25zdCB7IHJlc3VsdCB9ID0gcmVuZGVySG9vaygoKSA9PiB1c2VMb25nUHJlc3MoY2FsbGJhY2ssIDEwMCkpOwoKICAgIHJlc3VsdC5jdXJyZW50Lm9uVG91Y2hTdGFydChtYWtlVG91Y2hFdmVudCgxMDAsIDIwMCkpOwoKICAgIGF3YWl0IG5ldyBQcm9taXNlKChyKSA9PiBzZXRUaW1lb3V0KHIsIDE1MCkpOwoKICAgIGV4cGVjdChjYWxsYmFjaykubm90LnRvSGF2ZUJlZW5DYWxsZWQoKTsKICAgIHJlc3RvcmUoKTsKICB9KTsKCiAgdGVzdCgiZG9lcyBub3QgZmlyZSB3aGVuIHRoZSB0b3VjaCB0YXJnZXQgaXMgYW4gaW50ZXJhY3RpdmUgZWxlbWVudCIsIGFzeW5jICgpID0+IHsKICAgIGNvbnN0IGNhbGxiYWNrID0gbW9jaygoKSA9PiB7fSk7CiAgICBjb25zdCB7IHJlc3VsdCB9ID0gcmVuZGVySG9vaygoKSA9PiB1c2VMb25nUHJlc3MoY2FsbGJhY2ssIDEwMCkpOwoKICAgIGNvbnN0IGxpbmsgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KCJhIik7CiAgICByZXN1bHQuY3VycmVudC5vblRvdWNoU3RhcnQobWFrZVRvdWNoRXZlbnQoMTAwLCAyMDAsIGxpbmspKTsKCiAgICBhd2FpdCBuZXcgUHJvbWlzZSgocikgPT4gc2V0VGltZW91dChyLCAxNTApKTsKCiAgICBleHBlY3QoY2FsbGJhY2spLm5vdC50b0hhdmVCZWVuQ2FsbGVkKCk7CiAgfSk7CgogIHRlc3QoImRvZXMgbm90IGZpcmUgd2hlbiB0aGUgdG91Y2ggdGFyZ2V0IGlzIGEgYnV0dG9uIiwgYXN5bmMgKCkgPT4gewogICAgY29uc3QgY2FsbGJhY2sgPSBtb2NrKCgpID0+IHt9KTsKICAgIGNvbnN0IHsgcmVzdWx0IH0gPSByZW5kZXJIb29rKCgpID0+IHVzZUxvbmdQcmVzcyhjYWxsYmFjaywgMTAwKSk7CgogICAgY29uc3QgYnV0dG9uID0gZG9jdW1lbnQuY3JlYXRlRWxlbWVudCgiYnV0dG9uIik7CiAgICByZXN1bHQuY3VycmVudC5vblRvdWNoU3RhcnQobWFrZVRvdWNoRXZlbnQoMTAwLCAyMDAsIGJ1dHRvbikpOwoKICAgIGF3YWl0IG5ldyBQcm9taXNlKChyKSA9PiBzZXRUaW1lb3V0KHIsIDE1MCkpOwoKICAgIGV4cGVjdChjYWxsYmFjaykubm90LnRvSGF2ZUJlZW5DYWxsZWQoKTsKICB9KTsKCiAgdGVzdCgiZG9lcyBub3QgZmlyZSB3aGVuIGFuIGFuY2VzdG9yIG9mIHRoZSB0YXJnZXQgaXMgaW50ZXJhY3RpdmUiLCBhc3luYyAoKSA9PiB7CiAgICBjb25zdCBjYWxsYmFjayA9IG1vY2soKCkgPT4ge30pOwogICAgY29uc3QgeyByZXN1bHQgfSA9IHJlbmRlckhvb2soKCkgPT4gdXNlTG9uZ1ByZXNzKGNhbGxiYWNrLCAxMDApKTsKCiAgICAvLyBTaW11bGF0ZSBhIHRvdWNoIG9uIGEgPHNwYW4+IG5lc3RlZCBpbnNpZGUgYW4gPGE+LgogICAgY29uc3QgbGluayA9IGRvY3VtZW50LmNyZWF0ZUVsZW1lbnQoImEiKTsKICAgIGNvbnN0IHNwYW4gPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KCJzcGFuIik7CiAgICBsaW5rLmFwcGVuZENoaWxkKHNwYW4pOwogICAgcmVzdWx0LmN1cnJlbnQub25Ub3VjaFN0YXJ0KG1ha2VUb3VjaEV2ZW50KDEwMCwgMjAwLCBzcGFuKSk7CgogICAgYXdhaXQgbmV3IFByb21pc2UoKHIpID0+IHNldFRpbWVvdXQociwgMTUwKSk7CgogICAgZXhwZWN0KGNhbGxiYWNrKS5ub3QudG9IYXZlQmVlbkNhbGxlZCgpOwogIH0pOwoKICB0ZXN0KCJkb2VzIG5vdCBmaXJlIHdoZW4gdGhlIHRhcmdldCBoYXMgcm9sZT1idXR0b24iLCBhc3luYyAoKSA9PiB7CiAgICBjb25zdCBjYWxsYmFjayA9IG1vY2soKCkgPT4ge30pOwogICAgY29uc3QgeyByZXN1bHQgfSA9IHJlbmRlckhvb2soKCkgPT4gdXNlTG9uZ1ByZXNzKGNhbGxiYWNrLCAxMDApKTsKCiAgICBjb25zdCBkaXYgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KCJkaXYiKTsKICAgIGRpdi5zZXRBdHRyaWJ1dGUoInJvbGUiLCAiYnV0dG9uIik7CiAgICByZXN1bHQuY3VycmVudC5vblRvdWNoU3RhcnQobWFrZVRvdWNoRXZlbnQoMTAwLCAyMDAsIGRpdikpOwoKICAgIGF3YWl0IG5ldyBQcm9taXNlKChyKSA9PiBzZXRUaW1lb3V0KHIsIDE1MCkpOwoKICAgIGV4cGVjdChjYWxsYmFjaykubm90LnRvSGF2ZUJlZW5DYWxsZWQoKTsKICB9KTsKCiAgdGVzdCgiZmlyZXMgd2hlbiB0aGUgdG91Y2ggdGFyZ2V0IGlzIGEgcGxhaW4gbm9uLWludGVyYWN0aXZlIGVsZW1lbnQiLCBhc3luYyAoKSA9PiB7CiAgICBjb25zdCBjYWxsYmFjayA9IG1vY2soKCkgPT4ge30pOwogICAgY29uc3QgeyByZXN1bHQgfSA9IHJlbmRlckhvb2soKCkgPT4gdXNlTG9uZ1ByZXNzKGNhbGxiYWNrLCAxMDApKTsKCiAgICBjb25zdCBkaXYgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KCJkaXYiKTsKICAgIHJlc3VsdC5jdXJyZW50Lm9uVG91Y2hTdGFydChtYWtlVG91Y2hFdmVudCgxMDAsIDIwMCwgZGl2KSk7CgogICAgYXdhaXQgbmV3IFByb21pc2UoKHIpID0+IHNldFRpbWVvdXQociwgMTUwKSk7CgogICAgZXhwZWN0KGNhbGxiYWNrKS50b0hhdmVCZWVuQ2FsbGVkVGltZXMoMSk7CiAgfSk7Cn0pOwo=
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, renderHook } from "@testing-library/react";
+
+import { useLongPress } from "@/hooks/use-long-press";
+
+/**
+ * Helper: install a window.matchMedia stub that reports `coarse` for the
+ * `(pointer: coarse)` query. Restored in `afterEach`.
+ */
+function setPointerCoarse(coarse: boolean) {
+  const original = window.matchMedia;
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: mock((query: string) => ({
+      matches: coarse && query === "(pointer: coarse)",
+      media: query,
+      onchange: null,
+      addListener: mock(() => {}),
+      removeListener: mock(() => {}),
+      addEventListener: mock(() => {}),
+      removeEventListener: mock(() => {}),
+      dispatchEvent: mock(() => false),
+    })),
+  });
+  return () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: original,
+    });
+  };
+}
+
+function makeTouchEvent(
+  x: number,
+  y: number,
+  target: Element | null = null,
+): React.TouchEvent<HTMLElement> {
+  return {
+    touches: [{ clientX: x, clientY: y } as Touch],
+    target,
+  } as unknown as React.TouchEvent<HTMLElement>;
+}
+
+beforeEach(() => {
+  setPointerCoarse(true);
+});
+
+afterEach(() => {
+  cleanup();
+  // matchMedia restore is handled by setPointerCoarse's return, but we
+  // call setPointerCoarse(false) to reset to a known state for the next test.
+  setPointerCoarse(false);
+  // Re-enable coarse for the next test via beforeEach.
+});
+
+describe("useLongPress", () => {
+  test("fires callback after the threshold elapses", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() => useLongPress(callback, 100));
+
+    result.current.onTouchStart(makeTouchEvent(100, 200));
+
+    // Callback should not fire immediately.
+    expect(callback).not.toHaveBeenCalled();
+
+    // Wait past the threshold.
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  test("cancels when the user moves beyond the tolerance", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() => useLongPress(callback, 100));
+
+    result.current.onTouchStart(makeTouchEvent(100, 200));
+    // Move 20px — exceeds the 10px tolerance.
+    result.current.onTouchMove(makeTouchEvent(120, 200));
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  test("does not cancel for small movements within tolerance", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() => useLongPress(callback, 100));
+
+    result.current.onTouchStart(makeTouchEvent(100, 200));
+    // Move 5px — within the 10px tolerance.
+    result.current.onTouchMove(makeTouchEvent(105, 200));
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  test("cancels on touch end before threshold", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() => useLongPress(callback, 100));
+
+    result.current.onTouchStart(makeTouchEvent(100, 200));
+    result.current.onTouchEnd();
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  test("cancels on touch cancel before threshold", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() => useLongPress(callback, 100));
+
+    result.current.onTouchStart(makeTouchEvent(100, 200));
+    result.current.onTouchCancel();
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  test("does not fire on non-coarse (desktop) pointers", async () => {
+    const restore = setPointerCoarse(false);
+    const callback = mock(() => {});
+    const { result } = renderHook(() => useLongPress(callback, 100));
+
+    result.current.onTouchStart(makeTouchEvent(100, 200));
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).not.toHaveBeenCalled();
+    restore();
+  });
+
+  test("does not fire when the touch target is an interactive element", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() => useLongPress(callback, 100));
+
+    const link = document.createElement("a");
+    result.current.onTouchStart(makeTouchEvent(100, 200, link));
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  test("does not fire when the touch target is a button", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() => useLongPress(callback, 100));
+
+    const button = document.createElement("button");
+    result.current.onTouchStart(makeTouchEvent(100, 200, button));
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  test("does not fire when an ancestor of the target is interactive", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() => useLongPress(callback, 100));
+
+    // Simulate a touch on a <span> nested inside an <a>.
+    const link = document.createElement("a");
+    const span = document.createElement("span");
+    link.appendChild(span);
+    result.current.onTouchStart(makeTouchEvent(100, 200, span));
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  test("does not fire when the target has role=button", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() => useLongPress(callback, 100));
+
+    const div = document.createElement("div");
+    div.setAttribute("role", "button");
+    result.current.onTouchStart(makeTouchEvent(100, 200, div));
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  test("fires when the touch target is a plain non-interactive element", async () => {
+    const callback = mock(() => {});
+    const { result } = renderHook(() => useLongPress(callback, 100));
+
+    const div = document.createElement("div");
+    result.current.onTouchStart(makeTouchEvent(100, 200, div));
+
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+});
