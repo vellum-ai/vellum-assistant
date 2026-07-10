@@ -34,6 +34,14 @@ When a platform is connected (auth test succeeds), always use the messaging API 
 
 **Exception: Slack.** Slack messaging should use the Slack Web API directly via CLI, not messaging tools. See the **slack** skill for details.
 
+## Connection Health Is Volatile — Check Live, Never From Memory
+
+Connection and auth state changes without warning: OAuth tokens expire and connections drop between one message and the next. Prior conversation state, memory files, and recall are minutes-to-days stale and must never stand in for a live check.
+
+- **Before asserting anything about whether accounts are connected, working, or being monitored, run a live check.** Call `messaging_auth_test` for each relevant `platform` instead of answering from memory or prior state.
+- **Check per account, report per account.** With multiple accounts on a platform, enumerate them (`assistant oauth status <provider>`) and call `messaging_auth_test` once per account with its `account` address — omitting `account` defaults to the most recently connected one, so a bare call proves only that single account. Report status per account; never generalize one account's success to the rest. If an account fails, name it and tell the user to reconnect that one, without hiding the healthy accounts.
+- **On a connection error mid-task, keep going.** Tell the user which specific account failed and continue with the remaining accounts instead of aborting the whole task.
+
 ## Connection Setup
 
 Before using any messaging tool, verify that the platform is connected by calling `messaging_auth_test` with the appropriate `platform` parameter. If the call fails with a token/authorization error, follow the steps below.
