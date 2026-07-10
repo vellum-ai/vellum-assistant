@@ -4,10 +4,12 @@
  * loading schema defaults, the loader keeps the last-known-good config from
  * this process, or (on first load) salvages the config section-by-section.
  *
- * The invalid configs here use a cleanup-resistant vector: an invalid element
- * inside a schema array field (`tools.exclude`). Per-key cleanup deletes the
- * offending array index, leaving a sparse hole that re-validates as
- * `undefined` and fails again — reliably reaching the recovery ladder.
+ * The strip-and-reparse cleanup (including sparse-array compaction) repairs
+ * every known real-world config shape, so no config.json fixture reliably
+ * reaches the ladder through `loadConfig` — the ladder is defense-in-depth
+ * for schema shapes the cleanup does not anticipate. The ladder tests here
+ * therefore drive `_recoverFromInvalidConfigForTests` directly, while the
+ * file-based tests assert the cleanup's healing behavior end-to-end.
  */
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -65,6 +67,7 @@ afterAll(() => {
 });
 
 import {
+  _recoverFromInvalidConfigForTests,
   _resetLastKnownGoodConfigForTests,
   getConfigReadOnly,
   invalidateConfigCache,
@@ -80,15 +83,10 @@ function writeRawConfig(contents: string): void {
   writeFileSync(CONFIG_PATH, contents);
 }
 
-/**
- * A config whose only defect is a non-string element inside the `tools.exclude`
- * array. Per-key cleanup (`delete arr[i]`) leaves a sparse hole that re-parses
- * as `undefined`, so the strip-and-retry cannot repair it — the recovery ladder
- * is the only way out.
- */
-function cleanupResistantToolsSection(): { exclude: unknown[] } {
-  return { exclude: ["valid-tool", 123] };
-}
+/** A synthetic irreparable-issue set for driving the ladder directly. */
+const IRREPARABLE_ISSUES = [
+  { path: [] as PropertyKey[], message: "synthetic irreparable issue" },
+];
 
 describe("config recovery ladder for cleanup-resistant invalid config", () => {
   beforeEach(() => {
@@ -110,37 +108,34 @@ describe("config recovery ladder for cleanup-resistant invalid config", () => {
     _resetLastKnownGoodConfigForTests();
   });
 
-  test("keeps the last-known-good config when a later load fails cleanup", () => {
-    // First load: a valid config with a distinctive non-default value captures
-    // the last-known-good snapshot for this process.
+  test("keeps the last-known-good config when recovery runs after a good load", () => {
+    // A valid load captures the last-known-good snapshot for this process.
     writeConfig({ maxStepsPerSession: 123 });
-    const good = loadConfig();
-    expect(good.maxStepsPerSession).toBe(123);
+    expect(loadConfig().maxStepsPerSession).toBe(123);
 
-    // Overwrite with a config that survives per-key cleanup poorly and re-load.
-    writeConfig({ tools: cleanupResistantToolsSection() });
-    invalidateConfigCache();
-    const recovered = loadConfig();
-
-    // The distinctive value from the last-known-good config is preserved — the
-    // whole config was NOT reset to schema defaults (which would be 50).
+    // Recovery for an irreparable config returns the snapshot — the whole
+    // config is NOT reset to schema defaults (which would be 50).
+    const recovered = _recoverFromInvalidConfigForTests(
+      {},
+      IRREPARABLE_ISSUES,
+      [""],
+    );
     expect(recovered.maxStepsPerSession).toBe(123);
   });
 
   test("salvages valid sections on first load and defaults only the invalid one", () => {
     // No last-known-good config exists (fresh process). One section is valid
-    // and distinctive; another is cleanup-resistant-invalid.
-    writeConfig({
-      maxStepsPerSession: 123,
-      tools: cleanupResistantToolsSection(),
-    });
-
-    const config = loadConfig();
+    // and distinctive; another cannot validate on its own.
+    const recovered = _recoverFromInvalidConfigForTests(
+      { maxStepsPerSession: 123, tools: "not-an-object" },
+      IRREPARABLE_ISSUES,
+      ["tools"],
+    );
 
     // The valid section survives untouched...
-    expect(config.maxStepsPerSession).toBe(123);
+    expect(recovered.maxStepsPerSession).toBe(123);
     // ...while only the invalid section is reset to its schema default.
-    expect(config.tools.exclude).toEqual([]);
+    expect(recovered.tools.exclude).toEqual([]);
   });
 
   test("a single invalid leaf key falls back to default for that key only", () => {
@@ -155,16 +150,38 @@ describe("config recovery ladder for cleanup-resistant invalid config", () => {
     expect(config.tools.exclude).toEqual(["keep-me"]);
   });
 
+  test("an invalid array element heals in place across a reload — valid siblings and sections survive", () => {
+    // A non-string element inside `tools.exclude` is stripped and the array
+    // compacted, so the cleaned config re-parses successfully: no recovery
+    // rung runs, the valid element survives, and sibling sections keep their
+    // values from the file (not from the last-known-good snapshot).
+    writeConfig({ maxStepsPerSession: 42 });
+    expect(loadConfig().maxStepsPerSession).toBe(42);
+
+    writeConfig({
+      maxStepsPerSession: 123,
+      tools: { exclude: ["valid-tool", 456] },
+    });
+    invalidateConfigCache();
+    const healed = loadConfig();
+
+    expect(healed.maxStepsPerSession).toBe(123);
+    expect(healed.tools.exclude).toEqual(["valid-tool"]);
+  });
+
   test("invalidateConfigCache does not clear the last-known-good safety net", () => {
     writeConfig({ maxStepsPerSession: 77 });
     expect(loadConfig().maxStepsPerSession).toBe(77);
 
     // A bare cache invalidation must not drop the safety net.
     invalidateConfigCache();
-    writeConfig({ tools: cleanupResistantToolsSection() });
-    invalidateConfigCache();
 
-    expect(loadConfig().maxStepsPerSession).toBe(77);
+    const recovered = _recoverFromInvalidConfigForTests(
+      {},
+      IRREPARABLE_ISSUES,
+      [""],
+    );
+    expect(recovered.maxStepsPerSession).toBe(77);
   });
 
   test("getConfigReadOnly returns schema defaults for a top-level `null` config without throwing", () => {
@@ -191,25 +208,22 @@ describe("config recovery ladder for cleanup-resistant invalid config", () => {
     expect(config.tools.exclude).toEqual([]);
   });
 
-  test("keeps context-filled managed service modes after a later cleanup-resistant load on a platform daemon", () => {
+  test("recovery on a platform daemon returns the context-filled effective config", () => {
     process.env.IS_PLATFORM = "true";
 
     // First load with no config.json seeds the file and fills the
-    // deployment-context managed OAuth service modes in memory.
+    // deployment-context managed OAuth service modes in memory; the
+    // last-known-good snapshot is refreshed AFTER that fill.
     const seeded = loadConfig();
     expect(seeded.services["outlook-oauth"].mode).toBe("managed");
 
-    // The seeded file later becomes cleanup-resistant-invalid while still
-    // mirroring the managed service mode on disk. Recovery keeps the
-    // last-known-good EFFECTIVE config, so the managed mode survives rather than
-    // reverting to the schema default ("your-own").
-    writeConfig({
-      services: { "outlook-oauth": { mode: "managed" } },
-      tools: cleanupResistantToolsSection(),
-    });
-    invalidateConfigCache();
-
-    const recovered = loadConfig();
+    // Recovery keeps the last-known-good EFFECTIVE config, so the managed mode
+    // survives rather than reverting to the schema default ("your-own").
+    const recovered = _recoverFromInvalidConfigForTests(
+      {},
+      IRREPARABLE_ISSUES,
+      [""],
+    );
     expect(recovered.services["outlook-oauth"].mode).toBe("managed");
   });
 });
