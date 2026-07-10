@@ -2,6 +2,7 @@ import {
   describe,
   test,
   expect,
+  jest,
   mock,
   afterEach,
   beforeAll,
@@ -51,7 +52,11 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 }));
 
 // ── IPC assistant client mock ─────────────────────────────────────────────────
-type IpcCallFn = (method: string, params: unknown) => Promise<unknown>;
+type IpcCallFn = (
+  method: string,
+  params: unknown,
+  opts?: { timeoutMs?: number },
+) => Promise<unknown>;
 let ipcCallAssistantMock: ReturnType<typeof mock<IpcCallFn>> = mock(
   async () => ({}),
 );
@@ -375,8 +380,9 @@ mock.module("../verification/invite-redemption.js", () => ({
     null,
 }));
 
-const { createContactsControlPlaneProxyHandler } =
-  await import("../http/routes/contacts-control-plane-proxy.js");
+const { createContactsControlPlaneProxyHandler } = await import(
+  "../http/routes/contacts-control-plane-proxy.js"
+);
 
 // The delete-contact guard reads the guardian role from the gateway DB (source
 // of truth), so the delete tests below run against a real in-memory gateway DB.
@@ -1009,6 +1015,215 @@ describe("handleListContacts (gateway-native)", () => {
 
     const body = await res.json();
     expect(body.contacts[0].channels[0].externalUserId).toBe("@alice");
+  });
+});
+
+describe("guardian label overlay (gateway-native reads)", () => {
+  const GUARDIAN_CONTACT = {
+    ...DEFAULT_MOCK_CONTACT,
+    id: "ct_guardian",
+    displayName: "Stored Guardian",
+    role: "guardian",
+  };
+
+  test("list: guardian rows get the daemon-resolved label; others untouched", async () => {
+    contactStoreListMock = mock(async () => [
+      GUARDIAN_CONTACT,
+      { ...DEFAULT_MOCK_CONTACT, id: "ct_friend", displayName: "Friend" },
+    ]);
+    ipcCallAssistantMock = mock(async (method: string) =>
+      method === "resolve_guardian_label" ? { label: "Preferred Name" } : {},
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.contacts[0].displayName).toBe("Preferred Name");
+    expect(body.contacts[1].displayName).toBe("Friend");
+    expect(ipcCallAssistantMock).toHaveBeenCalledWith(
+      "resolve_guardian_label",
+      { body: { storedDisplayName: "Stored Guardian" } },
+      { timeoutMs: 1500 },
+    );
+  });
+
+  test("list: IPC failure soft-fails to the stored displayName", async () => {
+    contactStoreListMock = mock(async () => [GUARDIAN_CONTACT]);
+    ipcCallAssistantMock = mock(async () => {
+      throw new Error("daemon unreachable");
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.contacts[0].displayName).toBe("Stored Guardian");
+  });
+
+  test("list: no IPC call when the page has no guardian row", async () => {
+    contactStoreListMock = mock(async () => [
+      { ...DEFAULT_MOCK_CONTACT, id: "ct_friend", displayName: "Friend" },
+    ]);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("list: resolved label is cached across reads (single IPC round-trip)", async () => {
+    contactStoreListMock = mock(async () => [GUARDIAN_CONTACT]);
+    ipcCallAssistantMock = mock(async () => ({ label: "Preferred Name" }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+
+    const body = await res.json();
+    expect(body.contacts[0].displayName).toBe("Preferred Name");
+    expect(ipcCallAssistantMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("get: guardian contact gets the daemon-resolved label", async () => {
+    contactStoreGetMock = mock(async () => GUARDIAN_CONTACT);
+    ipcCallAssistantMock = mock(async () => ({ label: "Preferred Name" }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleGetContact(
+      new Request("http://localhost:7830/v1/contacts/ct_guardian"),
+      "ct_guardian",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.contact.displayName).toBe("Preferred Name");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("list: slow IPC is bounded by the per-call timeout — the stored displayName is served promptly", async () => {
+    contactStoreListMock = mock(async () => [GUARDIAN_CONTACT]);
+    // Honor opts.timeoutMs the way the real client does: reject with a
+    // transport timeout after the per-call deadline, never resolve otherwise.
+    ipcCallAssistantMock = mock(
+      (_method: string, _params: unknown, opts?: { timeoutMs?: number }) =>
+        new Promise<never>((_, reject) => {
+          setTimeout(
+            () =>
+              reject(
+                new actualAssistantClient.IpcTransportError(
+                  `Call timed out after ${opts?.timeoutMs}ms`,
+                ),
+              ),
+            opts?.timeoutMs ?? 30_000,
+          );
+        }),
+    );
+
+    jest.useFakeTimers();
+    try {
+      const handler = createContactsControlPlaneProxyHandler(makeConfig());
+      const resPromise = handler.handleListContacts(
+        new Request("http://localhost:7830/v1/contacts"),
+      );
+      // Flush microtasks so the lookup passes its 1500ms deadline to the IPC
+      // client, then fire it — the wedged IPC must not stall the response.
+      for (let i = 0; i < 50; i++) await Promise.resolve();
+      jest.advanceTimersByTime(2_000);
+      const res = await resPromise;
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.contacts[0].displayName).toBe("Stored Guardian");
+      expect(ipcCallAssistantMock).toHaveBeenCalledWith(
+        "resolve_guardian_label",
+        { body: { storedDisplayName: "Stored Guardian" } },
+        { timeoutMs: 1500 },
+      );
+
+      // The fallback is negative-cached: a follow-up read serves the stored
+      // name without re-probing the wedged daemon.
+      const res2 = await handler.handleListContacts(
+        new Request("http://localhost:7830/v1/contacts"),
+      );
+      const body2 = await res2.json();
+      expect(body2.contacts[0].displayName).toBe("Stored Guardian");
+      expect(ipcCallAssistantMock).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("list: concurrent cold reads share one in-flight IPC call", async () => {
+    contactStoreListMock = mock(async () => [GUARDIAN_CONTACT]);
+    let resolveIpc: ((v: unknown) => void) | undefined;
+    ipcCallAssistantMock = mock(
+      () =>
+        new Promise<unknown>((resolve) => {
+          resolveIpc = resolve;
+        }),
+    );
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const first = handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+    const second = handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+    // Flush microtasks so both reads reach the label lookup while in flight.
+    for (let i = 0; i < 50; i++) await Promise.resolve();
+    expect(ipcCallAssistantMock).toHaveBeenCalledTimes(1);
+    resolveIpc?.({ label: "Preferred Name" });
+
+    const [res1, res2] = await Promise.all([first, second]);
+    expect((await res1.json()).contacts[0].displayName).toBe("Preferred Name");
+    expect((await res2.json()).contacts[0].displayName).toBe("Preferred Name");
+  });
+
+  test("list: label cache is scoped to the handler — a fresh handler re-resolves", async () => {
+    contactStoreListMock = mock(async () => [GUARDIAN_CONTACT]);
+    ipcCallAssistantMock = mock(async () => ({ label: "Preferred Name" }));
+
+    await createContactsControlPlaneProxyHandler(
+      makeConfig(),
+    ).handleListContacts(new Request("http://localhost:7830/v1/contacts"));
+    await createContactsControlPlaneProxyHandler(
+      makeConfig(),
+    ).handleListContacts(new Request("http://localhost:7830/v1/contacts"));
+
+    expect(ipcCallAssistantMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("get: IPC failure soft-fails to the stored displayName (no proxy fallback)", async () => {
+    contactStoreGetMock = mock(async () => GUARDIAN_CONTACT);
+    ipcCallAssistantMock = mock(async () => {
+      throw new Error("daemon unreachable");
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleGetContact(
+      new Request("http://localhost:7830/v1/contacts/ct_guardian"),
+      "ct_guardian",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.contact.displayName).toBe("Stored Guardian");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

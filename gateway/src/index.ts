@@ -79,6 +79,7 @@ import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-c
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
 import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
+import { buildContactsControlPlaneRoutes } from "./http/routes/contacts-control-plane-route-table.js";
 import { handleContactPromptSubmit } from "./http/routes/contact-prompt.js";
 import {
   handleListDevices,
@@ -765,130 +766,12 @@ async function main() {
     },
 
     // ── Contacts control plane ──
-    {
-      path: "/v1/contacts/prompt/submit",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleContactPromptSubmit(req),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/prompt\/submit\/?$/,
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleContactPromptSubmit(req),
-    },
-    {
-      path: "/v1/contacts",
-      method: "GET",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleListContacts(req),
-    },
-    {
-      path: "/v1/contacts",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/?$/,
-      method: "POST",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
-    },
-    {
-      path: "/v1/contacts/merge",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => contactsControlPlaneProxy.handleMergeContacts(req),
-    },
-    {
-      path: /^\/v1\/contact-channels\/([^/]+)$/,
-      method: "PATCH",
-      auth: "edge",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleUpdateContactChannel(req, params[0]),
-    },
-    {
-      path: /^\/v1\/contact-channels\/([^/]+)\/verify$/,
-      method: "POST",
-      auth: "edge-guardian",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contact-channels\/([^/]+)\/verify\/?$/,
-      method: "POST",
-      auth: "edge-guardian",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
-    },
-    // ── Contacts/invites control plane ──
-    // Scope map: invites list → settings.read; create/redeem/revoke/call →
-    // settings.write.
-    {
-      path: "/v1/contacts/invites",
-      method: "GET",
-      auth: "edge-scoped",
-      scope: "settings.read",
-      handler: (req) => contactsControlPlaneProxy.handleListInvites(req),
-    },
-    {
-      path: "/v1/contacts/invites",
-      method: "POST",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req) => contactsControlPlaneProxy.handleCreateInvite(req),
-    },
-    {
-      path: "/v1/contacts/invites/redeem",
-      method: "POST",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req) => contactsControlPlaneProxy.handleRedeemInvite(req),
-    },
-    {
-      path: /^\/v1\/contacts\/invites\/([^/]+)\/call$/,
-      method: "POST",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleCallInvite(req, params[0]),
-    },
-    {
-      path: /^\/v1\/contacts\/invites\/([^/]+)$/,
-      method: "DELETE",
-      auth: "edge-scoped",
-      scope: "settings.write",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleRevokeInvite(req, params[0]),
-    },
-    {
-      // Keep DELETE on the invite collection unsupported; only /invites/:id
-      // should revoke an invite.
-      path: /^\/v1\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (_req, params) =>
-        contactsControlPlaneProxy.handleDeleteContact(params[0]),
-    },
-    {
-      // Assistant-scoped variant for clients using the auto-prefix.
-      path: /^\/v1\/assistants\/[^/]+\/contacts\/(?!invites\/?$)([^/]+)\/?$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (_req, params) =>
-        contactsControlPlaneProxy.handleDeleteContact(params[0]),
-    },
-    {
-      path: /^\/v1\/contacts\/([^/]+)$/,
-      method: "GET",
-      auth: "edge",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleGetContact(req, params[0]),
-    },
+    // Route table shared with the fall-through regression test; see
+    // contacts-control-plane-route-table.ts.
+    ...buildContactsControlPlaneRoutes({
+      contactsControlPlaneProxy,
+      handleContactPromptSubmit,
+    }),
 
     // ── Generic loopback pairing (localhost-only, auth: none) ──
     {
@@ -1702,8 +1585,7 @@ async function main() {
     // on mutations (the daemon HTTP handlers were stripped by #28784).
     //
     // Trust rules are gateway-global, so the assistant id is matched and
-    // discarded. Same precedent as the assistant-scoped /v1/assistants/.../
-    // contacts DELETE route above.
+    // discarded. Same precedent as channel-admission-policy above.
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
       method: "GET",

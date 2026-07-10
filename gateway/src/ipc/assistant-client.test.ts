@@ -218,6 +218,48 @@ describe("ipcCallAssistant", () => {
     expect(receivedMethod).toBe("my_method");
     expect(receivedParams).toEqual({ x: 1, y: "hello" });
   });
+
+  test("opts.timeoutMs rejects promptly and tears down the socket when the server never responds", async () => {
+    const sockPath = setupWorkspace();
+    let serverSocket: Socket | undefined;
+
+    await startServer(sockPath, (_id, _method, _params, socket) => {
+      // Wedged daemon: accept the request, never respond.
+      serverSocket = socket;
+    });
+
+    const start = Date.now();
+    const promise = ipcCallAssistant("slow_method", undefined, {
+      timeoutMs: 50,
+    });
+    await expect(promise).rejects.toBeInstanceOf(IpcTransportError);
+    await expect(promise).rejects.toThrow("Call timed out after 50ms");
+    expect(Date.now() - start).toBeLessThan(5_000);
+
+    // The timed-out client socket is destroyed — the server observes the
+    // close instead of holding a leaked connection.
+    expect(serverSocket).toBeDefined();
+    const closed = await new Promise<boolean>((resolve) => {
+      if (serverSocket!.destroyed) return resolve(true);
+      serverSocket!.on("close", () => resolve(true));
+      setTimeout(() => resolve(false), 2_000);
+    });
+    expect(closed).toBe(true);
+  });
+
+  test("opts.timeoutMs does not fire on a call that responds in time", async () => {
+    const sockPath = setupWorkspace();
+
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendResult(socket, id, { ok: true });
+      socket.end();
+    });
+
+    const result = await ipcCallAssistant("fast_method", undefined, {
+      timeoutMs: 5_000,
+    });
+    expect(result).toEqual({ ok: true });
+  });
 });
 
 // ---------------------------------------------------------------------------

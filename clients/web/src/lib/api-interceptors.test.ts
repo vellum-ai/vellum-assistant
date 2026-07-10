@@ -61,6 +61,7 @@ import {
   platformFeaturesGate,
   requestInterceptor,
   resetGw401RecoveryFlag,
+  rewriteForSelfHostedIngress,
 } from "@/lib/api-interceptors";
 import { ApiError } from "@/utils/api-errors";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -428,13 +429,9 @@ describe("api-interceptors / self-hosted rewriting", () => {
       "oauth",
       // `/a2a/invites/redeem` is a platform broker (Django) route.
       "a2a",
-      // contacts / contact-channels / artifacts are daemon/gateway-owned but
-      // their assistant-scoped routes aren't served (the contacts control
-      // plane is registered at flat `/v1/contacts...` paths; there is no
-      // artifacts route), so they must NOT be rewritten — forwarding would
-      // 404 rather than reach a handler.
-      "contacts",
-      "contact-channels",
+      // artifacts is daemon/gateway-owned but no gateway or daemon route
+      // serves it, so it must NOT be rewritten — forwarding would 404
+      // rather than reach a handler.
       "artifacts",
     ]) {
       const input = new Request(
@@ -542,6 +539,153 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
     const output = await daemonRequestInterceptor(input);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
     expect(output.headers.get("X-Vellum-Interface-Id")).toBe("web");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Self-hosted contact-family flattening
+// ---------------------------------------------------------------------------
+//
+// Contact-family paths (`contacts`, `contact-channels`) are forwarded to
+// the ingress prefix-stripped — `/v1/assistants/{id}/<rest>` becomes
+// `/v1/<rest>` — matching what cloud's Django RuntimeProxyView delivers
+// to the gateway, which serves the family on its flat control-plane
+// routes. Both interceptor entry points (platform client and daemon
+// client) converge on the same flat path; every other segment keeps
+// today's verbatim scoped forwarding.
+
+const CONTACT_FLATTEN_CASES = [
+  { method: "POST", scoped: "contacts", flat: "/v1/contacts" },
+  {
+    method: "DELETE",
+    scoped: "contacts/contact-123",
+    flat: "/v1/contacts/contact-123",
+  },
+  {
+    method: "POST",
+    scoped: "contacts/prompt/submit",
+    flat: "/v1/contacts/prompt/submit",
+  },
+  { method: "POST", scoped: "contacts/merge", flat: "/v1/contacts/merge" },
+  {
+    method: "GET",
+    scoped: "contacts/invites",
+    flat: "/v1/contacts/invites",
+  },
+  {
+    method: "DELETE",
+    scoped: "contacts/invites/invite-456",
+    flat: "/v1/contacts/invites/invite-456",
+  },
+  {
+    method: "POST",
+    scoped: "contact-channels/channel-abc/verify",
+    flat: "/v1/contact-channels/channel-abc/verify",
+  },
+  {
+    method: "PATCH",
+    scoped: "contact-channels/channel-abc",
+    flat: "/v1/contact-channels/channel-abc",
+  },
+] as const;
+
+describe("api-interceptors / self-hosted contact-family flattening", () => {
+  beforeAll(() => {
+    useOrganizationStore.setState({ currentOrganizationId: TEST_ORG_ID });
+    setCsrfCookie("test-csrf-token");
+  });
+
+  afterAll(() => {
+    clearCsrfCookie();
+  });
+
+  afterEach(() => {
+    setSelfHostedConnection(null);
+  });
+
+  const ENTRY_POINTS = [
+    ["platform client", requestInterceptor],
+    ["daemon client", daemonRequestInterceptor],
+  ] as const;
+
+  for (const [label, interceptor] of ENTRY_POINTS) {
+    test(`${label}: strips the assistant prefix from contact-family paths`, async () => {
+      setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+      for (const { method, scoped, flat } of CONTACT_FLATTEN_CASES) {
+        const input = new Request(
+          `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/${scoped}`,
+          { method },
+        );
+        const output = await interceptor(input);
+        const outUrl = new URL(output.url);
+        expect(outUrl.origin).toBe(INGRESS);
+        expect(outUrl.pathname).toBe(flat);
+        expect(output.headers.get("Authorization")).toBe(
+          `Bearer ${ACTOR_TOKEN}`,
+        );
+        expect(output.headers.get("Vellum-Organization-Id")).toBeNull();
+        expect(output.headers.get("X-CSRFToken")).toBeNull();
+      }
+    });
+
+    test(`${label}: preserves the query string on flattened list requests`, async () => {
+      setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+      const input = new Request(
+        `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/contacts?query=x`,
+      );
+      const output = await interceptor(input);
+      const outUrl = new URL(output.url);
+      expect(outUrl.origin).toBe(INGRESS);
+      expect(outUrl.pathname).toBe("/v1/contacts");
+      expect(outUrl.search).toBe("?query=x");
+    });
+  }
+
+  test("prepends the ingress path prefix to flattened paths", async () => {
+    setSelfHostedConnection({
+      url: "http://localhost:3000/__gateway/20100",
+      token: ACTOR_TOKEN,
+    });
+    const input = new Request(
+      `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/contacts`,
+      { method: "POST" },
+    );
+    const output = await daemonRequestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.origin).toBe("http://localhost:3000");
+    expect(outUrl.pathname).toBe("/__gateway/20100/v1/contacts");
+  });
+
+  test("non-contact segments keep the scoped path", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    for (const [interceptor, segment] of [
+      [requestInterceptor, "conversations"],
+      [requestInterceptor, "config"],
+      [daemonRequestInterceptor, "skills"],
+    ] as const) {
+      const path = `/v1/assistants/${SELF_HOSTED_ID}/${segment}/`;
+      const input = new Request(`https://platform.test${path}`);
+      const output = await interceptor(input);
+      const outUrl = new URL(output.url);
+      expect(outUrl.origin).toBe(INGRESS);
+      expect(outUrl.pathname).toBe(path);
+    }
+  });
+
+  test("no ingress registered — rewrite returns null and the request is untouched", async () => {
+    const scopedPath = `/v1/assistants/${SELF_HOSTED_ID}/contacts`;
+    const input = new Request(`https://platform.test${scopedPath}`, {
+      method: "POST",
+    });
+    expect(await rewriteForSelfHostedIngress(input)).toBeNull();
+    expect(
+      await rewriteForSelfHostedIngress(input, { skipSegmentAllowlist: true }),
+    ).toBeNull();
+
+    const output = await requestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.origin).toBe("https://platform.test");
+    expect(outUrl.pathname).toBe(scopedPath);
   });
 });
 
