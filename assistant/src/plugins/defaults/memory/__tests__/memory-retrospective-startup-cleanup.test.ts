@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 mock.module("../../../../util/logger.js", () => ({
   getLogger: () =>
@@ -127,19 +135,11 @@ mock.module("../config.js", () => ({
   }),
 }));
 
-mock.module("../../../../persistence/conversation-crud.js", () => ({
-  deleteConversation: (id: string) => {
-    deletedIds.push(id);
-    mockConversations = mockConversations.filter((c) => c.id !== id);
-  },
-  deleteConversationGently: async (id: string) => {
-    deletedIds.push(id);
-    mockConversations = mockConversations.filter((c) => c.id !== id);
-    return { segmentIds: [], deletedSummaryIds: [] };
-  },
-  getMessages: (conversationId: string) => mockMessages[conversationId] ?? [],
-  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
-}));
+// The contract fns the code under test calls are stubbed per-test with spyOn
+// (restored in afterEach) rather than mock.module — a module mock here would
+// replace the plugin-api registry for every other test file sharing the
+// process.
+import * as pluginApi from "@vellumai/plugin-api";
 
 import { sweepOrphanMemoryRetrospectiveConversations } from "../memory-retrospective-startup-cleanup.js";
 
@@ -174,15 +174,28 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     activeJobSourceConvIds = new Set();
     injectedNowMinusOrphanAgeMs = 0;
     mockKeepSupersededRuns = false;
+    spyOn(pluginApi, "deleteConversation").mockImplementation(
+      async (id: string) => {
+        deletedIds.push(id);
+        mockConversations = mockConversations.filter((c) => c.id !== id);
+      },
+    );
+    spyOn(pluginApi, "getMessages").mockImplementation(
+      async (conversationId: string) =>
+        (mockMessages[conversationId] ?? []) as Awaited<
+          ReturnType<typeof pluginApi.getMessages>
+        >,
+    );
   });
 
   afterEach(() => {
+    mock.restore();
     mockConversations = [];
     mockJobs = [];
     mockMessages = {};
   });
 
-  test("sweeps an old memory-retrospective orphan that has been superseded by a newer retro for the same source", () => {
+  test("sweeps an old memory-retrospective orphan that has been superseded by a newer retro for the same source", async () => {
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
     mockConversations = [
@@ -204,13 +217,13 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     ];
     rebuildActiveJobSet();
 
-    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+    const result = await sweepOrphanMemoryRetrospectiveConversations(now);
 
     expect(result.swept).toBe(1);
     expect(deletedIds).toEqual(["old-orphan"]);
   });
 
-  test("does NOT sweep recent memory-retrospective conversations", () => {
+  test("does NOT sweep recent memory-retrospective conversations", async () => {
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
     mockConversations = [
@@ -224,13 +237,13 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     ];
     rebuildActiveJobSet();
 
-    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+    const result = await sweepOrphanMemoryRetrospectiveConversations(now);
 
     expect(result.swept).toBe(0);
     expect(deletedIds).toEqual([]);
   });
 
-  test("does NOT sweep conversations of OTHER sources, even when old", () => {
+  test("does NOT sweep conversations of OTHER sources, even when old", async () => {
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
     mockConversations = [
@@ -244,7 +257,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     ];
     rebuildActiveJobSet();
 
-    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+    const result = await sweepOrphanMemoryRetrospectiveConversations(now);
 
     expect(result.swept).toBe(0);
   });
@@ -253,7 +266,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
   // fix, the predicate compared `conversations.id` (the BACKGROUND-conv id)
   // to source-conv ids extracted from job payloads — two different identifier
   // spaces — so the guard never matched and in-flight retros were swept.
-  test("does NOT sweep a background conversation whose SOURCE has an active job (different identifier spaces)", () => {
+  test("does NOT sweep a background conversation whose SOURCE has an active job (different identifier spaces)", async () => {
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
     // The background conv has its own id, distinct from the source it forks
@@ -277,13 +290,13 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     ];
     rebuildActiveJobSet();
 
-    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+    const result = await sweepOrphanMemoryRetrospectiveConversations(now);
 
     expect(result.swept).toBe(0);
     expect(deletedIds).toEqual([]);
   });
 
-  test("sweeps a superseded background conversation whose source has NO active job, even when another unrelated job is pending", () => {
+  test("sweeps a superseded background conversation whose source has NO active job, even when another unrelated job is pending", async () => {
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
     mockConversations = [
@@ -313,7 +326,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     ];
     rebuildActiveJobSet();
 
-    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+    const result = await sweepOrphanMemoryRetrospectiveConversations(now);
 
     expect(result.swept).toBe(1);
     expect(deletedIds).toEqual(["background-A"]);
@@ -324,7 +337,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
   // the most-recent successful one per source. That broke
   // `findMostRecentRetrospectiveFor` on the next run — the next retro had
   // no dedup context and could re-save facts the prior pass already captured.
-  test("PRESERVES the most-recent retro per source even when older than the orphan cutoff", () => {
+  test("PRESERVES the most-recent retro per source even when older than the orphan cutoff", async () => {
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
     mockConversations = [
@@ -338,19 +351,19 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     ];
     rebuildActiveJobSet();
 
-    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+    const result = await sweepOrphanMemoryRetrospectiveConversations(now);
 
     expect(result.swept).toBe(0);
     expect(deletedIds).toEqual([]);
   });
 
-  test("running across an empty workspace returns swept=0 without errors", () => {
-    const result = sweepOrphanMemoryRetrospectiveConversations();
+  test("running across an empty workspace returns swept=0 without errors", async () => {
+    const result = await sweepOrphanMemoryRetrospectiveConversations();
     expect(result.swept).toBe(0);
     expect(deletedIds).toEqual([]);
   });
 
-  test("keepSupersededRuns=true skips the sweep entirely — sweepable orphans are retained", () => {
+  test("keepSupersededRuns=true skips the sweep entirely — sweepable orphans are retained", async () => {
     mockKeepSupersededRuns = true;
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
@@ -375,7 +388,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     ];
     rebuildActiveJobSet();
 
-    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+    const result = await sweepOrphanMemoryRetrospectiveConversations(now);
 
     expect(result.swept).toBe(0);
     expect(deletedIds).toEqual([]);
@@ -423,7 +436,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     return rows;
   }
 
-  test("sweeps an orphan MOST-RECENT fork-kind row (no post-fork output) and preserves an older row WITH output as the dedup baseline", () => {
+  test("sweeps an orphan MOST-RECENT fork-kind row (no post-fork output) and preserves an older row WITH output as the dedup baseline", async () => {
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
     mockConversations = [
@@ -458,13 +471,13 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     };
     rebuildActiveJobSet();
 
-    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+    const result = await sweepOrphanMemoryRetrospectiveConversations(now);
 
     expect(result.swept).toBe(1);
     expect(deletedIds).toEqual(["fork-orphan"]);
   });
 
-  test("falls back to preserving the plain most-recent row when EVERY row is an orphan", () => {
+  test("falls back to preserving the plain most-recent row when EVERY row is an orphan", async () => {
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
     mockConversations = [
@@ -495,7 +508,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     };
     rebuildActiveJobSet();
 
-    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+    const result = await sweepOrphanMemoryRetrospectiveConversations(now);
 
     // Current behavior preserved: the most-recent row survives even though
     // it has no output; the older orphan is swept.
@@ -503,7 +516,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     expect(deletedIds).toEqual(["older-orphan"]);
   });
 
-  test("legacy-kind selection: ANY assistant message counts as output (no fork boundary required)", () => {
+  test("legacy-kind selection: ANY assistant message counts as output (no fork boundary required)", async () => {
     const now = Date.now();
     injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
     mockConversations = [
@@ -539,7 +552,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     };
     rebuildActiveJobSet();
 
-    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+    const result = await sweepOrphanMemoryRetrospectiveConversations(now);
 
     expect(result.swept).toBe(1);
     expect(deletedIds).toEqual(["legacy-orphan"]);

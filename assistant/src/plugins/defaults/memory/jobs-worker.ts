@@ -258,16 +258,16 @@ export function startInProcessMemoryJobsWorker(
 
   // After running-job recovery (so legitimate in-flight retries aren't
   // swept), clean up orphan memory-retrospective background conversations
-  // left behind by daemon crashes mid-job. Best-effort — never block worker
-  // startup on cleanup failures.
-  try {
-    sweepOrphanMemoryRetrospectiveConversations();
-  } catch (err) {
+  // left behind by daemon crashes mid-job. Best-effort and detached — worker
+  // startup never blocks on the sweep, and failures only log. Concurrent
+  // ticking is safe: the sweep's orphan snapshot predates any job a tick
+  // starts, and fresh conversations are protected by the 1-hour cutoff.
+  void sweepOrphanMemoryRetrospectiveConversations().catch((err: unknown) => {
     log.warn(
       { err },
       "Memory-retrospective startup cleanup failed; continuing worker startup",
     );
-  }
+  });
 
   let stopped = false;
   let tickRunning = false;
@@ -871,7 +871,9 @@ function isWithinPkbActiveHours(
   start: number | null,
   end: number | null,
 ): boolean {
-  if (start == null || end == null) return true;
+  if (start == null || end == null) {
+    return true;
+  }
   if (start <= end) {
     return hour >= start && hour < end;
   }

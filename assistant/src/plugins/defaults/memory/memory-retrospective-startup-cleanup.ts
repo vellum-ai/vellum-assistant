@@ -39,6 +39,7 @@
 // The sweep is skipped entirely when `memory.retrospective.keepSupersededRuns`
 // is true — see the comment inside the function.
 
+import { deleteConversation } from "@vellumai/plugin-api";
 import {
   and,
   eq,
@@ -51,7 +52,6 @@ import {
   sql,
 } from "drizzle-orm";
 
-import { deleteConversation } from "../../../persistence/conversation-crud.js";
 import { getDb, getMemoryDb } from "../../../persistence/db-connection.js";
 import {
   conversations,
@@ -85,9 +85,9 @@ export interface CleanupResult {
  * deleted. Best-effort: errors deleting individual rows are logged and the
  * sweep continues.
  */
-export function sweepOrphanMemoryRetrospectiveConversations(
+export async function sweepOrphanMemoryRetrospectiveConversations(
   now: number = Date.now(),
-): CleanupResult {
+): Promise<CleanupResult> {
   // When the operator opted into retaining superseded retrospective runs
   // (`memory.retrospective.keepSupersededRuns`), skip the sweep entirely —
   // retained runs must survive restarts, and the sweep cannot distinguish a
@@ -153,7 +153,9 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   const retrosPerSource = new Map<string, RetroRow[]>();
   for (const row of allRetros) {
     const parent = row.forkParentConversationId;
-    if (parent === null) continue;
+    if (parent === null) {
+      continue;
+    }
     const rows = retrosPerSource.get(parent);
     if (rows) {
       rows.push(row);
@@ -163,7 +165,7 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   }
   const preservedIds = new Set<string>();
   for (const rows of retrosPerSource.values()) {
-    preservedIds.add(selectPreservedBaseline(rows));
+    preservedIds.add(await selectPreservedBaseline(rows));
   }
 
   const orphans = db
@@ -198,7 +200,7 @@ export function sweepOrphanMemoryRetrospectiveConversations(
   let swept = 0;
   for (const row of orphans) {
     try {
-      deleteConversation(row.id);
+      await deleteConversation(row.id);
       swept++;
     } catch (err) {
       log.warn(
@@ -240,12 +242,14 @@ interface RetroRow {
  * Only loads messages for the newest `MAX_BASELINE_CANDIDATES_PER_SOURCE`
  * rows — never for every retro row.
  */
-function selectPreservedBaseline(rows: RetroRow[]): string {
+async function selectPreservedBaseline(rows: RetroRow[]): Promise<string> {
   const sorted = [...rows].sort((a, b) => b.createdAt - a.createdAt);
-  const withOutput = sorted
-    .slice(0, MAX_BASELINE_CANDIDATES_PER_SOURCE)
-    .find(retrospectiveHasOutput);
-  return (withOutput ?? sorted[0]!).id;
+  for (const row of sorted.slice(0, MAX_BASELINE_CANDIDATES_PER_SOURCE)) {
+    if (await retrospectiveHasOutput(row)) {
+      return row.id;
+    }
+  }
+  return sorted[0]!.id;
 }
 
 /**
@@ -257,8 +261,10 @@ function selectPreservedBaseline(rows: RetroRow[]): string {
  * (`collectPriorRetrospectiveRemembers` treats them as empty), so they don't
  * qualify. Legacy-kind rows start empty, so any assistant message counts.
  */
-function retrospectiveHasOutput(row: RetroRow): boolean {
-  const runMessages = loadRetrospectiveRunMessages(row.id, row.source);
-  if (runMessages == null) return false;
+async function retrospectiveHasOutput(row: RetroRow): Promise<boolean> {
+  const runMessages = await loadRetrospectiveRunMessages(row.id, row.source);
+  if (runMessages == null) {
+    return false;
+  }
   return runMessages.some((m) => m.role === "assistant");
 }
