@@ -11,6 +11,7 @@ import {
   FRONT_DOOR_PROFILE,
   frontDoorTriageRule,
   isVoiceTriageEscalateEnabled,
+  needsFallbackBridge,
   VOICE_TRIAGE_ESCALATE_FLAG,
 } from "../voice-triage-escalate.js";
 
@@ -72,6 +73,29 @@ describe("escalated continuation rule", () => {
   test("forbids the quality model from emitting [ESCALATE] again", () => {
     expect(rule).toContain(ESCALATE_MARKER);
     expect(rule.toLowerCase()).toContain("never emit");
+  });
+});
+
+describe("needsFallbackBridge", () => {
+  test("false when the model spoke a real holding phrase before the marker", () => {
+    expect(
+      needsFallbackBridge("Let me think about that for a second. [ESCALATE]"),
+    ).toBe(false);
+  });
+
+  test("true for a bare marker with no holding phrase", () => {
+    expect(needsFallbackBridge("[ESCALATE]")).toBe(true);
+  });
+
+  test("true when only post-marker text exists — that text was never spoken", () => {
+    // Regression: the fallback decision must measure text BEFORE the marker.
+    // Post-marker text is suppressed from TTS, so counting it would skip the
+    // fallback and leave the caller in silence during the hand-off.
+    expect(
+      needsFallbackBridge(
+        "[ESCALATE] here is my weak answer the model kept going",
+      ),
+    ).toBe(true);
   });
 });
 

@@ -23,7 +23,10 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import type { DefaultProfileKey } from "../config/default-profile-names.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
-import { ESCALATE_MARKER } from "./voice-control-protocol.js";
+import {
+  ESCALATE_MARKER,
+  stripInternalSpeechMarkers,
+} from "./voice-control-protocol.js";
 
 /** Feature-flag key gating the whole behavior. Off by default. */
 export const VOICE_TRIAGE_ESCALATE_FLAG = "voice-triage-escalate";
@@ -55,6 +58,25 @@ export const FALLBACK_ESCALATION_BRIDGE =
  * bridge is injected before the quality leg runs.
  */
 export const MIN_SPOKEN_BRIDGE_CHARS = 3;
+
+/**
+ * Whether a canned fallback bridge must be spoken before the escalated leg,
+ * given the front-door leg's full response text.
+ *
+ * Only the text BEFORE `[ESCALATE]` was actually spoken — the controller
+ * suppresses everything after the marker from TTS — so the decision is based on
+ * that slice, not the full response (which may carry ignored post-marker text
+ * the model emitted despite being told to stop). Without this, a bare
+ * `[ESCALATE]` followed by ignored weak text would skip the fallback and leave
+ * the caller in silence while the quality leg spins up.
+ */
+export function needsFallbackBridge(frontDoorText: string): boolean {
+  const markerIdx = frontDoorText.indexOf(ESCALATE_MARKER);
+  const spokenBridge = stripInternalSpeechMarkers(
+    markerIdx === -1 ? frontDoorText : frontDoorText.slice(0, markerIdx),
+  ).trim();
+  return spokenBridge.length < MIN_SPOKEN_BRIDGE_CHARS;
+}
 
 /**
  * The escalated leg runs as its own voice turn. Rather than re-persist the

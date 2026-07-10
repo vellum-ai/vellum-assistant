@@ -86,7 +86,7 @@ import {
   FALLBACK_ESCALATION_BRIDGE,
   FRONT_DOOR_PROFILE,
   isVoiceTriageEscalateEnabled,
-  MIN_SPOKEN_BRIDGE_CHARS,
+  needsFallbackBridge,
   type VoiceRoutingLeg,
 } from "./voice-triage-escalate.js";
 
@@ -1015,10 +1015,9 @@ export class CallController {
     // before the quality leg as a belt-and-suspenders guard.
     if (escalateEnabled && frontDoorText.includes(ESCALATE_MARKER)) {
       ttsBuffer = "";
-      // If the front-door model emitted no meaningful holding phrase, speak a
-      // canned bridge so the hand-off has no dead air.
-      const spokenBridge = stripInternalSpeechMarkers(frontDoorText).trim();
-      if (spokenBridge.length < MIN_SPOKEN_BRIDGE_CHARS) {
+      // If the front-door model emitted no meaningful holding phrase before the
+      // marker, speak a canned bridge so the hand-off has no dead air.
+      if (needsFallbackBridge(frontDoorText)) {
         emitSafeChunk(`${FALLBACK_ESCALATION_BRIDGE} `);
       }
       await runVoiceLeg(
