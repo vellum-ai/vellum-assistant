@@ -113,7 +113,10 @@ export function SwipeActionReveal({
   });
 
   if (!hasActions) {
-    return <>{children}</>;
+    // Return a real DOM element — not a Fragment — so parents using
+    // `asChild` (e.g. Radix ContextMenu.Trigger) can clone and attach
+    // handlers to it.
+    return <div className={className}>{children}</div>;
   }
 
   return (
