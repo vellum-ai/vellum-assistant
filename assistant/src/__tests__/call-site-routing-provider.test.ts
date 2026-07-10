@@ -237,6 +237,7 @@ describe("CallSiteRoutingProvider", () => {
       profiles: {
         legacyOpenai: {
           provider: "openai",
+          model: "gpt-5.5",
           // No provider_connection — alternate-provider routing requires
           // one, so this profile is expected to throw
           // `ConnectionResolutionError(missing_connection)` below.

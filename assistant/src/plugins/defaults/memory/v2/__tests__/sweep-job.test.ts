@@ -54,7 +54,13 @@ const providerCalls: Array<{
   userText: string;
 }> = [];
 
+// The sweep imports `getConfiguredProvider` plus the identity reads
+// (`getAssistantName`/`resolveUserName`) from `@vellumai/plugin-api`. Spread the
+// real contract so the identity reads run (returning null on a missing
+// IDENTITY.md in the temp workspace); override only `getConfiguredProvider`.
+const realPluginApi = await import("@vellumai/plugin-api");
 mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async () => providerStub,
 }));
 

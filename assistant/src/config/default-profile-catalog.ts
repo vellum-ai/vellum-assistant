@@ -95,9 +95,10 @@ const VELLUM_PROFILE_IMPLS: Record<DefaultProfileKey, DefaultProfileTemplate> =
       label: "Speed",
       description: "Fastest responses at lower cost (DeepSeek V4 Flash)",
       maxTokens: 8192,
-      // Not "low": Fireworks strips the disabled `thinking` config but would
-      // still send a non-"none" effort as `reasoning_effort`, making this
-      // profile pay for reasoning despite thinking being off.
+      // Explicit reasoning opt-out. OpenAI-compat APIs default reasoning to
+      // "medium" when the field is omitted, and effort-driven providers encode
+      // disabled thinking through this same knob (see
+      // DISABLED_THINKING_USES_EFFORT_PROVIDERS in providers/retry.ts).
       effort: "none",
       thinking: { enabled: false, streamThinking: false },
       contextWindow: {
@@ -405,7 +406,7 @@ export function resolveDefaultProfileForProvider(
   );
 }
 
-function isDefaultProfileKey(name: string): name is DefaultProfileKey {
+export function isDefaultProfileKey(name: string): name is DefaultProfileKey {
   return (DEFAULT_PROFILE_KEYS as readonly string[]).includes(name);
 }
 
@@ -444,6 +445,34 @@ export function getEffectiveProfiles(
   };
   for (const name of Object.keys(catalogEntries)) {
     const entry = getEffectiveProfile(workspaceProfiles, name, catalogEntries);
+    if (entry != null) {
+      effective[name] = entry;
+    }
+  }
+  return effective;
+}
+
+/**
+ * Like `getEffectiveProfiles`, but resolves each default profile key through
+ * the same `llm.defaultProvider`-aware path the runtime resolver uses
+ * (`resolveDefaultProfileForProvider`) rather than always the `vellum` column.
+ * On BYOK installs this is what makes the reported provider/model/availability
+ * for `balanced`/`quality-optimized`/`cost-optimized` match what actually runs.
+ * A `null` defaultProvider reduces to `getEffectiveProfiles`.
+ */
+export function getEffectiveProfilesForProvider(
+  workspaceProfiles: Record<string, ProfileEntry> | undefined,
+  defaultProvider: DefaultProviderConfig | null,
+): Record<string, ProfileEntry> {
+  const effective: Record<string, ProfileEntry> = {
+    ...(workspaceProfiles ?? {}),
+  };
+  for (const name of Object.keys(CODE_DEFAULT_PROFILE_ENTRIES)) {
+    const entry = resolveDefaultProfileForProvider(
+      workspaceProfiles,
+      name,
+      defaultProvider,
+    );
     if (entry != null) {
       effective[name] = entry;
     }

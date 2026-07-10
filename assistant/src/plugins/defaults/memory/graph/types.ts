@@ -106,9 +106,6 @@ export interface MemoryNode {
 
   /** Image references attached to this memory (null if text-only). */
   imageRefs: ImageRef[] | null;
-
-  /** Memory scope for multi-scope isolation. */
-  scopeId: string;
 }
 
 /**

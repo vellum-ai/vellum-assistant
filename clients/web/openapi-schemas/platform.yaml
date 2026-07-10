@@ -6643,6 +6643,12 @@ components:
           default: ''
           description: Raw assistant ID from the client; used to resolve the assistant
             FK.
+        doctor_session_id:
+          type: string
+          default: ''
+          description: Raw Doctor session ID from the client; used to resolve the
+            Doctor session FK.
+          maxLength: 64
         client_version:
           type: string
           default: ''

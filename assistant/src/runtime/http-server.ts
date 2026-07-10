@@ -940,8 +940,17 @@ export class RuntimeHttpServer {
   ): Promise<void> {
     if (frame.type === "start") {
       if (ws.data.sessionId) {
-        this.sendLiveVoiceStateError(ws, "Live voice session already started");
-        return;
+        // A session that failed after `ready` releases its manager slot
+        // without a frame crossing this socket — heal the stale binding so
+        // the client can retry on the same connection.
+        if (this.liveVoiceSessionManager.isSessionActive(ws.data.sessionId)) {
+          this.sendLiveVoiceStateError(
+            ws,
+            "Live voice session already started",
+          );
+          return;
+        }
+        ws.data.sessionId = undefined;
       }
 
       const result = await this.liveVoiceSessionManager.startSession(frame, {

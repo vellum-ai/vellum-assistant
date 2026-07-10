@@ -168,9 +168,9 @@ function getButton(label: string): HTMLButtonElement {
 function openAdvancedFields(): void {
   const button = Array.from(
     document.querySelectorAll<HTMLButtonElement>("button"),
-  ).find((b) => b.textContent?.includes("Display name"));
+  ).find((b) => b.textContent?.trim() === "Advanced");
   if (!button) {
-    throw new Error("expected the Advanced (Display name & key) disclosure");
+    throw new Error("expected the Advanced disclosure");
   }
   if (button.getAttribute("aria-expanded") !== "true") {
     fireEvent.click(button);
@@ -344,26 +344,6 @@ describe("ProviderCreateForm submit sequence", () => {
     await waitFor(() => {
       expect(created?.name).toBe("anthropic-personal");
     });
-  });
-
-  test("defaultAuthType='api_key' seeds the API Key path (Save as New clone)", () => {
-    render(
-      <ModalWrapper>
-        <ProviderCreateForm
-          assistantId={ASSISTANT_ID}
-          existingNames={[]}
-          defaultProviderType="anthropic"
-          defaultAuthType="api_key"
-          onCreated={() => {}}
-          onCancel={() => {}}
-        />
-      </ModalWrapper>,
-    );
-
-    // The API Key field only renders for api_key auth, so its presence
-    // confirms the form initialized on the "bring your own credential" path
-    // (instead of the managed-capable provider's default `platform`).
-    expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
   });
 
   test("a provider without platform auth (e.g. openrouter) seeds api_key, not platform", () => {
@@ -681,7 +661,7 @@ describe("ProviderCreateForm submit sequence", () => {
     // keeping the Key field and its validation message visible.
     const disclosure = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((b) => b.textContent?.includes("Display name"));
+    ).find((b) => b.textContent?.trim() === "Advanced");
     if (!disclosure) {
       throw new Error("expected the Advanced disclosure button");
     }

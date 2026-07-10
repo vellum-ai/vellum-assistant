@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import { resolveModelIntent } from "../../providers/model-intents.js";
 import { CALL_SITE_DEFAULTS } from "../call-site-defaults.js";
 import {
@@ -188,9 +189,18 @@ describe("resolver integration", () => {
         },
       },
     });
+    // Legacy cascade: the disabled stub falls through to the custom-* hop.
+    setOverridesForTesting({ "override-or-default-resolution": false });
     expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("custom-balanced");
     const resolved = resolveCallSiteConfig("mainAgent", llm);
     expect(resolved.model).toBe("claude-sonnet-4-6");
+    // Override-or-default: the hop is gone — the fallback anchor is the
+    // code-owned intent, and a legacy disabled stub does not suppress it.
+    setOverridesForTesting({});
+    expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
+    expect(resolveCallSiteConfig("mainAgent", llm).model).not.toBe(
+      "claude-sonnet-4-6",
+    );
   });
 });
 

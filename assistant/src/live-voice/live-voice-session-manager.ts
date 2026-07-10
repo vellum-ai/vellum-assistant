@@ -31,6 +31,13 @@ export interface LiveVoiceSessionFactoryContext {
   sessionId: string;
   startFrame: LiveVoiceClientStartFrame;
   sendFrame(frame: LiveVoiceServerFramePayload): Promise<LiveVoiceServerFrame>;
+  /**
+   * Releases this session's manager slot after a failure that happens once
+   * `start()` has already resolved (e.g. the background STT arm failing
+   * post-`ready`). Without it a failed session would hold the singleton
+   * slot until the client closes the WebSocket.
+   */
+  releaseAfterFailure?(): Promise<void>;
 }
 
 export type LiveVoiceSessionFactory = (
@@ -131,6 +138,9 @@ export class LiveVoiceSessionManager {
         await sink.sendFrame(frame);
         return frame;
       },
+      releaseAfterFailure: async () => {
+        await this.releaseAfterSessionError(sessionId);
+      },
     };
     const session = this.createSession(context);
     this.activeSession = { sessionId, session, closing: false };
@@ -208,6 +218,15 @@ export class LiveVoiceSessionManager {
       }
     }
     return { released: true, sessionId };
+  }
+
+  /**
+   * Whether the given session still holds the manager slot. Transports use
+   * this to heal a stale per-connection binding: a session that failed
+   * after `ready` releases its slot without any frame crossing the socket.
+   */
+  isSessionActive(sessionId: string): boolean {
+    return this.findActiveSession(sessionId) !== null;
   }
 
   private findActiveSession(sessionId: string): ActiveLiveVoiceSession | null {

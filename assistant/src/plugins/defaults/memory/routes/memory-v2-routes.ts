@@ -19,12 +19,12 @@ import { ACTOR_PRINCIPALS } from "../../../../runtime/auth/route-policy.js";
 import { RouteError } from "../../../../runtime/routes/errors.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
 import type { RouteHandlerArgs } from "../../../../runtime/routes/types.js";
-import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getLogger } from "../logging.js";
 import {
   type ConceptFrequencyResponse,
   getConceptFrequencySummary,
 } from "../memory-v2-concept-frequency.js";
+import { getWorkspaceDir } from "../paths.js";
 import {
   getEdgeIndex,
   totalEdgeCount,

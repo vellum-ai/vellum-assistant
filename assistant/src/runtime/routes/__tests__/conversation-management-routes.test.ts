@@ -109,7 +109,6 @@ function seedConversation(id: string): void {
       updatedAt: now,
       source: "test",
       conversationType: "standard",
-      memoryScopeId: "default",
     })
     .run();
 }

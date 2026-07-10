@@ -10,7 +10,15 @@ import { isImageDimensionsTooLargeError } from "../plugins/defaults/image-recove
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";
-import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
+import {
+  ProviderError,
+  type ProviderErrorReason,
+  ProviderNotConfiguredError,
+} from "../util/errors.js";
+import {
+  INSUFFICIENT_CREDITS_PATTERNS,
+  VISION_NOT_SUPPORTED_PATTERNS,
+} from "../util/provider-error-patterns.js";
 
 /**
  * Classified conversation error ready for client emission.
@@ -82,8 +90,7 @@ const MANAGED_USAGE_LIMIT_PATTERNS = [
 ];
 
 const PROVIDER_BILLING_PATTERNS = [
-  /credit balance is too low/i,
-  /insufficient.*credits?/i,
+  ...INSUFFICIENT_CREDITS_PATTERNS,
   /requires more credits/i,
   /can only afford/i,
 ];
@@ -146,15 +153,6 @@ const STREAMING_ERROR_PATTERNS = [
   /stream has ended.*this shouldn't happen/i,
 ];
 
-const VISION_NOT_SUPPORTED_PATTERNS = [
-  /no endpoints found that support image input/i,
-  /does not support image/i,
-  /doesn't support image input/i,
-  /image input is not supported/i,
-  /this model does not support vision/i,
-  /vision is not supported/i,
-  /multi-?modal.*not.*support/i,
-];
 
 const CANCEL_PATTERNS = [/abort/i, /cancel/i];
 
@@ -314,14 +312,22 @@ function connectionResolutionUserMessage(
       return `${connection}${usedBy} is bound to a different provider than the profile declares. Update the profile's connection in ${fixPath}.`;
     case "missing_connection":
       return `No provider connection is configured${usedBy}. Add an API key or log in via ${fixPath}.`;
+    case "missing_credential":
+      // Provider-neutral: api_key connections store keys, oauth_subscription
+      // connections store login tokens — the fix differs but the location
+      // doesn't.
+      return `${connection}${usedBy} has no stored credential. Add an API key or reconnect it in ${fixPath}.`;
+    case "platform_unauthenticated":
+      return `${connection}${usedBy} requires a Vellum platform login. Log in, or pick a different provider in ${fixPath}.`;
     case "model_incompatible":
       return `${error.model ? `Model "${error.model}"` : "The requested model"} isn't available on ${connectionName ? `connection "${connectionName}"` : "the configured connection"}${usedBy}. Pick a different model or connection in ${fixPath}.`;
   }
 }
 
 /**
- * Core classification: check ProviderError.statusCode first for
- * deterministic classification, then fall back to regex patterns.
+ * Core classification: the provider-stamped `reason` short-circuit is the
+ * primary source of truth. The status switch + regex battery below is the
+ * reason-less fallback — reached only when no `reason` classified the error.
  *
  * `attribution` carries the resolved connection / profile names (when the
  * caller knows them) so credential-related results can name the exact
@@ -333,16 +339,24 @@ function classifyCore(
   message: string,
   attribution: ConversationErrorAttribution = {},
 ): Omit<ClassifiedConversationError, "debugDetails"> {
-  // ProviderError with statusCode — deterministic classification
+  // Prefer the semantic reason stamped by the provider layer, regardless of
+  // HTTP status — statusless errors (e.g. SDK streaming failures) still carry a
+  // reason. Reasons that map cleanly win here; `bad_request`/`unknown` (and a
+  // reason-less error) fall through to the status switch + regex battery below.
+  if (error instanceof ProviderError && error.reason) {
+    const c = reasonToClassification(error.reason, {
+      routingSource: getProviderRoutingSource(error.provider),
+      attribution,
+      message,
+    });
+    if (c) return c;
+  }
+
+  // Reason-less (or bad_request/unknown) ProviderError with a status — the
+  // deterministic status switch + regex battery, sharing the same producers.
   if (error instanceof ProviderError && error.statusCode !== undefined) {
     if (error.statusCode === 413) {
-      return {
-        code: "CONTEXT_TOO_LARGE",
-        userMessage:
-          "This conversation is too long. Please start a new conversation.",
-        retryable: false,
-        errorCategory: "context_too_large",
-      };
+      return contextTooLargeClassification();
     }
     if (error.statusCode === 401 || error.statusCode === 403) {
       // Both managed-proxy and user-key 401/403s reach this branch.
@@ -353,12 +367,7 @@ function classifyCore(
       // at Settings.
       const providerName = error.provider;
       if (getProviderRoutingSource(providerName) === "managed-proxy") {
-        return {
-          code: "MANAGED_KEY_INVALID",
-          userMessage: "Couldn't refresh assistant credentials.",
-          retryable: false,
-          errorCategory: "managed_key_invalid",
-        };
+        return managedKeyInvalidClassification();
       }
       return invalidApiKeyClassification(attribution);
     }
@@ -370,39 +379,16 @@ function classifyCore(
     }
     if (error.statusCode === 429) {
       if (isManagedUsageLimitError(error, message)) {
-        return {
-          code: "MANAGED_USAGE_LIMIT",
-          userMessage:
-            "Vellum managed inference is rate limited. This is a Vellum-side usage limit, not an AI provider outage.",
-          retryable: true,
-          errorCategory: "managed_usage_limit",
-        };
+        return managedUsageLimitClassification();
       }
-      return {
-        code: "PROVIDER_RATE_LIMIT",
-        userMessage:
-          "You are being rate limited by the AI provider. Please try again in a moment.",
-        retryable: true,
-        errorCategory: "rate_limit",
-      };
+      return rateLimitClassification();
     }
     // Anthropic uses 529 for overloaded_error
     if (error.statusCode === 529) {
-      return {
-        code: "PROVIDER_OVERLOADED",
-        userMessage:
-          "The AI provider is temporarily overloaded. Please try again in a moment.",
-        retryable: true,
-        errorCategory: "provider_overloaded",
-      };
+      return providerOverloadedClassification();
     }
     if (error.statusCode >= 500) {
-      return {
-        code: "PROVIDER_API",
-        userMessage: "The AI provider returned a server error.",
-        retryable: true,
-        errorCategory: "provider_server_error",
-      };
+      return providerServerErrorClassification();
     }
     // 4xx (non-429) — check for context-too-large, ordering errors, then generic fallback
     if (error.statusCode >= 400) {
@@ -410,13 +396,7 @@ function classifyCore(
         return emptyRequestMessagesClassification();
       }
       if (isContextTooLarge(message)) {
-        return {
-          code: "CONTEXT_TOO_LARGE",
-          userMessage:
-            "This conversation is too long. Please start a new conversation.",
-          retryable: false,
-          errorCategory: "context_too_large",
-        };
+        return contextTooLargeClassification();
       }
       if (isWebSearchOrderingError(message)) {
         return {
@@ -467,13 +447,7 @@ function classifyCore(
         };
       }
       if (isVisionNotSupported(message)) {
-        return {
-          code: "PROVIDER_API",
-          userMessage:
-            "This model doesn't support image input. Remove the image or switch to a vision-capable model.",
-          retryable: false,
-          errorCategory: "vision_not_supported",
-        };
+        return visionNotSupportedClassification();
       }
       // Extract the provider detail after "API error (NNN): " prefix
       const detailMatch = message.match(/API error \(\d+\):\s*(.+)/i);
@@ -492,6 +466,92 @@ function classifyCore(
 
   // Regex fallback for non-ProviderError or ProviderError without statusCode
   return classifyByMessage(error, message);
+}
+
+/**
+ * Strip the `API error (NNN): ` prefix and a trailing `[type=…]` bracket from a
+ * provider error message, returning the human-readable detail (truncated to
+ * ~200 chars) or `undefined` when nothing meaningful remains.
+ */
+function extractProviderDetail(message: string): string | undefined {
+  let detail = message.replace(/^.*?API error \(\d+\):\s*/i, "");
+  detail = detail.replace(/\s*\[[^\]]*\]\s*$/, "").trim();
+  if (!detail || detail === message.trim()) {
+    // No recognizable prefix — only surface prose that isn't the whole raw line.
+    if (/API error \(\d+\)/i.test(message)) return undefined;
+  }
+  if (!detail) return undefined;
+  return detail.length > 200 ? `${detail.slice(0, 200)}…` : detail;
+}
+
+/**
+ * Map a provider-stamped {@link ProviderErrorReason} to a classification,
+ * applying the managed-proxy-vs-user-key routing overlay inline. Returns `null`
+ * for reasons that should defer to the legacy status/regex fallback
+ * (`bad_request`, `unknown`).
+ */
+function reasonToClassification(
+  reason: ProviderErrorReason,
+  args: {
+    routingSource?: string;
+    attribution?: ConversationErrorAttribution;
+    message: string;
+  },
+): Omit<ClassifiedConversationError, "debugDetails"> | null {
+  const managed = args.routingSource === "managed-proxy";
+  switch (reason) {
+    case "invalid_credentials":
+      return managed
+        ? managedKeyInvalidClassification()
+        : invalidApiKeyClassification(args.attribution);
+    case "rate_limited":
+      // Match managed usage-limit body patterns, as the legacy path does.
+      if (
+        managed ||
+        MANAGED_USAGE_LIMIT_PATTERNS.some((p) => p.test(args.message))
+      ) {
+        return managedUsageLimitClassification();
+      }
+      return rateLimitClassification();
+    case "insufficient_credits":
+      return managed
+        ? managedBalanceClassification()
+        : providerBillingClassification();
+    case "overloaded":
+      return providerOverloadedClassification();
+    case "server_error":
+      return providerServerErrorClassification();
+    case "context_overflow":
+      return contextTooLargeClassification();
+    case "vision_unsupported":
+      return visionNotSupportedClassification();
+    case "model_not_found":
+      return {
+        code: "PROVIDER_API",
+        userMessage:
+          "The selected model wasn't found by the provider. Switch models in Settings → Models & Services.",
+        retryable: false,
+        errorCategory: "provider_model_not_found",
+      };
+    case "model_restricted": {
+      const detail = extractProviderDetail(args.message);
+      const prefix = "This model isn't available on your current provider plan";
+      const suffix =
+        "Switch to a different model or upgrade your plan in Settings → Models & Services.";
+      // Skew-safe code; the specific signal rides errorCategory.
+      return {
+        code: "PROVIDER_API",
+        userMessage: detail
+          ? `${prefix}: ${detail} ${suffix}`
+          : `${prefix}. ${suffix}`,
+        retryable: false,
+        errorCategory: "provider_model_restricted",
+      };
+    }
+    case "bad_request":
+    case "unknown":
+      return null;
+  }
 }
 
 /** Check whether an error message indicates a context-too-large failure. */
@@ -597,6 +657,98 @@ function providerBillingClassification(): Omit<
   };
 }
 
+// Shared classification producers — single source of `code`+`errorCategory`
+// for both the reason short-circuit and the reason-less fallback.
+
+function rateLimitClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_RATE_LIMIT",
+    userMessage:
+      "You are being rate limited by the AI provider. Please try again in a moment.",
+    retryable: true,
+    errorCategory: "rate_limit",
+  };
+}
+
+function managedUsageLimitClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "MANAGED_USAGE_LIMIT",
+    userMessage:
+      "Vellum managed inference is rate limited. This is a Vellum-side usage limit, not an AI provider outage.",
+    retryable: true,
+    errorCategory: "managed_usage_limit",
+  };
+}
+
+function managedKeyInvalidClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "MANAGED_KEY_INVALID",
+    userMessage: "Couldn't refresh assistant credentials.",
+    retryable: false,
+    errorCategory: "managed_key_invalid",
+  };
+}
+
+function providerOverloadedClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_OVERLOADED",
+    userMessage:
+      "The AI provider is temporarily overloaded. Please try again in a moment.",
+    retryable: true,
+    errorCategory: "provider_overloaded",
+  };
+}
+
+function providerServerErrorClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_API",
+    userMessage: "The AI provider returned a server error.",
+    retryable: true,
+    errorCategory: "provider_server_error",
+  };
+}
+
+function contextTooLargeClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "CONTEXT_TOO_LARGE",
+    userMessage:
+      "This conversation is too long. Please start a new conversation.",
+    retryable: false,
+    errorCategory: "context_too_large",
+  };
+}
+
+function visionNotSupportedClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_API",
+    userMessage:
+      "This model doesn't support image input. Remove the image or switch to a vision-capable model.",
+    retryable: false,
+    errorCategory: "vision_not_supported",
+  };
+}
+
 /**
  * Build a user-facing message that names the exact profile / connection
  * to fix when one is known, falling back to a generic phrase otherwise.
@@ -671,6 +823,12 @@ function providerNotConfiguredClassification(
   };
 }
 
+/**
+ * Last-resort regex fallback for reason-less, non-HTTP, or otherwise
+ * unclassifiable errors (network failures, streaming corruption, re-wrapped
+ * errors, ProviderErrors with no statusCode). Reached only after the reason
+ * short-circuit and the status switch both decline to classify.
+ */
 function classifyByMessage(
   error: unknown,
   message: string,
@@ -684,47 +842,23 @@ function classifyByMessage(
 
   // Check context-too-large before other patterns
   if (isContextTooLarge(message)) {
-    return {
-      code: "CONTEXT_TOO_LARGE",
-      userMessage:
-        "This conversation is too long. Please start a new conversation.",
-      retryable: false,
-      errorCategory: "context_too_large",
-    };
+    return contextTooLargeClassification();
   }
 
   // Check rate limit first (before network, since 429 could match both)
   for (const pattern of RATE_LIMIT_PATTERNS) {
     if (pattern.test(message)) {
       if (isManagedUsageLimitError(error, message)) {
-        return {
-          code: "MANAGED_USAGE_LIMIT",
-          userMessage:
-            "Vellum managed inference is rate limited. This is a Vellum-side usage limit, not an AI provider outage.",
-          retryable: true,
-          errorCategory: "managed_usage_limit",
-        };
+        return managedUsageLimitClassification();
       }
-      return {
-        code: "PROVIDER_RATE_LIMIT",
-        userMessage:
-          "You are being rate limited by the AI provider. Please try again in a moment.",
-        retryable: true,
-        errorCategory: "rate_limit",
-      };
+      return rateLimitClassification();
     }
   }
 
   // Overloaded — provider is capacity-constrained (not the user's fault)
   for (const pattern of OVERLOADED_PATTERNS) {
     if (pattern.test(message)) {
-      return {
-        code: "PROVIDER_OVERLOADED",
-        userMessage:
-          "The AI provider is temporarily overloaded. Please try again in a moment.",
-        retryable: true,
-        errorCategory: "provider_overloaded",
-      };
+      return providerOverloadedClassification();
     }
   }
 
@@ -773,12 +907,7 @@ function classifyByMessage(
   // Provider API errors (before timeout so "gateway timeout" keeps its specific message)
   for (const pattern of PROVIDER_API_PATTERNS) {
     if (pattern.test(message)) {
-      return {
-        code: "PROVIDER_API",
-        userMessage: "The AI provider returned a server error.",
-        retryable: true,
-        errorCategory: "provider_server_error",
-      };
+      return providerServerErrorClassification();
     }
   }
 

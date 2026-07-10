@@ -1039,6 +1039,54 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[0].content).toEqual([{ type: "text", text: "First" }]);
   });
 
+  test("untrusted-actor view does not rehydrate memoryV3InjectedBlock (including the tail)", async () => {
+    mockConversation = defaultConv();
+    // v3 cards carry personal memory and rehydrate on ALL rows including the
+    // tail (see the positive test above), so the trust gate must suppress both
+    // the historical and the tail block. `trusted_contact` provenance keeps the
+    // rows past the untrusted-actor row filter, isolating the rehydrate gate.
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First" }]),
+        metadata: JSON.stringify({
+          provenanceTrustClass: "trusted_contact",
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        metadata: JSON.stringify({ provenanceTrustClass: "unknown" }),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        metadata: JSON.stringify({
+          provenanceTrustClass: "trusted_contact",
+          memoryV3InjectedBlock: "# memory/concepts/page-b.md\nhead b",
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "telegram",
+    });
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    // Neither the historical nor the tail v3 card block is prepended.
+    expect(messages[0].content).toEqual([{ type: "text", text: "First" }]);
+    expect(messages[2].content).toEqual([{ type: "text", text: "Tail" }]);
+  });
+
   test("ensureActorScopedHistory reloads when sourceChannel changes within the same trust class", async () => {
     // Regression: cache invalidation previously keyed only on trust class.
     // `loadFromDb` gates `memoryV2StaticBlock` rehydration on `sourceChannel`

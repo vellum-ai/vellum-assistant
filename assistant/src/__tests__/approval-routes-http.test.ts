@@ -162,10 +162,6 @@ function makeIdleSession(opts?: {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
     },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setTrustContext: () => {},
@@ -228,10 +224,6 @@ function makeConfirmationEmittingSession(opts?: {
     persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
-    },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},

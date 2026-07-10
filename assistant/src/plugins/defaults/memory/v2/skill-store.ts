@@ -22,19 +22,13 @@
 // lane it feeds) still reflects the current skills. An unexpected error in
 // another step leaves the prior cache intact (skills are best-effort).
 
-import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
+import { listCatalogSkills, listInstalledSkills } from "@vellumai/plugin-api";
+
 import { getConfig } from "../../../../config/loader.js";
-import { resolveSkillStates } from "../../../../config/skill-state.js";
-import { loadSkillCatalog } from "../../../../config/skills.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
-import { getCatalog } from "../../../../skills/catalog-cache.js";
-import {
-  fromCatalogSkill,
-  fromSkillSummary,
-} from "../../../../skills/skill-memory.js";
-import { getLogger } from "../../../../util/logger.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embeddings.js";
+import { getLogger } from "../logging.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
   backfillKindOnPointsWithPrefix,
@@ -109,16 +103,16 @@ let legacyKindBackfillDone = false;
 
 /**
  * Steps (per run):
- *   1. Enumerate the local skill catalog and resolve each skill's enabled
- *      state (`resolveSkillStates`).
+ *   1. Enumerate the installed skill catalog with resolved states
+ *      (`listInstalledSkills`). Feature-flag gating is resolved host-side:
+ *      gated skills arrive as `state: "unavailable"` and are not seeded.
  *   2. Build a `SkillEntry` per enabled skill, applying the mcp-setup
  *      augmentation and the prose-style content render (`buildSkillContent`,
  *      capped at 500 chars).
- *   3. Defense-in-depth feature-flag filter: drop any skill whose declared
- *      `metadata.vellum.feature-flag` is currently disabled.
- *   3b. Fetch the full remote catalog and seed any uninstalled skills so
- *      their activation hints are discoverable by semantic search. Best-effort:
- *      if the catalog fetch fails, only installed skills are seeded.
+ *   3b. Fetch the full remote catalog (`listCatalogSkills`) and seed any
+ *      uninstalled skills so their activation hints are discoverable by
+ *      semantic search. Best-effort: if the catalog fetch fails, only
+ *      installed skills are seeded.
  *   4. Embed all `content` strings in a single dense `embedWithBackend` call,
  *      and a per-skill synchronous `generateSparseEmbedding`.
  *   5. Upsert one Qdrant point per skill via `upsertConceptPageEmbedding`
@@ -142,8 +136,12 @@ export async function seedV2SkillEntries(
 }
 
 function startSeedDrainIfNeeded(): void {
-  if (activeSeedDrain) return;
-  if (processedSeedGeneration >= requestedSeedGeneration) return;
+  if (activeSeedDrain) {
+    return;
+  }
+  if (processedSeedGeneration >= requestedSeedGeneration) {
+    return;
+  }
 
   activeSeedDrain = drainSeedQueue().finally(() => {
     activeSeedDrain = null;
@@ -163,7 +161,9 @@ async function drainSeedQueue(): Promise<void> {
 function resolveSeedWaiters(): void {
   for (let i = seedWaiters.length - 1; i >= 0; i -= 1) {
     const waiter = seedWaiters[i]!;
-    if (waiter.generation > processedSeedGeneration) continue;
+    if (waiter.generation > processedSeedGeneration) {
+      continue;
+    }
     seedWaiters.splice(i, 1);
     waiter.resolve();
   }
@@ -172,31 +172,28 @@ function resolveSeedWaiters(): void {
 async function runSeedV2SkillEntries(generation: number): Promise<void> {
   try {
     const config = getConfig();
-    const catalog = loadSkillCatalog();
-    const resolved = resolveSkillStates(catalog, config);
-    const enabled = resolved.filter((r) => r.state === "enabled");
+    const installed = await listInstalledSkills();
+    const enabled = installed.filter((s) => s.state === "enabled");
 
-    // Track every locally-installed skill id (regardless of enabled/disabled
-    // state) so the catalog-seeding loop below treats them all as "installed"
-    // and never re-seeds a disabled skill from `getCatalog()` as if it were
-    // uninstalled.
-    const installedIds = new Set<string>(catalog.map((s) => s.id));
+    // Track every locally-installed skill id (regardless of enabled/disabled/
+    // unavailable state) so the catalog-seeding loop below treats them all as
+    // "installed" and never re-seeds a disabled skill from the remote catalog
+    // as if it were uninstalled.
+    const installedIds = new Set<string>(installed.map((s) => s.id));
 
-    // Build the input list, applying the mcp-setup description augmentation
-    // and the defense-in-depth feature-flag filter.
+    // Build the input list, applying the mcp-setup description augmentation.
+    // Flag-gated skills arrive as `state: "unavailable"` and are excluded by
+    // the enabled filter.
     const seeds: SkillEntry[] = [];
-    for (const { summary } of enabled) {
-      const flagKey = summary.featureFlag;
-      if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
-
-      const augmented = augmentMcpSetupDescription(fromSkillSummary(summary));
+    for (const skill of enabled) {
+      const augmented = augmentMcpSetupDescription(skill);
       // Always-candidate skills are pinned into the selector pool every turn, so
       // they get a larger budget for a fuller, multi-mode capability statement.
       const content = buildSkillContent(
         augmented,
-        summary.alwaysCandidate ? ALWAYS_CANDIDATE_CARD_CHARS : undefined,
+        skill.alwaysCandidate ? ALWAYS_CANDIDATE_CARD_CHARS : undefined,
       );
-      seeds.push({ id: summary.id, content });
+      seeds.push({ id: skill.id, content });
     }
 
     // Seed uninstalled catalog skills so their activation hints are
@@ -211,15 +208,17 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
     const knownSkillIds = new Set<string>(installedIds);
     let catalogAvailable = false;
     try {
-      const fullCatalog = await getCatalog();
+      const fullCatalog = await listCatalogSkills();
       catalogAvailable = fullCatalog.length > 0;
       for (const entry of fullCatalog) {
         knownSkillIds.add(entry.id);
-        if (installedIds.has(entry.id)) continue;
-        const flagKey = entry.metadata?.vellum?.["feature-flag"];
-        if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config))
+        if (installedIds.has(entry.id)) {
           continue;
-        const content = buildSkillContent(fromCatalogSkill(entry));
+        }
+        if (entry.state === "unavailable") {
+          continue;
+        }
+        const content = buildSkillContent(entry);
         seeds.push({ id: entry.id, content });
       }
     } catch (err) {
@@ -356,7 +355,7 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
     }
 
     // Atomically replace the cache from the freshly enumerated skills. The local
-    // resolution (`resolveSkillStates`) is authoritative, so a skill the config
+    // resolution (`listInstalledSkills`) is authoritative, so a skill the config
     // just disabled or removed drops out here even when the remote catalog is
     // unavailable. Drop the page-index cache so the next router invocation
     // observes the new skill set (skill entries share the unified concept-page
@@ -411,7 +410,9 @@ export function isSkillSlug(slug: string): boolean {
  * up-to-the-moment state must re-call this after awaiting the seed.
  */
 export function listSkillEntries(): SkillEntry[] {
-  if (!entries) return [];
+  if (!entries) {
+    return [];
+  }
   return [...entries.values()]
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .map((entry) => Object.freeze({ ...entry }));

@@ -31,6 +31,25 @@ export function getRiskBadgeStyle(riskLevel?: string): { bg: string; text: strin
 }
 
 /**
+ * Human description of when a call at this risk level gets auto-approved.
+ * Shown under the risk badge in the tool-detail drawer's Reasoning card and
+ * as the trust-rule modal's "Treat as" hint. Undefined for levels that don't
+ * map to a tolerance tier (e.g. "workspace", "unknown").
+ */
+export function getRiskToleranceHint(riskLevel?: string): string | undefined {
+  switch (riskLevel?.toLowerCase()) {
+    case "low":
+      return "Auto-approved at Conservative tolerance or higher";
+    case "medium":
+      return "Auto-approved at Relaxed tolerance or higher";
+    case "high":
+      return "Auto-approved only at Full Access tolerance";
+    default:
+      return undefined;
+  }
+}
+
+/**
  * Weak-background / strong-text variant of the risk badge styling, matching the
  * macOS `RiskBadgeView` convention (Figma node 5010-103197). This is the style
  * used by the inline pill + drawer header — distinct from the filled

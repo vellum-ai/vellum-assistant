@@ -914,7 +914,7 @@ function stripWireOnlyProfileKeys(patch: unknown): void {
  * `handleSetConfig`'s `raw` write, which shares object references with the
  * inspected patch shape.
  */
-function normalizeManagedProfileWrites(patch: unknown): void {
+export function normalizeManagedProfileWrites(patch: unknown): void {
   const root = readPlainObject(patch);
   const llm = readPlainObject(root?.llm);
   const profiles = readPlainObject(llm?.profiles);
@@ -1086,7 +1086,9 @@ function handleGetConfigSchema({ queryParams = {} }: RouteHandlerArgs) {
   };
 }
 
-function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
+export function rejectManagedProfileDeletion(
+  body: Record<string, unknown>,
+): void {
   const llm = asMutablePlainObject(body.llm);
   if (!llm) {
     return;
@@ -1296,7 +1298,7 @@ function completeChangedCustomProfiles(
  * Shared by `handlePatchConfig` and `handleSetConfig` so both write paths get
  * identical post-write side effects.
  */
-async function commitConfigWrite(
+export async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
 ): Promise<void> {

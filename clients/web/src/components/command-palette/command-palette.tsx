@@ -238,7 +238,9 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
               className={
                 isWindowSurface
                   ? "px-3 pb-1 pt-2 text-xs font-semibold text-[var(--content-tertiary)]"
-                  : "px-3 pb-1 pt-2 text-[var(--content-tertiary)]"
+                  : /* Bump the 10px label token to the 12px body-small token
+                       on mobile, where it reads too small (Figma 6764:6748). */
+                    "px-3 pb-1 pt-2 text-[var(--content-tertiary)] max-md:text-body-small-default"
               }
             >
               {section.label}
@@ -267,7 +269,10 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   if (useMobileLayout) {
     return (
       <div
-        className="absolute inset-0 z-30 flex flex-col bg-[var(--surface-lift)]"
+        // z-50 keeps the full-screen palette above the navigation drawer
+        // (fixed z-40 in chat-layout), which stays mounted underneath so
+        // dismissing search returns to the menu.
+        className="fixed inset-0 z-50 flex flex-col bg-[var(--surface-lift)]"
         role="dialog"
         aria-modal="true"
         aria-label="Search"

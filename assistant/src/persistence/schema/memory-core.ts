@@ -9,27 +9,22 @@ import {
 
 import { conversations, messages } from "./conversations.js";
 
-export const memorySegments = sqliteTable(
-  "memory_segments",
-  {
-    id: text("id").primaryKey(),
-    messageId: text("message_id")
-      .notNull()
-      .references(() => messages.id, { onDelete: "cascade" }),
-    conversationId: text("conversation_id")
-      .notNull()
-      .references(() => conversations.id, { onDelete: "cascade" }),
-    role: text("role").notNull(),
-    segmentIndex: integer("segment_index").notNull(),
-    text: text("text").notNull(),
-    tokenEstimate: integer("token_estimate").notNull(),
-    scopeId: text("scope_id").notNull().default("default"),
-    contentHash: text("content_hash"),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-  (table) => [index("idx_memory_segments_scope_id").on(table.scopeId)],
-);
+export const memorySegments = sqliteTable("memory_segments", {
+  id: text("id").primaryKey(),
+  messageId: text("message_id")
+    .notNull()
+    .references(() => messages.id, { onDelete: "cascade" }),
+  conversationId: text("conversation_id")
+    .notNull()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  segmentIndex: integer("segment_index").notNull(),
+  text: text("text").notNull(),
+  tokenEstimate: integer("token_estimate").notNull(),
+  contentHash: text("content_hash"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
 
 export const memorySummaries = sqliteTable(
   "memory_summaries",
@@ -40,14 +35,12 @@ export const memorySummaries = sqliteTable(
     summary: text("summary").notNull(),
     tokenEstimate: integer("token_estimate").notNull(),
     version: integer("version").notNull().default(1),
-    scopeId: text("scope_id").notNull().default("default"),
     startAt: integer("start_at").notNull(),
     endAt: integer("end_at").notNull(),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("idx_memory_summaries_scope_id").on(table.scopeId),
     uniqueIndex("idx_memory_summaries_scope_scope_key").on(
       table.scope,
       table.scopeKey,
@@ -120,7 +113,6 @@ export const conversationStarters = sqliteTable(
     label: text("label").notNull(),
     prompt: text("prompt").notNull(),
     generationBatch: integer("generation_batch").notNull(),
-    scopeId: text("scope_id").notNull().default("default"),
     sourceMemoryKinds: text("source_memory_kinds"),
     category: text("category"),
     icon: text("icon"),
@@ -134,9 +126,6 @@ export const conversationStarters = sqliteTable(
       table.generationBatch,
       table.createdAt,
     ),
-    index("idx_conversation_starters_card_type").on(
-      table.cardType,
-      table.scopeId,
-    ),
+    index("idx_conversation_starters_card_type").on(table.cardType),
   ],
 );

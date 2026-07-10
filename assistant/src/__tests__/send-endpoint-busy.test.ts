@@ -164,10 +164,6 @@ function makeCompletingConversation(): Conversation {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
     },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setTrustContext: () => {},
@@ -217,10 +213,6 @@ function makeHangingConversation(): Conversation {
     persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
-    },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
@@ -300,10 +292,6 @@ function makePendingApprovalConversation(
       id: options.requestId ?? "msg-1",
       deduplicated: false,
     }),
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     trustContext: undefined as unknown,

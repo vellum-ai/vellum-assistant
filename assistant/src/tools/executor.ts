@@ -1,22 +1,17 @@
 import { readFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
-import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
-import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
-import { isUntrustedShellLockdownActive } from "../runtime/effective-capabilities.js";
-import { getCesClient } from "../security/secure-keys.js";
 import { TokenExpiredError } from "../security/token-manager.js";
 import {
-  recordToolDenied,
   recordToolError,
   recordToolExecuted,
 } from "../telemetry/tool-audit.js";
 import { type AbortReason, isAbortReason } from "../util/abort-reasons.js";
 import { PermissionDeniedError, ToolError } from "../util/errors.js";
 import { pathExists, safeStatSync } from "../util/fs.js";
-import { getLogger, truncateForLog } from "../util/logger.js";
+import { truncateForLog } from "../util/logger.js";
 import {
   callerOwnsWorkflowRun,
   manifestGrantsSideEffects,
@@ -32,8 +27,6 @@ import { ToolApprovalHandler } from "./tool-approval-handler.js";
 import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
 import { recordToolCompletion } from "./tool-profiler.js";
 import { type ToolContext, type ToolExecutionResult } from "./types.js";
-
-const log = getLogger("tool-executor");
 
 export class ToolExecutor {
   private prompter: PermissionPrompter;
@@ -106,32 +99,6 @@ export class ToolExecutor {
     const tool = gateResult.tool;
 
     try {
-      // CES shell lockdown: set forcePromptSideEffects BEFORE both the
-      // grantConsumed short-circuit and the permission check. This ensures
-      // the flag is visible to all downstream consumers regardless of
-      // whether a scoped grant was consumed. Previously this was nested
-      // inside the `!grantConsumed` block, meaning untrusted host_bash
-      // calls that arrived with a consumed guardian-approval grant would
-      // skip this assignment entirely - defeating the lockdown.
-      if (
-        name === "host_bash" &&
-        isUntrustedShellLockdownActive({
-          trustClass: context.trustClass,
-          lockdownEnabled: isCesShellLockdownEnabled(getConfig()),
-        })
-      ) {
-        context.forcePromptSideEffects = true;
-      }
-
-      // Secure command tool installation always requires fresh per-invocation
-      // approval - no persistent grants. This is unconditional (not gated on
-      // CES lockdown or trust class) because installing secure tools is
-      // inherently high-impact.
-      if (name === "manage_secure_command_tool") {
-        context.forcePromptSideEffects = true;
-        context.requireFreshApproval = true;
-      }
-
       // A workflow run whose capability manifest grants side-effecting tools or
       // host functions (beyond the read-only baseline) must prompt at LAUNCH.
       // The manifest is authored and declared by the model, and the run's
@@ -261,102 +228,6 @@ export class ToolExecutor {
         toolTimeoutMs,
         name,
       );
-
-      // CES approval bridge: if the tool returned an approval_required
-      // indicator, present the proposal to the guardian via the existing
-      // confirmation transport, commit the decision to CES, and retry
-      // the original tool invocation with the granted grantId.
-      const cesClient = getCesClient();
-      if (execResult.cesApprovalRequired && !cesClient) {
-        const msg = `CES approval required for "${name}" but no CES client is available. Ensure the Credential Execution Service is running.`;
-        const durationMs = Date.now() - startTime;
-        recordToolError({
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          toolName: name,
-          input,
-          errorMessage: msg,
-          isExpected: true,
-          riskLevel,
-          matchedTrustRuleId: permMatchedTrustRuleId,
-          durationMs,
-          attribution: context.attribution ?? null,
-        });
-        recordToolCompletion(context.conversationId, name, durationMs, true);
-        return { content: msg, isError: true };
-      }
-      if (execResult.cesApprovalRequired && cesClient) {
-        const bridgeResult = await bridgeCesApproval(
-          execResult.cesApprovalRequired,
-          this.prompter,
-          cesClient,
-          {
-            isInteractive: context.isInteractive,
-            conversationId: context.conversationId,
-            signal: context.signal,
-          },
-        );
-
-        if (bridgeResult.outcome === "approved") {
-          // Retry the original tool invocation with the grantId attached.
-          // The CES tool implementations accept grantId in the input to
-          // bypass the approval check on the retry.
-          const retryInput = { ...input, grantId: bridgeResult.grantId };
-
-          log.info(
-            {
-              toolName: name,
-              grantId: bridgeResult.grantId,
-              conversationId: context.conversationId,
-            },
-            "CES approval granted - retrying tool invocation with grantId",
-          );
-
-          execResult = await executeWithTimeout(
-            tool.execute(retryInput, execContext),
-            toolTimeoutMs,
-            name,
-          );
-        } else if (
-          bridgeResult.outcome === "denied" ||
-          bridgeResult.outcome === "timeout"
-        ) {
-          const denialReason =
-            bridgeResult.outcome === "timeout"
-              ? `CES approval timed out for "${name}". The tool was not executed.`
-              : `CES approval denied for "${name}". The tool was not executed.`;
-          const durationMs = Date.now() - startTime;
-          recordToolDenied({
-            conversationId: context.conversationId,
-            toolName: name,
-            input,
-            reason: denialReason,
-            riskLevel,
-            matchedTrustRuleId: permMatchedTrustRuleId,
-            durationMs,
-            wasPrompted: false,
-          });
-          return { content: denialReason, isError: true };
-        } else {
-          // bridgeResult.outcome === "error"
-          const errorMsg = `CES approval bridge error for "${name}": ${bridgeResult.message}`;
-          const durationMs = Date.now() - startTime;
-          recordToolError({
-            conversationId: context.conversationId,
-            requestId: context.requestId,
-            toolName: name,
-            input,
-            errorMessage: errorMsg,
-            isExpected: true,
-            riskLevel,
-            matchedTrustRuleId: permMatchedTrustRuleId,
-            durationMs,
-            attribution: context.attribution ?? null,
-          });
-          recordToolCompletion(context.conversationId, name, durationMs, true);
-          return { content: errorMsg, isError: true };
-        }
-      }
 
       // Sized from the RAW pre-sanitization result — sensitive-output
       // extraction below strips directives and swaps raw values for

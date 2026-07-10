@@ -18,6 +18,7 @@
  * - `activeWorkflowRunId` — workflow detail panel
  * - `activeAcpRunId` — ACP run detail panel
  * - `activeBackgroundTaskId` — background-task detail panel
+ * - `activeSkillDetailId` — skill detail panel
  *
  * App share/deploy lifecycle lives in `domains/chat/deploy-store.ts`.
  *
@@ -46,6 +47,7 @@ type OverlayView =
   | "workflow-detail"
   | "acp-run-detail"
   | "background-task-detail"
+  | "skill-detail"
   | "channel-setup";
 
 /**
@@ -110,6 +112,7 @@ function resolveViewBefore(
     | "viewBeforeWorkflowDetail"
     | "viewBeforeAcpRunDetail"
     | "viewBeforeBackgroundTaskDetail"
+    | "viewBeforeSkillDetail"
     | "viewBeforeChannelSetup",
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
@@ -121,6 +124,7 @@ function resolveViewBefore(
     mv === "workflow-detail" ||
     mv === "acp-run-detail" ||
     mv === "background-task-detail" ||
+    mv === "skill-detail" ||
     mv === "channel-setup"
   ) {
     return state[field];
@@ -143,6 +147,7 @@ export type MainView =
   | "workflow-detail"
   | "acp-run-detail"
   | "background-task-detail"
+  | "skill-detail"
   | "channel-setup";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
@@ -319,15 +324,20 @@ export interface ViewerState {
   viewBeforeAcpRunDetail: Exclude<MainView, OverlayView>;
   activeBackgroundTaskId: string | null;
   viewBeforeBackgroundTaskDetail: Exclude<MainView, OverlayView>;
+  activeSkillDetailId: string | null;
+  viewBeforeSkillDetail: Exclude<MainView, OverlayView>;
   activeChannelSetup: ChannelSetupPayload | null;
   viewBeforeChannelSetup: Exclude<MainView, OverlayView>;
   /**
-   * Monotonic counter bumped when a viewer (e.g. the mobile tool-detail
-   * overlay, which lives in a separate portal subtree) asks to open the trust
-   * rule editor for `activeToolDetail`. `ChatMainPanel` owns the rule-editor
-   * state, so it watches this seq and performs the open against `messages`.
+   * Monotonic counter bumped when a viewer (a tool-detail drawer or the
+   * activity-steps drill-in, which may live in a separate portal subtree)
+   * asks to open the trust rule editor for `ruleEditorRequestToolCallId`.
+   * `ChatMainPanel` owns the rule-editor state, so it watches this seq and
+   * performs the open against `messages`.
    */
   ruleEditorRequestSeq: number;
+  /** The tool call the pending rule-editor request targets. */
+  ruleEditorRequestToolCallId: string | null;
 }
 
 export interface ViewerActions {
@@ -362,6 +372,10 @@ export interface ViewerActions {
   openBackgroundTaskDetail: (id: string) => void;
   closeBackgroundTaskDetail: () => void;
 
+  // --- Skill detail ---
+  openSkillDetail: (skillId: string) => void;
+  closeSkillDetail: () => void;
+
   // --- Process-detail routing facade ---
   /**
    * Opens any background-process detail panel by `{ kind, id }`, delegating to
@@ -390,7 +404,13 @@ export interface ViewerActions {
    */
   toggleToolDetail: (payload: ToolDetailPayload) => void;
   closeToolDetail: () => void;
-  requestRuleEditorForActiveTool: () => void;
+  /**
+   * Ask the chat panel to open the trust-rule editor for `toolCallId`.
+   * Callable from any surface showing a tool call's detail (the tool-detail
+   * drawer, the activity-steps drill-in) — including portal subtrees that
+   * can't reach the rule-editor state directly.
+   */
+  requestRuleEditor: (toolCallId: string) => void;
 
   // --- Activity steps panel ---
   openActivitySteps: (payload: ActivityStepsPayload) => void;
@@ -449,9 +469,12 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeAcpRunDetail: "chat",
   activeBackgroundTaskId: null,
   viewBeforeBackgroundTaskDetail: "chat",
+  activeSkillDetailId: null,
+  viewBeforeSkillDetail: "chat",
   activeChannelSetup: null,
   viewBeforeChannelSetup: "chat",
   ruleEditorRequestSeq: 0,
+  ruleEditorRequestToolCallId: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -627,6 +650,23 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     });
   },
 
+  // --- Skill detail ---
+
+  openSkillDetail: (skillId) => {
+    set({
+      mainView: "skill-detail",
+      activeSkillDetailId: skillId,
+      viewBeforeSkillDetail: resolveViewBefore(get(), "viewBeforeSkillDetail"),
+    });
+  },
+
+  closeSkillDetail: () => {
+    set({
+      mainView: get().viewBeforeSkillDetail,
+      activeSkillDetailId: null,
+    });
+  },
+
   // --- Process-detail routing facade ---
 
   openProcessDetail: ({ kind, id }) => {
@@ -720,9 +760,12 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     });
   },
 
-  requestRuleEditorForActiveTool: () => {
-    if (!get().activeToolDetail) return;
-    set((s) => ({ ruleEditorRequestSeq: s.ruleEditorRequestSeq + 1 }));
+  requestRuleEditor: (toolCallId) => {
+    if (!toolCallId) return;
+    set((s) => ({
+      ruleEditorRequestSeq: s.ruleEditorRequestSeq + 1,
+      ruleEditorRequestToolCallId: toolCallId,
+    }));
   },
 
   // --- Activity steps panel ---

@@ -19,11 +19,14 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+import { eq } from "drizzle-orm";
+
 import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../persistence/attachments-store.js";
+import { appendCompactionEvent } from "../persistence/compaction-ledger-store.js";
 import {
   addMessage,
   createConversation,
@@ -43,17 +46,28 @@ import {
   activationState,
   channelInboundEvents,
   conversationAssistantAttentionState,
+  conversationCompactionEvents,
   conversationGraphMemoryState,
+  conversations,
   externalConversationBindings,
   llmRequestLogs,
   memoryJobs,
   memoryRetrospectiveState,
+  messages,
   toolInvocations,
 } from "../persistence/schema/index.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
 } from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
+import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+} from "../plugins/defaults/memory/memory-retrospective-constants.js";
+import {
+  findForkBoundaryCreatedAt,
+  loadRetrospectiveRunMessages,
+} from "../plugins/defaults/memory/memory-retrospective-fork-boundary.js";
 
 await initializeDb();
 
@@ -71,6 +85,7 @@ function resetTables(): void {
   db.run("DELETE FROM memory_v3_ever_injected");
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
+  db.run("DELETE FROM conversation_compaction_events");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }
@@ -246,5 +261,473 @@ describe("forkConversationForRetrospective", () => {
 
     // The boundary check fails before any fork row is created — no orphan row.
     expect(countConversations()).toBe(before);
+  });
+});
+
+describe("forkConversationForRetrospective — compacted source", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  interface CompactedSource {
+    id: string;
+    summary: string;
+    compactedAt: number;
+    compactedCount: number;
+    base: number;
+  }
+
+  /**
+   * Six-message source with a compaction covering the first four rows.
+   * Timestamps are pinned so the compaction event sits strictly between
+   * row 4 and row 5.
+   */
+  async function seedCompactedSource(): Promise<CompactedSource> {
+    const source = createConversation("Compacted retro thread");
+    const rows = [
+      await addMessage(source.id, "user", "old question", {
+        skipIndexing: true,
+      }),
+      await addMessage(source.id, "assistant", "old answer", {
+        skipIndexing: true,
+      }),
+      await addMessage(source.id, "user", "older question", {
+        skipIndexing: true,
+      }),
+      await addMessage(source.id, "assistant", "older answer", {
+        skipIndexing: true,
+      }),
+      await addMessage(source.id, "user", "fresh question", {
+        skipIndexing: true,
+      }),
+      await addMessage(source.id, "assistant", "fresh answer", {
+        skipIndexing: true,
+      }),
+    ];
+    const db = getDb();
+    const base = Date.now();
+    rows.forEach((row, index) => {
+      const createdAt = index < 4 ? base + index : base + index + 10;
+      db.update(messages)
+        .set({ createdAt })
+        .where(eq(messages.id, row.id))
+        .run();
+    });
+    const compactedAt = base + 5;
+    const summary = "Summary of the old exchange";
+    db.update(conversations)
+      .set({
+        contextSummary: summary,
+        contextCompactedMessageCount: 4,
+        contextCompactedAt: compactedAt,
+      })
+      .where(eq(conversations.id, source.id))
+      .run();
+    appendCompactionEvent(source.id, {
+      compactedAt,
+      summary,
+      compactedMessageCount: 4,
+    });
+    return { id: source.id, summary, compactedAt, compactedCount: 4, base };
+  }
+
+  function contentOf(m: { role: string; content: string; createdAt: number }) {
+    return { role: m.role, content: m.content, createdAt: m.createdAt };
+  }
+
+  test("copies only the visible tail and renders identically to the source", async () => {
+    const source = await seedCompactedSource();
+    const sourceRows = getMessages(source.id);
+    const tip = sourceRows.at(-1)!;
+
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: tip.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    // Physical rows: the visible tail only, each stamped with its source id.
+    const forkRows = getMessages(fork.id);
+    expect(forkRows.map(contentOf)).toEqual(sourceRows.slice(4).map(contentOf));
+    expect(
+      forkRows.map(
+        (m) =>
+          (JSON.parse(m.metadata!) as { forkSourceMessageId: string })
+            .forkSourceMessageId,
+      ),
+    ).toEqual(sourceRows.slice(4).map((m) => m.id));
+
+    // Fork row: inherited summary + timestamp, fork-local count of 0.
+    expect(fork.contextSummary).toBe(source.summary);
+    expect(fork.contextCompactedMessageCount).toBe(0);
+    expect(fork.contextCompactedAt).toBe(source.compactedAt);
+    expect(fork.forkParentMessageId).toBe(tip.id);
+
+    // Rendered history — summary + post-slice rows, assembled the way
+    // `loadFromDb` does — is identical to the source's.
+    const render = (
+      summary: string | null,
+      rows: Array<{ role: string; content: string; createdAt: number }>,
+      count: number,
+    ) => [summary, ...rows.slice(Math.min(count, rows.length)).map(contentOf)];
+    expect(
+      render(fork.contextSummary, forkRows, fork.contextCompactedMessageCount),
+    ).toEqual(render(source.summary, sourceRows, source.compactedCount));
+
+    // The synchronous user fork keeps the full physical history.
+    const syncFork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: tip.id,
+    });
+    expect(getMessages(syncFork.id)).toHaveLength(6);
+    expect(syncFork.contextCompactedMessageCount).toBe(4);
+  });
+
+  test("carries per-conversation memory state wholesale on a tip fork", async () => {
+    const source = await seedCompactedSource();
+    const snapshot = JSON.stringify({ inContext: ["node-a"], currentTurn: 7 });
+    saveGraphMemoryState(source.id, snapshot);
+    const everInjected = JSON.stringify([{ slug: "page-a", turn: 1 }]);
+    const db = getDb();
+    db.insert(activationState)
+      .values({
+        conversationId: source.id,
+        messageId: "source-turn-marker",
+        stateJson: "{}",
+        everInjectedJson: everInjected,
+        currentTurn: 7,
+        updatedAt: Date.now(),
+      })
+      .run();
+    getSqlite()
+      .query(
+        `INSERT INTO memory_v3_ever_injected (conversation_id, slug, injected_at, bytes, pruned_at)
+         VALUES (?, 'card-a', ?, 12, NULL)`,
+      )
+      .run(source.id, Date.now());
+
+    const tip = getMessages(source.id).at(-1)!;
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: tip.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    // The fork's rendered window equals the source's, so activation,
+    // ever-injected, and graph state are carried as-is.
+    expect(loadGraphMemoryState(fork.id)).toBe(snapshot);
+    const forkActivation = db
+      .select()
+      .from(activationState)
+      .where(eq(activationState.conversationId, fork.id))
+      .get();
+    expect(forkActivation?.everInjectedJson).toBe(everInjected);
+    const v3Rows = getSqlite()
+      .query(
+        "SELECT slug FROM memory_v3_ever_injected WHERE conversation_id = ?",
+      )
+      .all(fork.id) as Array<{ slug: string }>;
+    expect(v3Rows.map((r) => r.slug)).toEqual(["card-a"]);
+  });
+
+  test("re-derives memory seeding from the copied tail on a truncated cutoff", async () => {
+    const source = await seedCompactedSource();
+    const db = getDb();
+    const sourceRows = getMessages(source.id);
+    // Injection blocks: one behind the summary, one on a visible tail row.
+    db.update(messages)
+      .set({
+        metadata: JSON.stringify({
+          memoryInjectedBlock: "# memory/concepts/prefix-slug.md",
+        }),
+      })
+      .where(eq(messages.id, sourceRows[0]!.id))
+      .run();
+    db.update(messages)
+      .set({
+        metadata: JSON.stringify({
+          memoryInjectedBlock: "# memory/concepts/tail-slug.md",
+        }),
+      })
+      .where(eq(messages.id, sourceRows[4]!.id))
+      .run();
+    const snapshot = JSON.stringify({ inContext: ["node-a"], currentTurn: 7 });
+    saveGraphMemoryState(source.id, snapshot);
+
+    // Cut off before the tip (a user row, so no display-turn extension): the
+    // fork is truncated and takes the derived-seeding branch.
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: sourceRows[4]!.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    // The compaction slice composes with the cutoff: source row 5 only.
+    const forkRows = getMessages(fork.id);
+    expect(forkRows.map((m) => m.content)).toEqual([sourceRows[4]!.content]);
+    expect(fork.forkParentMessageId).toBe(sourceRows[4]!.id);
+
+    // Derived seeding sees only the copied tail's slug; the wholesale graph
+    // carry is skipped for truncated forks.
+    const forkActivation = db
+      .select()
+      .from(activationState)
+      .where(eq(activationState.conversationId, fork.id))
+      .get();
+    expect(forkActivation?.everInjectedJson).toBe(
+      JSON.stringify([{ slug: "tail-slug", turn: 0 }]),
+    );
+    expect(loadGraphMemoryState(fork.id)).toBeNull();
+  });
+
+  test("seeds a single count-adjusted ledger event instead of copying the source ledger", async () => {
+    const source = await seedCompactedSource();
+    // An older superseded event on the source; it must not be copied either.
+    appendCompactionEvent(source.id, {
+      compactedAt: source.base + 1,
+      summary: "Older summary",
+      compactedMessageCount: 2,
+    });
+
+    const tip = getMessages(source.id).at(-1)!;
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: tip.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    const forkEvents = getDb()
+      .select()
+      .from(conversationCompactionEvents)
+      .where(eq(conversationCompactionEvents.conversationId, fork.id))
+      .all();
+    expect(forkEvents).toHaveLength(1);
+    expect(forkEvents[0]).toMatchObject({
+      compactedAt: source.compactedAt,
+      summary: source.summary,
+      compactedMessageCount: 0,
+    });
+
+    // A fork of the fork at its tip inherits the summary with the fork-local
+    // count — no rows are hidden behind it.
+    const forkTip = getMessages(fork.id).at(-1)!;
+    const grandchild = forkConversation({
+      conversationId: fork.id,
+      throughMessageId: forkTip.id,
+    });
+    expect(grandchild.contextSummary).toBe(source.summary);
+    expect(grandchild.contextCompactedMessageCount).toBe(0);
+    expect(getMessages(grandchild.id)).toHaveLength(
+      getMessages(fork.id).length,
+    );
+  });
+
+  test("post-fork tail extraction still detects the copied boundary", async () => {
+    const source = await seedCompactedSource();
+    const tip = getMessages(source.id).at(-1)!;
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: tip.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    const boundary = findForkBoundaryCreatedAt(getMessages(fork.id));
+    expect(boundary).toBe(tip.createdAt);
+
+    // A run-authored message lands after the boundary and is the only row
+    // attributed to the run.
+    const runMessage = await addMessage(fork.id, "user", "retro instruction", {
+      skipIndexing: true,
+    });
+    getDb()
+      .update(messages)
+      .set({ createdAt: tip.createdAt + 100 })
+      .where(eq(messages.id, runMessage.id))
+      .run();
+    const runRows = await loadRetrospectiveRunMessages(
+      fork.id,
+      MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    );
+    expect(runRows?.map((m) => m.id)).toEqual([runMessage.id]);
+  });
+
+  test("succeeds with an empty tail when the compaction covers the whole cutoff range", async () => {
+    const source = await seedCompactedSource();
+    const db = getDb();
+    const sourceRows = getMessages(source.id);
+    const tip = sourceRows.at(-1)!;
+    // A later compaction covering every row, timestamped exactly at the tip.
+    db.update(conversations)
+      .set({
+        contextSummary: "Everything summarized",
+        contextCompactedMessageCount: sourceRows.length,
+        contextCompactedAt: tip.createdAt,
+      })
+      .where(eq(conversations.id, source.id))
+      .run();
+    appendCompactionEvent(source.id, {
+      compactedAt: tip.createdAt,
+      summary: "Everything summarized",
+      compactedMessageCount: sourceRows.length,
+    });
+
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: tip.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    expect(getMessages(fork.id)).toHaveLength(0);
+    expect(fork.contextSummary).toBe("Everything summarized");
+    expect(fork.contextCompactedMessageCount).toBe(0);
+    expect(fork.contextCompactedAt).toBe(tip.createdAt);
+    expect(fork.forkParentMessageId).toBe(tip.id);
+    // Ageable despite copying no rows, so the startup orphan sweep (which
+    // skips null `lastMessageAt` rows) can reclaim it after a crash.
+    expect(fork.lastMessageAt).toBe(tip.createdAt);
+
+    // With no stamped copied rows and the run's instruction opening the
+    // conversation, every message is the run's own output — it still feeds
+    // the success bookkeeping (dedup baseline, skill cards).
+    const runMessage = await addMessage(fork.id, "user", "retro instruction", {
+      metadata: {
+        kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+        hidden: true,
+      },
+      skipIndexing: true,
+    });
+    const runRows = await loadRetrospectiveRunMessages(
+      fork.id,
+      MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    );
+    expect(runRows?.map((m) => m.id)).toEqual([runMessage.id]);
+  });
+
+  test("drops the render-hidden rows on createdAt ties, not the re-sort prefix", async () => {
+    const source = createConversation("Tie-boundary thread");
+    const first = await addMessage(source.id, "user", "hidden by compaction", {
+      skipIndexing: true,
+    });
+    const second = await addMessage(source.id, "assistant", "still visible", {
+      skipIndexing: true,
+    });
+    const tail = await addMessage(source.id, "user", "fresh tail", {
+      skipIndexing: true,
+    });
+
+    // The first two rows share a millisecond, with ids crafted so the cutoff
+    // re-sort's `(createdAt, id)` order REVERSES their insertion (= render)
+    // order. The compaction hides exactly one row: in render order that is
+    // `first`; a positional slice of the re-sorted array would drop `second`
+    // instead.
+    const db = getDb();
+    const base = Date.now();
+    db.update(messages)
+      .set({ id: "zz-tie-first", createdAt: base })
+      .where(eq(messages.id, first.id))
+      .run();
+    db.update(messages)
+      .set({ id: "aa-tie-second", createdAt: base })
+      .where(eq(messages.id, second.id))
+      .run();
+    db.update(messages)
+      .set({ createdAt: base + 10 })
+      .where(eq(messages.id, tail.id))
+      .run();
+    const compactedAt = base + 5;
+    db.update(conversations)
+      .set({
+        contextSummary: "Tie summary",
+        contextCompactedMessageCount: 1,
+        contextCompactedAt: compactedAt,
+      })
+      .where(eq(conversations.id, source.id))
+      .run();
+    appendCompactionEvent(source.id, {
+      compactedAt,
+      summary: "Tie summary",
+      compactedMessageCount: 1,
+    });
+
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: tail.id,
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    // The source renders ["still visible", "fresh tail"] after its slice;
+    // the fork must carry exactly those rows.
+    expect(getMessages(fork.id).map((m) => m.content)).toEqual([
+      "still visible",
+      "fresh tail",
+    ]);
+  });
+
+  test("seeds the fork-local ledger event even when the hidden prefix falls outside the cutoff", async () => {
+    const source = createConversation("Tie-cutoff thread");
+    const hidden = await addMessage(source.id, "user", "hidden by compaction", {
+      skipIndexing: true,
+    });
+    const requested = await addMessage(source.id, "assistant", "visible", {
+      skipIndexing: true,
+    });
+
+    // Same-millisecond rows with ids crafted so the `(createdAt, id)` cutoff
+    // order puts the requested message BEFORE the render-hidden sibling: the
+    // cutoff range then contains no hidden row, so nothing is dropped, but
+    // the fork still inherits the compaction and must not copy the source's
+    // count-1 ledger event (a fork of this fork would hide a visible row).
+    const db = getDb();
+    const base = Date.now();
+    db.update(messages)
+      .set({ id: "zz-tie-hidden", createdAt: base })
+      .where(eq(messages.id, hidden.id))
+      .run();
+    db.update(messages)
+      .set({ id: "aa-tie-requested", createdAt: base })
+      .where(eq(messages.id, requested.id))
+      .run();
+    db.update(conversations)
+      .set({
+        contextSummary: "Tie summary",
+        contextCompactedMessageCount: 1,
+        contextCompactedAt: base,
+      })
+      .where(eq(conversations.id, source.id))
+      .run();
+    appendCompactionEvent(source.id, {
+      compactedAt: base,
+      summary: "Tie summary",
+      compactedMessageCount: 1,
+    });
+
+    const fork = await forkConversationForRetrospective({
+      conversationId: source.id,
+      throughMessageId: "aa-tie-requested",
+      conversationType: "background",
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+
+    expect(getMessages(fork.id).map((m) => m.content)).toEqual(["visible"]);
+    expect(fork.contextSummary).toBe("Tie summary");
+    expect(fork.contextCompactedMessageCount).toBe(0);
+    const forkEvents = getDb()
+      .select()
+      .from(conversationCompactionEvents)
+      .where(eq(conversationCompactionEvents.conversationId, fork.id))
+      .all();
+    expect(forkEvents).toHaveLength(1);
+    expect(forkEvents[0]).toMatchObject({
+      compactedAt: base,
+      summary: "Tie summary",
+      compactedMessageCount: 0,
+    });
   });
 });

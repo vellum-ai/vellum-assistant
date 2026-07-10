@@ -75,6 +75,7 @@ import {
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 import {
+  CONVERSATION_BUSY_MESSAGE,
   startVoiceTurn,
   type VoiceTurnHandle,
 } from "./voice-session-bridge.js";
@@ -680,6 +681,10 @@ export class CallController {
     // (transport FIFO gives gapless playback).
     const synthProvider = useSynthesizedPath ? provider : null;
     let pendingSynthText = "";
+    // Eager segmentation applies until the turn's first segment is
+    // enqueued: the opening clause flushes early so speech onset does not
+    // wait for a full sentence.
+    let firstSynthSegmentEnqueued = false;
     let synthesisChain: Promise<void> = Promise.resolve();
     // After a segment fails, the rest of the turn stays off the primary
     // provider so text is never spoken out of order: non-PCM transports
@@ -753,6 +758,7 @@ export class CallController {
         if (segment.length === 0) {
           continue;
         }
+        firstSynthSegmentEnqueued = true;
         synthesisChain = synthesisChain.then(async () => {
           if (
             !this.isCurrentRun(runVersion) ||
@@ -810,6 +816,7 @@ export class CallController {
         const { segments, remainder } = extractSpeakableSegments(
           pendingSynthText,
           false,
+          { eager: !firstSynthSegmentEnqueued },
         );
         pendingSynthText = remainder;
         enqueueSynthesisSegments(synthProvider, segments);
@@ -1447,8 +1454,7 @@ export class CallController {
    */
   private isLockContentionError(err: unknown): boolean {
     return (
-      err instanceof Error &&
-      err.message.includes("already processing a message")
+      err instanceof Error && err.message.includes(CONVERSATION_BUSY_MESSAGE)
     );
   }
 

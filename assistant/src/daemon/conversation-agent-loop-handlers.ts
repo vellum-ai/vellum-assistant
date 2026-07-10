@@ -1351,7 +1351,6 @@ export async function finalizePendingToolResultRow(
           role: "user",
           content: contentJson,
           createdAt: row.createdAt,
-          scopeId: "default",
           provenanceTrustClass,
           automated,
         },

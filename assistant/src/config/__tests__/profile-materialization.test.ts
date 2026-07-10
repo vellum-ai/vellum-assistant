@@ -273,6 +273,11 @@ describe("completeCustomProfile — resolver equivalence", () => {
     });
     return resolveCallSiteConfig("vision", llm, {
       overrideProfile: "custom-x",
+      // The equivalence contract is a legacy-cascade property by definition:
+      // materialization pins what the MERGE produced. Under
+      // override-or-default semantics a partial profile falls back instead
+      // of merging (pinned by llm-resolver-override-or-default.test.ts).
+      resolutionSemantics: "legacy-merge",
     });
   };
 

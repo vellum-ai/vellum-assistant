@@ -11,14 +11,14 @@ import {
   getConfiguredProvider,
   resolveMediaSourceData,
 } from "@vellumai/plugin-api";
+import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
 import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdrant-client.js";
-import { getLogger } from "../../../../util/logger.js";
-import { selectedBackendSupportsMultimodal } from "../embeddings.js";
 import { extractToolUse, userMessage } from "../llm-helpers.js";
+import { getLogger } from "../logging.js";
 import { searchGraphNodes } from "./graph-search.js";
 import type { InContextTracker } from "./injection.js";
 import {
@@ -93,11 +93,15 @@ async function rerankAndDedup(
   maxNodes: number,
   _config: AssistantConfig,
 ): Promise<ScoredNode[]> {
-  if (candidates.length <= maxNodes) return candidates;
+  if (candidates.length <= maxNodes) {
+    return candidates;
+  }
 
   try {
     const provider = await getConfiguredProvider("memoryRetrieval");
-    if (!provider) return candidates.slice(0, maxNodes);
+    if (!provider) {
+      return candidates.slice(0, maxNodes);
+    }
 
     // Numbered listing for the LLM: index + age + full content
     const now = Date.now();
@@ -132,10 +136,14 @@ Your job:
     });
 
     const toolBlock = extractToolUse(response);
-    if (!toolBlock) return candidates.slice(0, maxNodes);
+    if (!toolBlock) {
+      return candidates.slice(0, maxNodes);
+    }
 
     const input = toolBlock.input as { selected?: number[] };
-    if (!input.selected?.length) return candidates.slice(0, maxNodes);
+    if (!input.selected?.length) {
+      return candidates.slice(0, maxNodes);
+    }
 
     // Rebuild scored list in the LLM's chosen order (1-indexed → 0-indexed)
     const reranked: ScoredNode[] = [];
@@ -148,7 +156,9 @@ Your job:
       }
     }
 
-    if (reranked.length === 0) return candidates.slice(0, maxNodes);
+    if (reranked.length === 0) {
+      return candidates.slice(0, maxNodes);
+    }
     return reranked.slice(0, maxNodes);
   } catch (err) {
     log.warn(
@@ -193,8 +203,9 @@ async function dedupForTurn(
 ): Promise<{ nodes: ScoredNode[]; llmApplied: boolean }> {
   try {
     const provider = await getConfiguredProvider("memoryRetrieval");
-    if (!provider)
+    if (!provider) {
       return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
+    }
 
     const now = Date.now();
     const listing = candidates
@@ -223,12 +234,14 @@ async function dedupForTurn(
     );
 
     const toolBlock = extractToolUse(response);
-    if (!toolBlock)
+    if (!toolBlock) {
       return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
+    }
 
     const input = toolBlock.input as { items?: number[] };
-    if (!input.items?.length)
+    if (!input.items?.length) {
       return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
+    }
 
     const reranked: ScoredNode[] = [];
     const seen = new Set<number>();
@@ -286,7 +299,9 @@ async function dedupCrossCategory(
 ): Promise<ScoredNode[]> {
   try {
     const provider = await getConfiguredProvider("memoryRetrieval");
-    if (!provider) return candidates.slice(0, maxNodes);
+    if (!provider) {
+      return candidates.slice(0, maxNodes);
+    }
 
     const now = Date.now();
     const listing = candidates
@@ -312,10 +327,14 @@ async function dedupCrossCategory(
     });
 
     const toolBlock = extractToolUse(response);
-    if (!toolBlock) return candidates.slice(0, maxNodes);
+    if (!toolBlock) {
+      return candidates.slice(0, maxNodes);
+    }
 
     const input = toolBlock.input as { items?: number[] };
-    if (!input.items?.length) return candidates.slice(0, maxNodes);
+    if (!input.items?.length) {
+      return candidates.slice(0, maxNodes);
+    }
 
     const reranked: ScoredNode[] = [];
     const seen = new Set<number>();
@@ -344,8 +363,6 @@ async function dedupCrossCategory(
 // ---------------------------------------------------------------------------
 
 interface ContextLoadOpts {
-  /** Scope for memory isolation. */
-  scopeId: string;
   /** Recent conversation summaries (used as retrieval queries). */
   recentSummaries: string[];
   /** Embedding config. */
@@ -555,7 +572,6 @@ export async function loadContextMemory(
 
   // Also include top-significance nodes as a fallback
   const topSignificance = queryNodes({
-    scopeId: opts.scopeId,
     fidelityNot: ["gone"],
     limit: maxNodes,
   });
@@ -569,13 +585,14 @@ export async function loadContextMemory(
   // Exclude procedural nodes (capabilities) — they have reserved slots
   // and shouldn't compete with organic memories on recency alone.
   const recentNodes = queryNodes({
-    scopeId: opts.scopeId,
     fidelityNot: ["gone"],
     createdAfter: nowMs - 7 * 24 * 60 * 60 * 1000,
     limit: maxNodes,
   });
   for (const node of recentNodes) {
-    if (isCapabilityNode(node)) continue;
+    if (isCapabilityNode(node)) {
+      continue;
+    }
     if (!semanticCandidateIds.has(node.id)) {
       semanticCandidateIds.set(node.id, 0);
     }
@@ -587,9 +604,9 @@ export async function loadContextMemory(
   const nodeMap = new Map(candidateNodes.map((n) => [n.id, n]));
 
   // 3. Evaluate triggers
-  const temporalTriggers = getActiveTriggersByType("temporal", opts.scopeId);
-  const semanticTriggers = getActiveTriggersByType("semantic", opts.scopeId);
-  const eventTriggers = getActiveTriggersByType("event", opts.scopeId);
+  const temporalTriggers = getActiveTriggersByType("temporal");
+  const semanticTriggers = getActiveTriggersByType("semantic");
+  const eventTriggers = getActiveTriggersByType("event");
 
   const triggeredTemporal = evaluateTemporalTriggers(temporalTriggers, now);
   const triggeredSemantic = queryVector
@@ -651,7 +668,9 @@ export async function loadContextMemory(
   // 5. Score all candidates
   const scored: ScoredNode[] = [];
   for (const [nodeId, node] of nodeMap) {
-    if (node.fidelity === "gone") continue;
+    if (node.fidelity === "gone") {
+      continue;
+    }
 
     const semanticSim = semanticCandidateIds.get(nodeId) ?? 0;
     const effectiveSig = computeEffectiveSignificance(node, nowMs);
@@ -697,16 +716,23 @@ export async function loadContextMemory(
     const uniqueCapabilityIds = new Set<string>();
     let untaggedCount = 0;
     for (const [nodeId, node] of nodeMap) {
-      if (node.fidelity === "gone") continue;
-      if (!isCapabilityNode(node)) continue;
+      if (node.fidelity === "gone") {
+        continue;
+      }
+      if (!isCapabilityNode(node)) {
+        continue;
+      }
       const sim =
         userQueryCandidateIds.get(nodeId) ??
         semanticCandidateIds.get(nodeId) ??
         0;
       capabilityEntries.push({ node, sim });
       const capId = extractCapabilityId(node);
-      if (capId) uniqueCapabilityIds.add(capId);
-      else untaggedCount++;
+      if (capId) {
+        uniqueCapabilityIds.add(capId);
+      } else {
+        untaggedCount++;
+      }
     }
 
     // Gate the fallback on distinct capability IDs (plus any entries
@@ -717,12 +743,11 @@ export async function loadContextMemory(
     const distinctCount = uniqueCapabilityIds.size + untaggedCount;
     if (distinctCount < capabilityReserve) {
       const alreadySeen = new Set(capabilityEntries.map((e) => e.node.id));
-      const fallback = queryCapabilityNodes(
-        opts.scopeId,
-        capabilityReserve * 4,
-      );
+      const fallback = queryCapabilityNodes(capabilityReserve * 4);
       for (const node of fallback) {
-        if (alreadySeen.has(node.id)) continue;
+        if (alreadySeen.has(node.id)) {
+          continue;
+        }
         const sim =
           userQueryCandidateIds.get(node.id) ??
           semanticCandidateIds.get(node.id) ??
@@ -739,10 +764,14 @@ export async function loadContextMemory(
   const seenCapabilityIds = new Set<string>();
   const selectedCapabilities: MemoryNode[] = [];
   for (const { node } of capabilityEntries) {
-    if (selectedCapabilities.length >= capabilityReserve) break;
+    if (selectedCapabilities.length >= capabilityReserve) {
+      break;
+    }
     const capId = extractCapabilityId(node);
     if (capId) {
-      if (seenCapabilityIds.has(capId)) continue;
+      if (seenCapabilityIds.has(capId)) {
+        continue;
+      }
       seenCapabilityIds.add(capId);
     }
     selectedCapabilities.push(node);
@@ -751,7 +780,9 @@ export async function loadContextMemory(
   const reservedCapabilities: ScoredNode[] = selectedCapabilities.map(
     (node) => {
       const existing = scored.find((s) => s.node.id === node.id);
-      if (existing) return existing;
+      if (existing) {
+        return existing;
+      }
       return scoreCandidate(
         node,
         {
@@ -870,7 +901,6 @@ interface TurnRetrievalOpts {
   userLastMessage: string;
   /** Raw content blocks from the user's last message (for image extraction). */
   userLastMessageBlocks?: ContentBlock[];
-  scopeId: string;
   config: AssistantConfig;
   tracker: InContextTracker;
   signal?: AbortSignal;
@@ -986,7 +1016,9 @@ export async function retrieveForTurn(
           // Resolve the image bytes whether stored inline or as a workspace
           // reference; skip when the bytes can't be read.
           const resolved = resolveMediaSourceData(img.source);
-          if (!resolved) continue;
+          if (!resolved) {
+            continue;
+          }
           const imageInput = {
             type: "image" as const,
             data: Buffer.from(resolved.data, "base64"),
@@ -1053,13 +1085,17 @@ export async function retrieveForTurn(
       let current = "";
       for (const p of paragraphs) {
         if (current.length + p.length > maxQueryChars) {
-          if (current.length > 0) chunks.push(current);
+          if (current.length > 0) {
+            chunks.push(current);
+          }
           current = p;
         } else {
           current += (current ? "\n\n" : "") + p;
         }
       }
-      if (current.length > 0) chunks.push(current);
+      if (current.length > 0) {
+        chunks.push(current);
+      }
     }
   }
 
@@ -1131,7 +1167,7 @@ export async function retrieveForTurn(
   const pureSemanticHits = allCandidateIds.size;
 
   // 3. Evaluate semantic triggers
-  const semanticTriggers = getActiveTriggersByType("semantic", opts.scopeId);
+  const semanticTriggers = getActiveTriggersByType("semantic");
   const triggeredSemantic =
     queryEmbeddings.length > 0
       ? evaluateSemanticTriggers(semanticTriggers, queryEmbeddings[0])
@@ -1180,7 +1216,9 @@ export async function retrieveForTurn(
   const capabilityCandidates: { node: MemoryNode; sim: number }[] = [];
 
   for (const node of nodes) {
-    if (node.fidelity === "gone") continue;
+    if (node.fidelity === "gone") {
+      continue;
+    }
     // Capability nodes (auto-seeded skills/CLI) are excluded from the general
     // scoring pool — they compete in the dedicated procedural reserve below.
     if (isCapabilityNode(node)) {
@@ -1234,7 +1272,9 @@ export async function retrieveForTurn(
       );
       const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
       if (capId) {
-        if (seenProcCapIds.has(capId)) return false;
+        if (seenProcCapIds.has(capId)) {
+          return false;
+        }
         seenProcCapIds.add(capId);
       }
       return true;

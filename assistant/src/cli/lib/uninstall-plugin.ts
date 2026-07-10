@@ -14,6 +14,8 @@
 import { existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { runShutdownHook } from "../../hooks/hook-loader.js";
+import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   InvalidPluginNameError,
@@ -55,10 +57,20 @@ export interface UninstallPluginResult {
  * `../../etc/passwd` style argument never reaches `rmSync` — even
  * though commander typically prevents it at the argv level, defense in
  * depth.
+ *
+ * Before removing the directory, the plugin's `shutdown` hook (reason
+ * `uninstall`) is resolved and run while its files are still present, so it can
+ * clean up. It runs in whatever process performs the uninstall — both the CLI
+ * command and the daemon's `DELETE` route call this — because a `shutdown` hook
+ * must not assume it shares a process with its `init`. Resolving a hook that
+ * imports `@vellumai/plugin-api` needs the workspace shim in place; each caller
+ * ensures it first — the daemon `DELETE` route and the `plugins` CLI command
+ * group. A missing, throwing, or slow hook is best-effort (time-boxed inside
+ * {@link runShutdownHook}) and never blocks the removal.
  */
-export function uninstallPlugin(
+export async function uninstallPlugin(
   opts: UninstallPluginOptions,
-): UninstallPluginResult {
+): Promise<UninstallPluginResult> {
   const name = sanitizePluginName(opts.name);
   const pluginsDir = opts.workspacePluginsDir ?? getWorkspacePluginsDir();
   const target = join(pluginsDir, name);
@@ -73,6 +85,16 @@ export function uninstallPlugin(
   const stats = statSync(target);
   if (!stats.isDirectory()) {
     throw new PluginNotInstalledError(name, target);
+  }
+
+  // Skip the shutdown hook when the plugin is disabled. A `.disabled` plugin
+  // is never loaded — no hooks, tools, or init — so its shutdown was never
+  // paired with an init. Running it on uninstall would be the first and only
+  // execution of the plugin's code, which inverts the disabled contract and
+  // is especially dangerous for untrusted/direct-installed plugins where
+  // removal should never be the action that first runs plugin code.
+  if (!isPluginDisabled(name)) {
+    await runShutdownHook("plugin", name, "uninstall");
   }
 
   rmSync(target, { recursive: true, force: true });

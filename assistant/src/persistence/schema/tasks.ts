@@ -26,7 +26,6 @@ export const taskRuns = sqliteTable("task_runs", {
   finishedAt: integer("finished_at"),
   error: text("error"),
   principalId: text("principal_id"),
-  memoryScopeId: text("memory_scope_id"),
   createdAt: integer("created_at").notNull(),
 });
 

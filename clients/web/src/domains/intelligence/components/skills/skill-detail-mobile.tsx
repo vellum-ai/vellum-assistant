@@ -9,17 +9,20 @@ import {
     Loader2,
     Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
 import { isMarkdown } from "@/components/file-markdown";
+import { SkillLineageLink } from "@/components/skill-lineage-link";
 import {
     isAvailableSkill,
-    isRemovableSkill,
-    type SkillFileEntry,
     type SkillInfo,
 } from "@/domains/intelligence/skills/types";
-import { useSkillDetailFiles } from "@/domains/intelligence/skills/use-skill-detail-files";
+import {
+    useSkillDetailFiles,
+    type SkillFileEntry,
+} from "@/hooks/use-skill-detail-files";
+import { isRemovableSkill } from "@/utils/skills";
 import { Button, Card, Menu, SegmentControl } from "@vellumai/design-library";
 import { SkillFileContent } from "./skill-file-content";
 import { SkillIcon } from "./skill-icon";
@@ -33,6 +36,17 @@ interface SkillDetailMobileProps {
   onRemove?: () => void;
   isInstalling?: boolean;
   isRemoving?: boolean;
+  /**
+   * Attached to the overlay root so the route-level `useEdgeSwipeBack` drag
+   * transform tracks this surface. The overlay portals out of the page's DOM
+   * subtree, so the owning page can't wrap it in its own ref'd container.
+   */
+  swipeContainerRef?: RefObject<HTMLDivElement | null>;
+  /**
+   * Source conversation this skill was distilled from (assistant-memory
+   * skills only) — renders a quiet lineage link when present.
+   */
+  sourceConversationId?: string;
 }
 
 /**
@@ -62,6 +76,8 @@ export function SkillDetailMobile({
   onRemove,
   isInstalling = false,
   isRemoving = false,
+  swipeContainerRef,
+  sourceConversationId,
 }: SkillDetailMobileProps) {
   const available = isAvailableSkill(skill);
   const removable = isRemovableSkill(skill);
@@ -99,6 +115,7 @@ export function SkillDetailMobile({
 
   const overlay = (
     <div
+      ref={swipeContainerRef}
       className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-[var(--surface-overlay)]"
       style={{
         paddingTop:
@@ -160,6 +177,9 @@ export function SkillDetailMobile({
         >
           {skill.description}
         </p>
+        <SkillLineageLink
+          skill={{ origin: skill.origin, sourceConversationId }}
+        />
       </div>
 
       {/* Content card — 24px below the description */}

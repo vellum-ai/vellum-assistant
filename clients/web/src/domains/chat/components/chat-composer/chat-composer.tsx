@@ -470,6 +470,7 @@ export function ChatComposer({
       <Popover.Root open={emoji.show || slash.show}>
         <Popover.Anchor asChild>
           <form
+            data-slot="chat-composer"
             onSubmit={onSubmit}
             className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${
               hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"
@@ -744,6 +745,9 @@ export function ChatComposer({
                       {(!isMobile || !canSendMessageContent) && (
                         <Button
                           variant="primary"
+                          // Slightly tighter corners than the default primary
+                          // box to match the stop control in the design.
+                          className="rounded"
                           iconOnly={
                             <Square className="h-3 w-3" fill="currentColor" />
                           }

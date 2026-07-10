@@ -2,16 +2,9 @@
  * Host shell tool - `host_bash`.
  *
  * Unlike the sandboxed `bash` tool, `host_bash` runs commands directly on the
- * host machine without the OS-level sandbox. Under CES shell lockdown for
- * untrusted actors, `host_bash` remains available as a user-approved escape
- * hatch - the guardian must explicitly approve each invocation. It is NOT part
- * of the strong CES secrecy guarantee because it runs unsandboxed and could
- * access protected paths or credential material on disk.
- *
- * To mitigate risk, when CES shell lockdown is active for untrusted sessions:
- * - Persistent approvals are disabled (every invocation requires fresh approval).
- * - The VELLUM_UNTRUSTED_SHELL=1 env flag is set so CLI commands self-deny
- *   raw-token/secret reveal flows.
+ * host machine without the OS-level sandbox. Each invocation is approval-gated -
+ * the guardian must explicitly approve it. It runs unsandboxed and could access
+ * protected paths or credential material on disk.
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -20,7 +13,6 @@ import { isAbsolute } from "node:path";
 
 import { supportsHostProxy } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
-import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
@@ -28,7 +20,6 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../../runtime/assistant-event-hub.js";
-import { isUntrustedShellLockdownActive } from "../../runtime/effective-capabilities.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import type { CompletedBackgroundTool } from "../background-tool-registry.js";
@@ -80,10 +71,7 @@ function buildHostShellEnv(): Record<string, string> {
   return env;
 }
 
-function buildHostBashProxyEnv(
-  hostLockdownActive: boolean,
-  conversationId: string,
-): Record<string, string> {
+function buildHostBashProxyEnv(conversationId: string): Record<string, string> {
   const env: Record<string, string> = {};
 
   for (const key of HOST_BASH_PROXY_ENV_KEYS) {
@@ -91,10 +79,6 @@ function buildHostBashProxyEnv(
     if (value != null && value.length > 0) {
       env[key] = value;
     }
-  }
-
-  if (hostLockdownActive) {
-    env.VELLUM_UNTRUSTED_SHELL = "1";
   }
 
   // Keep nested `assistant` CLI calls in host_bash aligned with the
@@ -109,9 +93,6 @@ export const hostShellTool = {
     "LAST RESORT — Execute a shell command directly on the host machine. You MUST strongly prefer the regular `bash` tool for all commands. Only use `host_bash` when you are absolutely certain the command MUST run on the host machine and CANNOT run in the workspace (e.g., managing host-level system services, accessing host-only peripherals, or interacting with host paths outside the workspace). If in doubt, use `bash` instead. Approval-gated: each invocation must be explicitly approved. Do not use for commands that require injected credentials or secrets.",
   category: "host-terminal",
   executionTarget: "host",
-  // host_bash is a weaker-tier escape hatch under CES lockdown. It remains
-  // Medium risk by default but persistent approvals are disabled for
-  // untrusted sessions (see execute()).
   defaultRiskLevel: RiskLevel.Medium,
 
   input_schema: {
@@ -202,21 +183,6 @@ export const hostShellTool = {
     const config = getConfig();
     const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = config.timeouts;
 
-    // CES shell lockdown: host_bash is the weaker-tier escape hatch. When
-    // lockdown is active for untrusted actors, persistent approvals are
-    // disabled (every invocation requires fresh guardian approval) and the
-    // VELLUM_UNTRUSTED_SHELL flag is injected to self-deny raw-secret CLI
-    // commands. This does NOT provide the strong CES secrecy guarantee -
-    // the subprocess runs unsandboxed and could access protected paths.
-    //
-    // NOTE: forcePromptSideEffects is set in executor.ts BEFORE the
-    // permission check runs, not here. Setting it here would be too late
-    // because execute() is called after permissions have already been evaluated.
-    const hostLockdownActive = isUntrustedShellLockdownActive({
-      trustClass: context.trustClass,
-      lockdownEnabled: isCesShellLockdownEnabled(config),
-    });
-
     // Guard: non-host-proxy interfaces need an explicit target when multiple
     // capable clients are connected to avoid ambiguous untargeted broadcasts.
     const transportInterface = context.transportInterface;
@@ -271,11 +237,8 @@ export const hostShellTool = {
       );
       // Forward instance-routing env vars so nested `assistant` CLI commands
       // executed on a proxied host machine can still resolve the correct
-      // daemon IPC socket and workspace, plus lockdown marker when required.
-      const proxyEnv = buildHostBashProxyEnv(
-        hostLockdownActive,
-        context.conversationId,
-      );
+      // daemon IPC socket and workspace.
+      const proxyEnv = buildHostBashProxyEnv(context.conversationId);
 
       if (background) {
         // Check the registry limit BEFORE starting the proxy request so we
@@ -466,18 +429,12 @@ export const hostShellTool = {
         cwd: workingDir,
         timeoutSec,
         conversationId: context.conversationId,
-        hostLockdownActive,
         background,
       },
       "Executing host shell command",
     );
 
     const hostEnv = buildHostShellEnv();
-    // Inject VELLUM_UNTRUSTED_SHELL=1 so assistant CLI commands self-deny
-    // raw-token/secret reveal flows when invoked from an untrusted shell.
-    if (hostLockdownActive) {
-      hostEnv.VELLUM_UNTRUSTED_SHELL = "1";
-    }
     // Match `bash` tool behavior so nested assistant CLI calls can bind to
     // the active conversation when running through host_bash.
     hostEnv.__CONVERSATION_ID = context.conversationId;

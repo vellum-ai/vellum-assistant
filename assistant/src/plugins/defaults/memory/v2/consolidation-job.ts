@@ -9,10 +9,13 @@
  * Consolidation runs as the assistant: `runBackgroundJob()` bootstraps a
  * background conversation and routes the cutoff-templated prompt through
  * `processMessage`, so the standard system prompt (SOUL.md + IDENTITY.md +
- * persona + memory/* autoloads) and tool surface (read_file, write_file,
- * edit_file, list_files, bash) are loaded. Care, judgment, and the
+ * persona + memory/* autoloads) is loaded. Care, judgment, and the
  * assistant's voice are the point — there is no "consolidator persona" to
  * substitute in.
+ *
+ * The tool surface is wire-scoped to {@link CONSOLIDATION_ALLOWED_TOOLS} — the
+ * local memory-file operations this pass needs. See that constant for why the
+ * run must not carry network egress or host-proxy tools.
  *
  * Lifecycle:
  *   1. Bail if `config.memory.enabled` or `config.memory.v2.enabled` is false
@@ -72,10 +75,10 @@ import {
   type MemoryJobType,
 } from "../../../../persistence/jobs-store.js";
 import { runBackgroundJob } from "../../../../runtime/background-job-runner.js";
-import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
-import { isProcessAlive } from "../../../../util/process-liveness.js";
 import { formatBufferTimestamp } from "../graph/tool-handlers.js";
+import { isProcessAlive } from "../host-utils.js";
+import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 
@@ -83,6 +86,40 @@ const log = getLogger("memory-v2-consolidate");
 
 /** Stable identifier surfaced in `runBackgroundJob` logs and notifications. */
 const JOB_NAME = "memory.consolidate";
+
+/**
+ * Tool surface the consolidation run is wire-scoped to. Consolidation is a
+ * purely LOCAL memory-file reorganization pass: it reads `buffer.md` + existing
+ * pages, writes/edits concept pages, rewrites recent/essentials/threads, and
+ * trims the buffer. It has NO legitimate need for network egress or host-proxy
+ * tools.
+ *
+ * Scoping is load-bearing because the run is guardian-trust + non-interactive:
+ * the permission checker auto-approves any tool whose classified risk is within
+ * the background threshold (default `low`), and a public `web_fetch` classifies
+ * Low. An unrestricted surface would therefore let prompt injection embedded in
+ * buffer/page content — which can originate from untrusted material the
+ * assistant ingested (fetched web pages, emails, documents, channel messages) —
+ * exfiltrate memory over an auto-approved egress channel. Wire-gating to this
+ * allowlist removes that channel entirely: the excluded tools (`web_fetch`,
+ * `web_search`, `network_request`, `host_*`, …) are never even presented to
+ * the model, so the fix does not rely on the permission threshold. Mirrors the
+ * hardening the sibling memory-retrospective job already applies.
+ *
+ * `bash` is included because page deletes/renames go through the shell (there
+ * is no dedicated file-delete tool) and corpus operations need it; its
+ * dangerous / networked invocations remain risk-classified and denied in this
+ * background context regardless.
+ */
+const CONSOLIDATION_ALLOWED_TOOLS: readonly string[] = [
+  "file_read",
+  "file_write",
+  "file_edit",
+  "file_list",
+  "code_search",
+  "bash",
+  "recall",
+];
 
 /**
  * Hard timeout for the consolidation run. Consolidation reads the buffer,
@@ -280,6 +317,9 @@ export async function memoryV2ConsolidateJob(
       timeoutMs: CONSOLIDATION_TIMEOUT_MS,
       origin: "memory_consolidation",
       suppressFailureNotifications: true,
+      // Wire-scope the guardian-trust background run to local memory-file
+      // tools only — no network egress, no host proxy. See the constant.
+      allowedTools: CONSOLIDATION_ALLOWED_TOOLS,
     });
 
     if (!runResult.ok) {

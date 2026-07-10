@@ -11,7 +11,7 @@ export interface HostBashRequest {
   command: string;
   working_dir?: string;
   timeout_seconds?: number;
-  /** Extra environment variables to inject into the subprocess (e.g. VELLUM_UNTRUSTED_SHELL). */
+  /** Extra environment variables to inject into the subprocess (e.g. __CONVERSATION_ID). */
   env?: Record<string, string>;
   /** When set, route this request only to the client with this ID. */
   targetClientId?: string;

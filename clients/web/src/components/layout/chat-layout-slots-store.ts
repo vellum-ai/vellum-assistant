@@ -41,7 +41,6 @@ export interface ChatHeaderSupplements {
   channelHeaderChannelId: string | null;
   /** Secondary action callbacks — ChatPage-specific because they need
    *  access to the message list, active stream, or ChatPage-local state. */
-  onAnalyze: ((conversation: Conversation) => void) | null;
   onForkConversation: (() => void) | null;
   onOpenInNewWindow: ((conversation: Conversation) => void) | null;
   onInspect: ((conversation: Conversation) => void) | null;

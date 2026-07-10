@@ -12,7 +12,24 @@
  * Tests 2, 8, 9, and 10 are now active and passing against current code.
  */
 import { createRequire } from "node:module";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
+
+// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
+// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
+// llm-resolver-override-or-default.test.ts and its companion suites.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 import type { LoopToolExecutor } from "../agent/loop.js";
 import type { LLMConfig } from "../config/schemas/llm.js";
@@ -602,8 +619,6 @@ function makeCtx(
     } as unknown as Conversation["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
-
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
 
     currentActiveSurfaceId: undefined,
     currentPage: undefined,

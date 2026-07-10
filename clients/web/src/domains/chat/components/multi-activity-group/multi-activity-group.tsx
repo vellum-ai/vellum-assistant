@@ -407,6 +407,11 @@ function UnifiedMultiActivityGroup({
         // chat background like the lone `SingleActivity` link, with a ghost
         // hover on the row instead of boxed card chrome.
         bare
+        // No leading status icon in any state: the shimmering title IS the
+        // in-flight signal, and a settled (non-shimmering) header means done —
+        // a check/alert glyph would just restate that. Failure detail lives in
+        // the steps panel this header opens.
+        hideStatusIndicator
         state={shellState}
         currentStepTitle={cardData.currentStepTitle}
         currentStepInfo={headerInfo}

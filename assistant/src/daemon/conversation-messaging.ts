@@ -5,7 +5,7 @@
  * Extracted from Conversation to keep the class focused on coordination.
  */
 
-import { v4 as uuid } from "uuid";
+import { v7 as uuidv7 } from "uuid";
 
 import {
   type AttachmentReferenceInput,
@@ -60,6 +60,7 @@ import {
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
+import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type {
@@ -554,7 +555,7 @@ export function enqueueMessage(
     content,
     attachments = [],
     onEvent,
-    requestId = crypto.randomUUID(),
+    requestId = uuidv7(),
     activeSurfaceId,
     currentPage,
     metadata,
@@ -628,6 +629,14 @@ export interface PersistMessageOptions {
 
 // ── persistUserMessage ───────────────────────────────────────────────
 
+/**
+ * Thrown by user-message persistence when the conversation's processing
+ * lock is held. Callers (voice bridge retry, queue-drain requeue) match on
+ * this exact string — keep it byte-stable.
+ */
+export const CONVERSATION_BUSY_MESSAGE =
+  "Conversation is already processing a message";
+
 export async function persistUserMessage(
   ctx: MessagingConversationContext,
   options: PersistMessageOptions,
@@ -635,14 +644,14 @@ export async function persistUserMessage(
   const { content, attachments = [] } = options;
 
   if (ctx.isProcessing()) {
-    throw new Error("Conversation is already processing a message");
+    throw new Error(CONVERSATION_BUSY_MESSAGE);
   }
 
   if (!content.trim() && attachments.length === 0) {
     throw new Error("Message content or attachments are required");
   }
 
-  const reqId = options.requestId ?? uuid();
+  const reqId = options.requestId ?? uuidv7();
   ctx.currentRequestId = reqId;
   ctx.abortController = new AbortController();
 
@@ -650,7 +659,16 @@ export async function persistUserMessage(
     // `setProcessing(true)` persists the flag and can throw (e.g.
     // SQLITE_BUSY). Keeping it inside the try ensures a failure here unwinds
     // the request-id/abort bookkeeping below rather than stranding it.
-    ctx.setProcessing(true);
+    //
+    // This is the first DB write on the message-send path — it precedes the
+    // (already retried) message insert — so under transient WAL contention it
+    // must retry too, or the turn dies here before the insert is ever reached.
+    // `setProcessing` reverts its in-memory flag when its persist throws, so
+    // each attempt is safe to re-run.
+    await withSqliteRetry(() => ctx.setProcessing(true), {
+      op: "conversation:setProcessing",
+      context: { conversationId: ctx.conversationId },
+    });
     const result = await persistQueuedMessageBody(ctx, {
       ...options,
       attachments,
@@ -699,7 +717,7 @@ export async function persistQueuedMessageBody(
   const {
     content,
     attachments = [],
-    requestId = uuid(),
+    requestId = uuidv7(),
     metadata,
     displayContent,
     clientMessageId,

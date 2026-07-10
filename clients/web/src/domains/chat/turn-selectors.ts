@@ -50,19 +50,19 @@ export interface UIContext {
  * Mirrors macOS TranscriptProjector.wouldShowThinking:
  *   isSending && (isThinking || !hasStreamingAssistantMessage) && !hasActiveToolCall
  *
- * Show the dots whenever the turn is actively processing, no assistant
+ * Show the indicator whenever the turn is actively processing, no assistant
  * text is streaming yet, and no tool call is in-flight. The fallback
- * `!hasStreamingAssistantMessage` keeps the dots visible even after the
- * phase moves past "thinking" (e.g. after a tool call completes before
- * any text arrives).
+ * `!hasStreamingAssistantMessage` keeps it visible even after the phase
+ * moves past "thinking" (e.g. after a tool call completes before any text
+ * arrives).
  *
  * Unlike macOS, this standalone row hands off to the inline
  * {@link SingleActivity} as soon as the live assistant message carries
  * reasoning content (`hasStreamingAssistantThinking`) — that link renders the
- * same three-dot "Thinking" loading state inline and is clickable to open the
- * streaming reasoning. So the dots row is scoped to the pre-reasoning window
- * (no assistant bubble yet, or a bubble that hasn't emitted reasoning) to avoid
- * two competing thinking indicators.
+ * same shimmering "Thinking" loading state inline and is clickable to open the
+ * streaming reasoning. So the standalone row is scoped to the pre-reasoning
+ * window (no assistant bubble yet, or a bubble that hasn't emitted reasoning)
+ * to avoid two competing thinking indicators.
  *
  * Each potentially-competing UI surface has its own explicit gate:
  * pending secret/confirmation/question/contact prompts, and any

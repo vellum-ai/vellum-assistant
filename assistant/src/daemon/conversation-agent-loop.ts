@@ -27,10 +27,12 @@ import {
   resolveEffectiveContextWindow,
 } from "../config/llm-context-resolution.js";
 import {
+  isOverrideOrDefaultResolutionEnabled,
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
   resolveEffectiveProfileKey,
   resolveProfilelessModelKey,
+  selectWinningProfile,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -61,7 +63,6 @@ import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import { enqueueAutoAnalysisOnCompaction } from "../runtime/services/auto-analysis-enqueue.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
@@ -450,11 +451,23 @@ export async function runAgentLoopImpl(
   });
   let currentEffectiveContextWindow: EffectiveContextWindow =
     effectiveContextWindow;
+  const logResolutionFallback = (info: {
+    callSite: string;
+    requested: string;
+    reason: string;
+  }) => {
+    rlog.warn(
+      { ...info, conversationId: ctx.conversationId },
+      "Inference profile fell back to the call-site default",
+    );
+  };
+
   let currentContextWindowConfig = contextWindowConfigFromEffective(
     resolveCallSiteConfig(turnCallSite, config.llm, {
       overrideProfile: turnOverrideProfile ?? undefined,
       forceOverrideProfile,
       selectionSeed: ctx.conversationId,
+      onResolutionFallback: logResolutionFallback,
     }).contextWindow,
     currentEffectiveContextWindow,
   );
@@ -475,6 +488,7 @@ export async function runAgentLoopImpl(
         resolveCallSiteConfig(turnCallSite, config.llm, {
           overrideProfile: currentOverrideProfile,
           forceOverrideProfile,
+          onResolutionFallback: logResolutionFallback,
           selectionSeed: ctx.conversationId,
         }).contextWindow,
         currentEffectiveContextWindow,
@@ -917,10 +931,21 @@ export async function runAgentLoopImpl(
     // `modelProfileKey` is the actual profile used for this turn. The
     // notice key is narrower: it only marks turns where runtime context should
     // remind the model that the profile changed.
+    // Under override-or-default semantics the reported key must come from
+    // the same winner selection dispatch used — a hand-rolled chain would
+    // credit profiles the resolver never consulted (e.g. activeProfile on a
+    // non-mainAgent turn).
     const effectiveProfileKey =
-      turnOverrideProfile ??
-      config.llm.activeProfile ??
-      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      (isOverrideOrDefaultResolutionEnabled()
+        ? selectWinningProfile(turnCallSite, config.llm, {
+            ...(turnOverrideProfile != null
+              ? { overrideProfile: turnOverrideProfile }
+              : {}),
+            selectionSeed: ctx.conversationId,
+          }).profileName
+        : (turnOverrideProfile ??
+          config.llm.activeProfile ??
+          resolveDefaultProfileKey("mainAgent", config.llm))) ??
       resolveProfilelessModelKey(turnCallSite, config.llm, {
         ...(turnOverrideProfile != null
           ? { overrideProfile: turnOverrideProfile }
@@ -1718,7 +1743,7 @@ export interface CompactionApplyContext {
 /**
  * Applies a successful `ContextWindowResult` to a conversation: updates the
  * in-memory message buffer and compaction counters, notifies the graph memory
- * and conversation-summary store, enqueues auto-analysis, emits the
+ * and conversation-summary store, emits the
  * `context_compacted` event, and records a `context_compactor` usage event.
  *
  * The emitted `usage_update` intentionally omits `contextWindow` — the
@@ -1789,10 +1814,6 @@ export async function applyCompactionResult(
     ctx.slackContextCompactionWatermarkTs =
       options.slackContextCompactionWatermarkTs;
   }
-  enqueueAutoAnalysisOnCompaction(
-    ctx.conversationId,
-    ctx.trustContext?.trustClass,
-  );
   enqueueMemoryRetrospectiveOnCompaction(
     ctx.conversationId,
     ctx.trustContext?.trustClass,

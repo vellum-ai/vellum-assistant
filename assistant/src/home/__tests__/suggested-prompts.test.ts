@@ -74,11 +74,10 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: { publish: async () => {} },
 }));
 
-const {
-  getSuggestedPrompts,
-  refreshAssistantSuggestedPrompts,
-  invalidateAssistantSuggestedPromptsCache,
-} = await import("../suggested-prompts.js");
+const { getSuggestedPrompts, refreshAssistantSuggestedPrompts } =
+  await import("../suggested-prompts.js");
+const { invalidateAssistantSuggestedPromptsCache } =
+  await import("../suggested-prompts-cache.js");
 
 // ─── Tests ─────────────────────────────────────────────────────────────
 

@@ -229,6 +229,7 @@ export interface SttStreamClientStopEvent {
 export type SttStreamServerEvent =
   | SttStreamServerPartialEvent
   | SttStreamServerFinalEvent
+  | SttStreamServerFinalizedEvent
   | SttStreamServerErrorEvent
   | SttStreamServerClosedEvent;
 
@@ -263,6 +264,23 @@ export interface SttStreamServerFinalEvent {
    * provider does not surface confidence on this chunk.
    */
   readonly confidence?: number;
+  /**
+   * True when this final is the flush response to
+   * {@link StreamingTranscriber.finalizeUtterance} — i.e. it commits audio
+   * that was buffered before the finalize request, not new speech.
+   * Undefined on ordinary finals and on providers without finalize.
+   */
+  readonly fromFinalize?: boolean;
+}
+
+/**
+ * All provider-buffered audio has been flushed into `final` event(s) in
+ * response to {@link StreamingTranscriber.finalizeUtterance}. Emitted
+ * exactly once per finalize request, after the flushed `final` event(s).
+ * The stream stays open and continues to accept audio.
+ */
+export interface SttStreamServerFinalizedEvent {
+  readonly type: "finalized";
 }
 
 /** An error occurred during streaming transcription. */
@@ -294,8 +312,10 @@ export interface SttStreamServerClosedEvent {
  * Lifecycle:
  * 1. Call {@link start} to open the provider session.
  * 2. Feed audio chunks via {@link sendAudio}.
- * 3. Call {@link stop} when the client finishes recording.
- * 4. The `onEvent` callback receives server events until `closed`.
+ * 3. Optionally call {@link finalizeUtterance} between utterances to
+ *    flush buffered audio into finals while keeping the stream open.
+ * 4. Call {@link stop} when the client finishes recording.
+ * 5. The `onEvent` callback receives server events until `closed`.
  */
 export interface StreamingTranscriber {
   /** Which provider backs this transcriber. */
@@ -318,6 +338,17 @@ export interface StreamingTranscriber {
    * {@link stop} has been called.
    */
   sendAudio(audio: Buffer, mimeType: string): void;
+
+  /**
+   * Flush all buffered audio into final transcript(s) without closing
+   * the stream.
+   *
+   * Emits `final` event(s) for pending audio followed by one `finalized`
+   * event; the stream stays open for more audio. Optional — callers must
+   * feature-detect this method and fall back to {@link stop} (full
+   * teardown) when the provider does not support it.
+   */
+  finalizeUtterance?(): void;
 
   /**
    * Signal that the client has finished sending audio.

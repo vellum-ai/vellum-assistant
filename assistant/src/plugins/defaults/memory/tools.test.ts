@@ -12,7 +12,6 @@ import {
 } from "bun:test";
 
 import type { ToolContext } from "../../../tools/types.js";
-import { PKB_WORKSPACE_SCOPE } from "./pkb/types.js";
 
 // This test exercises v1 PKB re-index enqueue. `config.memory.v2.enabled`
 // (default `true`) makes the enqueue path skipped — force it off so the
@@ -31,7 +30,6 @@ let previousWorkspaceEnv: string | undefined;
 const enqueueCalls: Array<{
   pkbRoot: string;
   absPath: string;
-  memoryScopeId: string;
 }> = [];
 let enqueueShouldThrow = false;
 
@@ -42,11 +40,7 @@ const recallCalls: Array<{
 let recallContent = "agentic recall answer";
 
 mock.module("./jobs/embed-pkb-file.js", () => ({
-  enqueuePkbIndexJob: (input: {
-    pkbRoot: string;
-    absPath: string;
-    memoryScopeId: string;
-  }) => {
+  enqueuePkbIndexJob: (input: { pkbRoot: string; absPath: string }) => {
     enqueueCalls.push(input);
     if (enqueueShouldThrow) {
       throw new Error("simulated enqueue failure");
@@ -301,12 +295,10 @@ describe("rememberTool.execute — PKB re-index enqueue", () => {
     expect(enqueueCalls[0]).toEqual({
       pkbRoot,
       absPath: bufferPath,
-      memoryScopeId: PKB_WORKSPACE_SCOPE,
     });
     expect(enqueueCalls[1]).toEqual({
       pkbRoot,
       absPath: archivePath,
-      memoryScopeId: PKB_WORKSPACE_SCOPE,
     });
   });
 

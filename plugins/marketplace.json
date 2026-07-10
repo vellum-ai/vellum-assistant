@@ -18,6 +18,18 @@
       "license": "MIT"
     },
     {
+      "name": "kitchen-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/kitchen-companion",
+        "ref": "b6ebdda6992dfa1fd2186a600a642f538fb64584"
+      },
+      "description": "Full kitchen companion. Scan your fridge with a photo to stock a pantry inventory and get 3 makeable-now recipes, get alerts before food expires, clip recipes from any URL into a clean format, and generate meal plans with grocery lists from what you actually have.",
+      "category": "lifestyle",
+      "homepage": "https://github.com/vellum-ai/kitchen-companion",
+      "license": "MIT"
+    },
+    {
       "name": "simple-memory",
       "source": {
         "source": "github",
@@ -255,6 +267,102 @@
       "description": "Diagnose plants from photos. Identifies the species, assesses health with visible evidence, and returns a care plan. Named plants get a persistent checkup history so you can track whether they are improving.",
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/plant-doctor",
+      "license": "MIT"
+    },
+    {
+      "name": "tennis-companion",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/tennis-companion",
+        "ref": "1c6d2bd448ee7b5285d37cfee4e0e413522746d1"
+      },
+      "description": "Tennis journal, drill sessions, court finder, and progress tracking. Log matches with opponent tendencies, generate 30-minute practice sessions with progressions, find nearby courts via OpenStreetMap, and track win rate by surface and conditions.",
+      "category": "health",
+      "homepage": "https://github.com/vellum-ai/tennis-companion",
+      "license": "MIT"
+    },
+    {
+      "name": "smb-inbox-brief",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/smb-inbox-brief",
+        "ref": "8e298bd8ded5e0e16c5160edcd547eda1e4d222f"
+      },
+      "description": "Find urgent replies, overdue invoices, quotes, and customer follow-ups before they slip. Scans email, logs business items, delivers urgency-ranked daily briefs.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/smb-inbox-brief",
+      "license": "MIT"
+    },
+    {
+      "name": "family-briefing",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/family-briefing",
+        "ref": "145f341db7d06ffa81e2052033f187679b8bda4d"
+      },
+      "description": "Daily morning briefing for parents: merges family calendars, triages school emails, and detects scheduling conflicts.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/family-briefing",
+      "license": "MIT"
+    },
+    {
+      "name": "personal-finance",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/personal-finance",
+        "ref": "f8f9bfba3d86c943001da894b920e7e867507dd4"
+      },
+      "description": "Track expenses, income, recurring bills, and savings funds from your assistant. Multi-currency, receipt OCR, Plaid bank sync, and financial summaries. All data stored locally in SQLite.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/personal-finance",
+      "license": "MIT"
+    },
+    {
+      "name": "proactive-slacks",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/proactive-slacks",
+        "ref": "a5dd35699455ae7a2db3d2243511a8c7edc49aea"
+      },
+      "description": "Let your assistant reach you on Slack on purpose. Route notifications by topic to the right channel at the right volume, with heartbeat-based change detection so it only pings when something actually changed.",
+      "category": "productivity",
+      "homepage": "https://github.com/AnitaKirkovska/proactive-slacks",
+      "license": "MIT"
+    },
+    {
+      "name": "cognee",
+      "source": {
+        "source": "github",
+        "repo": "topoteretes/cognee-integrations",
+        "path": "integrations/vellum-assistant",
+        "ref": "d79bd9a216c9f6d88d27694cc0b42a18b63dba88"
+      },
+      "description": "Cognee knowledge graph memory for Vellum Assistant: session-aware storage, auto-routing recall, and persistent learning across sessions. Supports local mode and Cognee Cloud.",
+      "category": "memory",
+      "homepage": "https://github.com/topoteretes/cognee-integrations/tree/main/integrations/vellum-assistant"
+    },
+    {
+      "name": "influencer-marketing",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/influencer",
+        "ref": "8629b0dcfdacf62246122af2dcd7320baa6db04e"
+      },
+      "description": "Find and research influencers on Instagram, TikTok, and X/Twitter. Includes a strategy builder that walks from campaign brief to research criteria, a research skill that discovers real profiles via browser automation, scores candidates, and exports ranked shortlists, and a dashboard skill that turns the shortlist into an interactive outreach tracker.",
+      "category": "marketing",
+      "homepage": "https://github.com/ZeebBoyBlue/influencer",
+      "license": "MIT"
+    },
+    {
+      "name": "vellum-client-qa",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/vellum-client-qa",
+        "ref": "fd5e6a2dca75ff6d95c55ab69f66aff0fb58f138"
+      },
+      "description": "Cross-platform QA rig for vellum-assistant clients: mock the platform backend, boot the real chat UI, and verify feature branches in headless Chromium (web), an iOS simulator, or Electron with screenshot and video proof.",
+      "category": "developer",
+      "homepage": "https://github.com/vellum-ai/vellum-client-qa",
       "license": "MIT"
     }
   ]

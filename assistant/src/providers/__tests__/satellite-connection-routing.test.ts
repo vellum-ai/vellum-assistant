@@ -22,7 +22,18 @@
  *   - No callSite → straight to default (no resolution work).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+
+// Connection-routing plumbing over legacy-shaped fixtures (llm.default /
+// activeProfile-centric, no defaultProvider): pinned to the flag-off
+// cascade. Flag-on dispatch behavior is covered by
+// inference-no-mode-boot-e2e.test.ts and the override-or-default resolver
+// suite.
+beforeAll(() => {
+  setOverridesForTesting({ "override-or-default-resolution": false });
+});
 
 import type { Provider, ProviderResponse } from "../types.js";
 

@@ -1,6 +1,6 @@
 ---
 name: "llm-cost-optimizer"
-description: "Analyze and reduce LLM spend by mapping call-site overrides to managed profiles (Balanced / Quality / Speed). Covers spend analysis, profile assignment, and config correctness."
+description: "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Speed) only where they should deviate from shipped defaults."
 metadata:
   emoji: "💸"
   vellum:
@@ -13,194 +13,134 @@ metadata:
 This skill walks through analyzing and reducing LLM spend on a Vellum assistant. There are three layers:
 
 1. **Provider connections** — named auth configs (e.g. `anthropic-managed`, `my-personal-key`)
-2. **Model profiles** — named presets (model + effort + thinking + contextWindow). Three managed defaults: `balanced`, `quality-optimized`, `cost-optimized`.
-3. **Call-site overrides** (`llm.callSites.<id>`) — per-task model/profile pinning. Falls back to `llm.default` when absent.
+2. **Model profiles** — named presets (provider + model + effort + thinking + contextWindow). Three managed defaults, with UI labels:
+   - `balanced` → **Balanced** (the general agent-loop profile)
+   - `quality-optimized` → **Quality** (the expensive escalation profile)
+   - `cost-optimized` → **Speed** (the cheap utility/background profile)
+3. **Call-site profile pins** (`llm.callSites.<id>.profile`) — optional per-task overrides of the shipped defaults.
 
-UI labels for the three managed profiles:
+The concrete model behind each managed profile depends on the install: platform-managed installs and BYOK installs resolve different providers/models, and the catalog changes over time. **Never assume which model a profile maps to** — read `assistant config get llm.profiles` and the usage breakdown by `model` to see what actually ran.
 
-- `balanced` → **Balanced** (Sonnet, good for agent loop)
-- `quality-optimized` → **Quality** (Opus, for hard tasks)
-- `cost-optimized` → **Speed** (Haiku, for utility/background tasks)
+## How model selection works — read this before diagnosing
 
-### 🚨 Critical: unoverridden call sites fall back to `llm.default`
+Every LLM call resolves exactly **one winning profile** through a strict first-usable-wins chain. Profiles never merge with each other:
 
-If `llm.default` is Opus (or any expensive model), **every call site without an explicit override burns that rate**. Don't rely on just patching a few overrides — use the complete turnkey blob in Step 5 to cover every call site at once.
+1. **Per-conversation / per-run override** — the user's `/model` pick, an open `assistant inference session`, or a schedule's pinned profile
+2. **`llm.activeProfile`** — applies to `mainAgent` (the chat loop) **only**; it IS the user's chat-model selection and outranks any `llm.callSites.mainAgent` pin
+3. **`llm.callSites.<site>.profile`** — explicit per-site pin
+4. **The call site's shipped default intent**, resolved through `llm.defaultProvider`
+5. `balanced` intent (final anchor)
 
----
+A rung only wins if its profile exists, is enabled, and carries its own provider + model; otherwise resolution silently falls to the next rung.
 
-## Step 1 — Understand current spend
+Consequences that change how you diagnose cost:
+
+- **A missing or empty `llm.callSites` block is healthy, not a red flag.** Every call site ships with a sensible default intent: the agent loop and quality-sensitive sites (`mainAgent`, `subagentSpawn`, `compactionAgent`, `callAgent`, `patternScan`, `narrativeRefinement`, `memoryConsolidation`, `memoryV2Consolidation`, `memoryV3SelectL2`, `recall`, `conversationStarters`, `identityIntro`, `emptyStateGreeting`) default to `balanced`; everything else (classifiers, summarization, titles, copy generation, memory extraction/retrieval/sweeps, heartbeat, home-screen content, etc.) defaults to `cost-optimized`. Nothing "falls back" to an expensive model.
+- **Do not write a full `llm.callSites` blob that mirrors the shipped defaults.** That freezes today's defaults into user config and silently opts the user out of future default improvements (and of tuning shipped alongside them, like cache and context-window settings). Pin only deliberate deviations.
+
+## Step 1 — Measure current spend
 
 ```bash
 # Weekly totals
 assistant usage totals --range week
 
-# Break down by call site (most useful — shows what's expensive)
+# Break down by call site (what kind of work is expensive)
 assistant usage breakdown --group-by call_site --range week
 
-# Break down by model
+# Break down by model (what actually ran)
 assistant usage breakdown --group-by model --range week
 
-# Break down by profile
+# Break down by profile (which selection produced it)
 assistant usage breakdown --group-by inference_profile --range week
 ```
 
-Check `llm.default` — if it's pointing at Opus, that's your biggest risk:
+Cross-reference the `call_site` and `inference_profile` breakdowns: a background call site showing spend under an expensive profile means an override or pin routed it there — that is the interesting finding, not the config defaults.
+
+Add `--json` when you need token-level detail (input vs output vs `cache_creation` vs `cache_read`) — high input volume on a cheap model can outweigh low volume on an expensive one.
+
+## Step 2 — Read the effective configuration
 
 ```bash
-assistant config get llm.default
-```
-
----
-
-## Step 2 — Read current overrides
-
-```bash
-assistant config get llm.callSites
-assistant config get llm.profiles
+assistant inference callsites list      # per call site: winning profile, default vs pinned
+assistant inference profiles list      # effective profiles: managed + user, with availability
+assistant inference profiles active    # the chat-model selection
+assistant inference providers default  # default provider + availability
+assistant inference session list
 assistant inference providers connections list
+assistant schedules list
 ```
 
----
+For each recurring schedule, check which profile its runs use — `assistant schedules get <id>` shows an "Inference profile" line. A schedule with no pinned profile runs under the **mainAgent model selection** (the active profile), not a cheap background profile.
 
-## Step 3 — Recommended profile assignment
+## Step 3 — What typically drives cost (check in this order)
 
-| Profile                    | Call Sites                                                                                                                                                                                                                                          |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `balanced` (Sonnet)        | `mainAgent`, `subagentSpawn`, `compactionAgent`, `analyzeConversation`, `patternScan`, `narrativeRefinement`, `memoryConsolidation`, `recall`, `callAgent`, `emptyStateGreeting`, `conversationStarters`, `identityIntro`, `proactiveArtifactBuild` |
-| `cost-optimized` (Haiku)   | **Everything else** — `memoryRouter` (with 1M context override), memory extraction/retrieval, UI copy, classifiers, summarization, background tasks                                                                                                 |
-| `quality-optimized` (Opus) | **Do not pin.** Reserved for on-demand user escalation via `/model`                                                                                                                                                                                 |
+1. **The chat loop and everything that inherits its profile.** `llm.activeProfile` (and per-conversation `/model` sessions) is the #1 lever. Note the inheritance paths: subagents spawned from a conversation with a profile override run under that profile, and memory retrospectives run under the **source conversation's** profile when `memory.retrospective.matchConversationProfile` is enabled (they show under `memoryRetrospective` in the breakdown but are priced at the chat profile — this is deliberate, for prompt-cache reuse).
+2. **Recurring schedules without a pinned profile.** Schedule runs default to the mainAgent model selection, and a pinned schedule profile overrides the _entire run_ (every call site in it). A frequent schedule left on an expensive chat profile is a classic silent cost driver — check it with `assistant usage breakdown --group-by call_site --schedule <id>`, and per-run cost with `assistant schedules runs <id>`.
+3. **Pins to `quality-optimized`.** No call site should be statically pinned to it; it is an on-demand escalation profile.
+4. **High-volume background sites.** `memoryRouter` runs with a very large input window by design; heartbeat, memory sweeps, and summarization run often. These are already on `cost-optimized` by default — check whether a pin or override moved them off it.
+5. **Cache economics.** Repeated-prefix call sites benefit from caching; one-shot sites ship with caching disabled. If `cache_creation` dwarfs `cache_read` on a site, flag it.
 
----
+## Step 4 — Optimize
 
-## Step 4 — Config gotchas
+- **Chat model**: if the user is happy to reduce chat cost, set the active profile — this is the same thing the model picker in the UI writes:
 
-### ⚠️ JSON object value replaces the entire block
+  ```bash
+  assistant config set llm.activeProfile balanced
+  ```
 
-`assistant config set llm.callSites.<key> '{...}'` with a JSON object **replaces the entire `llm.callSites` block**, not just that key.
+- **Downgrade one specific site** that the breakdown shows is expensive and quality-insensitive (leaf path, see Step 5):
 
-- ✅ Single leaf value (safe): `assistant config set llm.callSites.mainAgent.profile balanced`
-- ✅ Multiple / object values: always set `llm.callSites` as a **single JSON blob** (see Step 5)
-- ❌ Never do: `assistant config set llm.callSites.memoryExtraction '{"profile":"cost-optimized"}'` — wipes all other overrides
+  ```bash
+  assistant config set llm.callSites.memoryExtraction.profile cost-optimized
+  ```
 
-### ⚠️ Always use profile references — never direct model
+- **Restore a site to its shipped default** by clearing the pin:
 
-❌ Wrong (shows "Custom" with empty provider/model in UI, won't track profile updates):
+  ```bash
+  assistant config set llm.callSites.memoryExtraction null
+  ```
+
+- **Verify any pin change** with `assistant inference callsites get <site>` — it shows the effective resolution chain, so you can confirm the pin actually took (or that clearing it restored the shipped default).
+
+- **Schedules**: pin frequent background schedules to a cheap profile, or clear a stale expensive pin:
+
+  ```bash
+  assistant schedules update <id> --profile cost-optimized
+  assistant schedules update <id> --clear-profile   # revert to the mainAgent model selection
+  ```
+
+  (`--profile` is also available on `assistant schedules create`.) Reserve the default (chat-profile) behavior for schedules whose output quality the user actually reads.
+
+- **Never pin `quality-optimized`.** Keep it for on-demand escalation (Step 6).
+
+## Step 5 — Config write safety
+
+- **Prefer single leaf paths** (`llm.callSites.<site>.profile <value>`). They are surgical and cannot clobber siblings.
+- **Object values replace the whole subtree at that path** (siblings are preserved). `assistant config set llm.callSites.mainAgent '{"profile":"balanced"}'` replaces mainAgent's entire fragment — including any tuning fields that were set — but does not touch other call sites.
+- **Writes are not schema-validated at write time.** A typo'd call-site name, profile name, or field lands in config silently; a bad profile reference just falls through to the shipped default at resolution time, so the "pin" does nothing without an error. After every write, re-read the key (`assistant config get ...`) and pick names from `assistant inference callsites list` / `assistant inference profiles list` output.
+- **Always use profile references, never direct `model` values** on call sites. A direct model shows as "Custom" in the UI, detaches from managed profile updates, and couples config to a model id that will go stale.
+- `profile` plus tuning fields can coexist on a pin: `effort`, `maxTokens`, `temperature`, `thinking`, `contextWindow` all layer on top of the winning profile.
+
+## Step 6 — Escalation path (on-demand Quality)
+
+Don't pin any call site to `quality-optimized`. Escalate per conversation:
 
 ```bash
-assistant config set llm.callSites.memoryExtraction.model claude-haiku-4-5-20251001
-```
-
-✅ Correct (shows "Speed" in UI):
-
-```bash
-assistant config set llm.callSites.memoryExtraction.profile cost-optimized
-```
-
-### Profile + tuning fields can coexist
-
-`profile` sets provider/model/connection. You can still add `effort`, `maxTokens`, `temperature`, `thinking`, `contextWindow` alongside it:
-
-```json
-{
-  "profile": "cost-optimized",
-  "maxTokens": 4096,
-  "effort": "low",
-  "temperature": 0,
-  "thinking": { "enabled": false, "streamThinking": false }
-}
-```
-
----
-
-## Step 5 — Apply the complete turnkey blob
-
-This covers **every known call site** — nothing falls back to default. Copy, paste, apply:
-
-> **Note:** The canonical shipped defaults live in `assistant/src/config/call-site-defaults.ts`. The blob below can be used to override a user's config, but call sites without explicit user overrides already resolve to the defaults defined in that file. If new call sites have been added since this skill was written, add them there (default to `cost-optimized` unless they involve reasoning or memory consolidation).
-
-```bash
-assistant config set llm.callSites '{
-  "mainAgent":                {"profile":"balanced"},
-  "subagentSpawn":            {"profile":"balanced"},
-  "compactionAgent":          {"profile":"balanced"},
-  "analyzeConversation":      {"profile":"balanced"},
-  "patternScan":              {"profile":"balanced"},
-  "narrativeRefinement":      {"profile":"balanced"},
-  "memoryRouter":             {"profile":"cost-optimized","contextWindow":{"maxInputTokens":1000000}},
-
-  "heartbeatAgent":           {"profile":"cost-optimized","maxTokens":2048,"effort":"low","temperature":0,"thinking":{"enabled":false,"streamThinking":false},"contextWindow":{"maxInputTokens":16000}},
-  "filingAgent":              {"profile":"cost-optimized"},
-  "callAgent":                {"profile":"balanced"},
-  "proactiveArtifactDecision":{"profile":"cost-optimized"},
-  "proactiveArtifactBuild":   {"profile":"balanced"},
-
-  "memoryExtraction":         {"profile":"cost-optimized"},
-  "memoryConsolidation":      {"profile":"balanced"},
-  "memoryRetrieval":          {"profile":"cost-optimized"},
-  "memoryRetrospective":      {"profile":"cost-optimized"},
-  "recall":                   {"profile":"balanced","maxTokens":4096,"effort":"low","thinking":{"enabled":false,"streamThinking":false},"temperature":0},
-  "memoryV2Migration":        {"profile":"cost-optimized"},
-  "memoryV2Sweep":            {"profile":"cost-optimized"},
-  "memoryV2Consolidation":    {"profile":"balanced"},
-
-  "conversationSummarization":{"profile":"cost-optimized"},
-  "commitMessage":            {"profile":"cost-optimized","maxTokens":120,"temperature":0.2,"effort":"low","thinking":{"enabled":false}},
-
-  "conversationStarters":     {"profile":"balanced","effort":"low","thinking":{"enabled":false}},
-  "replySuggestion":          {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
-  "conversationTitle":        {"profile":"cost-optimized"},
-  "identityIntro":            {"profile":"balanced"},
-  "emptyStateGreeting":       {"profile":"balanced"},
-  "guardianQuestionCopy":     {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
-  "approvalCopy":             {"profile":"cost-optimized"},
-  "approvalConversation":     {"profile":"cost-optimized"},
-  "trustRuleSuggestion":      {"profile":"cost-optimized"},
-
-  "notificationDecision":     {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
-  "preferenceExtraction":     {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
-
-  "interactionClassifier":    {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
-  "styleAnalyzer":            {"profile":"cost-optimized"},
-  "inviteInstructionGenerator":{"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
-  "skillCategoryInference":   {"profile":"cost-optimized","effort":"low","thinking":{"enabled":false}},
-  "meetConsentMonitor":       {"profile":"cost-optimized"},
-  "meetChatOpportunity":      {"profile":"cost-optimized"},
-  "inference":                {"profile":"cost-optimized"}
-}'
-```
-
-Then set the **active (default) profile** to `balanced`:
-
-```bash
-assistant config set llm.activeProfile balanced
-```
-
-This controls what the app shows as the selected profile in the UI, and matters because of a platform quirk: `llm.activeProfile` takes priority over `llm.callSites.mainAgent` in the resolver (inverted vs all other call sites). Setting both to `balanced` keeps them aligned.
-
-Then verify:
-
-```bash
-assistant config get llm.callSites
-assistant config get llm.activeProfile
-```
-
----
-
-## Step 6 — Escalation path (on-demand Opus)
-
-Don't pin any call site to `quality-optimized`. Keep it available as a session:
-
-```bash
-# User types /model quality-optimized in chat, or:
+# User picks Quality in the model picker, types /model in chat, or:
 assistant inference session open quality-optimized --ttl 30m
 assistant inference session list
 assistant inference session close
 ```
 
-If the user has a personal API key, wire it as a custom profile:
+For the full setup procedure (managed-first, secure key collection, model discovery, validation), load the **llm-provider-setup** skill.
+
+If the user wants a custom profile on a specific provider, work down this ladder — do not start by asking for a key:
+
+1. **Check for a managed connection first.** `assistant inference providers connections list` — managed entries (`auth=platform`, e.g. `anthropic-managed`) need no API key. If one covers the target provider, create the profile against it and skip the rest of this ladder.
+2. **Check for an existing stored key.** `assistant credentials list` — if a suitable credential is already in the vault, reference it by vault path instead of prompting for a new one.
+3. **Only then collect a new key — securely, never in chat:**
 
 ```bash
-# Collect the key securely — never paste it in chat
 assistant credentials prompt --service anthropic --field api_key \
   --label "Anthropic API Key" --placeholder "sk-ant-..."
 
@@ -209,26 +149,34 @@ assistant inference providers connections create my-anthropic-key \
   --auth api_key \
   --credential credential/anthropic/api_key
 
-assistant config set llm.profiles.opus-personal '{"provider":"anthropic","model":"claude-opus-4-8","label":"Opus (Personal)","provider_connection":"my-anthropic-key"}'
+assistant inference profiles create my-quality \
+  --provider anthropic --model <model-id-from: assistant inference models list --provider anthropic> \
+  --connection my-anthropic-key --label "Quality (Personal)"
 ```
 
----
+### Always validate a new profile or connection with a live call
+
+Model ids are easy to get wrong and config writes are not validated (Step 5), so after creating or editing any profile or connection, prove it works end-to-end before relying on it:
+
+```bash
+assistant inference send --profile my-quality --max-tokens 32 --json "Reply with OK"
+```
+
+This makes one real call through the named profile — auth, provider routing, and the model id are all exercised; a wrong model name fails here instead of silently breaking a call site later. To check a raw model id _before_ writing it into config, use `--model <id>` instead of `--profile`.
 
 ## Step 7 — Verify and monitor
 
 ```bash
 assistant usage totals --range today
 assistant usage breakdown --group-by call_site --range today
+assistant usage breakdown --group-by inference_profile --range today
 ```
 
-If a specific call site degrades, bump just that one back to `balanced`:
+If a specific call site's output quality degrades after a downgrade, restore just that one:
 
 ```bash
-# e.g. if memory extraction quality drops:
 assistant config set llm.callSites.memoryExtraction.profile balanced
 ```
-
----
 
 ## Reference: provider connections
 
@@ -240,7 +188,27 @@ assistant inference providers connections update <name> --auth platform
 assistant inference providers connections delete <name>
 ```
 
-Canonical connections seeded on every boot: `anthropic-managed`, `openai-managed`, `gemini-managed` (auth=platform, no key needed).
+Canonical managed connections are seeded automatically (auth=platform, no key needed).
+
+## Reference: inference profiles & call sites
+
+```bash
+assistant inference models list --provider <p>   # valid model ids — never guess
+assistant inference callsites list / get <site>
+assistant inference profiles list / get / create / update / delete / active
+assistant inference providers default
+```
+
+## Reference: schedule profile commands
+
+```bash
+assistant schedules list
+assistant schedules get <id>                          # shows the schedule's inference profile
+assistant schedules runs <id>                         # recent runs
+assistant schedules create <name> ... --profile <p>   # pin at creation
+assistant schedules update <id> --profile <p>         # pin an existing schedule
+assistant schedules update <id> --clear-profile       # revert to the mainAgent model selection
+```
 
 ## Reference: usage breakdown group-by values
 
@@ -249,3 +217,5 @@ Canonical connections seeded on every boot: `anthropic-managed`, `openai-managed
 ## Reference: usage time ranges
 
 `today` | `week` | `month` | `all` | or explicit `--from`/`--to` epoch-ms
+
+`--schedule <id>` filters `usage totals` / `daily` / `breakdown` to a single schedule's runs.

@@ -17,7 +17,6 @@
  * Follow-up opportunities for CLI-layer coverage:
  *   - `exitFromIpcResult` exit-code mapping
  *   - `shouldOutputJson` / `writeOutput` output formatting
- *   - `oauth token` shell-lockdown guard (`VELLUM_UNTRUSTED_SHELL=1`)
  *   - per-subcommand argument parsing & help text
  */
 
