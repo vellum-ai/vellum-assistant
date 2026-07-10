@@ -60,6 +60,7 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
  * These are written to .gitignore on init and appended to existing .gitignore files.
  */
 const WORKSPACE_GITIGNORE_RULES = [
+  // Runtime state directories
   "data/db/",
   "data/qdrant/",
   "data/monitoring/",
@@ -69,21 +70,75 @@ const WORKSPACE_GITIGNORE_RULES = [
   "data/apps/*/records/",
   "data/apps/*/dist/",
   "data/apps/*.preview",
-  "plugins/*/node_modules/",
+  // Runtime-managed installs and caches — large and restorable
+  "/embedding-models/",
+  "/external/",
+  "/bin/",
+  "/plugins-data/",
+  "node_modules/",
+  "__pycache__/",
+  ".venv/",
+  // Logs and process state
   "logs/",
   "*.log",
+  "*.jsonl",
   "*.sock",
   "*.pid",
-  "*.sqlite",
-  "*.sqlite-journal",
-  "*.sqlite-wal",
-  "*.sqlite-shm",
-  "*.db",
-  "*.db-journal",
-  "*.db-wal",
-  "*.db-shm",
-  "vellum.pid",
+  "daemon-startup.lock",
   "session-token",
+  // Databases (covers sidecar -journal/-wal/-shm files)
+  "*.sqlite*",
+  "*.db",
+  "*.db-*",
+  // OS junk
+  ".DS_Store",
+  // Archives and disk images
+  "*.zip",
+  "*.tar",
+  "*.gz",
+  "*.tgz",
+  "*.bz2",
+  "*.xz",
+  "*.7z",
+  "*.rar",
+  "*.dmg",
+  "*.iso",
+  // Images (svg is text-based and stays tracked)
+  "*.png",
+  "*.jpg",
+  "*.jpeg",
+  "*.gif",
+  "*.webp",
+  "*.heic",
+  "*.bmp",
+  "*.tiff",
+  // Audio and video
+  "*.mp3",
+  "*.wav",
+  "*.m4a",
+  "*.flac",
+  "*.ogg",
+  "*.mp4",
+  "*.mov",
+  "*.avi",
+  "*.mkv",
+  "*.webm",
+  // Documents and model weights
+  "*.pdf",
+  "*.gguf",
+  "*.onnx",
+  "*.safetensors",
+  "*.pt",
+  "*.pth",
+  // Canonical user state re-included despite the extension rules above.
+  // Must stay after the extension rules: last matching pattern wins.
+  // (Not a broad !data/apps/** — that would also re-include dist/.)
+  // conversations/ holds the messages.jsonl disk view that DB recovery
+  // rebuilds from, so it survives the *.jsonl rule.
+  "!data/avatar/**",
+  "!data/sounds/**",
+  "!data/apps/*/icon.png",
+  "!conversations/**",
 ];
 
 const NULL_GIT_OID = "0000000000000000000000000000000000000000";
@@ -766,18 +821,38 @@ export class WorkspaceGitService {
         }
       }
 
+      // Exact line matching: a substring check would let an existing rule like
+      // "plugins/*/node_modules/" mask the broader "node_modules/" rule.
+      const existingLines = new Set(
+        content.split("\n").map((line) => line.trim()),
+      );
       const missingRules = WORKSPACE_GITIGNORE_RULES.filter(
-        (rule) => !content.includes(rule),
+        (rule) => !existingLines.has(rule),
       );
       if (hadLegacyDataRule || missingRules.length > 0) {
         let updated = content;
         if (missingRules.length > 0) {
+          // Negation rules must trail every Vellum rule (last matching
+          // pattern wins), so pull existing ones out and re-append them
+          // after the additions instead of leaving them mid-file.
+          const negationRules = WORKSPACE_GITIGNORE_RULES.filter((rule) =>
+            rule.startsWith("!"),
+          );
+          const negationSet = new Set(negationRules);
+          updated = updated
+            .split("\n")
+            .filter((line) => !negationSet.has(line.trim()))
+            .join("\n");
           if (!updated.endsWith("\n")) {
             updated += "\n";
           }
+          const additions = [
+            ...missingRules.filter((rule) => !rule.startsWith("!")),
+            ...negationRules,
+          ];
           updated +=
             "# Vellum runtime state (auto-added)\n" +
-            missingRules.join("\n") +
+            additions.join("\n") +
             "\n";
         }
         writeFileSync(gitignorePath, updated, "utf-8");

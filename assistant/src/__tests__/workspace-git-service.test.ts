@@ -69,7 +69,12 @@ describe("WorkspaceGitService", () => {
       expect(content).toContain("*.sock");
       expect(content).toContain("*.pid");
       expect(content).toContain("session-token");
-      expect(content).toContain("plugins/*/node_modules/");
+      expect(content).toContain("node_modules/");
+      expect(content).toContain("/embedding-models/");
+      expect(content).toContain(".DS_Store");
+      expect(content).toContain("*.png");
+      expect(content).toContain("*.jsonl");
+      expect(content).toContain("!conversations/**");
     });
 
     test("sets git identity correctly", async () => {
@@ -723,6 +728,44 @@ describe("WorkspaceGitService", () => {
       expect(contentAfter).toContain("session-token");
     });
 
+    test("appending rules keeps negations last even when already present mid-file", async () => {
+      execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: testDir });
+      execFileSync("git", ["config", "user.email", "user@example.com"], {
+        cwd: testDir,
+      });
+      // Negation already present BEFORE the extension rules get appended —
+      // if it stayed there, a later *.png would win and re-ignore the avatar.
+      writeFileSync(
+        join(testDir, ".gitignore"),
+        "!data/avatar/**\nnode_modules/\n",
+      );
+      writeFileSync(join(testDir, "file.txt"), "content");
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: testDir });
+
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const content = readFileSync(join(testDir, ".gitignore"), "utf-8");
+      expect(content.lastIndexOf("!data/avatar/**")).toBeGreaterThan(
+        content.indexOf("*.png"),
+      );
+
+      // Effective behavior: the avatar path is not ignored (check-ignore
+      // exits 1 → throws), media elsewhere is (exits 0).
+      expect(() =>
+        execFileSync(
+          "git",
+          ["check-ignore", "-q", "data/avatar/avatar-image.png"],
+          { cwd: testDir },
+        ),
+      ).toThrow();
+      execFileSync("git", ["check-ignore", "-q", "pkb/photo.png"], {
+        cwd: testDir,
+      });
+    });
+
     test("existing repo with old data/ rule gets it replaced with selective rules", async () => {
       // Set up a pre-existing git repo with the OLD broad data/ rule
       execFileSync("git", ["init", "-b", "main"], { cwd: testDir });
@@ -830,7 +873,7 @@ describe("WorkspaceGitService", () => {
         cwd: testDir,
       });
       const gitignoreContent =
-        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\nplugins/*/node_modules/\nlogs/\n*.log\n*.sock\n*.pid\n*.sqlite\n*.sqlite-journal\n*.sqlite-wal\n*.sqlite-shm\n*.db\n*.db-journal\n*.db-wal\n*.db-shm\nvellum.pid\nsession-token\n";
+        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\n/embedding-models/\n/external/\n/bin/\n/plugins-data/\nnode_modules/\n__pycache__/\n.venv/\nlogs/\n*.log\n*.jsonl\n*.sock\n*.pid\ndaemon-startup.lock\nsession-token\n*.sqlite*\n*.db\n*.db-*\n.DS_Store\n*.zip\n*.tar\n*.gz\n*.tgz\n*.bz2\n*.xz\n*.7z\n*.rar\n*.dmg\n*.iso\n*.png\n*.jpg\n*.jpeg\n*.gif\n*.webp\n*.heic\n*.bmp\n*.tiff\n*.mp3\n*.wav\n*.m4a\n*.flac\n*.ogg\n*.mp4\n*.mov\n*.avi\n*.mkv\n*.webm\n*.pdf\n*.gguf\n*.onnx\n*.safetensors\n*.pt\n*.pth\n!data/avatar/**\n!data/sounds/**\n!data/apps/*/icon.png\n!conversations/**\n";
       writeFileSync(join(testDir, ".gitignore"), gitignoreContent);
       writeFileSync(join(testDir, "file.txt"), "content");
       execFileSync("git", ["add", "-A"], { cwd: testDir });
