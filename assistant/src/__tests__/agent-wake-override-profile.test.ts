@@ -56,21 +56,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-// Mutable stub for `getConfig().llm` consumed by `RetryProvider`'s
-// resolver path in the integration-style assertion below. Defined ahead of
-// import so the module-level `getConfig()` reference inside `retry.ts`
-// closes over our mutable holder.
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    services: { inference: { mode: "your-own" } },
-  }),
-}));
-
 import type { AgentLoopRunOptions } from "../agent/loop.js";
-import { LLMSchema } from "../config/schemas/llm.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { RetryProvider } from "../providers/retry.js";
 import type {
@@ -83,6 +69,16 @@ import {
   __resetWakeChainForTests,
   wakeAgentForOpportunity,
 } from "../runtime/agent-wake.js";
+import { setConfig } from "./helpers/set-config.js";
+
+/**
+ * Seed the workspace `llm` config block for real. The loader schema-merges
+ * it, so `RetryProvider`'s resolver path reads the seeded values on its next
+ * `getConfig()` call.
+ */
+function setLlmConfig(raw: unknown): void {
+  setConfig("llm", raw);
+}
 
 interface RunArgs {
   messages: Message[];
@@ -133,7 +129,7 @@ function makeTarget(): {
 
 beforeEach(() => {
   __resetWakeChainForTests();
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setLlmConfig({});
 });
 
 afterEach(() => {
@@ -143,7 +139,7 @@ afterEach(() => {
 describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
   test("forwards the conversation's pinned overrideProfile + mainAgent callSite to agentLoop.run", async () => {
     mockOverrideProfile = "frontier";
-    mockLlmConfig = LLMSchema.parse({
+    setLlmConfig({
       default: {
         provider: "anthropic",
         model: "claude-sonnet-4-6",
@@ -158,7 +154,7 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
       callSites: {
         mainAgent: {},
       },
-    }) as Record<string, unknown>;
+    });
     const { target, runArgs } = makeTarget();
 
     const result = await wakeAgentForOpportunity(
@@ -191,7 +187,7 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     // conversation) takes its place AND floats above the call-site layers
     // via the resolver's `forceOverrideProfile` escape hatch.
     mockOverrideProfile = "pinned-ignored";
-    mockLlmConfig = LLMSchema.parse({
+    setLlmConfig({
       default: {
         provider: "anthropic",
         model: "claude-sonnet-4-6",
@@ -206,7 +202,7 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
       callSites: {
         memoryRetrospective: { contextWindow: { maxInputTokens: 180000 } },
       },
-    }) as Record<string, unknown>;
+    });
     const { target, runArgs } = makeTarget();
 
     const result = await wakeAgentForOpportunity(
@@ -234,7 +230,7 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
 
   test("without forceOverrideProfile the wake never sets the force flag", async () => {
     mockOverrideProfile = "frontier";
-    mockLlmConfig = LLMSchema.parse({
+    setLlmConfig({
       default: {
         provider: "anthropic",
         model: "claude-sonnet-4-6",
@@ -243,7 +239,7 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
       },
       profiles: { frontier: {} },
       callSites: { mainAgent: {} },
-    }) as Record<string, unknown>;
+    });
     const { target, runArgs } = makeTarget();
 
     await wakeAgentForOpportunity(
@@ -320,7 +316,7 @@ describe("wakeAgentForOpportunity — resolver actually engages", () => {
     // so we can detect whether the resolver engaged. If `callSite` were
     // undefined (the original bug), the retry layer would skip the resolver
     // entirely and the downstream provider would see only the wire defaults.
-    mockLlmConfig = LLMSchema.parse({
+    setLlmConfig({
       default: {
         provider: "anthropic",
         model: "claude-sonnet-4-6",
@@ -335,7 +331,7 @@ describe("wakeAgentForOpportunity — resolver actually engages", () => {
       callSites: {
         mainAgent: {},
       },
-    }) as Record<string, unknown>;
+    });
 
     let seen: SendMessageOptions | undefined;
     const wrapped = new RetryProvider(

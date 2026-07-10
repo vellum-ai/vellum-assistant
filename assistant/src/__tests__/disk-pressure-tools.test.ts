@@ -8,43 +8,6 @@ import * as realDiskUsage from "../util/disk-usage.js";
 
 let diskSample: DiskUsageInfo | null = null;
 
-const mockConfig = {
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
-  permissions: { mode: "workspace" as const },
-  tools: { exclude: [] },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  getConfigReadOnly: () => mockConfig,
-  loadConfig: () => mockConfig,
-  applyNestedDefaults: () => mockConfig,
-  deepMergeOverwrite: (_base: unknown, override: unknown) => override,
-  invalidateConfigCache: () => undefined,
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => undefined,
-  getNestedValue: () => undefined,
-  setNestedValue: () => undefined,
-  mergeDefaultWorkspaceConfig: (config: unknown) => config,
-  API_KEY_PROVIDERS: [] as const,
-  _writeQuarantineNotice: () => undefined,
-}));
-
 mock.module("../daemon/conversation-skill-tools.js", () => ({
   projectSkillTools: mock((_history: Message[], _opts: unknown) => ({
     allowedToolNames: new Set<string>(),

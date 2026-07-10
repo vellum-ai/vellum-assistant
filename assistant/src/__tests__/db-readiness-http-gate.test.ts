@@ -13,17 +13,6 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
-
 import {
   setDbMigrating,
   setDbMigrationFailed,

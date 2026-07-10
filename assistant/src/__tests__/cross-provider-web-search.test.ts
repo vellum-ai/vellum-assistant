@@ -220,26 +220,20 @@ import {
   OpenAIChatCompletionsProvider,
   OpenAIResponsesProvider,
 } from "../providers/openai/client.js";
-
 // ---------------------------------------------------------------------------
 // App-side web_search provider adapters (Brave/Perplexity/Tavily)
 //
-// Exercise the real `web-search.ts` execute path with a mocked config, provider
-// key, and global fetch. The logger is mocked to capture structured warnings so
-// we can assert the `web_search_backend_failure` telemetry (ATL-727).
+// Exercise the real `web-search.ts` execute path with the Brave provider
+// seeded into the real workspace config, plus a mocked provider key and
+// global fetch. The logger is mocked to capture structured warnings so we
+// can assert the `web_search_backend_failure` telemetry (ATL-727).
 // ---------------------------------------------------------------------------
+import { setConfig } from "./helpers/set-config.js";
 
-let mockWebSearchProvider: string = "brave";
+setConfig("services", { "web-search": { provider: "brave" } });
+
 let mockProviderKey: string | undefined = "test-key";
 const capturedWarnLogs: Record<string, unknown>[] = [];
-
-const realConfigLoader = await import("../config/loader.js");
-mock.module("../config/loader.js", () => ({
-  ...realConfigLoader,
-  getConfig: () => ({
-    services: { "web-search": { provider: mockWebSearchProvider } },
-  }),
-}));
 
 const realSecureKeys = await import("../security/secure-keys.js");
 mock.module("../security/secure-keys.js", () => ({
@@ -264,9 +258,8 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const { webSearchTool } = await import("../tools/network/web-search.js");
-const { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } = await import(
-  "../tools/network/web-search-error.js"
-);
+const { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } =
+  await import("../tools/network/web-search-error.js");
 
 function executeWebSearch(input: Record<string, unknown>) {
   return webSearchTool.execute(input, {} as never);
@@ -512,7 +505,9 @@ describe("Cross-Provider Web Search — OpenAI Chat Completions (compatibility)"
 
     const userMsgs = messages.filter((m) => m.role === "user");
     const hasWebSearchResult = userMsgs.some((m) => {
-      if (typeof m.content === "string") return false;
+      if (typeof m.content === "string") {
+        return false;
+      }
       if (Array.isArray(m.content)) {
         return (m.content as Array<{ type: string; text?: string }>).some(
           (part) =>
@@ -672,7 +667,6 @@ describe("Cross-Provider Web Search — app-side backend failure normalization",
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
-    mockWebSearchProvider = "brave";
     mockProviderKey = "test-key";
     capturedWarnLogs.length = 0;
   });

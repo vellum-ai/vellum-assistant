@@ -9,43 +9,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-const mockCallsConfig = {
-  enabled: true,
-  provider: "twilio",
-  maxDurationSeconds: 3600,
-  userConsultTimeoutSeconds: 120,
-  disclosure: { enabled: false, text: "" },
-  safety: { denyCategories: [] },
-  callerIdentity: {
-    allowPerCallOverride: true,
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    calls: mockCallsConfig,
-  }),
-  loadConfig: () => ({
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    calls: mockCallsConfig,
-    ingress: {
-      enabled: true,
-      publicBaseUrl: "https://test.example.com",
-    },
-  }),
-}));
-
 // Mock Twilio provider to avoid real API calls
 class MockTwilioVoiceProvider {
   static getAuthToken() {
@@ -101,8 +64,17 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations } from "../persistence/schema/index.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import { setConfig } from "./helpers/set-config.js";
 
 import "../calls/call-state.js";
+
+// Disable memory (skip background indexing of test messages) and seed the
+// ingress base URL that outbound-call URL building reads.
+setConfig("memory", { enabled: false });
+setConfig("ingress", {
+  enabled: true,
+  publicBaseUrl: "https://test.example.com",
+});
 
 await initializeDb();
 

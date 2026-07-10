@@ -19,33 +19,6 @@ mock.module("node:child_process", () => ({
   spawn: spawnSpy,
 }));
 
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: true,
-  },
-  auditLog: { retentionDays: 0 },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 // Mock the host-bash-proxy singleton so proxy delegation tests can control it.
 let mockProxyAvailable = false;
 let mockProxyRequestFn: (

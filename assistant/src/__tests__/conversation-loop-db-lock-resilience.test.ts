@@ -16,11 +16,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ memory: {} }),
-  loadConfig: () => ({}),
-}));
-
 // `finalizeMessageContent` (the finalize seam's write) throws `SQLITE_BUSY`
 // for the first `updateContentFailuresRemaining` calls, then records the
 // content written.
