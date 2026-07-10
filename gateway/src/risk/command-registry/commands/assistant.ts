@@ -115,6 +115,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "credentials set",
   "credentials delete",
   "credentials inspect",
+  "credentials get",
   "credentials reveal",
   "credentials status",
   "db",
