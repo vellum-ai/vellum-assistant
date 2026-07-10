@@ -1129,13 +1129,13 @@ describe("access-request-helper unit tests", () => {
     expect(pending.length).toBe(1);
   });
 
-  test("isAccessRequestDenied is true only for the denied (assistant, channel, sender)", () => {
+  test("isAccessRequestDenied is true only for the denied (assistant, channel, sender)", async () => {
     const key = {
       canonicalAssistantId: "self",
       sourceChannel: "telegram",
       actorExternalId: "denied-user",
     };
-    expect(isAccessRequestDenied(key)).toBe(false);
+    expect(await isAccessRequestDenied(key)).toBe(false);
 
     createCanonicalGuardianRequest({
       id: `denied-${Date.now()}`,
@@ -1149,14 +1149,14 @@ describe("access-request-helper unit tests", () => {
       status: "denied",
     });
 
-    expect(isAccessRequestDenied(key)).toBe(true);
+    expect(await isAccessRequestDenied(key)).toBe(true);
     // Scoped: a different channel or sender is not treated as denied.
-    expect(isAccessRequestDenied({ ...key, sourceChannel: "slack" })).toBe(
-      false,
-    );
-    expect(isAccessRequestDenied({ ...key, actorExternalId: "other" })).toBe(
-      false,
-    );
+    expect(
+      await isAccessRequestDenied({ ...key, sourceChannel: "slack" }),
+    ).toBe(false);
+    expect(
+      await isAccessRequestDenied({ ...key, actorExternalId: "other" }),
+    ).toBe(false);
     // A still-pending request is not a terminal deny.
     createCanonicalGuardianRequest({
       id: `pending-${Date.now()}`,
@@ -1170,7 +1170,7 @@ describe("access-request-helper unit tests", () => {
       status: "pending",
     });
     expect(
-      isAccessRequestDenied({ ...key, actorExternalId: "pending-user" }),
+      await isAccessRequestDenied({ ...key, actorExternalId: "pending-user" }),
     ).toBe(false);
   });
 });

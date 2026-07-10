@@ -95,6 +95,16 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
+// Grant escalation creates its guardian request through the gateway client;
+// serve that surface from the local canonical store the rest of the flow
+// (decision primitive, inline-grant wait) still reads.
+import { gatewayGuardianRequestsStoreBridge } from "./helpers/gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
+
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import {

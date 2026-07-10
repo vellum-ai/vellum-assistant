@@ -1,11 +1,11 @@
 /**
- * The single sink for the per-(request, surface) `canonical_guardian_deliveries`
- * registry.
+ * The single sink for the per-(request, surface) guardian-request delivery
+ * registry (the gateway's `guardian_request_deliveries` table).
  *
  * Guardian-request producers (access requests, tool approvals, tool-grant
  * escalations, voice questions, trusted-contact confirmations) emit a
- * notification signal and then record one canonical delivery row per surface the
- * card reached. Capturing the surface address here — the conversation id for the
+ * notification signal and then record one delivery row per surface the card
+ * reached. Capturing the surface address here — the conversation id for the
  * in-app vellum card, or the channel-native message id (e.g. Slack `ts`) for a
  * channel card — is what lets a delivered card be addressed back to its request
  * later:
@@ -13,8 +13,7 @@
  *   - to withdraw it in place when the request resolves
  *     (`approvals/guardian-card-withdrawal.ts`), and
  *   - to resolve an emoji reaction on the card to the right request when several
- *     are pending in the same chat
- *     (`getPendingCanonicalRequestByDestinationMessage`).
+ *     are pending in the same chat (the by-destination-message lookup).
  *
  * Every producer records through here so the addressing convention lives in one
  * place and cannot drift between the path that writes the row and the paths that
@@ -22,10 +21,10 @@
  */
 
 import {
-  type CanonicalGuardianDelivery,
-  createCanonicalGuardianDelivery,
-  updateCanonicalGuardianDelivery,
-} from "../contacts/canonical-guardian-store.js";
+  createGuardianRequestDelivery,
+  type GuardianRequestDeliveryWire,
+  updateGuardianRequestDelivery,
+} from "../channels/gateway-guardian-requests.js";
 import { getLogger } from "../util/logger.js";
 import type { NotificationDeliveryResult } from "./types.js";
 
@@ -57,14 +56,15 @@ export interface ApprovalCardDeliveryAddress {
  *
  * Best-effort: a recording failure must never be mistaken for a delivery
  * failure (which, in the prompt path, would trigger a fallback re-post), so
- * errors are swallowed and logged and `null` is returned. Callers that need the
- * row id (to apply a status afterwards) must null-check the result.
+ * errors — gateway-unreachable included — are swallowed and logged and `null`
+ * is returned. Callers that need the row id (to apply a status afterwards)
+ * must null-check the result.
  */
-export function recordApprovalCardDelivery(
+export async function recordApprovalCardDelivery(
   address: ApprovalCardDeliveryAddress,
-): CanonicalGuardianDelivery | null {
+): Promise<GuardianRequestDeliveryWire | null> {
   try {
-    return createCanonicalGuardianDelivery({
+    return await createGuardianRequestDelivery({
       requestId: address.requestId,
       destinationChannel: address.channel,
       destinationConversationId: address.conversationId,
@@ -98,14 +98,16 @@ export function recordApprovalCardDelivery(
  * is recorded as unknown rather than persisting the literal channel name as a
  * chat id. Status is diagnostic — the read paths key off addressing, not status.
  *
+ * Best-effort like the create: a status-patch failure is logged, not thrown.
+ *
  * Returns the vellum delivery id (passed in, or created here) so a caller can
  * record its own "pipeline produced no vellum delivery" fallback.
  */
-export function recordGuardianRequestDeliveries(params: {
+export async function recordGuardianRequestDeliveries(params: {
   requestId: string;
   deliveryResults: NotificationDeliveryResult[];
   vellumDeliveryId?: string;
-}): string | undefined {
+}): Promise<string | undefined> {
   const { requestId, deliveryResults } = params;
   let vellumDeliveryId = params.vellumDeliveryId;
 
@@ -113,27 +115,39 @@ export function recordGuardianRequestDeliveries(params: {
     let deliveryId: string | undefined;
     if (result.channel === "vellum") {
       if (!vellumDeliveryId) {
-        vellumDeliveryId = recordApprovalCardDelivery({
-          requestId,
-          channel: "vellum",
-          conversationId: result.conversationId,
-        })?.id;
+        vellumDeliveryId = (
+          await recordApprovalCardDelivery({
+            requestId,
+            channel: "vellum",
+            conversationId: result.conversationId,
+          })
+        )?.id;
       }
       deliveryId = vellumDeliveryId;
     } else {
-      deliveryId = recordApprovalCardDelivery({
-        requestId,
-        channel: result.channel,
-        conversationId: result.conversationId,
-        chatId: result.destination.length > 0 ? result.destination : undefined,
-        messageId: result.messageId,
-      })?.id;
+      deliveryId = (
+        await recordApprovalCardDelivery({
+          requestId,
+          channel: result.channel,
+          conversationId: result.conversationId,
+          chatId:
+            result.destination.length > 0 ? result.destination : undefined,
+          messageId: result.messageId,
+        })
+      )?.id;
     }
 
     if (deliveryId) {
-      updateCanonicalGuardianDelivery(deliveryId, {
-        status: result.status === "sent" ? "sent" : "failed",
-      });
+      try {
+        await updateGuardianRequestDelivery(deliveryId, {
+          status: result.status === "sent" ? "sent" : "failed",
+        });
+      } catch (err) {
+        log.error(
+          { err, requestId, deliveryId },
+          "Failed to record approval card delivery status",
+        );
+      }
     }
   }
 

@@ -10,6 +10,15 @@ import {
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
+// Guardian requests/deliveries are created through the gateway client; serve
+// that surface from the local canonical store so dispatch never opens IPC.
+import { gatewayGuardianRequestsStoreBridge } from "./helpers/gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
+
 // ── Logger mock (must come before any source imports) ────
 
 mock.module("../util/logger.js", () => ({

@@ -823,7 +823,7 @@ export async function handleChannelInbound({
     const floorSenderId = canonicalSenderId ?? rawSenderId;
     if (isCallbackInteraction) {
       if (floorSenderId) {
-        handshakeInProgress = isApprovalHandshakeInProgress({
+        handshakeInProgress = await isApprovalHandshakeInProgress({
           canonicalAssistantId,
           sourceChannel,
           actorExternalId: floorSenderId,
