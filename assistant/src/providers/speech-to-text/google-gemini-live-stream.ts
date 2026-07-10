@@ -302,14 +302,10 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
   }
 
   sendAudio(audio: Buffer, mimeType: string): void {
-    if (this.closed || this.stopping) {
-      return;
-    }
+    if (this.closed || this.stopping) return;
 
     const session = this.session;
-    if (!session) {
-      return;
-    }
+    if (!session) return;
 
     const normalizedMimeType = this.normalizePcmMimeType(mimeType);
 
@@ -326,9 +322,7 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
   }
 
   stop(): void {
-    if (this.closed || this.stopping) {
-      return;
-    }
+    if (this.closed || this.stopping) return;
     this.stopping = true;
 
     log.info("Stopping Gemini Live session");
@@ -360,9 +354,7 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
   // ── Provider message handling ───────────────────────────────────────
 
   private handleServerMessage(msg: LiveServerMessage): void {
-    if (this.closed) {
-      return;
-    }
+    if (this.closed) return;
 
     this.resetInactivityTimer();
 
@@ -381,9 +373,7 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
     }
 
     const serverContent = msg.serverContent;
-    if (!serverContent) {
-      return;
-    }
+    if (!serverContent) return;
 
     // Append any new input transcription text to the current turn buffer.
     // A new turn begins when we see text while the buffer is empty —
@@ -407,9 +397,7 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
       serverContent.turnComplete === true;
 
     if (isComplete) {
-      if (this.finalEmittedForCurrentTurn) {
-        return;
-      }
+      if (this.finalEmittedForCurrentTurn) return;
       const finalText = this.currentTurnText;
       this.currentTurnText = "";
       this.lastEmittedPartial = "";
@@ -422,9 +410,7 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
     // so any flushed final is complete, but we suppress partials — the
     // session orchestrator does not want interleaved partials between
     // stop() and the final emission.
-    if (this.stopping) {
-      return;
-    }
+    if (this.stopping) return;
 
     // Otherwise emit a partial only if text has changed.
     if (
@@ -443,9 +429,7 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
    * Handle provider-side session close.
    */
   private handleProviderClose(code: number, reason: string): void {
-    if (this.closed) {
-      return;
-    }
+    if (this.closed) return;
 
     // Normal close (1000) or going-away (1001) after stop() is expected.
     if (this.stopping && (code === 1000 || code === 1001)) {
@@ -475,9 +459,7 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
    * Handle provider-side error event.
    */
   private handleProviderError(ev: unknown): void {
-    if (this.closed) {
-      return;
-    }
+    if (this.closed) return;
 
     const message = this.describeError(ev);
     log.error({ error: ev }, "Gemini Live session error");
@@ -499,12 +481,8 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
    * Drops events after `closed` to preserve the streaming contract.
    */
   private emitEvent(event: SttStreamServerEvent): void {
-    if (!this.onEvent) {
-      return;
-    }
-    if (this.closed && event.type !== "closed") {
-      return;
-    }
+    if (!this.onEvent) return;
+    if (this.closed && event.type !== "closed") return;
     try {
       this.onEvent(event);
     } catch (err) {
@@ -525,9 +503,7 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
    * an empty transcript line on the extra final, so we suppress it.
    */
   private flushFinalAndClose(): void {
-    if (this.closed) {
-      return;
-    }
+    if (this.closed) return;
     const pending = this.currentTurnText;
     const alreadyEmitted = this.finalEmittedForCurrentTurn;
     this.currentTurnText = "";
@@ -544,9 +520,7 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
    * Idempotent — safe to call multiple times.
    */
   private emitClosedAndCleanup(): void {
-    if (this.closed) {
-      return;
-    }
+    if (this.closed) return;
     this.closed = true;
 
     this.clearTimers();
@@ -563,9 +537,7 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
   private forceCloseSession(): void {
     const session = this.session;
     this.session = null;
-    if (!session) {
-      return;
-    }
+    if (!session) return;
 
     try {
       session.close();
@@ -594,18 +566,14 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
    * continuous audio from the caller must not mask a silent provider.
    */
   private resetInactivityTimer(): void {
-    if (this.closed || this.stopping) {
-      return;
-    }
+    if (this.closed || this.stopping) return;
 
     if (this.inactivityTimer !== null) {
       clearTimeout(this.inactivityTimer);
     }
 
     this.inactivityTimer = setTimeout(() => {
-      if (this.closed) {
-        return;
-      }
+      if (this.closed) return;
 
       log.warn("Gemini Live inactivity timeout");
       this.emitEvent({
@@ -630,13 +598,9 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
    */
   private normalizePcmMimeType(mimeType: string): string {
     const base = mimeType.split(";")[0].trim().toLowerCase();
-    if (base !== "audio/pcm") {
-      return mimeType;
-    }
+    if (base !== "audio/pcm") return mimeType;
     // Preserve an explicit rate= parameter if the caller supplied one.
-    if (/rate\s*=\s*\d+/i.test(mimeType)) {
-      return mimeType;
-    }
+    if (/rate\s*=\s*\d+/i.test(mimeType)) return mimeType;
     return `${mimeType};rate=${this.pcmSampleRate}`;
   }
 
@@ -644,24 +608,16 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
    * Produce a human-readable message from an unknown error-like value.
    */
   private describeError(ev: unknown): string {
-    if (ev instanceof Error) {
-      return ev.message;
-    }
+    if (ev instanceof Error) return ev.message;
     if (typeof ev === "object" && ev !== null) {
       if ("message" in ev) {
         const m = (ev as { message: unknown }).message;
-        if (m !== undefined && m !== null) {
-          return String(m);
-        }
+        if (m !== undefined && m !== null) return String(m);
       }
       if ("error" in ev) {
         const e = (ev as { error: unknown }).error;
-        if (e instanceof Error) {
-          return e.message;
-        }
-        if (e !== undefined && e !== null) {
-          return String(e);
-        }
+        if (e instanceof Error) return e.message;
+        if (e !== undefined && e !== null) return String(e);
       }
     }
     return "Gemini Live session error";

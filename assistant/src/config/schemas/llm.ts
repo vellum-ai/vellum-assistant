@@ -551,9 +551,7 @@ export const LLMSchema = z
       ...DEFAULT_PROFILE_KEYS,
     ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
-      if (siteConfig?.profile == null) {
-        continue;
-      }
+      if (siteConfig?.profile == null) continue;
       if (!profileNames.has(siteConfig.profile)) {
         ctx.addIssue({
           code: "custom",
@@ -598,9 +596,7 @@ export const LLMSchema = z
         .map(([name]) => name),
     );
     for (const [name, profile] of Object.entries(config.profiles ?? {})) {
-      if (profile?.mix == null) {
-        continue;
-      }
+      if (profile?.mix == null) continue;
       // (d) A mix must not also carry model config — the resolved config comes
       // entirely from the chosen constituent.
       for (const key of MIX_DISALLOWED_CONFIG_KEYS) {
