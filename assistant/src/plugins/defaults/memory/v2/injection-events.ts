@@ -1,5 +1,3 @@
-import type { Database } from "bun:sqlite";
-
 import { getMemorySqlite } from "../../../../persistence/db-connection.js";
 import { getLogger } from "../logging.js";
 
@@ -32,7 +30,7 @@ function decayContribution(elapsedMs: number): number {
  * — every caller here degrades rather than throwing: the event log is a
  * scoring signal, and losing it must never break routing or a turn.
  */
-function memorySqliteOrNull(context: string): Database | null {
+function memorySqliteOrNull(context: string) {
   const sqlite = getMemorySqlite();
   if (!sqlite) {
     log.warn(
