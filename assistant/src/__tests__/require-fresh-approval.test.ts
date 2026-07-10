@@ -157,6 +157,21 @@ mock.module("../tools/registry.js", () => ({
       execute: async () => fakeToolResult,
     };
   },
+  resolveTool: (name: string) => {
+    if (name === "unknown_tool") {
+      return undefined;
+    }
+    const isGmailTool = name.startsWith("gmail_");
+    return {
+      name,
+      description: "test tool",
+      category: isGmailTool ? "gmail" : "credential-execution",
+      defaultRiskLevel: "high",
+      executionTarget: isGmailTool ? ("host" as const) : undefined,
+      input_schema: {},
+      execute: async () => fakeToolResult,
+    };
+  },
   getAllTools: () => [],
 }));
 

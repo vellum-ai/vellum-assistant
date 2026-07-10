@@ -133,6 +133,7 @@ mock.module("./workspace-policy.js", () => ({
 // owner, so it returns undefined.
 mock.module("../tools/registry.js", () => ({
   getTool: () => undefined,
+  resolveTool: async () => undefined,
   getToolOwner: () => undefined,
 }));
 
@@ -389,14 +390,10 @@ describe("Permission Checker (gateway IPC)", () => {
         matchType: "registry",
         scopeOptions: [],
         sandboxAutoApprove: true,
-        sandboxPathArgs: [
-          "/workspace/safe.txt",
-          "/workspace/escape/passwd",
-        ],
+        sandboxPathArgs: ["/workspace/safe.txt", "/workspace/escape/passwd"],
       };
       const result = await classifyRisk("bash", {
-        command:
-          "cat /workspace/safe.txt && cat /workspace/escape/passwd",
+        command: "cat /workspace/safe.txt && cat /workspace/escape/passwd",
       });
       expect((result as any).sandboxAutoApprove).toBe(false);
       mockIsPathWithinWorkspaceRoot = true;

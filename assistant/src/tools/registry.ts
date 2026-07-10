@@ -99,6 +99,12 @@ function getExternalTools(): Array<{ owner: OwnerInfo; tool: Tool }> {
 let coreToolsSnapshot: Map<string, { tool: Tool; owner: OwnerInfo }> | null =
   null;
 
+// Cached promise for the one-time tool-registry initialization. `initializeTools`
+// returns this so repeated calls (across entry points, or an eventual
+// getter-triggered ensure) run the underlying work exactly once. Cleared by the
+// test-reset helpers so each test can re-initialize from a clean baseline.
+let toolsInitPromise: Promise<void> | null = null;
+
 // Tracks how many sessions are currently using each skill's tools.
 // Tools are only removed from the global registry when this drops to 0.
 const skillRefCount = new Map<string, number>();
@@ -117,7 +123,9 @@ const pluginRefCount = new Map<string, number>();
  * string so log/error sites never produce `undefined` interpolations.
  */
 function describeOwner(owner: OwnerInfo | undefined): string {
-  if (!owner) return "core tool";
+  if (!owner) {
+    return "core tool";
+  }
   switch (owner.kind) {
     case "skill":
       return `skill "${owner.id}"`;
@@ -200,7 +208,9 @@ export function registerTool(definition: ToolDefinition): void {
   }
   const existing = tools.get(name);
   if (existing) {
-    if (existing === tool) return; // same definition re-registered, skip
+    if (existing === tool) {
+      return;
+    } // same definition re-registered, skip
     log.warn({ name }, "Tool already registered, overwriting");
   }
   tools.set(name, tool);
@@ -212,6 +222,29 @@ export function registerTool(definition: ToolDefinition): void {
   log.info({ name, category: tool.category }, "Tool registered");
 }
 
+/**
+ * Resolve a registered tool by name, ensuring the registry has been
+ * initialized first. Mirrors `getHooksFor`, which awaits its reconcile before
+ * reading — so a caller on a cold registry gets a populated result instead of
+ * a spurious `undefined`. Prefer this in any async context.
+ *
+ * `initializeTools()` is idempotent: the first call does the work and caches
+ * its promise, so every later `resolveTool` just awaits the already-settled
+ * promise (an `await` on a resolved value — no re-initialization). The per-call
+ * cost past init is a single map lookup.
+ */
+export async function resolveTool(name: string): Promise<Tool | undefined> {
+  await initializeTools();
+  return tools.get(name);
+}
+
+/**
+ * Synchronous read that does NOT trigger initialization. For hot-path callers
+ * that run only after the registry is known to be populated — e.g. the agent
+ * loop's exclusive-tool predicate, invoked mid-turn once tools are resolved.
+ * Returns `undefined` if the tool is absent or the registry is not yet
+ * initialized; use {@link resolveTool} when readiness is not already guaranteed.
+ */
 export function getTool(name: string): Tool | undefined {
   return tools.get(name);
 }
@@ -603,7 +636,9 @@ export function getMcpToolDefinitions(): Tool[] {
 export function getPluginToolDefinitions(): Tool[] {
   return Array.from(tools.values()).filter((t) => {
     const owner = ownersByName.get(t.name);
-    if (owner?.kind !== "plugin") return false;
+    if (owner?.kind !== "plugin") {
+      return false;
+    }
     // Filter out tools contributed by disabled plugins at read time so
     // `assistant plugins disable <name>` takes effect on the next turn
     // without a daemon restart. Mirrors the `.disabled` sentinel filtering
@@ -619,9 +654,13 @@ export function getPluginToolDefinitions(): Tool[] {
 export function getMcpToolsByServer(): Map<string, Tool[]> {
   const byServer = new Map<string, Tool[]>();
   for (const [name, owner] of ownersByName) {
-    if (owner.kind !== "mcp") continue;
+    if (owner.kind !== "mcp") {
+      continue;
+    }
     const tool = tools.get(name);
-    if (!tool) continue;
+    if (!tool) {
+      continue;
+    }
     let list = byServer.get(owner.id);
     if (!list) {
       list = [];
@@ -700,7 +739,9 @@ export function registerWorkspaceTools(
     seenInBatch.add(tool.name);
 
     const existing = tools.get(tool.name);
-    if (!existing) continue;
+    if (!existing) {
+      continue;
+    }
 
     const existingOwner = ownersByName.get(tool.name);
     if (existingOwner?.kind === "workspace") {
@@ -712,7 +753,9 @@ export function registerWorkspaceTools(
     // Built-in (default) tool — override allowed, handled in the mutation
     // phase below. `undefined` shouldn't occur (every registered tool has an
     // owner) but is treated the same as a built-in for safety.
-    if (!existingOwner || existingOwner.kind === "default") continue;
+    if (!existingOwner || existingOwner.kind === "default") {
+      continue;
+    }
 
     throw new Error(
       `Workspace tool "${tool.name}" conflicts with an existing ${describeOwner(existingOwner)}. Workspace tools must register before other extension categories.`,
@@ -923,7 +966,9 @@ export function getWorkspaceToolDefinitions(): Tool[] {
 export function getStrippedCoreToolNames(): string[] {
   const stripped: string[] = [];
   for (const name of coreToolOverrides.keys()) {
-    if (!tools.has(name)) stripped.push(name);
+    if (!tools.has(name)) {
+      stripped.push(name);
+    }
   }
   return stripped;
 }
@@ -968,7 +1013,32 @@ export function getAllToolDefinitions(): Tool[] {
   );
 }
 
-export async function initializeTools(): Promise<void> {
+/**
+ * Idempotent, cached tool-registry initialization: resolve the tool manifest,
+ * register the built-in (default) tools, and load workspace overrides. The
+ * first call runs the work; every later call returns the same settled promise
+ * without repeating it, so it is safe to call from multiple entry points or
+ * lazily on demand.
+ *
+ * This is the tool-registry analogue of the hook registry's
+ * `maybeReconcileFromSentinel()` — the lazy "make sure the registry is
+ * populated" step. As the registry read getters migrate to async (mirroring
+ * `getHooksFor`), they will `await` this before reading the map, so a read can
+ * no longer observe an un-initialized registry.
+ */
+export function initializeTools(): Promise<void> {
+  if (!toolsInitPromise) {
+    toolsInitPromise = runToolInitialization().catch((err) => {
+      // Don't cache a failed init: clear the slot so a later call retries
+      // rather than returning the same rejected promise forever.
+      toolsInitPromise = null;
+      throw err;
+    });
+  }
+  return toolsInitPromise;
+}
+
+async function runToolInitialization(): Promise<void> {
   const { explicitTools } = await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
@@ -1032,9 +1102,13 @@ export async function initializeTools(): Promise<void> {
     coreToolsSnapshot = new Map<string, { tool: Tool; owner: OwnerInfo }>();
     for (const [name, tool] of tools) {
       const owner = ownersByName.get(name);
-      if (owner?.kind === "skill" || owner?.kind === "plugin") continue;
+      if (owner?.kind === "skill" || owner?.kind === "plugin") {
+        continue;
+      }
       // Exclude pre-existing tools not declared in the manifest
-      if (preExisting.has(name) && !manifestToolNames.has(name)) continue;
+      if (preExisting.has(name) && !manifestToolNames.has(name)) {
+        continue;
+      }
       // Every registered tool carries an owner (built-ins get DEFAULT_TOOL_OWNER
       // stamped by registerTool), so `owner` is defined here.
       coreToolsSnapshot.set(name, { tool, owner: owner! });
@@ -1081,6 +1155,9 @@ export function __resetRegistryForTesting(): void {
   // later registerWorkspaceTools() falsely report "overridesCore: true"
   // against a fresh registry.
   coreToolOverrides.clear();
+  // Clear the cached init promise so a later initializeTools() re-runs against
+  // the freshly reset registry rather than returning the previous settled run.
+  toolsInitPromise = null;
 
   if (coreToolsSnapshot) {
     for (const [name, { tool, owner }] of coreToolsSnapshot) {
@@ -1101,6 +1178,7 @@ export function __clearRegistryForTesting(): void {
   skillRefCount.clear();
   pluginRefCount.clear();
   coreToolOverrides.clear();
+  toolsInitPromise = null;
 }
 
 /**

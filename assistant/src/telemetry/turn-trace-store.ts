@@ -322,10 +322,7 @@ export function assembleTurnTrace(boundary: TurnTraceBoundary): TurnTrace {
           return {
             name,
             description: tool?.description ?? "",
-            input_schema: (tool?.input_schema ?? {}) as Record<
-              string,
-              unknown
-            >,
+            input_schema: (tool?.input_schema ?? {}) as Record<string, unknown>,
           };
         })
     : [];
