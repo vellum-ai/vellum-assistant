@@ -6,10 +6,16 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 import { getIsPlatform } from "../config/env-registry.js";
 import type { McpTransport } from "../config/schemas/mcp.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { getMcpHeaders } from "./mcp-header-store.js";
-import { McpOAuthProvider } from "./mcp-oauth-provider.js";
+import {
+  loadMcpTokenEnvelope,
+  McpOAuthProvider,
+} from "./mcp-oauth-provider.js";
+import {
+  isMcpTokenExpiredOrExpiring,
+  refreshMcpTokens,
+} from "./mcp-token-refresh.js";
 
 const log = getLogger("mcp-client");
 
@@ -89,23 +95,31 @@ export class McpClient {
     const isHttpTransport =
       transportConfig.type === "sse" ||
       transportConfig.type === "streamable-http";
+    const serverUrl =
+      transportConfig.type === "stdio" ? undefined : transportConfig.url;
 
     // For HTTP transports, only attach an OAuth provider if cached tokens exist.
     // This avoids triggering client registration (which binds to a random port)
     // during daemon startup. If no tokens, try without auth — if the server
     // requires it, skip silently.
-    if (isHttpTransport) {
-      const cachedTokens = await getSecureKeyAsync(
-        `mcp:${this.serverId}:tokens`,
-      );
-      if (cachedTokens) {
+    if (isHttpTransport && serverUrl) {
+      const envelope = await loadMcpTokenEnvelope(this.serverId);
+      if (envelope) {
         const callbackTransport = getIsPlatform() ? "gateway" : "loopback";
         this.oauthProvider = new McpOAuthProvider(
           this.serverId,
-          transportConfig.url,
-          /* interactive */ false,
+          serverUrl,
           callbackTransport,
         );
+        // Re-hydrate the redirect URI bound to this server's registration so a
+        // mid-session 401 reaches the SDK's token-refresh branch rather than
+        // its non-interactive dead end.
+        await this.oauthProvider.hydratePersistedRedirectUri();
+        // Proactively refresh tokens that are expired or near expiry so the
+        // first request doesn't fail and force a reconnect.
+        if (isMcpTokenExpiredOrExpiring(envelope.expiresAt)) {
+          await refreshMcpTokens(this.serverId, serverUrl).catch(() => false);
+        }
       }
     }
 
@@ -123,13 +137,78 @@ export class McpClient {
     }
 
     log.info({ serverId: this.serverId }, "Connecting to MCP server");
-    this.transport = this.createTransport(effectiveConfig);
 
+    const firstError = await this.attemptConnect(effectiveConfig);
+    if (!firstError) {
+      this.connected = true;
+      log.info({ serverId: this.serverId }, "MCP client connected");
+      return;
+    }
+
+    if (isHttpTransport && isAuthRelatedError(firstError)) {
+      // Reactive refresh: obtain fresh tokens once, then reconnect once.
+      const refreshed =
+        this.oauthProvider && serverUrl
+          ? await refreshMcpTokens(this.serverId, serverUrl).catch(() => false)
+          : false;
+      if (refreshed) {
+        const retryError = await this.attemptConnect(effectiveConfig);
+        if (!retryError) {
+          this.connected = true;
+          log.info(
+            { serverId: this.serverId },
+            "MCP client connected after token refresh",
+          );
+          return;
+        }
+        if (isAuthRelatedError(retryError)) {
+          // Refresh did not restore access — user can run
+          // `assistant mcp auth <name>` to re-authenticate.
+          log.info(
+            { serverId: this.serverId, err: retryError },
+            "MCP server requires authentication",
+          );
+          return;
+        }
+        this._lastError = retryError;
+        log.error(
+          { serverId: this.serverId, err: retryError },
+          "MCP server connection failed",
+        );
+        return;
+      }
+
+      // No refresh available — user can run `assistant mcp auth <name>`.
+      log.info(
+        { serverId: this.serverId, err: firstError },
+        "MCP server requires authentication",
+      );
+      return;
+    }
+
+    // Non-auth error (DNS, TLS, timeout, etc.) — log but never propagate
+    // an MCP connection failure to the caller.  The daemon must keep
+    // running even when individual MCP servers are unreachable.
+    this._lastError = firstError;
+    log.error(
+      { serverId: this.serverId, err: firstError },
+      "MCP server connection failed",
+    );
+  }
+
+  /**
+   * Run a single connection attempt with a fresh transport, returning the
+   * error on failure (after closing the client) or null on success. A fresh
+   * transport per attempt avoids the "already started" error SSE and
+   * StreamableHTTP transports throw when reconnected.
+   */
+  private async attemptConnect(config: McpTransport): Promise<Error | null> {
+    this.transport = this.createTransport(config);
     try {
       await Promise.race([
         this.client.connect(this.transport),
-        new Promise<never>((_, reject) =>
-          setTimeout(
+        new Promise<never>((_, reject) => {
+          const t = setTimeout(
             () =>
               reject(
                 new Error(
@@ -137,9 +216,13 @@ export class McpClient {
                 ),
               ),
             CONNECT_TIMEOUT_MS,
-          ),
-        ),
+          );
+          if (typeof t === "object" && "unref" in t) {
+            t.unref();
+          }
+        }),
       ]);
+      return null;
     } catch (err) {
       try {
         await this.client.close();
@@ -147,29 +230,8 @@ export class McpClient {
         /* ignore cleanup errors */
       }
       this.transport = null;
-
-      if (isHttpTransport && isAuthRelatedError(err)) {
-        // Auth-related — user can run `assistant mcp auth <name>` to authenticate.
-        log.info(
-          { serverId: this.serverId, err },
-          "MCP server requires authentication",
-        );
-        return;
-      }
-
-      // Non-auth error (DNS, TLS, timeout, etc.) — log but never propagate
-      // an MCP connection failure to the caller.  The daemon must keep
-      // running even when individual MCP servers are unreachable.
-      this._lastError = err instanceof Error ? err : new Error(String(err));
-      log.error(
-        { serverId: this.serverId, err },
-        "MCP server connection failed",
-      );
-      return;
+      return err instanceof Error ? err : new Error(String(err));
     }
-
-    this.connected = true;
-    log.info({ serverId: this.serverId }, "MCP client connected");
   }
 
   async listTools(): Promise<McpToolInfo[]> {
@@ -300,7 +362,7 @@ export class McpClient {
  * from the MCP SDK or the remote server.  Used to distinguish "needs auth"
  * from genuine transport failures so we can log guidance instead of crashing.
  */
-function isAuthRelatedError(err: unknown): boolean {
+export function isAuthRelatedError(err: unknown): boolean {
   if (err instanceof UnauthorizedError) return true;
 
   if (

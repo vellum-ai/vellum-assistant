@@ -132,18 +132,10 @@ describe("McpClient auth error detection", () => {
 
 describe("McpOAuthProvider redirectUrl", () => {
   test("redirectUrl is undefined until startCallbackServer() is called", () => {
-    const nonInteractive = new McpOAuthProvider(
+    const provider = new McpOAuthProvider(
       "test-server",
       "https://example.com/mcp",
-      /* interactive */ false,
     );
-    expect(nonInteractive.redirectUrl).toBeUndefined();
-
-    const interactive = new McpOAuthProvider(
-      "test-server",
-      "https://example.com/mcp",
-      /* interactive */ true,
-    );
-    expect(interactive.redirectUrl).toBeUndefined();
+    expect(provider.redirectUrl).toBeUndefined();
   });
 });

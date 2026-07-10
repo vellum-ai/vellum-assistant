@@ -96,6 +96,39 @@ export function setMcpAuthError(
 }
 
 /**
+ * Servers whose in-session token refresh failed and which now require a fresh
+ * browser authorization. Distinct from the polled flow state above: this is a
+ * passive marker set by the OAuth provider when the SDK's mid-session refresh
+ * falls through to a new authorization it cannot complete non-interactively.
+ * It is cleared whenever tokens are persisted successfully.
+ */
+const mcpNeedsReauthAt = new Map<string, number>();
+const NEEDS_REAUTH_TTL_MS = 5 * 60 * 1000;
+
+/** Record that a server needs interactive re-authentication. */
+export function markMcpNeedsReauth(serverId: string): void {
+  mcpNeedsReauthAt.set(serverId, Date.now());
+}
+
+/** Clear a server's needs-reauth marker (e.g. after tokens are persisted). */
+export function clearMcpNeedsReauth(serverId: string): void {
+  mcpNeedsReauthAt.delete(serverId);
+}
+
+/** Whether a server currently needs interactive re-authentication. */
+export function mcpNeedsReauth(serverId: string): boolean {
+  const at = mcpNeedsReauthAt.get(serverId);
+  if (at === undefined) {
+    return false;
+  }
+  if (Date.now() > at + NEEDS_REAUTH_TTL_MS) {
+    mcpNeedsReauthAt.delete(serverId);
+    return false;
+  }
+  return true;
+}
+
+/**
  * Get the current state of an OAuth flow, or null if none exists. Sweeps
  * expired entries on every read so a long-polling CLI can never observe
  * a stale flow past its TTL.

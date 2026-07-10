@@ -47,7 +47,7 @@ async function handleMcpAuthStart({
   state: string;
   already_authenticated?: boolean;
 }> {
-  const { serverId } = body as { serverId: string };
+  const { serverId, reset } = body as { serverId: string; reset?: boolean };
 
   const raw = loadRawConfig();
   const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
@@ -73,6 +73,7 @@ async function handleMcpAuthStart({
         type: transport.type,
         headers: transport.headers,
       },
+      reset,
     });
   } catch (err) {
     throw new InternalError(err instanceof Error ? err.message : String(err));
@@ -595,7 +596,10 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Starts a daemon-owned MCP OAuth flow and returns the authorization URL for the CLI to open in the browser.",
     tags: ["internal"],
-    requestBody: z.object({ serverId: z.string() }),
+    requestBody: z.object({
+      serverId: z.string(),
+      reset: z.boolean().optional(),
+    }),
     handler: handleMcpAuthStart,
   },
   {

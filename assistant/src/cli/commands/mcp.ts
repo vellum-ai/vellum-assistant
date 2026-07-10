@@ -337,6 +337,10 @@ Examples:
       mcp
         .command("auth <name>")
         .description("Authenticate with an MCP server via OAuth")
+        .option(
+          "--reset",
+          "Discard the stored OAuth client registration and re-register from scratch",
+        )
         .addHelpText(
           "after",
           `
@@ -359,13 +363,15 @@ Examples:
   $ assistant mcp auth my-server
   $ assistant mcp auth remote-api`,
         )
-        .action(async (name: string) => {
+        .action(async (name: string, opts: { reset?: boolean }) => {
           // IPC-first path — attempt daemon-orchestrated flow (works on hosted assistants)
           const startResult = await cliIpcCall<{
             auth_url: string;
             state: string;
             already_authenticated?: boolean;
-          }>("internal_mcp_auth_start", { body: { serverId: name } });
+          }>("internal_mcp_auth_start", {
+            body: { serverId: name, reset: opts.reset },
+          });
 
           if (startResult.ok && startResult.result?.already_authenticated) {
             log.info(`Server "${name}" is already authenticated.`);

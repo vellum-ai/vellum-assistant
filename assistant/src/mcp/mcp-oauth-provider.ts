@@ -23,6 +23,7 @@ import type {
   OAuthClientProvider,
   OAuthDiscoveryState,
 } from "@modelcontextprotocol/sdk/client/auth.js";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
   OAuthClientInformationMixed,
   OAuthClientMetadata,
@@ -34,8 +35,8 @@ import {
   getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
-import { openInHostBrowser } from "../util/browser.js";
 import { getLogger } from "../util/logger.js";
+import { clearMcpNeedsReauth, markMcpNeedsReauth } from "./mcp-auth-state.js";
 
 const log = getLogger("mcp-oauth");
 
@@ -51,6 +52,86 @@ function clientInfoKey(serverId: string): string {
 }
 function discoveryKey(serverId: string): string {
   return `mcp:${serverId}:discovery`;
+}
+function redirectUriKey(serverId: string): string {
+  return `mcp:${serverId}:redirect_uri`;
+}
+
+/**
+ * Persisted shape for OAuth tokens. Wraps the raw SDK `OAuthTokens` alongside
+ * an absolute expiry timestamp derived from `expires_in` at save time so the
+ * client can decide whether to refresh proactively without re-deriving it.
+ */
+export interface McpTokenEnvelope {
+  tokens: OAuthTokens;
+  /** Epoch-ms absolute expiry, or undefined when the server omits `expires_in`. */
+  expiresAt?: number;
+}
+
+/**
+ * Load the stored token envelope for a server, tolerating legacy blobs that
+ * persisted the raw `OAuthTokens` object without an envelope wrapper.
+ */
+export async function loadMcpTokenEnvelope(
+  serverId: string,
+): Promise<McpTokenEnvelope | null> {
+  const raw = await getSecureKeyAsync(tokensKey(serverId));
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "tokens" in parsed &&
+      parsed.tokens &&
+      typeof parsed.tokens === "object"
+    ) {
+      const envelope = parsed as unknown as McpTokenEnvelope;
+      return {
+        tokens: envelope.tokens,
+        expiresAt:
+          typeof envelope.expiresAt === "number"
+            ? envelope.expiresAt
+            : undefined,
+      };
+    }
+    // Legacy: the stored blob is a bare OAuthTokens object.
+    return { tokens: parsed as unknown as OAuthTokens };
+  } catch {
+    log.warn({ serverId }, "Failed to parse stored OAuth token envelope");
+    return null;
+  }
+}
+
+/**
+ * Persist tokens for a server, computing and storing an absolute expiry from
+ * `expires_in`. Clears any needs-reauth marker on success.
+ */
+export async function persistMcpTokens(
+  serverId: string,
+  tokens: OAuthTokens,
+): Promise<boolean> {
+  const expiresAt =
+    typeof tokens.expires_in === "number"
+      ? Date.now() + tokens.expires_in * 1000
+      : undefined;
+  const envelope: McpTokenEnvelope = {
+    tokens,
+    ...(expiresAt !== undefined ? { expiresAt } : {}),
+  };
+  const ok = await setSecureKeyAsync(
+    tokensKey(serverId),
+    JSON.stringify(envelope),
+  );
+  if (!ok) {
+    log.warn({ serverId }, "Failed to persist OAuth tokens to secure storage");
+    return false;
+  }
+  clearMcpNeedsReauth(serverId);
+  log.info({ serverId }, "OAuth tokens saved");
+  return true;
 }
 
 export interface McpOAuthCallbackResult {
@@ -74,7 +155,6 @@ export interface McpOAuthProviderOptions {
 export class McpOAuthProvider implements OAuthClientProvider {
   private readonly serverId: string;
   private readonly serverUrl: string;
-  private readonly interactive: boolean;
   private readonly callbackTransport: McpOAuthCallbackTransport;
   private _codeVerifier: string | undefined;
   private _state: string | undefined;
@@ -88,8 +168,6 @@ export class McpOAuthProvider implements OAuthClientProvider {
   private readonly _onAuthorizationUrl: ((url: string) => void) | undefined;
 
   /**
-   * @param interactive When true (e.g. `mcp auth` CLI), opens browser for OAuth.
-   *                    When false (daemon), logs a message instead.
    * @param callbackTransport Which transport to use for the OAuth redirect.
    *   - `"loopback"` (default): localhost HTTP server — for desktop clients.
    *   - `"gateway"`: platform ingress + callback registry — for Docker/platform.
@@ -98,15 +176,29 @@ export class McpOAuthProvider implements OAuthClientProvider {
   constructor(
     serverId: string,
     serverUrl: string,
-    interactive = false,
     callbackTransport: McpOAuthCallbackTransport = "loopback",
     options: McpOAuthProviderOptions = {},
   ) {
     this.serverId = serverId;
     this.serverUrl = serverUrl;
-    this.interactive = interactive;
     this.callbackTransport = callbackTransport;
     this._onAuthorizationUrl = options.onAuthorizationUrl;
+  }
+
+  /**
+   * Load the redirect URI persisted at registration time into the in-memory
+   * `_redirectUrl` slot when one is not already set. Making the synchronous
+   * `redirectUrl` getter return a value flips the SDK's `nonInteractiveFlow`
+   * off so a mid-session 401 reaches the token-refresh branch.
+   */
+  async hydratePersistedRedirectUri(): Promise<void> {
+    if (this._redirectUrl) {
+      return;
+    }
+    const stored = await getSecureKeyAsync(redirectUriKey(this.serverId));
+    if (stored) {
+      this._redirectUrl = stored;
+    }
   }
 
   // --- redirectUrl ---
@@ -130,32 +222,12 @@ export class McpOAuthProvider implements OAuthClientProvider {
   // --- Tokens ---
 
   async tokens(): Promise<OAuthTokens | undefined> {
-    const raw = await getSecureKeyAsync(tokensKey(this.serverId));
-    if (!raw) return undefined;
-    try {
-      return JSON.parse(raw) as OAuthTokens;
-    } catch {
-      log.warn(
-        { serverId: this.serverId },
-        "Failed to parse stored OAuth tokens",
-      );
-      return undefined;
-    }
+    const envelope = await loadMcpTokenEnvelope(this.serverId);
+    return envelope?.tokens;
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
-    const ok = await setSecureKeyAsync(
-      tokensKey(this.serverId),
-      JSON.stringify(tokens),
-    );
-    if (!ok) {
-      log.warn(
-        { serverId: this.serverId },
-        "Failed to persist OAuth tokens to secure storage",
-      );
-      return;
-    }
-    log.info({ serverId: this.serverId }, "OAuth tokens saved");
+    await persistMcpTokens(this.serverId, tokens);
   }
 
   // --- Client Information ---
@@ -187,6 +259,12 @@ export class McpOAuthProvider implements OAuthClientProvider {
         "Failed to persist OAuth client information to secure storage",
       );
       return;
+    }
+    // Persist the redirect URI bound to this registration so later refreshes
+    // can re-hydrate it and keep the SDK on the interactive (refresh-capable)
+    // code path.
+    if (this._redirectUrl) {
+      await setSecureKeyAsync(redirectUriKey(this.serverId), this._redirectUrl);
     }
     log.info({ serverId: this.serverId }, "OAuth client information saved");
   }
@@ -288,25 +366,18 @@ export class McpOAuthProvider implements OAuthClientProvider {
       return;
     }
 
-    if (!this.interactive) {
-      // Daemon mode — don't open browser, just log guidance
-      log.info(
-        { serverId: this.serverId },
-        "OAuth required but running in non-interactive mode",
-      );
-      return;
-    }
-
+    // Passive path: the SDK reached a fresh authorization (e.g. a mid-session
+    // refresh failed) but no orchestrator is listening to drive a browser
+    // flow. Mark the server as needing re-auth and surface UnauthorizedError so
+    // the transport's auth loop stops instead of silently returning.
+    markMcpNeedsReauth(this.serverId);
     log.info(
       { serverId: this.serverId },
-      "Opening browser for OAuth authorization",
+      "OAuth requires fresh authorization but no interactive flow is available",
     );
-    console.log(
-      `[MCP] Opening browser for OAuth authorization of "${this.serverId}"...`,
+    throw new UnauthorizedError(
+      `MCP server "${this.serverId}" requires re-authentication`,
     );
-
-    await openInHostBrowser(url);
-    console.log(`[MCP] If the browser did not open, visit this URL:\n${url}`);
   }
 
   // --- Invalidate Credentials ---
@@ -346,6 +417,8 @@ export class McpOAuthProvider implements OAuthClientProvider {
           "OAuth client information key not found in secure storage (already removed)",
         );
       }
+      // The redirect URI is bound to the client registration — clear it too.
+      await deleteSecureKeyAsync(redirectUriKey(this.serverId));
     }
     if (scope === "all" || scope === "verifier") {
       this._codeVerifier = undefined;
@@ -584,15 +657,18 @@ export async function hasMcpOAuthTokens(serverId: string): Promise<boolean> {
 export async function deleteMcpOAuthCredentials(
   serverId: string,
 ): Promise<{ ok: boolean; failedKeys: string[] }> {
-  const [tokensResult, clientResult, discoveryResult] = await Promise.all([
-    deleteSecureKeyAsync(tokensKey(serverId)),
-    deleteSecureKeyAsync(clientInfoKey(serverId)),
-    deleteSecureKeyAsync(discoveryKey(serverId)),
-  ]);
+  const [tokensResult, clientResult, discoveryResult, redirectResult] =
+    await Promise.all([
+      deleteSecureKeyAsync(tokensKey(serverId)),
+      deleteSecureKeyAsync(clientInfoKey(serverId)),
+      deleteSecureKeyAsync(discoveryKey(serverId)),
+      deleteSecureKeyAsync(redirectUriKey(serverId)),
+    ]);
   const results = [
     { key: "tokens", result: tokensResult },
     { key: "client_info", result: clientResult },
     { key: "discovery", result: discoveryResult },
+    { key: "redirect_uri", result: redirectResult },
   ];
   const failedKeys = results
     .filter((r) => r.result === "error")

@@ -23,7 +23,6 @@ mock.module("../mcp-oauth-provider.js", () => ({
     constructor(
       _serverId: string,
       _serverUrl: string,
-      _interactive: boolean,
       _callbackTransport: string,
       options: { onAuthorizationUrl?: (url: string) => void } = {},
     ) {
@@ -277,6 +276,26 @@ describe("orchestrateMcpOAuthConnect", () => {
     // The set was attempted but returned false, so no reload should happen
     expect(mockSetMcpAuthComplete).toHaveBeenCalled();
     expect(mockReloadMcpServers).not.toHaveBeenCalled();
+  });
+
+  test("default flow reuses stored client — does not invalidate credentials", async () => {
+    await orchestrateMcpOAuthConnect({
+      serverId: "test-server",
+      transport: { url: "https://example.com", type: "sse" },
+    });
+    expect(mockInvalidateCredentials).not.toHaveBeenCalled();
+  });
+
+  test("reset flow invalidates client, discovery, and tokens before starting", async () => {
+    await orchestrateMcpOAuthConnect({
+      serverId: "test-server",
+      transport: { url: "https://example.com", type: "sse" },
+      reset: true,
+    });
+    const scopes = mockInvalidateCredentials.mock.calls.map(
+      (c) => (c as unknown as string[])[0],
+    );
+    expect(scopes).toEqual(["client", "discovery", "tokens"]);
   });
 
   test("reload failure after completion is logged but does not corrupt success state", async () => {

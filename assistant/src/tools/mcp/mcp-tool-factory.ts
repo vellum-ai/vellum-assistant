@@ -1,5 +1,7 @@
 import type { McpServerConfig } from "../../config/schemas/mcp.js";
+import { isAuthRelatedError } from "../../mcp/client.js";
 import type { McpServerManager } from "../../mcp/manager.js";
+import { refreshMcpTokens } from "../../mcp/mcp-token-refresh.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { toProviderSafeToolName } from "../provider-tool-name.js";
 import { schemaDefinesProperty } from "../schema-transforms.js";
@@ -42,6 +44,15 @@ export function createMcpTool(
     "activity",
     { refBehavior: "assume-defined" },
   );
+  const httpUrl =
+    serverConfig.transport.type === "stdio"
+      ? undefined
+      : serverConfig.transport.url;
+
+  const needsReauthMessage =
+    `MCP server "${serverId}" needs re-authentication. Run ` +
+    `\`assistant mcp auth ${serverId}\` and give the user the printed ` +
+    `authorization URL as a clickable link.`;
 
   return {
     name: namespacedName,
@@ -56,15 +67,15 @@ export function createMcpTool(
       input: Record<string, unknown>,
       context: ToolContext,
     ): Promise<ToolExecutionResult> {
+      // Strip injected activity before sending to MCP server
+      const { activity: _activity, ...mcpInput } = input as Record<
+        string,
+        unknown
+      > & {
+        activity?: unknown;
+      };
+      const forwardInput = serverDefinesActivity ? input : mcpInput;
       try {
-        // Strip injected activity before sending to MCP server
-        const { activity: _activity, ...mcpInput } = input as Record<
-          string,
-          unknown
-        > & {
-          activity?: unknown;
-        };
-        const forwardInput = serverDefinesActivity ? input : mcpInput;
         const result = await manager.callTool(
           serverId,
           metadata.name,
@@ -77,6 +88,46 @@ export function createMcpTool(
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+
+        // On an auth failure, attempt a one-shot token refresh and retry the
+        // call once. If tokens can't be refreshed (or the retry still fails
+        // auth), return an actionable re-authentication instruction — the
+        // model reads this text and relays it to the user.
+        if (httpUrl && isAuthRelatedError(err)) {
+          const refreshed = await refreshMcpTokens(serverId, httpUrl).catch(
+            () => false,
+          );
+          if (refreshed) {
+            try {
+              const retry = await manager.callTool(
+                serverId,
+                metadata.name,
+                forwardInput,
+                context.signal,
+              );
+              return {
+                content: retry.content,
+                isError: retry.isError,
+              };
+            } catch (retryErr) {
+              if (!isAuthRelatedError(retryErr)) {
+                const retryMessage =
+                  retryErr instanceof Error
+                    ? retryErr.message
+                    : String(retryErr);
+                return {
+                  content: `MCP tool execution failed: ${retryMessage}`,
+                  isError: true,
+                };
+              }
+            }
+          }
+          return {
+            content: needsReauthMessage,
+            isError: true,
+          };
+        }
+
         return {
           content: `MCP tool execution failed: ${message}`,
           isError: true,
