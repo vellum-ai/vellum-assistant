@@ -18,6 +18,7 @@ import { ToolResultImages } from "@/domains/chat/components/chat-attachments/too
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
+import { MessageLongPressActions } from "@/domains/chat/components/message-hover-actions/message-long-press-actions";
 import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
 import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
 import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
@@ -41,6 +42,8 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useLongPress } from "@/hooks/use-long-press";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
@@ -159,6 +162,15 @@ export function TranscriptMessageBody({
   const [revealed, setRevealed] = useState(false);
   const slackMessageUrl = getExternalLinkUrl(message.slackMessage?.messageLink);
 
+  const isMobile = useIsMobile();
+  const [longPressOpen, setLongPressOpen] = useState(false);
+  const longPressFiredRef = useRef(false);
+
+  const longPressHandlers = useLongPress(() => {
+    longPressFiredRef.current = true;
+    setLongPressOpen(true);
+  });
+
   useEffect(() => {
     if (!revealed) return;
     const onDocPointerDown = (e: PointerEvent) => {
@@ -177,6 +189,12 @@ export function TranscriptMessageBody({
 
   const handleBubbleClick = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
+      // Suppress the click that follows a long-press activation so the
+      // inline trailer doesn't toggle open behind the BottomSheet.
+      if (longPressFiredRef.current) {
+        longPressFiredRef.current = false;
+        return;
+      }
       const target = e.target as Element | null;
       if (isInteractiveClickTarget(target)) {
         return;
@@ -751,18 +769,20 @@ export function TranscriptMessageBody({
         message={message}
         assistantDisplayName={assistantDisplayName}
       />
-      <div
-        className={`${trailerHeightClass} opacity-0 transition-[height,margin,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
-      >
-        <MessageHoverActions
-          message={message}
-          conversationId={conversationId}
-          openInSlackUrl={slackMessageUrl}
-          onFork={forkHandler}
-          onSummarizeUpToHere={summarizeHandler}
-          onInspect={inspectHandler}
-        />
-      </div>
+      {!isMobile && (
+        <div
+          className={`${trailerHeightClass} opacity-0 transition-[height,margin,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
+        >
+          <MessageHoverActions
+            message={message}
+            conversationId={conversationId}
+            openInSlackUrl={slackMessageUrl}
+            onFork={forkHandler}
+            onSummarizeUpToHere={summarizeHandler}
+            onInspect={inspectHandler}
+          />
+        </div>
+      )}
     </>
   );
 
@@ -785,6 +805,10 @@ export function TranscriptMessageBody({
         data-message-id={message.id || undefined}
         data-message-role={message.role}
         onClick={handleBubbleClick}
+        onTouchStart={longPressHandlers.onTouchStart}
+        onTouchMove={longPressHandlers.onTouchMove}
+        onTouchEnd={longPressHandlers.onTouchEnd}
+        onTouchCancel={longPressHandlers.onTouchCancel}
         data-revealed={revealed}
         className={wrapperClass}
       >
@@ -792,6 +816,18 @@ export function TranscriptMessageBody({
           {renderUserContent(userItems)}
           {trailer}
         </div>
+        {isMobile && (
+          <MessageLongPressActions
+            message={message}
+            conversationId={conversationId}
+            openInSlackUrl={slackMessageUrl}
+            onFork={forkHandler}
+            onSummarizeUpToHere={summarizeHandler}
+            onInspect={inspectHandler}
+            open={longPressOpen}
+            onOpenChange={setLongPressOpen}
+          />
+        )}
       </div>
     );
   }
@@ -803,6 +839,10 @@ export function TranscriptMessageBody({
       data-message-id={message.id || undefined}
       data-message-role={message.role}
       onClick={handleBubbleClick}
+      onTouchStart={longPressHandlers.onTouchStart}
+      onTouchMove={longPressHandlers.onTouchMove}
+      onTouchEnd={longPressHandlers.onTouchEnd}
+      onTouchCancel={longPressHandlers.onTouchCancel}
       data-revealed={revealed}
       className={wrapperClass}
     >
@@ -816,6 +856,18 @@ export function TranscriptMessageBody({
         )}
         {trailer}
       </div>
+      {isMobile && (
+        <MessageLongPressActions
+          message={message}
+          conversationId={conversationId}
+          openInSlackUrl={slackMessageUrl}
+          onFork={forkHandler}
+          onSummarizeUpToHere={summarizeHandler}
+          onInspect={inspectHandler}
+          open={longPressOpen}
+          onOpenChange={setLongPressOpen}
+        />
+      )}
     </div>
   );
 }
