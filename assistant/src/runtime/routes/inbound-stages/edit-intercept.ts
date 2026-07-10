@@ -127,7 +127,7 @@ export async function handleEditIntercept(
     // authoritative previous text once the original row is located, so
     // this check lives after the lookup.
     const existingRow = getMessageById(original.messageId);
-    if (existingRow && existingRow.content === newContent) {
+    if (existingRow && JSON.stringify(existingRow.content) === newContent) {
       log.debug(
         {
           assistantId,

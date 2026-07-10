@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { resolveSummarizeBoundary } from "../daemon/summarize-boundary.js";
 import type { MessageRow } from "../persistence/conversation-crud.js";
+import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
 import { UserError } from "../util/errors.js";
 
 function row(id: string, role: string, content: string): MessageRow {
@@ -9,7 +10,7 @@ function row(id: string, role: string, content: string): MessageRow {
     id,
     conversationId: "conv-xyz",
     role,
-    content,
+    content: resolveMessageContentBlocks(content),
     createdAt: 0,
     metadata: null,
     clientMessageId: null,

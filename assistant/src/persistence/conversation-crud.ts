@@ -35,6 +35,7 @@ import { HOOKS } from "../plugin-api/constants.js";
 import { forkConversationMemory } from "../plugins/defaults/memory/fork-conversation-memory.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { runHook } from "../plugins/pipeline.js";
+import type { ContentBlock } from "../providers/types.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { trustClassSchema } from "../runtime/trust-class.js";
@@ -88,6 +89,7 @@ import {
   enqueueLexicalIndexForMessage,
   enqueuePurgeConversationLexical,
 } from "./job-handlers/message-lexical.js";
+import { resolveMessageContentBlocks } from "./message-content-file.js";
 import {
   rawAll,
   rawExec,
@@ -447,11 +449,12 @@ export interface MessageRow {
   conversationId: string;
   role: string;
   /**
-   * The raw stored value — an inline `ContentBlock[]` JSON string, a legacy
-   * plain string, or (for file-backed rows) a `{ ref }` JSON string. Resolve
-   * to typed blocks with `resolveMessageContentBlocks` before consuming.
+   * Typed content blocks, resolved at the row-fetch chokepoint by
+   * `resolveMessageContentBlocks`: inline JSON parses, file-backed
+   * `{ ref }` rows fold their delta file, and legacy plain strings arrive
+   * wrapped in a single text block.
    */
-  content: string;
+  content: ContentBlock[];
   createdAt: number;
   metadata: string | null;
   clientMessageId: string | null;
@@ -463,7 +466,10 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
   id: "id",
   conversationId: "conversationId",
   role: "role",
-  content: "content",
+  content: {
+    from: "content",
+    transform: (v) => resolveMessageContentBlocks(String(v)),
+  },
   createdAt: "createdAt",
   metadata: "metadata",
   clientMessageId: "clientMessageId",
@@ -1075,7 +1081,7 @@ export function forkConversation(params: {
         id: forkedMessageId,
         conversationId: fc.id,
         role: message.role,
-        content: message.content,
+        content: JSON.stringify(message.content),
         createdAt: message.createdAt,
         metadata: cloneForkMessageMetadata(message.metadata, message.id),
       };

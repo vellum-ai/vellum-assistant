@@ -171,23 +171,13 @@ function getLatestAssistantText(conversationId: string): string | null {
   );
   if (msgs.length === 0) return null;
   const latest = msgs[msgs.length - 1];
-  try {
-    const parsed = JSON.parse(latest.content) as unknown;
-    if (Array.isArray(parsed)) {
-      return parsed
-        .filter(
-          (b): b is { type: string; text?: string } =>
-            typeof b === "object" && b != null,
-        )
-        .filter((b) => b.type === "text")
-        .map((b) => b.text ?? "")
-        .join("");
-    }
-    if (typeof parsed === "string") return parsed;
-  } catch {
-    /* fall through */
-  }
-  return latest.content;
+  return latest.content
+    .filter(
+      (b): b is { type: "text"; text: string } =>
+        b.type === "text" && typeof (b as { text?: unknown }).text === "string",
+    )
+    .map((b) => b.text)
+    .join("");
 }
 
 function makeConfig(

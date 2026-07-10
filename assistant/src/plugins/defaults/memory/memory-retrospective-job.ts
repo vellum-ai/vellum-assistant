@@ -76,6 +76,7 @@ import {
 } from "../../../persistence/jobs-store.js";
 import { resolveUserSlug } from "../../../prompts/persona-resolver.js";
 import type { SystemPromptPersonaOverride } from "../../../prompts/system-prompt.js";
+import type { ContentBlock } from "../../../providers/types.js";
 import { wakeAgentForOpportunity } from "../../../runtime/agent-wake.js";
 import { findMostRecentRetrospectiveFor } from "./find-most-recent-retrospective-for.js";
 import { getLogger } from "./logging.js";
@@ -931,7 +932,7 @@ async function extractRetrospectiveRunRemembers(
 
 interface MessageLike {
   role: string;
-  content: string;
+  content: string | ContentBlock[];
 }
 
 /**
@@ -945,11 +946,13 @@ function extractRememberContents(messages: MessageLike[]): string[] {
     if (msg.role !== "assistant") {
       continue;
     }
-    let blocks: unknown;
-    try {
-      blocks = JSON.parse(msg.content);
-    } catch {
-      continue;
+    let blocks: unknown = msg.content;
+    if (typeof blocks === "string") {
+      try {
+        blocks = JSON.parse(blocks);
+      } catch {
+        continue;
+      }
     }
     if (!Array.isArray(blocks)) {
       continue;

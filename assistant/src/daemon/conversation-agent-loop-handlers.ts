@@ -1604,12 +1604,7 @@ function recordToolStartOnPersistedMessage(
     return;
   }
 
-  let content: ContentBlock[];
-  try {
-    content = JSON.parse(row.content) as ContentBlock[];
-  } catch {
-    return;
-  }
+  const content: ContentBlock[] = row.content;
 
   for (const block of content) {
     if (block.type !== "tool_use") {
@@ -1663,12 +1658,7 @@ function recordToolPreviewStartOnPersistedMessage(
     return;
   }
 
-  let content: ContentBlock[];
-  try {
-    content = JSON.parse(row.content) as ContentBlock[];
-  } catch {
-    return;
-  }
+  const content: ContentBlock[] = row.content;
 
   for (const block of content) {
     if (block.type !== "tool_use") {
@@ -1717,12 +1707,7 @@ function annotatePersistedAssistantMessage(
     return;
   }
 
-  let content: ContentBlock[];
-  try {
-    content = JSON.parse(row.content) as ContentBlock[];
-  } catch {
-    return;
-  }
+  const content: ContentBlock[] = row.content;
 
   let modified = false;
   for (const block of content) {

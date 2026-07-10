@@ -13,6 +13,7 @@ import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { check, classifyRisk } from "../../permissions/checker.js";
 import { getMessages } from "../../persistence/conversation-crud.js";
+import type { ContentBlock } from "../../providers/types.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { runTask } from "../../tasks/task-runner.js";
 import { getTask, getTaskRun } from "../../tasks/task-store.js";
@@ -81,15 +82,23 @@ function broadcastWorkItemStatus(id: string): void {
  * Consolidation merges multiple assistant messages into one DB row; scanning
  * from the end keeps task output focused on the final assistant response.
  */
-function extractLatestTextFromContent(content: string): string {
+function extractLatestTextFromContent(
+  content: string | ContentBlock[],
+): string {
   try {
-    const parsed = JSON.parse(content);
+    const parsed = Array.isArray(content) ? content : JSON.parse(content);
     if (Array.isArray(parsed)) {
       for (let i = parsed.length - 1; i >= 0; i--) {
         const block = parsed[i] as { type?: unknown; text?: unknown };
-        if (block.type !== "text") continue;
-        if (typeof block.text !== "string") continue;
-        if (!block.text.trim()) continue;
+        if (block.type !== "text") {
+          continue;
+        }
+        if (typeof block.text !== "string") {
+          continue;
+        }
+        if (!block.text.trim()) {
+          continue;
+        }
         return block.text;
       }
       return "";
@@ -97,15 +106,15 @@ function extractLatestTextFromContent(content: string): string {
   } catch {
     // Plain text content — use as-is
   }
-  return content;
+  return Array.isArray(content) ? "" : content;
 }
 
 /** Extract tool_result blocks from a user message's content. */
 function extractToolResults(
-  content: string,
+  content: string | ContentBlock[],
 ): Array<{ tool_use_id: string; content: string; is_error?: boolean }> {
   try {
-    const parsed = JSON.parse(content);
+    const parsed = Array.isArray(content) ? content : JSON.parse(content);
     if (Array.isArray(parsed)) {
       return parsed
         .filter((b: { type: string }) => b.type === "tool_result")
@@ -144,7 +153,7 @@ function extractToolResults(
  * outcomes like errors, file paths, and URLs.
  */
 function extractToolHighlights(
-  msgs: Array<{ role: string; content: string }>,
+  msgs: Array<{ role: string; content: string | ContentBlock[] }>,
   maxHighlights: number,
 ): string[] {
   const highlights: string[] = [];
@@ -152,9 +161,13 @@ function extractToolHighlights(
   // Build a map of tool_use_id -> tool name from assistant messages
   const toolNameById = new Map<string, string>();
   for (const m of msgs) {
-    if (m.role !== "assistant") continue;
+    if (m.role !== "assistant") {
+      continue;
+    }
     try {
-      const parsed = JSON.parse(m.content);
+      const parsed = Array.isArray(m.content)
+        ? m.content
+        : JSON.parse(m.content);
       if (Array.isArray(parsed)) {
         for (const block of parsed) {
           if (block.type === "tool_use" && block.id && block.name) {
@@ -174,11 +187,15 @@ function extractToolHighlights(
     i--
   ) {
     const m = msgs[i];
-    if (m.role !== "user") continue;
+    if (m.role !== "user") {
+      continue;
+    }
 
     const results = extractToolResults(m.content);
     for (const result of results) {
-      if (highlights.length >= maxHighlights) break;
+      if (highlights.length >= maxHighlights) {
+        break;
+      }
 
       const toolName = toolNameById.get(result.tool_use_id) ?? "tool";
       const resultText = result.content.trim();
@@ -260,10 +277,14 @@ function getWorkItemOutput(id: string): WorkItemOutputResult {
   // Find the last assistant message with text content
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i];
-    if (m.role !== "assistant") continue;
+    if (m.role !== "assistant") {
+      continue;
+    }
 
     const text = extractLatestTextFromContent(m.content);
-    if (!text.trim()) continue;
+    if (!text.trim()) {
+      continue;
+    }
 
     summary = truncate(text, 2000, "");
 
@@ -276,7 +297,9 @@ function getWorkItemOutput(id: string): WorkItemOutputResult {
         trimmed.length > 2
       ) {
         highlights.push(trimmed);
-        if (highlights.length >= 5) break;
+        if (highlights.length >= 5) {
+          break;
+        }
       }
     }
     break;
@@ -508,11 +531,21 @@ export const ROUTES: RouteDefinition[] = [
       }
 
       const updates: Record<string, unknown> = {};
-      if (title !== undefined) updates.title = title;
-      if (notes !== undefined) updates.notes = notes;
-      if (status !== undefined) updates.status = status;
-      if (priorityTier !== undefined) updates.priorityTier = priorityTier;
-      if (sortIndex !== undefined) updates.sortIndex = sortIndex;
+      if (title !== undefined) {
+        updates.title = title;
+      }
+      if (notes !== undefined) {
+        updates.notes = notes;
+      }
+      if (status !== undefined) {
+        updates.status = status;
+      }
+      if (priorityTier !== undefined) {
+        updates.priorityTier = priorityTier;
+      }
+      if (sortIndex !== undefined) {
+        updates.sortIndex = sortIndex;
+      }
 
       const item =
         updateWorkItem(id, updates as Parameters<typeof updateWorkItem>[1]) ??

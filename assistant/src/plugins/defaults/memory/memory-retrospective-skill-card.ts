@@ -39,6 +39,7 @@ import {
   type MemoryJob,
   upsertSkillCardInsertJob,
 } from "../../../persistence/jobs-store.js";
+import type { ContentBlock } from "../../../providers/types.js";
 import { publishConversationMessagesChanged } from "../../../runtime/sync/resource-sync-events.js";
 import { getLogger } from "./logging.js";
 import { SKILL_CARD_MESSAGE_KIND } from "./memory-retrospective-constants.js";
@@ -91,15 +92,17 @@ export async function extractRetrospectiveRunSkillScaffolds(
 
 interface MessageLike {
   role: string;
-  content: string;
+  content: string | ContentBlock[];
 }
 
 function parseBlocks(msg: MessageLike): Array<Record<string, unknown>> {
-  let blocks: unknown;
-  try {
-    blocks = JSON.parse(msg.content);
-  } catch {
-    return [];
+  let blocks: unknown = msg.content;
+  if (typeof blocks === "string") {
+    try {
+      blocks = JSON.parse(blocks);
+    } catch {
+      return [];
+    }
   }
   if (!Array.isArray(blocks)) {
     return [];

@@ -32,6 +32,7 @@
  */
 
 import type { MessageRow } from "../persistence/conversation-crud.js";
+import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("message-consolidation");
@@ -43,7 +44,9 @@ function isToolResultType(type: string): boolean {
 }
 
 function isSystemNoticeText(block: Record<string, unknown>): boolean {
-  if (block.type !== "text") return false;
+  if (block.type !== "text") {
+    return false;
+  }
   const text = typeof block.text === "string" ? block.text : "";
   return (
     text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
@@ -59,15 +62,10 @@ function isSystemNoticeText(block: Record<string, unknown>): boolean {
  * must treat them as part of the surrounding assistant turn.
  */
 export function isToolResultOnlyUserMessage(msg: MessageRow): boolean {
-  if (msg.role !== "user") return false;
-  let blocks: unknown[];
-  try {
-    const parsed = JSON.parse(msg.content);
-    if (!Array.isArray(parsed)) return false;
-    blocks = parsed;
-  } catch {
+  if (msg.role !== "user") {
     return false;
   }
+  const blocks: unknown[] = msg.content;
 
   let sawToolResult = false;
   for (const block of blocks) {
@@ -117,13 +115,19 @@ export function findDisplayTurnEndIndex(
   messages: MessageRow[],
   startIdx: number,
 ): number {
-  if (startIdx < 0 || startIdx >= messages.length) return startIdx;
-  if (messages[startIdx]?.role !== "assistant") return startIdx;
+  if (startIdx < 0 || startIdx >= messages.length) {
+    return startIdx;
+  }
+  if (messages[startIdx]?.role !== "assistant") {
+    return startIdx;
+  }
 
   let endIdx = startIdx;
   while (endIdx + 1 < messages.length) {
     const next = messages[endIdx + 1];
-    if (!next) break;
+    if (!next) {
+      break;
+    }
     if (next.role === "assistant") {
       endIdx += 1;
       continue;
@@ -154,7 +158,7 @@ export function mergeToolResultsIntoAssistantMessages(
   // Index of the most recent assistant message in the output array.
   let lastAssistantIdx = -1;
   // Parsed content caches — lazily populated per assistant message.
-  const parsedAssistantContent = new Map<number, unknown[]>();
+  const parsedAssistantContent = new Map<number, ContentBlock[]>();
 
   const result: MessageRow[] = [];
 
@@ -171,18 +175,7 @@ export function mergeToolResultsIntoAssistantMessages(
       continue;
     }
 
-    let blocks: unknown[];
-    try {
-      const parsed = JSON.parse(msg.content);
-      if (!Array.isArray(parsed)) {
-        result.push(msg);
-        continue;
-      }
-      blocks = parsed;
-    } catch {
-      result.push(msg);
-      continue;
-    }
+    const blocks: unknown[] = msg.content;
 
     // Separate tool-result blocks from real user content.
     const toolResultBlocks: unknown[] = [];
@@ -224,15 +217,10 @@ export function mergeToolResultsIntoAssistantMessages(
       const assistant = result[lastAssistantIdx];
       let assistantContent = parsedAssistantContent.get(lastAssistantIdx);
       if (!assistantContent) {
-        try {
-          const parsed = JSON.parse(assistant.content);
-          assistantContent = Array.isArray(parsed) ? parsed : [parsed];
-        } catch {
-          assistantContent = [];
-        }
+        assistantContent = [...assistant.content];
         parsedAssistantContent.set(lastAssistantIdx, assistantContent);
       }
-      assistantContent.push(...toolResultBlocks);
+      assistantContent.push(...(toolResultBlocks as ContentBlock[]));
     }
 
     // If the user message had only tool_result (+ system_notice) blocks,
@@ -246,14 +234,14 @@ export function mergeToolResultsIntoAssistantMessages(
         ),
     );
     if (realUserContent.length > 0) {
-      result.push({ ...msg, content: JSON.stringify(otherBlocks) });
+      result.push({ ...msg, content: otherBlocks as ContentBlock[] });
     }
     // else: tool-result-only → suppressed
   }
 
   // Write back any modified assistant message content.
   for (const [idx, content] of parsedAssistantContent) {
-    result[idx] = { ...result[idx], content: JSON.stringify(content) };
+    result[idx] = { ...result[idx], content };
   }
 
   return result;
@@ -262,37 +250,19 @@ export function mergeToolResultsIntoAssistantMessages(
 // ── Pass 2: consecutive-assistant merging ───────────────────────────
 
 /** Parse a message's JSON content into an array of content blocks. */
-function parseContentBlocks(content: string): unknown[] {
-  try {
-    const parsed = JSON.parse(content);
-    return Array.isArray(parsed) ? parsed : [parsed];
-  } catch (err) {
-    log.warn(
-      { err },
-      "Failed to parse content blocks during assistant message merge",
-    );
-    return [];
-  }
+function parseContentBlocks(content: ContentBlock[]): ContentBlock[] {
+  return [...content];
 }
 
 /**
  * Append content blocks from a donor message onto a target block array.
  * Parses the donor's JSON content and pushes each block into `target`.
  */
-function appendContentBlocks(target: unknown[], donorContent: string): void {
-  try {
-    const parsed = JSON.parse(donorContent);
-    if (Array.isArray(parsed)) {
-      target.push(...parsed);
-    } else {
-      target.push(parsed);
-    }
-  } catch (err) {
-    log.warn(
-      { err },
-      "Failed to parse donor content blocks during assistant message merge",
-    );
-  }
+function appendContentBlocks(
+  target: ContentBlock[],
+  donorContent: ContentBlock[],
+): void {
+  target.push(...donorContent);
 }
 
 /**
@@ -354,7 +324,7 @@ export function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
 } {
   const result: MessageRow[] = [];
   // Key = index in `result`, value = accumulated content blocks.
-  const pendingMerges = new Map<number, unknown[]>();
+  const pendingMerges = new Map<number, ContentBlock[]>();
   // Key = index in `result`, value = IDs of messages merged into the target.
   const mergedIds = new Map<number, string[]>();
 
@@ -391,7 +361,7 @@ export function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
 
   // Write back merged content for any messages that were targets.
   for (const [idx, content] of pendingMerges) {
-    result[idx] = { ...result[idx], content: JSON.stringify(content) };
+    result[idx] = { ...result[idx], content };
   }
 
   // Build the merged ID map keyed by surviving message ID.

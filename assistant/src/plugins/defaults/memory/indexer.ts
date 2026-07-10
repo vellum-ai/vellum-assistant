@@ -18,6 +18,7 @@ import {
   upsertDebouncedJob,
 } from "../../../persistence/jobs-store.js";
 import { memorySegments } from "../../../persistence/schema/index.js";
+import type { ContentBlock } from "../../../providers/types.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { isAutoAnalysisConversation } from "../../../runtime/services/auto-analysis-guard.js";
 import { getLogger } from "./logging.js";
@@ -35,7 +36,7 @@ export interface IndexMessageInput {
   messageId: string;
   conversationId: string;
   role: string;
-  content: string;
+  content: string | ContentBlock[];
   createdAt: number;
   /**
    * Trust class of the actor who produced this message, captured at

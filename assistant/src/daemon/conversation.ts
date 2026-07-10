@@ -184,9 +184,13 @@ const log = getLogger("conversation");
  * no text block. Used to verify the row→history boundary mapping in
  * {@link Conversation.summarizeUpToMessage}.
  */
-function firstPersistedTextBlockText(content: string): string | null {
+function firstPersistedTextBlockText(
+  content: string | ContentBlock[],
+): string | null {
   try {
-    const parsed: unknown = JSON.parse(content);
+    const parsed: unknown = Array.isArray(content)
+      ? content
+      : JSON.parse(content);
     if (Array.isArray(parsed)) {
       const block = parsed.find(
         (b): b is { type: "text"; text: string } =>
@@ -200,7 +204,7 @@ function firstPersistedTextBlockText(content: string): string | null {
   } catch {
     // Non-JSON content loads as a raw text block.
   }
-  return content;
+  return Array.isArray(content) ? null : content;
 }
 
 export interface CleanResult {
@@ -1037,19 +1041,7 @@ export class Conversation {
     const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
       const isPreStripped = index < preStrippedCount;
       const role = m.role as "user" | "assistant";
-      let content: ContentBlock[];
-      try {
-        const parsed = JSON.parse(m.content);
-        content = Array.isArray(parsed)
-          ? parsed
-          : [{ type: "text", text: m.content }];
-      } catch {
-        log.warn(
-          { conversationId: this.conversationId, messageId: m.id },
-          "Invalid JSON in persisted message content, replacing with safe text block",
-        );
-        content = [{ type: "text", text: m.content }];
-      }
+      let content: ContentBlock[] = m.content;
 
       content = reinjectAttachmentPathAnnotations(content, role, m.metadata);
 
