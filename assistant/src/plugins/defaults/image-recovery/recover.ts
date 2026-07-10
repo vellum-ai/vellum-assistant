@@ -222,13 +222,22 @@ export function unsendableImageReplacement(
 /**
  * Replacement rule for the "unprocessable image" rejection class. Sniffs the
  * bytes first ({@link invalidImageReplacement}) so corrupt/non-image data
- * becomes a note and a mislabeled media type is corrected; when the bytes are a
- * valid image whose media type already agrees, falls back to the size rule
- * ({@link unsendableImageReplacement}) so an image below the provider's
- * minimum-size floor is still upscaled.
+ * becomes a note and a mislabeled media type is corrected; the size rule
+ * ({@link unsendableImageReplacement}) then runs on the surviving image —
+ * whether untouched or relabeled — so an image below the provider's
+ * minimum-size floor is still upscaled and a relabeled image that also
+ * violates a size cap is resized in the same pass (recovery is one-shot per
+ * turn, so a size violation left behind here would surface instead of
+ * recovering).
  */
-export const unprocessableImageReplacement: ImageReplacementRule = (block) =>
-  invalidImageReplacement(block) ?? unsendableImageReplacement(block);
+export const unprocessableImageReplacement: ImageReplacementRule = (block) => {
+  const relabeled = invalidImageReplacement(block);
+  if (relabeled != null && relabeled.type !== "image") {
+    return relabeled;
+  }
+  const survivor = relabeled ?? block;
+  return unsendableImageReplacement(survivor) ?? relabeled;
+};
 
 /**
  * True when a message's content holds an image the provider may have rejected

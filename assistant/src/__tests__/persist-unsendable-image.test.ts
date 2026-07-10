@@ -27,6 +27,7 @@ import {
   persistImageDowngrades,
   recoverImages,
   unprocessableImageReplacement,
+  UNSENDABLE_IMAGE_NOTE,
   unsendableImageReplacement,
 } from "../plugins/defaults/image-recovery/recover.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -411,6 +412,23 @@ describe("invalidImageReplacement", () => {
         data: JPEG_BYTES_DATA,
       },
     });
+  });
+
+  /** A mislabeled image that also violates a size cap must not survive as a
+   *  relabeled-but-oversized image: recovery is one-shot per turn, so the size
+   *  rule runs on the corrected image in the same pass (here the fake PNG
+   *  cannot be resized, so it collapses to the unsendable note). */
+  test("applies the size rule to a media-type-corrected image in the same pass", () => {
+    const block: Extract<ContentBlock, { type: "image" }> = {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: "image/jpeg",
+        data: makePngBase64(PROVIDER_MAX_IMAGE_DIMENSION + 1000, 4000),
+      },
+    };
+    const replacement = unprocessableImageReplacement(block);
+    expect(replacement).toEqual({ type: "text", text: UNSENDABLE_IMAGE_NOTE });
   });
 });
 
