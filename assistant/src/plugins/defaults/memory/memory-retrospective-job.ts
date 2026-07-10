@@ -238,12 +238,12 @@ export async function runForkBasedRetrospective(
   }
   const cutoffMessageId = cutoffMessage.id;
 
-  // The fork carries the full conversation, so the agent needs an explicit
-  // anchor telling it where the review window begins. Prefer the user
-  // turn's `<turn_context>` `current_time:` (the exact string the model
-  // sees in its rehydrated history); fall back to `createdAt` rendered in
-  // the conversation's timezone when no row in the slice carries a
-  // turn-context metadata block.
+  // The fork carries the source's visible window (inherited compaction
+  // summary + tail rows), so the agent needs an explicit anchor telling it
+  // where the review window begins. Prefer the user turn's `<turn_context>`
+  // `current_time:` (the exact string the model sees in its rehydrated
+  // history); fall back to `createdAt` rendered in the conversation's
+  // timezone when no row in the slice carries a turn-context metadata block.
   const timezoneContext = resolveTurnTimezoneContext({
     configuredUserTimeZone: config.ui.userTimezone ?? null,
     detectedTimezone: config.ui.detectedTimezone ?? null,
@@ -271,10 +271,9 @@ export async function runForkBasedRetrospective(
   // advances to `cutoffMessageId`, causing the next retrospective to
   // reprocess (and potentially re-`remember`) those same turns.
   //
-  // `forkConversation` inherits `contextSummary` /
-  // `contextCompactedMessageCount` / `contextCompactedAt` when the fork
-  // point sits within the visible window. Compacted source ⇒ compacted
-  // fork ⇒ summary + tail visible to the agent natively.
+  // The fork copies only the source's visible tail and carries the inherited
+  // compaction summary on its own row (with a fork-local compacted count of
+  // 0). Compacted source ⇒ summary + tail visible to the agent natively.
   let forkConversationRow: Awaited<
     ReturnType<typeof forkConversationForRetrospective>
   >;

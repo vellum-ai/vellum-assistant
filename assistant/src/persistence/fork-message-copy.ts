@@ -2,8 +2,9 @@
 // Fork message-copy — off-event-loop bulk copy of a conversation's messages.
 // ---------------------------------------------------------------------------
 //
-// The fork-based memory retrospective copies the entire source conversation's
-// message rows into a throwaway background conversation. Done in-process via
+// The fork-based memory retrospective copies the visible tail of the source
+// conversation's message rows (rows at-or-after the inherited compaction
+// boundary) into a throwaway background conversation. Done in-process via
 // `bun:sqlite` (synchronous), that copy is the single longest uninterruptible
 // block on the daemon's event loop — on a multi-GB database it pegs the CPU
 // for minutes, stalling `/healthz` and the gateway's IPC calls (see the
