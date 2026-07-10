@@ -5,12 +5,14 @@ import { convertImageToJpeg } from "../util/image-conversion.js";
 // down server-side anyway, so pre-scaling is zero quality loss.
 const MAX_DIMENSION = 1568;
 
-// Minimum per-side pixel floor. Anthropic rejects very small images with a
-// 400 "Could not process image" (observed with a 16×14 px upload); the exact
-// floor is undocumented, so this sits comfortably above the model's 28-px
-// visual-patch size. Upscaling adds no information, so raising a tiny image
-// to this floor is lossless — it only makes the payload acceptable.
-// Exported so the image-recovery plugin gates on the same floor.
+// Minimum per-side pixel floor for the image-recovery rejection path.
+// Anthropic rejects very small images with a 400 "Could not process image"
+// (observed with a 16×14 px upload) but does not document the floor, so it is
+// never enforced pre-send — images go out untouched and this gate only
+// identifies the likely offender after the provider has actually rejected a
+// turn. The value sits comfortably above the model's 28-px visual-patch size;
+// upscaling adds no information, so lifting a rejected image to this floor is
+// lossless.
 export const MIN_IMAGE_DIMENSION = 64;
 
 // Threshold below which we skip optimization — small images don't need it.
@@ -24,7 +26,7 @@ const MAX_TRANSPORT_BYTES = Math.floor(3.5 * 1024 * 1024); // ~3.5 MB raw
 const JPEG_QUALITY = 80;
 
 /**
- * Decide whether an image needs to be rescaled (downscaled) before sending.
+ * Decide whether an image needs to be rescaled before sending.
  *
  * Two independent gates apply:
  *   1. Pixel dimensions — Anthropic rejects many-image requests when any
@@ -49,12 +51,13 @@ export function shouldRescaleImage(
 }
 
 /**
- * Whether an image sits below the provider's minimum-size floor on either
- * side and needs upscaling before sending. Requires parsed dimensions — a
- * byte-size proxy cannot distinguish a tiny image from a well-compressed
- * large one.
+ * Whether an image sits below the {@link MIN_IMAGE_DIMENSION} floor on either
+ * side. Requires parsed dimensions — a byte-size proxy cannot distinguish a
+ * tiny image from a well-compressed large one.
  *
- * Exported for unit testing and for the image-recovery plugin's gate.
+ * Only consulted by the image-recovery rejection path (the floor is
+ * undocumented, so it is never enforced pre-send). Exported for that gate and
+ * for unit testing.
  */
 export function isBelowMinDimension(
   dims: { width: number; height: number } | null,
@@ -70,7 +73,7 @@ export function isBelowMinDimension(
  * side to {@link MIN_IMAGE_DIMENSION}. The scale factor is capped so the long
  * side never exceeds {@link MAX_DIMENSION}; for pathological aspect ratios
  * where no upscale is possible under that cap, returns null and the caller
- * keeps the original bytes (the recovery path then notes the image out).
+ * notes the image out instead.
  *
  * Exported for unit testing.
  */
@@ -93,16 +96,38 @@ export function upscaleTargetDimensions(dims: {
 }
 
 /**
- * Rescale a base64 image to fit within Anthropic's size limits: downscale to
- * the recommended 1568px max side, or upscale an undersized image to the
- * {@link MIN_IMAGE_DIMENSION} floor. Returns the original data unchanged if
- * the image is already within limits or if conversion fails.
+ * Upscale an image the provider rejected as too small to the
+ * {@link MIN_IMAGE_DIMENSION} floor. Returns null when the image's dimensions
+ * are unparseable, no valid upscale exists, or conversion is unavailable on
+ * this host — the caller replaces the image with a note instead.
  *
- * Downscaling matches what Anthropic applies server-side, so it is zero
- * quality loss — done pre-flight to keep request payloads small and avoid
+ * Reactive only: called by the image-recovery plugin after an actual
+ * "Could not process image" rejection, never on the pre-send path.
+ */
+export function upscaleImageToMinimum(
+  base64Data: string,
+  mediaType: string,
+): { data: string; mediaType: string } | null {
+  const dims = parseImageDimensions(base64Data, mediaType);
+  if (!dims) return null;
+  const target = upscaleTargetDimensions(dims);
+  if (!target) return null;
+  const upscaled = convertImageToJpeg(Buffer.from(base64Data, "base64"), {
+    resizeToPx: target,
+    quality: JPEG_QUALITY,
+  });
+  if (!upscaled) return null;
+  return { data: upscaled.toString("base64"), mediaType: "image/jpeg" };
+}
+
+/**
+ * Downscale a base64 image to fit within Anthropic's recommended dimensions
+ * (1568px max side). Returns the original data unchanged if the image is
+ * already small enough or if optimization fails.
+ *
+ * Anthropic applies the same scaling server-side, so this is zero quality
+ * loss — we just do it pre-flight to keep request payloads small and avoid
  * 413 "request too large" errors when many images accumulate in context.
- * Upscaling adds no information but keeps tiny images (icons, favicons)
- * above the provider's rejection floor.
  *
  * Conversion (and its content-addressed disk cache) is shared with attachment
  * storage normalization — see `util/image-conversion.ts`.
@@ -114,32 +139,17 @@ export function optimizeImageForTransport(
   const rawBytes = Buffer.from(base64Data, "base64");
   const dims = parseImageDimensions(base64Data, mediaType);
 
-  // The downscale gates win when both apply (an extreme-aspect image can be
-  // simultaneously over the long-side cap and under the short-side floor):
-  // an oversized payload is the more common hard rejection.
-  if (shouldRescaleImage(dims, rawBytes.length)) {
-    const optimized = convertImageToJpeg(rawBytes, {
-      maxDimensionPx: MAX_DIMENSION,
-      quality: JPEG_QUALITY,
-    });
-    if (!optimized) {
-      return { data: base64Data, mediaType };
-    }
-    return { data: optimized.toString("base64"), mediaType: "image/jpeg" };
+  if (!shouldRescaleImage(dims, rawBytes.length)) {
+    return { data: base64Data, mediaType };
   }
 
-  if (isBelowMinDimension(dims)) {
-    const target = dims ? upscaleTargetDimensions(dims) : null;
-    const upscaled = target
-      ? convertImageToJpeg(rawBytes, {
-          resizeToPx: target,
-          quality: JPEG_QUALITY,
-        })
-      : null;
-    if (upscaled) {
-      return { data: upscaled.toString("base64"), mediaType: "image/jpeg" };
-    }
+  const optimized = convertImageToJpeg(rawBytes, {
+    maxDimensionPx: MAX_DIMENSION,
+    quality: JPEG_QUALITY,
+  });
+  if (!optimized) {
+    return { data: base64Data, mediaType };
   }
 
-  return { data: base64Data, mediaType };
+  return { data: optimized.toString("base64"), mediaType: "image/jpeg" };
 }

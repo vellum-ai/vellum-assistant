@@ -25,8 +25,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const SHRUNK_DATA = "c2hydW5r"; // base64 for "shrunk"
 mock.module("../agent/image-optimize.js", () => ({
   // The gate helper must stay real-shaped: every image in this file is
-  // oversized (never undersized), so the min-dimension gate never matches.
+  // oversized (never undersized), so the min-dimension gate never matches
+  // and the rejection-path upscale is never reached.
   isBelowMinDimension: () => false,
+  upscaleImageToMinimum: () => null,
   optimizeImageForTransport: () => ({
     data: SHRUNK_DATA,
     mediaType: "image/jpeg",

@@ -23,6 +23,7 @@ import {
 import {
   isBelowMinDimension,
   optimizeImageForTransport,
+  upscaleImageToMinimum,
 } from "../../../agent/image-optimize.js";
 import { parseImageDimensions } from "../../../context/image-dimensions.js";
 import {
@@ -89,11 +90,13 @@ export function unsendableImageReplacement(
     return null;
   }
 
-  const optimized = optimizeImageForTransport(
-    resolved.data,
-    resolved.media_type,
-  );
-  if (optimized.data !== resolved.data) {
+  // The floor is undocumented, so undersized images are never touched
+  // pre-send — the upscale runs only here, in response to an actual
+  // provider rejection. Oversized images reuse the transport downscale.
+  const optimized = belowMinDimension
+    ? upscaleImageToMinimum(resolved.data, resolved.media_type)
+    : optimizeImageForTransport(resolved.data, resolved.media_type);
+  if (optimized && optimized.data !== resolved.data) {
     return {
       type: "image",
       source: {

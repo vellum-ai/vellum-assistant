@@ -3,9 +3,34 @@ import { describe, expect, it } from "bun:test";
 import {
   isBelowMinDimension,
   MIN_IMAGE_DIMENSION,
+  optimizeImageForTransport,
   shouldRescaleImage,
+  upscaleImageToMinimum,
   upscaleTargetDimensions,
 } from "../agent/image-optimize.js";
+
+/**
+ * Minimal PNG whose IHDR declares the given dimensions — enough for
+ * `parseImageDimensions` to read them; the payload is not decodable.
+ */
+function makePngBase64(width: number, height: number): string {
+  return Buffer.from(
+    Uint8Array.from([
+      ...[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], // PNG signature
+      ...[0x00, 0x00, 0x00, 0x0d], // IHDR length (13)
+      ...[0x49, 0x48, 0x44, 0x52], // "IHDR"
+      (width >>> 24) & 0xff,
+      (width >>> 16) & 0xff,
+      (width >>> 8) & 0xff,
+      width & 0xff,
+      (height >>> 24) & 0xff,
+      (height >>> 16) & 0xff,
+      (height >>> 8) & 0xff,
+      height & 0xff,
+      ...[0x08, 0x06, 0x00, 0x00, 0x00], // bit depth / color type / etc.
+    ]),
+  ).toString("base64");
+}
 
 describe("shouldRescaleImage", () => {
   it("rescales when any side exceeds the max dimension, regardless of file size", () => {
@@ -86,5 +111,29 @@ describe("upscaleTargetDimensions", () => {
     // 1568 px long-side cap; the scale is clamped to the cap instead.
     const target = upscaleTargetDimensions({ width: 4, height: 2000 });
     expect(target).toBeNull();
+  });
+});
+
+describe("upscaleImageToMinimum", () => {
+  it("returns null when dimensions are unparseable", () => {
+    expect(
+      upscaleImageToMinimum(
+        Buffer.from("not an image").toString("base64"),
+        "image/png",
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("optimizeImageForTransport", () => {
+  it("passes an undersized image through unchanged — the minimum floor is rejection-path only", () => {
+    // The floor is undocumented provider behavior, so pre-send transport
+    // never enforces it; only the image-recovery plugin reacts to an actual
+    // "Could not process image" rejection.
+    const tiny = makePngBase64(16, 14);
+    expect(optimizeImageForTransport(tiny, "image/png")).toEqual({
+      data: tiny,
+      mediaType: "image/png",
+    });
   });
 });
