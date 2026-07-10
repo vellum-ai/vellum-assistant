@@ -3,7 +3,7 @@
  * recovery (JARVIS-1041 review follow-up).
  *
  * When an oversized stored image *can* be shrunk on this host (the common macOS
- * path where `sips` is available), `persistUnsendableImageDowngrades` must write
+ * path where `sips` is available), `persistImageDowngrades` must write
  * the downscaled bytes back to the DB — not leave the original in place. The
  * latest tool-result media is intentionally kept in context, so leaving the
  * full-size block would rehydrate and re-reject on every later turn instead of
@@ -42,7 +42,10 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { persistUnsendableImageDowngrades } from "../plugins/defaults/image-recovery/recover.js";
+import {
+  persistImageDowngrades,
+  unsendableImageReplacement,
+} from "../plugins/defaults/image-recovery/recover.js";
 import { base64Source } from "../providers/media-resolve.js";
 import type { ContentBlock } from "../providers/types.js";
 
@@ -115,7 +118,7 @@ function storedContent(conversationId: string): ContentBlock[][] {
   return getMessages(conversationId).map((row) => row.content);
 }
 
-describe("persistUnsendableImageDowngrades (downscalable host)", () => {
+describe("persistImageDowngrades (downscalable host)", () => {
   beforeEach(() => {
     resetTables();
   });
@@ -133,7 +136,10 @@ describe("persistUnsendableImageDowngrades (downscalable host)", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = persistImageDowngrades(
+      conv.id,
+      unsendableImageReplacement,
+    );
 
     // THEN the nested block stays an image, rewritten to the downscaled payload
     expect(rewritten).toBe(1);
@@ -159,10 +165,13 @@ describe("persistUnsendableImageDowngrades (downscalable host)", () => {
       JSON.stringify([toolResultWithImage(oversizedPngBase64())]),
       { skipIndexing: true },
     );
-    expect(persistUnsendableImageDowngrades(conv.id)).toBe(1);
+    expect(persistImageDowngrades(conv.id, unsendableImageReplacement)).toBe(1);
 
     // WHEN the downgrade runs again
-    const secondRun = persistUnsendableImageDowngrades(conv.id);
+    const secondRun = persistImageDowngrades(
+      conv.id,
+      unsendableImageReplacement,
+    );
 
     // THEN nothing further is rewritten
     expect(secondRun).toBe(0);

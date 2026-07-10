@@ -241,6 +241,57 @@ describe("image-recovery post-model-call hook — direct", () => {
     });
   });
 
+  test("'Could not process image' on non-image bytes (HTML) → replaces with note, continues, one-shot", async () => {
+    // GIVEN a provider rejection for an image block whose bytes are actually an
+    // HTML page (a Slack auth interstitial stored as image/png), the field
+    // incident shape — Anthropic returns 400 "Could not process image".
+    const htmlAsImageData = Buffer.from(
+      "<!DOCTYPE html><html><body>Sign in to continue</body></html>",
+    ).toString("base64");
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "read this thread" },
+          imageBlock(htmlAsImageData),
+        ],
+      },
+    ];
+    const ctx = makePostModelCallCtx({
+      conversationId: "conv-html",
+      messages,
+      error: new Error(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"Could not process image"},"request_id":"req_011CcsLvPnYo5Xnvhs5edSS2"}',
+      ),
+    });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN it retries with the HTML payload gone, replaced by a text note, and
+    // marks the one-shot bound.
+    expect(ctx.decision).toBe("continue");
+    expect(isImageRecoveryAttempted(ctx.conversationId)).toBe(true);
+    expect(JSON.stringify(ctx.messages)).not.toContain(htmlAsImageData);
+    expect(ctx.messages[0].content.some((b) => b.type === "image")).toBe(false);
+    expect(ctx.messages[0].content).toContainEqual({
+      type: "text",
+      text: "read this thread",
+    });
+
+    // AND a second consecutive rejection this turn is left to surface — the
+    // recovery is one-shot per turn (the bound is already marked).
+    const secondCtx = makePostModelCallCtx({
+      conversationId: "conv-html",
+      messages,
+      error: new Error(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"Could not process image"}}',
+      ),
+    });
+    await postModelCall(secondCtx);
+    expect(secondCtx.decision).toBe("stop");
+  });
+
   test("durably persists the downgrade so the image cannot resurface", async () => {
     // GIVEN a conversation whose stored history holds an oversized image.
     const conv = createConversation();

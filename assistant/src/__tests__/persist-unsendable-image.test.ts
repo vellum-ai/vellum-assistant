@@ -5,7 +5,7 @@
  * per-image byte cap, and not shrinkable on this host — must be durably swapped
  * for a text note in its stored message. If it stays in the stored content,
  * every later turn rehydrates it from the DB and the model reports seeing both
- * the rejected image and any smaller re-upload. `persistUnsendableImageDowngrades`
+ * the rejected image and any smaller re-upload. `persistImageDowngrades`
  * makes the swap durable so the rejected upload cannot resurface.
  *
  * Uses the real SQLite DB wired up via `test-preload.ts` (per-file temp
@@ -22,10 +22,14 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
-  persistUnsendableImageDowngrades,
+  INVALID_IMAGE_NOTE,
+  invalidImageReplacement,
+  persistImageDowngrades,
+  recoverImages,
+  unprocessableImageReplacement,
   unsendableImageReplacement,
 } from "../plugins/defaults/image-recovery/recover.js";
-import type { ContentBlock } from "../providers/types.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 
 await initializeDb();
 
@@ -110,7 +114,7 @@ function storedContent(conversationId: string): ContentBlock[][] {
 
 const PROVIDER_MAX_IMAGE_DIMENSION = 8000;
 
-describe("persistUnsendableImageDowngrades", () => {
+describe("persistImageDowngrades", () => {
   beforeEach(() => {
     resetTables();
   });
@@ -131,7 +135,10 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = persistImageDowngrades(
+      conv.id,
+      unsendableImageReplacement,
+    );
 
     // THEN one message is rewritten with no image block left
     expect(rewritten).toBe(1);
@@ -161,7 +168,10 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = persistImageDowngrades(
+      conv.id,
+      unsendableImageReplacement,
+    );
 
     // THEN only the rejected original is removed
     expect(rewritten).toBe(1);
@@ -183,7 +193,10 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = persistImageDowngrades(
+      conv.id,
+      unsendableImageReplacement,
+    );
 
     // THEN nothing is rewritten and the image remains
     expect(rewritten).toBe(0);
@@ -201,7 +214,10 @@ describe("persistUnsendableImageDowngrades", () => {
     });
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = persistImageDowngrades(
+      conv.id,
+      unsendableImageReplacement,
+    );
 
     // THEN the oversized-payload image is removed
     expect(rewritten).toBe(1);
@@ -223,7 +239,10 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = persistImageDowngrades(
+      conv.id,
+      unsendableImageReplacement,
+    );
 
     // THEN the undersized image is removed (upscale is a no-op on this host)
     expect(rewritten).toBe(1);
@@ -247,7 +266,10 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = persistImageDowngrades(
+      conv.id,
+      unsendableImageReplacement,
+    );
 
     // THEN the message is rewritten with the nested image swapped for a note
     expect(rewritten).toBe(1);
@@ -273,7 +295,10 @@ describe("persistUnsendableImageDowngrades", () => {
     );
 
     // WHEN the downgrade is persisted
-    const rewritten = persistUnsendableImageDowngrades(conv.id);
+    const rewritten = persistImageDowngrades(
+      conv.id,
+      unsendableImageReplacement,
+    );
 
     // THEN nothing is rewritten and the nested image remains
     expect(rewritten).toBe(0);
@@ -296,10 +321,13 @@ describe("persistUnsendableImageDowngrades", () => {
       JSON.stringify([imageBlock(makePngBase64(10000, 10000))]),
       { skipIndexing: true },
     );
-    expect(persistUnsendableImageDowngrades(conv.id)).toBe(1);
+    expect(persistImageDowngrades(conv.id, unsendableImageReplacement)).toBe(1);
 
     // WHEN the downgrade runs a second time
-    const secondRun = persistUnsendableImageDowngrades(conv.id);
+    const secondRun = persistImageDowngrades(
+      conv.id,
+      unsendableImageReplacement,
+    );
 
     // THEN nothing further is rewritten
     expect(secondRun).toBe(0);
@@ -339,5 +367,120 @@ describe("unsendableImageReplacement", () => {
     >;
     const replacement = unsendableImageReplacement(undersized);
     expect(replacement?.type).toBe("text");
+  });
+});
+
+/** Base64 payload for a page of HTML (a Slack auth interstitial), the exact
+ *  shape that was stored under an image media type in the field incident. */
+const HTML_AS_IMAGE_DATA = Buffer.from(
+  "<!DOCTYPE html><html><head><title>Sign in</title></head><body>Redirecting…</body></html>",
+).toString("base64");
+
+/** Base64 payload whose magic bytes are a JPEG (SOI + APP0 marker). */
+const JPEG_BYTES_DATA = Buffer.from(
+  Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]),
+).toString("base64");
+
+function asImage(data: string): Extract<ContentBlock, { type: "image" }> {
+  return imageBlock(data) as Extract<ContentBlock, { type: "image" }>;
+}
+
+describe("invalidImageReplacement", () => {
+  /** Non-image bytes (HTML) stored under image/png can never decode — no
+   *  relabeling helps, so the block collapses to the invalid-image note. */
+  test("replaces non-image bytes (HTML) with the invalid-image note", () => {
+    const replacement = invalidImageReplacement(asImage(HTML_AS_IMAGE_DATA));
+    expect(replacement).toEqual({ type: "text", text: INVALID_IMAGE_NOTE });
+  });
+
+  /** A real image whose declared media type already agrees is left untouched
+   *  so the caller can fall through to the size rule. */
+  test("returns null for a valid PNG whose media type already agrees", () => {
+    expect(invalidImageReplacement(asImage(makePngBase64(64, 64)))).toBeNull();
+  });
+
+  /** JPEG bytes mislabeled image/png have their media type corrected in place,
+   *  keeping the same payload. */
+  test("corrects the media type when the bytes disagree with the label", () => {
+    const replacement = invalidImageReplacement(asImage(JPEG_BYTES_DATA));
+    expect(replacement).toEqual({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: "image/jpeg",
+        data: JPEG_BYTES_DATA,
+      },
+    });
+  });
+});
+
+describe("unprocessable-image recovery (invalid bytes)", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  /** HTML-as-image/png is swapped for the note both in the working history and
+   *  in the stored row, so it cannot rehydrate and re-reject on later turns. */
+  test("replaces HTML-as-image with the note in-memory and durably", async () => {
+    // GIVEN a stored turn whose image block is actually an HTML page.
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        { type: "text", text: "what is this?" },
+        imageBlock(HTML_AS_IMAGE_DATA),
+      ]),
+      { skipIndexing: true },
+    );
+
+    // WHEN the working history is recovered in-memory
+    const history: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this?" },
+          imageBlock(HTML_AS_IMAGE_DATA),
+        ],
+      },
+    ];
+    const recovered = recoverImages(history, unprocessableImageReplacement);
+
+    // THEN the HTML payload is gone, replaced with the invalid-image note
+    expect(JSON.stringify(recovered)).not.toContain(HTML_AS_IMAGE_DATA);
+    expect(recovered[0].content).toContainEqual({
+      type: "text",
+      text: INVALID_IMAGE_NOTE,
+    });
+
+    // AND the durable rewrite removes it from the stored row too
+    const rewritten = persistImageDowngrades(
+      conv.id,
+      unprocessableImageReplacement,
+    );
+    expect(rewritten).toBe(1);
+    const [content] = storedContent(conv.id);
+    expect(content.some((b) => b.type === "image")).toBe(false);
+    expect(content).toContainEqual({ type: "text", text: INVALID_IMAGE_NOTE });
+  });
+
+  /** A valid PNG is never disturbed by the unprocessable rule. */
+  test("leaves a valid PNG untouched", async () => {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([imageBlock(makePngBase64(1024, 768))]),
+      { skipIndexing: true },
+    );
+
+    const rewritten = persistImageDowngrades(
+      conv.id,
+      unprocessableImageReplacement,
+    );
+
+    expect(rewritten).toBe(0);
+    const [content] = storedContent(conv.id);
+    expect(content.some((b) => b.type === "image")).toBe(true);
   });
 });

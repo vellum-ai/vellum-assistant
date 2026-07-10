@@ -3,7 +3,7 @@
  * turn terminates.
  *
  * The `post-model-call` hook (see `./post-model-call.ts`) marks the bound when
- * it downscales an oversized image and asks the loop to retry. `stop` is the
+ * it rewrites a rejected image and asks the loop to retry. `stop` is the
  * definitive terminal hook — it fires exactly once when the turn is truly
  * ending, after every retry decision has been made — so clearing the bound here
  * unconditionally guarantees the next turn always recovers afresh, no matter how

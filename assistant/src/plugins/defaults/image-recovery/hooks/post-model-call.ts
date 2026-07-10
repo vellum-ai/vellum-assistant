@@ -4,14 +4,16 @@
  *
  * A provider rejects the call when an attached image violates a hard limit —
  * its longest side exceeds the per-side pixel cap, its base64 payload exceeds
- * the size cap, or it falls below the minimum size floor ("Could not process
- * image"). That rejection is a model-call outcome — the loop runs the
- * `post-model-call` chain with the rejection attached. This hook recognizes
- * the image-rejection class, resizes the unsendable image blocks in the
- * working history via {@link recoverUnsendableImages}, and asks the loop to
- * retry the call. It also persists the same rewrite durably via {@link
- * persistUnsendableImageDowngrades} so the rejected image cannot rehydrate from
- * the stored row and re-reject on every later turn.
+ * the size cap, it falls below the minimum size floor, or its bytes cannot be
+ * decoded ("Could not process image" / "image does not match the provided
+ * media type"). That rejection is a model-call outcome — the loop runs the
+ * `post-model-call` chain with the rejection attached. This hook recognizes the
+ * image-rejection class, selects the matching replacement rule (size vs.
+ * unprocessable), rewrites the offending image blocks in the working history
+ * via {@link recoverImages}, and asks the loop to retry the call. It also
+ * persists the same rewrite durably via {@link persistImageDowngrades} so the
+ * rejected image cannot rehydrate from the stored row and re-reject on every
+ * later turn.
  *
  * Bounded to one pass per turn via the per-conversation recovery state: a
  * second consecutive image rejection means the resize could not bring the
@@ -28,14 +30,19 @@
 
 import type { HookFunction, PostModelCallContext } from "@vellumai/plugin-api";
 
-import { isRecoverableImageError } from "../detect.js";
+import {
+  isImageUnprocessableError,
+  isRecoverableImageError,
+} from "../detect.js";
 import {
   isImageRecoveryAttempted,
   markImageRecoveryAttempted,
 } from "../image-recovery-state-store.js";
 import {
-  persistUnsendableImageDowngrades,
-  recoverUnsendableImages,
+  persistImageDowngrades,
+  recoverImages,
+  unprocessableImageReplacement,
+  unsendableImageReplacement,
 } from "../recover.js";
 
 const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
@@ -45,13 +52,16 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
     !isImageRecoveryAttempted(ctx.conversationId)
   ) {
     markImageRecoveryAttempted(ctx.conversationId);
-    ctx.messages = recoverUnsendableImages(ctx.messages);
+    const rule = isImageUnprocessableError(ctx.error.message)
+      ? unprocessableImageReplacement
+      : unsendableImageReplacement;
+    ctx.messages = recoverImages(ctx.messages, rule);
     // Make the downgrade durable so the rejected image can't rehydrate from the
     // stored row and re-reject on later turns. This is cleanup for future
     // turns, so a persistence failure must never abort the retry that is about
     // to run — log it and continue with the in-memory recovery.
     try {
-      const rewritten = persistUnsendableImageDowngrades(ctx.conversationId);
+      const rewritten = persistImageDowngrades(ctx.conversationId, rule);
       if (rewritten > 0) {
         ctx.logger.info(
           { plugin: "image-recovery", rewritten },

@@ -396,6 +396,22 @@ describe("classifyConversationError", () => {
       expect(result.userMessage.toLowerCase()).toContain("image");
     });
 
+    it("classifies Anthropic 400 'does not match the provided media type' as image_unprocessable", () => {
+      // Bytes whose format disagrees with the declared media_type (e.g. an HTML
+      // page stored as image/png). Must route to the image-recovery
+      // classification, staying in lockstep with what the recovery hook acts on.
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.0.content.1.image.source.base64: image does not match the provided media type image/png"}}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("IMAGE_TOO_LARGE");
+      expect(result.errorCategory).toBe("image_unprocessable");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).not.toContain("invalid_request_error");
+    });
+
     it("does not steal generic 400s that happen to mention 'image'", () => {
       const err = new ProviderError(
         "invalid request: image source is missing",

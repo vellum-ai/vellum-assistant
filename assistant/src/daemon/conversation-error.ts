@@ -456,7 +456,7 @@ function classifyCore(
         return {
           code: "IMAGE_TOO_LARGE",
           userMessage:
-            "An image in this conversation could not be processed by the AI provider — it may be below the provider's minimum image size. It was automatically adjusted where possible; send your message again to continue.",
+            "An image in this conversation could not be processed by the AI provider — it may be corrupted or below the provider's minimum image size. It was automatically adjusted where possible; send your message again to continue.",
           retryable: false,
           errorCategory: "image_unprocessable",
         };
