@@ -39,9 +39,13 @@ class MockWebSocket {
 
   removeEventListener(type: string, listener: unknown): void {
     const list = this.listeners.get(type as WsEventType);
-    if (!list) return;
+    if (!list) {
+      return;
+    }
     const idx = list.indexOf(listener as WsListener);
-    if (idx !== -1) list.splice(idx, 1);
+    if (idx !== -1) {
+      list.splice(idx, 1);
+    }
   }
 
   send(data: string | Uint8Array): void {
@@ -62,20 +66,28 @@ class MockWebSocket {
 
   simulateOpen(): void {
     this.readyState = 1; // OPEN
-    for (const l of this.listeners.get("open") ?? []) l();
+    for (const l of this.listeners.get("open") ?? []) {
+      l();
+    }
   }
 
   simulateMessage(data: string): void {
-    for (const l of this.listeners.get("message") ?? []) l({ data });
+    for (const l of this.listeners.get("message") ?? []) {
+      l({ data });
+    }
   }
 
   simulateClose(code = 1000, reason = ""): void {
     this.readyState = 3;
-    for (const l of this.listeners.get("close") ?? []) l({ code, reason });
+    for (const l of this.listeners.get("close") ?? []) {
+      l({ code, reason });
+    }
   }
 
   simulateError(err: unknown): void {
-    for (const l of this.listeners.get("error") ?? []) l(err);
+    for (const l of this.listeners.get("error") ?? []) {
+      l(err);
+    }
   }
 }
 

@@ -9,6 +9,7 @@ export const VALID_STT_PROVIDERS = [
   "google-gemini",
   "openai-whisper",
   "xai",
+  "vellum",
 ] as const;
 
 /**
@@ -32,19 +33,21 @@ export type SttProviders = z.infer<typeof SttProvidersSchema>;
 /**
  * Canonical STT service configuration.
  *
- * `mode` is locked to `"your-own"` -- managed STT is not supported.
- * Attempting to set `mode: "managed"` will fail schema validation.
+ * `mode` selects between the user's own provider key (`"your-own"`) and
+ * Vellum-managed transcription billed to Vellum credits (`"managed"`).
+ * The `provider` field always holds the user's BYOK choice so switching
+ * back from managed mode restores it; use {@link effectiveSttProvider}
+ * to resolve which provider is actually active.
  */
 export const SttServiceSchema = z
   .object({
     mode: z
-      .literal("your-own", {
-        error:
-          'services.stt.mode must be "your-own" -- managed STT is not supported',
+      .enum(["your-own", "managed"], {
+        error: 'services.stt.mode must be "your-own" or "managed"',
       })
       .default("your-own" as const)
       .describe(
-        'STT service mode -- only "your-own" is supported (managed STT is not available)',
+        'STT service mode -- "your-own" uses the configured provider with your API key; "managed" transcribes through your Vellum account',
       ),
     provider: z
       .enum(VALID_STT_PROVIDERS, {
@@ -53,8 +56,32 @@ export const SttServiceSchema = z
       .describe("Active STT provider used for speech-to-text transcription"),
     providers: SttProvidersSchema.default({}),
   })
+  .superRefine((service, ctx) => {
+    if (service.provider === "vellum" && service.mode !== "managed") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["provider"],
+        message:
+          'services.stt.provider "vellum" requires services.stt.mode "managed"',
+      });
+    }
+  })
   .describe(
     "Speech-to-text service configuration -- provider selection and per-provider settings",
   );
 
 export type SttService = z.infer<typeof SttServiceSchema>;
+
+/**
+ * Resolve the provider that is actually active for the service config.
+ *
+ * Managed mode always routes to the `vellum` provider while leaving the
+ * user's BYOK `provider` choice untouched, so toggling back to
+ * `"your-own"` restores their previous setup.
+ */
+export function effectiveSttProvider(service: {
+  mode: SttService["mode"];
+  provider: string;
+}): string {
+  return service.mode === "managed" ? "vellum" : service.provider;
+}

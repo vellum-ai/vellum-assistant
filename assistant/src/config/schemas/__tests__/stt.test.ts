@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  effectiveSttProvider,
   SttProvidersSchema,
   SttServiceSchema,
   VALID_STT_PROVIDERS,
@@ -39,5 +40,41 @@ describe("SttServiceSchema", () => {
 
   test("VALID_STT_PROVIDERS includes deepgram", () => {
     expect(VALID_STT_PROVIDERS).toContain("deepgram");
+  });
+});
+
+describe("managed mode", () => {
+  test("accepts mode: managed with a BYOK provider preserved", () => {
+    const parsed = SttServiceSchema.parse({
+      mode: "managed",
+      provider: "deepgram",
+    });
+    expect(parsed.mode).toBe("managed");
+    expect(parsed.provider).toBe("deepgram");
+  });
+
+  test("accepts provider vellum under managed mode", () => {
+    const parsed = SttServiceSchema.parse({
+      mode: "managed",
+      provider: "vellum",
+    });
+    expect(parsed.provider).toBe("vellum");
+  });
+
+  test("rejects provider vellum under your-own mode", () => {
+    const result = SttServiceSchema.safeParse({
+      mode: "your-own",
+      provider: "vellum",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("effectiveSttProvider routes managed mode to vellum and preserves BYOK otherwise", () => {
+    expect(
+      effectiveSttProvider({ mode: "managed", provider: "deepgram" }),
+    ).toBe("vellum");
+    expect(
+      effectiveSttProvider({ mode: "your-own", provider: "deepgram" }),
+    ).toBe("deepgram");
   });
 });

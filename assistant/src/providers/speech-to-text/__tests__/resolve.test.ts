@@ -60,6 +60,28 @@ mock.module("../../../security/credential-key.js", () => ({
   credentialKey: (...args: string[]) => args.join("/"),
 }));
 
+// -- Vellum managed availability mock --------------------------------------
+
+let mockVellumAvailable = false;
+
+mock.module("../vellum-managed.js", () => ({
+  vellumManagedSpeechAvailable: async () => mockVellumAvailable,
+  vellumManagedTranscribe: async () => ({ text: "" }),
+  sttErrorFromManagedSpeech: (failure: unknown) => new Error(String(failure)),
+}));
+
+const vellumStreamCtorCalls: Array<{ options: unknown }> = [];
+
+mock.module("../vellum-managed-stream.js", () => ({
+  VellumManagedStreamingTranscriber: class {
+    readonly providerId = "vellum";
+    readonly boundaryId = "daemon-streaming";
+    constructor(options: unknown) {
+      vellumStreamCtorCalls.push({ options });
+    }
+  },
+}));
+
 // -- Streaming adapter mocks ----------------------------------------------
 
 /**
@@ -134,11 +156,12 @@ const {
 
 function buildConfig(overrides: {
   provider?: string;
+  mode?: string;
 }): Record<string, unknown> {
   return {
     services: {
       stt: {
-        mode: "your-own",
+        mode: overrides.mode ?? "your-own",
         provider: overrides.provider ?? "openai-whisper",
         providers: {
           "openai-whisper": {},
@@ -487,13 +510,16 @@ describe("telephony capability catalog alignment", () => {
       deepgram: "deepgram",
       "google-gemini": "gemini",
       xai: "xai",
+      // vellum's credential is the platform connection, mocked below.
+      vellum: "vellum",
     };
 
     for (const id of listProviderIds()) {
       const credKey = credentialMap[id];
       expect(credKey).toBeDefined();
 
-      mockProviderKeys = { [credKey]: `test-key-${id}` };
+      mockVellumAvailable = id === "vellum";
+      mockProviderKeys = id === "vellum" ? {} : { [credKey]: `test-key-${id}` };
       mockConfig = buildConfig({ provider: id });
 
       const result = await resolveTelephonySttCapability();
@@ -923,5 +949,62 @@ describe("resolveStreamingTranscriber diarize preference", () => {
 
     expect(transcriber).not.toBeNull();
     expect(whisperCtorCalls).toHaveLength(1);
+  });
+});
+
+describe("vellum managed resolution", () => {
+  beforeEach(() => {
+    mockVellumAvailable = false;
+    mockProviderKeys = {};
+    vellumStreamCtorCalls.length = 0;
+  });
+
+  test("managed mode resolves the vellum batch transcriber when the platform connection exists", async () => {
+    mockVellumAvailable = true;
+    mockConfig = buildConfig({ provider: "deepgram", mode: "managed" });
+
+    const transcriber = await resolveBatchTranscriber();
+    expect(transcriber?.providerId).toBe("vellum");
+  });
+
+  test("managed mode resolves null without a platform connection", async () => {
+    mockVellumAvailable = false;
+    mockConfig = buildConfig({ provider: "deepgram", mode: "managed" });
+
+    expect(await resolveBatchTranscriber()).toBeNull();
+  });
+
+  test("managed mode preserves the BYOK provider choice (effective provider is vellum)", async () => {
+    mockVellumAvailable = true;
+    mockProviderKeys = { deepgram: "dg-key" };
+    mockConfig = buildConfig({ provider: "deepgram", mode: "managed" });
+
+    const capability = await resolveConversationStreamingSttCapability();
+    expect(capability.status).toBe("supported");
+    if (capability.status === "supported") {
+      expect(capability.providerId).toBe("vellum");
+      expect(capability.streamingMode).toBe("incremental-batch");
+    }
+  });
+
+  test("streaming resolver constructs the vellum adapter with the sample rate", async () => {
+    mockVellumAvailable = true;
+    mockConfig = buildConfig({ provider: "openai-whisper", mode: "managed" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      sampleRate: 24000,
+    });
+    expect(transcriber?.providerId).toBe("vellum");
+    expect(vellumStreamCtorCalls).toEqual([
+      { options: { pcmSampleRate: 24000 } },
+    ]);
+  });
+
+  test("conversation streaming capability reports missing credentials without a connection", async () => {
+    mockVellumAvailable = false;
+    mockConfig = buildConfig({ provider: "deepgram", mode: "managed" });
+
+    const capability = await resolveConversationStreamingSttCapability();
+    expect(capability.status).toBe("missing-credentials");
   });
 });

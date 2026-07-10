@@ -13,7 +13,9 @@ mock.module("../../providers/speech-to-text/openai-whisper.js", () => ({
   OpenAIWhisperProvider: class MockWhisperProvider {
     constructor(_apiKey: string) {}
     async transcribe(_audio: Buffer, _mimeType: string, _signal?: AbortSignal) {
-      if (mockWhisperTranscribeError) throw mockWhisperTranscribeError;
+      if (mockWhisperTranscribeError) {
+        throw mockWhisperTranscribeError;
+      }
       return mockWhisperTranscribeResult;
     }
   },
@@ -26,7 +28,9 @@ mock.module("../../providers/speech-to-text/deepgram.js", () => ({
   DeepgramProvider: class MockDeepgramProvider {
     constructor(_apiKey: string) {}
     async transcribe(_audio: Buffer, _mimeType: string, _signal?: AbortSignal) {
-      if (mockDeepgramTranscribeError) throw mockDeepgramTranscribeError;
+      if (mockDeepgramTranscribeError) {
+        throw mockDeepgramTranscribeError;
+      }
       return mockDeepgramTranscribeResult;
     }
   },
@@ -39,7 +43,9 @@ mock.module("../../providers/speech-to-text/google-gemini.js", () => ({
   GoogleGeminiProvider: class MockGoogleGeminiProvider {
     constructor(_apiKey: string) {}
     async transcribe(_audio: Buffer, _mimeType: string, _signal?: AbortSignal) {
-      if (mockGeminiTranscribeError) throw mockGeminiTranscribeError;
+      if (mockGeminiTranscribeError) {
+        throw mockGeminiTranscribeError;
+      }
       return mockGeminiTranscribeResult;
     }
   },
@@ -52,7 +58,9 @@ mock.module("../../providers/speech-to-text/xai.js", () => ({
   XAIProvider: class MockXAIProvider {
     constructor(_apiKey: string) {}
     async transcribe(_audio: Buffer, _mimeType: string, _signal?: AbortSignal) {
-      if (mockXAITranscribeError) throw mockXAITranscribeError;
+      if (mockXAITranscribeError) {
+        throw mockXAITranscribeError;
+      }
       return mockXAITranscribeResult;
     }
   },
@@ -464,5 +472,17 @@ describe("normalizeSttError", () => {
     );
     expect(result).toBeInstanceOf(SttError);
     expect(result.category).toBe("rate-limit");
+  });
+});
+
+describe("vellum factory case", () => {
+  test("constructs the managed transcriber with no API key", () => {
+    const transcriber = createDaemonBatchTranscriber(null, "vellum");
+    expect(transcriber?.providerId).toBe("vellum");
+    expect(transcriber?.boundaryId).toBe("daemon-batch");
+  });
+
+  test("still returns null for key-based providers without a key", () => {
+    expect(createDaemonBatchTranscriber(null, "deepgram")).toBeNull();
   });
 });

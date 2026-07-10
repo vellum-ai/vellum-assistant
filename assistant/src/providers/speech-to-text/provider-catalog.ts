@@ -197,6 +197,25 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     },
   ],
   [
+    "vellum",
+    {
+      id: "vellum",
+      displayName: "Vellum Managed",
+      subtitle:
+        "Speech-to-text through your Vellum account — billed to Vellum credits, no separate API key needed.",
+      setupMode: "api-key",
+      setupHint: "Connect your Vellum account to enable managed transcription.",
+      credentialProvider: "vellum",
+      supportedBoundaries: new Set<SttBoundaryId>([
+        "daemon-batch",
+        "daemon-streaming",
+      ]),
+      telephonyMode: "batch-only",
+      conversationStreamingMode: "incremental-batch",
+      supportsDiarization: false,
+    },
+  ],
+  [
     "xai",
     {
       id: "xai",
