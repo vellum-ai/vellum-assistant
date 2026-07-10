@@ -177,6 +177,15 @@ export function useGallerySwipe({
         reset();
         return;
       }
+      // Another finger is still down: this is a multi-touch/pinch, not a clean
+      // release. A second touch landing outside this content wrapper (on modal
+      // chrome or the backdrop) never reaches our onTouchStart/onTouchMove to
+      // reset the gesture, so guard here too — otherwise lifting the original
+      // finger would commit a stale swipe.
+      if (e.touches.length > 0) {
+        reset();
+        return;
+      }
       // Decide from the true final delta, not the rendered `dragOffset`: prefer
       // the released touch's position (a fast flick's final move can land only
       // on `changedTouches`), and fall back to the last delta seen in touchmove.
