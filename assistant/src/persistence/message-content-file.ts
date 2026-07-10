@@ -3,8 +3,15 @@
  *
  * A `messages.content` value is a union of two shapes:
  *   - Inline: a JSON-serialized `ContentBlock[]` (or a legacy plain string).
- *   - Ref:    `{ "ref": "<workspace-relative path>" }` pointing at a JSONL
- *             delta file that folds to a `ContentBlock[]`.
+ *   - Ref:    `{ "ref": "conversations/<dir>/…/<messageId>.jsonl" }` pointing
+ *             at a JSONL delta file that folds to a `ContentBlock[]`.
+ *
+ * The ref path is workspace-relative and MUST live under the reserved
+ * `conversations/` prefix with a `.jsonl` extension — the schema rejects
+ * anything else. This is the migration-safe discriminator against legacy
+ * plain-string rows: a legacy message whose entire text happens to parse as
+ * `{ "ref": … }` is only misread if it also names a reserved content path,
+ * which no organic legacy text does.
  *
  * The delta file is append-only. Each line is `{ i, seq, block }` where `i`
  * is the block index in the final array and `seq` is a monotonically
@@ -13,56 +20,79 @@
  * crash-truncated file still folds to the newest complete snapshot of each
  * block.
  *
- * All content reads must go through {@link resolveStoredMessageContent}
- * (wired into the message row mapper) — downstream consumers never see a
- * raw `{ ref }` value.
+ * All content reads must go through {@link resolveMessageContentBlocks}
+ * (expressive form) or {@link resolveStoredMessageContent} (the string shim
+ * wired into the message row mapper) — downstream consumers never see a raw
+ * `{ ref }` value.
  */
 
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 
+import { z } from "zod";
+
+import { contentBlockSchema } from "../providers/content-block-schema.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
 const log = getLogger("message-content-file");
 
-/** Ref-shaped `messages.content` value pointing at a delta file. */
-export interface MessageContentRef {
-  /** Path of the JSONL delta file, relative to the workspace directory. */
-  ref: string;
-}
+/**
+ * Ref-shaped `messages.content` value. Strict (no extra keys) and
+ * reserved-path constrained so legacy plain-string rows that parse as
+ * arbitrary JSON objects can never be mistaken for a ref.
+ */
+export const messageContentRefSchema = z
+  .object({
+    ref: z
+      .string()
+      .regex(
+        /^conversations\/.+\.jsonl$/,
+        "content refs must be workspace-relative paths under conversations/ ending in .jsonl",
+      ),
+  })
+  .strict();
+
+export type MessageContentRef = z.infer<typeof messageContentRefSchema>;
 
 /** One line of the append-only content delta file. */
-export interface ContentDeltaLine {
-  /** Index of `block` in the folded `ContentBlock[]`. */
-  i: number;
-  /** Monotonic write sequence; the highest `seq` per `i` wins the fold. */
-  seq: number;
-  block: ContentBlock;
-}
+const contentDeltaLineSchema = z
+  .object({
+    /** Index of `block` in the folded `ContentBlock[]`. */
+    i: z.number(),
+    /** Monotonic write sequence; the highest `seq` per `i` wins the fold. */
+    seq: z.number(),
+    block: contentBlockSchema,
+  })
+  .strict();
+
+export type ContentDeltaLine = z.infer<typeof contentDeltaLineSchema>;
 
 /**
- * Narrow a parsed `messages.content` value to the ref shape. Strict on
- * purpose (exactly one key) so a legacy plain-string message that happens
- * to parse as an object can never be mistaken for a ref.
+ * Parse a raw `messages.content` string to a ref, or null when the value is
+ * inline content. The charCode fast path keeps the overwhelmingly common
+ * inline-array case to a single character check.
  */
-export function isMessageContentRef(
-  value: unknown,
-): value is MessageContentRef {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.keys(value).length === 1 &&
-    typeof (value as { ref?: unknown }).ref === "string" &&
-    (value as { ref: string }).ref.length > 0
-  );
+function parseContentRef(raw: string): MessageContentRef | null {
+  if (typeof raw !== "string" || raw.charCodeAt(0) !== 0x7b /* '{' */) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const result = messageContentRefSchema.safeParse(parsed);
+  return result.success ? result.data : null;
 }
 
 /**
  * Resolve a workspace-relative content ref to an absolute path, rejecting
- * anything that escapes the workspace directory. Returns null on escape.
+ * anything that escapes the workspace directory (e.g. a ref containing
+ * `..` segments that still matched the reserved-prefix schema). Returns
+ * null on escape.
  */
 export function resolveContentRefPath(ref: string): string | null {
   const workspaceDir = resolve(getWorkspaceDir());
@@ -106,18 +136,11 @@ export function foldContentDeltas(text: string): ContentBlock[] {
     } catch {
       continue;
     }
-    if (typeof parsed !== "object" || parsed === null) {
+    const result = contentDeltaLineSchema.safeParse(parsed);
+    if (!result.success) {
       continue;
     }
-    const { i, seq, block } = parsed as Partial<ContentDeltaLine>;
-    if (
-      typeof i !== "number" ||
-      typeof seq !== "number" ||
-      typeof block !== "object" ||
-      block === null
-    ) {
-      continue;
-    }
+    const { i, seq, block } = result.data;
     const existing = byIndex.get(i);
     if (!existing || seq > existing.seq) {
       byIndex.set(i, { seq, block });
@@ -142,49 +165,82 @@ export function foldContentFile(absPath: string): ContentBlock[] | null {
   return foldContentDeltas(text);
 }
 
+/** Fold a validated ref to blocks; empty content on missing/escaping refs. */
+function resolveRefToBlocks(ref: MessageContentRef): ContentBlock[] {
+  const absPath = resolveContentRefPath(ref.ref);
+  if (!absPath) {
+    log.warn(
+      { ref: ref.ref },
+      "Content ref escapes the workspace directory; resolving as empty",
+    );
+    return [];
+  }
+  const blocks = foldContentFile(absPath);
+  if (blocks === null) {
+    log.warn(
+      { ref: ref.ref },
+      "Content ref file missing or unreadable; resolving as empty",
+    );
+    return [];
+  }
+  return blocks;
+}
+
 /**
- * Resolve a stored `messages.content` value to its inline JSON form.
+ * Resolve a stored `messages.content` value to a `ContentBlock[]`.
  *
- * Inline values (JSON `ContentBlock[]` or legacy plain strings) pass
- * through untouched — the common case costs one character check. Ref
- * values are resolved by folding the delta file and returning the folded
- * blocks as a JSON string, so every consumer downstream of the row mapper
- * sees the same shape it always has.
+ * This is the expressive form of the resolver:
+ *   - Inline `ContentBlock[]` JSON parses to its blocks.
+ *   - A `{ ref }` folds its delta file (empty on missing/escaping refs).
+ *   - A legacy plain string (or any non-array, non-ref JSON) becomes a
+ *     single text block carrying the raw value.
  *
- * Never throws. A missing/unreadable file or an escaping ref resolves to
- * `"[]"` (empty content) with a warning — content reads must not take
- * down read paths.
+ * Never throws — content reads must not take down read paths.
  */
-export function resolveStoredMessageContent(raw: string): string {
-  // Inline arrays start with '[', legacy plain strings rarely start with
-  // '{' — and when one does, the parse/shape checks below reject it.
-  if (typeof raw !== "string" || raw.charCodeAt(0) !== 0x7b /* '{' */) {
-    return raw;
+export function resolveMessageContentBlocks(raw: string): ContentBlock[] {
+  const ref = parseContentRef(raw);
+  if (ref) {
+    return resolveRefToBlocks(ref);
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
+    // legacy plain string
+    return [{ type: "text", text: raw }];
+  }
+  if (Array.isArray(parsed)) {
+    const result = z.array(contentBlockSchema).safeParse(parsed);
+    if (result.success) {
+      return result.data;
+    }
+    // Historical rows may carry block variants that predate the current
+    // union (the renderer tolerates unknown types in its default case).
+    // Pass them through rather than mangling stored content into a text
+    // wrap; this is the one legacy boundary the schema cannot close.
+    log.warn(
+      { issueCount: result.error.issues.length },
+      "Inline content array has unrecognized block shapes; passing through unvalidated",
+    );
+    return parsed as ContentBlock[];
+  }
+  return [{ type: "text", text: raw }];
+}
+
+/**
+ * Resolve a stored `messages.content` value to its inline JSON string form.
+ *
+ * String shim over the resolver for call sites whose contract is the raw
+ * stored string — today that is `MessageRow.content` via the row mapper.
+ * Inline values (JSON `ContentBlock[]` or legacy plain strings) pass
+ * through by identity — the common case costs one character check — so
+ * legacy-string handling stays byte-identical for existing consumers.
+ * Prefer {@link resolveMessageContentBlocks} in new code.
+ */
+export function resolveStoredMessageContent(raw: string): string {
+  const ref = parseContentRef(raw);
+  if (!ref) {
     return raw;
   }
-  if (!isMessageContentRef(parsed)) {
-    return raw;
-  }
-  const absPath = resolveContentRefPath(parsed.ref);
-  if (!absPath) {
-    log.warn(
-      { ref: parsed.ref },
-      "Content ref escapes the workspace directory; resolving as empty",
-    );
-    return "[]";
-  }
-  const blocks = foldContentFile(absPath);
-  if (blocks === null) {
-    log.warn(
-      { ref: parsed.ref },
-      "Content ref file missing or unreadable; resolving as empty",
-    );
-    return "[]";
-  }
-  return JSON.stringify(blocks);
+  return JSON.stringify(resolveRefToBlocks(ref));
 }
