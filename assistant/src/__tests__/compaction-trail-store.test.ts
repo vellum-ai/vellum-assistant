@@ -60,6 +60,7 @@ function insertLogAt(
   callSite: "mainAgent" | "compactionAgent" | null,
   requestPayload = "{}",
 ): string {
+  // Logging is enabled in these tests, so the write always returns an id.
   const id = recordRequestLog(
     conversationId,
     requestPayload,
@@ -67,7 +68,7 @@ function insertLogAt(
     undefined,
     "anthropic",
     callSite ?? undefined,
-  );
+  )!;
   // Use the Drizzle update builder rather than `db.run("UPDATE … ?")` —
   // the drizzle wrapper doesn't accept positional parameters the same
   // way `bun:sqlite` does, and a silent no-op there manifests as zero

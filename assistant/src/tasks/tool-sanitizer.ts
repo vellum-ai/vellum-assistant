@@ -11,7 +11,9 @@ export function sanitizeToolList(tools: string[]): string[] {
   const seen = new Set<string>();
 
   for (const tool of tools) {
-    if (!tool || typeof tool !== "string") continue;
+    if (!tool || typeof tool !== "string") {
+      continue;
+    }
     seen.add(tool);
   }
 

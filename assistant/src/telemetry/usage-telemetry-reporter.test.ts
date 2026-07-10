@@ -126,12 +126,13 @@ mock.module("../config/loader.js", () => ({
 }));
 
 interface MockTurnTrace {
-  schema_version: 2;
+  schema_version: 3;
   messages: {
     id: string;
     role: string;
     created_at: number;
     content: unknown;
+    model: string | null;
   }[];
   tool_calls: unknown[];
   system_prompt: string | null;
@@ -150,13 +151,14 @@ function defaultBoundedTurnTrace(boundary: {
   userMessageCreatedAt: number;
 }): MockTurnTrace | null {
   return {
-    schema_version: 2,
+    schema_version: 3,
     messages: [
       {
         id: boundary.userMessageId,
         role: "user",
         created_at: boundary.userMessageCreatedAt,
         content: [{ type: "text", text: "hello" }],
+        model: null,
       },
     ],
     tool_calls: [],
@@ -241,10 +243,11 @@ import {
   TOOL_INVOCATION_PII_SENTINEL as TOOL_PII_SENTINEL,
   type ToolInvocationSeedSpec,
 } from "../__tests__/test-support/tool-invocation-seed.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
   authFallbackEvents,
+  configSettingEvents,
   conversations,
   skillLoadedEvents,
   toolInvocations,
@@ -255,6 +258,7 @@ import {
   ACTIVATION_FUNNEL_VERSION,
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
+import { recordConfigSettingEvent } from "./config-setting-events-store.js";
 import { recordSkillLoadedEvent } from "./skill-loaded-events-store.js";
 import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
 
@@ -404,6 +408,7 @@ beforeEach(() => {
   getDb().delete(authFallbackEvents).run();
   getDb().delete(toolInvocations).run();
   getDb().delete(skillLoadedEvents).run();
+  getTelemetryDb()?.delete(configSettingEvents).run();
   delete process.env.VELLUM_DISABLE_PLATFORM;
   delete process.env.IS_PLATFORM;
   mockGetPlatformBaseUrl.mockReset();
@@ -1124,8 +1129,9 @@ describe("UsageTelemetryReporter", () => {
     expect(turn.type).toBe("turn");
     expect(turn.daemon_event_id).toBe("evt-turn-trace");
     expect(turn.trace).toBeDefined();
-    expect(turn.trace.schema_version).toBe(2);
+    expect(turn.trace.schema_version).toBe(3);
     expect(turn.trace.messages[0].id).toBe("evt-turn-trace");
+    expect(turn.trace.messages[0].model).toBeNull();
     expect(Array.isArray(turn.trace.tool_calls)).toBe(true);
   });
 
@@ -1332,19 +1338,21 @@ describe("UsageTelemetryReporter", () => {
     // the full trace assembles. The same (still-unreported) turn now ships.
     mockIsTurnSettled.mockReturnValue(true);
     mockAssembleBoundedTurnTrace.mockReturnValue({
-      schema_version: 2,
+      schema_version: 3,
       messages: [
         {
           id: "evt-inflight",
           role: "user",
           created_at: 1700000050000,
           content: [{ type: "text", text: "do a thing" }],
+          model: null,
         },
         {
           id: "asst-1",
           role: "assistant",
           created_at: 1700000051000,
           content: [{ type: "text", text: "done" }],
+          model: "claude-fable-5",
         },
       ],
       tool_calls: [{ id: "ti-1" }],
@@ -1670,11 +1678,11 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 8 timestamp watermarks should have been advanced, and all 8 ID
+    // All 9 timestamp watermarks should have been advanced, and all 9 ID
     // watermarks pinned to the high-sorting sentinel (a truthy value keeps
     // the compound-cursor branch active while closing its same-millisecond
     // arm against opt-out rows).
-    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(16);
+    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(18);
 
     const calls = mockSetMemoryCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
@@ -1687,6 +1695,7 @@ describe("UsageTelemetryReporter", () => {
       "tool_executed",
       "skill_loaded",
       "watchdog",
+      "config_setting",
     ];
     for (const eventType of eventTypes) {
       expect(keys).toContain(`telemetry:${eventType}:last_reported_at`);
@@ -2545,5 +2554,95 @@ describe("UsageTelemetryReporter", () => {
 
     // MAX_CONSECUTIVE_BATCHES = 10
     expect(mockFetch).toHaveBeenCalledTimes(10);
+  });
+
+  // -------------------------------------------------------------------------
+  // Config-setting events
+  // -------------------------------------------------------------------------
+
+  test("config_setting events ship the key/value pair on the standard envelope", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordConfigSettingEvent({
+      configKey: "memory.enabled",
+      configValue: "true",
+    });
+    recordConfigSettingEvent({
+      configKey: "memory.v2.enabled",
+      configValue: "false",
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(2);
+
+    const byKey: Record<string, Record<string, unknown>> = {};
+    for (const e of body.events as Array<{ config_key: string }>) {
+      byKey[e.config_key] = e;
+    }
+
+    expect(byKey["memory.enabled"]).toMatchObject({
+      type: "config_setting",
+      config_key: "memory.enabled",
+      config_value: "true",
+      assistant_version: "1.2.3-test",
+    });
+    expect(typeof byKey["memory.enabled"].daemon_event_id).toBe("string");
+    expect(typeof byKey["memory.enabled"].recorded_at).toBe("number");
+    expect(byKey["memory.v2.enabled"]).toMatchObject({
+      type: "config_setting",
+      config_key: "memory.v2.enabled",
+      config_value: "false",
+    });
+  });
+
+  test("config_setting watermark advances to the last reported row on success", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordConfigSettingEvent({
+      configKey: "memory.enabled",
+      configValue: "true",
+    });
+    recordConfigSettingEvent({
+      configKey: "memory.v2.enabled",
+      configValue: "true",
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    // The last row by the reporter's (createdAt, id) cursor order is the one
+    // whose watermark should be persisted after a successful upload.
+    const telemetryDb = getTelemetryDb();
+    if (!telemetryDb) throw new Error("telemetry DB unavailable in test");
+    const rows = telemetryDb
+      .select()
+      .from(configSettingEvents)
+      .orderBy(configSettingEvents.createdAt, configSettingEvents.id)
+      .all();
+    const lastRow = rows[rows.length - 1];
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:config_setting:last_reported_at",
+    );
+    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
+    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
+      String(lastRow.createdAt),
+    );
+
+    const idCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:config_setting:last_reported_id",
+    );
+    expect(idCalls.length).toBeGreaterThanOrEqual(1);
+    expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
   });
 });

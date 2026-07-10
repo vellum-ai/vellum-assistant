@@ -1,16 +1,17 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { cn, SegmentControl } from "@vellumai/design-library";
 
 import {
-    applyThemePreference,
-    readStoredThemePreference,
-    type ThemePreference,
-    writeStoredThemePreference,
+  applyThemePreference,
+  readStoredThemePreference,
+  type ThemePreference,
+  writeStoredThemePreference,
 } from "@/domains/settings/utils/theme-preferences";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { watchDeviceSetting } from "@/utils/device-settings";
+import { isPointerCoarse } from "@/utils/pointer";
 
 const BASE_THEME_OPTIONS: ReadonlyArray<{
   value: ThemePreference;
@@ -34,6 +35,7 @@ const VELVET_THEME_OPTION = {
 
 export function ThemeToggle({ className }: { className?: string } = {}) {
   const velvet = useClientFeatureFlagStore.use.velvet();
+  const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   const [theme, setTheme] = useState<ThemePreference>(() =>
     readStoredThemePreference({ velvetEnabled: velvet }),
   );
@@ -76,6 +78,10 @@ export function ThemeToggle({ className }: { className?: string } = {}) {
         value={theme}
         onChange={handleChange}
         iconOnly
+        // Tooltips hang open after tap-focus on touch, so suppress them only
+        // on coarse pointers; hover devices keep the labels, which non-obvious
+        // options (Velvet's Heart) need.
+        showTooltips={!pointerCoarse}
         items={themeOptions.map(({ value, label, Icon }) => ({
           value,
           label,

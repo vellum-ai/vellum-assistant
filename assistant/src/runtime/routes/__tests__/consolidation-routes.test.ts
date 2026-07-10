@@ -47,6 +47,13 @@ import type { RouteDefinition } from "../types.js";
 
 await initializeDb();
 
+// Open the memory connection now, while VELLUM_WORKSPACE_DIR still points at the
+// migrated per-process workspace. The per-test blocks below swap it to a fresh
+// dir for config isolation; without pinning here, resetTables()'s first
+// getMemorySqlite() would lazily open assistant-memory.db in the swapped (empty)
+// workspace and fail with "no such table: memory_jobs".
+getMemorySqlite();
+
 let workspaceDir: string;
 let origWorkspaceDir: string | undefined;
 let configPath: string;

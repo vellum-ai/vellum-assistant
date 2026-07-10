@@ -1,29 +1,43 @@
 import {
-    lazy,
-    useCallback,
-    useEffect,
-    useRef,
-    useState,
-    type ReactNode,
+  lazy,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
 } from "react";
-import { Outlet, useLocation, useNavigate, useNavigationType } from "react-router";
+import {
+  Outlet,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+} from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
-import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
-import { isAboutAssistantPath, isConversationPath, routes } from "@/utils/routes";
+import {
+  getLocalBool,
+  getLocalNumber,
+  setLocalBool,
+  setLocalNumber,
+} from "@/utils/local-settings";
+import {
+  isAboutAssistantPath,
+  isConversationPath,
+  routes,
+} from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import {
-    chooseSidebarOpenAppDestination,
-    useOpenAppFromChat,
+  chooseSidebarOpenAppDestination,
+  useOpenAppFromChat,
 } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import {
-    DRAWER_SLIDE_MS,
-    useEdgeSwipeDrawer,
+  DRAWER_SLIDE_MS,
+  useEdgeSwipeDrawer,
 } from "@/hooks/use-edge-swipe-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
@@ -36,14 +50,14 @@ import { useConversationActions } from "@/domains/chat/hooks/use-conversation-ac
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
-    navigateToConversation,
-    navigateToNewConversation,
+  navigateToConversation,
+  navigateToNewConversation,
 } from "@/utils/conversation-navigation";
 import { haptic } from "@/utils/haptics";
 
 import {
-    useConversationGroupsQuery,
-    useConversationListQuery,
+  useConversationGroupsQuery,
+  useConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
 import { isElectron } from "@/runtime/is-electron";
@@ -185,11 +199,10 @@ export function ChatLayout() {
   // create/rename/delete affordances are rendered here, not in ChatPage.
   // The hook is self-sufficient (cache invalidation handles rollback), so
   // it can live wherever the sidebar lives.
-  const { handleRenameGroup, handleDeleteGroup } =
-    useConversationGroupActions({
-      assistantId,
-      conversationGroups,
-    });
+  const { handleRenameGroup, handleDeleteGroup } = useConversationGroupActions({
+    assistantId,
+    conversationGroups,
+  });
 
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header.
@@ -236,7 +249,9 @@ export function ChatLayout() {
     setHistoryIndex(idx);
     // Only PUSH clears forward entries (pushState). REPLACE (replaceState)
     // and POP preserve them, so max must not reset.
-    setMaxHistoryIndex(navigationType === "PUSH" ? idx : (prev) => Math.max(prev, idx));
+    setMaxHistoryIndex(
+      navigationType === "PUSH" ? idx : (prev) => Math.max(prev, idx),
+    );
   }
 
   const canGoBack = historyIndex > 0;
@@ -291,8 +306,19 @@ export function ChatLayout() {
     }
   }, [isMobile]);
 
+  // Close the drawer on any navigation, covering sources that don't manage
+  // drawer state themselves (e.g. command palette results). `location.key`
+  // changes on every navigation — including query-only changes and same-URL
+  // history moves that `pathname` misses. Opening the drawer never navigates,
+  // so this can't fight it.
   useEffect(() => {
-    if (!sidebarCollapseRequested) {return;}
+    setDrawerOpen(false);
+  }, [location.key]);
+
+  useEffect(() => {
+    if (!sidebarCollapseRequested) {
+      return;
+    }
     // One-shot: research-onboarding asked us to open with the side panel
     // collapsed across the whole web experience (not just desktop). Collapse
     // the desktop sidebar — `setCollapsed(true)` flows through the persistence
@@ -363,8 +389,10 @@ export function ChatLayout() {
   });
 
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const processingConversationIds = useConversationStore.use.processingConversationIds();
-  const attentionConversationIds = useConversationStore.use.attentionConversationIds();
+  const processingConversationIds =
+    useConversationStore.use.processingConversationIds();
+  const attentionConversationIds =
+    useConversationStore.use.attentionConversationIds();
 
   const handleSelectConversation = useCallback(
     (key: string) => {
@@ -417,20 +445,22 @@ export function ChatLayout() {
       isAssistantActive,
     ) ?? null;
 
-  const topBarCenter = topBarCenterSlot ?? (headerSupplements ? (
-    <ChatConversationHeader
-      assistantId={assistantId}
-      activeConversation={activeConversation}
-      headerSupplements={headerSupplements}
-      showLlmInspector={showLlmInspector}
-      onArchive={handleArchiveConversation}
-      onUnarchive={handleUnarchiveConversation}
-      onMarkUnread={handleMarkConversationUnread}
-      onMarkRead={handleMarkConversationRead}
-      onPinToggle={handleTogglePinConversation}
-      onRename={handleRenameConversation}
-    />
-  ) : null);
+  const topBarCenter =
+    topBarCenterSlot ??
+    (headerSupplements ? (
+      <ChatConversationHeader
+        assistantId={assistantId}
+        activeConversation={activeConversation}
+        headerSupplements={headerSupplements}
+        showLlmInspector={showLlmInspector}
+        onArchive={handleArchiveConversation}
+        onUnarchive={handleUnarchiveConversation}
+        onMarkUnread={handleMarkConversationUnread}
+        onMarkRead={handleMarkConversationRead}
+        onPinToggle={handleTogglePinConversation}
+        onRename={handleRenameConversation}
+      />
+    ) : null);
 
   // -------------------------------------------------------------------------
   // Command palette — sections, item dispatch
@@ -492,27 +522,37 @@ export function ChatLayout() {
     commandPalette: () => {
       void openCommandPaletteWindow()
         .then((opened) => {
-          if (!opened) {useCommandPaletteStore.getState().toggle();}
+          if (!opened) {
+            useCommandPaletteStore.getState().toggle();
+          }
         })
         .catch(() => {
           useCommandPaletteStore.getState().toggle();
         });
     },
     previousConversation: () => {
-      if (!activeConversationId || conversations.length === 0) {return;}
+      if (!activeConversationId || conversations.length === 0) {
+        return;
+      }
       const idx = conversations.findIndex(
         (c) => c.conversationId === activeConversationId,
       );
       const prev = conversations[idx - 1];
-      if (prev) {handleSelectConversation(prev.conversationId);}
+      if (prev) {
+        handleSelectConversation(prev.conversationId);
+      }
     },
     nextConversation: () => {
-      if (!activeConversationId || conversations.length === 0) {return;}
+      if (!activeConversationId || conversations.length === 0) {
+        return;
+      }
       const idx = conversations.findIndex(
         (c) => c.conversationId === activeConversationId,
       );
       const next = conversations[idx + 1];
-      if (next) {handleSelectConversation(next.conversationId);}
+      if (next) {
+        handleSelectConversation(next.conversationId);
+      }
     },
     openConversation: (command) => {
       if (command.kind === "openConversation") {
@@ -585,7 +625,9 @@ export function ChatLayout() {
         location.pathname,
         activeConversationId,
       );
-      if (dest) {void navigate(dest);}
+      if (dest) {
+        void navigate(dest);
+      }
       await openAppFromChat(appId);
     },
     [location.pathname, navigate, activeConversationId, openAppFromChat],
@@ -657,6 +699,7 @@ export function ChatLayout() {
           assistantId={assistantId}
           assistantVersion={assistantVersion}
           activeConversationId={activeConversationId}
+          triggerVariant={args.variant === "overlay" ? "pill" : "item"}
         />
       }
       onClose={args.onClose}
@@ -714,7 +757,7 @@ export function ChatLayout() {
         <main
           className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
         >
-          <Outlet  />
+          <Outlet />
           {/* A popout narrowed below the mobile breakpoint lands in this
               branch — still headerless, so it still needs the floating
               session surface (see the desktop popout branch below). */}
@@ -732,12 +775,17 @@ export function ChatLayout() {
               aria-modal="true"
               aria-label="Navigation"
             >
+              {/* The aside must paint the same token as the SideMenu it
+                  hosts (`--surface-overlay`): its safe-area padding ring is
+                  the only part of it that shows around the full-bleed menu,
+                  and a mismatched background renders as tinted strips along
+                  the notch / home-indicator edges on iOS. No border — the
+                  sheet covers the full screen, so there is no edge to draw. */}
               <aside
                 id="chat-side-menu"
                 className="relative flex h-full w-full flex-col shadow-xl"
                 style={{
-                  background: "var(--surface-lift)",
-                  borderRight: "1px solid var(--border-base)",
+                  background: "var(--surface-overlay)",
                   zIndex: 50,
                   paddingTop:
                     "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
@@ -777,7 +825,12 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed: sideMenuCollapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange })}
+            {renderSideMenu({
+              collapsed: sideMenuCollapsed,
+              variant: "rail",
+              width: sidebarWidth,
+              onWidthChange: handleSidebarWidthChange,
+            })}
           </aside>
           <main
             className={`flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}

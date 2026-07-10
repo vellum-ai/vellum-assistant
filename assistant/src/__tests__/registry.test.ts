@@ -17,6 +17,7 @@ import {
   registerSkillTools,
   registerTool,
   registerWorkspaceTools,
+  resolveTool,
   unregisterSkillTools,
   unregisterWorkspaceTool,
 } from "../tools/registry.js";
@@ -106,6 +107,23 @@ describe("tool registry dynamic-tools tools", () => {
     const tool = getTool("skill_load");
     expect(tool).toBeDefined();
     expect(tool?.defaultRiskLevel).toBe(RiskLevel.Low);
+  });
+});
+
+describe("resolveTool lazy initialization", () => {
+  test("await resolveTool initializes a cold registry, then sync getTool sees it", async () => {
+    // Empty the registry and clear the cached init promise.
+    __clearRegistryForTesting();
+    // A synchronous peek sees nothing yet — the registry is cold.
+    expect(getTool("file_read")).toBeUndefined();
+
+    // The async getter awaits initialization (like getHooksFor awaits its
+    // reconcile), so it resolves the built-in instead of a spurious undefined.
+    const tool = await resolveTool("file_read");
+    expect(tool?.name).toBe("file_read");
+
+    // After the ensure, the synchronous hot-path read sees it too.
+    expect(getTool("file_read")?.name).toBe("file_read");
   });
 });
 

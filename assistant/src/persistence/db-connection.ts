@@ -104,11 +104,21 @@ function applyConnectionPragmas(sqlite: Database): void {
   sqlite.exec("PRAGMA foreign_keys = ON");
   sqlite.exec("PRAGMA cache_size=-256000");
   sqlite.exec("PRAGMA temp_store=MEMORY");
+  // Checkpointing alone never shrinks the WAL file — a fully-backfilled WAL
+  // is reused from offset 0 at its high-water size, so a single write burst
+  // otherwise leaves a permanently huge file (disk cost, plus a long recovery
+  // scan on the first open after a hard crash). With a size limit, any WAL
+  // reset also truncates the file to at most this many bytes. 64 MB
+  // comfortably exceeds the WAL's steady-state hover (the ~4 MB autocheckpoint
+  // threshold), so normal writes never pay file re-extension.
+  sqlite.exec("PRAGMA journal_size_limit=67108864");
 }
 
 export function getDb(): DrizzleDb {
   const existing = getStoredDb<DrizzleDb>("main");
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
 
   assertTestDbIsIsolated();
   ensureDataDir();
@@ -193,7 +203,9 @@ function openDedicatedDb(
  */
 export function getLogsDb(): DrizzleDb | null {
   const existing = getStoredDb<DrizzleDb>("logs");
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   return openDedicatedDb("logs", getLogsDbPath());
 }
 
@@ -210,7 +222,9 @@ export function getLogsSqlite(): Database | null {
  */
 export function getMemoryDb(): DrizzleDb | null {
   const existing = getStoredDb<DrizzleDb>("memory");
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   return openDedicatedDb("memory", getMemoryDbPath());
 }
 
@@ -227,7 +241,9 @@ export function getMemorySqlite(): Database | null {
  */
 export function getTelemetryDb(): DrizzleDb | null {
   const existing = getStoredDb<DrizzleDb>("telemetry");
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   return openDedicatedDb("telemetry", getTelemetryDbPath());
 }
 

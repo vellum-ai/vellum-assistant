@@ -18,6 +18,8 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
+// Mutable so a test can flip the master switch off and assert the guard.
+let llmRequestLoggingEnabled = true;
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -26,7 +28,10 @@ mock.module("../../../config/loader.js", () => ({
     memory: { enabled: false },
     rateLimit: { maxRequestsPerMinute: 0 },
     secretDetection: { enabled: false },
-    llmRequestLogs: { readSource: "local" as const },
+    llmRequestLogs: {
+      readSource: "local" as const,
+      enabled: llmRequestLoggingEnabled,
+    },
   }),
 }));
 
@@ -149,7 +154,11 @@ import {
   projectLogRowToCompactionTrailEvent,
   ROUTES,
 } from "../conversation-compaction-routes.js";
-import { BadRequestError, NotFoundError } from "../errors.js";
+import {
+  BadRequestError,
+  LlmRequestLogsDisabledError,
+  NotFoundError,
+} from "../errors.js";
 
 const route = ROUTES.find(
   (r) => r.operationId === "conversations_compaction_trail_get",
@@ -218,6 +227,7 @@ function fakeCompactionLogEvent(
 }
 
 beforeEach(() => {
+  llmRequestLoggingEnabled = true;
   state.conversation = null;
   state.selectedCall = null;
   state.previousNonCompactionCallCreatedAt = null;
@@ -259,6 +269,25 @@ describe("handleGetCompactionTrail — request-shape errors", () => {
     await expect(
       handler({ pathParams: { id: "conv-1" }, queryParams: {} }),
     ).rejects.toThrow(BadRequestError);
+  });
+
+  test("throws LlmRequestLogsDisabledError when logging is disabled", async () => {
+    // Even with a valid conversation + call, the guard short-circuits before
+    // any log source read — the compaction trail is inspector-only LLM data.
+    llmRequestLoggingEnabled = false;
+    state.conversation = { id: "conv-1" };
+    state.selectedCall = fakeLogMetaRow({
+      id: "call-1",
+      conversationId: "conv-1",
+    });
+    await expect(
+      handler({
+        pathParams: { id: "conv-1" },
+        queryParams: { callId: "call-1" },
+      }),
+    ).rejects.toThrow(LlmRequestLogsDisabledError);
+    // The guard runs first: no metadata lookup happened.
+    expect(sourceCalls.getRequestLogMetaByIdArgs).toEqual([]);
   });
 
   test("throws NotFoundError when the conversation does not exist", async () => {

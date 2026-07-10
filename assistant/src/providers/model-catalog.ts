@@ -325,6 +325,87 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       linkLabel: "Open OpenAI Platform",
     },
     models: [
+      // GPT-5.6 family (Sol / Terra / Luna). cacheRead is the 90% cached-read
+      // discount; long-context (>272K input) is 2x input / 1.5x output / 2x
+      // cache-read for the whole request, per OpenAI's model cards. GPT-5.6+
+      // also bills cache *writes* at 1.25x input, but that isn't represented
+      // here — the managed proxy's OpenAI billing path emits no cache-write
+      // token class (Anthropic-only today).
+      {
+        id: "gpt-5.6-sol",
+        displayName: "GPT-5.6 Sol",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
+        },
+      },
+      {
+        id: "gpt-5.6-terra",
+        displayName: "GPT-5.6 Terra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 2.5,
+          outputPer1mTokens: 15.0,
+          cacheReadPer1mTokens: 0.25,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 5,
+              outputPer1mTokens: 22.5,
+              cacheReadPer1mTokens: 0.5,
+            },
+          ],
+        },
+      },
+      {
+        id: "gpt-5.6-luna",
+        displayName: "GPT-5.6 Luna",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheReadPer1mTokens: 0.1,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheReadPer1mTokens: 0.2,
+            },
+          ],
+        },
+      },
       {
         id: "gpt-5.5",
         displayName: "GPT-5.5",
@@ -1008,6 +1089,11 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       // xAI
+      // OpenRouter lists an `input_cache_read` rate for xAI models but its
+      // xAI endpoints report `supports_implicit_caching: false`, and observed
+      // usage never includes cached tokens. `supportsCaching` therefore stays
+      // false; the `cacheReadPer1mTokens` rates below only apply if OpenRouter
+      // starts reporting cached tokens in usage.
       {
         id: "x-ai/grok-4.5",
         displayName: "Grok 4.5",
@@ -1019,18 +1105,11 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 2, outputPer1mTokens: 6 },
-      },
-      {
-        id: "x-ai/grok-4.20-beta",
-        displayName: "Grok 4.20 Beta",
-        contextWindowTokens: 256000,
-        maxOutputTokens: 16000,
-        supportsThinking: true,
-        supportsCaching: false,
-        supportsVision: true,
-        supportsToolUse: true,
-        pricing: { inputPer1mTokens: 3, outputPer1mTokens: 15 },
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 6,
+          cacheReadPer1mTokens: 0.5,
+        },
       },
       {
         id: "x-ai/grok-4.3",
@@ -1041,18 +1120,26 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 1.25, outputPer1mTokens: 2.5 },
+        pricing: {
+          inputPer1mTokens: 1.25,
+          outputPer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
       },
       {
-        id: "x-ai/grok-4",
-        displayName: "Grok 4",
-        contextWindowTokens: 131072,
+        id: "x-ai/grok-4.20",
+        displayName: "Grok 4.20",
+        contextWindowTokens: 2000000,
         maxOutputTokens: 16000,
         supportsThinking: true,
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 3, outputPer1mTokens: 15 },
+        pricing: {
+          inputPer1mTokens: 1.25,
+          outputPer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
       },
       // DeepSeek
       {
@@ -1363,7 +1450,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: { inputPer1mTokens: 0, outputPer1mTokens: 0 },
       },
     ],
-    defaultModel: "x-ai/grok-4.20-beta",
+    defaultModel: "x-ai/grok-4.20",
     apiKeyUrl: "https://openrouter.ai/keys",
     apiKeyPlaceholder: "sk-or-v1-...",
   },

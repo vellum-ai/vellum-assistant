@@ -209,6 +209,8 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly sttMs: number | null;
   readonly llmFirstDeltaMs: number | null;
   readonly ttsFirstAudioMs: number | null;
+  /** End-of-speech (utterance_end, or ptt_release in manual mode) to first TTS audio. */
+  readonly roundTripMs: number | null;
   readonly totalMs: number | null;
 }
 

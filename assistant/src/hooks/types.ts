@@ -122,8 +122,8 @@ export interface UserPromptSubmitInputContext {
    *   `requestId` instead. Every path that starts an agent loop persists the
    *   triggering user message under the turn's request ID before running, so
    *   the message row id and the request's correlation ID are the same UUID.
-   *   This holds for the standard submit, queue-drain, subagent, voice, wake,
-   *   and conversation-analysis paths alike. This field will be removed in a
+   *   This holds for the standard submit, queue-drain, subagent, voice, and
+   *   wake paths alike. This field will be removed in a
    *   future API version.
    */
   readonly userMessageId: string;

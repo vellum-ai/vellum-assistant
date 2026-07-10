@@ -755,8 +755,6 @@ function makeCtx(
       mockConversationRow?.lastNotifiedInferenceProfile ?? null,
     processingStartedAt: mockConversationRow?.processingStartedAt ?? null,
 
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
-
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
     surfaceState: new Map(),
@@ -1608,6 +1606,31 @@ describe("session-agent-loop", () => {
       expect(mainAgentCall?.[2]).toBe(3);
       expect(mainAgentCall?.[3]).toBe("gpt-4.1-2026-03-01");
     });
+
+    test("persists the served model onto the assistant row's metadata at finalize", async () => {
+      const events: ServerMessage[] = [];
+
+      const ctx = makeCtx({
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "gpt-4.1-2026-03-01",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+          },
+        ],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      // The finalize write carries the `message_complete` event's model
+      // (`response.model`) as metadata alongside the content, in one write.
+      const finalizeCall = updateMessageContentMock.mock.calls.find(
+        (call) => (call as unknown[])[2] !== undefined,
+      ) as unknown[] | undefined;
+      expect(finalizeCall).toBeDefined();
+      expect(finalizeCall?.[2]).toEqual({ model: "gpt-4.1-2026-03-01" });
+    });
   });
 
   describe("checkpoint handoff (infinite loop prevention)", () => {
@@ -2256,7 +2279,6 @@ describe("session-agent-loop", () => {
           role: string;
           content: string;
           createdAt: number;
-          scopeId: string;
         },
         unknown,
       ];
@@ -2266,7 +2288,6 @@ describe("session-agent-loop", () => {
         conversationId: "test-conv",
         role: "assistant",
         createdAt: 1234567,
-        scopeId: "default",
       });
       expect(indexCall.content).toContain("indexed reply");
 

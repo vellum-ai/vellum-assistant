@@ -56,7 +56,6 @@ export const LLMCallSiteEnum = z.enum([
   "heartbeatAgent",
   "filingAgent",
   "compactionAgent",
-  "analyzeConversation",
   "callAgent",
   "memoryExtraction",
   "memoryConsolidation",

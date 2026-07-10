@@ -589,12 +589,20 @@ async function persistLoopMessageContent(
   contentJson: string,
   op: string,
   rlog: pino.Logger,
+  metadataUpdates?: Record<string, unknown>,
 ): Promise<boolean> {
   try {
-    await withSqliteRetry(() => updateMessageContent(messageId, contentJson), {
-      op,
-      context: { messageId },
-    });
+    // Metadata updates (e.g. the served model at finalize) ride the same
+    // write as the content — `updateMessageContent` commits both atomically —
+    // so a partial write can't leave them out of sync; the updates
+    // shallow-merge onto the channel provenance stamped at reserve.
+    await withSqliteRetry(
+      () => updateMessageContent(messageId, contentJson, metadataUpdates),
+      {
+        op,
+        context: { messageId },
+      },
+    );
     return true;
   } catch (err) {
     rlog.error(
@@ -1351,7 +1359,6 @@ export async function finalizePendingToolResultRow(
           role: "user",
           content: contentJson,
           createdAt: row.createdAt,
-          scopeId: "default",
           provenanceTrustClass,
           automated,
         },
@@ -2075,11 +2082,17 @@ export async function handleMessageComplete(
     );
   }
   const contentJson = JSON.stringify(contentForPersistence);
+  // Stamp the served model carried on the event (`response.model`, the same
+  // value `llm_usage` records) onto the row alongside the content, so turn-trace
+  // assembly can attribute each assistant message to the model that actually
+  // ran it — including per-call reroutes by a `pre-model-call` hook. Absent on
+  // synthesized completions with no provider response; the key is omitted then.
   const persisted = await persistLoopMessageContent(
     assistantMessageId,
     contentJson,
     "finalize_assistant_message",
     deps.rlog,
+    event.model ? { model: event.model } : undefined,
   );
   state.assistantRowAwaitingFinalization = false;
   // The assistant row now holds the authoritative content (text + thinking +

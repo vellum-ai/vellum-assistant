@@ -63,7 +63,6 @@ import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import { enqueueAutoAnalysisOnCompaction } from "../runtime/services/auto-analysis-enqueue.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
@@ -1744,7 +1743,7 @@ export interface CompactionApplyContext {
 /**
  * Applies a successful `ContextWindowResult` to a conversation: updates the
  * in-memory message buffer and compaction counters, notifies the graph memory
- * and conversation-summary store, enqueues auto-analysis, emits the
+ * and conversation-summary store, emits the
  * `context_compacted` event, and records a `context_compactor` usage event.
  *
  * The emitted `usage_update` intentionally omits `contextWindow` — the
@@ -1815,10 +1814,6 @@ export async function applyCompactionResult(
     ctx.slackContextCompactionWatermarkTs =
       options.slackContextCompactionWatermarkTs;
   }
-  enqueueAutoAnalysisOnCompaction(
-    ctx.conversationId,
-    ctx.trustContext?.trustClass,
-  );
   enqueueMemoryRetrospectiveOnCompaction(
     ctx.conversationId,
     ctx.trustContext?.trustClass,

@@ -35,7 +35,6 @@ function seedConversation(): void {
       updatedAt: now,
       source: "test",
       conversationType: "default",
-      memoryScopeId: "default",
     })
     .run();
 }

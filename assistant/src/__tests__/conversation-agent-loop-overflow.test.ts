@@ -620,8 +620,6 @@ function makeCtx(
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
 
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
-
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
     surfaceState: new Map(),

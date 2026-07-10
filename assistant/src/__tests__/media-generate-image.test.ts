@@ -44,13 +44,21 @@ mock.module("../config/loader.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string) => {
-    if (account === "gemini") return mockGeminiKey;
-    if (account === "openai") return mockOpenAIKey;
+    if (account === "gemini") {
+      return mockGeminiKey;
+    }
+    if (account === "openai") {
+      return mockOpenAIKey;
+    }
     return undefined;
   },
   getProviderKeyAsync: async (provider: string) => {
-    if (provider === "gemini") return mockGeminiKey;
-    if (provider === "openai") return mockOpenAIKey;
+    if (provider === "gemini") {
+      return mockGeminiKey;
+    }
+    if (provider === "openai") {
+      return mockOpenAIKey;
+    }
     return undefined;
   },
 }));
@@ -63,13 +71,16 @@ mock.module("../media/image-service.js", () => ({
   ) => {
     lastGenerateProvider = provider;
     lastGenerateCredentials = credentials;
-    if (mockGenerateError) throw mockGenerateError;
+    if (mockGenerateError) {
+      throw mockGenerateError;
+    }
     return mockGenerateResult;
   },
   mapImageGenError: (provider: unknown, error: unknown) => {
     const providerLabel = provider === "openai" ? "OpenAI" : "Gemini";
-    if (error instanceof Error)
+    if (error instanceof Error) {
       return `Mock ${providerLabel} error: ${error.message}`;
+    }
     return `Mock ${providerLabel} unknown error`;
   },
 }));
@@ -394,7 +405,9 @@ describe("image-studio skill script wrapper", () => {
       expect(result.content).toContain("Generated 1 image");
     } finally {
       const { unlink } = await import("fs/promises");
-      if (await Bun.file(tmpPath).exists()) await unlink(tmpPath);
+      if (await Bun.file(tmpPath).exists()) {
+        await unlink(tmpPath);
+      }
     }
   });
 

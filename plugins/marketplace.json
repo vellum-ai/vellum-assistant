@@ -354,6 +354,18 @@
       "license": "MIT"
     },
     {
+      "name": "vellum-client-qa",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/vellum-client-qa",
+        "ref": "fd5e6a2dca75ff6d95c55ab69f66aff0fb58f138"
+      },
+      "description": "Cross-platform QA rig for vellum-assistant clients: mock the platform backend, boot the real chat UI, and verify feature branches in headless Chromium (web), an iOS simulator, or Electron with screenshot and video proof.",
+      "category": "developer",
+      "homepage": "https://github.com/vellum-ai/vellum-client-qa",
+      "license": "MIT"
+    },
+    {
       "name": "originkit",
       "source": {
         "source": "github",

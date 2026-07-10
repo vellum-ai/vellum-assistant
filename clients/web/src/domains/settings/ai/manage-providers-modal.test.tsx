@@ -375,3 +375,33 @@ describe("delete-guard errors", () => {
     });
   });
 });
+
+describe("editability", () => {
+  function editButtonFor(
+    result: ReturnType<typeof render>,
+    connectionName: string,
+  ): HTMLButtonElement | undefined {
+    const row = rowFor(result, connectionName);
+    return [...(row?.querySelectorAll("button") ?? [])].find(
+      (b) => b.textContent === "Edit",
+    ) as HTMLButtonElement | undefined;
+  }
+
+  test("managed (Vellum) connections expose no Edit affordance", async () => {
+    // GIVEN a platform-managed connection alongside a user-owned one
+    connectionsState = [
+      makeConnection({ name: "vellum", provider: "vellum", isManaged: true }),
+      makeConnection({ name: "anthropic-personal", provider: "anthropic" }),
+    ];
+
+    // WHEN the modal renders
+    const result = renderModal();
+    await waitFor(() => {
+      expect(result.baseElement.textContent).toContain("anthropic-personal");
+    });
+
+    // THEN the managed row has no Edit button, but the user-owned one does
+    expect(editButtonFor(result, "vellum")).toBeUndefined();
+    expect(editButtonFor(result, "anthropic-personal")).toBeDefined();
+  });
+});

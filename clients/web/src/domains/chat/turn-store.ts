@@ -190,6 +190,10 @@ export interface TurnTimeout {
   type: "TURN_TIMEOUT";
 }
 
+export interface StaleTurnCleared {
+  type: "STALE_TURN_CLEARED";
+}
+
 export interface TurnReset {
   type: "TURN_RESET";
 }
@@ -230,6 +234,7 @@ export type DomainEvent =
   | PollReconciled
   | TurnTimeout
   | TurnReset
+  | StaleTurnCleared
   | MessageQueued
   | MessageDequeued
   | MessageQueuedDeleted;
@@ -265,6 +270,7 @@ export interface TurnActions {
   onPollReconciled: (turnId?: string) => void;
   onTurnTimeout: () => void;
   resetTurn: () => void;
+  clearStaleTurn: () => void;
   enqueueMessage: () => void;
   dequeueMessage: () => void;
   deleteQueuedMessage: () => void;
@@ -528,6 +534,23 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
   // ----- Hard reset -----
 
   resetTurn: () => set({ ...INITIAL_TURN_STATE }),
+
+  /**
+   * Reset only when no turn is genuinely in flight — for "clean up possibly
+   * stale turn UI" callers (the reachability burst-limiter's ready signal)
+   * that must NOT clobber a live turn. The initial reachability probe
+   * resolves "ready" during a new conversation's first send; a hard reset
+   * there nulls `activeTurnId` mid-turn, after which `onTextDelta`'s
+   * stale-delta guard refuses to re-activate the phase and the whole first
+   * turn renders as phase "idle" (no thinking indicator, no streaming
+   * affordances). A live turn that just survived a reconnect needs no reset
+   * anyway: the post-reconnect reconcile resyncs its true state.
+   */
+  clearStaleTurn: () => {
+    const s = get();
+    if (s.activeTurnId && isSending(s.phase)) return;
+    set({ ...INITIAL_TURN_STATE });
+  },
 
   // ----- Queue management -----
 
@@ -831,6 +854,11 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "TURN_RESET":
+      return { ...INITIAL_TURN_STATE };
+
+    case "STALE_TURN_CLEARED":
+      // See `clearStaleTurn` action for rationale.
+      if (state.activeTurnId && isSending(state.phase)) return state;
       return { ...INITIAL_TURN_STATE };
   }
 }

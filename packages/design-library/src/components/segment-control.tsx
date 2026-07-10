@@ -26,6 +26,14 @@ export interface SegmentControlProps<T extends string> {
    * button's `aria-label`.
    */
   iconOnly?: boolean;
+  /**
+   * When `iconOnly`, each segment shows a hover/focus tooltip of its `label`.
+   * On touch devices Radix keeps that tooltip open while the tapped segment
+   * holds focus, leaving a phantom label floating over the UI. Set this to
+   * `false` when the icons are self-explanatory (and the `aria-label` still
+   * covers screen readers) to suppress the tooltip. Defaults to `true`.
+   */
+  showTooltips?: boolean;
   className?: string;
 }
 
@@ -70,6 +78,7 @@ export function SegmentControl<T extends string>({
   onChange,
   ariaLabel,
   iconOnly = false,
+  showTooltips = true,
   className,
 }: SegmentControlProps<T>) {
   const groupRef = useRef<HTMLDivElement>(null);
@@ -154,7 +163,7 @@ export function SegmentControl<T extends string>({
             role="radio"
             aria-checked={isActive}
             aria-label={iconOnly ? item.label : undefined}
-            tooltip={iconOnly ? item.label : undefined}
+            tooltip={iconOnly && showTooltips ? item.label : undefined}
             disabled={isDisabled}
             tabIndex={index === tabStopIndex ? 0 : -1}
             onClick={() => {

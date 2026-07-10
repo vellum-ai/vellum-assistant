@@ -1,20 +1,19 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { formatCostUsd } from "../lib/cli-output.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // ── Formatting helpers ───────────────────────────────────────────
 
-function formatCost(usd: number): string {
-  if (usd === 0) return "$0.00";
-  if (usd < 0.01) return `$${usd.toFixed(6)}`;
-  return `$${usd.toFixed(2)}`;
-}
-
 function formatTokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
+  if (count >= 1_000_000) {
+    return `${(count / 1_000_000).toFixed(1)}M`;
+  }
+  if (count >= 1_000) {
+    return `${(count / 1_000).toFixed(1)}k`;
+  }
   return String(count);
 }
 
@@ -84,7 +83,9 @@ function printTotalsTable(totals: UsageTotals): void {
   log.info("");
   log.info("  Usage Totals");
   log.info("  ────────────────────────────────────");
-  log.info(`  Estimated Cost     ${formatCost(totals.totalEstimatedCostUsd)}`);
+  log.info(
+    `  Estimated Cost     ${formatCostUsd(totals.totalEstimatedCostUsd)}`,
+  );
   log.info(`  LLM Calls          ${totals.eventCount}`);
   log.info(`  Input Tokens       ${formatTokens(totals.totalInputTokens)}`);
   log.info(`  Output Tokens      ${formatTokens(totals.totalOutputTokens)}`);
@@ -115,7 +116,7 @@ function printDailyTable(buckets: UsageDayBucket[]): void {
   );
   const costW = Math.max(
     "COST".length,
-    ...buckets.map((b) => formatCost(b.totalEstimatedCostUsd).length),
+    ...buckets.map((b) => formatCostUsd(b.totalEstimatedCostUsd).length),
   );
   const callsW = Math.max(
     "CALLS".length,
@@ -132,7 +133,7 @@ function printDailyTable(buckets: UsageDayBucket[]): void {
 
   for (const b of buckets) {
     log.info(
-      `  ${pad(b.date, dateW)}  ${pad(formatTokens(b.totalInputTokens), inputW, "right")}  ${pad(formatTokens(b.totalOutputTokens), outputW, "right")}  ${pad(formatCost(b.totalEstimatedCostUsd), costW, "right")}  ${pad(String(b.eventCount), callsW, "right")}`,
+      `  ${pad(b.date, dateW)}  ${pad(formatTokens(b.totalInputTokens), inputW, "right")}  ${pad(formatTokens(b.totalOutputTokens), outputW, "right")}  ${pad(formatCostUsd(b.totalEstimatedCostUsd), costW, "right")}  ${pad(String(b.eventCount), callsW, "right")}`,
     );
   }
   log.info("");
@@ -167,7 +168,7 @@ function printBreakdownTable(
   );
   const costW = Math.max(
     "COST".length,
-    ...entries.map((e) => formatCost(e.totalEstimatedCostUsd).length),
+    ...entries.map((e) => formatCostUsd(e.totalEstimatedCostUsd).length),
   );
   const callsW = Math.max(
     "CALLS".length,
@@ -184,7 +185,7 @@ function printBreakdownTable(
 
   for (const e of entries) {
     log.info(
-      `  ${pad(e.group, groupW)}  ${pad(formatTokens(e.totalInputTokens), inputW, "right")}  ${pad(formatTokens(e.totalOutputTokens), outputW, "right")}  ${pad(formatCost(e.totalEstimatedCostUsd), costW, "right")}  ${pad(String(e.eventCount), callsW, "right")}`,
+      `  ${pad(e.group, groupW)}  ${pad(formatTokens(e.totalInputTokens), inputW, "right")}  ${pad(formatTokens(e.totalOutputTokens), outputW, "right")}  ${pad(formatCostUsd(e.totalEstimatedCostUsd), costW, "right")}  ${pad(String(e.eventCount), callsW, "right")}`,
     );
   }
   log.info("");
@@ -232,11 +233,12 @@ Examples:
         "--from <epoch_ms>",
         "Start of range (epoch ms)",
       ] as const;
-      const toOption = [
-        "--to <epoch_ms>",
-        "End of range (epoch ms)",
-      ] as const;
+      const toOption = ["--to <epoch_ms>", "End of range (epoch ms)"] as const;
       const jsonOption = ["--json", "Output raw JSON"] as const;
+      const scheduleOption = [
+        "--schedule <id>",
+        "Filter to a schedule id — run 'assistant schedules list' to find it; attributes usage by that schedule's cron run windows",
+      ] as const;
 
       usage
         .command("totals", { isDefault: true })
@@ -244,6 +246,7 @@ Examples:
         .option(...rangeOption)
         .option(...fromOption)
         .option(...toOption)
+        .option(...scheduleOption)
         .option(...jsonOption)
         .addHelpText(
           "after",
@@ -254,9 +257,13 @@ within the time range.
 Columns: estimated cost, LLM call count, input/output tokens, cache
 creation/read tokens, unpriced event count (if any).
 
+Pass --schedule <id> to restrict totals to a single schedule's cron run
+windows. Find schedule ids with 'assistant schedules list'.
+
 Examples:
   $ assistant usage totals
   $ assistant usage totals --range all
+  $ assistant usage totals --schedule sched-abc123
   $ assistant usage totals --from 1709856000000 --to 1709942400000`,
         )
         .action(
@@ -264,11 +271,12 @@ Examples:
             range: string;
             from?: string;
             to?: string;
+            schedule?: string;
             json?: boolean;
           }) => {
             const { from, to } = resolveRange(opts);
             const response = await cliIpcCall<UsageTotals>("usage_totals", {
-              queryParams: { from: String(from), to: String(to) },
+              queryParams: buildUsageQueryParams(from, to, opts.schedule),
             });
             if (!response.ok) {
               return exitFromIpcResult(response);
@@ -288,6 +296,7 @@ Examples:
         .option(...rangeOption)
         .option(...fromOption)
         .option(...toOption)
+        .option(...scheduleOption)
         .option(...jsonOption)
         .addHelpText(
           "after",
@@ -295,9 +304,13 @@ Examples:
 Shows one row per day (UTC) with input tokens, output tokens, estimated
 cost, and LLM call count.
 
+Pass --schedule <id> to restrict the breakdown to a single schedule's cron
+run windows. Find schedule ids with 'assistant schedules list'.
+
 Examples:
   $ assistant usage daily
   $ assistant usage daily --range week
+  $ assistant usage daily --schedule sched-abc123
   $ assistant usage daily --range month --json`,
         )
         .action(
@@ -305,12 +318,13 @@ Examples:
             range: string;
             from?: string;
             to?: string;
+            schedule?: string;
             json?: boolean;
           }) => {
             const { from, to } = resolveRange(opts);
             const response = await cliIpcCall<{ buckets: UsageDayBucket[] }>(
               "usage_daily",
-              { queryParams: { from: String(from), to: String(to) } },
+              { queryParams: buildUsageQueryParams(from, to, opts.schedule) },
             );
             if (!response.ok) {
               return exitFromIpcResult(response);
@@ -332,6 +346,7 @@ Examples:
         .option(...rangeOption)
         .option(...fromOption)
         .option(...toOption)
+        .option(...scheduleOption)
         .option(...jsonOption)
         .option(
           "-g, --group-by <dimension>",
@@ -354,11 +369,15 @@ Grouping dimensions:
 Shows one row per group with input/output tokens, estimated cost, and
 call count. Rows are sorted by cost descending.
 
+Pass --schedule <id> to restrict the breakdown to a single schedule's cron
+run windows. Find schedule ids with 'assistant schedules list'.
+
 Examples:
   $ assistant usage breakdown
   $ assistant usage breakdown --group-by call_site
   $ assistant usage breakdown --group-by inference_profile
   $ assistant usage breakdown --group-by provider
+  $ assistant usage breakdown --schedule sched-abc123
   $ assistant usage breakdown --group-by actor --range week`,
         )
         .action(
@@ -366,6 +385,7 @@ Examples:
             range: string;
             from?: string;
             to?: string;
+            schedule?: string;
             json?: boolean;
             groupBy: string;
           }) => {
@@ -381,8 +401,7 @@ Examples:
               breakdown: UsageGroupBreakdown[];
             }>("usage_breakdown", {
               queryParams: {
-                from: String(from),
-                to: String(to),
+                ...buildUsageQueryParams(from, to, opts.schedule),
                 groupBy: opts.groupBy,
               },
             });
@@ -399,6 +418,25 @@ Examples:
         );
     },
   });
+}
+
+/**
+ * Build the shared usage query params, including scheduleId only when a
+ * schedule filter is provided.
+ */
+function buildUsageQueryParams(
+  from: number,
+  to: number,
+  schedule?: string,
+): Record<string, string> {
+  const queryParams: Record<string, string> = {
+    from: String(from),
+    to: String(to),
+  };
+  if (schedule !== undefined) {
+    queryParams.scheduleId = schedule;
+  }
+  return queryParams;
 }
 
 /** Resolve the time range from commander options. */

@@ -27,11 +27,13 @@ import {
   publishConfigChanged,
   publishIdentityChanged,
   publishSoundsConfigUpdated,
+  publishWorkspaceThemeChanged,
 } from "../runtime/sync/resource-sync-events.js";
 import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
 import { handleUserMessageSignal } from "../signals/user-message.js";
+import { WORKSPACE_THEME_RELATIVE_PATH } from "../theme/workspace-theme.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -63,7 +65,9 @@ const SKILL_WATCH_SKIPPED_DIRS = new Set([
 ]);
 
 function isSkippedSkillWatchPath(relativePath: string): boolean {
-  if (relativePath === "(unknown)") return false;
+  if (relativePath === "(unknown)") {
+    return false;
+  }
 
   const segments = relativePath.split(/[\\/]+/).filter(Boolean);
   return segments.some((segment) => SKILL_WATCH_SKIPPED_DIRS.has(segment));
@@ -204,7 +208,9 @@ export class ConfigWatcher {
 
     const workspaceHandlers: Record<string, () => void> = {
       "config.json": async () => {
-        if (this.suppressReload) return;
+        if (this.suppressReload) {
+          return;
+        }
         try {
           const prevMcpFingerprint = JSON.stringify(this.lastConfig?.mcp ?? {});
           const changed = await this.refreshConfigFromSources();
@@ -232,6 +238,9 @@ export class ConfigWatcher {
       "IDENTITY.md": () => {
         evictConversationsForReload();
         broadcastIdentityChange();
+      },
+      [WORKSPACE_THEME_RELATIVE_PATH]: () => {
+        publishWorkspaceThemeChanged();
       },
     };
 
@@ -272,8 +281,12 @@ export class ConfigWatcher {
     // edge case must not propagate up to DaemonServer.start().
     try {
       watchFile(filePath, { interval: this.pollIntervalMs }, (curr, prev) => {
-        if (this.stopped) return;
-        if (curr.ino === prev.ino && curr.mtimeMs === prev.mtimeMs) return;
+        if (this.stopped) {
+          return;
+        }
+        if (curr.ino === prev.ino && curr.mtimeMs === prev.mtimeMs) {
+          return;
+        }
         this.debounceTimers.schedule(`file:${filePath}`, () => {
           log.info({ file: filePath }, "File changed, reloading");
           handler();
@@ -301,7 +314,9 @@ export class ConfigWatcher {
 
     try {
       const watcher = watch(soundsDir, (_eventType, filename) => {
-        if (!filename) return;
+        if (!filename) {
+          return;
+        }
         this.debounceTimers.schedule("file:sounds", () => {
           log.info(
             { file: String(filename) },
@@ -333,9 +348,13 @@ export class ConfigWatcher {
 
     try {
       const watcher = watch(usersDir, (_eventType, filename) => {
-        if (!filename) return;
+        if (!filename) {
+          return;
+        }
         const file = String(filename);
-        if (!file.endsWith(".md")) return;
+        if (!file.endsWith(".md")) {
+          return;
+        }
         this.debounceTimers.schedule(`file:users/${file}`, () => {
           log.info({ file }, "Users persona file changed, reloading");
           evictConversationsForReload();
@@ -367,8 +386,12 @@ export class ConfigWatcher {
 
     try {
       const watcher = watch(avatarDir, (_eventType, filename) => {
-        if (!filename) return;
-        if (String(filename) !== AVATAR_IMAGE_FILENAME) return;
+        if (!filename) {
+          return;
+        }
+        if (String(filename) !== AVATAR_IMAGE_FILENAME) {
+          return;
+        }
         this.debounceTimers.schedule("file:avatar", () => {
           log.info(
             { file: String(filename) },
@@ -413,7 +436,9 @@ export class ConfigWatcher {
 
     try {
       const watcher = watch(signalsDir, (_eventType, filename) => {
-        if (!filename) return;
+        if (!filename) {
+          return;
+        }
         const file = String(filename);
 
         if (exactSignalHandlers[file]) {
@@ -447,10 +472,14 @@ export class ConfigWatcher {
 
   private startSkillsWatchers(): void {
     const skillsDir = getWorkspaceSkillsDir();
-    if (!existsSync(skillsDir)) return;
+    if (!existsSync(skillsDir)) {
+      return;
+    }
 
     const scheduleSkillsReload = (file: string): void => {
-      if (isSkippedSkillWatchPath(file)) return;
+      if (isSkippedSkillWatchPath(file)) {
+        return;
+      }
 
       this.debounceTimers.schedule("skills:catalog", () => {
         log.info({ file }, "Skill file changed, reloading");
@@ -529,8 +558,12 @@ export class ConfigWatcher {
       }
 
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        if (SKILL_WATCH_SKIPPED_DIRS.has(entry.name)) continue;
+        if (!entry.isDirectory()) {
+          continue;
+        }
+        if (SKILL_WATCH_SKIPPED_DIRS.has(entry.name)) {
+          continue;
+        }
         const childDir = join(dirPath, entry.name);
         acc.add(childDir);
         enumerateSkillSubdirectories(childDir, acc);
@@ -554,16 +587,22 @@ export class ConfigWatcher {
       }
 
       for (const [childDir, watcher] of childWatchers.entries()) {
-        if (nextChildDirs.has(childDir)) continue;
+        if (nextChildDirs.has(childDir)) {
+          continue;
+        }
         closeChildWatcher(childDir, watcher);
       }
 
       for (const childDir of nextChildDirs) {
-        if (childWatchers.has(childDir)) continue;
+        if (childWatchers.has(childDir)) {
+          continue;
+        }
 
         const watcher = watchDir(childDir, (filename) => {
           const file = formatSkillChangeLabel(childDir, filename);
-          if (isSkippedSkillWatchPath(file)) return;
+          if (isSkippedSkillWatchPath(file)) {
+            return;
+          }
 
           scheduleSkillsReload(file);
           refreshChildWatchers();
@@ -575,13 +614,17 @@ export class ConfigWatcher {
     };
 
     const rootWatcher = watchDir(skillsDir, (filename) => {
-      if (isSkippedSkillWatchPath(filename)) return;
+      if (isSkippedSkillWatchPath(filename)) {
+        return;
+      }
 
       scheduleSkillsReload(filename);
       refreshChildWatchers();
     });
 
-    if (!rootWatcher) return;
+    if (!rootWatcher) {
+      return;
+    }
 
     refreshChildWatchers();
     log.info(
@@ -645,7 +688,9 @@ export function cleanupSettingsChanged(
   prev: MemoryCleanupConfig | undefined,
   next: MemoryCleanupConfig | undefined,
 ): boolean {
-  if (!prev || !next) return false;
+  if (!prev || !next) {
+    return false;
+  }
   return (
     prev.llmRequestLogRetentionMs !== next.llmRequestLogRetentionMs ||
     prev.conversationRetentionDays !== next.conversationRetentionDays ||

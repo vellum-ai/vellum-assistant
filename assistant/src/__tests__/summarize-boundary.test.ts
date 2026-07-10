@@ -13,6 +13,7 @@ function row(id: string, role: string, content: string): MessageRow {
     createdAt: 0,
     metadata: null,
     clientMessageId: null,
+    finalized: 1,
   };
 }
 

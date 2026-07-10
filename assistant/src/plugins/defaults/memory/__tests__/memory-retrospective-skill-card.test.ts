@@ -21,6 +21,9 @@ let addMessageCalls: Array<{
 }> = [];
 let addMessageThrowsFor: string | null = null;
 let addMessageDeduplicatesFor: string | null = null;
+// Mirrors the real persistence layer's `clientMessageId` idempotency: a
+// repeated (conversationId, clientMessageId) pair reports `deduplicated`.
+let seenClientMessageIds = new Set<string>();
 let processingConversationIds: string[] = [];
 
 let syncedToDisk: Array<{
@@ -78,13 +81,24 @@ mock.module("../../../../persistence/conversation-crud.js", () => ({
       throw new Error(`insert failed for ${conversationId}`);
     }
     addMessageCalls.push({ conversationId, role, content, options });
+    const clientMessageId = options?.clientMessageId;
+    const dedupKey =
+      typeof clientMessageId === "string"
+        ? `${conversationId}:${clientMessageId}`
+        : null;
+    const deduplicated =
+      addMessageDeduplicatesFor === conversationId ||
+      (dedupKey !== null && seenClientMessageIds.has(dedupKey));
+    if (dedupKey !== null) {
+      seenClientMessageIds.add(dedupKey);
+    }
     return {
       id: `persisted-msg-${addMessageCalls.length}`,
       conversationId,
       role,
       content,
       createdAt: 42,
-      deduplicated: addMessageDeduplicatesFor === conversationId,
+      deduplicated,
     };
   },
   deleteConversation: (_id: string) => {},
@@ -148,12 +162,32 @@ mock.module("../../../../prompts/persona-resolver.js", () => ({
   resolveUserSlug: (_trustContext: unknown) => "alice",
 }));
 
+// Optional hook run inside the wake mock, before it reports success. Lets a
+// test flip the source conversation to mid-turn DURING the retrospective run
+// (the real race: a user turn starts while the fork wake is in flight).
+let onWake: (() => void) | null = null;
 mock.module("../../../../runtime/agent-wake.js", () => ({
-  wakeAgentForOpportunity: async (_opts: unknown) => ({ invoked: true }),
+  wakeAgentForOpportunity: async (_opts: unknown) => {
+    onWake?.();
+    return { invoked: true };
+  },
 }));
 
+// Deferred-insert job recorder (`upsertSkillCardInsertJob` is the coalescing
+// upsert the mid-turn branch and the handler's re-upsert both call).
+let skillCardJobUpserts: Array<{
+  payload: Record<string, unknown>;
+  runAfter: number;
+}> = [];
 mock.module("../../../../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => "follow-up-job-id",
+  upsertMemoryRetrospectiveJob: () => {},
+  upsertSkillCardInsertJob: (
+    payload: Record<string, unknown>,
+    runAfter: number,
+  ) => {
+    skillCardJobUpserts.push({ payload, runAfter });
+  },
 }));
 
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
@@ -161,6 +195,8 @@ import { memoryRetrospectiveJob } from "../memory-retrospective-job.js";
 import {
   extractRetrospectiveRunSkillScaffolds,
   insertSkillCardMessage,
+  SKILL_CARD_INSERT_RETRY_DELAY_MS,
+  skillCardInsertJob,
 } from "../memory-retrospective-skill-card.js";
 
 // ---------------------------------------------------------------------------
@@ -253,6 +289,23 @@ function makeJob(conversationId = "src-conv-1"): MemoryJob<{
   };
 }
 
+/** A claimed `skill_card_insert` job carrying the given payload. */
+function makeInsertJob(payload: Record<string, unknown>): MemoryJob {
+  return {
+    id: "insert-job-1",
+    type: "skill_card_insert",
+    payload,
+    status: "running",
+    attempts: 0,
+    deferrals: 0,
+    runAfter: 0,
+    lastError: null,
+    startedAt: null,
+    createdAt: 0,
+    updatedAt: 0,
+  };
+}
+
 /** Card messages persisted to the given conversation (assistant role). */
 function cardMessagesFor(conversationId: string) {
   return addMessageCalls.filter(
@@ -291,6 +344,7 @@ describe("memory-retrospective skill card", () => {
     addMessageCalls = [];
     addMessageThrowsFor = null;
     addMessageDeduplicatesFor = null;
+    seenClientMessageIds = new Set();
     processingConversationIds = [];
     syncedToDisk = [];
     publishedConversationIds = [];
@@ -298,13 +352,15 @@ describe("memory-retrospective skill card", () => {
     messagesByConversationId = {};
     mockFlagEnabled = false;
     mockProcToSkillsActive = false;
+    onWake = null;
+    skillCardJobUpserts = [];
   });
 
   // -------------------------------------------------------------------------
   // extractRetrospectiveRunSkillScaffolds
   // -------------------------------------------------------------------------
 
-  test("extractor returns only successful, non-overwrite scaffolds", () => {
+  test("extractor returns only successful, non-overwrite scaffolds", async () => {
     conversationOverrides["retro-1"] = {
       source: "memory-retrospective",
       forkParentMessageId: null,
@@ -342,7 +398,7 @@ describe("memory-retrospective skill card", () => {
       toolResultMsg("tu-5", { createdAt: 2008 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds("retro-1");
+    const skills = await extractRetrospectiveRunSkillScaffolds("retro-1");
 
     expect(skills).toEqual([
       {
@@ -354,7 +410,7 @@ describe("memory-retrospective skill card", () => {
     ]);
   });
 
-  test("extractor resolves the run's source itself and scopes fork-kind runs to the post-fork tail", () => {
+  test("extractor resolves the run's source itself and scopes fork-kind runs to the post-fork tail", async () => {
     // The fork-kind source comes from the conversation row (getConversation),
     // not a caller-supplied parameter — tail scoping proves it was read.
     conversationOverrides["retro-fork-1"] = {
@@ -377,27 +433,55 @@ describe("memory-retrospective skill card", () => {
       toolResultMsg("tu-tail", { createdAt: 2100 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds("retro-fork-1");
+    const skills = await extractRetrospectiveRunSkillScaffolds("retro-fork-1");
 
     expect(skills.map((s) => s.skillId)).toEqual(["tail-skill"]);
   });
 
-  test("extractor degrades to empty for a fork-kind run with no detectable boundary", () => {
+  test("extractor attributes every row to a fork-kind run with an empty copied prefix", async () => {
+    // No stamps, and the conversation opens with the run's own instruction
+    // row: the copied prefix is empty, so the scaffold is the run's work.
     conversationOverrides["retro-fork-2"] = {
       source: "memory-retrospective-fork",
       forkParentMessageId: null,
     };
     messagesByConversationId["retro-fork-2"] = [
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "review the above" }]),
+        createdAt: 900,
+        metadata: JSON.stringify({
+          kind: "memory_retrospective_instruction",
+          hidden: true,
+        }),
+      },
       scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 1000 }),
       toolResultMsg("tu-1", { createdAt: 1100 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds("retro-fork-2");
+    const skills = await extractRetrospectiveRunSkillScaffolds("retro-fork-2");
+
+    expect(skills.map((s) => s.skillId)).toEqual(["skill-a"]);
+  });
+
+  test("extractor degrades to empty for a stampless fork-kind run without a leading instruction row", async () => {
+    // Indeterminate shape (copied rows whose metadata lost its stamps):
+    // attributing it would surface source-authored scaffolds as run work.
+    conversationOverrides["retro-fork-3"] = {
+      source: "memory-retrospective-fork",
+      forkParentMessageId: null,
+    };
+    messagesByConversationId["retro-fork-3"] = [
+      scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 1000 }),
+      toolResultMsg("tu-1", { createdAt: 1100 }),
+    ];
+
+    const skills = await extractRetrospectiveRunSkillScaffolds("retro-fork-3");
 
     expect(skills).toEqual([]);
   });
 
-  test("extractor normalizes padded/newline-carrying inputs to the persisted values", () => {
+  test("extractor normalizes padded/newline-carrying inputs to the persisted values", async () => {
     // `executeScaffoldManagedSkill` trims skill_id (and newline-collapses +
     // trims name/description/emoji) before persisting: a padded " my-skill "
     // input creates skill `my-skill`, so a card built from the raw input
@@ -420,7 +504,7 @@ describe("memory-retrospective skill card", () => {
       toolResultMsg("tu-1", { createdAt: 2001 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds("retro-2");
+    const skills = await extractRetrospectiveRunSkillScaffolds("retro-2");
 
     expect(skills).toEqual([
       {
@@ -432,7 +516,7 @@ describe("memory-retrospective skill card", () => {
     ]);
   });
 
-  test("extractor drops an emoji that is whitespace-only after normalization", () => {
+  test("extractor drops an emoji that is whitespace-only after normalization", async () => {
     conversationOverrides["retro-3"] = {
       source: "memory-retrospective",
       forkParentMessageId: null,
@@ -451,7 +535,7 @@ describe("memory-retrospective skill card", () => {
       toolResultMsg("tu-1", { createdAt: 2001 }),
     ];
 
-    const skills = extractRetrospectiveRunSkillScaffolds("retro-3");
+    const skills = await extractRetrospectiveRunSkillScaffolds("retro-3");
 
     expect(skills).toHaveLength(1);
     expect(skills[0]).toEqual({
@@ -542,16 +626,60 @@ describe("memory-retrospective skill card", () => {
     expect(publishedConversationIds).toHaveLength(0);
   });
 
-  test("insert is a no-op when the source conversation is mid-turn", async () => {
+  test("mid-turn insert defers: no message is written, a skill_card_insert job is upserted with the full payload", async () => {
+    // A card row landing between a persisted tool_use and its later
+    // tool_result would wedge strict linear-translation providers, so a
+    // mid-turn source must queue the delivery instead of inserting — the
+    // durable job carries everything needed to insert once the turn ends.
     processingConversationIds = ["src-conv-9"];
-
-    await insertSkillCardMessage("src-conv-9", "run-conv-1", [
+    const skills = [
       { skillId: "skill-a", name: "Skill A", description: "Does A" },
-    ]);
+    ];
+    const before = Date.now();
+
+    await insertSkillCardMessage("src-conv-9", "run-conv-1", skills);
 
     expect(addMessageCalls).toHaveLength(0);
     expect(syncedToDisk).toHaveLength(0);
     expect(publishedConversationIds).toHaveLength(0);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    expect(skillCardJobUpserts[0]!.payload).toEqual({
+      sourceConversationId: "src-conv-9",
+      runConversationId: "run-conv-1",
+      skills,
+    });
+    expect(skillCardJobUpserts[0]!.runAfter).toBeGreaterThanOrEqual(
+      before + SKILL_CARD_INSERT_RETRY_DELAY_MS,
+    );
+  });
+
+  test("distinct run ids on the same source produce one card each; a retried run id stays deduped", async () => {
+    const skills = [
+      { skillId: "skill-a", name: "Skill A", description: "Does A" },
+    ];
+
+    await insertSkillCardMessage("src-conv-9", "run-conv-1", skills);
+    await insertSkillCardMessage("src-conv-9", "run-conv-2", skills);
+    // Retried finalize of run 1: same clientMessageId → persistence dedups.
+    await insertSkillCardMessage("src-conv-9", "run-conv-1", skills);
+
+    // Multiple cards over a conversation's life are expected — one per
+    // authoring run, keyed by the run-derived clientMessageId.
+    expect(
+      addMessageCalls.map(
+        (c) => (c.options as Record<string, unknown>).clientMessageId,
+      ),
+    ).toEqual([
+      "skill-card-run-conv-1",
+      "skill-card-run-conv-2",
+      "skill-card-run-conv-1",
+    ]);
+    // Only the two distinct runs reach the disk view and client broadcast.
+    expect(syncedToDisk.map((s) => s.messageId)).toEqual([
+      "persisted-msg-1",
+      "persisted-msg-2",
+    ]);
+    expect(publishedConversationIds).toEqual(["src-conv-9", "src-conv-9"]);
   });
 
   test("deduplicated insert (retried finalize) skips disk sync and publish", async () => {
@@ -577,6 +705,128 @@ describe("memory-retrospective skill card", () => {
 
     expect(addMessageCalls).toHaveLength(0);
     expect(publishedConversationIds).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // skillCardInsertJob (deferred delivery handler)
+  // -------------------------------------------------------------------------
+
+  function insertJobPayload(): Record<string, unknown> {
+    return {
+      sourceConversationId: "src-conv-9",
+      runConversationId: "run-conv-1",
+      skills: [
+        {
+          skillId: "skill-a",
+          name: "Skill A",
+          description: "Does A",
+          emoji: "🧭",
+        },
+      ],
+    };
+  }
+
+  test("handler with an idle source inserts the card with the contract shape intact", async () => {
+    await skillCardInsertJob(makeInsertJob(insertJobPayload()));
+
+    expect(addMessageCalls).toHaveLength(1);
+    const call = addMessageCalls[0]!;
+    expect(call.conversationId).toBe("src-conv-9");
+    expect(call.role).toBe("assistant");
+    expect(JSON.parse(call.content)).toEqual([
+      {
+        type: "ui_surface",
+        surfaceId: "skill-card-run-conv-1",
+        surfaceType: "skill_card",
+        title: "New skill learned",
+        display: "inline",
+        data: {
+          skills: [
+            {
+              skillId: "skill-a",
+              name: "Skill A",
+              description: "Does A",
+              emoji: "🧭",
+            },
+          ],
+        },
+      },
+      {
+        type: "text",
+        text: "New skill learned: Skill A",
+        _surfaceFallback: true,
+      },
+    ]);
+    expect(call.options).toEqual({
+      metadata: { kind: "skill-authored-card", automated: true },
+      skipIndexing: true,
+      clientMessageId: "skill-card-run-conv-1",
+    });
+    expect(syncedToDisk).toHaveLength(1);
+    expect(publishedConversationIds).toEqual(["src-conv-9"]);
+    expect(skillCardJobUpserts).toHaveLength(0);
+  });
+
+  test("handler with a still-mid-turn source re-upserts itself at the same delay and inserts nothing", async () => {
+    processingConversationIds = ["src-conv-9"];
+    const before = Date.now();
+
+    await skillCardInsertJob(makeInsertJob(insertJobPayload()));
+
+    expect(addMessageCalls).toHaveLength(0);
+    expect(publishedConversationIds).toHaveLength(0);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    expect(skillCardJobUpserts[0]!.payload).toEqual(insertJobPayload());
+    expect(skillCardJobUpserts[0]!.runAfter).toBeGreaterThanOrEqual(
+      before + SKILL_CARD_INSERT_RETRY_DELAY_MS,
+    );
+  });
+
+  test("handler with a deleted source drops the delivery without re-upserting", async () => {
+    conversationOverrides["gone-conv"] = null;
+
+    await skillCardInsertJob(
+      makeInsertJob({
+        ...insertJobPayload(),
+        sourceConversationId: "gone-conv",
+      }),
+    );
+
+    expect(addMessageCalls).toHaveLength(0);
+    expect(publishedConversationIds).toHaveLength(0);
+    expect(skillCardJobUpserts).toHaveLength(0);
+  });
+
+  test("handler retried after a successful insert is deduped by clientMessageId", async () => {
+    await skillCardInsertJob(makeInsertJob(insertJobPayload()));
+    await skillCardInsertJob(makeInsertJob(insertJobPayload()));
+
+    // The idempotent addMessage runs both times (the second detects the
+    // dup)...
+    expect(addMessageCalls).toHaveLength(2);
+    // ...but the disk-view append and client broadcast fire exactly once.
+    expect(syncedToDisk).toHaveLength(1);
+    expect(publishedConversationIds).toEqual(["src-conv-9"]);
+  });
+
+  test("handler drops a malformed payload without inserting, re-upserting, or throwing", async () => {
+    await skillCardInsertJob(
+      makeInsertJob({ sourceConversationId: "src-conv-9", skills: [] }),
+    );
+
+    expect(addMessageCalls).toHaveLength(0);
+    expect(skillCardJobUpserts).toHaveLength(0);
+  });
+
+  test("handler propagates persistence failures so the jobs worker retries", async () => {
+    // Unlike the best-effort finalize entry point, the deferred handler must
+    // surface transient insert errors to the worker's retry machinery — the
+    // card is only droppable when the source conversation is gone.
+    addMessageThrowsFor = "src-conv-9";
+
+    await expect(
+      skillCardInsertJob(makeInsertJob(insertJobPayload())),
+    ).rejects.toThrow("insert failed for src-conv-9");
   });
 
   // -------------------------------------------------------------------------
@@ -618,6 +868,39 @@ describe("memory-retrospective skill card", () => {
       _surfaceFallback: true,
     });
     expect(publishedConversationIds).toEqual(["src-conv-1"]);
+  });
+
+  test("a source turn starting during the run defers the finalize card into a skill_card_insert job", async () => {
+    // The real race: the source is idle when the retrospective job starts
+    // (so the run proceeds), but a user turn begins while the fork wake is
+    // in flight. Finalize must queue the card, not splice it into the
+    // in-progress turn's history.
+    mockFlagEnabled = true;
+    mockProcToSkillsActive = true;
+    stageForkTail([
+      scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 2000 }),
+      toolResultMsg("tu-1", { createdAt: 2001 }),
+    ]);
+    onWake = () => {
+      processingConversationIds = ["src-conv-1"];
+    };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), makeConfig());
+
+    expect(outcome.kind).toBe("invoked");
+    expect(cardMessagesFor("src-conv-1")).toHaveLength(0);
+    expect(skillCardJobUpserts).toHaveLength(1);
+    expect(skillCardJobUpserts[0]!.payload).toEqual({
+      sourceConversationId: "src-conv-1",
+      runConversationId: "fork-conv-1",
+      skills: [
+        {
+          skillId: "skill-a",
+          name: "Skill skill-a",
+          description: "Does skill-a",
+        },
+      ],
+    });
   });
 
   test("flag off (default): finalize inserts nothing even when scaffolds occurred", async () => {

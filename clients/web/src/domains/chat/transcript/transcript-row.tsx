@@ -76,6 +76,10 @@ export interface TranscriptRowProps {
    *  `TranscriptMessageBody` so the streaming message's last tool-call group
    *  defaults open. History rows leave it `false`. */
   isStreaming?: boolean;
+  /** True for the final item of the latest turn. Forwarded to
+   *  `TranscriptMessageBody` so the message directly above the parked avatar
+   *  collapses its hover-actions row and animates it open on hover. */
+  isLatestMessage?: boolean;
 }
 
 export const TranscriptRow = memo(function TranscriptRow({
@@ -100,6 +104,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   onWorkflowClick,
   onStopWorkflow,
   isStreaming,
+  isLatestMessage,
 }: TranscriptRowProps) {
   switch (item.kind) {
     case "message": {
@@ -125,6 +130,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           onWorkflowClick={onWorkflowClick}
           onStopWorkflow={onStopWorkflow}
           isStreaming={isStreaming}
+          isLatestMessage={isLatestMessage}
         />
       );
     }
@@ -142,12 +148,14 @@ export const TranscriptRow = memo(function TranscriptRow({
       );
 
     case "thinking":
-      // The turn-status slot. Mounted (fixed height) for the WHOLE in-flight
-      // turn so the transcript never reflows around it; `item.active` fades
-      // the shimmering label in only during the gaps where no other affordance
-      // owns the progress signal — it hides while assistant text streams,
-      // while an inline `SingleActivity` thinking link shimmers, and while a
-      // prompt is pending (see `shouldShowThinkingIndicator`). Same bare
+      // The turn-status slot. Mounted for the WHOLE in-flight turn; `item.active`
+      // brings the shimmering label in only during the gaps where no other
+      // affordance owns the progress signal — it hides while assistant text
+      // streams, while an inline `SingleActivity` thinking link shimmers, and
+      // while a prompt is pending (see `shouldShowThinkingIndicator`). While
+      // inactive the slot animates closed (h-0) instead of holding a blank
+      // fixed-height band above the avatar; the height transition keeps the
+      // show/hide handoff a smooth slide rather than a reflow jump. Same bare
       // avatar-tinted shimmer treatment as the inline link so the handoff
       // reads as one continuous "Thinking" state; the three-dot typing pill it
       // replaces read as a competing third loading affordance.
@@ -156,8 +164,8 @@ export const TranscriptRow = memo(function TranscriptRow({
           data-testid="transcript-thinking-row"
           data-active={item.active ? "true" : "false"}
           aria-hidden={!item.active}
-          className={`flex h-7 items-center text-[13px] font-medium text-[var(--content-secondary)] transition-opacity duration-300 ${
-            item.active ? "opacity-100" : "opacity-0"
+          className={`flex items-center overflow-hidden text-[13px] font-medium text-[var(--content-secondary)] transition-[height,opacity] duration-300 ease-out motion-reduce:transition-none ${
+            item.active ? "h-7 opacity-100" : "h-0 opacity-0"
           }`}
         >
           <StreamingShimmerText>{item.label ?? "Thinking"}</StreamingShimmerText>

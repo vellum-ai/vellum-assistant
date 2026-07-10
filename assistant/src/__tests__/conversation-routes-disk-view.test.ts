@@ -146,10 +146,6 @@ function createFakeConversation(conversationId: string): Conversation {
     messages: [] as Array<unknown>,
     hostCuProxy: undefined as unknown,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     isProcessing(this: { processing: boolean }) {
       return this.processing;
     },

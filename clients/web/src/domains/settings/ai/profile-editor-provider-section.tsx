@@ -10,7 +10,6 @@ import {
 
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
 import { useSelectableCatalogProviders } from "@/domains/settings/ai/provider-availability";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { ConnectionModel, ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
 
 const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
@@ -99,8 +98,6 @@ export function ProfileEditorProviderSection({
   connectionNotFound,
   hideProviderField = false,
 }: ProfileEditorProviderSectionProps) {
-  const isMobile = useIsMobile();
-  const providerMissing = provider.length === 0;
   const providerWithoutModel = provider.length > 0 && model.length === 0;
 
   const allProvidersForPicker = useSelectableCatalogProviders();
@@ -251,19 +248,12 @@ export function ProfileEditorProviderSection({
           route. Hidden when the parent renders its own provider picker. */}
       {!hideProviderField && (
         <div className="space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <label
-              id="profile-editor-provider-label"
-              className="block text-body-small-default text-[var(--content-tertiary)]"
-            >
-              Provider
-            </label>
-            {providerMissing && !isMobile ? (
-              <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
-                Pick a provider
-              </span>
-            ) : null}
-          </div>
+          <label
+            id="profile-editor-provider-label"
+            className="block text-body-small-default text-[var(--content-tertiary)]"
+          >
+            Provider
+          </label>
           <Dropdown
             value={provider}
             onChange={onProviderChange}

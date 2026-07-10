@@ -6,57 +6,39 @@
  * {@link ../lib}.
  */
 
+import { createRequire } from "node:module";
+
 import type { Command } from "commander";
 
 import { yellow } from "../lib/cli-colors.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
-import {
-  diffPlugin,
-  type PluginDiffResult,
-  PluginDiffUnavailableError,
-} from "../lib/diff-plugin.js";
-import {
-  inspectPlugin,
-  type PluginInspection,
-  PluginInspectNotFoundError,
-  type PluginRemoteInfo,
+import type { PluginDiffResult } from "../lib/diff-plugin.js";
+import type {
+  PluginInspection,
+  PluginRemoteInfo,
 } from "../lib/inspect-plugin.js";
-import {
-  DEFAULT_PLUGIN_REF,
-  installPlugin,
-  type InstallPluginOptions,
-  InvalidPluginNameError,
-  PluginAlreadyInstalledError,
-  type PluginFetchSource,
-  PluginNotFoundError,
-  sanitizePluginName,
+import type {
+  InstallPluginOptions,
+  PluginFetchSource,
 } from "../lib/install-from-github.js";
-import { installPluginViaPlatform } from "../lib/install-from-platform.js";
-import {
-  type AllPluginInfo,
-  listAllPlugins,
-  listInstalledPlugins,
-} from "../lib/list-installed-plugins.js";
+import type { AllPluginInfo } from "../lib/list-installed-plugins.js";
 import {
   DEFAULT_DIRECT_REF,
   InvalidGitHubPluginSpecError,
   looksLikeGitHubSpec,
   parseGitHubPluginSpec,
 } from "../lib/parse-github-plugin-spec.js";
-import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
 import {
   DEFAULT_PIN_HISTORY_LIMIT,
-  listPinHistory,
-  type PluginPinHistoryEntry,
-  PluginPinHistoryError,
-  resolvePinToMarketplaceCommit,
-} from "../lib/plugin-pin-history.js";
+  DEFAULT_PLUGIN_REF,
+  DEFAULT_PLUGIN_UPGRADE_STRATEGY,
+  PLUGIN_UPGRADE_STRATEGIES,
+  type PluginUpgradeStrategy,
+} from "../lib/plugin-constants.js";
+import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
+import type { PluginPinHistoryEntry } from "../lib/plugin-pin-history.js";
 import { runPublish } from "../lib/publish-plugin.js";
 import { registerCommand } from "../lib/register-command.js";
-import {
-  InvalidSearchPatternError,
-  searchPlugins,
-} from "../lib/search-plugins.js";
 import {
   disablePlugin,
   enablePlugin,
@@ -64,20 +46,59 @@ import {
   PluginAlreadyInStateException,
   PluginDirectoryNotFoundError,
 } from "../lib/toggle-plugin.js";
-import {
-  PluginNotInstalledError,
-  uninstallPlugin,
-} from "../lib/uninstall-plugin.js";
-import {
-  DEFAULT_PLUGIN_UPGRADE_STRATEGY,
-  PLUGIN_UPGRADE_STRATEGIES,
-  PluginMergeBaselineError,
-  PluginNotUpgradableError,
-  type PluginUpgradeResult,
-  type PluginUpgradeStrategy,
-  upgradePlugin,
-} from "../lib/upgrade-plugin.js";
+import type { PluginUpgradeResult } from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
+
+const loadModule = createRequire(import.meta.url);
+
+/** Lazy accessors: each getter loads its implementation module on first use. */
+const libs = {
+  get diff() {
+    return loadModule(
+      "../lib/diff-plugin.js",
+    ) as typeof import("../lib/diff-plugin.js");
+  },
+  get inspect() {
+    return loadModule(
+      "../lib/inspect-plugin.js",
+    ) as typeof import("../lib/inspect-plugin.js");
+  },
+  get installGitHub() {
+    return loadModule(
+      "../lib/install-from-github.js",
+    ) as typeof import("../lib/install-from-github.js");
+  },
+  get installPlatform() {
+    return loadModule(
+      "../lib/install-from-platform.js",
+    ) as typeof import("../lib/install-from-platform.js");
+  },
+  get installed() {
+    return loadModule(
+      "../lib/list-installed-plugins.js",
+    ) as typeof import("../lib/list-installed-plugins.js");
+  },
+  get pinHistory() {
+    return loadModule(
+      "../lib/plugin-pin-history.js",
+    ) as typeof import("../lib/plugin-pin-history.js");
+  },
+  get search() {
+    return loadModule(
+      "../lib/search-plugins.js",
+    ) as typeof import("../lib/search-plugins.js");
+  },
+  get uninstall() {
+    return loadModule(
+      "../lib/uninstall-plugin.js",
+    ) as typeof import("../lib/uninstall-plugin.js");
+  },
+  get upgrade() {
+    return loadModule(
+      "../lib/upgrade-plugin.js",
+    ) as typeof import("../lib/upgrade-plugin.js");
+  },
+};
 
 const log = getCliLogger("plugins");
 
@@ -88,6 +109,20 @@ export function registerPluginsCommand(program: Command): void {
     description:
       "List, search, install, and manage external plugins (`list` shows what is installed, `search` queries the marketplace)",
     build: (plugins) => {
+      // Materialize the `@vellumai/plugin-api` shim once for the whole command
+      // group, before any subcommand action runs. A subcommand that resolves a
+      // plugin hook in this fresh CLI process — `uninstall` running a plugin's
+      // `shutdown` — needs the package importable; the daemon materializes the
+      // same shim at boot, this covers the standalone CLI. Dynamically imported
+      // so the daemon-internal module stays out of the CLI's static graph
+      // (`cli/no-daemon-internals`). Best-effort: a failed shim just means such a
+      // hook's import may not resolve.
+      plugins.hook("preAction", async () => {
+        const { ensurePluginApiShim } =
+          await import("../../plugins/ensure-plugin-api-shim.js");
+        await ensurePluginApiShim().catch(() => {});
+      });
+
       plugins.addHelpText(
         "after",
         `
@@ -184,7 +219,7 @@ Examples:
               let result;
               let untrusted = false;
               if (!direct && !usesMarketplaceGit) {
-                result = await installPluginViaPlatform(
+                result = await libs.installPlatform.installPluginViaPlatform(
                   { name: nameOrUrl, force: opts.force },
                   { fetch: globalThis.fetch.bind(globalThis) },
                 );
@@ -203,7 +238,7 @@ Examples:
                   );
                   untrusted = true;
                 }
-                result = await installPlugin(installOpts, {
+                result = await libs.installGitHub.installPlugin(installOpts, {
                   fetch: globalThis.fetch.bind(globalThis),
                 });
               }
@@ -226,19 +261,21 @@ Examples:
                 `Installed ${label} "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
               );
             } catch (err) {
-              if (err instanceof PluginAlreadyInstalledError) {
+              if (
+                err instanceof libs.installGitHub.PluginAlreadyInstalledError
+              ) {
                 console.error(`${err.message}\nPass --force to overwrite.`);
                 process.exitCode = 1;
                 return;
               }
-              if (err instanceof PluginNotFoundError) {
+              if (err instanceof libs.installGitHub.PluginNotFoundError) {
                 console.error(err.message);
                 process.exitCode = 1;
                 return;
               }
               if (
-                err instanceof InvalidPluginNameError ||
-                err instanceof PluginPinHistoryError
+                err instanceof libs.installGitHub.InvalidPluginNameError ||
+                err instanceof libs.pinHistory.PluginPinHistoryError
               ) {
                 console.error(err.message);
                 process.exitCode = 1;
@@ -273,7 +310,7 @@ Examples:
               }
             }
             try {
-              const history = await listPinHistory(
+              const history = await libs.pinHistory.listPinHistory(
                 name,
                 { fetch: globalThis.fetch.bind(globalThis) },
                 limit !== undefined ? { limit } : {},
@@ -292,8 +329,8 @@ Examples:
               }
             } catch (err) {
               if (
-                err instanceof InvalidPluginNameError ||
-                err instanceof PluginPinHistoryError
+                err instanceof libs.installGitHub.InvalidPluginNameError ||
+                err instanceof libs.pinHistory.PluginPinHistoryError
               ) {
                 console.error(err.message);
                 process.exitCode = 1;
@@ -316,7 +353,7 @@ Examples:
         )
         .action((opts: { json?: boolean; all?: boolean }) => {
           if (opts.all) {
-            const all = listAllPlugins();
+            const all = libs.installed.listAllPlugins();
 
             if (opts.json) {
               process.stdout.write(JSON.stringify(all, null, 2) + "\n");
@@ -360,7 +397,7 @@ Examples:
             return;
           }
 
-          const installed = listInstalledPlugins();
+          const installed = libs.installed.listInstalledPlugins();
 
           if (opts.json) {
             process.stdout.write(JSON.stringify(installed, null, 2) + "\n");
@@ -402,7 +439,7 @@ Examples:
         .option("--json", "Emit machine-readable JSON instead of a summary")
         .action(async (name: string, opts: { json?: boolean }) => {
           try {
-            const inspection = await inspectPlugin(
+            const inspection = await libs.inspect.inspectPlugin(
               { name },
               { fetch: globalThis.fetch.bind(globalThis) },
             );
@@ -427,12 +464,12 @@ Examples:
               console.log(line);
             }
           } catch (err) {
-            if (err instanceof PluginInspectNotFoundError) {
+            if (err instanceof libs.inspect.PluginInspectNotFoundError) {
               console.error(err.message);
               process.exitCode = 1;
               return;
             }
-            if (err instanceof InvalidPluginNameError) {
+            if (err instanceof libs.installGitHub.InvalidPluginNameError) {
               console.error(err.message);
               process.exitCode = 1;
               return;
@@ -470,7 +507,7 @@ Examples:
         )
         .action(async (name: string, opts: { json?: boolean }) => {
           try {
-            const result = await diffPlugin(
+            const result = await libs.diff.diffPlugin(
               { name },
               { fetch: globalThis.fetch.bind(globalThis) },
             );
@@ -496,9 +533,9 @@ Examples:
             }
           } catch (err) {
             if (
-              err instanceof PluginNotInstalledError ||
-              err instanceof PluginDiffUnavailableError ||
-              err instanceof InvalidPluginNameError
+              err instanceof libs.uninstall.PluginNotInstalledError ||
+              err instanceof libs.diff.PluginDiffUnavailableError ||
+              err instanceof libs.installGitHub.InvalidPluginNameError
             ) {
               console.error(err.message);
               process.exitCode = 1;
@@ -518,7 +555,7 @@ Examples:
         .option("--json", "Emit machine-readable JSON instead of a table")
         .action(async (query: string, opts: { json?: boolean }) => {
           try {
-            const result = await searchPlugins(
+            const result = await libs.search.searchPlugins(
               { query },
               { fetch: globalThis.fetch.bind(globalThis) },
             );
@@ -558,7 +595,7 @@ Examples:
               `${result.matches.length} match${result.matches.length === 1 ? "" : "es"} for "${result.query}".`,
             );
           } catch (err) {
-            if (err instanceof InvalidSearchPatternError) {
+            if (err instanceof libs.search.InvalidSearchPatternError) {
               console.error(err.message);
               process.exitCode = 1;
               return;
@@ -615,7 +652,9 @@ $ assistant plugins publish --json`,
             category?: string;
           }) => {
             const ok = await runPublish(opts, { confirmPrompt });
-            if (!ok) process.exitCode = 1;
+            if (!ok) {
+              process.exitCode = 1;
+            }
           },
         );
 
@@ -640,7 +679,7 @@ $ assistant plugins publish --json`,
                 return;
               }
             }
-            const result = await uninstallPlugin({ name });
+            const result = await libs.uninstall.uninstallPlugin({ name });
             log.info(
               { name: result.name, target: result.target },
               "external plugin uninstalled",
@@ -649,12 +688,12 @@ $ assistant plugins publish --json`,
               `Uninstalled plugin "${result.name}" from ${result.target}`,
             );
           } catch (err) {
-            if (err instanceof InvalidPluginNameError) {
+            if (err instanceof libs.installGitHub.InvalidPluginNameError) {
               console.error(err.message);
               process.exitCode = 1;
               return;
             }
-            if (err instanceof PluginNotInstalledError) {
+            if (err instanceof libs.uninstall.PluginNotInstalledError) {
               console.error(err.message);
               process.exitCode = 1;
               return;
@@ -749,7 +788,7 @@ $ assistant plugins publish --json`,
               return;
             }
             try {
-              const result = await upgradePlugin(
+              const result = await libs.upgrade.upgradePlugin(
                 {
                   name,
                   dryRun: opts.dryRun,
@@ -780,10 +819,10 @@ $ assistant plugins publish --json`,
               }
             } catch (err) {
               if (
-                err instanceof PluginNotInstalledError ||
-                err instanceof PluginNotUpgradableError ||
-                err instanceof PluginMergeBaselineError ||
-                err instanceof InvalidPluginNameError
+                err instanceof libs.uninstall.PluginNotInstalledError ||
+                err instanceof libs.upgrade.PluginNotUpgradableError ||
+                err instanceof libs.upgrade.PluginMergeBaselineError ||
+                err instanceof libs.installGitHub.InvalidPluginNameError
               ) {
                 console.error(err.message);
                 process.exitCode = 1;
@@ -855,7 +894,7 @@ async function resolveInstallOptions(
     return { name, force, ref: DEFAULT_PLUGIN_REF, commitOverride: pin };
   }
 
-  const entry = await resolvePinToMarketplaceCommit(name, pin, {
+  const entry = await libs.pinHistory.resolvePinToMarketplaceCommit(name, pin, {
     fetch: globalThis.fetch.bind(globalThis),
   });
   if (!entry) {
@@ -916,9 +955,9 @@ function resolveDirectInstallOptions(
   const requested = opts.name ?? parsed.defaultName;
   let name: string;
   try {
-    name = sanitizePluginName(requested);
+    name = libs.installGitHub.sanitizePluginName(requested);
   } catch (err) {
-    if (err instanceof InvalidPluginNameError) {
+    if (err instanceof libs.installGitHub.InvalidPluginNameError) {
       console.error(
         opts.name
           ? err.message
@@ -1007,9 +1046,13 @@ function shortSha(sha: string | null): string {
  * fall back to `unknown`, with the SHA still shown alongside as the precise id.
  */
 function formatTimestamp(iso: string | null): string {
-  if (!iso) return "unknown";
+  if (!iso) {
+    return "unknown";
+  }
   const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return "unknown";
+  if (!Number.isFinite(ms)) {
+    return "unknown";
+  }
   return new Date(ms).toISOString().slice(0, 19);
 }
 
@@ -1019,9 +1062,15 @@ function formatTimestamp(iso: string | null): string {
  */
 function formatAllPluginStatus(p: AllPluginInfo): string {
   const parts: string[] = [];
-  if (p.disabled) parts.push("disabled");
-  if (p.issues.length > 0) parts.push(p.issues.join("; "));
-  if (parts.length === 0) parts.push("enabled");
+  if (p.disabled) {
+    parts.push("disabled");
+  }
+  if (p.issues.length > 0) {
+    parts.push(p.issues.join("; "));
+  }
+  if (parts.length === 0) {
+    parts.push("enabled");
+  }
   return parts.join(", ");
 }
 
@@ -1050,9 +1099,12 @@ function statusLine(status: PluginInspection["status"]): string {
  * when the on-disk tree matches, or a per-category count.
  */
 function driftLine(changes: FingerprintComparison | null): string {
-  if (!changes)
+  if (!changes) {
     return "unknown (no recorded baseline; reinstall to record one)";
-  if (changes.clean) return "none";
+  }
+  if (changes.clean) {
+    return "none";
+  }
   const parts = [
     `${changes.modified.length} modified`,
     `${changes.added.length} added`,
@@ -1084,9 +1136,13 @@ function formatInspection(inspection: PluginInspection): string[] {
   // under it. Omitted entirely when the plugin contributes none of that type,
   // so the listing only ever shows what the plugin actually contributes.
   const surfaceBlock = (label: string, items: readonly string[]) => {
-    if (items.length === 0) return;
+    if (items.length === 0) {
+      return;
+    }
     lines.push(label);
-    for (const item of items) lines.push(`  ${item}`);
+    for (const item of items) {
+      lines.push(`  ${item}`);
+    }
   };
 
   topRow("status", statusLine(status));
@@ -1112,15 +1168,23 @@ function formatInspection(inspection: PluginInspection): string[] {
   }
 
   const pkgVersion = local?.version ?? null;
-  if (pkgVersion) topRow("pkg version", pkgVersion);
+  if (pkgVersion) {
+    topRow("pkg version", pkgVersion);
+  }
 
   const license = remote?.license ?? null;
   const homepage = remote?.homepage ?? null;
-  if (license) topRow("license", license);
-  if (homepage) topRow("homepage", homepage);
+  if (license) {
+    topRow("license", license);
+  }
+  if (homepage) {
+    topRow("homepage", homepage);
+  }
 
   const description = remote?.description ?? local?.description ?? null;
-  if (description) topRow("description", description);
+  if (description) {
+    topRow("description", description);
+  }
 
   if (surfaces) {
     surfaceBlock("skills", surfaces.skills);
@@ -1128,7 +1192,9 @@ function formatInspection(inspection: PluginInspection): string[] {
     surfaceBlock("tools", surfaces.tools);
   }
 
-  for (const issue of local?.issues ?? []) topRow("issue", issue);
+  for (const issue of local?.issues ?? []) {
+    topRow("issue", issue);
+  }
 
   return lines;
 }
@@ -1158,7 +1224,9 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         "",
         "dry run; no changes made.",
       ];
-      if (provenanceNote) lines.push(provenanceNote);
+      if (provenanceNote) {
+        lines.push(provenanceNote);
+      }
       return lines;
     }
     case "upgraded": {
@@ -1199,7 +1267,9 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
           "",
           "Resolve the conflicts, then the upgrade will be picked up live on the next read (no restart required).",
         );
-        if (provenanceNote) lines.push(provenanceNote);
+        if (provenanceNote) {
+          lines.push(provenanceNote);
+        }
         return lines;
       }
 
@@ -1215,8 +1285,12 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         `${count}→ ${result.target}`,
         "Restart the assistant to pick up the upgrade.",
       ];
-      if (mergeNote) lines.push(mergeNote);
-      if (provenanceNote) lines.push(provenanceNote);
+      if (mergeNote) {
+        lines.push(mergeNote);
+      }
+      if (provenanceNote) {
+        lines.push(provenanceNote);
+      }
       return lines;
     }
   }

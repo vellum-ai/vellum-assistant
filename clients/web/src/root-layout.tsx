@@ -38,6 +38,7 @@ import { useSoundEffects } from "@/hooks/use-sound-effects";
 import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
 import { useConversationSync } from "@/hooks/use-conversation-sync";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
+import { useWorkspaceTheme } from "@/hooks/use-workspace-theme";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -136,6 +137,7 @@ export function RootLayout() {
   useAssistantResourceSync(assistantId, isAssistantActive);
   useConversationSync(assistantId, isAssistantActive);
   useFeatureFlagBusSync(assistantId, isAssistantActive);
+  useWorkspaceTheme(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
   usePushRegistration(assistantId);
   useNotificationTapNavigation();

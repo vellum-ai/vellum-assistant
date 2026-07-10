@@ -10,6 +10,7 @@ type TestMessage = {
   createdAt: number;
   metadata: string | null;
   clientMessageId: string | null;
+  finalized: number;
 };
 
 const parentMessages: TestMessage[] = [
@@ -21,6 +22,7 @@ const parentMessages: TestMessage[] = [
     createdAt: 1_700_000_000_000,
     metadata: null,
     clientMessageId: null,
+    finalized: 1,
   },
   {
     id: "msg-parent-2",
@@ -37,6 +39,7 @@ const parentMessages: TestMessage[] = [
       },
     }),
     clientMessageId: null,
+    finalized: 1,
   },
 ];
 
@@ -51,6 +54,7 @@ const childMessages: TestMessage[] = [
     createdAt: 1_700_000_002_000,
     metadata: null,
     clientMessageId: null,
+    finalized: 1,
   },
   {
     id: "msg-child-2",
@@ -62,6 +66,7 @@ const childMessages: TestMessage[] = [
     createdAt: 1_700_000_003_000,
     metadata: null,
     clientMessageId: null,
+    finalized: 1,
   },
 ];
 

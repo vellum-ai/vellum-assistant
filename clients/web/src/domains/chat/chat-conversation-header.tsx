@@ -61,11 +61,6 @@ export function ChatConversationHeader({
       onRename={() => onRename(activeConversation)}
       onArchive={() => onArchive(activeConversation)}
       onUnarchive={() => onUnarchive(activeConversation)}
-      onAnalyze={
-        !isReadonly && headerSupplements?.onAnalyze && activeConversation.conversationId
-          ? () => headerSupplements.onAnalyze!(activeConversation)
-          : undefined
-      }
       onForkConversation={
         !isReadonly && headerSupplements?.hasPersistedMessage && headerSupplements?.onForkConversation
           ? headerSupplements.onForkConversation

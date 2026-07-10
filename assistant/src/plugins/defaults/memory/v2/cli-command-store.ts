@@ -20,12 +20,17 @@
 //   - No MCP-style augmentation — Commander's description is the canonical
 //     summary.
 
+import { CLI_COMMAND_HELP } from "@vellumai/plugin-api";
+
 import { getConfig } from "../../../../config/loader.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
-import { getLogger } from "../../../../util/logger.js";
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embeddings.js";
-import { buildCliCommandContent } from "./cli-command-content.js";
+import { getLogger } from "../logging.js";
+import {
+  buildCliCommandContent,
+  buildCliCommandHelpContent,
+} from "./cli-command-content.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
   backfillKindOnPointsWithPrefix,
@@ -135,21 +140,37 @@ function resolveSeedWaiters(): void {
 async function runSeedV2CliCommandEntries(generation: number): Promise<void> {
   try {
     const config = getConfig();
-    // Dynamic import so callers that only need `getCliCommandCapability` or
-    // `listCliCommandEntries` (e.g. the render path inside `injection.ts` and
-    // the `page-index.ts` dependency loader) never drag the full CLI command
-    // graph into their import tree. The CLI tree pulls in many provider and
-    // workspace modules whose presence has been a recurring source of test-
-    // mock cascades and circular-import surprises.
+    const seeds: CliCommandEntry[] = [];
+    const declarativeNames = new Set<string>();
+
+    // Commands that have adopted the static-help split are read from their
+    // declarative help (exposed via `@vellumai/plugin-api`) — pure data, no CLI
+    // action graph. Content is rendered from that data here in the plugin.
+    for (const help of CLI_COMMAND_HELP) {
+      declarativeNames.add(help.name);
+      seeds.push({
+        id: help.name,
+        description: help.description,
+        content: buildCliCommandHelpContent(help),
+      });
+    }
+
+    // Remaining commands still come from the Commander tree. Dynamic import so
+    // callers that only need `getCliCommandCapability` or `listCliCommandEntries`
+    // (e.g. the render path inside `injection.ts` and the `page-index.ts`
+    // dependency loader) never drag the full CLI command graph into their import
+    // tree. The CLI tree pulls in many provider and workspace modules whose
+    // presence has been a recurring source of test-mock cascades and
+    // circular-import surprises.
     const { buildCliProgramTree } = await import("../../../../cli/program.js");
     const program = buildCliProgramTree();
 
-    const seeds: CliCommandEntry[] = [];
     for (const cmd of program.commands) {
       const name = cmd.name();
       // Skip the `help` builtin Commander adds automatically — it carries no
-      // capability information of its own and is uniform across commands.
-      if (name === "help") continue;
+      // capability information of its own — and commands already sourced
+      // declaratively above.
+      if (name === "help" || declarativeNames.has(name)) continue;
       const description = cmd.description();
       const content = buildCliCommandContent(
         name,

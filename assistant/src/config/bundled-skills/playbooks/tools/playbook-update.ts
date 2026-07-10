@@ -34,13 +34,10 @@ export async function executePlaybookUpdate(
     };
   }
 
-  const scopeId = "default";
-
   try {
     const existing = getNode(playbookId);
     if (
       !existing ||
-      existing.scopeId !== scopeId ||
       !existing.sourceConversations.some((s) => s.startsWith("playbook:")) ||
       existing.fidelity === "gone"
     ) {
@@ -108,7 +105,6 @@ export async function executePlaybookUpdate(
       .from(memoryGraphNodes)
       .where(
         and(
-          eq(memoryGraphNodes.scopeId, scopeId),
           sql`${memoryGraphNodes.sourceConversations} LIKE '%playbook:%'`,
           eq(memoryGraphNodes.content, content),
           sql`${memoryGraphNodes.fidelity} != 'gone'`,

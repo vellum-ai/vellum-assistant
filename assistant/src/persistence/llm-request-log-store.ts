@@ -16,6 +16,13 @@ import {
 import { v4 as uuid } from "uuid";
 
 import { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "../api/constants/call-sites.js";
+// Namespace import (not a named `getConfigReadOnly` import) on purpose: the
+// store is reached transitively by a large number of tests that stub
+// `config/loader` with a partial mock exposing only `getConfig`. A named
+// import would fail to link against those mocks ("Export … not found"); a
+// namespace access degrades to `undefined` at call time instead, which the
+// try/catch in `llmRequestLoggingEnabled` treats as "enabled".
+import * as configLoader from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { AssistantError, ProviderError } from "../util/errors.js";
 import {
@@ -25,6 +32,7 @@ import {
   messageMetadataSchema,
 } from "./conversation-crud.js";
 import { type DrizzleDb, getDb, getLogsDb } from "./db-connection.js";
+import { getClickHouseLlmRequestLogSink } from "./llm-request-log-sink-clickhouse.js";
 import { llmRequestLogs, messages } from "./schema/index.js";
 import { timeSyncSection } from "./slow-sync-log.js";
 
@@ -40,6 +48,22 @@ function logsDb(): DrizzleDb {
     throw new Error("logs database unavailable");
   }
   return db;
+}
+
+/**
+ * Whether LLM request logging is enabled (`llmRequestLogs.enabled`, default
+ * `true`). Gates every `llm_request_logs` insert so no prompt/completion
+ * payload is written while logging is off. Read-only config access (no
+ * `ensureDataDir`/disk write) because this sits on the per-LLM-call critical
+ * path; defaults to "enabled" if config resolution throws so a config hiccup
+ * never silently drops logs.
+ */
+export function llmRequestLoggingEnabled(): boolean {
+  try {
+    return configLoader.getConfigReadOnly().llmRequestLogs?.enabled !== false;
+  } catch {
+    return true;
+  }
 }
 
 export type LogRow = {
@@ -165,9 +189,34 @@ export function recordRequestLog(
   provider?: string,
   callSite?: LLMCallSite,
   latencyBreakdown?: string,
-): string {
-  const db = logsDb();
+): string | null {
+  // Master opt-out: when logging is disabled, skip the write entirely so no
+  // prompt/completion payload lands on disk. Returns null — there is no row to
+  // stamp/backfill later, and no production caller consumes the return value.
+  if (!llmRequestLoggingEnabled()) {
+    return null;
+  }
   const id = uuid();
+  // When ClickHouse is the configured source, it is also the write target:
+  // send the row there instead of local SQLite (fire-and-forget). The id is
+  // still returned for signature parity, though no local row exists for the
+  // post-loop stamping helpers to update — an accepted ClickHouse limitation.
+  const clickHouseSink = getClickHouseLlmRequestLogSink();
+  if (clickHouseSink) {
+    clickHouseSink.recordBestEffort({
+      id,
+      conversationId,
+      messageId: messageId ?? null,
+      provider: provider ?? null,
+      requestPayload,
+      responsePayload,
+      createdAt: Date.now(),
+      agentLoopExitReason: null,
+      callSite: callSite ?? null,
+    });
+    return id;
+  }
+  const db = logsDb();
   // Synchronous insert of the full request/response payloads (an entire
   // context window for main-agent calls) into the append-only logs DB, on the
   // per-LLM-call critical path. Timed so an event-loop freeze the watchdog
@@ -250,8 +299,12 @@ export function recordSyntheticAgentErrorMessageLog(args: {
    */
   preparedRequest: unknown | null;
   createdAt: number;
-}): string {
-  const db = logsDb();
+}): string | null {
+  // Synthetic error rows are `llm_request_logs` rows too — honour the same
+  // master opt-out so nothing is written while logging is disabled.
+  if (!llmRequestLoggingEnabled()) {
+    return null;
+  }
   const id = uuid();
   const requestPayload = JSON.stringify({
     syntheticAgentErrorMessage: {
@@ -265,6 +318,25 @@ export function recordSyntheticAgentErrorMessageLog(args: {
       noticeText: args.noticeText,
     },
   });
+  // Route to ClickHouse when it is the configured target. The exit reason is
+  // already known here, so it is carried on the row directly (unlike real
+  // calls, which stamp it post-loop against a local row that ClickHouse lacks).
+  const clickHouseSink = getClickHouseLlmRequestLogSink();
+  if (clickHouseSink) {
+    clickHouseSink.recordBestEffort({
+      id,
+      conversationId: args.conversationId,
+      messageId: args.messageId,
+      provider: null,
+      requestPayload,
+      responsePayload,
+      createdAt: args.createdAt,
+      agentLoopExitReason: args.exitReason,
+      callSite: CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
+    });
+    return id;
+  }
+  const db = logsDb();
   db.insert(llmRequestLogs)
     .values({
       id,

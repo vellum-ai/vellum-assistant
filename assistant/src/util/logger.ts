@@ -5,12 +5,11 @@ import {
   readdirSync,
   unlinkSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
-import { Writable } from "node:stream";
 
-import pino from "pino";
+import type { Logger } from "pino";
 import type { PrettyOptions } from "pino-pretty";
-import pinoPretty from "pino-pretty";
 
 import {
   getDebugStdoutLogs,
@@ -18,6 +17,23 @@ import {
 } from "../config/env-registry.js";
 import { logSerializers } from "./log-redact.js";
 import { getLogsDir } from "./platform.js";
+
+const loadModule = createRequire(import.meta.url);
+
+/**
+ * pino loads on first logger construction, not import, so CLI processes that
+ * never log skip its ~17 MiB graph. The `.default ?? mod` unwrap handles both
+ * the real dual-export and ESM-shaped test mocks.
+ */
+function loadPino(): typeof import("pino") {
+  const mod = loadModule("pino") as { default?: unknown };
+  return (mod.default ?? mod) as typeof import("pino");
+}
+
+function loadPinoPretty(): typeof import("pino-pretty") {
+  const mod = loadModule("pino-pretty") as { default?: unknown };
+  return (mod.default ?? mod) as typeof import("pino-pretty");
+}
 
 /** Common pino-pretty options that inline [module] into the message prefix. */
 function prettyOpts(extra?: PrettyOptions): PrettyOptions {
@@ -81,7 +97,7 @@ export function pruneOldLogFiles(dir: string, retentionDays: number): number {
   return removed;
 }
 
-let rootLogger: pino.Logger | null = null;
+let rootLogger: Logger | null = null;
 let activeLogDate: string | null = null;
 let activeLogFileConfig: LogFileConfig | null = null;
 
@@ -112,7 +128,9 @@ function resolveLogDir(config: LogFileConfig): string | undefined {
   return config.dir;
 }
 
-function buildRotatingLogger(config: LogFileConfig): pino.Logger {
+function buildRotatingLogger(config: LogFileConfig): Logger {
+  const pino = loadPino();
+  const pinoPretty = loadPinoPretty();
   const dir = resolveLogDir(config);
   if (!dir) {
     return pino(
@@ -190,11 +208,13 @@ export function initLogger(config: LogFileConfig): void {
   }
 }
 
-function getRootLogger(): pino.Logger {
+function getRootLogger(): Logger {
   if (activeLogFileConfig) {
     ensureCurrentDate();
   }
   if (!rootLogger) {
+    const pino = loadPino();
+    const pinoPretty = loadPinoPretty();
     const forceStderr =
       process.env.BUN_TEST === "1" || process.env.NODE_ENV === "test";
     if (forceStderr) {
@@ -281,10 +301,10 @@ export function truncateForLog(value: string, maxLen = 500): string {
  * quickly (e.g. `assistant --help`). The child is rebuilt whenever the
  * underlying root logger changes (e.g. day rollover, late initLogger()).
  */
-export function getLogger(name: string): pino.Logger {
-  let cachedRoot: pino.Logger | null = null;
-  let child: pino.Logger | null = null;
-  const handler: ProxyHandler<pino.Logger> = {
+export function getLogger(name: string): Logger {
+  let cachedRoot: Logger | null = null;
+  let child: Logger | null = null;
+  const handler: ProxyHandler<Logger> = {
     get(_target, prop, receiver) {
       const root = getRootLogger();
       if (root !== cachedRoot) {
@@ -298,56 +318,40 @@ export function getLogger(name: string): pino.Logger {
       return val;
     },
   };
-  return new Proxy({} as pino.Logger, handler);
+  return new Proxy({} as Logger, handler);
 }
 
 /**
- * Pino destination that extracts the message text from JSON log entries
- * and writes it as plain text. Routes info/warn to stdout and error/fatal
- * to stderr, matching console.log/console.error behavior.
+ * Extract the message text from a pino-style log call: `(msg)` or
+ * `(mergeObject, msg)`. Structured fields are discarded — CLI output is the
+ * message text only, matching what the pino-backed implementation printed.
  */
-function cliDestination(fd: number, maxLevel?: number): Writable {
-  const output = fd === 2 ? process.stderr : process.stdout;
-  return new Writable({
-    write(chunk, _encoding, callback) {
-      try {
-        const obj = JSON.parse(chunk.toString());
-        if (maxLevel !== undefined && obj.level > maxLevel) {
-          callback();
-          return;
-        }
-        output.write((obj.msg ?? "") + "\n", callback);
-      } catch {
-        output.write(chunk, callback);
-      }
-    },
-  });
-}
-
-/**
- * Logger for CLI commands. Outputs plain message text to stdout (info/warn)
- * and stderr (error/fatal) while providing structured log levels through pino.
- * Uses lazy initialization to avoid issues with fast-exit paths like --help.
- */
-export function getCliLogger(name: string): pino.Logger {
-  let logger: pino.Logger | null = null;
-  const handler: ProxyHandler<pino.Logger> = {
-    get(_target, prop, receiver) {
-      if (!logger) {
-        logger = pino(
-          { name, level: "trace", serializers: logSerializers },
-          pino.multistream([
-            { stream: cliDestination(1, 49), level: "trace" as const },
-            { stream: cliDestination(2), level: "error" as const },
-          ]),
-        );
-      }
-      const val = Reflect.get(logger, prop, receiver);
-      if (typeof val === "function") {
-        return val.bind(logger);
-      }
-      return val;
-    },
+function cliWrite(output: NodeJS.WriteStream): (...args: unknown[]) => void {
+  return (...args: unknown[]) => {
+    const msg =
+      typeof args[0] === "string" ? args[0] : (args[1] as string | undefined);
+    output.write((msg ?? "") + "\n");
   };
-  return new Proxy({} as pino.Logger, handler);
+}
+
+/**
+ * Logger for CLI commands. Outputs plain message text to stdout
+ * (trace/debug/info/warn) and stderr (error/fatal). Implemented without pino:
+ * the CLI only ever prints the message text, and pino's ~70-module graph
+ * costs ~17 MiB per process, which short-lived CLI invocations should not
+ * pay. Typed as pino's Logger so call sites keep pino call signatures; only
+ * the level methods are real, so anything beyond them fails at runtime —
+ * extend this object before using other pino APIs in CLI code.
+ */
+export function getCliLogger(_name: string): Logger {
+  const toStdout = cliWrite(process.stdout);
+  const toStderr = cliWrite(process.stderr);
+  return {
+    trace: toStdout,
+    debug: toStdout,
+    info: toStdout,
+    warn: toStdout,
+    error: toStderr,
+    fatal: toStderr,
+  } as unknown as Logger;
 }
