@@ -66,7 +66,7 @@ assistant inference providers connections list
 
 | Profile                    | Call Sites                                                                                                                                                                                                                                          |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `balanced` (Sonnet)        | `mainAgent`, `subagentSpawn`, `compactionAgent`, `analyzeConversation`, `patternScan`, `narrativeRefinement`, `memoryConsolidation`, `recall`, `callAgent`, `emptyStateGreeting`, `conversationStarters`, `identityIntro`, `proactiveArtifactBuild` |
+| `balanced` (Sonnet)        | `mainAgent`, `subagentSpawn`, `compactionAgent`, `patternScan`, `narrativeRefinement`, `memoryConsolidation`, `recall`, `callAgent`, `emptyStateGreeting`, `conversationStarters`, `identityIntro`, `proactiveArtifactBuild` |
 | `cost-optimized` (Haiku)   | **Everything else** — `memoryRouter` (with 1M context override), memory extraction/retrieval, UI copy, classifiers, summarization, background tasks                                                                                                 |
 | `quality-optimized` (Opus) | **Do not pin.** Reserved for on-demand user escalation via `/model`                                                                                                                                                                                 |
 
@@ -123,7 +123,6 @@ assistant config set llm.callSites '{
   "mainAgent":                {"profile":"balanced"},
   "subagentSpawn":            {"profile":"balanced"},
   "compactionAgent":          {"profile":"balanced"},
-  "analyzeConversation":      {"profile":"balanced"},
   "patternScan":              {"profile":"balanced"},
   "narrativeRefinement":      {"profile":"balanced"},
   "memoryRouter":             {"profile":"cost-optimized","contextWindow":{"maxInputTokens":1000000}},

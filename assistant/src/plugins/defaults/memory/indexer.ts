@@ -5,7 +5,6 @@ import {
 import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
 
-import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
 import type { MemoryConfig } from "../../../config/types.js";
 import {
@@ -20,7 +19,6 @@ import {
 } from "../../../persistence/jobs-store.js";
 import { memorySegments } from "../../../persistence/schema/index.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
-import { enqueueAutoAnalysisIfEnabled } from "../../../runtime/services/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../../../runtime/services/auto-analysis-guard.js";
 import { getLogger } from "../../../util/logger.js";
 import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
@@ -271,45 +269,8 @@ export async function indexMessageNow(
         );
       }
 
-      // ── Auto-analysis triggers ─────────────────────────────────────
-      // Immediate triggers (batch, compaction) and debounced triggers
-      // (idle, lifecycle) write to separate rows keyed by triggerGroup
-      // via `upsertAutoAnalysisJob`. When an immediate trigger fires,
-      // it cancels any pending debounced row for the same conversation
-      // to avoid redundant analysis runs.
-      enqueueAutoAnalysisIfEnabled({
-        conversationId: input.conversationId,
-        trigger: "idle",
-      });
-
-      // Auto-analysis cadence is tracked by its own pending-count
-      // checkpoint so it fires at `analysis.batchSize` (default 30).
-      // Gated behind the `auto-analyze` feature flag so the counter
-      // does not accumulate stale counts while the flag is off — if it
-      // did, flipping the flag on would trigger an immediate batch from
-      // messages buffered during the disabled period.
-      if (
-        triggerConfig != null &&
-        isAssistantFeatureFlagEnabled("auto-analyze", triggerConfig)
-      ) {
-        const analysisBatchSize = triggerConfig.analysis.batchSize;
-        const analysisPendingKey = `conversation_analyze:${input.conversationId}:pending_count`;
-        const analysisCurrentVal = getMemoryCheckpoint(analysisPendingKey);
-        const analysisPendingCount =
-          (analysisCurrentVal ? parseInt(analysisCurrentVal, 10) : 0) + 1;
-        setMemoryCheckpoint(analysisPendingKey, String(analysisPendingCount));
-
-        if (analysisPendingCount >= analysisBatchSize) {
-          setMemoryCheckpoint(analysisPendingKey, "0");
-          enqueueAutoAnalysisIfEnabled({
-            conversationId: input.conversationId,
-            trigger: "batch",
-          });
-        }
-      }
-
       // ── Memory retrospective triggers ─────────────────────────────────
-      // Independent of auto-analyze: the retrospective is a focused,
+      // The retrospective is a focused,
       // memory-only pass that re-reads messages since its last successful
       // run and saves what the in-conversation `remember` calls didn't
       // capture. Triggers (interval / message_count) are evaluated by

@@ -119,7 +119,6 @@ mock.module("../persistence/conversation-crud.js", () => ({
     deletedSummaryIds: [],
   })),
   deleteLastExchange: mock(() => 0),
-  findAnalysisConversationFor: mock(() => null),
   forkConversation: mock(() => ({ id: "conv-fork" })),
   forkConversationForRetrospective: mock(async () => ({ id: "conv-fork" })),
   getConversationOverrideProfile: () => undefined,
@@ -194,7 +193,6 @@ mock.module("../persistence/jobs-store.js", () => ({
   MESSAGE_LEXICAL_JOB_TYPES: [],
   resetRunningJobsToPending: mock(() => 0),
   SLOW_LLM_JOB_TYPES: [],
-  upsertAutoAnalysisJob: mock(() => "job-auto-analysis"),
   upsertDebouncedJob: mock(() => "job-debounced"),
   upsertMemoryRetrospectiveJob: mock(() => "job-memory-retrospective"),
 }));

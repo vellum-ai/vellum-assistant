@@ -928,7 +928,6 @@ describe("resolveCallSiteConfig", () => {
       "heartbeatAgent",
       "filingAgent",
       "compactionAgent",
-      "analyzeConversation",
       "callAgent",
       "memoryExtraction",
       "memoryConsolidation",

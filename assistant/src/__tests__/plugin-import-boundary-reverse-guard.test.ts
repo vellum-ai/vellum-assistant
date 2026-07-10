@@ -115,8 +115,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/runtime/routes/index.ts",
     "src/runtime/routes/retrospective-routes.ts",
     "src/runtime/routes/secret-routes.ts",
-    "src/runtime/services/analyze-conversation.ts",
-    "src/runtime/services/auto-analysis-enqueue.ts",
     "src/schedule/scheduler.ts",
     "src/skills/managed-store.ts",
     "src/skills/uninstall.ts",

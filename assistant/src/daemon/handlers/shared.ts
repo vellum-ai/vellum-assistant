@@ -156,8 +156,7 @@ export interface ConversationCreateOptions {
 
   /**
    * Optional explicit model override (provider/model string) for this
-   * conversation's agent loop. Used by the auto-analyze loop to pin the
-   * analysis agent to a specific model.
+   * conversation's agent loop.
    */
   modelOverride?: string;
   /**

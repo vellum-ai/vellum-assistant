@@ -26,8 +26,8 @@ export const MEMORY_RETROSPECTIVE_SOURCES: readonly string[] = [
 
 /**
  * Whether a conversation `source` value marks a memory-retrospective
- * background conversation (either kind). Shared predicate for the recursion
- * and auto-analysis guards.
+ * background conversation (either kind). Shared predicate for recursion
+ * guards.
  */
 export function isMemoryRetrospectiveSource(source: string): boolean {
   return MEMORY_RETROSPECTIVE_SOURCES.includes(source);
@@ -35,8 +35,8 @@ export function isMemoryRetrospectiveSource(source: string): boolean {
 
 /**
  * Dedicated `group_id` value for memory-retrospective background
- * conversations. Placed under `system:background` alongside auto-analysis,
- * heartbeat, and filing conversations.
+ * conversations. Placed under `system:background` alongside heartbeat and
+ * filing conversations.
  */
 export const MEMORY_RETROSPECTIVE_GROUP_ID = "system:background";
 

@@ -995,7 +995,6 @@ function extractRememberContents(messages: MessageLike[]): string[] {
 /**
  * Neutralize closing `</already_remembered>` sentinels in untrusted content so
  * they can't close the wrapper tag and escape into instruction context.
- * Mirrors `neutralizeTranscriptSentinel` from the auto-analysis prompt.
  */
 function neutralizeSentinels(s: string): string {
   return s.replace(

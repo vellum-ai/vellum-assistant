@@ -10,8 +10,7 @@
 //      (`delete_qdrant_vectors`, `prune_*`) flow through unchanged.
 //
 // We verify (1) directly across the four config-shape variants, then
-// smoke-test (2) at two central entry-point helpers:
-//   - `enqueueAutoAnalysisIfEnabled`
+// smoke-test (2) at a central entry-point helper:
 //   - `enqueueMemoryRetrospectiveIfEnabled`
 // Each call site re-checks `isMemoryEnabled()` itself, so we don't
 // repeat 30+ identical scenarios — the helper test is the contract.
@@ -37,28 +36,18 @@ mock.module("../../../../config/loader.js", () => ({
     if (memoryEnabled === null) return {};
     return {
       memory: { enabled: memoryEnabled, v2: { enabled: false } },
-      analysis: { idleTimeoutMs: 600_000, batchSize: 30 },
-      assistant: { featureFlags: { "auto-analyze": true } },
     };
   },
 }));
 
-// Stub feature flags so auto-analyze isn't gated by an unrelated flag.
-mock.module("../../../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: () => true,
-}));
-
-// Stub the conversation-source lookup so the recursion guards in the
-// retrospective and auto-analysis paths fall through to the enqueue.
-// `getConversation` returning null keeps `isLowYieldRetrospectiveSource`
-// false, so the retrospective is enqueued rather than skipped.
+// Stub the conversation-source lookup so the recursion guard in the
+// retrospective path falls through to the enqueue. `getConversation`
+// returning null keeps `isLowYieldRetrospectiveSource` false, so the
+// retrospective is enqueued rather than skipped.
 mock.module("../../../../persistence/conversation-crud.js", () => ({
   getConversation: () => null,
   getConversationSource: () => null,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
-}));
-mock.module("../../../../runtime/services/auto-analysis-guard.js", () => ({
-  isAutoAnalysisConversation: () => false,
 }));
 
 // Stub the qdrant breaker so `enqueueMemoryJob` doesn't trip on it.
@@ -122,8 +111,6 @@ mock.module("../../../../persistence/db-connection.js", () => ({
 // Now load the real modules under test.
 const { isMemoryEnabled } =
   await import("../../../../persistence/jobs-store.js");
-const { enqueueAutoAnalysisIfEnabled } =
-  await import("../../../../runtime/services/auto-analysis-enqueue.js");
 const { enqueueMemoryRetrospectiveIfEnabled } =
   await import("../memory-retrospective-enqueue.js");
 
@@ -162,52 +149,10 @@ describe("isMemoryEnabled", () => {
   test("returns true (defensive) when getConfig throws", () => {
     // If config can't be read, we can't tell whether memory has been
     // disabled, so default to "enabled". Callers that already have their
-    // own getConfig try/catch (e.g. enqueueAutoAnalysisIfEnabled) keep
-    // controlling the silent-failure semantic for the rest of their flow.
+    // own getConfig try/catch keep controlling the silent-failure
+    // semantic for the rest of their flow.
     getConfigThrows = true;
     expect(isMemoryEnabled()).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------
-// enqueueAutoAnalysisIfEnabled — representative entry-point helper
-// ---------------------------------------------------------------------
-
-describe("enqueueAutoAnalysisIfEnabled (call-site gate)", () => {
-  test("does NOT enqueue when memory.enabled is false", () => {
-    memoryEnabled = false;
-    enqueueAutoAnalysisIfEnabled({
-      conversationId: "conv-1",
-      trigger: "batch",
-    });
-    expect(dbInserts.length).toBe(0);
-  });
-
-  test("enqueues when memory.enabled is true", () => {
-    memoryEnabled = true;
-    enqueueAutoAnalysisIfEnabled({
-      conversationId: "conv-1",
-      trigger: "batch",
-    });
-    expect(dbInserts.length).toBeGreaterThan(0);
-  });
-
-  test("enqueues when memory.enabled is undefined (schema default)", () => {
-    memoryEnabled = undefined;
-    enqueueAutoAnalysisIfEnabled({
-      conversationId: "conv-1",
-      trigger: "batch",
-    });
-    expect(dbInserts.length).toBeGreaterThan(0);
-  });
-
-  test("enqueues when memory key is absent from config", () => {
-    memoryEnabled = null;
-    enqueueAutoAnalysisIfEnabled({
-      conversationId: "conv-1",
-      trigger: "batch",
-    });
-    expect(dbInserts.length).toBeGreaterThan(0);
   });
 });
 

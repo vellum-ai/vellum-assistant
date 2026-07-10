@@ -96,7 +96,7 @@ describe("getEnvFlagOverridesForScope", () => {
         // client-only flag (boolean)
         "home-tab": true,
         // assistant-only flag (boolean) — should be excluded from client scope
-        "auto-analyze": true,
+        "trace-collection": true,
         // client-only flag (string)
         "pre-chat-onboarding-experiment-2026-06-06": "variant-a",
       },
@@ -108,7 +108,7 @@ describe("getEnvFlagOverridesForScope", () => {
     expect(result.str).toEqual({
       preChatOnboardingExperiment20260606: "variant-a",
     });
-    expect(result.bool).not.toHaveProperty("autoAnalyze");
+    expect(result.bool).not.toHaveProperty("traceCollection");
   });
 
   test("flags with scope 'both' appear for both client and assistant scopes", () => {
