@@ -180,6 +180,11 @@ export {
   getAssistantName,
   resolveUserName,
 } from "../daemon/identity-helpers.js";
+// Declarative help for the top-level `assistant` CLI commands that have adopted
+// the static-help split. Plugins (e.g. the memory capability indexer) read this
+// to embed CLI command capabilities without importing the CLI action graph.
+// Pure data — iterate the fields directly.
+export { CLI_COMMAND_HELP } from "../cli/index.help.js";
 // Embeddings — self-contained operations on the host's shared embedding /
 // vector-store subsystem. Host-resolved: each reads the live workspace config
 // internally, so plugins hold no config. Async because the facade loads the
