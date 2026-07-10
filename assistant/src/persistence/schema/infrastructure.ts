@@ -365,3 +365,25 @@ export const watchdogEvents = sqliteTable(
     index("idx_watchdog_events_created_at_id").on(table.createdAt, table.id),
   ],
 );
+
+// One row per `config_setting` telemetry event, recorded when the daemon
+// observes a tracked config key's effective value (startup snapshot and
+// config reloads) — see config-setting-events-store.ts for the data
+// contract. Lives on the dedicated telemetry database
+// (assistant-telemetry.db) alongside watchdog_events. Flushed by the usage
+// telemetry reporter.
+export const configSettingEvents = sqliteTable(
+  "config_setting_events",
+  {
+    id: text("id").primaryKey(),
+    createdAt: integer("created_at").notNull(),
+    configKey: text("config_key").notNull(),
+    configValue: text("config_value").notNull(),
+  },
+  (table) => [
+    index("idx_config_setting_events_created_at_id").on(
+      table.createdAt,
+      table.id,
+    ),
+  ],
+);

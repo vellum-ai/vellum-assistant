@@ -432,6 +432,7 @@ import { migrateCanonicalGuardianRequestTrigger } from "./migrations/321-canonic
 import { migrateAddProcessingResumeAttempts } from "./migrations/322-add-processing-resume-attempts.js";
 import { migrateDeleteNonDefaultMemoryScopes } from "./migrations/323-delete-non-default-memory-scopes.js";
 import { migrateMessageFinalizedColumn } from "./migrations/324-message-finalized-column.js";
+import { createConfigSettingEventsTable } from "./migrations/325-create-config-setting-events.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1335,4 +1336,5 @@ export const migrationSteps: MigrationStep[] = [
   migrateAddProcessingResumeAttempts,
   migrateDeleteNonDefaultMemoryScopes,
   migrateMessageFinalizedColumn,
+  createConfigSettingEventsTable,
 ];

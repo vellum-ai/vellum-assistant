@@ -33,6 +33,7 @@ import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
 import { handleUserMessageSignal } from "../signals/user-message.js";
+import { recordConfigSettingSnapshot } from "../telemetry/config-setting-snapshot.js";
 import { WORKSPACE_THEME_RELATIVE_PATH } from "../theme/workspace-theme.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
@@ -218,6 +219,10 @@ export class ConfigWatcher {
             evictConversationsForReload();
             publishConfigChanged();
             const newConfig = this.lastConfig ?? getConfig();
+            // Record tracked settings whose effective value changed with the
+            // reload; the usage telemetry reporter's flush cycle records the
+            // baseline snapshot and covers reloads this watcher doesn't see.
+            recordConfigSettingSnapshot(newConfig);
             const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
             if (newMcpFingerprint !== prevMcpFingerprint) {
               reloadMcpServers().catch((err: unknown) => {
