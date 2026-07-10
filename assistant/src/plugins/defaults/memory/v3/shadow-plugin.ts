@@ -31,12 +31,9 @@ import {
 import { getConfig } from "../../../../config/loader.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
-import {
-  getWorkspaceDir,
-  getWorkspacePromptPath,
-} from "../../../../util/platform.js";
 import { stripCommentLines } from "../../../../util/strip-comment-lines.js";
 import { getLogger } from "../logging.js";
+import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";
 import { getPageIndex } from "../v2/page-index.js";
 import { readPage, renderPageContent } from "../v2/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";

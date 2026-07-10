@@ -8,8 +8,8 @@
 // test for the gate does not have to mount the entire lifecycle import graph.
 
 import type { AssistantConfig } from "../../../../config/schema.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
 import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
 
 const log = getLogger("memory-v2-startup");
 

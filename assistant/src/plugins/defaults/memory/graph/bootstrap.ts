@@ -33,9 +33,9 @@ import {
   memoryGraphNodes,
   memorySegments,
 } from "../../../../persistence/schema/index.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
 import { resolveQdrantUrl } from "../embeddings.js";
 import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
 import { runGraphExtraction } from "./extraction.js";
 import { countNodes } from "./store.js";
 

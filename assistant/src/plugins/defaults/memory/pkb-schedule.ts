@@ -10,8 +10,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getWorkspaceDir } from "../../../util/platform.js";
 import { stripCommentLines } from "../../../util/strip-comment-lines.js";
+import { getWorkspaceDir } from "./paths.js";
 
 /**
  * Whether `pkb/buffer.md` has any filable content (comment lines and

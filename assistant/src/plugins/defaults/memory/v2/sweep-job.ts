@@ -39,7 +39,6 @@ import {
   conversations,
   messages,
 } from "../../../../persistence/schema/index.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
 import {
   appendBufferAndArchive,
   formatRememberEntry,
@@ -50,6 +49,7 @@ import {
   userMessage,
 } from "../llm-helpers.js";
 import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
 import { renderSweepPrompt } from "./prompts/sweep.js";
 
 const log = getLogger("memory-v2-sweep");

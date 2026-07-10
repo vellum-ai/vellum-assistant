@@ -7,7 +7,7 @@
 
 import { join } from "node:path";
 
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getWorkspaceDir } from "../paths.js";
 
 export const PKB_TARGET_TYPE = "pkb_file" as const;
 

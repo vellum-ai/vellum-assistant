@@ -3,8 +3,8 @@
 import { createHash } from "node:crypto";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
 import { getLogger } from "../logging.js";
+import { getWorkspaceDir } from "../paths.js";
 import { getOrCreateRerankBackend } from "../rerank-local.js";
 import { readPage } from "./page-store.js";
 
