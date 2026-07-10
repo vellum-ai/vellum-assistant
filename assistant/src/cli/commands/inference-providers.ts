@@ -18,7 +18,8 @@ import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { OAuth2Config } from "../../security/oauth2.js";
-import { log } from "../logger.js";
+import { writeCliError } from "../lib/cli-output.js";
+import { attachDefaultProviderSubcommand } from "./inference-providers-default.js";
 
 // ---------------------------------------------------------------------------
 // Response types
@@ -159,32 +160,55 @@ function buildAuthInput(
   credential?: string,
 ): Record<string, unknown> | string {
   if (authType === "api_key") {
-    if (!credential) return "--credential is required when --auth api_key";
+    if (!credential) {
+      return "--credential is required when --auth api_key";
+    }
     return { type: "api_key", credential };
   }
   if (authType === "platform") {
-    if (credential) return "--credential is not accepted with --auth platform";
+    if (credential) {
+      return "--credential is not accepted with --auth platform";
+    }
     return { type: "platform" };
   }
   if (authType === "none") {
-    if (credential) return "--credential is not accepted with --auth none";
+    if (credential) {
+      return "--credential is not accepted with --auth none";
+    }
     return { type: "none" };
   }
   if (authType === "oauth_subscription") {
-    if (!credential)
+    if (!credential) {
       return "--credential is required when --auth oauth_subscription";
+    }
     return { type: "oauth_subscription", credential };
   }
   return `Unknown auth type "${authType}". Use: api_key, platform, none, oauth_subscription`;
 }
 
-function writeCliError(msg: string, json?: boolean): void {
-  if (json) {
-    process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
-  } else {
-    log.error(msg);
+/** Commander collector for a repeatable option (e.g. `--model` multiple times). */
+function collectRepeatable(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+/**
+ * Build the openai-compatible custom-provider fields (`base_url`, `models`)
+ * from CLI flags, forwarded to the connection route under its exact field
+ * names. The daemon stays authoritative on whether they are required/allowed;
+ * the CLI only shape-forwards what the user passed.
+ */
+function buildCustomProviderFields(opts: {
+  baseUrl?: string;
+  model?: string[];
+}): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  if (opts.baseUrl !== undefined) {
+    fields.base_url = opts.baseUrl;
   }
-  process.exitCode = 1;
+  if (opts.model !== undefined && opts.model.length > 0) {
+    fields.models = opts.model.map((id) => ({ id }));
+  }
+  return fields;
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +228,16 @@ function attachCreateSubcommand(connections: Command): void {
       "--credential <vault-key>",
       "Vault credential name (required for --auth api_key)",
     )
+    .option(
+      "--base-url <url>",
+      "Endpoint base URL (required for --provider openai-compatible)",
+    )
+    .option(
+      "--model <id>",
+      "Model id offered by this connection (repeatable; required for openai-compatible)",
+      collectRepeatable,
+      [] as string[],
+    )
     .option("--json", "Output as JSON")
     .action(
       async (
@@ -212,12 +246,22 @@ function attachCreateSubcommand(connections: Command): void {
           provider: string;
           auth: string;
           credential?: string;
+          baseUrl?: string;
+          model?: string[];
           json?: boolean;
         },
       ) => {
         const authInput = buildAuthInput(opts.auth, opts.credential);
         if (typeof authInput === "string") {
           writeCliError(authInput, opts.json);
+          return;
+        }
+
+        if (opts.provider === "openai-compatible" && !opts.baseUrl) {
+          writeCliError(
+            "--base-url is required when --provider openai-compatible",
+            opts.json,
+          );
           return;
         }
 
@@ -228,6 +272,7 @@ function attachCreateSubcommand(connections: Command): void {
               name,
               provider: opts.provider,
               auth: authInput,
+              ...buildCustomProviderFields(opts),
             },
           },
         );
@@ -265,11 +310,27 @@ function attachUpdateSubcommand(connections: Command): void {
       "--credential <vault-key>",
       "Vault credential name (required for --auth api_key)",
     )
+    .option(
+      "--base-url <url>",
+      "Endpoint base URL (openai-compatible connections)",
+    )
+    .option(
+      "--model <id>",
+      "Model id offered by this connection (repeatable; openai-compatible)",
+      collectRepeatable,
+      [] as string[],
+    )
     .option("--json", "Output as JSON")
     .action(
       async (
         name: string,
-        opts: { auth: string; credential?: string; json?: boolean },
+        opts: {
+          auth: string;
+          credential?: string;
+          baseUrl?: string;
+          model?: string[];
+          json?: boolean;
+        },
       ) => {
         const authInput = buildAuthInput(opts.auth, opts.credential);
         if (typeof authInput === "string") {
@@ -281,7 +342,7 @@ function attachUpdateSubcommand(connections: Command): void {
           "inference_provider_connections_update",
           {
             pathParams: { name },
-            body: { auth: authInput },
+            body: { auth: authInput, ...buildCustomProviderFields(opts) },
           },
         );
 
@@ -498,6 +559,9 @@ Examples:
   $ assistant inference providers connections get anthropic-managed
   $ assistant inference providers connections create anthropic-personal \\
       --provider anthropic --auth api_key --credential credential/anthropic/api_key
+  $ assistant inference providers connections create local-llm \\
+      --provider openai-compatible --auth none \\
+      --base-url http://localhost:1234/v1 --model my-model
   $ assistant inference providers connections update anthropic-personal --auth platform
   $ assistant inference providers connections delete anthropic-personal`,
   );
@@ -509,4 +573,5 @@ Examples:
   attachDeleteSubcommand(connections);
 
   attachLoginChatgptSubcommand(providers);
+  attachDefaultProviderSubcommand(providers);
 }
