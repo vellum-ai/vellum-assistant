@@ -6,7 +6,10 @@ import {
   ORDERING_ERROR_PATTERNS,
   WEB_SEARCH_ORDERING_PATTERNS,
 } from "../plugins/defaults/history-repair/terminal.js";
-import { isImageDimensionsTooLargeError } from "../plugins/defaults/image-recovery/detect.js";
+import {
+  isImageDimensionsTooLargeError,
+  isImageUnprocessableError,
+} from "../plugins/defaults/image-recovery/detect.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";
@@ -152,7 +155,6 @@ const STREAMING_ERROR_PATTERNS = [
   /request ended without sending any chunks/i,
   /stream has ended.*this shouldn't happen/i,
 ];
-
 
 const CANCEL_PATTERNS = [/abort/i, /cancel/i];
 
@@ -444,6 +446,19 @@ function classifyCore(
             "An image in this conversation was too large for the AI provider and was automatically reduced. Send your message again to continue.",
           retryable: false,
           errorCategory: "image_dimensions_too_large",
+        };
+      }
+      if (isImageUnprocessableError(message)) {
+        // Reuses the IMAGE_TOO_LARGE wire code: clients validate the code
+        // enum, so a new value would break stale clients, and they render
+        // `userMessage` verbatim anyway. `errorCategory` carries the
+        // distinction for triage.
+        return {
+          code: "IMAGE_TOO_LARGE",
+          userMessage:
+            "An image in this conversation could not be processed by the AI provider — it may be below the provider's minimum image size. It was automatically adjusted where possible; send your message again to continue.",
+          retryable: false,
+          errorCategory: "image_unprocessable",
         };
       }
       if (isVisionNotSupported(message)) {

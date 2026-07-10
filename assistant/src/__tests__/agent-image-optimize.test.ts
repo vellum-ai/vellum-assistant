@@ -1,6 +1,36 @@
 import { describe, expect, it } from "bun:test";
 
-import { shouldRescaleImage } from "../agent/image-optimize.js";
+import {
+  isBelowMinDimension,
+  MIN_IMAGE_DIMENSION,
+  optimizeImageForTransport,
+  shouldRescaleImage,
+  upscaleImageToMinimum,
+  upscaleTargetDimensions,
+} from "../agent/image-optimize.js";
+
+/**
+ * Minimal PNG whose IHDR declares the given dimensions — enough for
+ * `parseImageDimensions` to read them; the payload is not decodable.
+ */
+function makePngBase64(width: number, height: number): string {
+  return Buffer.from(
+    Uint8Array.from([
+      ...[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], // PNG signature
+      ...[0x00, 0x00, 0x00, 0x0d], // IHDR length (13)
+      ...[0x49, 0x48, 0x44, 0x52], // "IHDR"
+      (width >>> 24) & 0xff,
+      (width >>> 16) & 0xff,
+      (width >>> 8) & 0xff,
+      width & 0xff,
+      (height >>> 24) & 0xff,
+      (height >>> 16) & 0xff,
+      (height >>> 8) & 0xff,
+      height & 0xff,
+      ...[0x08, 0x06, 0x00, 0x00, 0x00], // bit depth / color type / etc.
+    ]),
+  ).toString("base64");
+}
 
 describe("shouldRescaleImage", () => {
   it("rescales when any side exceeds the max dimension, regardless of file size", () => {
@@ -32,5 +62,78 @@ describe("shouldRescaleImage", () => {
   it("falls back to file size when dimensions are unparseable", () => {
     expect(shouldRescaleImage(null, 50_000)).toBe(false);
     expect(shouldRescaleImage(null, 5_000_000)).toBe(true);
+  });
+});
+
+describe("isBelowMinDimension", () => {
+  it("flags an image with any side under the minimum floor", () => {
+    // Regression: Anthropic rejects tiny images with a 400 "Could not
+    // process image" (observed with a 16×14 px upload).
+    expect(isBelowMinDimension({ width: 16, height: 14 })).toBe(true);
+    expect(isBelowMinDimension({ width: 1024, height: 20 })).toBe(true);
+  });
+
+  it("leaves images at or above the floor alone", () => {
+    expect(
+      isBelowMinDimension({
+        width: MIN_IMAGE_DIMENSION,
+        height: MIN_IMAGE_DIMENSION,
+      }),
+    ).toBe(false);
+    expect(isBelowMinDimension({ width: 1200, height: 800 })).toBe(false);
+  });
+
+  it("never flags unparseable dimensions — byte size cannot prove smallness", () => {
+    expect(isBelowMinDimension(null)).toBe(false);
+  });
+});
+
+describe("upscaleTargetDimensions", () => {
+  it("lifts the short side to the minimum floor, preserving aspect ratio", () => {
+    const target = upscaleTargetDimensions({ width: 16, height: 14 });
+    expect(target).not.toBeNull();
+    expect(Math.min(target!.width, target!.height)).toBe(MIN_IMAGE_DIMENSION);
+    // 16:14 aspect carried through the upscale (±1 px rounding).
+    expect(target!.width / target!.height).toBeCloseTo(16 / 14, 1);
+  });
+
+  it("returns null for an image already at the floor", () => {
+    expect(
+      upscaleTargetDimensions({
+        width: MIN_IMAGE_DIMENSION,
+        height: MIN_IMAGE_DIMENSION,
+      }),
+    ).toBeNull();
+  });
+
+  it("caps the long side at the transport max for extreme aspect ratios", () => {
+    // A 4×2000 sliver cannot reach a 64 px short side without blowing the
+    // 1568 px long-side cap; the scale is clamped to the cap instead.
+    const target = upscaleTargetDimensions({ width: 4, height: 2000 });
+    expect(target).toBeNull();
+  });
+});
+
+describe("upscaleImageToMinimum", () => {
+  it("returns null when dimensions are unparseable", () => {
+    expect(
+      upscaleImageToMinimum(
+        Buffer.from("not an image").toString("base64"),
+        "image/png",
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("optimizeImageForTransport", () => {
+  it("passes an undersized image through unchanged — the minimum floor is rejection-path only", () => {
+    // The floor is undocumented provider behavior, so pre-send transport
+    // never enforces it; only the image-recovery plugin reacts to an actual
+    // "Could not process image" rejection.
+    const tiny = makePngBase64(16, 14);
+    expect(optimizeImageForTransport(tiny, "image/png")).toEqual({
+      data: tiny,
+      mediaType: "image/png",
+    });
   });
 });
