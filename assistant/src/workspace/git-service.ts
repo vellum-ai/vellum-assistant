@@ -1368,6 +1368,9 @@ export class WorkspaceGitService {
         ["reset", "-q", base, "--pathspec-from-file=-", "--pathspec-file-nul"],
         { input: stagedOversized.map((p) => `:(literal)${p}`).join("\0") },
       );
+      // The external add already hashed these blobs into .git/objects; a
+      // compaction pass prunes them even if the boot-time one already ran.
+      this.scheduleHistoryCompaction();
     }
 
     const excluded = [...new Set([...oversized, ...stagedOversized])];
@@ -1978,4 +1981,16 @@ export function _getInitConsecutiveFailures(
 ): number {
   return (service as unknown as { initConsecutiveFailures: number })
     .initConsecutiveFailures;
+}
+
+/**
+ * @internal Test-only: whether a history compaction run is pending
+ */
+export function _hasPendingHistoryCompaction(
+  service: WorkspaceGitService,
+): boolean {
+  return (
+    (service as unknown as { historyCompactionTimer: unknown })
+      .historyCompactionTimer !== null
+  );
 }

@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   _getConsecutiveFailures,
   _getInitConsecutiveFailures,
+  _hasPendingHistoryCompaction,
   _resetBreaker,
   _resetGitServiceRegistry,
   _resetInitBreaker,
@@ -2029,6 +2030,24 @@ describe("WorkspaceGitService", () => {
       expect(result.rewrote).toBe(true);
       expect(result.retryAfterMs).toBeGreaterThan(0);
       execFileSync("git", ["cat-file", "-e", blobSha], { cwd: testDir });
+    });
+
+    test("unstaging an externally staged oversized blob schedules compaction", async () => {
+      // Fresh repo created by the service — no boot-time compaction pending
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+      expect(_hasPendingHistoryCompaction(service)).toBe(false);
+
+      // External add hashes the blob into .git/objects and stages it; the
+      // commit's safety net unstages it and must queue a prune.
+      writeFileSync(join(testDir, "staged.bin"), bigContent());
+      execFileSync("git", ["add", "--", ":(literal)staged.bin"], {
+        cwd: testDir,
+      });
+      await service.commitChanges("Trigger safety net");
+
+      expect(trackedFiles()).not.toContain("staged.bin");
+      expect(_hasPendingHistoryCompaction(service)).toBe(true);
     });
 
     test("history compaction prunes unreachable oversized blobs immediately", async () => {
