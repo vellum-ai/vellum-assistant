@@ -16,9 +16,11 @@ import { isPointerCoarse } from "@/utils/pointer";
 function SwipeActionButton({
   action,
   onAfterSelect,
+  hidden = false,
 }: {
   action: SwipeAction;
   onAfterSelect: () => void;
+  hidden?: boolean;
 }) {
   const handleClick = useCallback(() => {
     action.onSelect();
@@ -31,6 +33,8 @@ function SwipeActionButton({
     <button
       type="button"
       aria-label={action.label}
+      aria-hidden={hidden}
+      tabIndex={hidden ? -1 : 0}
       onClick={handleClick}
       className={cn(
         "flex shrink-0 flex-col items-center justify-center gap-1",
@@ -132,12 +136,17 @@ export function SwipeActionReveal({
         <div
           className="absolute inset-y-0 right-0 flex"
           aria-hidden={offset >= 0}
+          // Remove hidden actions from tab order — they're only reachable
+          // after a swipe reveals them. Without this, tab navigation
+          // lands on invisible buttons behind the content layer.
+          style={offset >= 0 ? { pointerEvents: "none" } : undefined}
         >
           {trailingActions.map((action) => (
             <SwipeActionButton
               key={action.id}
               action={action}
               onAfterSelect={close}
+              hidden={offset >= 0}
             />
           ))}
         </div>
@@ -148,12 +157,14 @@ export function SwipeActionReveal({
         <div
           className="absolute inset-y-0 left-0 flex"
           aria-hidden={offset <= 0}
+          style={offset <= 0 ? { pointerEvents: "none" } : undefined}
         >
           {leadingActions.map((action) => (
             <SwipeActionButton
               key={action.id}
               action={action}
               onAfterSelect={close}
+              hidden={offset <= 0}
             />
           ))}
         </div>
