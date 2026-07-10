@@ -17,7 +17,10 @@ import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
 } from "../../../persistence/cleanup-schedule-state.js";
-import { maybeRunDbMaintenance } from "../../../persistence/db-maintenance.js";
+import {
+  maybeRunDbMaintenance,
+  maybeRunPassiveWalCheckpoint,
+} from "../../../persistence/db-maintenance.js";
 import {
   EmbeddingBillingBlockError,
   extractHttpStatus,
@@ -414,6 +417,7 @@ export async function runMemoryJobsOnce(
     maybeEnqueueGraphMaintenanceJobs(config);
     if (memoryEnabled) {
       await maybeRunDbMaintenance();
+      await maybeRunPassiveWalCheckpoint();
     }
     return 0;
   }
@@ -481,6 +485,7 @@ export async function runMemoryJobsOnce(
   }
   maybeEnqueueGraphMaintenanceJobs(config);
   await maybeRunDbMaintenance();
+  await maybeRunPassiveWalCheckpoint();
   return slowProcessed + fastProcessed + embedProcessed;
 }
 
@@ -874,7 +879,9 @@ function isWithinPkbActiveHours(
   start: number | null,
   end: number | null,
 ): boolean {
-  if (start == null || end == null) return true;
+  if (start == null || end == null) {
+    return true;
+  }
   if (start <= end) {
     return hour >= start && hour < end;
   }

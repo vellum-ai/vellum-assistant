@@ -14,6 +14,7 @@ import {
   like,
   lt,
   lte,
+  notInArray,
   or,
   sql,
 } from "drizzle-orm";
@@ -66,7 +67,10 @@ import {
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
-import type { ConversationCreateType } from "./conversation-types.js";
+import {
+  BACKGROUND_CONVERSATION_TYPES,
+  type ConversationCreateType,
+} from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
   type DrizzleDb,
@@ -2201,12 +2205,29 @@ export function getLastUserTimestampBefore(
  * newest `role = "user"` row rather than a scan of the whole (potentially
  * multi-GB) table.
  */
-export function getLastUserMessageTimestamp(): number {
+/**
+ * Timestamp of the newest user-role message in an interactive
+ * (non-background) conversation, or 0 when none exists. Background machinery
+ * writes user-role rows of its own — the memory-retrospective instruction
+ * message, scheduled/heartbeat wake hints — inside background/scheduled
+ * conversations, so an unfiltered max would keep an always-on install
+ * permanently "active" for consumers gating on human quiet (the
+ * db-maintenance quiet period).
+ */
+export function getLastInteractiveUserMessageTimestamp(): number {
   const db = getDb();
   const row = db
     .select({ createdAt: messages.createdAt })
     .from(messages)
-    .where(eq(messages.role, "user"))
+    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+    .where(
+      and(
+        eq(messages.role, "user"),
+        notInArray(conversations.conversationType, [
+          ...BACKGROUND_CONVERSATION_TYPES,
+        ]),
+      ),
+    )
     .orderBy(desc(messages.createdAt))
     .limit(1)
     .get();
