@@ -44,7 +44,6 @@ import {
   NotFoundError,
 } from "../../../../runtime/routes/errors.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
-import { getLogger } from "../../../../util/logger.js";
 import { embedWithBackend } from "../embeddings.js";
 import { createNode, deleteNode, getNode, updateNode } from "../graph/store.js";
 import type {
@@ -54,6 +53,7 @@ import type {
   MemoryType,
   NewNode,
 } from "../graph/types.js";
+import { getLogger } from "../logging.js";
 
 const log = getLogger("memory-item-routes");
 

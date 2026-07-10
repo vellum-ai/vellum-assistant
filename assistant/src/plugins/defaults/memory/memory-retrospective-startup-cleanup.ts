@@ -57,8 +57,8 @@ import {
   conversations,
   memoryJobs,
 } from "../../../persistence/schema/index.js";
-import { getLogger } from "../../../util/logger.js";
 import { getMemoryConfig } from "./config.js";
+import { getLogger } from "./logging.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
 

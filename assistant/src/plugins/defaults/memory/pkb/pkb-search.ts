@@ -11,8 +11,8 @@ import type {
   QdrantSparseVector,
 } from "../../../../persistence/embeddings/qdrant-client.js";
 import { getQdrantClient } from "../../../../persistence/embeddings/qdrant-client.js";
-import { getLogger } from "../../../../util/logger.js";
 import { getMemoryConfig } from "../config.js";
+import { getLogger } from "../logging.js";
 import type { PkbSearchResult } from "./types.js";
 import { PKB_TARGET_TYPE } from "./types.js";
 

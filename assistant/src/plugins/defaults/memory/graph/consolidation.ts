@@ -15,8 +15,8 @@ import { getConfiguredProvider } from "@vellumai/plugin-api";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import { BackendUnavailableError } from "../../../../util/errors.js";
-import { getLogger } from "../../../../util/logger.js";
 import { extractToolUse, userMessage } from "../llm-helpers.js";
+import { getLogger } from "../logging.js";
 import {
   EVENT_DATE_PROMPT_RULES,
   formatAuthoritativeConversationTimestamp,

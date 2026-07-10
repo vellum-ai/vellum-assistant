@@ -10,7 +10,7 @@
 
 import { getMessages } from "@vellumai/plugin-api";
 
-import { getLogger } from "../../../util/logger.js";
+import { getLogger } from "./logging.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,

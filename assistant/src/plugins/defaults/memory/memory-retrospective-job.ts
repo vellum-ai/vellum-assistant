@@ -77,8 +77,8 @@ import {
 import { resolveUserSlug } from "../../../prompts/persona-resolver.js";
 import type { SystemPromptPersonaOverride } from "../../../prompts/system-prompt.js";
 import { wakeAgentForOpportunity } from "../../../runtime/agent-wake.js";
-import { getLogger } from "../../../util/logger.js";
 import { findMostRecentRetrospectiveFor } from "./find-most-recent-retrospective-for.js";
+import { getLogger } from "./logging.js";
 import { getRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,

@@ -13,8 +13,8 @@ import { getConfiguredProvider } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { BackendUnavailableError } from "../../../../util/errors.js";
-import { getLogger } from "../../../../util/logger.js";
 import { extractToolUse, userMessage } from "../llm-helpers.js";
+import { getLogger } from "../logging.js";
 import { queryNodes, updateNode } from "./store.js";
 import type { MemoryNode } from "./types.js";
 

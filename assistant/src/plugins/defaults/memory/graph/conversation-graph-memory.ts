@@ -19,8 +19,8 @@ import { generateSparseEmbedding } from "../../../../persistence/embeddings/embe
 import type { QdrantSparseVector } from "../../../../persistence/embeddings/qdrant-client.js";
 import { conversations } from "../../../../persistence/schema/conversations.js";
 import { memorySummaries } from "../../../../persistence/schema/index.js";
-import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getLogger } from "../logging.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 import {
   clearEverInjected as clearV2EverInjected,

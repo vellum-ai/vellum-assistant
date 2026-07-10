@@ -73,9 +73,9 @@ import { EmbeddingBackendUnavailableError } from "../../../../persistence/embedd
 import { EmbeddingBillingBlockError } from "../../../../persistence/embeddings/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import { executeDeleteManagedSkill } from "../../../../tools/skills/delete-managed.js";
-import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
 import { embedWithBackend } from "../embeddings.js";
+import { getLogger } from "../logging.js";
 import { getPageIndex } from "../v2/page-index.js";
 import { readPage } from "../v2/page-store.js";
 import { skillSlugFor } from "../v2/skill-store.js";

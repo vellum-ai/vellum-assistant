@@ -2,8 +2,8 @@ import { readFileSync, statSync } from "node:fs";
 
 import type { MemoryConfig } from "../../../config/schemas/memory.js";
 import { MemoryConfigSchema } from "../../../config/schemas/memory.js";
-import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceConfigPath } from "../../../util/platform.js";
+import { getLogger } from "./logging.js";
 
 const log = getLogger("memory-config");
 

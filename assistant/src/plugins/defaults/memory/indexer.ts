@@ -20,7 +20,7 @@ import {
 import { memorySegments } from "../../../persistence/schema/index.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { isAutoAnalysisConversation } from "../../../runtime/services/auto-analysis-guard.js";
-import { getLogger } from "../../../util/logger.js";
+import { getLogger } from "./logging.js";
 import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
 import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
 import { extractMediaBlockMeta } from "./message-media.js";

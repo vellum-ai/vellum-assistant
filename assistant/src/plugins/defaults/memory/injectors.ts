@@ -25,7 +25,6 @@ import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
 import { isPersonalMemoryAllowed } from "../../../daemon/trust-context.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
-import { getLogger } from "../../../util/logger.js";
 import { getSandboxWorkingDir } from "../../../util/platform.js";
 import {
   type InjectionBlock,
@@ -36,6 +35,7 @@ import { hasInjectedUserTextBlock } from "../injection-presence.js";
 import { DEFAULT_INJECTOR_ORDER } from "../injector-order.js";
 import { getMemoryConfig } from "./config.js";
 import { getLiveGraphMemory } from "./graph/conversation-graph-memory.js";
+import { getLogger } from "./logging.js";
 import { getPkbAutoInjectList } from "./pkb/autoinject.js";
 import { readPkbContext } from "./pkb/context.js";
 import { searchPkbFiles } from "./pkb/pkb-search.js";

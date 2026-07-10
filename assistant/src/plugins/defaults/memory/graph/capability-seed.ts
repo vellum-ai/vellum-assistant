@@ -25,7 +25,7 @@ import {
   getCachedCatalogSync,
   getCatalog,
 } from "../../../../skills/catalog-cache.js";
-import { getLogger } from "../../../../util/logger.js";
+import { getLogger } from "../logging.js";
 import type { SkillCapabilityInput } from "../v2/skill-content.js";
 import { createNode } from "./store.js";
 

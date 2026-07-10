@@ -29,8 +29,8 @@ import {
   isAbortError,
   isTransientEmbeddingError,
 } from "../../../../persistence/embeddings/embed.js";
-import { getLogger } from "../../../../util/logger.js";
 import { abortableSleep, computeRetryDelay } from "../../../../util/retry.js";
+import { getLogger } from "../logging.js";
 import { simBatch } from "../v2/sim.js";
 import { skillSlugFor } from "../v2/skill-store.js";
 

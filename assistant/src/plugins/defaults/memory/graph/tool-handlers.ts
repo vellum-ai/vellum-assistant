@@ -11,9 +11,9 @@ import { join } from "node:path";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
-import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
 import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
+import { getLogger } from "../logging.js";
 import { deleteNode, queryNodes, recordNodeEdit, updateNode } from "./store.js";
 
 const log = getLogger("graph-tool-handlers");
