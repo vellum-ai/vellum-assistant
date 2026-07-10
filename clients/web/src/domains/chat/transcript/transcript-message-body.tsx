@@ -109,7 +109,7 @@ export function TranscriptMessageBody({
   const textBubbleClass = isSlackMessage
     ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"
     : "w-full text-[var(--content-default)]";
-  const userBubbleClass = `max-w-[80%] rounded-lg bg-[var(--surface-lift)] px-4 py-3 text-[var(--content-default)] flex flex-col gap-2 ${
+  const userBubbleClass = `max-w-[80%] rounded-lg bg-[var(--user-bubble-bg,var(--surface-lift))] px-4 py-3 text-[var(--user-bubble-text,var(--content-default))] flex flex-col gap-2 ${
     isSlackMessage ? "sm:max-w-[420px]" : ""
   }`;
   const segmentClass = isUser
