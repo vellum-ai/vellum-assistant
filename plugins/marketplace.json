@@ -358,7 +358,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/originkit",
-        "ref": "d8c9195dff8e3c95a350d7bac32bc6ddfcf71fa0"
+        "ref": "d97e5495c63be4a2c0ee23e6fcc4724eff14818f"
       },
       "description": "Browse and import animated UI components from Originkit, a free library of 50 animated components. Browse by category or search term without an API key; fetch component source code (React, Next.js, Vite, Framer) with a free key from originkit.dev.",
       "category": "productivity",
