@@ -49,7 +49,6 @@ function makeContext(overrides?: Partial<ToolSetupContext>): ToolSetupContext {
     conversationId: "conv-test",
     workingDir: "/tmp/test-project",
     abortController: null,
-    memoryPolicy: { scopeId: "default" },
     sendToClient: () => {},
     surfacesByAppId: new Map(),
     ...overrides,

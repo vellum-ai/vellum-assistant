@@ -755,8 +755,6 @@ function makeCtx(
       mockConversationRow?.lastNotifiedInferenceProfile ?? null,
     processingStartedAt: mockConversationRow?.processingStartedAt ?? null,
 
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
-
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
     surfaceState: new Map(),
