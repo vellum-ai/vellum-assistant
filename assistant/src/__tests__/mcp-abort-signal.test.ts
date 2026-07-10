@@ -1,10 +1,15 @@
 import { describe, expect, jest, mock, test } from "bun:test";
 
 // Mock secure-keys so McpOAuthProvider doesn't try to access the credential store
+// mock.module applies process-wide; provide every export of the real module
+// so other test files importing it in the same run don't hit missing names.
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: jest.fn().mockResolvedValue(null),
   setSecureKeyAsync: jest.fn().mockResolvedValue(true),
   deleteSecureKeyAsync: jest.fn().mockResolvedValue("deleted"),
+  getSecureKeyResultAsync: jest
+    .fn()
+    .mockResolvedValue({ value: null, backend: "encrypted-store" }),
 }));
 
 mock.module("../config/env-registry.js", () => ({

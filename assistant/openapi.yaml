@@ -15507,6 +15507,12 @@ paths:
                     type: string
                   additionalProperties:
                     type: string
+                authCredential:
+                  type: string
+                authHeader:
+                  type: string
+                authPrefix:
+                  type: string
               required:
                 - name
                 - transportType
@@ -15776,6 +15782,12 @@ paths:
                       additionalProperties:
                         type: string
                     - type: "null"
+                authCredential:
+                  type: string
+                authHeader:
+                  type: string
+                authPrefix:
+                  type: string
               required:
                 - name
       responses:
