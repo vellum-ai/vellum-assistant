@@ -439,13 +439,22 @@ describe("memory-retrospective skill card", () => {
   });
 
   test("extractor attributes every row to a fork-kind run with an empty copied prefix", async () => {
-    // No message carries `forkSourceMessageId`: the fork's copied prefix is
-    // empty, so the scaffold is the run's own work.
+    // No stamps, and the conversation opens with the run's own instruction
+    // row: the copied prefix is empty, so the scaffold is the run's work.
     conversationOverrides["retro-fork-2"] = {
       source: "memory-retrospective-fork",
       forkParentMessageId: null,
     };
     messagesByConversationId["retro-fork-2"] = [
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "review the above" }]),
+        createdAt: 900,
+        metadata: JSON.stringify({
+          kind: "memory_retrospective_instruction",
+          hidden: true,
+        }),
+      },
       scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 1000 }),
       toolResultMsg("tu-1", { createdAt: 1100 }),
     ];
@@ -453,6 +462,23 @@ describe("memory-retrospective skill card", () => {
     const skills = await extractRetrospectiveRunSkillScaffolds("retro-fork-2");
 
     expect(skills.map((s) => s.skillId)).toEqual(["skill-a"]);
+  });
+
+  test("extractor degrades to empty for a stampless fork-kind run without a leading instruction row", async () => {
+    // Indeterminate shape (copied rows whose metadata lost its stamps):
+    // attributing it would surface source-authored scaffolds as run work.
+    conversationOverrides["retro-fork-3"] = {
+      source: "memory-retrospective-fork",
+      forkParentMessageId: null,
+    };
+    messagesByConversationId["retro-fork-3"] = [
+      scaffoldMsg("tu-1", skillInput("skill-a"), { createdAt: 1000 }),
+      toolResultMsg("tu-1", { createdAt: 1100 }),
+    ];
+
+    const skills = await extractRetrospectiveRunSkillScaffolds("retro-fork-3");
+
+    expect(skills).toEqual([]);
   });
 
   test("extractor normalizes padded/newline-carrying inputs to the persisted values", async () => {

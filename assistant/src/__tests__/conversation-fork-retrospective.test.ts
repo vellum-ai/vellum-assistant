@@ -60,7 +60,10 @@ import {
   loadGraphMemoryState,
   saveGraphMemoryState,
 } from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
-import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../plugins/defaults/memory/memory-retrospective-constants.js";
+import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+} from "../plugins/defaults/memory/memory-retrospective-constants.js";
 import {
   findForkBoundaryCreatedAt,
   loadRetrospectiveRunMessages,
@@ -589,10 +592,14 @@ describe("forkConversationForRetrospective — compacted source", () => {
     // skips null `lastMessageAt` rows) can reclaim it after a crash.
     expect(fork.lastMessageAt).toBe(tip.createdAt);
 
-    // With no stamped copied rows the copied prefix is empty, so the whole
-    // conversation is the run's own output — run messages still feed the
-    // success bookkeeping (dedup baseline, skill cards).
+    // With no stamped copied rows and the run's instruction opening the
+    // conversation, every message is the run's own output — it still feeds
+    // the success bookkeeping (dedup baseline, skill cards).
     const runMessage = await addMessage(fork.id, "user", "retro instruction", {
+      metadata: {
+        kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+        hidden: true,
+      },
       skipIndexing: true,
     });
     const runRows = loadRetrospectiveRunMessages(

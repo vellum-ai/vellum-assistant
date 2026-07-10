@@ -42,9 +42,12 @@ export const MEMORY_RETROSPECTIVE_GROUP_ID = "system:background";
 
 /**
  * `metadata.kind` value stamped on the user-role instruction message that
- * fork-based retrospectives append to the forked conversation. Used purely
- * for observability — operators inspecting a retrospective fork's history
- * can tell the user-role message apart from a real user turn.
+ * fork-based retrospectives append to the forked conversation. Doubles as
+ * the empty-prefix discriminator in fork-boundary detection: a stampless
+ * fork-kind conversation whose first row carries this kind is run-authored
+ * end-to-end (see `memory-retrospective-fork-boundary.ts`). Also lets
+ * operators inspecting a fork's history tell the instruction apart from a
+ * real user turn.
  */
 export const MEMORY_RETROSPECTIVE_INSTRUCTION_KIND =
   "memory_retrospective_instruction";

@@ -10,7 +10,10 @@
 
 import { getMessages } from "../../../persistence/conversation-crud.js";
 import { getLogger } from "../../../util/logger.js";
-import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "./memory-retrospective-constants.js";
+import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+} from "./memory-retrospective-constants.js";
 
 const log = getLogger("memory-retrospective-fork-boundary");
 
@@ -22,8 +25,10 @@ const log = getLogger("memory-retrospective-fork-boundary");
  * point at any ancestor when the source was itself a fork
  * (`cloneForkMessageMetadata` preserves pre-existing values), so we only
  * check for presence, not equality. Returns `null` when no message carries a
- * stamp — the fork's copied prefix is empty (a tail-only fork whose inherited
- * compaction covers the whole cutoff range renders as summary-only).
+ * stamp — either the fork's copied prefix is empty (a tail-only fork whose
+ * inherited compaction covers the whole cutoff range copies nothing) or the
+ * copied rows' stamps are unreadable; `loadRetrospectiveRunMessages`
+ * disambiguates the two via the leading instruction row.
  */
 export function findForkBoundaryCreatedAt(
   forkMessages: Array<{
@@ -49,6 +54,22 @@ export function findForkBoundaryCreatedAt(
 }
 
 /**
+ * Whether the row is a run-authored retrospective-instruction message
+ * (`metadata.kind` stamped by the job when it appends the instruction).
+ */
+function isRetrospectiveInstructionRow(metadata: string | null): boolean {
+  if (!metadata) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(metadata) as { kind?: unknown };
+    return parsed.kind === MEMORY_RETROSPECTIVE_INSTRUCTION_KIND;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Load the messages a retrospective run produced itself, given the
  * retrospective conversation's `source` kind:
  *
@@ -56,14 +77,17 @@ export function findForkBoundaryCreatedAt(
  *     tail), so only the post-fork tail (messages strictly after the fork
  *     boundary) counts — scanning the whole row would attribute the source
  *     conversation's own turns to the retrospective. When no row carries a
- *     `forkSourceMessageId` stamp, the copied prefix is empty (the inherited
- *     compaction covered the whole cutoff range) and every message is the
- *     run's own.
+ *     `forkSourceMessageId` stamp, the fork is run-authored end-to-end only
+ *     if its first row is the run's own instruction message (the empty-prefix
+ *     tail-only fork); a stampless fork WITHOUT a leading instruction row is
+ *     indeterminate — attributing it would mine copied source tool calls as
+ *     run output — and degrades to "produced none".
  *   - **Legacy-kind** rows start empty, so every message is the run's own.
  *
  * Returns `null` when the run's output cannot be determined (message load
- * failure) — callers degrade (empty dedup baseline / "no output").
- * Best-effort: failures are logged, never thrown.
+ * failure, or the indeterminate stampless shape above) — callers degrade
+ * (empty dedup baseline / "no output"). Best-effort: failures are logged,
+ * never thrown.
  */
 export function loadRetrospectiveRunMessages(
   conversationId: string,
@@ -83,8 +107,19 @@ export function loadRetrospectiveRunMessages(
   if (source === MEMORY_RETROSPECTIVE_FORK_SOURCE) {
     const boundaryCreatedAt = findForkBoundaryCreatedAt(messages);
     if (boundaryCreatedAt == null) {
-      // Empty copied prefix — every message is the run's own output.
-      return messages;
+      if (messages.length === 0) {
+        return messages;
+      }
+      if (isRetrospectiveInstructionRow(messages[0]?.metadata ?? null)) {
+        // Empty copied prefix — the run's instruction opens the conversation,
+        // so every message is the run's own output.
+        return messages;
+      }
+      log.warn(
+        { retrospectiveConversationId: conversationId },
+        "memory-retrospective: fork-kind retrospective has no forkSourceMessageId stamps and no leading instruction row; treating run as having produced none",
+      );
+      return null;
     }
     return messages.filter((m) => m.createdAt > boundaryCreatedAt);
   }
