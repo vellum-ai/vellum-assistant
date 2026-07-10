@@ -2254,7 +2254,6 @@ describe("session-agent-loop", () => {
           role: string;
           content: string;
           createdAt: number;
-          scopeId: string;
         },
         unknown,
       ];
@@ -2264,7 +2263,6 @@ describe("session-agent-loop", () => {
         conversationId: "test-conv",
         role: "assistant",
         createdAt: 1234567,
-        scopeId: "default",
       });
       expect(indexCall.content).toContain("indexed reply");
 
