@@ -1,10 +1,18 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   contrastRatio,
+  MAX_THEME_FILE_BYTES,
   MIN_TEXT_CONTRAST_RATIO,
   readWorkspaceTheme,
   WORKSPACE_THEME_RELATIVE_PATH,
@@ -186,6 +194,52 @@ describe("readWorkspaceTheme", () => {
     const result = readWorkspaceTheme();
     expect(result.source).toBe("invalid");
     expect(result.issues[0]).toContain("contrast");
+  });
+
+  test("muted text is contrast-checked against surfaces, not just background", () => {
+    writeTheme(
+      JSON.stringify({
+        version: 1,
+        tokens: {
+          background: "#0a0a0a",
+          surface: "#6b6b6b",
+          surfaceRaised: "#6f6f6f",
+          text: "#ffffff",
+          textMuted: "#777777",
+        },
+      }),
+    );
+    const result = readWorkspaceTheme();
+    expect(result.source).toBe("invalid");
+    expect(result.issues.join("\n")).toContain("textMuted on tokens.surface");
+  });
+
+  test("symlinked theme file is rejected without following it", () => {
+    const target = join(workspaceDir, "elsewhere.json");
+    writeFileSync(target, JSON.stringify({ version: 1 }));
+    mkdirSync(join(workspaceDir, "ui"), { recursive: true });
+    symlinkSync(target, join(workspaceDir, WORKSPACE_THEME_RELATIVE_PATH));
+    const result = readWorkspaceTheme();
+    expect(result.source).toBe("invalid");
+    expect(result.theme).toBeNull();
+    expect(result.issues[0]).toContain("symbolic link");
+  });
+
+  test("oversized theme file is rejected before parsing", () => {
+    writeTheme(`{"version":1}${" ".repeat(MAX_THEME_FILE_BYTES)}`);
+    const result = readWorkspaceTheme();
+    expect(result.source).toBe("invalid");
+    expect(result.issues[0]).toContain("maximum");
+  });
+
+  test("FIFO at the theme path is rejected without blocking", () => {
+    const fifoPath = join(workspaceDir, WORKSPACE_THEME_RELATIVE_PATH);
+    mkdirSync(join(workspaceDir, "ui"), { recursive: true });
+    execSync(`mkfifo "${fifoPath}"`);
+    const result = readWorkspaceTheme();
+    expect(result.source).toBe("invalid");
+    expect(result.theme).toBeNull();
+    expect(result.issues[0]).toContain("regular file");
   });
 });
 
