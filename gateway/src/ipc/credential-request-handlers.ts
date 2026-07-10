@@ -147,13 +147,6 @@ export async function createCredentialRequest(
   // All guards passed — the link WILL be minted, so now make ingress live:
   // enable it if it was explicitly disabled AND start the Velay tunnel (on
   // platform the tunnel otherwise only starts for Twilio / live voice, so the
-  // config bit alone would leave the link unreachable). Deferred to the success
-  // path so a rejected mint (no resolvable URL, rate limit, too many active)
-  // never flips public ingress on as a side effect. The mint still returns
-  // immediately using the resolved URL; the link becomes reachable within a few
-  // seconds once the tunnel registers.
-  await deps.ensurePublicIngressLive?.();
-
   const ttlMs = Math.min(
     params.ttlMs ?? DEFAULT_CREDENTIAL_REQUEST_TTL_MS,
     MAX_CREDENTIAL_REQUEST_TTL_MS,
@@ -170,6 +163,15 @@ export async function createCredentialRequest(
     policyJson: params.policyJson ?? null,
     expiresAt: now + ttlMs,
   });
+
+  // The link row is persisted, so now make ingress live: enable it if it was
+  // explicitly disabled AND start the Velay tunnel (on platform the tunnel
+  // otherwise only starts for Twilio / live voice, so the config bit alone
+  // would leave the link unreachable). Ordered after store.create so a failed
+  // insert — and every earlier guard (no resolvable URL, rate limit, too many
+  // active) — never flips public ingress on without a usable link. The link
+  // becomes reachable within a few seconds once the tunnel registers.
+  await deps.ensurePublicIngressLive?.();
 
   log.info(
     {

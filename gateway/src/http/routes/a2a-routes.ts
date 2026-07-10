@@ -99,11 +99,6 @@ export function createAgentCardHandler(configFile: ConfigFileCache) {
       );
     }
 
-    // A2A intentionally does NOT use the VELAY_BASE_URL fallback: the A2A
-    // discovery/message paths are not on the Velay tunnel allowlist
-    // (gateway/src/velay/allowed-paths.ts), so a card advertising a Velay URL
-    // would point peers at an endpoint the tunnel rejects. Advertise a URL only
-    // when a real public base URL is configured.
     const publicBaseUrl =
       configFile.getString("ingress", "publicBaseUrl") ?? "";
     if (!publicBaseUrl) {
