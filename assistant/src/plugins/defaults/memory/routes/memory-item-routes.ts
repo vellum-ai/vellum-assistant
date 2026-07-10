@@ -118,10 +118,7 @@ function splitContent(content: string): { subject: string; statement: string } {
 /**
  * Map a graph node to the client's MemoryItemPayload shape.
  */
-function nodeToPayload(
-  node: MemoryNode,
-  scopeLabel: string | null = null,
-): Record<string, unknown> {
+function nodeToPayload(node: MemoryNode): Record<string, unknown> {
   const { subject, statement } = splitContent(node.content);
   return {
     id: node.id,
@@ -143,9 +140,6 @@ function nodeToPayload(
     reinforcementCount: node.reinforcementCount,
     stability: node.stability,
     emotionalCharge: node.emotionalCharge,
-
-    scopeId: node.scopeId,
-    scopeLabel,
 
     // Legacy fields — not applicable to graph nodes
     accessCount: null,
@@ -254,7 +248,6 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
     narrativeRole: row.narrativeRole as MemoryNode["narrativeRole"],
     partOfStory: row.partOfStory,
     imageRefs: row.imageRefs ? (JSON.parse(row.imageRefs) as ImageRef[]) : null,
-    scopeId: row.scopeId ?? "default",
   };
 }
 
@@ -524,7 +517,6 @@ async function handleCreateMemoryItem(body: Record<string, unknown>) {
     narrativeRole: null,
     partOfStory: null,
     imageRefs: null,
-    scopeId: "default",
   };
 
   const created = createNode(newNode);
@@ -725,7 +717,7 @@ export const ROUTES: RouteDefinition[] = [
       item: z
         .object({})
         .passthrough()
-        .describe("Memory item with scopeLabel and graph metadata"),
+        .describe("Memory item with graph metadata"),
     }),
     handler: ({ pathParams }) => handleGetMemoryItem(pathParams!.id),
   },

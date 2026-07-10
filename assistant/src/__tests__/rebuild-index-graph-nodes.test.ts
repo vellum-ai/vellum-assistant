@@ -167,7 +167,6 @@ describe("rebuildIndexJob", () => {
           stability: 14,
           reinforcementCount: 0,
           lastReinforced: now,
-          scopeId: "default",
         },
         {
           id: "node-2",
@@ -183,7 +182,6 @@ describe("rebuildIndexJob", () => {
           stability: 14,
           reinforcementCount: 0,
           lastReinforced: now,
-          scopeId: "default",
         },
         {
           id: "node-gone",
@@ -199,7 +197,6 @@ describe("rebuildIndexJob", () => {
           stability: 1,
           reinforcementCount: 0,
           lastReinforced: now,
-          scopeId: "default",
         },
       ])
       .run();
@@ -240,7 +237,6 @@ describe("rebuildIndexJob", () => {
         stability: 14,
         reinforcementCount: 0,
         lastReinforced: now,
-        scopeId: "default",
       })
       .run();
 

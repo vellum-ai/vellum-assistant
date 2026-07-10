@@ -180,7 +180,6 @@ function insertItem(opts: {
       narrativeRole: null,
       partOfStory: null,
       imageRefs: null,
-      scopeId: "default",
     })
     .run();
 }

@@ -64,7 +64,6 @@ export async function executePlaybookCreate(
   const sanitizedTrigger = trigger.replace(/[\r\n]+/g, " ");
   const subject = `Playbook: ${sanitizedTrigger}`.slice(0, 80);
   const content = `${subject}\n${statement}`;
-  const scopeId = "default";
 
   try {
     const db = getDb();
@@ -76,7 +75,6 @@ export async function executePlaybookCreate(
       .where(
         sql`${memoryGraphNodes.sourceConversations} LIKE '%playbook:%'
             AND ${memoryGraphNodes.content} = ${content}
-            AND ${memoryGraphNodes.scopeId} = ${scopeId}
             AND ${memoryGraphNodes.fidelity} != 'gone'`,
       )
       .get();
@@ -114,7 +112,6 @@ export async function executePlaybookCreate(
       narrativeRole: null,
       partOfStory: null,
       imageRefs: null,
-      scopeId,
     };
 
     const node = createNode(newNode);

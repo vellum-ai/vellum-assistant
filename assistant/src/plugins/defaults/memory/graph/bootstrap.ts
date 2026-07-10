@@ -44,7 +44,6 @@ const log = getLogger("graph-bootstrap");
 const CHECKPOINT_KEY = "graph_bootstrap:last_conversation_id";
 
 export interface BootstrapOptions {
-  scopeId?: string;
   /** Skip conversations created before this epoch ms. */
   after?: number;
   /** Maximum conversations to process (for testing). */
@@ -77,7 +76,6 @@ export async function bootstrapFromHistory(
   options?: BootstrapOptions,
 ): Promise<BootstrapResult> {
   const start = Date.now();
-  const scopeId = options?.scopeId ?? "default";
   const progressInterval = options?.progressInterval ?? 25;
   const config = getConfig();
 
@@ -153,16 +151,11 @@ export async function bootstrapFromHistory(
 
     // Process this conversation
     try {
-      const extractionResult = await runGraphExtraction(
-        conv.id,
-        scopeId,
-        config,
-        {
-          skipQdrant: true, // Use DB query for candidates (no Qdrant dependency)
-          conversationTimestamp: conv.createdAt, // Use actual conversation time
-          embedInline: true, // Embed synchronously so nodes are searchable immediately
-        },
-      );
+      const extractionResult = await runGraphExtraction(conv.id, config, {
+        skipQdrant: true, // Use DB query for candidates (no Qdrant dependency)
+        conversationTimestamp: conv.createdAt, // Use actual conversation time
+        embedInline: true, // Embed synchronously so nodes are searchable immediately
+      });
 
       result.totalNodesCreated += extractionResult.nodesCreated;
       result.totalNodesUpdated += extractionResult.nodesUpdated;
@@ -176,7 +169,7 @@ export async function bootstrapFromHistory(
 
       // Progress logging
       if (result.conversationsProcessed % progressInterval === 0) {
-        const nodeCount = countNodes(scopeId);
+        const nodeCount = countNodes();
         log.info(
           {
             processed: result.conversationsProcessed,
@@ -221,9 +214,10 @@ export async function bootstrapFromHistory(
 /**
  * Also extract from journal files on disk.
  */
-export async function bootstrapFromJournal(
-  scopeId: string = "default",
-): Promise<{ extracted: number; errors: number }> {
+export async function bootstrapFromJournal(): Promise<{
+  extracted: number;
+  errors: number;
+}> {
   const config = getConfig();
   const journalDir = join(getWorkspaceDir(), "journal");
   let extracted = 0;
@@ -253,7 +247,7 @@ export async function bootstrapFromJournal(
 
         const transcript = `[journal entry: ${file}]\n\n${content}`;
         const journalTimestamp = parseJournalDate(file);
-        await runGraphExtraction(`journal:${slug}:${file}`, scopeId, config, {
+        await runGraphExtraction(`journal:${slug}:${file}`, config, {
           transcript,
           conversationTimestamp: journalTimestamp,
         });

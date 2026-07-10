@@ -222,7 +222,6 @@ export function disposeConversation(ctx: DisposeContext): void {
         try {
           enqueueMemoryJob("graph_extract", {
             conversationId: ctx.conversationId,
-            scopeId: "default",
             ...(ctx.activeContextNodeIds?.length
               ? { activeContextNodeIds: ctx.activeContextNodeIds }
               : {}),
