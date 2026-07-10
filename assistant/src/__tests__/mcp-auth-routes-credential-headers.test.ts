@@ -130,7 +130,7 @@ describe("mcp add — credential-reference headers", () => {
       },
     });
 
-    expect(result).toEqual({ added: true });
+    expect(result).toMatchObject({ added: true });
     expect(storedEnvelope("reducto")).toEqual({
       version: 2,
       literals: {},

@@ -15513,6 +15513,8 @@ paths:
                   type: string
                 authPrefix:
                   type: string
+                verify:
+                  type: boolean
               required:
                 - name
                 - transportType
@@ -15654,9 +15656,20 @@ paths:
     post:
       operationId: internal_mcp_reload_post
       summary: Trigger MCP server reload
-      description: Kicks off reloadMcpServers() async on the daemon. Returns immediately.
+      description:
+        "Reloads MCP servers on the daemon. Returns immediately by default; with { wait: true } it awaits the
+        reload and returns per-server connection status."
       tags:
         - internal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                wait:
+                  type: boolean
       responses:
         "200":
           description: Successful response
@@ -15788,6 +15801,8 @@ paths:
                   type: string
                 authPrefix:
                   type: string
+                verify:
+                  type: boolean
               required:
                 - name
       responses:
