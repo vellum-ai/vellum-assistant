@@ -18,6 +18,14 @@ import { avatarHelp } from "./commands/avatar.help.js";
 import { backupHelp } from "./commands/backup.help.js";
 import { bashHelp } from "./commands/bash.help.js";
 import { browserHelp } from "./commands/browser.help.js";
+import { cacheHelp } from "./commands/cache.help.js";
+import { changelogHelp } from "./commands/changelog.help.js";
+import { channelVerificationSessionsHelp } from "./commands/channel-verification-sessions.help.js";
+import { channelsHelp } from "./commands/channels/index.help.js";
+import { clientsHelp } from "./commands/clients.help.js";
+import { completionsHelp } from "./commands/completions.help.js";
+import { configHelp } from "./commands/config.help.js";
+import { contactsHelp } from "./commands/contacts.help.js";
 import type { CliCommandHelp } from "./lib/cli-command-help.js";
 
 export const CLI_COMMAND_HELP: readonly CliCommandHelp[] = [
@@ -28,4 +36,12 @@ export const CLI_COMMAND_HELP: readonly CliCommandHelp[] = [
   backupHelp,
   bashHelp,
   browserHelp,
+  cacheHelp,
+  changelogHelp,
+  channelVerificationSessionsHelp,
+  channelsHelp,
+  clientsHelp,
+  completionsHelp,
+  configHelp,
+  contactsHelp,
 ];

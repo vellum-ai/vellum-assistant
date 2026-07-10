@@ -62,8 +62,13 @@ function collectSubcommandSections(
 ): void {
   for (const sub of subs ?? []) {
     const subPath = `${path} ${sub.name}`;
-    const heading = `${subPath}${sub.args ? ` ${sub.args}` : ""} — ${sub.description}`;
+    const argSpec =
+      sub.args ?? sub.arguments?.map((argument) => argument.name).join(" ");
+    const heading = `${subPath}${argSpec ? ` ${argSpec}` : ""} — ${sub.description}`;
     const lines = [heading];
+    for (const argument of sub.arguments ?? []) {
+      lines.push(`  ${argument.name}  ${argument.description}`);
+    }
     const options = renderOptionLines(sub.options);
     if (options) {
       lines.push(options);
