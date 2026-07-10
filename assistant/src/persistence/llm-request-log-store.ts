@@ -44,18 +44,18 @@ function logsDb(): DrizzleDb {
 }
 
 /**
- * True when the operator has opted out of LLM request logging via
- * `llmRequestLogs.disabled`. Gates every `llm_request_logs` insert so no
- * prompt/completion payload is written while logging is off. Read-only config
- * access (no `ensureDataDir`/disk write) because this sits on the per-LLM-call
- * critical path; defaults to "enabled" if config resolution throws so a config
- * hiccup never silently drops logs.
+ * Whether LLM request logging is enabled (`llmRequestLogs.enabled`, default
+ * `true`). Gates every `llm_request_logs` insert so no prompt/completion
+ * payload is written while logging is off. Read-only config access (no
+ * `ensureDataDir`/disk write) because this sits on the per-LLM-call critical
+ * path; defaults to "enabled" if config resolution throws so a config hiccup
+ * never silently drops logs.
  */
-export function llmRequestLoggingDisabled(): boolean {
+export function llmRequestLoggingEnabled(): boolean {
   try {
-    return getConfigReadOnly().llmRequestLogs?.disabled === true;
+    return getConfigReadOnly().llmRequestLogs?.enabled !== false;
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -182,13 +182,12 @@ export function recordRequestLog(
   provider?: string,
   callSite?: LLMCallSite,
   latencyBreakdown?: string,
-): string {
+): string | null {
   // Master opt-out: when logging is disabled, skip the write entirely so no
-  // prompt/completion payload lands on disk. Returns an empty id — no
-  // production caller consumes the return value, and the row does not exist to
-  // be stamped/backfilled later.
-  if (llmRequestLoggingDisabled()) {
-    return "";
+  // prompt/completion payload lands on disk. Returns null — there is no row to
+  // stamp/backfill later, and no production caller consumes the return value.
+  if (!llmRequestLoggingEnabled()) {
+    return null;
   }
   const db = logsDb();
   const id = uuid();
@@ -274,11 +273,11 @@ export function recordSyntheticAgentErrorMessageLog(args: {
    */
   preparedRequest: unknown | null;
   createdAt: number;
-}): string {
+}): string | null {
   // Synthetic error rows are `llm_request_logs` rows too — honour the same
   // master opt-out so nothing is written while logging is disabled.
-  if (llmRequestLoggingDisabled()) {
-    return "";
+  if (!llmRequestLoggingEnabled()) {
+    return null;
   }
   const db = logsDb();
   const id = uuid();

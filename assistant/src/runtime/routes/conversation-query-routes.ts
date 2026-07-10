@@ -105,16 +105,12 @@ import {
   resolvePricingForUsage,
   usesAnthropicPricingRules,
 } from "../../util/pricing.js";
-import {
-  BadRequestError,
-  InternalError,
-  LlmRequestLogsDisabledError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
   type LlmContextSummary,
   normalizeLlmContextPayloads,
 } from "./llm-context-normalization.js";
+import { assertLlmRequestLoggingEnabled } from "./llm-request-logs-access.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const validEmbeddingProviderSet = new Set<string>(
@@ -1775,19 +1771,6 @@ function resolveConversationKind(
     return "scheduled";
   }
   return "user";
-}
-
-/**
- * Guard every inspector read on the master `llmRequestLogs.disabled`
- * opt-out. When logging is off there is nothing to serve (and any rows that
- * predate the opt-out are intentionally withheld), so we fail fast with the
- * distinct `LLM_REQUEST_LOGS_DISABLED` code the client keys on to render an
- * enable-logging affordance instead of a generic error.
- */
-function assertLlmRequestLoggingEnabled(): void {
-  if (getConfig().llmRequestLogs?.disabled === true) {
-    throw new LlmRequestLogsDisabledError();
-  }
 }
 
 async function handleGetLlmContext({

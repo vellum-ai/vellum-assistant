@@ -296,7 +296,7 @@ describe("GET /v1/conversations/llm-context", () => {
   });
 });
 
-describe("inspector reads when llmRequestLogs.disabled is true", () => {
+describe("inspector reads when llmRequestLogs.enabled is false", () => {
   const payloadRoute = ROUTES.find(
     (r) => r.operationId === "llm_request_logs_payload_get",
   )!;
@@ -307,7 +307,7 @@ describe("inspector reads when llmRequestLogs.disabled is true", () => {
   beforeEach(() => {
     clearTables();
     rawConfigFixture = {
-      llmRequestLogs: { readSource: "local", disabled: true },
+      llmRequestLogs: { readSource: "local", enabled: false },
     };
   });
 
@@ -351,7 +351,7 @@ describe("inspector reads when llmRequestLogs.disabled is true", () => {
 
   test("reads succeed again once logging is re-enabled", async () => {
     rawConfigFixture = {
-      llmRequestLogs: { readSource: "local", disabled: false },
+      llmRequestLogs: { readSource: "local", enabled: true },
     };
     // An unresolved conversation key returns an empty inspector response
     // (no throw), proving the disabled guard no longer short-circuits.

@@ -6,14 +6,14 @@ describe("LlmRequestLogsConfigSchema", () => {
   test("parses undefined to the local default with logging enabled", () => {
     expect(LlmRequestLogsConfigSchema.parse(undefined)).toEqual({
       readSource: "local",
-      disabled: false,
+      enabled: true,
     });
   });
 
   test("parses an explicit local readSource with logging enabled by default", () => {
     expect(LlmRequestLogsConfigSchema.parse({ readSource: "local" })).toEqual({
       readSource: "local",
-      disabled: false,
+      enabled: true,
     });
   });
 
@@ -22,7 +22,7 @@ describe("LlmRequestLogsConfigSchema", () => {
       LlmRequestLogsConfigSchema.parse({ readSource: "clickhouse" }),
     ).toEqual({
       readSource: "clickhouse",
-      disabled: false,
+      enabled: true,
       clickhouse: {
         database: "default",
         table: "llm_request_logs",
@@ -31,27 +31,27 @@ describe("LlmRequestLogsConfigSchema", () => {
     });
   });
 
-  test("carries an explicit disabled flag on the local branch", () => {
+  test("carries an explicit enabled flag on the local branch", () => {
     expect(
-      LlmRequestLogsConfigSchema.parse({ readSource: "local", disabled: true }),
-    ).toEqual({ readSource: "local", disabled: true });
+      LlmRequestLogsConfigSchema.parse({ readSource: "local", enabled: false }),
+    ).toEqual({ readSource: "local", enabled: false });
   });
 
-  test("defaults a missing readSource to local so a disabled-only write still parses", () => {
-    // `config set llmRequestLogs.disabled true` writes `{ disabled: true }`
+  test("defaults a missing readSource to local so an enabled-only write still parses", () => {
+    // `config set llmRequestLogs.enabled false` writes `{ enabled: false }`
     // with no discriminator; it must parse (on the local branch) rather than
     // collapse the whole config to defaults via leaf-deletion recovery.
-    expect(LlmRequestLogsConfigSchema.parse({ disabled: true })).toEqual({
+    expect(LlmRequestLogsConfigSchema.parse({ enabled: false })).toEqual({
       readSource: "local",
-      disabled: true,
+      enabled: false,
     });
   });
 
-  test("rejects a non-boolean disabled flag", () => {
+  test("rejects a non-boolean enabled flag", () => {
     expect(() =>
       LlmRequestLogsConfigSchema.parse({
         readSource: "local",
-        disabled: "yes",
+        enabled: "yes",
       }),
     ).toThrow();
   });
