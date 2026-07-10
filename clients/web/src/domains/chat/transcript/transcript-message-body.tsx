@@ -13,6 +13,7 @@ import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bu
 import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachment-naming";
 
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
+import { downloadWorkspaceFile } from "@/domains/workspace/utils/download-workspace-file";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -324,6 +325,30 @@ export function TranscriptMessageBody({
         message.attachments?.find((a) => a.filename === rawBasename);
       if (att) {
         void downloadAttachment(att, assistantId);
+      } else if (href.startsWith("vellum://workspace/")) {
+        // Fallback for files not registered as message attachments — e.g.
+        // files linked only inside component/surface HTML. The daemon's
+        // cleanAssistantContent only extracts vellum:// links from assistant
+        // TEXT blocks, not from dynamic_page surface HTML, so a file cited
+        // only in a component never becomes an attachment. Fetch it by path
+        // from the workspace file content endpoint instead — the same route
+        // the workspace browser uses.
+        const WORKSPACE_PREFIX = "vellum://workspace/";
+        let filePath = href.slice(WORKSPACE_PREFIX.length);
+        try {
+          filePath = decodeURIComponent(filePath);
+        } catch {
+          // Malformed percent-encoding — use the raw path.
+        }
+        void downloadWorkspaceFile({
+          assistantId: assistantId ?? "",
+          path: filePath,
+          filename: linkText || pathBasename,
+        }).catch(() => {
+          toast.error("Failed to download file", {
+            description: linkText || pathBasename,
+          });
+        });
       } else {
         const isHost = href.startsWith("vellum://host/");
         toast.error(
