@@ -115,11 +115,27 @@ export function buildStoragePolyfill(): string {
  * incorrectly intercepted. Checking the raw attribute preserves the original
  * scheme, leaving fragments and relative links to in-frame navigation.
  *
- * Only external links (http:, https:, mailto:, tel:) are intercepted. Anchor
- * links (`#foo`), relative paths, and `javascript:` URIs are left alone — the
- * former are in-page navigation, the latter are already blocked by the sandbox.
+ * Two categories of links are intercepted:
+ *
+ * 1. **`vellum://` deep links** (`vellum://workspace/...`,
+ *    `vellum://host/...`) — forwarded to the parent window via
+ *    `postMessage({ type: 'vellum_open_link', ... })` so the host app can
+ *    perform in-app navigation (open a workspace file, launch a host app,
+ *    etc.). These are checked **before** external schemes because
+ *    `window.open()` cannot handle custom schemes — a `vellum://` URL passed
+ *    to `window.open()` would be silently dropped or open a broken tab.
+ *
+ * 2. **External links** (http:, https:, mailto:, tel:) — opened in a new tab
+ *    via `window.open()` with `noopener,noreferrer`.
+ *
+ * Anchor links (`#foo`), relative paths, and `javascript:` URIs are left
+ * alone — the former are in-page navigation, the latter are already blocked
+ * by the sandbox.
+ *
+ * @param frameId The iframe identifier, included in `vellum_open_link`
+ *   messages so the parent knows which surface sent the request.
  */
-export function buildLinkInterceptorScript(): string {
+export function buildLinkInterceptorScript(frameId: string): string {
   return `<script>
 (function() {
     document.addEventListener('click', function(e) {
@@ -134,6 +150,20 @@ export function buildLinkInterceptorScript(): string {
           // embedding page URL, producing absolute http(s) URLs that would
           // be wrongly intercepted. The raw attribute preserves the scheme.
           var rawHref = el.getAttribute('href');
+          // vellum:// deep links — forward to the parent for in-app
+          // navigation. Checked before external schemes because
+          // window.open() cannot handle custom schemes (a vellum:// URL
+          // would be silently dropped or open a broken tab).
+          if (/^vellum:\\/\\/(workspace|host)\\//i.test(rawHref)) {
+            e.preventDefault();
+            window.parent.postMessage({
+              type: 'vellum_open_link',
+              frameId: ${jsonForScript(frameId)},
+              href: rawHref,
+              linkText: (el.textContent || '').trim()
+            }, '*');
+            return;
+          }
           if (/^https?:|^mailto:|^tel:/i.test(rawHref)) {
             e.preventDefault();
             window.open(rawHref, '_blank', 'noopener,noreferrer');
@@ -248,7 +278,7 @@ function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): strin
  * logic at separate positions in the HTML.
  */
 export function buildBridgeScript(frameId: string, options?: BridgeOptions): string {
-  return buildStoragePolyfill() + buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript();
+  return buildStoragePolyfill() + buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript(frameId);
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +343,7 @@ export function prependScript(html: string, script: string): string {
  */
 export function injectBridge(html: string, frameId: string, options?: BridgeOptions): string {
   return prependScript(
-    injectScript(html, buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript()),
+    injectScript(html, buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript(frameId)),
     buildStoragePolyfill(),
   );
 }

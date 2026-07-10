@@ -215,7 +215,7 @@ describe("injectBridge", () => {
 
 describe("buildLinkInterceptorScript", () => {
   it("produces a script tag with a click handler", () => {
-    const out = buildLinkInterceptorScript();
+    const out = buildLinkInterceptorScript(FRAME_ID);
     expect(out).toContain("<script>");
     expect(out).toContain("</script>");
     expect(out).toContain("addEventListener");
@@ -223,20 +223,20 @@ describe("buildLinkInterceptorScript", () => {
   });
 
   it("opens links via window.open with noopener,noreferrer", () => {
-    const out = buildLinkInterceptorScript();
+    const out = buildLinkInterceptorScript(FRAME_ID);
     expect(out).toContain("window.open");
     expect(out).toContain("noopener,noreferrer");
   });
 
   it("only intercepts external URL schemes", () => {
-    const out = buildLinkInterceptorScript();
+    const out = buildLinkInterceptorScript(FRAME_ID);
     expect(out).toContain("https?:");
     expect(out).toContain("mailto:");
     expect(out).toContain("tel:");
   });
 
   it("uses event delegation via bubble phase with defaultPrevented guard", () => {
-    const out = buildLinkInterceptorScript();
+    const out = buildLinkInterceptorScript(FRAME_ID);
     expect(out).toContain("tagName === 'A'");
     expect(out).toContain("parentElement");
     // Bubble phase — false as third arg to addEventListener (not capture)
@@ -247,15 +247,34 @@ describe("buildLinkInterceptorScript", () => {
   });
 
   it("does not call stopPropagation", () => {
-    const out = buildLinkInterceptorScript();
+    const out = buildLinkInterceptorScript(FRAME_ID);
     expect(out).not.toContain("stopPropagation");
   });
 
   it("uses raw href attribute for scheme detection, not el.href", () => {
-    const out = buildLinkInterceptorScript();
+    const out = buildLinkInterceptorScript(FRAME_ID);
     expect(out).toContain("getAttribute('href')");
     // Should not reference the resolved el.href property for scheme checks
     expect(out).not.toMatch(/var\s+href\s*=\s*el\.href/);
+  });
+
+  it("forwards vellum:// deep links to parent via postMessage", () => {
+    const out = buildLinkInterceptorScript(FRAME_ID);
+    expect(out).toContain("vellum_open_link");
+    expect(out).toContain("postMessage");
+    expect(out).toContain("vellum://");
+    // frameId should be embedded in the generated script
+    expect(out).toContain(FRAME_ID);
+  });
+
+  it("checks vellum:// scheme before external http(s) schemes", () => {
+    const out = buildLinkInterceptorScript(FRAME_ID);
+    const vellumIdx = out.indexOf("vellum:");
+    const httpIdx = out.indexOf("https?:");
+    expect(vellumIdx).toBeGreaterThan(0);
+    expect(httpIdx).toBeGreaterThan(0);
+    // vellum:// must be checked before the external scheme regex
+    expect(vellumIdx).toBeLessThan(httpIdx);
   });
 });
 
