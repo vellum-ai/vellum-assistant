@@ -23,6 +23,11 @@ export const PINNED_CLI_VERSION = "";
 // Install dir for fresh, unpinned installs.
 const LATEST_INSTALL_DIR = "latest";
 
+// Records the app version that seeded an unpinned install so a later app
+// update can tell its shared CLI is stale and re-float it. See
+// clearStaleInstallForAppUpdate.
+const INSTALL_APP_VERSION_MARKER = ".app-version";
+
 // Injected by `electron.vite.config.ts` at build time.
 declare const __VELLUM_ENVIRONMENT__: string;
 const VELLUM_ENVIRONMENT =
@@ -372,6 +377,71 @@ function runBun(args: string[], cwd: string): Promise<void> {
   });
 }
 
+/** Path to the app-version marker inside an install dir. */
+function installAppVersionMarkerPath(installDir: string): string {
+  return path.join(installDir, INSTALL_APP_VERSION_MARKER);
+}
+
+/** App version that seeded `installDir`, or null when unmarked/unreadable. */
+function readInstalledAppVersion(installDir: string): string | null {
+  try {
+    return readFileSync(installAppVersionMarkerPath(installDir), "utf8").trim();
+  } catch {
+    return null;
+  }
+}
+
+/** Stamp the running app version into `installDir`. Non-fatal. */
+function writeInstalledAppVersion(installDir: string): void {
+  try {
+    writeFileAtomicSync(
+      installAppVersionMarkerPath(installDir),
+      `${app.getVersion()}\n`,
+    );
+  } catch (err) {
+    log.warn("[cli-installer] failed to record CLI app-version marker:", err);
+  }
+}
+
+/**
+ * Re-float a stale unpinned install after an app update.
+ *
+ * `isCliInstalled()` only checks that the bin exists, so a shared `cli/latest`
+ * seeded by an older app build stays pinned to that old runtime version across
+ * every later app update — and the in-app "new version available" banner (which
+ * compares the platform release against the running daemon) can never land
+ * (LUM-2733). Record the app version that seeded the install and, when the
+ * running app differs, wipe the tree so the reinstall below re-floats to the
+ * current dist-tag. Fires at most once per app update (the marker is rewritten
+ * after each install); a markerless install from before this field one-time
+ * heals on first launch of the fixed app.
+ *
+ * Skipped for pinned builds (their dir name already changes on a bump, so
+ * isCliInstalled goes false on its own) and local builds (they run the repo CLI
+ * source, not an install). Returns true when a stale install was cleared and a
+ * reinstall is needed.
+ */
+function clearStaleInstallForAppUpdate(): boolean {
+  if (PINNED_CLI_VERSION) return false;
+  if (getLocalCliEntry() !== null) return false;
+
+  const installDir = getCliInstallDir();
+  if (!existsSync(binPathIn(installDir))) return false;
+
+  const seededBy = readInstalledAppVersion(installDir);
+  if (seededBy === app.getVersion()) return false;
+
+  log.info(
+    `[cli-installer] app ${seededBy ?? "unknown"} -> ${app.getVersion()}: refreshing CLI install`,
+  );
+  rmSync(path.join(installDir, "node_modules"), {
+    recursive: true,
+    force: true,
+  });
+  rmSync(path.join(installDir, "bun.lock"), { force: true });
+  return true;
+}
+
 async function bunInstallCli(): Promise<void> {
   const installDir = getCliInstallDir();
   mkdirSync(installDir, { recursive: true });
@@ -423,6 +493,10 @@ async function bunInstallCli(): Promise<void> {
   // Mark the freshly written install bun-only so manual recovery doesn't drift
   // it to npm. Both bun add and the seeded package.json omit the field.
   stampPackageManager(installDir);
+
+  // Record which app build seeded this install so a later update knows to
+  // re-float it (clearStaleInstallForAppUpdate).
+  writeInstalledAppVersion(installDir);
 }
 
 // Singleton promise prevents concurrent installs from corrupting node_modules.
@@ -441,7 +515,7 @@ export function _resetInstallLock(): void {
  * lifecycle scripts are always suppressed via `--ignore-scripts`.
  */
 export async function ensureCliInstalled(): Promise<void> {
-  if (isCliInstalled()) {
+  if (isCliInstalled() && !clearStaleInstallForAppUpdate()) {
     writeCliLocator();
     // Heal installs written before this field existed (or before a bun bump):
     // the upgrade path returns here without reinstalling, so an existing user's
