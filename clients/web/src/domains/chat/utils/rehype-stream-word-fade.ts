@@ -38,9 +38,9 @@ const SKIPPED_TAGS = new Set(["pre", "code", "style", "script"]);
  *  subtle shimmer at the reveal edge rather than a pronounced wipe. */
 const TAIL_WORDS = 5;
 
-/** Minimum opacity at the reveal edge. A high floor keeps the fade very
- *  slight — the newest word renders at ~0.6, not near-invisible. */
-const FADE_FLOOR = 0.55;
+/** Minimum opacity at the reveal edge. A high floor keeps the fade subtle —
+ *  the newest word renders at ~0.5, noticeable but never near-invisible. */
+const FADE_FLOOR = 0.4;
 
 const FADE_CLASS = "stream-word-fade";
 

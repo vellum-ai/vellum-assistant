@@ -44,11 +44,11 @@ describe("rehypeStreamWordFade", () => {
     // Early words are untouched (full opacity), the tail ramps down toward
     // the reveal edge, and the last word is the most transparent — but the
     // grading is deliberately slight: it bottoms out above the fade floor
-    // (0.55), never near-invisible.
+    // (0.4), never near-invisible.
     expect(opacities[0]).toBe(1);
     const edge = opacities[opacities.length - 1];
-    expect(edge).toBeLessThan(0.7);
-    expect(edge).toBeGreaterThanOrEqual(0.55);
+    expect(edge).toBeLessThan(0.6);
+    expect(edge).toBeGreaterThanOrEqual(0.4);
     for (let i = 1; i < opacities.length; i++) {
       expect(opacities[i]).toBeLessThanOrEqual(opacities[i - 1]);
     }
