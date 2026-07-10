@@ -216,7 +216,7 @@ function envelopeAuthEntries(
     for (const ref of envelope.refs) {
       entries.push({
         name: ref.headerName,
-        bearer: (ref.prefix ?? "").startsWith("Bearer"),
+        bearer: (ref.prefix ?? "").startsWith("Bearer "),
       });
     }
   } else if (legacyConfigHeaders) {

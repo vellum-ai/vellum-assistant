@@ -127,16 +127,20 @@ export class McpClient {
         }
       } catch (err) {
         if (err instanceof McpHeaderResolutionError) {
+          // Don't connect without the configured auth header — a server that
+          // tolerates anonymous traffic would silently register unauthenticated
+          // tools. Surface the missing credential as the connection error.
           log.warn(
             {
               serverId: this.serverId,
               missing: err.missing.map((m) => `${m.service}/${m.field}`),
             },
-            "MCP static auth credential unresolvable; connecting without static headers (server will require auth)",
+            "MCP static auth credential unresolvable; not connecting",
           );
-        } else {
-          throw err;
+          this._lastError = err;
+          return;
         }
+        throw err;
       }
     }
 
