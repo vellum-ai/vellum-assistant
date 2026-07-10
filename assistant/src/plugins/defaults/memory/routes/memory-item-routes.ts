@@ -14,8 +14,8 @@
  * graph (see the section in ROUTES):
  *
  * GET    /v1/memory-nodes        — list nodes (significance-ordered, content search)
- * POST   /v1/memory-nodes/delete — delete the node matching exact content
- * POST   /v1/memory-nodes/update — replace content on the node matching exact content
+ * POST   /v1/memory-nodes/delete — delete the single node matching content
+ * POST   /v1/memory-nodes/update — replace content on the single node matching content
  */
 
 import {
@@ -881,9 +881,9 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "Delete a memory graph node by content",
+    summary: "Delete a memory graph node by content match",
     description:
-      "Delete the memory graph node whose content exactly matches the given text.",
+      "Delete the single memory graph node matching `content`: a case-insensitive exact match takes priority; with no exact match, a substring match is tried. Fails as `{ success: false }` when zero or multiple nodes match.",
     tags: ["memory"],
     requestBody: z.object({
       content: z.string(),
@@ -906,9 +906,9 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "Update a memory graph node by content",
+    summary: "Update a memory graph node by content match",
     description:
-      "Replace the content of the memory graph node whose content exactly matches `oldContent`.",
+      "Replace the content of the single memory graph node matching `oldContent`: a case-insensitive exact match takes priority; with no exact match, a substring match is tried. Fails as `{ success: false }` when zero or multiple nodes match, or when another active node already has `newContent`.",
     tags: ["memory"],
     requestBody: z.object({
       oldContent: z.string(),
