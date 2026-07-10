@@ -219,12 +219,14 @@
           "pricing": {
             "inputPer1mTokens": 5,
             "outputPer1mTokens": 30,
+            "cacheWritePer1mTokens": 6.25,
             "cacheReadPer1mTokens": 0.5,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
                 "inputPer1mTokens": 10,
                 "outputPer1mTokens": 45,
+                "cacheWritePer1mTokens": 12.5,
                 "cacheReadPer1mTokens": 1
               }
             ]
@@ -245,12 +247,14 @@
           "pricing": {
             "inputPer1mTokens": 2.5,
             "outputPer1mTokens": 15,
+            "cacheWritePer1mTokens": 3.125,
             "cacheReadPer1mTokens": 0.25,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
                 "inputPer1mTokens": 5,
                 "outputPer1mTokens": 22.5,
+                "cacheWritePer1mTokens": 6.25,
                 "cacheReadPer1mTokens": 0.5
               }
             ]
@@ -271,12 +275,14 @@
           "pricing": {
             "inputPer1mTokens": 1,
             "outputPer1mTokens": 6,
+            "cacheWritePer1mTokens": 1.25,
             "cacheReadPer1mTokens": 0.1,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
                 "inputPer1mTokens": 2,
                 "outputPer1mTokens": 9,
+                "cacheWritePer1mTokens": 2.5,
                 "cacheReadPer1mTokens": 0.2
               }
             ]
@@ -1034,12 +1040,14 @@
           "pricing": {
             "inputPer1mTokens": 5,
             "outputPer1mTokens": 30,
+            "cacheWritePer1mTokens": 6.25,
             "cacheReadPer1mTokens": 0.5,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
                 "inputPer1mTokens": 10,
                 "outputPer1mTokens": 45,
+                "cacheWritePer1mTokens": 12.5,
                 "cacheReadPer1mTokens": 1
               }
             ]
@@ -1060,12 +1068,14 @@
           "pricing": {
             "inputPer1mTokens": 5,
             "outputPer1mTokens": 30,
+            "cacheWritePer1mTokens": 6.25,
             "cacheReadPer1mTokens": 0.5,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
                 "inputPer1mTokens": 10,
                 "outputPer1mTokens": 45,
+                "cacheWritePer1mTokens": 12.5,
                 "cacheReadPer1mTokens": 1
               }
             ]
@@ -1086,12 +1096,14 @@
           "pricing": {
             "inputPer1mTokens": 2.5,
             "outputPer1mTokens": 15,
+            "cacheWritePer1mTokens": 3.125,
             "cacheReadPer1mTokens": 0.25,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
                 "inputPer1mTokens": 5,
                 "outputPer1mTokens": 22.5,
+                "cacheWritePer1mTokens": 6.25,
                 "cacheReadPer1mTokens": 0.5
               }
             ]
@@ -1112,12 +1124,14 @@
           "pricing": {
             "inputPer1mTokens": 2.5,
             "outputPer1mTokens": 15,
+            "cacheWritePer1mTokens": 3.125,
             "cacheReadPer1mTokens": 0.25,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
                 "inputPer1mTokens": 5,
                 "outputPer1mTokens": 22.5,
+                "cacheWritePer1mTokens": 6.25,
                 "cacheReadPer1mTokens": 0.5
               }
             ]
@@ -1138,12 +1152,14 @@
           "pricing": {
             "inputPer1mTokens": 1,
             "outputPer1mTokens": 6,
+            "cacheWritePer1mTokens": 1.25,
             "cacheReadPer1mTokens": 0.1,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
                 "inputPer1mTokens": 2,
                 "outputPer1mTokens": 9,
+                "cacheWritePer1mTokens": 2.5,
                 "cacheReadPer1mTokens": 0.2
               }
             ]
@@ -1164,12 +1180,14 @@
           "pricing": {
             "inputPer1mTokens": 1,
             "outputPer1mTokens": 6,
+            "cacheWritePer1mTokens": 1.25,
             "cacheReadPer1mTokens": 0.1,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
                 "inputPer1mTokens": 2,
                 "outputPer1mTokens": 9,
+                "cacheWritePer1mTokens": 2.5,
                 "cacheReadPer1mTokens": 0.2
               }
             ]

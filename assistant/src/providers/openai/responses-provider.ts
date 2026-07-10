@@ -128,7 +128,11 @@ interface ResponsesStreamEvent {
       input_tokens?: number;
       output_tokens?: number;
       output_tokens_details?: { reasoning_tokens?: number };
-      input_tokens_details?: { cached_tokens?: number };
+      input_tokens_details?: {
+        cached_tokens?: number;
+        /** GPT-5.6+: prompt tokens written to the cache, billed at 1.25x input. */
+        cache_write_tokens?: number;
+      };
     };
   };
 }
@@ -304,6 +308,7 @@ export class OpenAIResponsesProvider implements Provider {
       let outputTokens = 0;
       let reasoningTokens = 0;
       let cachedInputTokens = 0;
+      let cacheWriteInputTokens = 0;
       let rawFinalResponse: unknown = undefined;
 
       try {
@@ -426,6 +431,9 @@ export class OpenAIResponsesProvider implements Provider {
                     response.usage.output_tokens_details?.reasoning_tokens ?? 0;
                   cachedInputTokens =
                     response.usage.input_tokens_details?.cached_tokens ?? 0;
+                  cacheWriteInputTokens =
+                    response.usage.input_tokens_details?.cache_write_tokens ??
+                    0;
                 }
                 finishReason =
                   response.incomplete_details?.reason ??
@@ -507,6 +515,9 @@ export class OpenAIResponsesProvider implements Provider {
           ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
           ...(cachedInputTokens > 0
             ? { cacheReadInputTokens: cachedInputTokens }
+            : {}),
+          ...(cacheWriteInputTokens > 0
+            ? { cacheCreationInputTokens: cacheWriteInputTokens }
             : {}),
         },
         stopReason,

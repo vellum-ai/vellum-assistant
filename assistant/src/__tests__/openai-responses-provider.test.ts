@@ -149,6 +149,7 @@ function completedEvent(
   opts?: {
     reasoningTokens?: number;
     cachedTokens?: number;
+    cacheWriteTokens?: number;
     model?: string;
     status?: string;
     output?: unknown[];
@@ -171,8 +172,17 @@ function completedEvent(
         output_tokens_details: {
           reasoning_tokens: opts?.reasoningTokens ?? 0,
         },
-        ...(opts?.cachedTokens
-          ? { input_tokens_details: { cached_tokens: opts.cachedTokens } }
+        ...(opts?.cachedTokens || opts?.cacheWriteTokens
+          ? {
+              input_tokens_details: {
+                ...(opts?.cachedTokens
+                  ? { cached_tokens: opts.cachedTokens }
+                  : {}),
+                ...(opts?.cacheWriteTokens
+                  ? { cache_write_tokens: opts.cacheWriteTokens }
+                  : {}),
+              },
+            }
           : {}),
       },
     },
@@ -576,6 +586,30 @@ describe("OpenAIResponsesProvider", () => {
     });
   });
 
+  test("maps cache write tokens to cacheCreationInputTokens (GPT-5.6+)", async () => {
+    // GPT-5.6+ bills prompt tokens written to the cache at 1.25x input and
+    // reports them in input_tokens_details.cache_write_tokens; input_tokens
+    // includes them, mirroring the cached-read accounting above.
+    fakeStreamEvents = [
+      textDeltaEvent("Cached reply"),
+      completedEvent(50_648, 114, {
+        cachedTokens: 40_000,
+        cacheWriteTokens: 9_536,
+      }),
+    ];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.usage).toEqual({
+      inputTokens: 50_648,
+      outputTokens: 114,
+      cacheReadInputTokens: 40_000,
+      cacheCreationInputTokens: 9_536,
+    });
+  });
+
   test("omits cacheReadInputTokens when no cached tokens", async () => {
     fakeStreamEvents = [textDeltaEvent("Fresh reply"), completedEvent(10, 5)];
 
@@ -584,6 +618,7 @@ describe("OpenAIResponsesProvider", () => {
     ]);
 
     expect(result.usage).not.toHaveProperty("cacheReadInputTokens");
+    expect(result.usage).not.toHaveProperty("cacheCreationInputTokens");
   });
 
   // -----------------------------------------------------------------------

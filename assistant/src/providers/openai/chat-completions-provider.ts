@@ -503,6 +503,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
       let completionTokens = 0;
       let reasoningTokens = 0;
       let cachedPromptTokens = 0;
+      let cacheWritePromptTokens = 0;
 
       try {
         const requestHeaders = {
@@ -634,10 +635,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
             reasoningTokens = completionDetails?.reasoning_tokens ?? 0;
             const promptDetails = (
               chunk.usage as {
-                prompt_tokens_details?: { cached_tokens?: number };
+                prompt_tokens_details?: {
+                  cached_tokens?: number;
+                  cache_write_tokens?: number;
+                };
               }
             ).prompt_tokens_details;
             cachedPromptTokens = promptDetails?.cached_tokens ?? 0;
+            cacheWritePromptTokens = promptDetails?.cache_write_tokens ?? 0;
           }
 
           responseModel = chunk.model;
@@ -723,10 +728,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 },
               }
             : {}),
-          ...(cachedPromptTokens > 0
+          ...(cachedPromptTokens > 0 || cacheWritePromptTokens > 0
             ? {
                 prompt_tokens_details: {
                   cached_tokens: cachedPromptTokens,
+                  ...(cacheWritePromptTokens > 0
+                    ? { cache_write_tokens: cacheWritePromptTokens }
+                    : {}),
                 },
               }
             : {}),
@@ -742,6 +750,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
           ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
           ...(cachedPromptTokens > 0
             ? { cacheReadInputTokens: cachedPromptTokens }
+            : {}),
+          ...(cacheWritePromptTokens > 0
+            ? { cacheCreationInputTokens: cacheWritePromptTokens }
             : {}),
         },
         stopReason: finishReason,
