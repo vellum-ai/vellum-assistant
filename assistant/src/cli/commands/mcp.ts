@@ -245,9 +245,14 @@ Examples:
             ok: true;
             servers?: McpReloadServerStatus[];
             error?: string;
-          }>("internal_mcp_reload", {
-            body: opts.wait ? { wait: true } : {},
-          });
+          }>(
+            "internal_mcp_reload",
+            { body: opts.wait ? { wait: true } : {} },
+            // A waited reload reconnects servers serially; each slow server
+            // can take the 30s connect timeout, so the default 60s IPC
+            // timeout would cut off multi-server reloads mid-flight.
+            opts.wait ? { timeoutMs: 300_000 } : undefined,
+          );
 
           if (!result.ok) {
             log.warn(

@@ -642,8 +642,11 @@ async function handleMcpUpdate({
   saveRawConfig(raw);
   triggerReload("internal_mcp_update");
 
+  // Probe only HTTP transports: a stdio probe would spawn the server process
+  // a second time alongside the background reload's real connection.
   const isEnabled = server.enabled !== false;
-  if (verify === false || !isEnabled) {
+  const updatedTransport = server.transport as { type?: string } | undefined;
+  if (verify === false || !isEnabled || updatedTransport?.type === "stdio") {
     return { updated: true };
   }
 
@@ -774,7 +777,9 @@ async function handleMcpAdd({
   saveRawConfig(raw);
   triggerReload("internal_mcp_add");
 
-  if (verify === false || disabled) {
+  // Probe only HTTP transports: a stdio probe would spawn the server process
+  // a second time alongside the background reload's real connection.
+  if (verify === false || disabled || transportType === "stdio") {
     return { added: true };
   }
 
