@@ -12,7 +12,6 @@ import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/p
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
 import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
-import { isPointerCoarse } from "@/utils/pointer";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
 // File extensions routed to the inline text preview even when the upstream
@@ -175,14 +174,12 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
 
   // Touch-first navigation (primarily iOS): swipe left/right to change item.
-  // Complements the keyboard arrows and on-screen chevrons.
+  // This is an *additional* affordance on top of the chevron buttons and
+  // keyboard arrows — never a replacement. The buttons stay rendered on touch
+  // so users who can't swipe (assistive tech: VoiceOver, Switch Control) keep
+  // an operable control.
   const { dragOffset, isDragging, onTouchStart, onTouchMove, onTouchEnd } =
     useGallerySwipe({ enabled: hasGallery, onPrev: goToPrev, onNext: goToNext });
-
-  // Coarse pointers get swipe as the primary affordance, so the chevron
-  // buttons (which cover parts of a landscape image) are hidden there; fine
-  // pointers (desktop/trackpad) keep them since there's no swipe.
-  const showChevrons = hasGallery && !isPointerCoarse();
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -390,7 +387,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         </div>
       </div>
 
-      {showChevrons && (
+      {hasGallery && (
         <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between px-4">
           <Button
             variant="ghost"
