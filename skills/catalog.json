@@ -63,6 +63,29 @@
       "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
+      "id": "chat-complex-documents",
+      "name": "chat-complex-documents",
+      "description": "Chat with and search your complex documents — ask questions, extract tables and fields, and get answers grounded in the source. Connects the hosted Unstructured Transform MCP server to parse, structure, and enrich PDFs, Word/Excel/PowerPoint, images, scanned files, emails, and 60+ other formats into clean, AI-ready text for search, Q&A, and summarization without building a custom parsing pipeline.",
+      "metadata": {
+        "icon": "assets/icon.svg",
+        "emoji": "📄",
+        "vellum": {
+          "category": "integrations",
+          "display-name": "Chat with Complex Documents",
+          "user-invocable": "true",
+          "activation-hints": [
+            "User wants to pull content out of documents — PDFs, Word/Excel/PowerPoint, images, emails, scanned files",
+            "User wants to make a set of documents searchable, or answer questions / ground summaries against them (RAG, Q&A, knowledge base)",
+            "User mentions Unstructured, Unstructured Transform, document parsing, partitioning, table extraction, or OCR"
+          ],
+          "avoid-when": [
+            "User just needs the plain text of one small local file (use built-in file reading instead)"
+          ]
+        }
+      },
+      "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Requires an Unstructured account to authorize during the OAuth step."
+    },
+    {
       "id": "chatgpt-import",
       "name": "chatgpt-import",
       "description": "Import conversation history from ChatGPT into Vellum",
@@ -653,7 +676,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-08T19:30:57.000Z"
+      "updatedAt": "2026-07-08T23:28:09.000Z"
     },
     {
       "id": "public-ingress",
