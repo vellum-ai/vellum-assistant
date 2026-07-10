@@ -42,7 +42,11 @@ mock.module("../ipc/cli-client.js", () => ({
     params?: Record<string, unknown>,
     opts?: { timeoutMs?: number },
   ) => mockCliIpcCallFn(method, params, opts),
-  exitFromIpcResult: (r: { ok: false; error?: string; statusCode?: number }) => {
+  exitFromIpcResult: (r: {
+    ok: false;
+    error?: string;
+    statusCode?: number;
+  }) => {
     process.stderr.write((r.error ?? "Unknown error") + "\n");
     process.exitCode = 10;
   },
@@ -394,7 +398,8 @@ describe("assistant mcp add", () => {
     mockCliIpcCallFn = mock(() =>
       Promise.resolve({
         ok: false,
-        error: 'MCP server "existing" already exists. Remove it first with: assistant mcp remove existing',
+        error:
+          'MCP server "existing" already exists. Remove it first with: assistant mcp remove existing',
       }),
     );
 
@@ -467,6 +472,66 @@ describe("assistant mcp add", () => {
       (c) => c[0] === "internal_mcp_add",
     );
     expect(addCall).toBeDefined();
+  });
+
+  test("prints needs-auth guidance when verification reports needs-auth", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: { added: true, status: "needs-auth" },
+      }),
+    );
+
+    const { stdout, exitCode } = await runMcpAdd("needs-auth-server", [
+      "-t",
+      "streamable-http",
+      "-u",
+      "https://example.com/mcp",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("assistant mcp auth needs-auth-server");
+  });
+
+  test("prints connected when verification reports connected", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: { added: true, status: "connected" },
+      }),
+    );
+
+    const { stdout } = await runMcpAdd("ok-server", [
+      "-t",
+      "streamable-http",
+      "-u",
+      "https://example.com/mcp",
+    ]);
+
+    expect(stdout).toContain("Verified: connected");
+  });
+
+  test("--no-verify sends verify:false in the request body", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({ ok: true, result: { added: true } }),
+    );
+
+    await runMcpAdd("no-verify-server", [
+      "-t",
+      "streamable-http",
+      "-u",
+      "https://example.com/mcp",
+      "--no-verify",
+    ]);
+
+    const addCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_add",
+    );
+    const body = (addCall![1] as Record<string, unknown>).body as Record<
+      string,
+      unknown
+    >;
+    expect(body.verify).toBe(false);
   });
 });
 
@@ -561,6 +626,32 @@ describe("assistant mcp reload", () => {
 
     expect(exitCode).toBe(0); // best-effort, not fatal
     expect(stderr).toContain("Could not signal reload");
+  });
+
+  test("--wait sends { wait: true } and prints per-server status", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: {
+          ok: true,
+          servers: [
+            { serverId: "alpha", connected: true },
+            { serverId: "beta", connected: false, needsAuth: true },
+          ],
+        },
+      }),
+    );
+
+    const { stdout, exitCode } = await runMcp("reload", ["--wait"]);
+
+    expect(exitCode).toBe(0);
+    const reloadCall = mockCliIpcCallFn.mock.calls.find(
+      (c) => c[0] === "internal_mcp_reload",
+    );
+    expect(reloadCall![1]).toEqual({ body: { wait: true } });
+    expect(stdout).toContain("alpha: connected");
+    expect(stdout).toContain("beta: needs-auth");
+    expect(stdout).toContain("assistant mcp auth beta");
   });
 });
 
@@ -771,5 +862,72 @@ describe("assistant mcp auth — IPC path", () => {
     expect(stderr).toMatch(/Internal server error during polling/);
     // Should fail fast — only 1 start call + 1 poll call, not the full timeout
     expect(mockCliIpcCallFn.mock.calls.length).toBe(2);
+  });
+
+  test("--no-wait starts the flow, opens the browser, and exits 0 without polling", async () => {
+    mockCliIpcCallFn = mock((method: string) => {
+      if (method === "internal_mcp_auth_start") {
+        return Promise.resolve({
+          ok: true,
+          result: { auth_url: "https://auth.example.com", state: "srv" },
+        });
+      }
+      return Promise.resolve({ ok: true, result: { status: "pending" } });
+    });
+
+    const { exitCode, stdout } = await runMcp("auth", ["srv", "--no-wait"]);
+
+    expect(exitCode).toBe(0);
+    expect(mockOpenInHostBrowserFn).toHaveBeenCalledWith(
+      "https://auth.example.com",
+    );
+    expect(stdout).toContain("assistant mcp auth srv --status");
+    // Only the start call — the flow does not poll.
+    expect(mockCliIpcCallFn.mock.calls.length).toBe(1);
+    expect(mockCliIpcCallFn.mock.calls[0][0]).toBe("internal_mcp_auth_start");
+  });
+
+  test("--status reports pending with the authorization URL", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: true,
+        result: { status: "pending", auth_url: "https://auth.example.com" },
+      }),
+    );
+
+    const { exitCode, stdout } = await runMcp("auth", ["srv", "--status"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("pending");
+    expect(stdout).toContain("https://auth.example.com");
+    // --status never starts a flow.
+    expect(mockCliIpcCallFn.mock.calls.length).toBe(1);
+    expect(mockCliIpcCallFn.mock.calls[0][0]).toBe("internal_mcp_auth_status");
+    expect(mockOpenInHostBrowserFn).not.toHaveBeenCalled();
+  });
+
+  test("--status reports complete", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({ ok: true, result: { status: "complete" } }),
+    );
+
+    const { exitCode, stdout } = await runMcp("auth", ["srv", "--status"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("complete");
+  });
+
+  test("--status exits 1 when there is no active flow", async () => {
+    mockCliIpcCallFn = mock(() =>
+      Promise.resolve({
+        ok: false,
+        error: 'No active OAuth flow for server "srv"',
+      }),
+    );
+
+    const { exitCode, stderr } = await runMcp("auth", ["srv", "--status"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("No active OAuth flow");
   });
 });

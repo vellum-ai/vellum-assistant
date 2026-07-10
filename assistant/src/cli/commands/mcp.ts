@@ -24,6 +24,30 @@ interface McpServerEntry {
   blockedTools?: string[];
 }
 
+interface McpReloadServerStatus {
+  serverId: string;
+  connected: boolean;
+  needsAuth?: boolean;
+  disabled?: boolean;
+  error?: string;
+}
+
+function reloadStatusLabel(s: McpReloadServerStatus): string {
+  if (s.disabled) {
+    return "disabled";
+  }
+  if (s.connected) {
+    return "connected";
+  }
+  if (s.needsAuth) {
+    return "needs-auth";
+  }
+  if (s.error) {
+    return `error: ${s.error}`;
+  }
+  return "error";
+}
+
 // ---------------------------------------------------------------------------
 // Auth polling helper
 // ---------------------------------------------------------------------------
@@ -196,6 +220,10 @@ Examples:
       mcp
         .command("reload")
         .description("Reload MCP server connections in the running assistant")
+        .option(
+          "--wait",
+          "Wait for the reload to finish and print per-server connection status",
+        )
         .addHelpText(
           "after",
           `
@@ -203,22 +231,56 @@ Signals the running assistant to disconnect and reconnect all MCP servers
 using the current configuration from disk. Active sessions pick up new tools
 on their next turn automatically. The assistant must be running.
 
+By default the reload is fire-and-forget. Pass --wait to block until the
+reload completes and print each server's status (connected, needs-auth,
+disabled, or error).
+
 Examples:
   $ vellum mcp reload
-  $ vellum mcp reload   # after editing config.json to add a new server
+  $ vellum mcp reload --wait   # block and report per-server status
   $ vellum mcp reload   # after running "vellum mcp auth <server>"`,
         )
-        .action(async () => {
-          const result = await cliIpcCall("internal_mcp_reload", { body: {} });
+        .action(async (opts: { wait?: boolean }) => {
+          const result = await cliIpcCall<{
+            ok: true;
+            servers?: McpReloadServerStatus[];
+            error?: string;
+          }>("internal_mcp_reload", {
+            body: opts.wait ? { wait: true } : {},
+          });
+
           if (!result.ok) {
             log.warn(
               `Could not signal reload: ${result.error}. ` +
                 `Run 'assistant mcp reload' once the assistant is up.`,
             );
-          } else {
+            return;
+          }
+
+          if (!opts.wait) {
             log.info(
               "MCP reload signal sent. The running assistant will reconnect servers shortly.",
             );
+            return;
+          }
+
+          if (result.result?.error) {
+            log.error(`Reload error: ${result.result.error}`);
+            process.exitCode = 1;
+          }
+
+          const servers = result.result?.servers ?? [];
+          if (servers.length === 0) {
+            log.info("Reload complete. No MCP servers configured.");
+            return;
+          }
+
+          log.info("Reload complete:");
+          for (const s of servers) {
+            log.info(`  ${s.serverId}: ${reloadStatusLabel(s)}`);
+            if (s.needsAuth) {
+              log.info(`    Run: assistant mcp auth ${s.serverId}`);
+            }
           }
         });
 
@@ -261,6 +323,10 @@ Examples:
           "Bearer ",
         )
         .option("--disabled", "Add as disabled")
+        .option(
+          "--no-verify",
+          "Skip the post-add connection check (add fire-and-forget without reporting status)",
+        )
         .addHelpText(
           "after",
           `
@@ -275,6 +341,11 @@ Transport-specific requirements:
 The --risk flag sets the default risk level for all tools from this server
 (defaults to "high" if not specified). The server starts enabled unless
 --disabled is passed.
+
+After writing the config the command verifies the server by attempting a
+bounded connection, then reports whether it connected, needs authentication
+(run 'assistant mcp auth <name>'), or errored. Pass --no-verify to skip the
+check and return immediately.
 
 Auth for API-key / Bearer servers (recommended): store the secret in the
 vault, then reference it — the key never passes through the shell or the
@@ -318,6 +389,7 @@ Examples:
               authHeader?: string;
               authPrefix?: string;
               disabled?: boolean;
+              verify?: boolean;
             },
           ) => {
             let headers: Record<string, string> | undefined;
@@ -352,24 +424,26 @@ Examples:
               }
             }
 
-            const result = await cliIpcCall<{ added: true }>(
-              "internal_mcp_add",
-              {
-                body: {
-                  name,
-                  transportType: opts.transportType,
-                  url: opts.url,
-                  command: opts.command,
-                  args: opts.args,
-                  risk: opts.risk,
-                  disabled: opts.disabled,
-                  headers,
-                  authCredential: opts.authCredential,
-                  authHeader: opts.authHeader,
-                  authPrefix: opts.authPrefix,
-                },
+            const result = await cliIpcCall<{
+              added: true;
+              status?: "connected" | "needs-auth" | "error";
+              error?: string;
+            }>("internal_mcp_add", {
+              body: {
+                name,
+                transportType: opts.transportType,
+                url: opts.url,
+                command: opts.command,
+                args: opts.args,
+                risk: opts.risk,
+                disabled: opts.disabled,
+                headers,
+                authCredential: opts.authCredential,
+                authHeader: opts.authHeader,
+                authPrefix: opts.authPrefix,
+                verify: opts.verify,
               },
-            );
+            });
 
             if (!result.ok) {
               log.error(result.error ?? "Failed to add MCP server");
@@ -378,13 +452,36 @@ Examples:
             }
 
             log.info(`Added MCP server "${name}" (${opts.transportType})`);
-            log.info("The running assistant is reloading MCP servers now.");
+
+            const status = result.result?.status;
+            if (!status) {
+              log.info("The running assistant is reloading MCP servers now.");
+              return;
+            }
+            if (status === "connected") {
+              log.info("Verified: connected.");
+            } else if (status === "needs-auth") {
+              log.info(`Needs authentication. Run: assistant mcp auth ${name}`);
+            } else {
+              log.info(
+                `Could not connect: ${result.result?.error ?? "unknown error"}. ` +
+                  "The assistant will keep retrying on reload.",
+              );
+            }
           },
         );
 
       mcp
         .command("auth <name>")
         .description("Authenticate with an MCP server via OAuth")
+        .option(
+          "--no-wait",
+          "Start the OAuth flow, print the authorization URL, and exit without waiting",
+        )
+        .option(
+          "--status",
+          "Print the current OAuth flow status instead of starting a new flow",
+        )
         .addHelpText(
           "after",
           `
@@ -395,83 +492,136 @@ Only works with sse or streamable-http transports (stdio servers do not use
 OAuth). Opens a browser for OAuth authorization with the remote server. The
 running assistant handles the OAuth callback and token exchange.
 
-The command waits up to 2.5 minutes for the user to complete the browser-based
-OAuth flow. If the server already has valid cached tokens, the command succeeds
-immediately without opening a browser. Tokens are cached locally for future use
-by the assistant.
+By default the command waits up to 2.5 minutes for the user to complete the
+browser-based OAuth flow. If the server already has valid cached tokens, it
+succeeds immediately without opening a browser. Tokens are cached locally for
+future use by the assistant.
+
+Pass --no-wait to start the flow, print the authorization URL, and exit
+immediately — then poll with --status until it reports complete. This avoids
+tying up a conversation turn while the browser authorization happens.
 
 After successful authentication, the running assistant detects the change
 automatically. You can also run 'vellum mcp reload' to apply immediately.
 
 Examples:
   $ assistant mcp auth my-server
-  $ assistant mcp auth remote-api`,
+  $ assistant mcp auth my-server --no-wait
+  $ assistant mcp auth my-server --status`,
         )
-        .action(async (name: string) => {
-          // IPC-first path — attempt daemon-orchestrated flow (works on hosted assistants)
-          const startResult = await cliIpcCall<{
-            auth_url: string;
-            state: string;
-            already_authenticated?: boolean;
-          }>("internal_mcp_auth_start", { body: { serverId: name } });
+        .action(
+          async (name: string, opts: { wait?: boolean; status?: boolean }) => {
+            // --status: report the current flow without starting a new one.
+            if (opts.status) {
+              const statusResult = await cliIpcCall<{
+                status: string;
+                auth_url?: string;
+                error?: string;
+              }>("internal_mcp_auth_status", {
+                pathParams: { serverId: name },
+              });
 
-          if (startResult.ok && startResult.result?.already_authenticated) {
-            log.info(`Server "${name}" is already authenticated.`);
-            process.exit(0);
-            return;
-          }
+              if (!statusResult.ok) {
+                log.error(
+                  `No active OAuth flow for "${name}". ` +
+                    `Start one with: assistant mcp auth ${name} --no-wait`,
+                );
+                process.exitCode = 1;
+                return;
+              }
 
-          if (startResult.ok && startResult.result?.auth_url) {
-            const authUrl = startResult.result.auth_url;
-            log.info(`Opening browser for "${name}" OAuth authorization...`);
-            openInHostBrowser(authUrl);
-            log.info(`If the browser did not open, visit:\n${authUrl}`);
-            log.info(
-              "Waiting for authorization in browser... (press Ctrl+C to cancel)",
-            );
+              const state = statusResult.result;
+              if (state?.status === "pending") {
+                log.info(`Authorization pending for "${name}".`);
+                if (state.auth_url) {
+                  log.info(`Authorize at:\n${state.auth_url}`);
+                }
+              } else if (state?.status === "complete") {
+                log.info(`Authentication complete for "${name}".`);
+              } else {
+                log.error(
+                  `OAuth error for "${name}": ${state?.error ?? "unknown error"}`,
+                );
+                process.exitCode = 1;
+              }
+              return;
+            }
 
-            const finalStatus = await pollMcpAuthStatus(name, {
-              intervalMs: 2_000,
-              timeoutMs: 150_000, // matches existing OAUTH_TIMEOUT_MS
-            });
+            // IPC-first path — attempt daemon-orchestrated flow (works on hosted assistants)
+            const startResult = await cliIpcCall<{
+              auth_url: string;
+              state: string;
+              already_authenticated?: boolean;
+            }>("internal_mcp_auth_start", { body: { serverId: name } });
 
-            if (finalStatus.status === "complete") {
-              log.info(`Authentication successful for "${name}".`);
-              log.info(
-                "The running assistant has picked up this change automatically.",
-              );
+            if (startResult.ok && startResult.result?.already_authenticated) {
+              log.info(`Server "${name}" is already authenticated.`);
               process.exit(0);
               return;
             }
 
-            const errMsg = finalStatus.error ?? "Unknown error";
-            if (errMsg.includes("denied") || errMsg.includes("cancelled")) {
-              log.error(`Authorization cancelled for "${name}".`);
-            } else if (errMsg.includes("timed out")) {
+            if (startResult.ok && startResult.result?.auth_url) {
+              const authUrl = startResult.result.auth_url;
+              log.info(`Opening browser for "${name}" OAuth authorization...`);
+              openInHostBrowser(authUrl);
+              log.info(`If the browser did not open, visit:\n${authUrl}`);
+
+              if (opts.wait === false) {
+                log.info(
+                  `Authorization started for "${name}". ` +
+                    `Check status with: assistant mcp auth ${name} --status`,
+                );
+                process.exit(0);
+                return;
+              }
+
+              log.info(
+                "Waiting for authorization in browser... (press Ctrl+C to cancel)",
+              );
+
+              const finalStatus = await pollMcpAuthStatus(name, {
+                intervalMs: 2_000,
+                timeoutMs: 150_000, // matches existing OAUTH_TIMEOUT_MS
+              });
+
+              if (finalStatus.status === "complete") {
+                log.info(`Authentication successful for "${name}".`);
+                log.info(
+                  "The running assistant has picked up this change automatically.",
+                );
+                process.exit(0);
+                return;
+              }
+
+              const errMsg = finalStatus.error ?? "Unknown error";
+              if (errMsg.includes("denied") || errMsg.includes("cancelled")) {
+                log.error(`Authorization cancelled for "${name}".`);
+              } else if (errMsg.includes("timed out")) {
+                log.error(
+                  `Authorization timed out for "${name}". Try again with: assistant mcp auth ${name}`,
+                );
+              } else {
+                log.error(`OAuth failed for "${name}": ${errMsg}`);
+              }
+              process.exitCode = 1;
+              return;
+            }
+
+            // Any !startResult.ok case: surface error and exit 1
+            const ipcErrMsg = startResult.error ?? "Unknown error";
+            if (
+              ipcErrMsg.startsWith("Could not connect to assistant daemon") ||
+              ipcErrMsg.startsWith("Unknown method:")
+            ) {
               log.error(
-                `Authorization timed out for "${name}". Try again with: assistant mcp auth ${name}`,
+                `MCP OAuth requires the assistant to be running. Is it running?`,
               );
             } else {
-              log.error(`OAuth failed for "${name}": ${errMsg}`);
+              log.error(`MCP OAuth failed via assistant: ${ipcErrMsg}`);
             }
             process.exitCode = 1;
-            return;
-          }
-
-          // Any !startResult.ok case: surface error and exit 1
-          const ipcErrMsg = startResult.error ?? "Unknown error";
-          if (
-            ipcErrMsg.startsWith("Could not connect to assistant daemon") ||
-            ipcErrMsg.startsWith("Unknown method:")
-          ) {
-            log.error(
-              `MCP OAuth requires the assistant to be running. Is it running?`,
-            );
-          } else {
-            log.error(`MCP OAuth failed via assistant: ${ipcErrMsg}`);
-          }
-          process.exitCode = 1;
-        });
+          },
+        );
 
       mcp
         .command("remove <name>")

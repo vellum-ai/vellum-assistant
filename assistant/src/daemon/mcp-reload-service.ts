@@ -20,6 +20,10 @@ export interface McpReloadServerResult {
   connected: boolean;
   /** True when the server is explicitly disabled in config. */
   disabled?: boolean;
+  /** True when the server did not connect because it requires authentication. */
+  needsAuth?: boolean;
+  /** Transport-level failure message, when the server failed to connect. */
+  error?: string;
   toolCount: number;
   tools: string[];
 }
@@ -85,36 +89,39 @@ async function doReload(): Promise<McpReloadResult> {
 
     if (config.mcp?.servers && Object.keys(config.mcp.servers).length > 0) {
       const serverToolInfos = await manager.start(config.mcp);
-      for (const { serverId, serverConfig, tools } of serverToolInfos) {
-        const mcpTools = createMcpToolsFromServer(
-          tools,
-          serverId,
-          serverConfig,
-          manager,
-        );
-        const accepted = registerMcpTools(serverId, mcpTools);
-        const acceptedNames = accepted.map((t) => t.name);
-        toolCount += accepted.length;
-        servers.push({
-          id: serverId,
-          connected: true,
-          toolCount: accepted.length,
-          tools: acceptedNames,
-        });
-      }
-      // Include servers that were configured but failed to connect or are disabled
+      const infoById = new Map(
+        serverToolInfos.map((info) => [info.serverId, info]),
+      );
+      // Preserve config order so callers see a stable server list.
       for (const id of serverIds) {
-        if (!servers.some((s) => s.id === id)) {
-          const serverConfig = config.mcp!.servers![id];
-          const isDisabled = serverConfig?.enabled === false;
+        const info = infoById.get(id);
+        if (info) {
+          const mcpTools = createMcpToolsFromServer(
+            info.tools,
+            id,
+            info.serverConfig,
+            manager,
+          );
+          const accepted = registerMcpTools(id, mcpTools);
+          toolCount += accepted.length;
           servers.push({
             id,
-            connected: false,
-            disabled: isDisabled || undefined,
-            toolCount: 0,
-            tools: [],
+            connected: true,
+            toolCount: accepted.length,
+            tools: accepted.map((t) => t.name),
           });
+          continue;
         }
+        const state = manager.getConnectionState(id);
+        servers.push({
+          id,
+          connected: false,
+          disabled: state?.status === "disabled" ? true : undefined,
+          needsAuth: state?.status === "needs-auth" ? true : undefined,
+          error: state?.status === "error" ? state.error : undefined,
+          toolCount: 0,
+          tools: [],
+        });
       }
       serverCount = servers.length;
     }

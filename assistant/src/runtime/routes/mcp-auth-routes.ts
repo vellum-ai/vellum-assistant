@@ -17,8 +17,12 @@ import { z } from "zod";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
 import { estimateToolDefinitionTokens } from "../../context/token-estimator.js";
-import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
+import {
+  type McpReloadServerResult,
+  reloadMcpServers,
+} from "../../daemon/mcp-reload-service.js";
 import { McpClient } from "../../mcp/client.js";
+import { getMcpServerManager } from "../../mcp/manager.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
 import {
@@ -123,11 +127,45 @@ function triggerReload(context: string): void {
   });
 }
 
-function handleMcpReload(_args: { body?: Record<string, unknown> }): {
-  ok: true;
-} {
-  triggerReload("internal_mcp_reload");
-  return { ok: true };
+interface McpReloadRouteServer {
+  serverId: string;
+  connected: boolean;
+  needsAuth?: boolean;
+  disabled?: boolean;
+  error?: string;
+}
+
+function toReloadRouteServers(
+  servers: McpReloadServerResult[],
+): McpReloadRouteServer[] {
+  return servers.map((s) => ({
+    serverId: s.id,
+    connected: s.connected,
+    ...(s.needsAuth ? { needsAuth: true } : {}),
+    ...(s.disabled ? { disabled: true } : {}),
+    ...(s.error ? { error: s.error } : {}),
+  }));
+}
+
+async function handleMcpReload({
+  body,
+}: {
+  body?: Record<string, unknown>;
+}): Promise<
+  { ok: true } | { ok: true; servers: McpReloadRouteServer[]; error?: string }
+> {
+  const wait = (body as { wait?: boolean } | undefined)?.wait === true;
+  if (!wait) {
+    triggerReload("internal_mcp_reload");
+    return { ok: true };
+  }
+
+  const result = await reloadMcpServers();
+  return {
+    ok: true,
+    servers: toReloadRouteServers(result.servers ?? []),
+    ...(result.success ? {} : { error: result.error }),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -136,11 +174,18 @@ function handleMcpReload(_args: { body?: Record<string, unknown> }): {
 
 const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 
+type McpHealthStatus = "connected" | "needs-auth" | "error";
+
+interface McpHealthResult {
+  status: McpHealthStatus;
+  error?: string;
+}
+
 async function checkMachineReadableHealth(
   serverId: string,
   config: McpServerConfig,
   timeoutMs = HEALTH_CHECK_TIMEOUT_MS,
-): Promise<string> {
+): Promise<McpHealthResult> {
   const client = new McpClient(serverId);
   try {
     await Promise.race([
@@ -153,25 +198,25 @@ async function checkMachineReadableHealth(
 
     if (client.isConnected) {
       await client.disconnect();
-      return "connected";
+      return { status: "connected" };
     }
 
     const err = client.lastError;
     if (err) {
-      if (err.message.includes("timeout")) {
-        return "error";
-      }
-      return "error";
+      return { status: "error", error: err.message };
     }
 
-    return "needs-auth";
-  } catch {
+    return { status: "needs-auth" };
+  } catch (err) {
     try {
       await client.disconnect();
     } catch {
       /* ignore */
     }
-    return "error";
+    return {
+      status: "error",
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -259,6 +304,7 @@ async function handleMcpList(_args: {
   const mcpConfig = raw.mcp as Partial<McpConfig> | undefined;
   const servers = mcpConfig?.servers ?? {};
   const entries = Object.entries(servers) as [string, McpServerConfig][];
+  const manager = getMcpServerManager();
 
   const results: McpServerEntry[] = await Promise.all(
     entries
@@ -268,8 +314,12 @@ async function handleMcpList(_args: {
         let status: string;
         if (!enabled) {
           status = "disabled";
+        } else if (manager.isServerConnected(id)) {
+          // The manager holds a live connection — trust it instead of opening
+          // a throwaway probe connection.
+          status = "connected";
         } else {
-          status = await checkMachineReadableHealth(id, config);
+          status = (await checkMachineReadableHealth(id, config)).status;
         }
         const hasOAuth =
           config.transport.type !== "stdio"
@@ -491,7 +541,7 @@ async function handleMcpUpdate({
   body,
 }: {
   body?: Record<string, unknown>;
-}): Promise<{ updated: true }> {
+}): Promise<{ updated: true; status?: McpHealthStatus; error?: string }> {
   const {
     name,
     enabled,
@@ -503,6 +553,7 @@ async function handleMcpUpdate({
     authCredential,
     authHeader,
     authPrefix,
+    verify,
   } = body as {
     name: string;
     enabled?: boolean;
@@ -514,6 +565,7 @@ async function handleMcpUpdate({
     authCredential?: string;
     authHeader?: string;
     authPrefix?: string;
+    verify?: boolean;
   };
 
   const raw = loadRawConfig();
@@ -590,7 +642,20 @@ async function handleMcpUpdate({
   saveRawConfig(raw);
   triggerReload("internal_mcp_update");
 
-  return { updated: true };
+  const isEnabled = server.enabled !== false;
+  if (verify === false || !isEnabled) {
+    return { updated: true };
+  }
+
+  const health = await checkMachineReadableHealth(
+    name,
+    server as unknown as McpServerConfig,
+  );
+  return {
+    updated: true,
+    status: health.status,
+    ...(health.error ? { error: health.error } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -601,7 +666,7 @@ async function handleMcpAdd({
   body,
 }: {
   body?: Record<string, unknown>;
-}): Promise<{ added: true }> {
+}): Promise<{ added: true; status?: McpHealthStatus; error?: string }> {
   const {
     name,
     transportType,
@@ -614,6 +679,7 @@ async function handleMcpAdd({
     authCredential,
     authHeader,
     authPrefix,
+    verify,
   } = body as {
     name: string;
     transportType: string;
@@ -626,6 +692,7 @@ async function handleMcpAdd({
     authCredential?: string;
     authHeader?: string;
     authPrefix?: string;
+    verify?: boolean;
   };
 
   const riskLevel = risk ?? "high";
@@ -707,7 +774,21 @@ async function handleMcpAdd({
   saveRawConfig(raw);
   triggerReload("internal_mcp_add");
 
-  return { added: true };
+  if (verify === false || disabled) {
+    return { added: true };
+  }
+
+  // Probe the affected server with a bounded health check so the caller learns
+  // whether the first connect will succeed, need auth, or fail.
+  const health = await checkMachineReadableHealth(
+    name,
+    serverMap[name] as unknown as McpServerConfig,
+  );
+  return {
+    added: true,
+    status: health.status,
+    ...(health.error ? { error: health.error } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -838,8 +919,9 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Trigger MCP server reload",
     description:
-      "Kicks off reloadMcpServers() async on the daemon. Returns immediately.",
+      "Reloads MCP servers on the daemon. Returns immediately by default; with { wait: true } it awaits the reload and returns per-server connection status.",
     tags: ["internal"],
+    requestBody: z.object({ wait: z.boolean().optional() }),
     handler: handleMcpReload,
   },
   {
@@ -929,6 +1011,7 @@ export const ROUTES: RouteDefinition[] = [
       authCredential: z.string().optional(),
       authHeader: z.string().optional(),
       authPrefix: z.string().optional(),
+      verify: z.boolean().optional(),
     }),
     handler: handleMcpUpdate,
   },
@@ -956,6 +1039,7 @@ export const ROUTES: RouteDefinition[] = [
       authCredential: z.string().optional(),
       authHeader: z.string().optional(),
       authPrefix: z.string().optional(),
+      verify: z.boolean().optional(),
     }),
     handler: handleMcpAdd,
   },
