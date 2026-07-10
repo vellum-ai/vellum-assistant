@@ -24,6 +24,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // caps before calling this, so in-limit images never reach the mock.
 const SHRUNK_DATA = "c2hydW5r"; // base64 for "shrunk"
 mock.module("../agent/image-optimize.js", () => ({
+  // The gate helper must stay real-shaped: every image in this file is
+  // oversized (never undersized), so the min-dimension gate never matches.
+  isBelowMinDimension: () => false,
   optimizeImageForTransport: () => ({
     data: SHRUNK_DATA,
     mediaType: "image/jpeg",
