@@ -227,7 +227,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const {
     refreshConversations,
-    switchConversation,
     startNewConversation,
     conversationExistsOnServer,
     historyResult,
@@ -383,7 +382,7 @@ export function ActiveChatView() {
   });
 
   // -------------------------------------------------------------------------
-  // Conversation secondary actions (fork, analyze, inspect, copy, etc.)
+  // Conversation secondary actions (fork, inspect, copy, etc.)
   // Primary actions (archive, pin, rename, mark-read) are owned by
   // ChatConversationHeader in chat-layout.tsx.
   // -------------------------------------------------------------------------
@@ -391,7 +390,6 @@ export function ActiveChatView() {
     handleForkConversation,
     handleForkConversationFromMenu,
     handleSummarizeUpToMessage,
-    handleAnalyzeConversation,
     handleOpenInNewWindow,
     handleInspectConversation,
     handleInspectMessage,
@@ -399,7 +397,6 @@ export function ActiveChatView() {
   } = useConversationSecondaryActions({
     activeConversation: activeConversation ?? null,
     refreshConversations,
-    switchConversation,
   });
 
   // "Summarize up to here" confirm dialog. The hover action only records the
@@ -443,7 +440,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   useChatHeaderRegistration({
     assetsRefreshKey,
-    handleAnalyzeConversation,
     handleForkConversationFromMenu,
     handleOpenInNewWindow,
     handleInspectConversation,
