@@ -1,21 +1,25 @@
 /**
- * Tests for `assistant/src/memory/v2/injection-events.ts` and its sibling
- * migration `256-memory-v2-injection-events.ts`.
+ * Tests for `assistant/src/plugins/defaults/memory/v2/injection-events.ts` and
+ * the main-DB migration `256-memory-v2-injection-events.ts`.
  *
  * Coverage matrix:
- *   - Migration creates the table + both indexes; safe to re-run.
+ *   - Migration 256 creates the main-side table + both indexes; safe to
+ *     re-run. (The table is subsequently relocated to the memory DB by
+ *     migration 326 — see table-relocation.test.ts for drain coverage.)
  *   - Backfill replays router-sourced concepts from memory_v2_activation_logs
  *     and is idempotent on a forced re-run with cleared checkpoint.
  *   - Backfill is a no-op when the activation-logs table doesn't exist
  *     (pre-234 DB).
- *   - recordInjectionEvents appends one row per slug per call; empty list
- *     is a no-op.
+ *   - recordInjectionEvents appends one row per slug per call to the memory
+ *     connection; empty list is a no-op.
  *   - computeInjectionScore matches the closed-form decay at known deltas
  *     (0d ≈ 1, 3d ≈ 0.5, 6d ≈ 0.25) and sums multiple events linearly.
  *   - computeInjectionScores returns the same per-slug values in batch and
  *     omits slugs with no events.
  *
- * Uses an in-memory bun:sqlite database — no real workspace DB.
+ * Uses in-memory bun:sqlite databases — the accessor tests install one into
+ * the `memory` singleton slot (where the accessors resolve their connection),
+ * the migration tests drive a plain main-DB handle. No real workspace DB.
  */
 
 import { Database } from "bun:sqlite";
@@ -31,11 +35,16 @@ mock.module("../../../../../util/logger.js", () => ({
 
 import type { DrizzleDb } from "../../../../../persistence/db-connection.js";
 import { getSqliteFrom } from "../../../../../persistence/db-connection.js";
+import {
+  clearStoredDb,
+  setStoredDb,
+} from "../../../../../persistence/db-singleton.js";
 import { migrateMemoryV2ActivationLogs } from "../../../../../persistence/migrations/234-memory-v2-activation-logs.js";
 import {
   downMemoryV2InjectionEvents,
   migrateMemoryV2InjectionEvents,
 } from "../../../../../persistence/migrations/256-memory-v2-injection-events.js";
+import { ensureInjectionEventsSchema } from "../../../../../persistence/migrations/326-move-injection-events-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import {
   computeInjectionScore,
@@ -57,14 +66,25 @@ const CHECKPOINTS_DDL = /*sql*/ `
 
 let sqlite: Database;
 let database: DrizzleDb;
+let memorySqlite: Database;
 
 beforeEach(() => {
   sqlite = new Database(":memory:");
   database = drizzle(sqlite, { schema });
   getSqliteFrom(database).exec(CHECKPOINTS_DDL);
+
+  // The accessors resolve the dedicated memory connection through the
+  // `memory` singleton slot — install a fresh in-memory DB there with the
+  // relocated table's schema. `clearStoredDb` in afterEach runs the closer.
+  memorySqlite = new Database(":memory:");
+  ensureInjectionEventsSchema(memorySqlite);
+  setStoredDb("memory", drizzle(memorySqlite, { schema }), () =>
+    memorySqlite.close(),
+  );
 });
 
 afterEach(() => {
+  clearStoredDb("memory");
   sqlite.close();
 });
 
@@ -203,14 +223,10 @@ describe("migrateMemoryV2InjectionEvents", () => {
 });
 
 describe("recordInjectionEvents", () => {
-  beforeEach(() => {
-    migrateMemoryV2InjectionEvents(database);
-  });
-
   test("appends one row per slug at the same timestamp", () => {
     const t = 1_000_000;
-    recordInjectionEvents(database, ["alice", "bob", "alice"], t);
-    const rows = getSqliteFrom(database)
+    recordInjectionEvents(["alice", "bob", "alice"], t);
+    const rows = memorySqlite
       .query(
         `SELECT slug, injected_at FROM memory_v2_injection_events ORDER BY id`,
       )
@@ -222,9 +238,23 @@ describe("recordInjectionEvents", () => {
     ]);
   });
 
+  test("writes land in the memory connection, not the main DB handle", () => {
+    recordInjectionEvents(["alice"], 1_000_000);
+    const inMain = getSqliteFrom(database)
+      .query(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='memory_v2_injection_events'`,
+      )
+      .get();
+    expect(inMain).toBeFalsy();
+    const { n } = memorySqlite
+      .query(`SELECT COUNT(*) as n FROM memory_v2_injection_events`)
+      .get() as { n: number };
+    expect(n).toBe(1);
+  });
+
   test("empty list is a no-op", () => {
-    recordInjectionEvents(database, [], 1_000_000);
-    const { n } = getSqliteFrom(database)
+    recordInjectionEvents([], 1_000_000);
+    const { n } = memorySqlite
       .query(`SELECT COUNT(*) as n FROM memory_v2_injection_events`)
       .get() as { n: number };
     expect(n).toBe(0);
@@ -232,87 +262,55 @@ describe("recordInjectionEvents", () => {
 });
 
 describe("computeInjectionScore", () => {
-  beforeEach(() => {
-    migrateMemoryV2InjectionEvents(database);
-  });
-
   test("returns 0 for a slug with no events", () => {
-    expect(computeInjectionScore(database, "missing", Date.now())).toBe(0);
+    expect(computeInjectionScore("missing", Date.now())).toBe(0);
   });
 
   test("single event 0 days ago → score ≈ 1", () => {
     const now = 10_000_000_000;
-    recordInjectionEvents(database, ["alice"], now);
-    expect(computeInjectionScore(database, "alice", now)).toBeCloseTo(1, 5);
+    recordInjectionEvents(["alice"], now);
+    expect(computeInjectionScore("alice", now)).toBeCloseTo(1, 5);
   });
 
   test("single event 3 days (one half-life) ago → score ≈ 0.5", () => {
     const now = 10_000_000_000;
-    recordInjectionEvents(
-      database,
-      ["alice"],
-      now - INJECTION_SCORE_HALF_LIFE_MS,
-    );
-    expect(computeInjectionScore(database, "alice", now)).toBeCloseTo(0.5, 5);
+    recordInjectionEvents(["alice"], now - INJECTION_SCORE_HALF_LIFE_MS);
+    expect(computeInjectionScore("alice", now)).toBeCloseTo(0.5, 5);
   });
 
   test("single event 6 days (two half-lives) ago → score ≈ 0.25", () => {
     const now = 10_000_000_000;
-    recordInjectionEvents(
-      database,
-      ["alice"],
-      now - 2 * INJECTION_SCORE_HALF_LIFE_MS,
-    );
-    expect(computeInjectionScore(database, "alice", now)).toBeCloseTo(0.25, 5);
+    recordInjectionEvents(["alice"], now - 2 * INJECTION_SCORE_HALF_LIFE_MS);
+    expect(computeInjectionScore("alice", now)).toBeCloseTo(0.25, 5);
   });
 
   test("multiple events sum independently", () => {
     const now = 10_000_000_000;
-    recordInjectionEvents(database, ["alice"], now);
-    recordInjectionEvents(
-      database,
-      ["alice"],
-      now - INJECTION_SCORE_HALF_LIFE_MS,
-    );
-    recordInjectionEvents(
-      database,
-      ["alice"],
-      now - 2 * INJECTION_SCORE_HALF_LIFE_MS,
-    );
-    expect(computeInjectionScore(database, "alice", now)).toBeCloseTo(1.75, 5);
+    recordInjectionEvents(["alice"], now);
+    recordInjectionEvents(["alice"], now - INJECTION_SCORE_HALF_LIFE_MS);
+    recordInjectionEvents(["alice"], now - 2 * INJECTION_SCORE_HALF_LIFE_MS);
+    expect(computeInjectionScore("alice", now)).toBeCloseTo(1.75, 5);
   });
 });
 
 describe("computeInjectionScores", () => {
-  beforeEach(() => {
-    migrateMemoryV2InjectionEvents(database);
-  });
-
   test("returns the same per-slug values as the single-slug helper", () => {
     const now = 10_000_000_000;
-    recordInjectionEvents(database, ["alice", "bob"], now);
-    recordInjectionEvents(
-      database,
-      ["alice"],
-      now - INJECTION_SCORE_HALF_LIFE_MS,
-    );
+    recordInjectionEvents(["alice", "bob"], now);
+    recordInjectionEvents(["alice"], now - INJECTION_SCORE_HALF_LIFE_MS);
 
-    const scores = computeInjectionScores(
-      database,
-      ["alice", "bob", "ghost"],
-      now,
-    );
+    const scores = computeInjectionScores(["alice", "bob", "ghost"], now);
     expect(scores.get("alice")).toBeCloseTo(1.5, 5);
     expect(scores.get("bob")).toBeCloseTo(1, 5);
     // ghost has no events — omitted from the result, not present as 0.
     expect(scores.has("ghost")).toBe(false);
     expect(scores.get("alice")).toBeCloseTo(
-      computeInjectionScore(database, "alice", now),
+      computeInjectionScore("alice", now),
       5,
     );
   });
 
   test("empty slug list returns empty map", () => {
-    expect(computeInjectionScores(database, [], Date.now()).size).toBe(0);
+    expect(computeInjectionScores([], Date.now()).size).toBe(0);
   });
 });
