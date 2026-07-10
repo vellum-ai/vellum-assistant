@@ -35,7 +35,7 @@ const updateMessageMetadataCalls: UpdateMessageMetadataCall[] = [];
 let nextDeliveryTs: string | null = null;
 
 type RenderedHistoryStub = {
-  text: string;
+  surfaceFallbackText: string;
   textSegments: string[];
   toolCalls: unknown[];
   toolCallsBeforeText: boolean;
@@ -45,7 +45,7 @@ type RenderedHistoryStub = {
 };
 
 let renderedHistoryContent: RenderedHistoryStub = {
-  text: "",
+  surfaceFallbackText: "",
   textSegments: [],
   toolCalls: [],
   toolCallsBeforeText: false,
@@ -160,7 +160,7 @@ describe("channel-reply-delivery", () => {
     nextDeliveryTs = null;
     renderedHistoryContentQueue.length = 0;
     renderedHistoryContent = {
-      text: "",
+      surfaceFallbackText: "",
       textSegments: [],
       toolCalls: [],
       toolCallsBeforeText: false,
@@ -199,7 +199,7 @@ describe("channel-reply-delivery", () => {
       },
     );
     renderedHistoryContentQueue.push({
-      text: "Final reply.",
+      surfaceFallbackText: "Final reply.",
       textSegments: ["Final reply."],
       toolCalls: [],
       toolCallsBeforeText: false,
@@ -257,7 +257,7 @@ describe("channel-reply-delivery", () => {
     });
   });
 
-  it("falls back to rendered.text when no non-empty textSegments exist", async () => {
+  it("falls back to fallbackText when no non-empty textSegments exist", async () => {
     await deliverRenderedReplyViaCallback({
       callbackUrl: "http://gateway/deliver/telegram",
       chatId: "chat-2",
@@ -289,7 +289,7 @@ describe("channel-reply-delivery", () => {
       },
     ]);
     renderedHistoryContent = {
-      text: "Before tool.After tool.",
+      surfaceFallbackText: "Before tool.After tool.",
       textSegments: ["Before tool.", "After tool."],
       toolCalls: [],
       toolCallsBeforeText: false,
@@ -358,7 +358,7 @@ describe("channel-reply-delivery", () => {
     );
     renderedHistoryContentQueue.push(
       {
-        text: "",
+        surfaceFallbackText: "",
         textSegments: [],
         toolCalls: [{ name: "remember", input: {} }],
         toolCallsBeforeText: true,
@@ -367,7 +367,7 @@ describe("channel-reply-delivery", () => {
         thinkingSegments: [],
       },
       {
-        text: "Current answer.",
+        surfaceFallbackText: "Current answer.",
         textSegments: ["Current answer."],
         toolCalls: [],
         toolCallsBeforeText: false,
@@ -376,7 +376,7 @@ describe("channel-reply-delivery", () => {
         thinkingSegments: [],
       },
       {
-        text: "Current answer.",
+        surfaceFallbackText: "Current answer.",
         textSegments: ["Current answer."],
         toolCalls: [],
         toolCallsBeforeText: false,
@@ -415,7 +415,7 @@ describe("channel-reply-delivery", () => {
       },
     );
     renderedHistoryContentQueue.push({
-      text: "",
+      surfaceFallbackText: "",
       textSegments: [],
       toolCalls: [{ name: "remember", input: {} }],
       toolCallsBeforeText: true,
@@ -453,7 +453,7 @@ describe("channel-reply-delivery", () => {
       },
     );
     const silentStub = {
-      text: "<no_response/>",
+      surfaceFallbackText: "<no_response/>",
       textSegments: ["<no_response/>"],
       toolCalls: [],
       toolCallsBeforeText: false,
@@ -462,7 +462,7 @@ describe("channel-reply-delivery", () => {
       thinkingSegments: [],
     };
     const answerStub = {
-      text: "current answer",
+      surfaceFallbackText: "current answer",
       textSegments: ["current answer"],
       toolCalls: [],
       toolCallsBeforeText: false,
@@ -496,7 +496,7 @@ describe("channel-reply-delivery", () => {
       },
     );
     const silentStub = {
-      text: "<no_response/>",
+      surfaceFallbackText: "<no_response/>",
       textSegments: ["<no_response/>"],
       toolCalls: [],
       toolCallsBeforeText: false,
@@ -534,7 +534,7 @@ describe("channel-reply-delivery", () => {
       },
     );
     const silentStub = {
-      text: "<no_response/>",
+      surfaceFallbackText: "<no_response/>",
       textSegments: ["<no_response/>"],
       toolCalls: [],
       toolCallsBeforeText: false,
@@ -543,7 +543,7 @@ describe("channel-reply-delivery", () => {
       thinkingSegments: [],
     };
     const answerStub = {
-      text: "current answer",
+      surfaceFallbackText: "current answer",
       textSegments: ["current answer"],
       toolCalls: [],
       toolCallsBeforeText: false,
@@ -599,7 +599,7 @@ describe("channel-reply-delivery", () => {
       },
     ]);
     const silentStub = {
-      text: "<no_response/>",
+      surfaceFallbackText: "<no_response/>",
       textSegments: ["<no_response/>"],
       toolCalls: [],
       toolCallsBeforeText: false,
@@ -608,7 +608,7 @@ describe("channel-reply-delivery", () => {
       thinkingSegments: [],
     };
     const answerStub = {
-      text: "current answer",
+      surfaceFallbackText: "current answer",
       textSegments: ["current answer"],
       toolCalls: [],
       toolCallsBeforeText: false,
@@ -918,7 +918,7 @@ describe("channel-reply-delivery", () => {
       { id: "msg-a", role: "assistant", content: '"text"' },
     );
     renderedHistoryContent = {
-      text: "Alpha.Beta.Gamma.",
+      surfaceFallbackText: "Alpha.Beta.Gamma.",
       textSegments: ["Alpha.", "Beta.", "Gamma."],
       toolCalls: [],
       toolCallsBeforeText: false,
@@ -971,7 +971,7 @@ describe("channel-reply-delivery", () => {
       },
     ]);
     renderedHistoryContent = {
-      text: "Reply.",
+      surfaceFallbackText: "Reply.",
       textSegments: ["Reply."],
       toolCalls: [],
       toolCallsBeforeText: false,
@@ -1056,7 +1056,7 @@ describe("channel-reply-delivery", () => {
       });
       // Set up renderer to produce one segment so onMessageTs fires once.
       renderedHistoryContent = {
-        text: "hello",
+        surfaceFallbackText: "hello",
         textSegments: ["hello"],
         toolCalls: [],
         toolCallsBeforeText: false,
@@ -1126,7 +1126,7 @@ describe("channel-reply-delivery", () => {
         }),
       });
       renderedHistoryContent = {
-        text: "hi",
+        surfaceFallbackText: "hi",
         textSegments: ["hi"],
         toolCalls: [],
         toolCallsBeforeText: false,
@@ -1166,7 +1166,7 @@ describe("channel-reply-delivery", () => {
         }),
       });
       renderedHistoryContent = {
-        text: "hi",
+        surfaceFallbackText: "hi",
         textSegments: ["hi"],
         toolCalls: [],
         toolCallsBeforeText: false,
@@ -1192,7 +1192,7 @@ describe("channel-reply-delivery", () => {
       // channelTs for the persisted row. Subsequent segments correspond to
       // independent Slack messages.
       renderedHistoryContent = {
-        text: "AlphaBeta",
+        surfaceFallbackText: "AlphaBeta",
         textSegments: ["Alpha", "Beta"],
         toolCalls: [],
         toolCallsBeforeText: false,

@@ -63,7 +63,13 @@ export interface HistoryAttachmentRef {
 }
 
 export interface RenderedHistoryContent {
-  text: string;
+  /**
+   * Prose from `ui_surface` plain-text fallback blocks (`_surfaceFallback`).
+   * Deliberately kept out of `textSegments`/`contentBlocks` so surface-capable
+   * clients don't render the card AND its fallback; channel delivery uses it
+   * as the reply body when a surface-only message has no other text.
+   */
+  surfaceFallbackText: string;
   toolCalls: HistoryToolCall[];
   /** True when the first tool_use block appeared before any text block. */
   toolCallsBeforeText: boolean;
@@ -316,7 +322,7 @@ export function renderHistoryContent(
       text = unwrapExternalContentForDisplay(String(content));
     }
     return {
-      text,
+      surfaceFallbackText: "",
       toolCalls: [],
       toolCallsBeforeText: false,
       textSegments: text ? [text] : [],
@@ -328,7 +334,8 @@ export function renderHistoryContent(
     };
   }
 
-  const textParts: string[] = [];
+  const surfaceFallbackParts: string[] = [];
+  let sawTextPart = false;
   const attachmentParts: string[] = [];
   const attachments: HistoryAttachmentRef[] = [];
   const toolCalls: HistoryToolCall[] = [];
@@ -368,8 +375,8 @@ export function renderHistoryContent(
   // Flush the open text segment into its tracked block and stop tracking it,
   // without closing the segment. Used before folding the synthetic attachment
   // description into the trailing segment: it stays in the legacy
-  // `textSegments`/`text` body but must not pollute the clean contentBlocks,
-  // since `attachment` blocks already carry that metadata.
+  // `textSegments` body but must not pollute the clean contentBlocks, since
+  // `attachment` blocks already carry that metadata.
   function detachTextBlock(): void {
     if (currentTextBlock) {
       currentTextBlock.text = joinWithSpacing(currentSegmentParts);
@@ -378,9 +385,9 @@ export function renderHistoryContent(
   }
 
   // `trackBlock` mirrors the segment into `contentBlocks`. The trailing
-  // attachment-description segment (legacy `message.text` for clients without
-  // attachment UI) sets it false so it isn't duplicated as a text block —
-  // attachments surface as `attachment` blocks instead.
+  // attachment-description segment (shown by clients without attachment UI)
+  // sets it false so it isn't duplicated as a text block — attachments
+  // surface as `attachment` blocks instead.
   function ensureSegment(trackBlock = true): void {
     if (!hasOpenSegment) {
       textSegments.push("");
@@ -461,14 +468,15 @@ export function renderHistoryContent(
       if (isPlaceholderSentinelText(displayText)) {
         continue;
       }
-      textParts.push(displayText);
+      sawTextPart = true;
       // A ui_surface card's plain-text fallback (flagged `_surfaceFallback` by
       // the approval-card builder) is represented by the adjacent surface for
-      // surface-capable clients. Keep it in the flat `.text` body above (CLI,
-      // search, channel replies, non-surface clients) but don't emit it as a
-      // text segment or content block, or those clients would render the card
-      // AND its fallback text.
+      // surface-capable clients. Collect it into `surfaceFallbackText` (used
+      // by channel delivery when a surface-only reply has no other text) but
+      // don't emit it as a text segment or content block, or those clients
+      // would render the card AND its fallback text.
       if (block._surfaceFallback === true) {
+        surfaceFallbackParts.push(displayText);
         continue;
       }
       ensureSegment();
@@ -673,7 +681,9 @@ export function renderHistoryContent(
               continue;
             }
             const resolved = resolveMediaSourceData(source);
-            if (resolved) imageDataList.push(resolved.data);
+            if (resolved) {
+              imageDataList.push(resolved.data);
+            }
           }
         }
       }
@@ -701,13 +711,13 @@ export function renderHistoryContent(
   }
 
   // Include attachment descriptions in textSegments so that clients without
-  // separate attachment UI (e.g. iOS) can display them via `message.text`.
+  // separate attachment UI (e.g. iOS) can display them as message text.
   // The macOS client handles this by selecting the *first* non-empty text
   // segment in interleaved content, so trailing attachment segments are safe.
   if (attachmentParts.length > 0) {
     detachTextBlock();
     const attachmentText = attachmentParts.join("\n");
-    const prefix = textParts.length > 0 ? "\n" : "";
+    const prefix = sawTextPart ? "\n" : "";
     ensureSegment(false);
     currentSegmentParts.push(prefix + attachmentText);
   }
@@ -727,18 +737,8 @@ export function renderHistoryContent(
     });
   }
 
-  const text = joinWithSpacing(textParts);
-  let rendered: string;
-  if (attachmentParts.length === 0) {
-    rendered = text;
-  } else if (text.trim().length === 0) {
-    rendered = attachmentParts.join("\n");
-  } else {
-    rendered = `${text}\n${attachmentParts.join("\n")}`;
-  }
-
   return {
-    text: rendered,
+    surfaceFallbackText: joinWithSpacing(surfaceFallbackParts),
     toolCalls,
     toolCallsBeforeText,
     textSegments,
@@ -748,6 +748,16 @@ export function renderHistoryContent(
     attachments,
     contentBlocks,
   };
+}
+
+/**
+ * Flat plain-text body of a rendered message: its text segments joined (the
+ * trailing segment carries attachment descriptions when the message has file
+ * attachments). Excludes `surfaceFallbackText` — surface prose is a delivery
+ * fallback, not message body text.
+ */
+export function renderedPlainText(rendered: RenderedHistoryContent): string {
+  return joinWithSpacing(rendered.textSegments);
 }
 
 /** Parameters shared by the standalone secret prompt and its link fallback. */

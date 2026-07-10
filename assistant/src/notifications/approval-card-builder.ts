@@ -44,9 +44,9 @@ export const ApprovalCardSurfaceBlockSchema = z.object({
 
 /**
  * The plain-text fallback block, flagged so the display projector
- * (`renderHistoryContent`) keeps it in flat `.text` but omits it from the
- * rendered `contentBlocks` — without it a surface-capable client would render
- * the card AND a duplicate text line.
+ * (`renderHistoryContent`) routes it to `surfaceFallbackText` and omits it
+ * from the rendered `contentBlocks` — without it a surface-capable client
+ * would render the card AND a duplicate text line.
  */
 export const ApprovalCardFallbackBlockSchema = z.object({
   type: z.literal("text"),

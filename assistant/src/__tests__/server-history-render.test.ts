@@ -7,7 +7,10 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { renderHistoryContent } from "../daemon/handlers/shared.js";
+import {
+  renderedPlainText,
+  renderHistoryContent,
+} from "../daemon/handlers/shared.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import {
   getAttachmentsForMessage,
@@ -28,7 +31,7 @@ describe("renderHistoryContent", () => {
       { type: "text", text: "hello " },
       { type: "text", text: "world" },
     ]);
-    expect(output.text).toBe("hello world");
+    expect(renderedPlainText(output)).toBe("hello world");
     expect(output.toolCalls).toEqual([]);
   });
 
@@ -46,10 +49,10 @@ describe("renderHistoryContent", () => {
       },
     ]);
 
-    expect(output.text).toContain("[File attachment] spec.pdf");
-    expect(output.text).toContain("type=application/pdf");
-    expect(output.text).toContain("size=5 B");
-    expect(output.text).toContain(
+    expect(renderedPlainText(output)).toContain("[File attachment] spec.pdf");
+    expect(renderedPlainText(output)).toContain("type=application/pdf");
+    expect(renderedPlainText(output)).toContain("size=5 B");
+    expect(renderedPlainText(output)).toContain(
       "Attachment text: Important requirement from the attachment.",
     );
   });
@@ -66,7 +69,7 @@ describe("renderHistoryContent", () => {
       },
     ]);
 
-    expect(output.text).toBe("");
+    expect(renderedPlainText(output)).toBe("");
   });
 
   test("appends attachment lines after text content", () => {
@@ -83,7 +86,7 @@ describe("renderHistoryContent", () => {
       },
     ]);
 
-    expect(output.text).toContain(
+    expect(renderedPlainText(output)).toContain(
       "please review the file\n[File attachment] notes.txt",
     );
   });
@@ -165,10 +168,12 @@ describe("renderHistoryContent", () => {
   });
 
   test("falls back to string conversion for non-array content", () => {
-    expect(renderHistoryContent("raw string").text).toBe("raw string");
-    expect(renderHistoryContent(null).text).toBe("");
-    expect(renderHistoryContent(undefined).text).toBe("");
-    expect(renderHistoryContent(42).text).toBe("42");
+    expect(renderedPlainText(renderHistoryContent("raw string"))).toBe(
+      "raw string",
+    );
+    expect(renderedPlainText(renderHistoryContent(null))).toBe("");
+    expect(renderedPlainText(renderHistoryContent(undefined))).toBe("");
+    expect(renderedPlainText(renderHistoryContent(42))).toBe("42");
   });
 
   test("unwraps complete legacy external_content envelopes for plain string content", () => {
@@ -176,7 +181,7 @@ describe("renderHistoryContent", () => {
       '<external_content source="slack">\nVisible Slack text\n</external_content>',
     );
 
-    expect(output.text).toBe("Visible Slack text");
+    expect(renderedPlainText(output)).toBe("Visible Slack text");
     expect(output.textSegments).toEqual(["Visible Slack text"]);
     expect(output.contentOrder).toEqual(["text:0"]);
   });
@@ -190,7 +195,9 @@ describe("renderHistoryContent", () => {
       { type: "text", text: "Plain follow-up." },
     ]);
 
-    expect(output.text).toBe("Visible block text Plain follow-up.");
+    expect(renderedPlainText(output)).toBe(
+      "Visible block text Plain follow-up.",
+    );
     expect(output.textSegments).toEqual([
       "Visible block text Plain follow-up.",
     ]);
@@ -206,16 +213,18 @@ describe("renderHistoryContent", () => {
     const malformedOutput = renderHistoryContent([
       { type: "text", text: malformed },
     ]);
-    expect(malformedOutput.text).toBe(malformed);
+    expect(renderedPlainText(malformedOutput)).toBe(malformed);
     expect(malformedOutput.textSegments).toEqual([malformed]);
 
     const mixedOutput = renderHistoryContent(mixed);
-    expect(mixedOutput.text).toBe(mixed);
+    expect(renderedPlainText(mixedOutput)).toBe(mixed);
     expect(mixedOutput.textSegments).toEqual([mixed]);
   });
 
   test("preserves JSON object content as JSON string", () => {
-    expect(renderHistoryContent({ foo: "bar" }).text).toBe('{"foo":"bar"}');
+    expect(renderedPlainText(renderHistoryContent({ foo: "bar" }))).toBe(
+      '{"foo":"bar"}',
+    );
   });
 
   test("extracts tool_use blocks into toolCalls", () => {
@@ -228,7 +237,7 @@ describe("renderHistoryContent", () => {
       },
     ]);
 
-    expect(output.text).toBe("");
+    expect(renderedPlainText(output)).toBe("");
     expect(output.toolCalls).toEqual([
       { id: "tu_1", name: "web_fetch", input: { url: "https://example.com" } },
     ]);
@@ -618,7 +627,7 @@ describe("renderHistoryContent", () => {
       },
     ]);
 
-    expect(output.text).toBe("Let me look that up.");
+    expect(renderedPlainText(output)).toBe("Let me look that up.");
     expect(output.toolCalls).toHaveLength(1);
     expect(output.toolCalls[0].name).toBe("web_fetch");
     expect(output.toolCalls[0].result).toBe("page content here");
@@ -633,7 +642,7 @@ describe("renderHistoryContent", () => {
     ]);
 
     expect(output.toolCallsBeforeText).toBe(true);
-    expect(output.text).toBe("Here are the files.");
+    expect(renderedPlainText(output)).toBe("Here are the files.");
     expect(output.toolCalls).toHaveLength(1);
   });
 
@@ -651,7 +660,7 @@ describe("renderHistoryContent", () => {
     // Orphans are dropped — without the parent tool_use we can't tell the user
     // what tool ran, so the result is meaningless. See shared.ts comment.
     expect(output.toolCalls).toEqual([]);
-    expect(output.text).toBe("");
+    expect(renderedPlainText(output)).toBe("");
     expect(output.textSegments).toEqual([]);
     expect(output.contentOrder).toEqual([]);
   });
@@ -798,7 +807,9 @@ describe("renderHistoryContent", () => {
       { type: "text", text: "Real response after." },
     ]);
 
-    expect(output.text).toBe("Real response before. Real response after.");
+    expect(renderedPlainText(output)).toBe(
+      "Real response before. Real response after.",
+    );
     expect(output.textSegments).toEqual([
       "Real response before. Real response after.",
     ]);
@@ -810,16 +821,16 @@ describe("renderHistoryContent", () => {
       { type: "text", text: "\x00__PLACEHOLDER__[empty assistant turn]" },
     ]);
 
-    expect(output.text).toBe("");
+    expect(renderedPlainText(output)).toBe("");
     expect(output.textSegments).toEqual([]);
     expect(output.contentOrder).toEqual([]);
   });
 
-  test("keeps a flagged surface-fallback text block in .text but out of blocks/segments", () => {
+  test("routes a flagged surface-fallback text block to surfaceFallbackText, out of blocks/segments", () => {
     // The approval-card builder emits [ui_surface, text(_surfaceFallback)]. The
-    // surface renders the card for rich clients; the flagged fallback must stay
-    // in the flat `.text` body (CLI/search) but NOT appear as a text segment or
-    // content block, or the card would render twice.
+    // surface renders the card for rich clients; the flagged fallback must land
+    // on `surfaceFallbackText` (channel delivery) but NOT appear as a text
+    // segment or content block, or the card would render twice.
     const output = renderHistoryContent([
       {
         type: "ui_surface",
@@ -831,7 +842,7 @@ describe("renderHistoryContent", () => {
       { type: "text", text: "Bob wants to use bash", _surfaceFallback: true },
     ]);
 
-    expect(output.text).toBe("Bob wants to use bash");
+    expect(output.surfaceFallbackText).toBe("Bob wants to use bash");
     expect(output.textSegments).toEqual([]);
     expect(output.surfaces).toHaveLength(1);
     expect(output.contentOrder).toEqual(["surface:0"]);
@@ -851,7 +862,7 @@ describe("renderHistoryContent", () => {
       "surface",
       "text",
     ]);
-    expect(output.text).toBe("legacy fallback");
+    expect(renderedPlainText(output)).toBe("legacy fallback");
   });
 });
 

@@ -3,7 +3,7 @@ import {
   listConversations,
   searchConversations,
 } from "../../persistence/conversation-queries.js";
-import { renderHistoryContent } from "./shared.js";
+import { renderedPlainText, renderHistoryContent } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // Shared business logic (transport-agnostic)
@@ -65,7 +65,7 @@ export function getMessageContent(
   try {
     const content = JSON.parse(dbMessage.content);
     const rendered = renderHistoryContent(content);
-    text = rendered.text || undefined;
+    text = renderedPlainText(rendered) || undefined;
     const parsedToolCalls = rendered.toolCalls;
 
     if (parsedToolCalls.length > 0) {

@@ -398,8 +398,8 @@ async function insertOrDeferSkillCard(
       })),
     },
   };
-  // Plain-text fallback (approval-card pattern): feeds the model, search,
-  // CLI display, and channel replies. Surface-capable clients skip it —
+  // Plain-text fallback (approval-card pattern): feeds the model and channel
+  // replies (via `surfaceFallbackText`). Surface-capable clients skip it —
   // `renderHistoryContent` keeps `_surfaceFallback` text out of the
   // rendered content blocks so the card is never double-rendered.
   const fallbackBlock = {

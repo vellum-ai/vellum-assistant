@@ -17,7 +17,10 @@ import {
   updateDaemonText,
   updateStatusText,
 } from "./cli/main-screen.jsx";
-import { renderHistoryContent } from "./daemon/handlers/shared.js";
+import {
+  renderedPlainText,
+  renderHistoryContent,
+} from "./daemon/handlers/shared.js";
 import type { ServerMessage } from "./daemon/message-protocol.js";
 import {
   getConversation,
@@ -675,7 +678,9 @@ export async function startCli(): Promise<void> {
               } catch {
                 parsedContent = msg.content;
               }
-              const text = renderHistoryContent(parsedContent).text;
+              const text = renderedPlainText(
+                renderHistoryContent(parsedContent),
+              );
               const label = msg.role === "user" ? "you" : "assistant";
               const preview = truncate(text, 120);
               process.stdout.write(

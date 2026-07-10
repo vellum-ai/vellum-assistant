@@ -70,6 +70,7 @@ import { supersedePendingInteractionsOnEnqueue } from "../../daemon/handlers/con
 import {
   collectAttachmentRefs,
   type HistoryAttachmentRef,
+  renderedPlainText,
   renderHistoryContent,
 } from "../../daemon/handlers/shared.js";
 import { HostAppControlProxy } from "../../daemon/host-app-control-proxy.js";
@@ -2662,7 +2663,7 @@ export async function handleGetSuggestion(
       content = msg.content;
     }
     const rendered = renderHistoryContent(content);
-    const text = rendered.text.trim();
+    const text = renderedPlainText(rendered).trim();
     if (!text) continue;
 
     // If a messageId was requested and the first text-bearing assistant
@@ -2689,7 +2690,9 @@ export async function handleGetSuggestion(
       } catch {
         userContent = rawMessages[j].content;
       }
-      const userText = renderHistoryContent(userContent).text.trim();
+      const userText = renderedPlainText(
+        renderHistoryContent(userContent),
+      ).trim();
       if (userText) {
         priorUserText = userText;
         break;

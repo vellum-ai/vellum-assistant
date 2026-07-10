@@ -79,25 +79,28 @@ mock.module("../daemon/handlers/shared.js", () => ({
         .filter((b: { type: string }) => b.type === "text" && "text" in b)
         .map((b: { text: string }) => b.text);
       return {
-        text: texts.join("\n"),
+        surfaceFallbackText: "",
         toolCalls: [],
         toolCallsBeforeText: false,
-        textSegments: [],
+        textSegments: texts.length > 0 ? [texts.join("\n")] : [],
         contentOrder: [],
         surfaces: [],
         thinkingSegments: [],
       };
     }
+    const text = typeof content === "string" ? content : "";
     return {
-      text: typeof content === "string" ? content : "",
+      surfaceFallbackText: "",
       toolCalls: [],
       toolCallsBeforeText: false,
-      textSegments: [],
+      textSegments: text ? [text] : [],
       contentOrder: [],
       surfaces: [],
       thinkingSegments: [],
     };
   },
+  renderedPlainText: (rendered: { textSegments: string[] }) =>
+    rendered.textSegments.join("\n"),
 }));
 
 // ---------------------------------------------------------------------------
@@ -112,9 +115,12 @@ import { handleGetSuggestion } from "../runtime/routes/conversation-routes.js";
 
 function makeArgs(params: { conversationKey?: string; messageId?: string }) {
   const queryParams: Record<string, string> = {};
-  if (params.conversationKey)
+  if (params.conversationKey) {
     queryParams.conversationKey = params.conversationKey;
-  if (params.messageId) queryParams.messageId = params.messageId;
+  }
+  if (params.messageId) {
+    queryParams.messageId = params.messageId;
+  }
   return { queryParams };
 }
 

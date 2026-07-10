@@ -98,7 +98,10 @@ function hasRealDeliverableReply(
   attachments: RuntimeAttachmentMetadata[],
 ): boolean {
   if (
-    toDeliverableTextSegments(rendered.textSegments, rendered.text).length > 0
+    toDeliverableTextSegments(
+      rendered.textSegments,
+      rendered.surfaceFallbackText,
+    ).length > 0
   ) {
     return true;
   }
@@ -374,7 +377,7 @@ async function deliverPersistedAssistantMessageViaCallback(
     callbackUrl,
     chatId: externalChatId,
     textSegments: rendered.textSegments,
-    fallbackText: rendered.text,
+    fallbackText: rendered.surfaceFallbackText,
     attachments: replyAttachments,
     assistantId,
     startFromSegment: options?.startFromSegment,
