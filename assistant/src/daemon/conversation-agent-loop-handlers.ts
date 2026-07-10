@@ -587,6 +587,38 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
 }
 
 /**
+ * Reserve a message row born in-flight: the writer (and its `{ ref }`) is
+ * created first, the reservation persists the ref into the newborn row with
+ * `finalized = 0`, and the writer is registered under the resolved row id.
+ * When the conversation can't be resolved, the row is reserved as a plain
+ * inline placeholder and null is returned — content writes then fall back
+ * to direct row writes, which stays correct at the cost of a full-blob
+ * UPDATE per flush.
+ */
+async function reserveInflightMessageRow(
+  state: EventHandlerState,
+  conversationId: string,
+  role: "assistant" | "user",
+  metadata: Record<string, unknown> | undefined,
+): Promise<{ id: string }> {
+  const writer = createInflightContentWriter(conversationId);
+  const reserved = await reserveMessage(
+    conversationId,
+    role,
+    metadata,
+    writer?.ref,
+  );
+  if (writer && !state.inflightWriters.has(reserved.id)) {
+    writer.messageId = reserved.id;
+    state.inflightWriters.set(reserved.id, writer);
+  }
+  // A pre-existing entry for this id means an id collision (only test
+  // doubles reuse row ids — production ids are unique); keep the writer
+  // already tracking that id so its delta file is still finalized/cleaned.
+  return reserved;
+}
+
+/**
  * Persist an in-loop message-content write, retrying transient SQLite write
  * contention (`SQLITE_BUSY`/`SQLITE_IOERR`) and swallowing a final failure so a
  * lock held by another writer cannot abort the turn. Every in-loop write
@@ -598,27 +630,6 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
  * Returns whether the write committed, so callers can gate dependent
  * bookkeeping (e.g. advancing the persisted seq) on durable content.
  */
-/**
- * Get or lazily create the in-flight writer for a row. Null when the
- * conversation can't be resolved — callers then fall back to the direct
- * row write, which stays correct at the cost of a full-blob UPDATE.
- */
-function obtainInflightWriter(
-  state: EventHandlerState,
-  conversationId: string,
-  messageId: string,
-): InflightContentWriter | null {
-  const existing = state.inflightWriters.get(messageId);
-  if (existing) {
-    return existing;
-  }
-  const writer = createInflightContentWriter(conversationId, messageId);
-  if (writer) {
-    state.inflightWriters.set(messageId, writer);
-  }
-  return writer;
-}
-
 async function persistLoopMessageContent(
   messageId: string,
   contentJson: string,
@@ -671,15 +682,13 @@ async function flushAccumulatedContent(
   // again, but they are not part of this write.
   const flushedSeq = state.lastPersistedContentSeq;
 
-  // Partial flushes append to the in-flight delta file, off the SQLite
-  // writer lock; the row was flipped to `{ ref }` on the first flush.
-  const writer = obtainInflightWriter(
-    state,
-    deps.ctx.conversationId,
-    messageId,
-  );
+  // Partial flushes append to the in-flight delta file — a pure file
+  // write; the row has held the `{ ref }` since it was reserved. Delta
+  // lines are stamped with the flushed event seq so the file correlates
+  // 1:1 with the stream.
+  const writer = state.inflightWriters.get(messageId);
   const persisted = writer
-    ? await appendInflightSnapshot(writer, built, deps.rlog)
+    ? appendInflightSnapshot(writer, built, flushedSeq ?? undefined, deps.rlog)
     : await persistLoopMessageContent(
         messageId,
         JSON.stringify(built),
@@ -919,7 +928,8 @@ export async function handleLlmCallStarted(
   }
 
   const metadata = buildAssistantChannelMetadata(state, deps);
-  const reservedRow = await reserveMessage(
+  const reservedRow = await reserveInflightMessageRow(
+    state,
     deps.ctx.conversationId,
     "assistant",
     metadata,
@@ -1263,7 +1273,8 @@ function ensureToolResultRowReserved(
   metadata: Record<string, unknown>,
 ): Promise<string> {
   if (state.pendingToolResultRowReservation === undefined) {
-    state.pendingToolResultRowReservation = reserveMessage(
+    state.pendingToolResultRowReservation = reserveInflightMessageRow(
+      state,
       conversationId,
       "user",
       metadata,
@@ -1306,9 +1317,9 @@ async function persistPendingToolResultRow(
   const batchBlocks = buildToolResultBlocks(
     state.pendingToolResults,
   ) as ContentBlock[];
-  const writer = obtainInflightWriter(state, deps.ctx.conversationId, rowId);
+  const writer = state.inflightWriters.get(rowId);
   const persisted = writer
-    ? await appendInflightSnapshot(writer, batchBlocks, deps.rlog)
+    ? appendInflightSnapshot(writer, batchBlocks, seq, deps.rlog)
     : await persistLoopMessageContent(
         rowId,
         JSON.stringify(batchBlocks),
@@ -1365,13 +1376,18 @@ export async function finalizePendingToolResultRow(
         )
       : blocks,
   );
-  await finalizeInflightContent(
+  const toolRowFinalized = await finalizeInflightContent(
     state.inflightWriters.get(rowId),
     rowId,
     contentJson,
     rlog,
   );
-  state.inflightWriters.delete(rowId);
+  // Keep the writer on a failed finalize (e.g. persistent SQLITE_BUSY) so
+  // the turn tail's stranded fold can retry — deleting it would leave the
+  // row `finalized = 0` in a live daemon until crash recovery.
+  if (toolRowFinalized) {
+    state.inflightWriters.delete(rowId);
+  }
   // Sync the row to the JSONL disk view so it stays in lockstep with the DB.
   if (conv != null) {
     syncMessageToDisk(conversationId, rowId, conv.createdAt);
@@ -2130,7 +2146,12 @@ export async function handleMessageComplete(
     deps.rlog,
     event.model ? { model: event.model } : undefined,
   );
-  state.inflightWriters.delete(assistantMessageId);
+  // Keep the writer on a failed finalize (e.g. persistent SQLITE_BUSY) so
+  // the turn tail's stranded fold can retry — deleting it would leave the
+  // row `finalized = 0` in a live daemon until crash recovery.
+  if (persisted) {
+    state.inflightWriters.delete(assistantMessageId);
+  }
   state.assistantRowAwaitingFinalization = false;
   // The assistant row now holds the authoritative content (text + thinking +
   // tool_use blocks from `event.message`), and any drained tool-result rows

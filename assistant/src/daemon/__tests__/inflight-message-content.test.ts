@@ -1,10 +1,10 @@
 /**
- * Tests for the in-flight message content writer: lazy row flip to
- * `{ ref }` / `finalized = 0`, diffed delta appends, transparent mid-stream
- * reads through the row mapper, finalize folding inline + cleanup, and the
- * stranded-writer fold at the turn seam.
+ * Tests for the in-flight message content writer: rows born `{ ref }` /
+ * `finalized = 0` at reserve, event-seq-stamped diffed appends, transparent
+ * mid-stream reads through the row mapper, finalize folding inline +
+ * cleanup, and the stranded-writer fold at the turn seam.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, mock, test } from "bun:test";
 
 import pino from "pino";
@@ -17,12 +17,11 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 import {
-  addMessage,
   createConversation,
   getMessageById,
+  reserveMessage,
 } from "../../persistence/conversation-crud.js";
-import { getSqliteFrom } from "../../persistence/db-connection.js";
-import { getDb } from "../../persistence/db-connection.js";
+import { getDb, getSqliteFrom } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import type { ContentBlock } from "../../providers/types.js";
 import {
@@ -48,26 +47,47 @@ function rawRow(messageId: string): { content: string; finalized: number } {
     .get(messageId) as { content: string; finalized: number };
 }
 
-async function setup(): Promise<{
+/** Mirror the reserve seam: writer first, row born with its ref. */
+async function reserveInflight(): Promise<{
   conversationId: string;
   messageId: string;
   writer: InflightContentWriter;
 }> {
   const conv = createConversation("inflight test");
-  const msg = await addMessage(conv.id, "assistant", "[]", {
-    skipIndexing: true,
-  });
-  const writer = createInflightContentWriter(conv.id, msg.id);
+  const writer = createInflightContentWriter(conv.id);
   if (!writer) {
     throw new Error("writer creation failed");
   }
-  return { conversationId: conv.id, messageId: msg.id, writer };
+  const reserved = await reserveMessage(
+    conv.id,
+    "assistant",
+    undefined,
+    writer.ref,
+  );
+  writer.messageId = reserved.id;
+  return { conversationId: conv.id, messageId: reserved.id, writer };
 }
 
+describe("reserve born in-flight", () => {
+  test("the row is created holding { ref } with finalized = 0", async () => {
+    const { messageId, writer } = await reserveInflight();
+    const row = rawRow(messageId);
+    expect(row.finalized).toBe(0);
+    expect(JSON.parse(row.content)).toEqual({ ref: writer.ref });
+    // No delta file exists until the first partial flush.
+    expect(existsSync(writer.absPath)).toBe(false);
+  });
+
+  test("a never-flushed in-flight row resolves to empty content", async () => {
+    const { conversationId, messageId } = await reserveInflight();
+    expect(getMessageById(messageId, conversationId)?.content).toEqual([]);
+  });
+});
+
 describe("appendInflightSnapshot", () => {
-  test("first append flips the row to { ref } / finalized = 0", async () => {
-    const { messageId, writer } = await setup();
-    expect(await appendInflightSnapshot(writer, [textBlock("hel")], rlog)).toBe(
+  test("appends touch only the file — the row keeps its { ref }", async () => {
+    const { messageId, writer } = await reserveInflight();
+    expect(appendInflightSnapshot(writer, [textBlock("hel")], 7, rlog)).toBe(
       true,
     );
     const row = rawRow(messageId);
@@ -77,11 +97,12 @@ describe("appendInflightSnapshot", () => {
   });
 
   test("mid-stream reads resolve the folded file through the row mapper", async () => {
-    const { conversationId, messageId, writer } = await setup();
-    await appendInflightSnapshot(writer, [textBlock("hel")], rlog);
-    await appendInflightSnapshot(
+    const { conversationId, messageId, writer } = await reserveInflight();
+    appendInflightSnapshot(writer, [textBlock("hel")], 1, rlog);
+    appendInflightSnapshot(
       writer,
       [textBlock("hello"), textBlock("world")],
+      2,
       rlog,
     );
     const row = getMessageById(messageId, conversationId);
@@ -89,21 +110,40 @@ describe("appendInflightSnapshot", () => {
     expect(row?.finalized).toBe(0);
   });
 
-  test("unchanged blocks are not re-appended (diffed deltas)", async () => {
-    const { writer } = await setup();
+  test("delta lines carry the triggering event seq, unchanged blocks skipped", async () => {
+    const { writer } = await reserveInflight();
     const stable = textBlock("stable block");
-    await appendInflightSnapshot(writer, [stable, textBlock("v1")], rlog);
-    const seqAfterFirst = writer.seq;
-    await appendInflightSnapshot(writer, [stable, textBlock("v2")], rlog);
-    // Only the changed index consumed a seq.
-    expect(writer.seq).toBe(seqAfterFirst + 1);
+    appendInflightSnapshot(writer, [stable, textBlock("v1")], 41, rlog);
+    appendInflightSnapshot(writer, [stable, textBlock("v2")], 55, rlog);
+    const lines = readFileSync(writer.absPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as { i: number; seq: number });
+    // First flush wrote both blocks at seq 41; the second wrote only the
+    // changed index at seq 55.
+    expect(lines.map((l) => [l.i, l.seq])).toEqual([
+      [0, 41],
+      [1, 41],
+      [1, 55],
+    ]);
+  });
+
+  test("a flush without an event seq stays monotonic past the last stamp", async () => {
+    const { writer } = await reserveInflight();
+    appendInflightSnapshot(writer, [textBlock("v1")], 10, rlog);
+    appendInflightSnapshot(writer, [textBlock("v2")], undefined, rlog);
+    const lines = readFileSync(writer.absPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as { seq: number });
+    expect(lines.map((l) => l.seq)).toEqual([10, 11]);
   });
 });
 
 describe("finalizeInflightContent", () => {
   test("folds inline, sets finalized = 1, deletes the file", async () => {
-    const { conversationId, messageId, writer } = await setup();
-    await appendInflightSnapshot(writer, [textBlock("partial")], rlog);
+    const { conversationId, messageId, writer } = await reserveInflight();
+    appendInflightSnapshot(writer, [textBlock("partial")], 1, rlog);
     const final = [textBlock("final answer")];
     expect(
       await finalizeInflightContent(
@@ -123,8 +163,8 @@ describe("finalizeInflightContent", () => {
     expect(JSON.parse(mapped?.metadata ?? "{}").model).toBe("test-model");
   });
 
-  test("works for rows that never went in-flight (fast replies)", async () => {
-    const { messageId, writer } = await setup();
+  test("finalizes fast replies that never created the file", async () => {
+    const { messageId, writer } = await reserveInflight();
     const final = [textBlock("quick")];
     expect(
       await finalizeInflightContent(
@@ -142,10 +182,11 @@ describe("finalizeInflightContent", () => {
 
 describe("finalizeStrandedInflightContent", () => {
   test("folds leftover writers from the row's resolved content", async () => {
-    const { conversationId, messageId, writer } = await setup();
-    await appendInflightSnapshot(
+    const { conversationId, messageId, writer } = await reserveInflight();
+    appendInflightSnapshot(
       writer,
       [textBlock("cancelled mid-stream")],
+      1,
       rlog,
     );
     const writers = new Map([[messageId, writer]]);
@@ -162,12 +203,17 @@ describe("finalizeStrandedInflightContent", () => {
     ]);
   });
 
-  test("skips writers that never marked the row", async () => {
-    const { messageId, writer } = await setup();
+  test("skips rows another path already finalized", async () => {
+    const { messageId, writer } = await reserveInflight();
+    await finalizeInflightContent(
+      writer,
+      messageId,
+      JSON.stringify([textBlock("done")]),
+      rlog,
+    );
     const writers = new Map([[messageId, writer]]);
     await finalizeStrandedInflightContent(writers, rlog);
     expect(writers.size).toBe(0);
-    // Row untouched: still the reserved placeholder, finalized default 1.
-    expect(rawRow(messageId).finalized).toBe(1);
+    expect(JSON.parse(rawRow(messageId).content)).toEqual([textBlock("done")]);
   });
 });

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import {
@@ -308,19 +308,37 @@ let mockConversationRow: Record<string, unknown> = {
 };
 let mockMessageById: Record<string, unknown> | null = null;
 
-// The in-flight delta file the writer creates for a row reserved as
-// `msg-reserve` in the (unmocked-path) test conversation. Partial flushes
-// land here instead of `updateMessageContent`; the finalize seam folds the
-// file inline and deletes it, so mid-turn assertions read it during the
-// provider's hold.
-function inflightDeltaPath(messageId = "msg-reserve"): string {
+// The in-flight delta files the writers create for the (unmocked-path)
+// test conversation. Files are uuid-named at reserve time, so tests locate
+// them by listing the directory. Partial flushes land here instead of
+// `updateMessageContent`; the finalize seam folds the file inline and
+// deletes it, so mid-turn assertions read it during the provider's hold.
+function inflightDir(): string {
   return join(
     getWorkspaceDir(),
     "conversations",
     getConversationDirName("test-conv", 1_700_000_000_000),
     "inflight",
-    `${messageId}.jsonl`,
   );
+}
+
+function inflightDeltaFiles(): string[] {
+  try {
+    return readdirSync(inflightDir())
+      .filter((f) => f.endsWith(".jsonl"))
+      .map((f) => join(inflightDir(), f));
+  } catch {
+    return [];
+  }
+}
+
+/** The single in-flight delta file expected during a mid-hold read. */
+function soleInflightDeltaPath(): string {
+  const files = inflightDeltaFiles();
+  if (files.length !== 1) {
+    throw new Error(`expected exactly one in-flight file, saw ${files.length}`);
+  }
+  return files[0];
 }
 const deleteMessageByIdMock = mock(() => ({
   segmentIds: [],
@@ -328,7 +346,6 @@ const deleteMessageByIdMock = mock(() => ({
 }));
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
 const updateMessageContentMock = mock(() => {});
-const markMessageContentInflightMock = mock(() => {});
 const finalizeMessageContentMock = mock(() => {});
 const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
 mock.module("../persistence/conversation-crud.js", () => ({
@@ -356,7 +373,6 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   reserveMessage: reserveMessageMock,
   updateMessageContent: updateMessageContentMock,
-  markMessageContentInflight: markMessageContentInflightMock,
   finalizeMessageContent: finalizeMessageContentMock,
   recordConversationPersistedSeq: () => {},
   getConversationPersistedSeq: () => null,
@@ -929,8 +945,8 @@ beforeEach(() => {
   deleteMessageByIdMock.mockClear();
   reserveMessageMock.mockClear();
   updateMessageContentMock.mockClear();
-  markMessageContentInflightMock.mockClear();
   finalizeMessageContentMock.mockClear();
+  rmSync(inflightDir(), { recursive: true, force: true });
   addMessageMock.mockClear();
   mockConversationErrorClassification = {
     code: "CONVERSATION_PROCESSING_FAILED",
@@ -2593,7 +2609,7 @@ describe("session-agent-loop", () => {
             // (1000ms); read the delta file mid-hold (finalize deletes it
             // at turn end).
             await new Promise((resolve) => setTimeout(resolve, 1050));
-            midTurnDeltaLines = readFileSync(inflightDeltaPath(), "utf8")
+            midTurnDeltaLines = readFileSync(soleInflightDeltaPath(), "utf8")
               .trim()
               .split("\n");
             await new Promise((resolve) => setTimeout(resolve, 100));
@@ -2608,10 +2624,9 @@ describe("session-agent-loop", () => {
       // Exactly one debounced partial flush landed, in the delta file:
       // one flush of both accumulated deltas writes block 0 once — one
       // JSONL line. Without the debounce gate each delta would flush
-      // separately (2 lines). The row itself sees no mid-stream write:
-      // one `{ ref }` flip on the first flush, then the finalize fold.
+      // separately (2 lines). The row itself sees no mid-stream write at
+      // all — it was born holding the `{ ref }` at reserve time.
       expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
-      expect(markMessageContentInflightMock).toHaveBeenCalledTimes(1);
       expect(midTurnDeltaLines).toHaveLength(1);
       const delta = JSON.parse(midTurnDeltaLines![0]) as {
         block: { type: string; text?: string };
@@ -2627,7 +2642,7 @@ describe("session-agent-loop", () => {
       expect(JSON.parse(finalize[1])).toEqual([
         { type: "text", text: "Hello, world." },
       ]);
-      expect(existsSync(inflightDeltaPath())).toBe(false);
+      expect(inflightDeltaFiles()).toHaveLength(0);
     });
 
     test("handleToolUse does NOT trigger a partial flush of its own", async () => {
@@ -2673,13 +2688,12 @@ describe("session-agent-loop", () => {
       //   - one finalize per `message_complete` (the tool turn and the final
       //     text turn), plus
       //   - the grouped tool-result user-row's turn-boundary finalize.
-      // The only in-flight `{ ref }` flip is the tool-result row's
-      // persist-on-arrival. `handleToolUse` contributes no partial flush of
-      // its own — one would flip the assistant row too (2 flips). That stray
-      // flush is the regression this test guards against.
+      // `handleToolUse` fires after `message_complete` removed the assistant
+      // writer, so a stray flush from it would fall back to
+      // `updateMessageContent` — the zero count is the regression guard.
       expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
       expect(finalizeMessageContentMock).toHaveBeenCalledTimes(3);
-      expect(markMessageContentInflightMock).toHaveBeenCalledTimes(1);
+      expect(inflightDeltaFiles()).toHaveLength(0);
     });
 
     test("handleMessageComplete clears any pending debounce timer before the final flush", async () => {
@@ -2734,14 +2748,14 @@ describe("session-agent-loop", () => {
 
       // Three finalize writes land: one per `message_complete` (the tool
       // turn and the final text turn) plus the grouped tool-result row's
-      // turn-boundary finalize; the tool-result row's persist-on-arrival is
-      // the sole in-flight flip. The debounced partial would have fired
-      // around T+250ms — during the tool executor's hold — but the
-      // timer-clear at the top of `handleMessageComplete` cancels it, so no
-      // stray assistant-row flip appears (that would make 2 flips).
+      // turn-boundary finalize. The debounced partial would have fired
+      // during the tool executor's hold — after `message_complete` removed
+      // the assistant writer — so a stray late flush would fall back to
+      // `updateMessageContent`; the timer-clear at the top of
+      // `handleMessageComplete` is what keeps that count at zero.
       expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
       expect(finalizeMessageContentMock).toHaveBeenCalledTimes(3);
-      expect(markMessageContentInflightMock).toHaveBeenCalledTimes(1);
+      expect(inflightDeltaFiles()).toHaveLength(0);
     });
 
     test("partial flushes never trigger the indexer or attention projector", async () => {
@@ -2814,7 +2828,7 @@ describe("session-agent-loop", () => {
           async sendMessage(_messages, options) {
             options?.onEvent?.({ type: "text_delta", text: payload });
             await new Promise((resolve) => setTimeout(resolve, 1050));
-            midTurnDeltaFile = readFileSync(inflightDeltaPath(), "utf8");
+            midTurnDeltaFile = readFileSync(soleInflightDeltaPath(), "utf8");
             await new Promise((resolve) => setTimeout(resolve, 100));
             return textResponse(payload);
           },
@@ -2864,16 +2878,18 @@ describe("session-agent-loop", () => {
       // WHEN the orchestrator runs the turn
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      // The partial flush flipped the orphan row in-flight exactly once
-      // (before the provider error). The orphan row was then deleted; the
-      // synthetic error message is inserted separately via `addMessage`
-      // (`mock-msg-id`) and never touched by a content write.
-      const inflightFlips = (
-        markMessageContentInflightMock.mock.calls as unknown as Array<
-          [string, string]
-        >
-      ).filter(([id]) => id === "msg-orphan-with-partial");
-      expect(inflightFlips).toHaveLength(1);
+      // The partial flush landed in the orphan row's in-flight delta file
+      // exactly once (before the provider error) — the stranded fold skips
+      // the deleted row, so the file's single delta line is the evidence.
+      // The orphan row was then deleted; the synthetic error message is
+      // inserted separately via `addMessage` (`mock-msg-id`) and never
+      // touched by a content write.
+      const orphanFiles = inflightDeltaFiles();
+      expect(orphanFiles).toHaveLength(1);
+      const orphanLines = readFileSync(orphanFiles[0], "utf8")
+        .trim()
+        .split("\n");
+      expect(orphanLines).toHaveLength(1);
       expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
       expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
       const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [

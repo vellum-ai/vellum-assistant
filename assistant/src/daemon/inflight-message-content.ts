@@ -2,17 +2,17 @@
  * In-flight message content: the agent loop's write path for streaming
  * content, kept off the SQLite writer lock.
  *
- * While a message streams, its content lives in an append-only JSONL delta
- * file under the conversation directory
- * (`conversations/<dir>/inflight/<messageId>.jsonl`) and the row holds a
- * `{ ref }` pointer with `finalized = 0`. Each partial flush appends only
- * the blocks that changed since the last flush — no row rewrite, no WAL
- * churn. At the message seam, {@link finalizeInflightContent} writes the
- * folded content inline, sets `finalized = 1`, and deletes the file.
+ * Rows are BORN streaming: the reserve seam creates the row with `content`
+ * already holding the `{ ref }` pointer at an in-flight JSONL delta file
+ * under the conversation directory (`conversations/<dir>/inflight/…`) and
+ * `finalized = 0`. Each partial flush appends only the blocks that changed
+ * since the last flush — a pure file append, no SQLite write at all. At the
+ * message seam, {@link finalizeInflightContent} writes the folded content
+ * inline, sets `finalized = 1`, and deletes the file.
  *
- * Writers are created lazily: a message that never partial-flushes (fast
- * replies inside the debounce window) never touches the file — its single
- * finalize write is the only persistence, exactly as before.
+ * A message that never partial-flushes (fast replies inside the debounce
+ * window) never creates the file — its single finalize write is the only
+ * content persistence, exactly as before.
  *
  * Reads of an in-flight row work transparently — the message row mapper
  * resolves `{ ref }` by folding the delta file — so content stays readable
@@ -23,12 +23,12 @@
 import { rmSync } from "node:fs";
 
 import type pino from "pino";
+import { v4 as uuid } from "uuid";
 
 import {
   finalizeMessageContent,
   getConversation,
   getMessageById,
-  markMessageContentInflight,
 } from "../persistence/conversation-crud.js";
 import { getConversationDirName } from "../persistence/conversation-directories.js";
 import {
@@ -40,28 +40,34 @@ import type { ContentBlock } from "../providers/types.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 
 export interface InflightContentWriter {
+  /** Row id — assigned by the reserve seam once the reservation resolves. */
   messageId: string;
   conversationId: string;
   /** Workspace-relative delta-file path persisted in the row's `{ ref }`. */
   ref: string;
   /** Absolute delta-file path. */
   absPath: string;
-  /** Monotonic per-writer sequence stamped on each appended delta line. */
-  seq: number;
+  /**
+   * Highest stream-event `seq` stamped on an appended delta line. Flushes
+   * stamp the triggering event's seq so file lines correlate 1:1 with the
+   * event stream; this tracks the high-water mark for monotonicity.
+   */
+  lastSeq: number;
   /** Per-index serialized form of the last flushed snapshot (diff base). */
   lastSerialized: string[];
-  /** Whether the row has been flipped to `{ ref }` / `finalized = 0`. */
-  rowMarked: boolean;
 }
 
 /**
- * Create a writer for one message's in-flight content. Returns null when
- * the conversation row can't be resolved — callers fall back to direct
- * row writes, which is always correct, just not contention-free.
+ * Create a writer for one message's in-flight content, ahead of the row's
+ * reservation — the returned `ref` is what the reserve seam persists into
+ * the newborn row's `{ ref }` content. The delta file is named by a fresh
+ * uuid (the row id does not exist yet); callers stamp `messageId` once the
+ * reservation resolves. Returns null when the conversation row can't be
+ * resolved — callers then reserve a plain inline row and fall back to
+ * direct row writes, which is always correct, just not contention-free.
  */
 export function createInflightContentWriter(
   conversationId: string,
-  messageId: string,
 ): InflightContentWriter | null {
   const conv = getConversation(conversationId);
   if (!conv || !Number.isFinite(conv.createdAt)) {
@@ -72,48 +78,43 @@ export function createInflightContentWriter(
     "conversations",
     getConversationDirName(conversationId, conv.createdAt),
     "inflight",
-    `${messageId}.jsonl`,
+    `${uuid()}.jsonl`,
   ].join("/");
   const absPath = resolveContentRefPath(ref);
   if (!absPath) {
     return null;
   }
   return {
-    messageId,
+    messageId: "",
     conversationId,
     ref,
     absPath,
-    seq: 0,
+    lastSeq: 0,
     lastSerialized: [],
-    rowMarked: false,
   };
 }
 
 /**
  * Persist a full content snapshot by appending only the blocks that changed
- * since the last flush. The first append flips the row to `{ ref }` /
- * `finalized = 0` (one small fixed-size row write for the whole stream);
- * every subsequent flush touches only the delta file.
+ * since the last flush — a pure file append, no SQLite write.
+ *
+ * `eventSeq` is the stream-event seq that triggered this flush; every delta
+ * line of the flush is stamped with it so file lines correlate 1:1 with the
+ * event stream. Flushes without a stream seq (e.g. content synthesized
+ * outside the delta stream) advance the writer's high-water mark by one.
+ * The stamp is clamped monotonic so the fold's highest-seq-wins rule holds
+ * even across mixed sources.
  *
  * Returns whether the snapshot is durably persisted, mirroring the old
  * row-write contract so callers can gate seq bookkeeping on it.
  */
-export async function appendInflightSnapshot(
+export function appendInflightSnapshot(
   writer: InflightContentWriter,
   blocks: ContentBlock[],
+  eventSeq: number | undefined,
   rlog: pino.Logger,
-): Promise<boolean> {
+): boolean {
   try {
-    if (!writer.rowMarked) {
-      await withSqliteRetry(
-        () => markMessageContentInflight(writer.messageId, writer.ref),
-        {
-          op: "mark_message_inflight",
-          context: { messageId: writer.messageId },
-        },
-      );
-      writer.rowMarked = true;
-    }
     // The fold keeps the highest-seq line per index, so a shrinking snapshot
     // (fewer blocks than the diff base) cannot be expressed as an append.
     // Streaming content only grows within a row, so this is a never-path
@@ -130,15 +131,18 @@ export async function appendInflightSnapshot(
       rmSync(writer.absPath, { force: true });
       writer.lastSerialized = [];
     }
+    const stamp = Math.max(eventSeq ?? writer.lastSeq + 1, writer.lastSeq + 1);
     const deltas: ContentDeltaLine[] = [];
     for (let i = 0; i < blocks.length; i++) {
       const serialized = JSON.stringify(blocks[i]);
       if (writer.lastSerialized[i] === serialized) {
         continue;
       }
-      writer.seq += 1;
-      deltas.push({ i, seq: writer.seq, block: blocks[i] });
+      deltas.push({ i, seq: stamp, block: blocks[i] });
       writer.lastSerialized[i] = serialized;
+    }
+    if (deltas.length > 0) {
+      writer.lastSeq = stamp;
     }
     appendContentDeltas(writer.absPath, deltas);
     return true;
@@ -177,7 +181,7 @@ export async function finalizeInflightContent(
     );
     return false;
   }
-  if (writer?.rowMarked) {
+  if (writer) {
     try {
       rmSync(writer.absPath, { force: true });
     } catch (err) {
@@ -203,12 +207,9 @@ export async function finalizeStrandedInflightContent(
   rlog: pino.Logger,
 ): Promise<void> {
   for (const writer of writers.values()) {
-    if (!writer.rowMarked) {
-      continue;
-    }
     try {
       const row = getMessageById(writer.messageId, writer.conversationId);
-      if (row) {
+      if (row && row.finalized === 0) {
         await finalizeInflightContent(
           writer,
           writer.messageId,

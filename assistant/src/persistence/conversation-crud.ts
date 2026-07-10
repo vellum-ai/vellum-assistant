@@ -516,6 +516,8 @@ interface InsertMessageCoreParams {
   conversationId: string;
   role: MessageRole;
   content: string;
+  /** 0 = row is born streaming (content is an in-flight `{ ref }`). Defaults to 1. */
+  finalized?: 0 | 1;
   metadata?: Record<string, unknown>;
   clientMessageId?: string;
   /** Pre-assigned message ID. When omitted, a time-ordered `uuidv7()` is
@@ -549,8 +551,15 @@ interface InsertMessageCoreParams {
 async function insertMessageCore(
   params: InsertMessageCoreParams,
 ): Promise<InsertedMessage> {
-  const { conversationId, role, content, metadata, clientMessageId, id } =
-    params;
+  const {
+    conversationId,
+    role,
+    content,
+    finalized,
+    metadata,
+    clientMessageId,
+    id,
+  } = params;
   const db = getDb();
   // Time-ordered UUIDv7 so server-generated message ids append to the tail of
   // the WITHOUT ROWID `messages` primary key instead of scattering (v4).
@@ -586,6 +595,7 @@ async function insertMessageCore(
             role,
             content,
             createdAt: now,
+            ...(finalized !== undefined ? { finalized } : {}),
             ...(metadataStr ? { metadata: metadataStr } : {}),
             ...(clientMessageId ? { clientMessageId } : {}),
           };
@@ -3113,11 +3123,19 @@ export async function reserveMessage(
   conversationId: string,
   role: MessageRole,
   metadata?: Record<string, unknown>,
+  /**
+   * Workspace-relative in-flight delta-file path. When provided, the row is
+   * created already streaming — `content` holds the `{ ref }` pointer and
+   * `finalized = 0` — so no later row write is needed to enter the
+   * streaming state. The finalize seam folds the row inline.
+   */
+  inflightRef?: string,
 ) {
   return insertMessageCore({
     conversationId,
     role,
-    content: "[]",
+    content: inflightRef ? JSON.stringify({ ref: inflightRef }) : "[]",
+    ...(inflightRef ? { finalized: 0 as const } : {}),
     metadata,
   });
 }
@@ -3151,23 +3169,6 @@ export function updateMessageContent(
   const db = getDb();
   db.update(messages)
     .set({ content: newContent })
-    .where(eq(messages.id, messageId))
-    .run();
-}
-
-/**
- * Flip a message row to file-backed streaming state: `content` becomes the
- * `{ ref }` pointer at the in-flight delta file and `finalized` drops to 0.
- * One small fixed-size write for the whole stream — every subsequent
- * partial flush appends to the file, not the row.
- */
-export function markMessageContentInflight(
-  messageId: string,
-  ref: string,
-): void {
-  const db = getDb();
-  db.update(messages)
-    .set({ content: JSON.stringify({ ref }), finalized: 0 })
     .where(eq(messages.id, messageId))
     .run();
 }
