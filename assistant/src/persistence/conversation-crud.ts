@@ -477,10 +477,7 @@ const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
   id: "id",
   conversationId: "conversationId",
   role: "role",
-  content: {
-    from: "content",
-    transform: (v) => resolveMessageContentBlocks(String(v)),
-  },
+  content: { from: "content", transform: resolveMessageContentBlocks },
   createdAt: "createdAt",
   metadata: "metadata",
   clientMessageId: "clientMessageId",

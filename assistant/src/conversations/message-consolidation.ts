@@ -43,13 +43,11 @@ function isToolResultType(type: string): boolean {
   return type === "tool_result" || type === "web_search_tool_result";
 }
 
-function isSystemNoticeText(block: Record<string, unknown>): boolean {
-  if (block.type !== "text") {
-    return false;
-  }
-  const text = typeof block.text === "string" ? block.text : "";
+function isSystemNoticeText(block: ContentBlock): boolean {
   return (
-    text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
+    block.type === "text" &&
+    block.text.startsWith("<system_notice>") &&
+    block.text.endsWith("</system_notice>")
   );
 }
 
@@ -65,23 +63,13 @@ export function isToolResultOnlyUserMessage(msg: MessageRow): boolean {
   if (msg.role !== "user") {
     return false;
   }
-  const blocks: unknown[] = msg.content;
-
   let sawToolResult = false;
-  for (const block of blocks) {
-    if (
-      typeof block !== "object" ||
-      block === null ||
-      typeof (block as Record<string, unknown>).type !== "string"
-    ) {
-      return false;
-    }
-    const rec = block as Record<string, unknown>;
-    if (isToolResultType(rec.type as string)) {
+  for (const block of msg.content) {
+    if (isToolResultType(block.type)) {
       sawToolResult = true;
       continue;
     }
-    if (isSystemNoticeText(rec)) {
+    if (isSystemNoticeText(block)) {
       continue;
     }
     return false;
@@ -175,27 +163,12 @@ export function mergeToolResultsIntoAssistantMessages(
       continue;
     }
 
-    const blocks: unknown[] = msg.content;
-
     // Separate tool-result blocks from real user content.
-    const toolResultBlocks: unknown[] = [];
-    const otherBlocks: unknown[] = [];
-    for (const block of blocks) {
-      if (
-        typeof block === "object" &&
-        block !== null &&
-        typeof (block as Record<string, unknown>).type === "string"
-      ) {
-        const rec = block as Record<string, unknown>;
-        if (isToolResultType(rec.type as string)) {
-          toolResultBlocks.push(block);
-        } else if (isSystemNoticeText(rec)) {
-          // System notices don't count as user content — drop them when
-          // the message is otherwise tool-result-only.
-          otherBlocks.push(block);
-        } else {
-          otherBlocks.push(block);
-        }
+    const toolResultBlocks: ContentBlock[] = [];
+    const otherBlocks: ContentBlock[] = [];
+    for (const block of msg.content) {
+      if (isToolResultType(block.type)) {
+        toolResultBlocks.push(block);
       } else {
         otherBlocks.push(block);
       }
@@ -220,21 +193,16 @@ export function mergeToolResultsIntoAssistantMessages(
         assistantContent = [...assistant.content];
         parsedAssistantContent.set(lastAssistantIdx, assistantContent);
       }
-      assistantContent.push(...(toolResultBlocks as ContentBlock[]));
+      assistantContent.push(...toolResultBlocks);
     }
 
     // If the user message had only tool_result (+ system_notice) blocks,
     // suppress it entirely. Otherwise keep the non-tool-result content.
-    const realUserContent = otherBlocks.filter(
-      (b) =>
-        !(
-          typeof b === "object" &&
-          b !== null &&
-          isSystemNoticeText(b as Record<string, unknown>)
-        ),
-    );
+    // System notices don't count as real user content — they are only
+    // injected alongside tool results in the agent loop.
+    const realUserContent = otherBlocks.filter((b) => !isSystemNoticeText(b));
     if (realUserContent.length > 0) {
-      result.push({ ...msg, content: otherBlocks as ContentBlock[] });
+      result.push({ ...msg, content: otherBlocks });
     }
     // else: tool-result-only → suppressed
   }
@@ -248,22 +216,6 @@ export function mergeToolResultsIntoAssistantMessages(
 }
 
 // ── Pass 2: consecutive-assistant merging ───────────────────────────
-
-/** Parse a message's JSON content into an array of content blocks. */
-function parseContentBlocks(content: ContentBlock[]): ContentBlock[] {
-  return [...content];
-}
-
-/**
- * Append content blocks from a donor message onto a target block array.
- * Parses the donor's JSON content and pushes each block into `target`.
- */
-function appendContentBlocks(
-  target: ContentBlock[],
-  donorContent: ContentBlock[],
-): void {
-  target.push(...donorContent);
-}
 
 /**
  * Promote metadata fields from a donor message to the surviving message
@@ -351,11 +303,11 @@ export function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
     // Lazily parse the target's content on first merge.
     let targetContent = pendingMerges.get(lastIdx);
     if (!targetContent) {
-      targetContent = parseContentBlocks(result[lastIdx].content);
+      targetContent = [...result[lastIdx].content];
       pendingMerges.set(lastIdx, targetContent);
     }
 
-    appendContentBlocks(targetContent, msg.content);
+    targetContent.push(...msg.content);
     result[lastIdx] = promoteMetadata(result[lastIdx], msg);
   }
 

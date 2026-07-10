@@ -2,17 +2,8 @@
  * Conversation export formatters for markdown and JSON.
  */
 
+import type { ContentBlock } from "../providers/types.js";
 import { truncate } from "../util/truncate.js";
-
-interface ContentBlock {
-  type: string;
-  text?: string;
-  name?: string;
-  input?: Record<string, unknown>;
-  content?: unknown;
-  tool_use_id?: string;
-  is_error?: boolean;
-}
 
 interface ExportMessage {
   role: string;
@@ -42,19 +33,17 @@ function extractText(blocks: ContentBlock[]): string {
         }
         break;
       case "tool_use":
-        parts.push(
-          `[Tool: ${block.name}] ${JSON.stringify(block.input ?? {})}`,
-        );
+        parts.push(`[Tool: ${block.name}] ${JSON.stringify(block.input)}`);
         break;
       case "tool_result":
         if (block.is_error) {
-          parts.push(`[Error: ${String(block.content ?? "")}]`);
+          parts.push(`[Error: ${block.content}]`);
         } else {
-          parts.push(`[Result: ${truncate(String(block.content ?? ""), 500)}]`);
+          parts.push(`[Result: ${truncate(block.content, 500)}]`);
         }
         break;
       case "server_tool_use":
-        parts.push(`[Web search: ${block.name ?? "web_search"}]`);
+        parts.push(`[Web search: ${block.name}]`);
         break;
       case "web_search_tool_result":
         parts.push("[Web search results]");

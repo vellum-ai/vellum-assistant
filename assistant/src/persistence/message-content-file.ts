@@ -194,7 +194,14 @@ function resolveRefToBlocks(ref: MessageContentRef): ContentBlock[] {
  *
  * Never throws — content reads must not take down read paths.
  */
-export function resolveMessageContentBlocks(raw: string): ContentBlock[] {
+export function resolveMessageContentBlocks(raw: unknown): ContentBlock[] {
+  if (typeof raw !== "string") {
+    log.warn(
+      { rawType: typeof raw },
+      "Non-string stored message content; resolving as empty",
+    );
+    return [];
+  }
   const ref = parseContentRef(raw);
   if (ref) {
     return resolveRefToBlocks(ref);
