@@ -239,12 +239,26 @@ Examples:
         )
         .option(
           "-H, --header <key:value>",
-          "Custom HTTP header (repeatable, for sse/streamable-http). E.g. -H 'Authorization: Bearer tok123'",
+          "Custom HTTP header (repeatable, for sse/streamable-http). Prefer --auth-credential for secrets. E.g. -H 'X-Trace: on' or -H 'Authorization: Bearer {{credential:service/field}}'",
           (val: string, acc: string[]) => {
             acc.push(val);
             return acc;
           },
           [] as string[],
+        )
+        .option(
+          "--auth-credential <service/field>",
+          "Reference a stored vault credential for auth (recommended for API-key servers). Store it first with 'assistant credentials prompt --service <s> --field <f>'.",
+        )
+        .option(
+          "--auth-header <name>",
+          "Header name for --auth-credential",
+          "Authorization",
+        )
+        .option(
+          "--auth-prefix <prefix>",
+          "Value prefix prepended to the resolved credential for --auth-credential",
+          "Bearer ",
         )
         .option("--disabled", "Add as disabled")
         .addHelpText(
@@ -262,9 +276,23 @@ The --risk flag sets the default risk level for all tools from this server
 (defaults to "high" if not specified). The server starts enabled unless
 --disabled is passed.
 
+Auth for API-key / Bearer servers (recommended): store the secret in the
+vault, then reference it — the key never passes through the shell or the
+conversation, and rotation is picked up on reconnect:
+
+  $ assistant credentials prompt --service reducto --field api_key --label "Reducto API key"
+  $ assistant mcp add reducto -t streamable-http -u https://mcp.reducto.ai/mcp \\
+      --auth-credential reducto/api_key
+
+--auth-header defaults to "Authorization" and --auth-prefix defaults to
+"Bearer ". For a custom API-key header, pass both, e.g.
+--auth-credential acme/key --auth-header X-API-Key --auth-prefix ''.
+
 The --header (-H) flag adds custom HTTP headers to sse/streamable-http
-transports. Use it for Bearer Token or API Key authentication. The flag
-is repeatable — pass multiple -H flags for multiple headers.
+transports and is repeatable. Do NOT put a raw secret or a $VAR shell
+expansion in -H (the assistant strips env vars, so the header would be
+stored empty). To inject a stored credential from -H, use the placeholder
+syntax: -H 'Authorization: Bearer {{credential:service/field}}'.
 
 If a server with the same name already exists, the command fails. Remove the
 existing server first with "assistant mcp remove <name>".
@@ -273,8 +301,8 @@ Examples:
   $ assistant mcp add my-server -t stdio -c npx -a my-mcp-server
   $ assistant mcp add remote-api -t streamable-http -u https://api.example.com/mcp -r medium
   $ assistant mcp add legacy-sse -t sse -u https://old.example.com/events --disabled
-  $ assistant mcp add authed-api -t sse -u https://api.example.com/mcp -H 'Authorization: Bearer tok123'
-  $ assistant mcp add apikey-srv -t streamable-http -u https://srv.example.com/mcp -H 'X-API-Key: sk_live_abc'`,
+  $ assistant mcp add reducto -t streamable-http -u https://mcp.reducto.ai/mcp --auth-credential reducto/api_key
+  $ assistant mcp add apikey-srv -t streamable-http -u https://srv.example.com/mcp --auth-credential acme/key --auth-header X-API-Key --auth-prefix ''`,
         )
         .action(
           async (
@@ -286,6 +314,9 @@ Examples:
               args?: string[];
               risk: string;
               header: string[];
+              authCredential?: string;
+              authHeader?: string;
+              authPrefix?: string;
               disabled?: boolean;
             },
           ) => {
@@ -301,9 +332,23 @@ Examples:
                   process.exitCode = 1;
                   return;
                 }
-                headers[h.slice(0, colonIdx).trim()] = h
-                  .slice(colonIdx + 1)
-                  .trim();
+                const key = h.slice(0, colonIdx).trim();
+                const value = h.slice(colonIdx + 1).trim();
+                if (value.includes("${")) {
+                  log.error(
+                    `Header "${key}" contains a shell variable ("${value}"). Shell environment variables are stripped before the assistant runs, so this header would be stored empty. Use --auth-credential ${key === "Authorization" ? "<service/field>" : `<service/field> --auth-header ${key}`}, or the {{credential:service/field}} placeholder.`,
+                  );
+                  process.exitCode = 1;
+                  return;
+                }
+                if (value.length === 0) {
+                  log.error(
+                    `Header "${key}" has an empty value and would be stored empty. Provide a value or use --auth-credential.`,
+                  );
+                  process.exitCode = 1;
+                  return;
+                }
+                headers[key] = value;
               }
             }
 
@@ -319,6 +364,9 @@ Examples:
                   risk: opts.risk,
                   disabled: opts.disabled,
                   headers,
+                  authCredential: opts.authCredential,
+                  authHeader: opts.authHeader,
+                  authPrefix: opts.authPrefix,
                 },
               },
             );

@@ -21,7 +21,10 @@ import {
   setMcpAuthError,
   setMcpAuthPending,
 } from "./mcp-auth-state.js";
-import { getMcpHeaders } from "./mcp-header-store.js";
+import {
+  McpHeaderResolutionError,
+  resolveMcpHeaders,
+} from "./mcp-header-store.js";
 import {
   type McpOAuthCallbackTransport,
   McpOAuthProvider,
@@ -81,9 +84,30 @@ export async function orchestrateMcpOAuthConnect(args: {
   // Register the pending callback in the daemon heap
   const { codePromise } = await provider.startCallbackServer();
 
-  // Resolve effective headers: credential store takes precedence, then config
-  const storedHeaders = await getMcpHeaders(serverId);
-  const effectiveHeaders = storedHeaders ?? transport.headers;
+  // Resolve effective headers: credential store (literals + resolved refs)
+  // takes precedence, then config. An unresolvable ref falls back to config
+  // headers so the OAuth discovery attempt still runs.
+  let effectiveHeaders: Record<string, string> | undefined;
+  try {
+    const resolvedHeaders = await resolveMcpHeaders(serverId);
+    effectiveHeaders =
+      Object.keys(resolvedHeaders).length > 0
+        ? resolvedHeaders
+        : transport.headers;
+  } catch (err) {
+    if (err instanceof McpHeaderResolutionError) {
+      log.warn(
+        {
+          serverId,
+          missing: err.missing.map((m) => `${m.service}/${m.field}`),
+        },
+        "MCP static auth credential unresolvable during OAuth discovery; using config headers",
+      );
+      effectiveHeaders = transport.headers;
+    } else {
+      throw err;
+    }
+  }
 
   // Build the MCP transport and client
   const serverUrl = new URL(transport.url);

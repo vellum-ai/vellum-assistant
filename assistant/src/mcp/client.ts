@@ -8,7 +8,10 @@ import { getIsPlatform } from "../config/env-registry.js";
 import type { McpTransport } from "../config/schemas/mcp.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
-import { getMcpHeaders } from "./mcp-header-store.js";
+import {
+  McpHeaderResolutionError,
+  resolveMcpHeaders,
+} from "./mcp-header-store.js";
 import { McpOAuthProvider } from "./mcp-oauth-provider.js";
 
 const log = getLogger("mcp-client");
@@ -109,16 +112,31 @@ export class McpClient {
       }
     }
 
-    // Resolve static auth headers from credential store, falling back to
-    // any legacy headers in the transport config for backward compatibility.
+    // Resolve static auth headers from credential store, merging literal
+    // headers with vault-backed credential references. Legacy headers in the
+    // transport config remain the fallback for backward compatibility.
     let effectiveConfig = transportConfig;
     if (isHttpTransport) {
-      const storedHeaders = await getMcpHeaders(this.serverId);
-      if (storedHeaders) {
-        effectiveConfig = {
-          ...transportConfig,
-          headers: { ...transportConfig.headers, ...storedHeaders },
-        } as McpTransport;
+      try {
+        const resolvedHeaders = await resolveMcpHeaders(this.serverId);
+        if (Object.keys(resolvedHeaders).length > 0) {
+          effectiveConfig = {
+            ...transportConfig,
+            headers: { ...transportConfig.headers, ...resolvedHeaders },
+          } as McpTransport;
+        }
+      } catch (err) {
+        if (err instanceof McpHeaderResolutionError) {
+          log.warn(
+            {
+              serverId: this.serverId,
+              missing: err.missing.map((m) => `${m.service}/${m.field}`),
+            },
+            "MCP static auth credential unresolvable; connecting without static headers (server will require auth)",
+          );
+        } else {
+          throw err;
+        }
       }
     }
 
