@@ -10,6 +10,7 @@ import { hostShellTool } from "./host-terminal/host-shell.js";
 import { toProviderSafeToolName } from "./provider-tool-name.js";
 import { registerSystemTools } from "./system/register.js";
 import { finalizeTool } from "./tool-defaults.js";
+import { explicitTools } from "./tool-manifest.js";
 import type { OwnerInfo, Tool, ToolDefinition } from "./types.js";
 import { allUiSurfaceTools } from "./ui-surface/definitions.js";
 import { registerUiSurfaceTools } from "./ui-surface/registry.js";
@@ -1080,8 +1081,6 @@ export function initializeTools(): Promise<void> {
 }
 
 async function runToolInitialization(): Promise<void> {
-  const { explicitTools } = await import("./tool-manifest.js");
-
   // Capture tool names already in the registry before any manifest
   // registrations.  In production this is empty; in tests a non-skill tool
   // may have been registered before the first initializeTools() call.
