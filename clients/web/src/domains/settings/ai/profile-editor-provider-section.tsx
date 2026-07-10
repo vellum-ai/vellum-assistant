@@ -9,7 +9,11 @@ import {
 } from "@/assistant/llm-model-catalog";
 
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/constants";
-import { useSelectableCatalogProviders } from "@/domains/settings/ai/provider-availability";
+import {
+    providersServedByConnections,
+    useSelectableCatalogProviders,
+} from "@/domains/settings/ai/provider-availability";
+import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
 import type { ConnectionModel, ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
 
 const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
@@ -101,25 +105,23 @@ export function ProfileEditorProviderSection({
   const providerWithoutModel = provider.length > 0 && model.length === 0;
 
   const allProvidersForPicker = useSelectableCatalogProviders();
+  const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
 
-  // Filter to providers with at least one connection — picking a provider
-  // with zero connections binds a profile to a route the daemon can't
-  // dispatch through. The currently-bound `provider` is always kept so
-  // editing a stale profile still renders a sensible trigger.
+  // Providers backed by at least one connection — picking a provider with zero
+  // connections binds a profile to a route the daemon can't dispatch through.
+  // The Vellum-managed connection expands into every managed-routable provider
+  // (see `providersServedByConnections`). The currently-bound `provider` is
+  // always kept so editing a stale profile still renders a sensible trigger.
   const visibleProviders = useMemo(() => {
-    const providerSet = new Set<string>();
-    for (const c of connections ?? []) {
-      providerSet.add(c.provider);
+    const served = providersServedByConnections(
+      connections ?? [],
+      activeAssistantIsSelfHosted,
+    );
+    if (provider && !served.includes(provider)) {
+      return [...served, provider];
     }
-    if (provider) {
-      providerSet.add(provider);
-    }
-    return allProvidersForPicker.filter((p) => providerSet.has(p));
-  }, [
-    allProvidersForPicker,
-    connections,
-    provider,
-  ]);
+    return served;
+  }, [connections, provider, activeAssistantIsSelfHosted]);
 
   // Pre-load fallback: when `connections` is `undefined` the parent hasn't
   // resolved its `listConnections` fetch yet. Fall back to the full catalog

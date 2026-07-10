@@ -435,6 +435,36 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     expect(optionLabels).toEqual(["+ Create new provider"]);
   });
 
+  test("the Vellum-managed connection surfaces every managed-routable provider", () => {
+    // A platform-hosted user's only connection is the single provider-agnostic
+    // `vellum` connection. It must expand into the managed-routable providers
+    // so the picker isn't limited to "+ Create new provider".
+    renderCreate([makeConnection("vellum-managed", "vellum")]);
+    fireEvent.click(providerTrigger());
+    const optionLabels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => o.textContent?.trim());
+    expect(optionLabels).toEqual([
+      "Anthropic",
+      "OpenAI",
+      "Google Gemini",
+      "Fireworks",
+      "Together AI",
+      "+ Create new provider",
+    ]);
+  });
+
+  test("a BYOK connection surfaces its own provider", () => {
+    // A self-hosted user who entered an Anthropic API key gets an `anthropic`
+    // connection, which must surface Anthropic as a selectable provider.
+    renderCreate([makeConnection("anthropic-personal", "anthropic")]);
+    fireEvent.click(providerTrigger());
+    const optionLabels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => o.textContent?.trim());
+    expect(optionLabels).toEqual(["Anthropic", "+ Create new provider"]);
+  });
+
   test("a provider unknown to the catalog shows an explicit empty-model state", () => {
     // "acme-llm" isn't in the static web catalog — `getModelsForProvider`
     // returns [] for unknown ids — reproducing the drift scenario where a

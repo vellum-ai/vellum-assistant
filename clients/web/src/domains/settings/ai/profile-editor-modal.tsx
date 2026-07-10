@@ -41,7 +41,7 @@ import {
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_CONNECTION_PROVIDER,
 } from "@/domains/settings/ai/constants";
-import { isProviderSelectableForAssistant } from "@/domains/settings/ai/provider-availability";
+import { providersServedByConnections } from "@/domains/settings/ai/provider-availability";
 import type {
   ConnectionProvider,
   ProviderConnection,
@@ -779,28 +779,16 @@ function ProfileEditorModalInner({
   // Providers with at least one connection, plus the always-present "+ Create
   // new provider" sentinel. First-run empty state shows ONLY the sentinel.
   const createModeProviderOptions = useMemo(() => {
-    const seen = new Set<ConnectionProvider>();
     const opts: {
       value: ConnectionProvider | typeof CREATE_NEW_PROVIDER_SENTINEL;
       label: string;
-    }[] = [];
-    for (const c of effectiveConnections) {
-      if (
-        !isProviderSelectableForAssistant(
-          c.provider,
-          activeAssistantIsSelfHosted,
-        )
-      ) {
-        continue;
-      }
-      if (!seen.has(c.provider)) {
-        seen.add(c.provider);
-        opts.push({
-          value: c.provider,
-          label: PROVIDER_DISPLAY_NAMES[c.provider] ?? c.provider,
-        });
-      }
-    }
+    }[] = providersServedByConnections(
+      effectiveConnections,
+      activeAssistantIsSelfHosted,
+    ).map((p) => ({
+      value: p,
+      label: PROVIDER_DISPLAY_NAMES[p] ?? p,
+    }));
     opts.push({
       value: CREATE_NEW_PROVIDER_SENTINEL,
       label: "+ Create new provider",
