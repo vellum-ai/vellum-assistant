@@ -18,6 +18,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -124,6 +125,14 @@ mock.module("@vellumai/design-library", () => {
 const NEW_PROFILE_NAME = "fast-cheap";
 const NEW_PROFILE_LABEL = "Fast & Cheap";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 // --- generated daemon SDK ----------------------------------------------------
 // Mock the SDK functions used by the component (directly and via generated
 // TanStack Query options). configGetOptions/conversationsByIdGetOptions from
@@ -140,9 +149,15 @@ const configGetMock = mock(
     },
   }),
 );
-const conversationsByIdGetMock = mock(async (_opts: unknown) => ({
-  data: { conversation: { inferenceProfile: null } },
-}));
+const conversationsByIdGetMock = mock(
+  async (
+    _opts: unknown,
+  ): Promise<{
+    data: { conversation: { inferenceProfile: string | null } };
+  }> => ({
+    data: { conversation: { inferenceProfile: null } },
+  }),
+);
 const configPatchMock = mock(
   async (_opts: unknown): Promise<{ data: unknown }> => ({ data: {} }),
 );
@@ -387,6 +402,76 @@ describe("Profile selection after conversation change (LUM-2279)", () => {
       (inferenceprofilePut.mock.calls[0]![0] as { body: { profile: string } })
         .body.profile,
     ).toBe("smart");
+  });
+});
+
+describe("Profile trigger updates", () => {
+  test("keeps the selected label while the conversation refetch settles", async () => {
+    const configData = {
+      llm: {
+        profileOrder: ["balanced", "quality"],
+        profiles: {
+          balanced: { label: "Balanced" },
+          quality: { label: "Quality" },
+        },
+        activeProfile: "balanced",
+      },
+    };
+    const configRefetch = deferred<{ data: unknown }>();
+    let configCallCount = 0;
+    configGetMock.mockImplementation(() => {
+      configCallCount += 1;
+      if (configCallCount === 1) {
+        return Promise.resolve({ data: configData });
+      }
+      return configRefetch.promise;
+    });
+
+    const conversationRefetch = deferred<{
+      data: { conversation: { inferenceProfile: string } };
+    }>();
+    let conversationCallCount = 0;
+    conversationsByIdGetMock.mockImplementation(() => {
+      conversationCallCount += 1;
+      if (conversationCallCount === 1) {
+        return Promise.resolve({
+          data: { conversation: { inferenceProfile: "balanced" } },
+        });
+      }
+      return conversationRefetch.promise;
+    });
+
+    renderMenu();
+    const trigger = await screen.findByLabelText("Model profile");
+    await waitFor(() => expect(trigger.textContent).toContain("Balanced"));
+
+    const qualityItem = screen
+      .getAllByTestId("menu-item")
+      .find((item) => item.textContent?.includes("Quality"));
+    fireEvent.click(qualityItem!);
+
+    await waitFor(() => {
+      expect(inferenceprofilePut).toHaveBeenCalledTimes(1);
+      expect(configCallCount).toBe(2);
+      expect(conversationCallCount).toBe(2);
+    });
+
+    await act(async () => {
+      configRefetch.resolve({ data: configData });
+      await configRefetch.promise;
+      await Promise.resolve();
+    });
+
+    expect(trigger.textContent).toContain("Quality");
+
+    await act(async () => {
+      conversationRefetch.resolve({
+        data: { conversation: { inferenceProfile: "quality" } },
+      });
+      await conversationRefetch.promise;
+    });
+
+    expect(trigger.textContent).toContain("Quality");
   });
 });
 

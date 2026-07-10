@@ -147,6 +147,7 @@ mock.module("../signals/cancel.js", () => ({
 // or client broadcasts.
 let evictCallCount = 0;
 let identityCallCount = 0;
+let themeCallCount = 0;
 
 mock.module("../daemon/conversation-store.js", () => ({
   evictConversationsForReload: () => {
@@ -161,6 +162,9 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
   publishConfigChanged: () => {},
   publishSoundsConfigUpdated: () => {},
   publishAvatarChanged: () => {},
+  publishWorkspaceThemeChanged: () => {
+    themeCallCount++;
+  },
 }));
 
 mock.module("../daemon/skill-memory-refresh.js", () => ({
@@ -190,7 +194,12 @@ function findFileWatch(filePath: string): CapturedFileWatch | undefined {
   return capturedFileWatches.find((w) => w.filePath === filePath);
 }
 
-const WORKSPACE_FILES = new Set(["config.json", "SOUL.md", "IDENTITY.md"]);
+const WORKSPACE_FILES = new Set([
+  "config.json",
+  "SOUL.md",
+  "IDENTITY.md",
+  "ui/theme.json",
+]);
 
 // Each call advances the inode + mtime so the listener's early-return guard
 // (curr.ino === prev.ino && curr.mtimeMs === prev.mtimeMs) doesn't fire.
@@ -242,6 +251,7 @@ beforeEach(() => {
   inoMap.clear();
   evictCallCount = 0;
   identityCallCount = 0;
+  themeCallCount = 0;
   watcher = new ConfigWatcher(undefined, TEST_DEBOUNCE_MS);
 });
 
@@ -273,11 +283,19 @@ describe("ConfigWatcher workspace file handlers", () => {
 
   test("unregistered workspace files are not subscribed (only the registered handler set is)", () => {
     watcher.start();
-    // Per-file watching only registers config.json, SOUL.md, IDENTITY.md.
-    // The whole workspace dir must not be watched either — that was the
-    // ENXIO-on-Unix-sockets bug.
+    // Per-file watching only registers config.json, SOUL.md, IDENTITY.md,
+    // and ui/theme.json. The whole workspace dir must not be watched
+    // either — that was the ENXIO-on-Unix-sockets bug.
     expect(findFileWatch(join(WORKSPACE_DIR, "OTHER.md"))).toBeUndefined();
     expect(findWatcher(WORKSPACE_DIR)).toBeUndefined();
+  });
+
+  test("ui/theme.json change publishes the workspace-theme invalidation", async () => {
+    watcher.start();
+    simulateFileChange(WORKSPACE_DIR, "ui/theme.json");
+    await new Promise((r) => setTimeout(r, WAIT_MS));
+    expect(themeCallCount).toBe(1);
+    expect(evictCallCount).toBe(0);
   });
 
   test("config.json change calls refreshConfigFromSources", async () => {

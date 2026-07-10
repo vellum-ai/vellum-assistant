@@ -49,12 +49,7 @@ import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-c
 // inside a single modal frame rather than stacking a second modal.
 
 export interface ProviderEditorContentProps {
-  // "managed-edit" is used for connections seeded + write-protected by the
-  // daemon (anthropic-managed / openai-managed / gemini-managed). Only the
-  // auth-related fields (Auth Type, API Key, Credential Reference) are
-  // disabled in this mode; Display Name + Status remain editable to match
-  // the PATCH fields the daemon allows on managed rows.
-  mode: "create" | "edit" | "managed-edit";
+  mode: "create" | "edit";
   connection?: ProviderConnection;
   assistantId: string;
   existingNames: string[];
@@ -70,27 +65,6 @@ export function ProviderEditorContent({
   onSave,
   onCancel,
 }: ProviderEditorContentProps) {
-  // Local mode state. Initialised from the `mode` prop, but the user can
-  // flip "managed-edit" → "create" via the Save as New button — they clone
-  // a managed connection's provider + label into a new (non-managed)
-  // connection of their own.
-  const [effectiveMode, setEffectiveMode] = useState<
-    "create" | "edit" | "managed-edit"
-  >(mode);
-
-  // Auth type to seed the create form with when entering create mode via the
-  // Save as New clone flow. `undefined` for a genuine "create" open so the
-  // form keeps its own default (platform for managed-capable providers).
-  const [createAuthTypeSeed, setCreateAuthTypeSeed] = useState<
-    AuthType | undefined
-  >(undefined);
-
-  // True when the editor is opened for a Vellum-managed connection. Locks
-  // the auth-related inputs (Auth Type, API Key, Credential Reference) but
-  // leaves Display Name + Status editable. Keyed off `effectiveMode` so
-  // the Save As New transition out of managed-edit also unlocks auth.
-  const isAuthLocked = effectiveMode === "managed-edit";
-
   const [label, setLabel] = useState(connection?.label ?? "");
   const [name, setName] = useState(connection?.name ?? "");
   const [provider, setProvider] = useState<ConnectionProvider>(
@@ -125,7 +99,7 @@ export function ProviderEditorContent({
   }, [provider, selectableConnectionProviders]);
 
   const { handleLabelChange, resetDirty } =
-    useLabelKeySync(effectiveMode, setLabel, setName);
+    useLabelKeySync(mode, setLabel, setName);
 
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [isSavingKey, setIsSavingKey] = useState(false);
@@ -147,7 +121,7 @@ export function ProviderEditorContent({
 
   // --- Available credentials list ---
   // Create mode is fully owned by ProviderCreateForm (early return below), so
-  // the only reachable path here is edit / managed-edit — gate purely on auth.
+  // the only reachable path here is edit — gate purely on auth.
   const needsCredentialsList = authType === "api_key";
 
   const {
@@ -158,13 +132,7 @@ export function ProviderEditorContent({
   });
 
   // Reset form when connection prop changes (e.g. switching between edit
-  // targets). `effectiveMode` doesn't need a sync line here — it's
-  // initialised from the `mode` prop via `useState(mode)`, and the editor
-  // unmounts/remounts whenever the parent flips list ↔ editor view (see
-  // `ManageProvidersModal`'s `editorOpen ? <ProviderEditorContent /> : null`).
-  // So the useState initializer re-runs on every fresh open with the latest
-  // `mode` prop, and any Save as New transition is automatically discarded
-  // when the user returns to the list and re-opens.
+  // targets).
   useEffect(() => {
     const effectiveProvider = connection?.provider ?? "anthropic";
     setLabel(connection?.label ?? "");
@@ -196,19 +164,8 @@ export function ProviderEditorContent({
     setIsSavingKey(false);
   }, [connection, resetDirty]);
 
-  // Save as New: clone the currently-displayed connection into a fresh
-  // "create" mode session. The user keeps the provider + label as a
-  // starting point (so they don't have to re-enter the easy bits) but
-  // gets a blank Key field to pick a unique name, fresh credential
-  // inputs, and an unlocked Auth Type (default to api_key, the most
-  // common path for cloning off a managed connection).
-  function handleSaveAsNew() {
-    setEffectiveMode("create");
-    setCreateAuthTypeSeed(provider === "ollama" ? "none" : "api_key");
-  }
-
-  // Only edit / managed-edit reach this component's own Save (create is owned
-  // by ProviderCreateForm via the early return below), and the Key field is
+  // Only edit reaches this component's own Save (create is owned by
+  // ProviderCreateForm via the early return below), and the Key field is
   // fixed/disabled there, so a non-empty name is the only save gate. Duplicate
   // -name validation lives in ProviderCreateForm.
   const canSave = name.trim().length > 0;
@@ -290,9 +247,9 @@ export function ProviderEditorContent({
 
       const labelValue = label.trim() || null;
 
-      // Edit / managed-edit only — create mode is handled by
-      // ProviderCreateForm (see the early return above), which owns the
-      // POST path. This component never reaches handleSave in create mode.
+      // Edit only — create mode is handled by ProviderCreateForm (see the
+      // early return above), which owns the POST path. This component never
+      // reaches handleSave in create mode.
       const input: InferenceProviderconnectionsByNamePatchData["body"] = {
         auth,
         label: labelValue,
@@ -349,7 +306,7 @@ export function ProviderEditorContent({
   // needed — saving a key auto-creates `credential/<provider>/api_key`
   // under the hood, so the disclosure has nothing meaningful to offer.
   const isEditingApiKeyConnection =
-    effectiveMode !== "create" && connection?.auth.type === "api_key";
+    mode !== "create" && connection?.auth.type === "api_key";
   const shouldShowAdvancedSection =
     providerCredentials.length > 0 ||
     isEditingApiKeyConnection;
@@ -358,22 +315,17 @@ export function ProviderEditorContent({
     hasStoredCredential,
   );
 
-  // Create mode (genuine opens AND the Save as New transition out of
-  // managed-edit) is fully owned by the shared ProviderCreateForm. It
-  // carries the create-path submit sequence (secretsPost →
+  // Create mode is fully owned by the shared ProviderCreateForm. It carries
+  // the create-path submit sequence (secretsPost →
   // inferenceProviderconnectionsPost) and renders identical modal chrome.
-  // The `provider` carried over from a Save as New clone seeds the form via
-  // `defaultProviderType`. Keyed on it so a fresh provider remounts the form
-  // with the cloned starting point. Edit / managed-edit fall through below.
-  if (effectiveMode === "create") {
+  // Edit falls through below.
+  if (mode === "create") {
     return (
       <ProviderCreateForm
-        key={provider}
         variant="modal"
         assistantId={assistantId}
         existingNames={existingNames}
         defaultProviderType={provider}
-        defaultAuthType={createAuthTypeSeed}
         onCreated={onSave}
         onCancel={onCancel}
       />
@@ -385,9 +337,7 @@ export function ProviderEditorContent({
       <Modal.Header>
         <Modal.Title>Edit Connection</Modal.Title>
         <Modal.Description>
-          {isAuthLocked
-            ? `Managed by Vellum — auth is locked, but you can rename "${connection?.name}".`
-            : `Editing "${connection?.name}".`}
+          {`Editing "${connection?.name}".`}
         </Modal.Description>
       </Modal.Header>
 
@@ -406,7 +356,7 @@ export function ProviderEditorContent({
           />
         </div>
 
-        {/* Key — fixed once a connection exists; edit / managed-edit only. */}
+        {/* Key — fixed once a connection exists; edit only. */}
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Key
@@ -419,8 +369,8 @@ export function ProviderEditorContent({
           />
         </div>
 
-        {/* Provider — read-only in edit / managed-edit (provider is fixed
-            once a connection exists; create mode lives in ProviderCreateForm). */}
+        {/* Provider — read-only in edit (provider is fixed once a connection
+            exists; create mode lives in ProviderCreateForm). */}
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Provider
@@ -448,7 +398,6 @@ export function ProviderEditorContent({
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 placeholder="https://api.example.com/v1"
-                disabled={isAuthLocked}
                 fullWidth
               />
             </div>
@@ -460,7 +409,6 @@ export function ProviderEditorContent({
                 value={connectionModels}
                 onChange={(e) => setConnectionModels(e.target.value)}
                 placeholder="model-1, model-2"
-                disabled={isAuthLocked}
                 fullWidth
               />
               <Typography
@@ -486,7 +434,7 @@ export function ProviderEditorContent({
               setAuthType(v);
               setError(null);
             }}
-            disabled={isAuthLocked || provider === "ollama"}
+            disabled={provider === "ollama"}
             options={(() => {
               let types: AuthType[];
               if (provider === "ollama") {
@@ -517,7 +465,6 @@ export function ProviderEditorContent({
             onApiKeyChange={setApiKeyValue}
             credential={credential}
             onCredentialChange={setCredential}
-            isAuthLocked={isAuthLocked}
             isLoadingCredential={isLoadingCredential}
             apiKeyPlaceholder={apiKeyPlaceholder}
             provider={provider}
@@ -550,21 +497,6 @@ export function ProviderEditorContent({
         <Button variant="ghost" size="compact" onClick={onCancel}>
           Cancel
         </Button>
-        {/* Save as New: only offered for managed connections. The user
-            clones the row's provider + label into a fresh "create" mode
-            session where they can supply their own credential. Hidden
-            for plain edit because rename/clone of an unmanaged row is a
-            different workflow (delete + create). */}
-        {effectiveMode === "managed-edit" && (
-          <Button
-            variant="outlined"
-            size="compact"
-            onClick={handleSaveAsNew}
-            disabled={saving || isSavingKey}
-          >
-            Save as New
-          </Button>
-        )}
         <Button
           variant="primary"
           size="compact"

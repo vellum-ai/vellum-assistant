@@ -40,6 +40,7 @@ import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
 import {
+  CONVERSATION_BUSY_MESSAGE,
   persistQueuedMessageBody,
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";
@@ -422,6 +423,36 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
 // ── drainQueue ───────────────────────────────────────────────────────
 
 /**
+ * Restore drained messages to the front of the queue, in their original
+ * order, when another turn (e.g. a barged-in voice turn woken by the idle
+ * transition) owns the processing lock. The lock holder's own finally block
+ * re-drains the queue. A steered drain also re-arms `pendingSteerRepair` so
+ * the re-drain promotes the steered head on its own instead of batching it
+ * with tails; the tool-use repair it re-triggers is idempotent.
+ */
+function requeueOnLockContention(
+  conversation: Conversation,
+  messages: QueuedMessage[],
+  steered: boolean,
+  logMessage: string,
+): void {
+  log.info(
+    {
+      conversationId: conversation.conversationId,
+      requestId: messages[0].requestId,
+      batchSize: messages.length,
+    },
+    logMessage,
+  );
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    conversation.queue.unshift(messages[i]);
+  }
+  if (steered) {
+    conversation.pendingSteerRepair = true;
+  }
+}
+
+/**
  * Process the next message in the queue, if any.
  * Called from the `runAgentLoop` finally block after processing completes.
  *
@@ -448,7 +479,7 @@ export async function drainQueue(
     if (!next) {
       return;
     }
-    return drainSingleMessage(conversation, next, reason);
+    return drainSingleMessage(conversation, next, reason, true);
   }
 
   const batch = await buildPassthroughBatch(conversation);
@@ -472,7 +503,24 @@ async function drainSingleMessage(
   conversation: Conversation,
   next: QueuedMessage,
   reason: QueueDrainReason,
+  steered = false,
 ): Promise<void> {
+  // Another turn already owns the processing lock: requeue before touching
+  // ANY conversation state. The lock holder installed its own per-turn
+  // context (turn channel/interface, trust, transport hints) and a drain
+  // that proceeded past this point would clobber it. The persist-busy
+  // requeue below stays as the TOCTOU backstop for a lock taken after
+  // this check.
+  if (conversation.isProcessing()) {
+    requeueOnLockContention(
+      conversation,
+      [next],
+      steered,
+      "Requeueing drained message: processing lock is held",
+    );
+    return;
+  }
+
   // Reset per-turn preactivation so a prior iteration (e.g. an unknown-slash
   // from a desktop source that skips runAgentLoop) can't leak CU preactivation
   // into the next queued message.
@@ -884,6 +932,20 @@ async function drainSingleMessage(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // runAgentLoop never ran, so its finally block won't clear this
+    conversation.preactivatedSkillIds = undefined;
+    if (message === CONVERSATION_BUSY_MESSAGE) {
+      // Another turn took the lock between this drain's dequeue and its
+      // persist. The message is still valid — requeue it at the front and
+      // stop; the lock holder's own finally re-drains the queue.
+      requeueOnLockContention(
+        conversation,
+        [next],
+        steered,
+        "Requeueing drained message: processing lock was retaken",
+      );
+      return;
+    }
     log.error(
       {
         err,
@@ -897,8 +959,6 @@ async function drainSingleMessage(
       conversationId: conversation.conversationId,
       message,
     });
-    // runAgentLoop never ran, so its finally block won't clear this
-    conversation.preactivatedSkillIds = undefined;
     // Continue draining — don't strand remaining messages
     await drainQueue(conversation);
     return;
@@ -1031,6 +1091,20 @@ async function drainBatch(
   batch: QueuedMessage[],
   reason: QueueDrainReason,
 ): Promise<void> {
+  // Another turn already owns the processing lock: requeue the whole batch
+  // before touching ANY conversation state, mirroring `drainSingleMessage`.
+  // The head persist-busy requeue below stays as the TOCTOU backstop.
+  // Steered drains never batch, so there is no steer promotion to restore.
+  if (conversation.isProcessing()) {
+    requeueOnLockContention(
+      conversation,
+      batch,
+      false,
+      "Requeueing drained batch: processing lock is held",
+    );
+    return;
+  }
+
   // Head-wins: the batch-builder guarantees identical userMessageInterface
   // across the batch; channel/transport divergence is accepted with the head's
   // environment.
@@ -1235,6 +1309,20 @@ async function drainBatch(
       persistedMessageIds.push(batchPersistResult.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (i === 0 && message === CONVERSATION_BUSY_MESSAGE) {
+        // The head hit lock contention before any batch state was set:
+        // another turn took the lock between dequeue and persist. The
+        // whole batch is still valid — requeue it at the front in order
+        // and stop; the lock holder's finally re-drains the queue.
+        conversation.preactivatedSkillIds = undefined;
+        requeueOnLockContention(
+          conversation,
+          batch,
+          false,
+          "Requeueing drained batch: processing lock was retaken",
+        );
+        return;
+      }
       log.error(
         {
           err,

@@ -129,6 +129,13 @@ function consolidationJobPayloads(): Record<string, unknown>[] {
 // every migration on the next access.
 await initializeDb();
 
+// Open the memory connection now, while VELLUM_WORKSPACE_DIR still points at the
+// migrated per-process workspace. beforeAll swaps it to a fresh dir; without
+// pinning here, the first getMemoryDb() below would lazily open
+// assistant-memory.db in the swapped (empty) workspace and fail with
+// "no such table: memory_jobs".
+getMemoryDb();
+
 beforeEach(() => {
   // Clear job + checkpoint state so each test starts from zero rows. Other
   // tables stay intact — the worker only inspects these two. memory_jobs lives

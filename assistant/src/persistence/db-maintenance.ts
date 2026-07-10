@@ -5,13 +5,22 @@ import { getLogger } from "../util/logger.js";
 import { getDbPath } from "../util/platform.js";
 import { pruneRuns } from "../workflows/journal-store.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
-import { getLastUserMessageTimestamp } from "./conversation-crud.js";
+import { getLastInteractiveUserMessageTimestamp } from "./conversation-crud.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import { getSqlite } from "./db-connection.js";
 
 const log = getLogger("db-maintenance");
 
 const DB_MAINTENANCE_CHECKPOINT_KEY = "db_maintenance:last_run";
+const DB_PASSIVE_CHECKPOINT_KEY = "db_maintenance:last_passive_checkpoint";
+
+/**
+ * Cadence for the ungated PASSIVE WAL checkpoint. Frequent enough that the
+ * WAL backlog stays near zero on an always-active instance (so the per-commit
+ * autocheckpoints every writer runs stay cheap), infrequent enough that the
+ * subprocess spawn is noise.
+ */
+export const PASSIVE_CHECKPOINT_INTERVAL_MS = 15 * 60 * 1000;
 
 interface DbStats {
   pageSize: number;
@@ -134,15 +143,22 @@ export async function maybeRunDbMaintenance(nowMs = Date.now()): Promise<void> {
     getMemoryCheckpoint(DB_MAINTENANCE_CHECKPOINT_KEY) ?? "0",
     10,
   );
-  if (nowMs - lastRun < intervalMs) return;
+  if (nowMs - lastRun < intervalMs) {
+    return;
+  }
 
   // Maintenance still takes brief write locks (PRAGMA optimize and the
   // truncating WAL checkpoint), so defer it until the user has been quiet for
-  // `quietPeriodMs` and those locks never land mid-conversation. The checkpoint
-  // below is only written once maintenance actually runs, so a deferred run is
-  // simply retried on a later (still-idle) worker tick.
+  // `quietPeriodMs` and those locks never land mid-conversation. "Quiet"
+  // means HUMAN quiet — the newest user-role message in an interactive
+  // conversation. Background machinery writes user-role rows of its own
+  // (retrospective instructions, scheduled/heartbeat wake hints) inside
+  // background/scheduled conversations; counting those would keep an
+  // always-on install permanently "active" and starve this pass forever. The
+  // checkpoint below is only written once maintenance actually runs, so a
+  // deferred run is simply retried on a later (still-idle) worker tick.
   if (quietPeriodMs > 0) {
-    const lastUserMessageAt = getLastUserMessageTimestamp();
+    const lastUserMessageAt = getLastInteractiveUserMessageTimestamp();
     if (lastUserMessageAt > 0 && nowMs - lastUserMessageAt < quietPeriodMs) {
       return;
     }
@@ -155,4 +171,60 @@ export async function maybeRunDbMaintenance(nowMs = Date.now()): Promise<void> {
   }
   // Always set checkpoint — even on failure — to avoid retry-hammering every tick.
   setMemoryCheckpoint(DB_MAINTENANCE_CHECKPOINT_KEY, String(nowMs));
+}
+
+/**
+ * Ungated PASSIVE WAL checkpoint on a short cadence (see
+ * {@link PASSIVE_CHECKPOINT_INTERVAL_MS}).
+ *
+ * PASSIVE never blocks anyone: it gives up instantly if another checkpointer
+ * holds the checkpointer lock and backfills only up to the oldest live
+ * reader's mark — so unlike the truncating maintenance checkpoint it needs no
+ * quiet-period gate and is safe mid-conversation. Running it continuously
+ * keeps the WAL backlog near zero on always-active instances, which keeps
+ * every writer's per-commit autocheckpoint cheap (a large standing backlog
+ * otherwise amortizes multi-second backfill work into commits while they hold
+ * the write lock).
+ *
+ * The `busy|log|checkpointed` triple is logged like the truncate path's: a
+ * persistently large gap between `log` and `checkpointed` frames means a
+ * pinned reader is starving checkpoints — the diagnostic that matters when a
+ * WAL balloons anyway.
+ */
+export async function maybeRunPassiveWalCheckpoint(
+  nowMs = Date.now(),
+): Promise<void> {
+  const lastRun = parseInt(
+    getMemoryCheckpoint(DB_PASSIVE_CHECKPOINT_KEY) ?? "0",
+    10,
+  );
+  if (nowMs - lastRun < PASSIVE_CHECKPOINT_INTERVAL_MS) {
+    return;
+  }
+
+  try {
+    const result = await runAsyncSqlite(
+      "PRAGMA wal_checkpoint(PASSIVE)",
+      "db-maintenance:wal-checkpoint-passive",
+    );
+    if (result.ok) {
+      log.info(
+        {
+          backend: result.backend,
+          checkpointResult: result.stdout?.trim(),
+          elapsedMs: result.elapsedMs,
+        },
+        "Passive WAL checkpoint complete",
+      );
+    } else {
+      log.warn(
+        { error: result.error, backend: result.backend },
+        "Passive WAL checkpoint failed (non-fatal)",
+      );
+    }
+  } catch (err) {
+    log.warn({ err }, "Passive WAL checkpoint threw (non-fatal)");
+  }
+  // Always set checkpoint — even on failure — to avoid retry-hammering every tick.
+  setMemoryCheckpoint(DB_PASSIVE_CHECKPOINT_KEY, String(nowMs));
 }

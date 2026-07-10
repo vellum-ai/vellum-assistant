@@ -261,7 +261,6 @@ async function runConversationBackfill(
                 conversationType: meta.type ?? "standard",
                 originChannel: meta.channel ?? null,
                 source: "user",
-                memoryScopeId: "default",
                 isAutoTitle: 1,
                 totalInputTokens: 0,
                 totalOutputTokens: 0,

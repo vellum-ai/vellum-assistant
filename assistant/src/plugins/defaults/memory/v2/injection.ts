@@ -25,12 +25,12 @@
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import type { DrizzleDb } from "../../../../persistence/db-connection.js";
-import { getLogger } from "../../../../util/logger.js";
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getLogger } from "../logging.js";
 import {
   type MemoryV2ConceptRowRecord,
   recordMemoryV2ActivationLog,
 } from "../memory-v2-activation-log-store.js";
+import { getWorkspaceDir } from "../paths.js";
 import {
   computeOwnActivation,
   selectCandidates,

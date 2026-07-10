@@ -252,7 +252,6 @@ describe("028-recover-conversations-from-disk-view migration", () => {
         updatedAt: createdAtMs,
         conversationType: "standard",
         source: "user",
-        memoryScopeId: "default",
       })
       .run();
 

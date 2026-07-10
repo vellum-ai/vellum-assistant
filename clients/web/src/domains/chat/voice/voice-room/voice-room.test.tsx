@@ -67,6 +67,25 @@ mock.module("@/domains/chat/voice/voice-room/voice-avatar", () => ({
   ),
 }));
 
+// Stub the listening waves (rAF loop + SVG geometry) so the room-chrome tests
+// stay focused on wiring: we only assert the room mounts them in the right
+// phase, not how they animate.
+mock.module("@/domains/chat/voice/voice-room/voice-listening-waves", () => ({
+  VoiceListeningWaves: () => <div data-testid="listening-waves" />,
+}));
+
+// The room reads the session avatar to tint the waves to the assistant color;
+// stub the hook so these tests don't need the assistant-avatar React Query
+// graph (the room-chrome behavior is independent of avatar data).
+mock.module("@/hooks/use-assistant-avatar", () => ({
+  useAssistantAvatar: () => ({
+    components: null,
+    traits: null,
+    customImageUrl: null,
+  }),
+  avatarQueryKey: (id: string) => ["assistantAvatar", id],
+}));
+
 // Imported after the mocks so the room picks up the mocked modules.
 const { VoiceRoom } = await import("@/domains/chat/voice/voice-room/voice-room");
 
@@ -145,6 +164,31 @@ describe("VoiceRoom — visibility", () => {
     mockSearch = "?popout=1";
     render(<VoiceRoom />);
     expect(roomDialog()).toBeNull();
+  });
+});
+
+describe("VoiceRoom — listening waves", () => {
+  const waves = () => screen.queryByTestId("listening-waves");
+
+  test("mounts the bottom waves while listening (energy coming in)", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(roomDialog()).not.toBeNull();
+    expect(waves()).not.toBeNull();
+  });
+
+  test("hides the waves while responding — the avatar emanates instead", () => {
+    startOwnedSession("speaking");
+    render(<VoiceRoom />);
+    // Room is still open (an active phase), but there are no incoming waves.
+    expect(roomDialog()).not.toBeNull();
+    expect(waves()).toBeNull();
+  });
+
+  test("hides the waves while thinking", () => {
+    startOwnedSession("thinking");
+    render(<VoiceRoom />);
+    expect(waves()).toBeNull();
   });
 });
 

@@ -105,6 +105,36 @@ describe("shouldEnqueueRetrospective", () => {
     expect(result).toBe("interval");
   });
 
+  test("mid-turn job skip leaves lastRunAt unbumped, so the turn-end trigger check fires immediately (event-driven requeue)", () => {
+    // The job's `source_processing` skip does NOT bump `lastRunAt` (see
+    // memory-retrospective-job.ts) precisely so the indexing pass on the
+    // turn's final assistant message re-enqueues with no cooldown block.
+    const now = Date.now();
+
+    // Fresh conversation: the burned first run left no state row at all →
+    // the first-run interval fires as soon as any message indexes.
+    expect(
+      shouldEnqueueRetrospective({
+        state: null,
+        newMessageCount: 1,
+        now,
+        ...THRESHOLDS,
+      }),
+    ).toBe("interval");
+
+    // Established conversation: `lastRunAt` still reflects the run BEFORE
+    // the skipped one, so the same threshold that tripped the skipped
+    // enqueue trips again immediately.
+    expect(
+      shouldEnqueueRetrospective({
+        state: { lastProcessedMessageId: "m1", lastRunAt: now - 31 * 60_000 },
+        newMessageCount: 1,
+        now,
+        ...THRESHOLDS,
+      }),
+    ).toBe("interval");
+  });
+
   test("message threshold prefers 'message_count' label when both could fire (interval also at boundary)", () => {
     // When the interval is also at threshold AND there are also enough
     // new messages, interval wins because it's evaluated first — the

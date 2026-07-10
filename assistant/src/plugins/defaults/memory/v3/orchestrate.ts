@@ -56,7 +56,7 @@
 
 import type { AssistantConfig } from "../../../../config/schema.js";
 import { recordWatchdogEvent } from "../../../../telemetry/watchdog-events-store.js";
-import { getLogger } from "../../../../util/logger.js";
+import { getLogger } from "../logging.js";
 import { denseLaneScored } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";

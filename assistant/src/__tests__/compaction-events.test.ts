@@ -239,10 +239,6 @@ mock.module("../persistence/llm-usage-store.js", () => ({
   listUsageEvents: () => [],
 }));
 
-mock.module("../runtime/services/auto-analysis-enqueue.js", () => ({
-  enqueueAutoAnalysisOnCompaction: () => {},
-}));
-
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     compactionCircuit = new CompactionCircuit("test-conv");

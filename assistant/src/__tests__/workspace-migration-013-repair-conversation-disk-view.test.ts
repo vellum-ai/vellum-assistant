@@ -88,7 +88,6 @@ function seedConversationRows(): {
       updatedAt: conversationUpdatedAt,
       conversationType: "standard",
       source: "user",
-      memoryScopeId: "default",
       originChannel: "desktop",
     })
     .run();

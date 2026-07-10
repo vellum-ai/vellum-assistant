@@ -107,10 +107,6 @@ mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
 }));
 
-mock.module("../runtime/services/auto-analysis-enqueue.js", () => ({
-  enqueueAutoAnalysisIfEnabled: () => {},
-}));
-
 mock.module("../runtime/services/auto-analysis-guard.js", () => ({
   isAutoAnalysisConversation: () => false,
 }));

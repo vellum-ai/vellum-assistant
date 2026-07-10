@@ -22,18 +22,18 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
+import {
+  getMessages,
+  listInstalledSkills,
+  stringifyMessageContent,
+} from "@vellumai/plugin-api";
+
 import { getConfig } from "../../../../config/loader.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
-import { loadSkillCatalog } from "../../../../config/skills.js";
-import { getMessages } from "../../../../persistence/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
-import { stringifyMessageContent } from "../../../../persistence/message-content.js";
-import { getLogger } from "../../../../util/logger.js";
-import {
-  getWorkspaceDir,
-  getWorkspacePromptPath,
-} from "../../../../util/platform.js";
-import { stripCommentLines } from "../../../../util/strip-comment-lines.js";
+import { stripCommentLines } from "../host-utils.js";
+import { getLogger } from "../logging.js";
+import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";
 import { getPageIndex } from "../v2/page-index.js";
 import { readPage, renderPageContent } from "../v2/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
@@ -172,11 +172,15 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   async function loadPage(
     slug: Slug,
   ): Promise<{ body: string; raw: string } | null> {
-    if (pageCache.has(slug)) return pageCache.get(slug)!;
+    if (pageCache.has(slug)) {
+      return pageCache.get(slug)!;
+    }
     let loaded: { body: string; raw: string } | null = null;
     try {
       const page = await readPage(getWorkspaceDir(), slug);
-      if (page) loaded = { body: page.body, raw: renderPageContent(page) };
+      if (page) {
+        loaded = { body: page.body, raw: renderPageContent(page) };
+      }
     } catch {
       loaded = null;
     }
@@ -194,7 +198,9 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     capabilityOrDiskBody(slug, async (s) => (await loadPage(s))?.body ?? "");
   const pageRaw = async (slug: Slug): Promise<string> => {
     const loaded = await loadPage(slug);
-    if (!loaded) throw new Error(`page not found: ${slug}`);
+    if (!loaded) {
+      throw new Error(`page not found: ${slug}`);
+    }
     return loaded.raw;
   };
 
@@ -251,7 +257,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // section index and excluded from core/hot/fresh so the prefix never
   // double-lists a slug.
   const prefixSet = new Set([...coreSlugs, ...hotSlugs, ...freshSlugs]);
-  const alwaysCandidateSlugs = loadSkillCatalog()
+  const alwaysCandidateSlugs = (await listInstalledSkills())
     .filter((summary) => summary.alwaysCandidate === true)
     .map((summary) => `skills/${summary.id}`)
     .filter((slug) => sectionIndex.byArticle.has(slug) && !prefixSet.has(slug));
@@ -272,7 +278,9 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     slug: Slug,
     lane: "core" | "hot" | "fresh" | "always",
   ) => {
-    if (lane !== "fresh") return `[lane: ${lane}]`;
+    if (lane !== "fresh") {
+      return `[lane: ${lane}]`;
+    }
     const modifiedAt = modifiedAtBySlug.get(slug);
     if (
       modifiedAt === undefined ||
@@ -379,7 +387,9 @@ function getLanes(config: AssistantConfig): Promise<ShadowLanes> {
  */
 function readNowContext(): string | null {
   const nowPath = getWorkspacePromptPath("NOW.md");
-  if (!existsSync(nowPath)) return null;
+  if (!existsSync(nowPath)) {
+    return null;
+  }
   try {
     const stripped = stripCommentLines(readFileSync(nowPath, "utf-8")).trim();
     return stripped.length > 0 ? stripped : null;
@@ -416,12 +426,14 @@ function buildSituationalContext(): string {
  * date and the live NOW.md scratchpad. Returns `null` when there is no user
  * message to route on (nothing to shadow this turn).
  */
-function buildShadowTurn(
+async function buildShadowTurn(
   conversationId: string,
   turnIndex: number,
-): MemoryRoutingTurn | null {
-  const rows = getMessages(conversationId);
-  if (rows.length === 0) return null;
+): Promise<MemoryRoutingTurn | null> {
+  const rows = await getMessages(conversationId);
+  if (rows.length === 0) {
+    return null;
+  }
 
   let currentMessage = "";
   let currentIndex = -1;
@@ -434,14 +446,18 @@ function buildShadowTurn(
       }
     }
   }
-  if (currentMessage.length === 0) return null;
+  if (currentMessage.length === 0) {
+    return null;
+  }
 
   // The last assistant reply before the routed user message. Only the tail is
   // kept: replies run long, and the live threads — what the lanes should
   // retrieve on — concentrate at the end.
   let previousAssistantMessage: string | undefined;
   for (let i = currentIndex - 1; i >= 0; i--) {
-    if (rows[i]!.role !== "assistant") continue;
+    if (rows[i]!.role !== "assistant") {
+      continue;
+    }
     const text = stringifyMessageContent(rows[i]!.content);
     if (text.length > 0) {
       previousAssistantMessage = text.slice(-REPLY_QUERY_TAIL_CHARS);
@@ -520,7 +536,9 @@ export function writeSelections(
   turn: number,
   rows: SelectionRow[],
 ): void {
-  if (rows.length === 0) return;
+  if (rows.length === 0) {
+    return;
+  }
   const raw = getSqliteFrom(getDb());
   // PK is (conversation_id, turn, slug); OR REPLACE keeps the write
   // idempotent if the same turn is observed twice (e.g. a retried turn).
@@ -580,11 +598,15 @@ export async function observeTurn(
   turnIndex: number,
 ): Promise<OrchestrateResult | null> {
   try {
-    const turn = buildShadowTurn(conversationId, turnIndex);
-    if (!turn) return null;
+    const turn = await buildShadowTurn(conversationId, turnIndex);
+    if (!turn) {
+      return null;
+    }
 
     const cfg = getConfig();
-    if (cfg.memory.enabled === false) return null;
+    if (cfg.memory.enabled === false) {
+      return null;
+    }
     const lanes = await getLanes(cfg);
     const v3 = cfg.memory.v3;
     // Resolve the effective gate enable once for the turn: the feature flag

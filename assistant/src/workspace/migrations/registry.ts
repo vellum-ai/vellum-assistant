@@ -126,6 +126,7 @@ import { repointManagedConnectionsToVellumMigration } from "./125-repoint-manage
 import { stripManagedProfileBodiesMigration } from "./126-strip-managed-profile-bodies.js";
 import { backfillDefaultProviderMigration } from "./127-backfill-default-provider.js";
 import { repairStaleOpenrouterGrokModelIdsMigration } from "./128-repair-stale-openrouter-grok-model-ids.js";
+import { removeAnalyzeConversationConfigMigration } from "./129-remove-analyze-conversation-config.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -263,4 +264,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   stripManagedProfileBodiesMigration,
   backfillDefaultProviderMigration,
   repairStaleOpenrouterGrokModelIdsMigration,
+  removeAnalyzeConversationConfigMigration,
 ];

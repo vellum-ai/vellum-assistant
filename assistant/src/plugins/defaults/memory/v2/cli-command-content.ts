@@ -11,7 +11,10 @@
  * descriptions that make commands semantically findable.
  */
 
-import type { CliCommandHelp } from "@vellumai/plugin-api";
+import type { CLI_COMMAND_HELP } from "@vellumai/plugin-api";
+
+/** Element type of the plugin-api's declarative CLI help constant. */
+type CliCommandHelp = (typeof CLI_COMMAND_HELP)[number];
 
 export function buildCliCommandContent(
   name: string,

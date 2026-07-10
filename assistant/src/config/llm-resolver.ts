@@ -12,6 +12,7 @@ import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import {
   getEffectiveProfile,
+  isDefaultProfileKey,
   resolveDefaultProfileForProvider,
 } from "./default-profile-catalog.js";
 import {
@@ -373,6 +374,45 @@ export function selectWinningProfile(
 }
 
 /**
+ * Dereference a profile name for the override-or-default rungs. A
+ * default-profile key must yield the same body the call-site intent rung
+ * would — the default provider's column, never unconditionally the vellum
+ * column.
+ *
+ * A persisted managed stub carries no user intent (defaults cannot be
+ * disabled through any write path), so the pure catalog overrides an
+ * unusable one. An unusable user-owned shadow is returned as-is so the rung
+ * reports it and falls through.
+ */
+function providerAwareEntry(
+  llm: z.infer<typeof LLMSchema>,
+  name: string,
+): ProfileEntry | undefined {
+  const defaultProvider = llm.defaultProvider ?? null;
+  const entry = resolveDefaultProfileForProvider(
+    llm.profiles,
+    name,
+    defaultProvider,
+  );
+  if (!isDefaultProfileKey(name) || entry?.mix != null) {
+    return entry;
+  }
+  if (
+    entry != null &&
+    entry.status !== "disabled" &&
+    entry.provider != null &&
+    entry.model != null
+  ) {
+    return entry;
+  }
+  const workspace = llm.profiles?.[name];
+  if (workspace != null && workspace.source !== "managed") {
+    return entry;
+  }
+  return resolveDefaultProfileForProvider(undefined, name, defaultProvider);
+}
+
+/**
  * Dereference a named rung: the effective entry must exist, be enabled,
  * expand (for a mix) to an enabled arm, and carry its own provider+model.
  */
@@ -385,7 +425,7 @@ function usableEntry(
   if (name == null) {
     return undefined;
   }
-  const named = getEffectiveProfile(llm.profiles, name);
+  const named = providerAwareEntry(llm, name);
   if (named == null) {
     report(name, "missing");
     return undefined;
@@ -396,7 +436,11 @@ function usableEntry(
   }
   // Mixes expand via the shared seeded pick (fires `onMixSelected`).
   const entry =
-    named.mix == null ? named : resolveProfileFragment(name, llm, opts);
+    named.mix == null
+      ? named
+      : resolveProfileFragment(name, llm, opts, (n) =>
+          providerAwareEntry(llm, n),
+        );
   if (entry == null) {
     report(name, "missing");
     return undefined;
@@ -434,7 +478,9 @@ function usableDefaultIntent(
     defaultProvider,
   );
   if (entry?.mix != null) {
-    entry = resolveProfileFragment(intent, llm, opts);
+    entry = resolveProfileFragment(intent, llm, opts, (n) =>
+      providerAwareEntry(llm, n),
+    );
   }
   if (
     entry != null &&
@@ -615,9 +661,11 @@ function resolveProfileFragment(
   name: string | undefined,
   llm: z.infer<typeof LLMSchema>,
   opts: ResolveCallSiteOpts,
+  lookupEntry: (name: string) => ProfileEntry | undefined = (n) =>
+    getEffectiveProfile(llm.profiles, n),
 ): ProfileEntry | undefined {
   if (name == null) return undefined;
-  const entry = getEffectiveProfile(llm.profiles, name);
+  const entry = lookupEntry(name);
   if (entry?.mix == null) return entry;
 
   // Mix: pick one constituent. Seed by per-conversation seed + the mix's own
@@ -631,7 +679,7 @@ function resolveProfileFragment(
   opts.onMixSelected?.({ mixProfile: name, chosenProfile: chosen.profile });
 
   // The chosen arm must be a standard profile (enforced by superRefine).
-  return getEffectiveProfile(llm.profiles, chosen.profile);
+  return lookupEntry(chosen.profile);
 }
 
 /**

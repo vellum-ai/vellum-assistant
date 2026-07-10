@@ -155,19 +155,17 @@ describe("renderConversationMenuItems", () => {
     expect(html).toContain("Unarchive");
   });
 
-  test("hides Mark as unread and Analyze when isReadonly", () => {
+  test("hides Mark as unread when isReadonly", () => {
     const html = renderToStaticMarkup(
       <>{renderConversationMenuItems({
         Primitive: Menu as unknown as ConversationMenuPrimitive,
         isReadonly: true,
         onArchive: () => {},
-        onAnalyze: () => {},
         onMarkUnread: () => {},
       })}</>,
     );
     expect(html).toContain("Archive");
     expect(html).not.toContain("Mark as unread");
-    expect(html).not.toContain("Analyze");
   });
 
   test("renders header variant with correct item order", () => {
@@ -177,14 +175,12 @@ describe("renderConversationMenuItems", () => {
         variant: "header",
         onCopyConversation: () => {},
         onForkConversation: () => {},
-        onAnalyze: () => {},
         onPinToggle: () => {},
         onRename: () => {},
       })}</>,
     );
     expect(html).toContain("Copy full conversation");
     expect(html).toContain("Fork conversation");
-    expect(html).toContain("Analyze conversation");
     expect(html).toContain("Pin");
     expect(html).toContain("Rename");
   });
@@ -310,14 +306,12 @@ describe("ConversationActionsMenu — mobile panel details", () => {
         variant="header"
         onCopyConversation={() => {}}
         onForkConversation={() => {}}
-        onAnalyze={() => {}}
         onPinToggle={() => {}}
         onRename={() => {}}
       />,
     );
     expect(html).toContain("Copy full conversation");
     expect(html).toContain("Fork conversation");
-    expect(html).toContain("Analyze conversation");
     expect(html).toContain("Pin");
     expect(html).toContain("Rename");
   });
@@ -330,13 +324,11 @@ describe("ConversationActionsMenu — read-only conversations", () => {
       <ConversationActionsMenu
         isReadonly
         onArchive={() => {}}
-        onAnalyze={() => {}}
         onMarkUnread={() => {}}
       />,
     );
     expect(html).toContain("Archive");
     expect(html).not.toContain("Mark as unread");
-    expect(html).not.toContain("Analyze");
   });
 
   test("Unarchive renders when archived and read-only", () => {

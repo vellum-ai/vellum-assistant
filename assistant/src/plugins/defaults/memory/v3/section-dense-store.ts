@@ -36,8 +36,8 @@ import {
   writeEmbeddingCache,
 } from "../../../../persistence/embeddings/embedding-cache.js";
 import { embeddingInputContentHash } from "../../../../persistence/embeddings/embedding-types.js";
-import { getLogger } from "../../../../util/logger.js";
 import { embedWithBackend, resolveQdrantUrl } from "../embeddings.js";
+import { getLogger } from "../logging.js";
 import type { Section } from "./types.js";
 
 const log = getLogger("memory-v3-section-dense-store");
