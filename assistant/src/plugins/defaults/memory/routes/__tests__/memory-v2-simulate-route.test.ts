@@ -51,15 +51,10 @@ mock.module("../../v2/now-text.js", () => ({
 // zero scores since the test workspace has no event history.
 const recordCalls: Array<{ slugs: readonly string[]; at: number }> = [];
 mock.module("../../v2/injection-events.js", () => ({
-  recordInjectionEvents: (
-    _db: unknown,
-    slugs: readonly string[],
-    at: number,
-  ) => {
+  recordInjectionEvents: (slugs: readonly string[], at: number) => {
     recordCalls.push({ slugs, at });
   },
   computeInjectionScores: (
-    _db: unknown,
     slugs: readonly string[],
     _now: number,
   ): Map<string, number> => new Map(slugs.map((s) => [s, 0])),
