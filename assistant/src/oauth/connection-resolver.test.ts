@@ -633,6 +633,41 @@ describe("no-match error lists available accounts", () => {
     expect(message).toContain("Check the account spelling.");
   });
 
+  test("BYO: clientId + mistyped account lists only that app's accounts", async () => {
+    mockConnections = [
+      {
+        id: "conn-app1",
+        provider: "google",
+        accountInfo: "user@example.com",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+        clientId: "client-1",
+      },
+      {
+        id: "conn-app2",
+        provider: "google",
+        accountInfo: "other@example.org",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+        clientId: "client-2",
+      },
+    ];
+
+    let message = "";
+    try {
+      await resolveOAuthConnection("google", {
+        clientId: "client-1",
+        account: "missing@example.com",
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    expect(message).toContain('account "missing@example.com"');
+    expect(message).toContain("Active google connections: user@example.com.");
+    expect(message).not.toContain("other@example.org");
+  });
+
   test("BYO: zero connections keeps the plain 'needs to be connected' shape", async () => {
     mockConnections = [];
 
