@@ -97,6 +97,7 @@ import {
   rawLogsRun,
   rawMemoryRun,
   rawRun,
+  rawTelemetryRun,
 } from "./raw-query.js";
 import {
   channelInboundEvents,
@@ -2967,9 +2968,9 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
 
-  // Record audit event — lifecycle_events is NOT deleted by clearAll(),
-  // so this survives the wipe and provides a permanent trail.
-  rawRun(
+  // Record audit event — lifecycle_events lives in the telemetry DB and is
+  // NOT deleted by clearAll(), so this survives the wipe as a permanent trail.
+  rawTelemetryRun(
     "conversation:clearAll:auditEvent",
     `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
     uuid(),
