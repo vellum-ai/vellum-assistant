@@ -192,10 +192,13 @@ function safeJson(value: unknown): string {
 }
 
 /**
- * Repair a historical block that fails the current schema into a valid
- * member of the union. Field-level repair for the variants whose payload
- * is worth preserving in place (text, tool_result); everything else is
- * wrapped in a text block carrying its serialized payload.
+ * Repair a historical block that fails the current schema. Field-level
+ * repair for the variants whose string fields consumers touch directly
+ * (text, tool_result, web_search_tool_result); any other block that at
+ * least carries a string `type` passes through untouched — persisted
+ * kinds outside the provider union (e.g. `ui_surface`) are live data
+ * whose renderers own their shape. Only type-less values are wrapped in
+ * a text block carrying their serialized payload.
  */
 function coerceLegacyBlock(block: unknown): ContentBlock {
   if (typeof block === "object" && block !== null) {
@@ -206,16 +209,29 @@ function coerceLegacyBlock(block: unknown): ContentBlock {
         text: typeof rec.text === "string" ? rec.text : safeJson(rec.text),
       };
     }
-    if (rec.type === "tool_result") {
+    if (rec.type === "tool_result" || rec.type === "web_search_tool_result") {
+      const toolUseId =
+        typeof rec.tool_use_id === "string" ? rec.tool_use_id : "";
+      if (rec.type === "web_search_tool_result") {
+        // content is opaque (provider-specific) — only the id needs repair.
+        return {
+          type: "web_search_tool_result",
+          tool_use_id: toolUseId,
+          content: rec.content,
+        };
+      }
       return {
         type: "tool_result",
-        tool_use_id: typeof rec.tool_use_id === "string" ? rec.tool_use_id : "",
+        tool_use_id: toolUseId,
         content:
           typeof rec.content === "string" ? rec.content : safeJson(rec.content),
         ...(typeof rec.is_error === "boolean"
           ? { is_error: rec.is_error }
           : {}),
       };
+    }
+    if (typeof rec.type === "string") {
+      return block as ContentBlock;
     }
   }
   return { type: "text", text: safeJson(block) };

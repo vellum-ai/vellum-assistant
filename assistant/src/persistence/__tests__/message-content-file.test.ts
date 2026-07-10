@@ -169,14 +169,37 @@ describe("resolveMessageContentBlocks", () => {
     expect(resolveMessageContentBlocks(JSON.stringify(blocks))).toEqual(blocks);
   });
 
-  test("repairs retired block kinds into text blocks carrying the payload", () => {
+  test("passes typed blocks outside the union through untouched", () => {
+    // Persisted kinds like ui_surface live outside the provider union;
+    // their renderers own their shape, so repair must not rewrite them.
     const historical = [
       textBlock("kept as-is"),
+      { type: "ui_surface", surfaceType: "call_summary", data: { x: 1 } },
       { type: "some_retired_block_kind", payload: 1 },
     ];
+    expect(resolveMessageContentBlocks(JSON.stringify(historical))).toEqual(
+      historical as ContentBlock[],
+    );
+  });
+
+  test("wraps type-less values in a text block carrying the payload", () => {
+    const historical = [{ payload: 1 }, "bare string"];
     expect(resolveMessageContentBlocks(JSON.stringify(historical))).toEqual([
-      textBlock("kept as-is"),
-      textBlock('{"type":"some_retired_block_kind","payload":1}'),
+      textBlock('{"payload":1}'),
+      textBlock('"bare string"'),
+    ]);
+  });
+
+  test("repairs a web_search_tool_result with a missing tool_use_id", () => {
+    const historical = [
+      { type: "web_search_tool_result", content: { encrypted: "blob" } },
+    ];
+    expect(resolveMessageContentBlocks(JSON.stringify(historical))).toEqual([
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "",
+        content: { encrypted: "blob" },
+      },
     ]);
   });
 
