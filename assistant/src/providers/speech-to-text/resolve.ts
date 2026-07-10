@@ -136,7 +136,7 @@ export async function resolveTelephonySttCapability(): Promise<TelephonySttCapab
       status: "missing-credentials",
       providerId: entry.id,
       credentialProvider: entry.credentialProvider,
-      reason: `No API key configured for credential provider "${entry.credentialProvider}"`,
+      reason: sttCredentialGapReason(entry.credentialProvider),
     };
   }
 
@@ -225,7 +225,7 @@ export async function resolveConversationStreamingSttCapability(): Promise<Conve
       status: "missing-credentials",
       providerId: entry.id,
       credentialProvider: entry.credentialProvider,
-      reason: `No API key configured for credential provider "${entry.credentialProvider}"`,
+      reason: sttCredentialGapReason(entry.credentialProvider),
     };
   }
 
@@ -494,6 +494,18 @@ async function createStreamingTranscriber(
  * Centralized here (an authorized secure-keys importer) so callers that only
  * need a key-existence check don't import secure-keys directly.
  */
+/**
+ * Human-readable reason for a credential gap, aware that connection-based
+ * providers (vellum) are fixed by connecting the platform account, not by
+ * entering an API key.
+ */
+export function sttCredentialGapReason(credentialProviderName: string): string {
+  if (credentialProviderName === "vellum") {
+    return "No Vellum platform connection for managed speech — run 'assistant platform connect'";
+  }
+  return `No API key configured for credential provider "${credentialProviderName}"`;
+}
+
 export async function sttProviderKeyResolves(
   credentialProviderName: string,
 ): Promise<boolean> {

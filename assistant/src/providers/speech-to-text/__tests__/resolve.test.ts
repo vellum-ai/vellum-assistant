@@ -1006,5 +1006,11 @@ describe("vellum managed resolution", () => {
 
     const capability = await resolveConversationStreamingSttCapability();
     expect(capability.status).toBe("missing-credentials");
+    if (capability.status === "missing-credentials") {
+      // Connection-based gap copy: the fix is connecting the account,
+      // not entering an API key.
+      expect(capability.reason).toContain("platform connect");
+      expect(capability.reason).not.toContain("API key");
+    }
   });
 });
