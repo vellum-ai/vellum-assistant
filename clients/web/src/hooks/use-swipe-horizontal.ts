@@ -61,6 +61,14 @@ interface UseSwipeHorizontalResult {
  * Complements on-screen buttons — this is the touch-first path (primarily iOS).
  * Modeled on the gesture bookkeeping in {@link use-gallery-swipe}.
  *
+ * @todo The touch-tracking state machine below (touchId pinning, axis
+ *   disambiguation, damping, commit-vs-spring-back) is duplicated from
+ *   {@link use-gallery-swipe} and {@link use-swipe-vertical}. When all
+ *   swipe-gesture PRs have landed, extract a shared
+ *   `use-swipe-engine` primitive that both horizontal and vertical variants
+ *   configure via options. Left as-is here to avoid touching files outside
+ *   this PR's scope and destabilizing the other in-flight branches.
+ *
  * Only active on coarse-pointer (touch) devices; on desktop the handlers are
  * inert no-ops.
  */
