@@ -76,10 +76,6 @@ export function buildMenuProps(
         ? () => ctx.onMarkUnread?.(conversation)
         : undefined,
     isMarkUnreadDisabled: !canMarkUnread(conversation),
-    onAnalyze:
-      ctx.onAnalyze && hasId && !isChannel
-        ? () => ctx.onAnalyze?.(conversation)
-        : undefined,
     onOpenInNewWindow:
       ctx.onOpenInNewWindow && hasId
         ? () => ctx.onOpenInNewWindow?.(conversation)

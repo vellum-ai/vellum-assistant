@@ -1,5 +1,5 @@
 /**
- * Conversation secondary actions — fork, analyze, inspect, open-in-new-window,
+ * Conversation secondary actions — fork, inspect, open-in-new-window,
  * copy transcript, and share-feedback modal state.
  *
  * These are the "utility" actions surfaced in the conversation header chevron
@@ -19,7 +19,6 @@ import { toast } from "@vellumai/design-library";
 
 import type { Conversation } from "@/types/conversation-types";
 import {
-  conversationsByIdAnalyzePost,
   conversationsForkPost,
   conversationsSummarizePost,
 } from "@/generated/daemon/sdk.gen";
@@ -29,7 +28,6 @@ import { openPopoutWindow } from "@/runtime/popout-window";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -43,7 +41,6 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 export interface UseConversationSecondaryActionsParams {
   activeConversation: Conversation | null | undefined;
   refreshConversations: () => void;
-  switchConversation: (key: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,7 +51,6 @@ export interface UseConversationSecondaryActionsReturn {
   handleForkConversation: (throughMessageId: string) => Promise<void>;
   handleForkConversationFromMenu: () => void;
   handleSummarizeUpToMessage: (beforeMessageId: string) => Promise<void>;
-  handleAnalyzeConversation: (conversation: Conversation) => Promise<void>;
   handleOpenInNewWindow: (conversation: Conversation) => void;
   handleInspectConversation: (conversation: Conversation) => void;
   handleInspectMessage: (messageId: string) => void;
@@ -93,7 +89,6 @@ function turnHeadMessageId(
 export function useConversationSecondaryActions({
   activeConversation,
   refreshConversations,
-  switchConversation,
 }: UseConversationSecondaryActionsParams): UseConversationSecondaryActionsReturn {
   const navigate = useNavigate();
 
@@ -172,27 +167,6 @@ export function useConversationSecondaryActions({
     void handleForkConversation(throughMessageId);
   }, [handleForkConversation]);
 
-  const handleAnalyzeConversation = useCallback(
-    async (conversation: Conversation) => {
-      const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-      if (!assistantId) return;
-      try {
-        const { data } = await conversationsByIdAnalyzePost({
-          path: { assistant_id: assistantId, id: conversation.conversationId },
-          throwOnError: true,
-        });
-        await refreshConversations();
-        switchConversation(data.conversation.id);
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to analyze conversation.";
-        useChatSessionStore.getState().setError({ message });
-        captureError(err, { context: "analyzeConversation" });
-      }
-    },
-    [refreshConversations, switchConversation],
-  );
-
   const handleOpenInNewWindow = useCallback(
     (conversation: Conversation) => {
       if (isElectron()) {
@@ -268,7 +242,6 @@ export function useConversationSecondaryActions({
     handleForkConversation,
     handleForkConversationFromMenu,
     handleSummarizeUpToMessage,
-    handleAnalyzeConversation,
     handleOpenInNewWindow,
     handleInspectConversation,
     handleInspectMessage,
