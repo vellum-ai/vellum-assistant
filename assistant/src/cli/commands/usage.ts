@@ -1,20 +1,11 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { formatCostUsd } from "../lib/cli-output.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
 // ── Formatting helpers ───────────────────────────────────────────
-
-function formatCost(usd: number): string {
-  if (usd === 0) {
-    return "$0.00";
-  }
-  if (usd < 0.01) {
-    return `$${usd.toFixed(6)}`;
-  }
-  return `$${usd.toFixed(2)}`;
-}
 
 function formatTokens(count: number): string {
   if (count >= 1_000_000) {
@@ -92,7 +83,9 @@ function printTotalsTable(totals: UsageTotals): void {
   log.info("");
   log.info("  Usage Totals");
   log.info("  ────────────────────────────────────");
-  log.info(`  Estimated Cost     ${formatCost(totals.totalEstimatedCostUsd)}`);
+  log.info(
+    `  Estimated Cost     ${formatCostUsd(totals.totalEstimatedCostUsd)}`,
+  );
   log.info(`  LLM Calls          ${totals.eventCount}`);
   log.info(`  Input Tokens       ${formatTokens(totals.totalInputTokens)}`);
   log.info(`  Output Tokens      ${formatTokens(totals.totalOutputTokens)}`);
@@ -123,7 +116,7 @@ function printDailyTable(buckets: UsageDayBucket[]): void {
   );
   const costW = Math.max(
     "COST".length,
-    ...buckets.map((b) => formatCost(b.totalEstimatedCostUsd).length),
+    ...buckets.map((b) => formatCostUsd(b.totalEstimatedCostUsd).length),
   );
   const callsW = Math.max(
     "CALLS".length,
@@ -140,7 +133,7 @@ function printDailyTable(buckets: UsageDayBucket[]): void {
 
   for (const b of buckets) {
     log.info(
-      `  ${pad(b.date, dateW)}  ${pad(formatTokens(b.totalInputTokens), inputW, "right")}  ${pad(formatTokens(b.totalOutputTokens), outputW, "right")}  ${pad(formatCost(b.totalEstimatedCostUsd), costW, "right")}  ${pad(String(b.eventCount), callsW, "right")}`,
+      `  ${pad(b.date, dateW)}  ${pad(formatTokens(b.totalInputTokens), inputW, "right")}  ${pad(formatTokens(b.totalOutputTokens), outputW, "right")}  ${pad(formatCostUsd(b.totalEstimatedCostUsd), costW, "right")}  ${pad(String(b.eventCount), callsW, "right")}`,
     );
   }
   log.info("");
@@ -175,7 +168,7 @@ function printBreakdownTable(
   );
   const costW = Math.max(
     "COST".length,
-    ...entries.map((e) => formatCost(e.totalEstimatedCostUsd).length),
+    ...entries.map((e) => formatCostUsd(e.totalEstimatedCostUsd).length),
   );
   const callsW = Math.max(
     "CALLS".length,
@@ -192,7 +185,7 @@ function printBreakdownTable(
 
   for (const e of entries) {
     log.info(
-      `  ${pad(e.group, groupW)}  ${pad(formatTokens(e.totalInputTokens), inputW, "right")}  ${pad(formatTokens(e.totalOutputTokens), outputW, "right")}  ${pad(formatCost(e.totalEstimatedCostUsd), costW, "right")}  ${pad(String(e.eventCount), callsW, "right")}`,
+      `  ${pad(e.group, groupW)}  ${pad(formatTokens(e.totalInputTokens), inputW, "right")}  ${pad(formatTokens(e.totalOutputTokens), outputW, "right")}  ${pad(formatCostUsd(e.totalEstimatedCostUsd), costW, "right")}  ${pad(String(e.eventCount), callsW, "right")}`,
     );
   }
   log.info("");
@@ -244,7 +237,7 @@ Examples:
       const jsonOption = ["--json", "Output raw JSON"] as const;
       const scheduleOption = [
         "--schedule <id>",
-        "Filter to a schedule id; attributes usage by that schedule's cron run windows",
+        "Filter to a schedule id — run 'assistant schedules list' to find it; attributes usage by that schedule's cron run windows",
       ] as const;
 
       usage
@@ -265,7 +258,7 @@ Columns: estimated cost, LLM call count, input/output tokens, cache
 creation/read tokens, unpriced event count (if any).
 
 Pass --schedule <id> to restrict totals to a single schedule's cron run
-windows.
+windows. Find schedule ids with 'assistant schedules list'.
 
 Examples:
   $ assistant usage totals
@@ -312,7 +305,7 @@ Shows one row per day (UTC) with input tokens, output tokens, estimated
 cost, and LLM call count.
 
 Pass --schedule <id> to restrict the breakdown to a single schedule's cron
-run windows.
+run windows. Find schedule ids with 'assistant schedules list'.
 
 Examples:
   $ assistant usage daily
@@ -377,7 +370,7 @@ Shows one row per group with input/output tokens, estimated cost, and
 call count. Rows are sorted by cost descending.
 
 Pass --schedule <id> to restrict the breakdown to a single schedule's cron
-run windows.
+run windows. Find schedule ids with 'assistant schedules list'.
 
 Examples:
   $ assistant usage breakdown

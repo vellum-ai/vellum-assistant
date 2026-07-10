@@ -11,6 +11,20 @@ export function writeLine(msg: string): void {
 }
 
 /**
+ * Format a USD cost with variable precision: "$0.00" for zero, six decimal
+ * places for sub-cent amounts, two decimal places otherwise.
+ */
+export function formatCostUsd(usd: number): string {
+  if (usd === 0) {
+    return "$0.00";
+  }
+  if (usd < 0.01) {
+    return `$${usd.toFixed(6)}`;
+  }
+  return `$${usd.toFixed(2)}`;
+}
+
+/**
  * Report a CLI failure and set `process.exitCode = 1`. In `--json` mode the
  * error is emitted to stdout as `{ ok: false, error }` so machine callers
  * always get a parseable body; otherwise it goes through the CLI logger.

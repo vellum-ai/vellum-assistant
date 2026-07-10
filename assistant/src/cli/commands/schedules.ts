@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { formatCostUsd } from "../lib/cli-output.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
@@ -1175,11 +1176,12 @@ function formatNullableTimestamp(value: number | null): string {
   return value == null ? "—" : formatTimestamp(value);
 }
 
+/** Run costs render "—" when absent or zero; positive values use the shared USD formatter. */
 function formatRunCost(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value) || value <= 0) {
     return "—";
   }
-  return `$${value.toFixed(4)}`;
+  return formatCostUsd(value);
 }
 
 function formatDuration(value: number | null): string {

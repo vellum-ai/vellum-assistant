@@ -471,7 +471,7 @@ describe("schedules runs", () => {
     expect(logLines.join("\n")).toContain("conversation-1");
   });
 
-  test("renders a COST column with formatted USD run cost", async () => {
+  test("renders a COST column with the shared variable-precision USD format", async () => {
     mockIpcResult = {
       ok: true,
       result: {
@@ -489,6 +489,19 @@ describe("schedules runs", () => {
             estimatedCostUsd: 0.0123,
             createdAt: 1_778_799_000_000,
           },
+          {
+            id: "run-subcent",
+            jobId: "schedule-1",
+            status: "ok",
+            startedAt: 1_778_799_000_000,
+            finishedAt: 1_778_799_002_500,
+            durationMs: 2_500,
+            output: "done",
+            error: null,
+            conversationId: "conversation-1",
+            estimatedCostUsd: 0.0042,
+            createdAt: 1_778_799_000_000,
+          },
         ],
       },
     };
@@ -496,8 +509,11 @@ describe("schedules runs", () => {
     const { exitCode } = await runCommand(["schedules", "runs", "schedule-1"]);
 
     expect(exitCode).toBe(0);
-    expect(logLines.join("\n")).toContain("COST");
-    expect(logLines.join("\n")).toContain("$0.0123");
+    const output = logLines.join("\n");
+    expect(output).toContain("COST");
+    // Matches usage totals/daily/breakdown: 2dp at a cent or more, 6dp sub-cent.
+    expect(output).toContain("$0.01");
+    expect(output).toContain("$0.004200");
   });
 
   test("renders — for zero or unpriced run cost", async () => {
