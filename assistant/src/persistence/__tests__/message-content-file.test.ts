@@ -169,11 +169,36 @@ describe("resolveMessageContentBlocks", () => {
     expect(resolveMessageContentBlocks(JSON.stringify(blocks))).toEqual(blocks);
   });
 
-  test("passes historical arrays with unrecognized block shapes through", () => {
-    const historical = [{ type: "some_retired_block_kind", payload: 1 }];
-    expect(resolveMessageContentBlocks(JSON.stringify(historical))).toEqual(
-      historical as unknown as ContentBlock[],
-    );
+  test("repairs retired block kinds into text blocks carrying the payload", () => {
+    const historical = [
+      textBlock("kept as-is"),
+      { type: "some_retired_block_kind", payload: 1 },
+    ];
+    expect(resolveMessageContentBlocks(JSON.stringify(historical))).toEqual([
+      textBlock("kept as-is"),
+      textBlock('{"type":"some_retired_block_kind","payload":1}'),
+    ]);
+  });
+
+  test("repairs a text block with missing or non-string text", () => {
+    const historical = [{ type: "text" }, { type: "text", text: 42 }];
+    expect(resolveMessageContentBlocks(JSON.stringify(historical))).toEqual([
+      textBlock(""),
+      textBlock("42"),
+    ]);
+  });
+
+  test("repairs a tool_result with object-valued content in place", () => {
+    const historical = [
+      { type: "tool_result", tool_use_id: "tu-1", content: { some: "obj" } },
+    ];
+    expect(resolveMessageContentBlocks(JSON.stringify(historical))).toEqual([
+      {
+        type: "tool_result",
+        tool_use_id: "tu-1",
+        content: '{"some":"obj"}',
+      },
+    ]);
   });
 
   test("folds a reserved-path ref to blocks", () => {

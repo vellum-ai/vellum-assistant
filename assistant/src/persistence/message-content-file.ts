@@ -182,6 +182,45 @@ function resolveRefToBlocks(ref: MessageContentRef): ContentBlock[] {
   return blocks;
 }
 
+/** Serialize an arbitrary value for embedding in a repaired text block. */
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Repair a historical block that fails the current schema into a valid
+ * member of the union. Field-level repair for the variants whose payload
+ * is worth preserving in place (text, tool_result); everything else is
+ * wrapped in a text block carrying its serialized payload.
+ */
+function coerceLegacyBlock(block: unknown): ContentBlock {
+  if (typeof block === "object" && block !== null) {
+    const rec = block as Record<string, unknown>;
+    if (rec.type === "text") {
+      return {
+        type: "text",
+        text: typeof rec.text === "string" ? rec.text : safeJson(rec.text),
+      };
+    }
+    if (rec.type === "tool_result") {
+      return {
+        type: "tool_result",
+        tool_use_id: typeof rec.tool_use_id === "string" ? rec.tool_use_id : "",
+        content:
+          typeof rec.content === "string" ? rec.content : safeJson(rec.content),
+        ...(typeof rec.is_error === "boolean"
+          ? { is_error: rec.is_error }
+          : {}),
+      };
+    }
+  }
+  return { type: "text", text: safeJson(block) };
+}
+
 /**
  * Resolve a stored `messages.content` value to a `ContentBlock[]`.
  *
@@ -191,6 +230,11 @@ function resolveRefToBlocks(ref: MessageContentRef): ContentBlock[] {
  *   - A JSON string unwraps to its parsed value as a single text block
  *     (parity with the legacy readers); any other legacy plain string or
  *     non-array JSON becomes a text block carrying the raw value.
+ *
+ * Every returned block is guaranteed to satisfy the ContentBlock schema —
+ * historical rows with malformed or retired block shapes are repaired
+ * per-block ({@link coerceLegacyBlock}) rather than passed through, so
+ * consumers can use variant fields without runtime shape guards.
  *
  * Never throws — content reads must not take down read paths.
  */
@@ -221,15 +265,17 @@ export function resolveMessageContentBlocks(raw: unknown): ContentBlock[] {
     if (result.success) {
       return result.data;
     }
-    // Historical rows may carry block variants that predate the current
-    // union (the renderer tolerates unknown types in its default case).
-    // Pass them through rather than mangling stored content into a text
-    // wrap; this is the one legacy boundary the schema cannot close.
+    // Historical rows may carry malformed or retired block shapes. Repair
+    // per block — valid blocks stay untouched — so the returned array
+    // always satisfies the schema. Only the rare invalid row pays this.
     log.warn(
       { issueCount: result.error.issues.length },
-      "Inline content array has unrecognized block shapes; passing through unvalidated",
+      "Inline content array has invalid block shapes; repairing per block",
     );
-    return parsed as ContentBlock[];
+    return parsed.map((block) => {
+      const one = contentBlockSchema.safeParse(block);
+      return one.success ? one.data : coerceLegacyBlock(block);
+    });
   }
   return [{ type: "text", text: raw }];
 }
