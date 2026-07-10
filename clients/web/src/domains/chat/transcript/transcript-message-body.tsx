@@ -63,6 +63,8 @@ import {
   type TranscriptMessageBodyProps,
   workflowRunIdForCall,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
+import { workspaceFileContentGet } from "@/generated/daemon/sdk.gen";
+import { saveFile } from "@/runtime/native-file";
 
 /**
  * Word-fade cutoff for the streaming trailing text group. The fade wraps
@@ -324,6 +326,43 @@ export function TranscriptMessageBody({
         message.attachments?.find((a) => a.filename === rawBasename);
       if (att) {
         void downloadAttachment(att, assistantId);
+      } else if (href.startsWith("vellum://workspace/")) {
+        // Fallback for files not registered as message attachments — e.g.
+        // files linked only inside component/surface HTML. The daemon's
+        // cleanAssistantContent only extracts vellum:// links from assistant
+        // TEXT blocks, not from dynamic_page surface HTML, so a file cited
+        // only in a component never becomes an attachment. Fetch it by path
+        // from the workspace file content endpoint instead — the same route
+        // the workspace browser uses. Inlined here to avoid a cross-domain
+        // import (chat -> workspace).
+        const WORKSPACE_PREFIX = "vellum://workspace/";
+        let filePath = href.slice(WORKSPACE_PREFIX.length);
+        try {
+          filePath = decodeURIComponent(filePath);
+        } catch {
+          // Malformed percent-encoding — use the raw path.
+        }
+        const filename = resolveAttachmentFilename(
+          linkText || undefined,
+          pathBasename,
+          "label",
+        );
+        void (async () => {
+          try {
+            const { data, error } = await workspaceFileContentGet({
+              path: { assistant_id: assistantId ?? "" },
+              query: { path: filePath },
+              parseAs: "blob",
+              throwOnError: false,
+            });
+            if (error || !(data instanceof Blob)) {
+              throw new Error("workspace file content fetch failed");
+            }
+            await saveFile(data, filename);
+          } catch {
+            toast.error("Failed to download file", { description: filename });
+          }
+        })();
       } else {
         const isHost = href.startsWith("vellum://host/");
         toast.error(
@@ -356,6 +395,7 @@ export function TranscriptMessageBody({
                     assistantId={assistantId}
                     assistantDisplayName={assistantDisplayName}
                     toolCalls={message.toolCalls}
+                    onVellumLinkClick={handleVellumLinkClick}
                   />
                 </div>
               );
@@ -516,6 +556,7 @@ export function TranscriptMessageBody({
         onOpenDocument={onOpenDocument}
         assistantId={assistantId}
         toolCalls={message.toolCalls}
+        onVellumLinkClick={handleVellumLinkClick}
       />
     </div>
   );

@@ -37,6 +37,9 @@ export interface SurfaceRouterProps {
    *  `DynamicPageSurface`, which derives whether the surface's originating
    *  tool call has completed before unlocking the app preview. */
   toolCalls?: ChatMessageToolCall[];
+  /** Handler for `vellum://` file links clicked inside a `dynamic_page`
+   *  surface's sandboxed iframe. Threaded to `DynamicPageSurface`. */
+  onVellumLinkClick?: (href: string, linkText: string) => void;
 }
 
 export function SurfaceRouter({
@@ -47,6 +50,7 @@ export function SurfaceRouter({
   onOpenApp,
   onOpenDocument,
   toolCalls,
+  onVellumLinkClick,
 }: SurfaceRouterProps) {
   if (surface.completed && INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType)) {
     const isCancelled = surface.completionSummary === "Cancelled";
@@ -109,6 +113,7 @@ export function SurfaceRouter({
           assistantId={assistantId}
           onOpenApp={onOpenApp}
           toolCalls={toolCalls}
+          onVellumLinkClick={onVellumLinkClick}
         />
       );
 

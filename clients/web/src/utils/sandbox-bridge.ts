@@ -10,12 +10,18 @@
  *    the parent via `postMessage`.
  * 3. **Fetch proxy** — `window.vellum.fetch()` proxies authenticated requests
  *    through the parent, keeping auth tokens out of the sandbox.
- * 4. **Safe injection** — `injectScript()` inserts `<script>` tags using
+ * 4. **Link interceptor** — catches clicks on `<a>` elements and opens them in
+ *    new tabs via `window.open()`, which the `allow-popups` sandbox token
+ *    permits. Without this, links inside sandboxed iframes are non-interactive
+ *    because the sandbox lacks `allow-top-navigation` (intentionally, for
+ *    security — the interceptor is the safer alternative).
+ * 5. **Safe injection** — `injectScript()` inserts `<script>` tags using
  *    `lastIndexOf` to avoid hijacking when app JS contains literal close-tag
  *    sequences.
  *
  * All sandboxed iframes that render untrusted HTML must use these utilities.
  * The storage polyfill is required even for non-interactive preview iframes.
+ * The link interceptor is injected by `injectBridge` (interactive iframes only).
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/HTML/Element/iframe#sandbox
  * @see https://html.spec.whatwg.org/multipage/iframe-embed-object.html#attr-iframe-sandbox
@@ -76,6 +82,97 @@ export function buildStoragePolyfill(): string {
   try {
     Object.defineProperty(window, 'sessionStorage', { value: storageShim, writable: true, configurable: true });
   } catch(e) { window.sessionStorage = storageShim; }
+})();
+</script>`;
+}
+
+// ---------------------------------------------------------------------------
+// Link interceptor
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `<script>` tag that intercepts clicks on `<a>` elements inside the
+ * sandboxed iframe and opens them in new tabs.
+ *
+ * Sandboxed iframes without `allow-top-navigation` cannot navigate the parent
+ * window, so plain `<a href="...">` links are silently non-interactive. Adding
+ * `allow-top-navigation` would let untrusted app JS redirect the host page at
+ * will. Instead, this interceptor uses event delegation to catch link clicks
+ * and calls `window.open()` (permitted by the existing `allow-popups` token),
+ * which opens the URL in a new tab with `noopener,noreferrer`.
+ *
+ * The listener is registered in the **bubble** phase (not capture) and bails
+ * out early if `e.defaultPrevented` is already true. This lets sandboxed app
+ * click handlers run first — if they call `preventDefault()` (e.g. to handle a
+ * link via their own router or post-message bridge), the interceptor defers.
+ * `stopPropagation()` is intentionally not called so app handlers that listen
+ * on ancestor nodes still see the event.
+ *
+ * Scheme detection uses the **raw** `href` attribute, not the resolved
+ * `el.href` property. In `srcdoc` documents the browser resolves relative and
+ * fragment links (e.g. `#section`, `./page`) against the embedding page's
+ * URL, so `el.href` becomes an absolute `http(s)` URL that would be
+ * incorrectly intercepted. Checking the raw attribute preserves the original
+ * scheme, leaving fragments and relative links to in-frame navigation.
+ *
+ * Two categories of links are intercepted:
+ *
+ * 1. **`vellum://` deep links** (`vellum://workspace/...`,
+ *    `vellum://host/...`) — forwarded to the parent window via
+ *    `postMessage({ type: 'vellum_open_link', ... })` so the host app can
+ *    perform in-app navigation (open a workspace file, launch a host app,
+ *    etc.). These are checked **before** external schemes because
+ *    `window.open()` cannot handle custom schemes — a `vellum://` URL passed
+ *    to `window.open()` would be silently dropped or open a broken tab.
+ *
+ * 2. **External links** (http:, https:, mailto:, tel:) — opened in a new tab
+ *    via `window.open()` with `noopener,noreferrer`.
+ *
+ * Anchor links (`#foo`), relative paths, and `javascript:` URIs are left
+ * alone — the former are in-page navigation, the latter are already blocked
+ * by the sandbox.
+ *
+ * @param frameId The iframe identifier, included in `vellum_open_link`
+ *   messages so the parent knows which surface sent the request.
+ */
+export function buildLinkInterceptorScript(frameId: string): string {
+  return `<script>
+(function() {
+    document.addEventListener('click', function(e) {
+      // Bubble phase: let app handlers run first. If they already handled
+      // the click (preventDefault), defer to them.
+      if (e.defaultPrevented) return;
+      var el = e.target;
+      while (el && el !== document.body) {
+        if (el.tagName === 'A' && el.getAttribute('href')) {
+          // Use the raw href attribute for scheme detection. In srcdoc
+          // documents el.href resolves fragment/relative links against the
+          // embedding page URL, producing absolute http(s) URLs that would
+          // be wrongly intercepted. The raw attribute preserves the scheme.
+          var rawHref = el.getAttribute('href');
+          // vellum:// deep links — forward to the parent for in-app
+          // navigation. Checked before external schemes because
+          // window.open() cannot handle custom schemes (a vellum:// URL
+          // would be silently dropped or open a broken tab).
+          if (/^vellum:\\/\\/(workspace|host)\\//i.test(rawHref)) {
+            e.preventDefault();
+            window.parent.postMessage({
+              type: 'vellum_open_link',
+              frameId: ${jsonForScript(frameId)},
+              href: rawHref,
+              linkText: (el.textContent || '').trim()
+            }, '*');
+            return;
+          }
+          if (/^https?:|^mailto:|^tel:/i.test(rawHref)) {
+            e.preventDefault();
+            window.open(rawHref, '_blank', 'noopener,noreferrer');
+            return;
+          }
+        }
+        el = el.parentElement;
+      }
+    }, false);
 })();
 </script>`;
 }
@@ -181,7 +278,7 @@ function buildBridgeLogicScript(frameId: string, options?: BridgeOptions): strin
  * logic at separate positions in the HTML.
  */
 export function buildBridgeScript(frameId: string, options?: BridgeOptions): string {
-  return buildStoragePolyfill() + buildBridgeLogicScript(frameId, options);
+  return buildStoragePolyfill() + buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript(frameId);
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +343,7 @@ export function prependScript(html: string, script: string): string {
  */
 export function injectBridge(html: string, frameId: string, options?: BridgeOptions): string {
   return prependScript(
-    injectScript(html, buildBridgeLogicScript(frameId, options)),
+    injectScript(html, buildBridgeLogicScript(frameId, options) + buildLinkInterceptorScript(frameId)),
     buildStoragePolyfill(),
   );
 }
