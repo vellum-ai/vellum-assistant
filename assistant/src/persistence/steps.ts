@@ -435,6 +435,7 @@ import { migrateMessageFinalizedColumn } from "./migrations/324-message-finalize
 import { createConfigSettingEventsTable } from "./migrations/325-create-config-setting-events.js";
 import { migrateMoveInjectionEventsToMemoryDb } from "./migrations/326-move-injection-events-to-memory-db.js";
 import { migrateMoveOnboardingEventsToTelemetryDb } from "./migrations/327-move-onboarding-events-to-telemetry-db.js";
+import { migrateMoveAuthFallbackEventsToTelemetryDb } from "./migrations/328-move-auth-fallback-events-to-telemetry-db.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1341,4 +1342,5 @@ export const migrationSteps: MigrationStep[] = [
   createConfigSettingEventsTable,
   migrateMoveInjectionEventsToMemoryDb,
   migrateMoveOnboardingEventsToTelemetryDb,
+  migrateMoveAuthFallbackEventsToTelemetryDb,
 ];
