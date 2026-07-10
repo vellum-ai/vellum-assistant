@@ -6143,12 +6143,6 @@ paths:
           schema:
             type: integer
           description: Pagination offset (default 0)
-        - name: scope_id
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Scope ID (default "default")
       responses:
         "200":
           description: Successful response
@@ -16511,7 +16505,7 @@ paths:
                     type: object
                     properties: {}
                     additionalProperties: {}
-                    description: Memory item with scopeLabel and graph metadata
+                    description: Memory item with graph metadata
                 required:
                   - item
                 additionalProperties: false

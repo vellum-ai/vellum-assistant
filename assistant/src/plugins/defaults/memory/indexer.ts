@@ -39,7 +39,6 @@ export interface IndexMessageInput {
   role: string;
   content: string;
   createdAt: number;
-  scopeId?: string;
   /**
    * Trust class of the actor who produced this message, captured at
    * persist time. When `'guardian'` or `undefined` (legacy), extraction
@@ -135,7 +134,6 @@ export async function indexMessageNow(
           segmentIndex: segment.segmentIndex,
           text: segment.text,
           tokenEstimate: segment.tokenEstimate,
-          scopeId: input.scopeId ?? "default",
           contentHash: hash,
           createdAt: input.createdAt,
           updatedAt: now,
@@ -145,7 +143,6 @@ export async function indexMessageNow(
           set: {
             text: segment.text,
             tokenEstimate: segment.tokenEstimate,
-            scopeId: input.scopeId ?? "default",
             contentHash: hash,
             updatedAt: now,
           },
@@ -248,7 +245,6 @@ export async function indexMessageNow(
             "graph_extract",
             {
               conversationId: input.conversationId,
-              scopeId: input.scopeId ?? "default",
             },
             extractRunAfter,
           );

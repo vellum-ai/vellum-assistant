@@ -130,7 +130,6 @@ export interface NarrativeResult {
 }
 
 export async function runNarrativeRefinement(
-  scopeId: string = "default",
   _config: AssistantConfig,
 ): Promise<NarrativeResult> {
   const start = Date.now();
@@ -143,7 +142,6 @@ export async function runNarrativeRefinement(
 
   // Collect: all nodes with existing narrative roles + top significance nodes
   const allNodes = queryNodes({
-    scopeId,
     fidelityNot: ["gone"],
     limit: 10000,
   });

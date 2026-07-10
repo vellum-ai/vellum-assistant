@@ -115,7 +115,6 @@ export interface PatternScanResult {
 }
 
 export async function runPatternScan(
-  scopeId: string = "default",
   _config: AssistantConfig,
 ): Promise<PatternScanResult> {
   const start = Date.now();
@@ -128,7 +127,6 @@ export async function runPatternScan(
   // Sample: take all nodes (for a graph of ~1000, this is manageable)
   // For larger graphs, we'd sample more selectively
   const allNodes = queryNodes({
-    scopeId,
     fidelityNot: ["gone"],
     limit: 200,
   });
@@ -227,7 +225,6 @@ export async function runPatternScan(
       narrativeRole: null,
       partOfStory: pattern.partOfStory ?? null,
       imageRefs: null,
-      scopeId,
     });
 
     result.patternsDetected++;

@@ -56,8 +56,7 @@ const log = getLogger("memory-job-handlers");
 // ── Graph lifecycle job handlers ──────────────────────────────────
 
 function graphDecayJob(job: MemoryJob): void {
-  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
-  const result = runDecayTick(scopeId);
+  const result = runDecayTick();
   log.info({ jobId: job.id, ...result }, "Graph decay tick complete");
 }
 
@@ -65,8 +64,7 @@ async function graphConsolidateJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
-  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
-  const result = await runConsolidation(scopeId, config);
+  const result = await runConsolidation(config);
   log.info(
     {
       jobId: job.id,
@@ -82,8 +80,7 @@ async function graphPatternScanJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
-  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
-  const result = await runPatternScan(scopeId, config);
+  const result = await runPatternScan(config);
   log.info(
     {
       jobId: job.id,
@@ -98,8 +95,7 @@ async function graphNarrativeRefineJob(
   job: MemoryJob,
   config: AssistantConfig,
 ): Promise<void> {
-  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
-  const result = await runNarrativeRefinement(scopeId, config);
+  const result = await runNarrativeRefinement(config);
   log.info(
     {
       jobId: job.id,

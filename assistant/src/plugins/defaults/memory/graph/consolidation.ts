@@ -183,22 +183,17 @@ const CONSOLIDATE_TOOL_SCHEMA = {
 // Partition builders
 // ---------------------------------------------------------------------------
 
-function getRecentNodes(scopeId: string, days: number = 7): MemoryNode[] {
+function getRecentNodes(days: number = 7): MemoryNode[] {
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   return queryNodes({
-    scopeId,
     fidelityNot: ["gone"],
     createdAfter: cutoff,
     limit: 10000,
   }).filter((n) => !isCapabilityNode(n));
 }
 
-function getTopSignificanceNodes(
-  scopeId: string,
-  n: number = 50,
-): MemoryNode[] {
+function getTopSignificanceNodes(n: number = 50): MemoryNode[] {
   return queryNodes({
-    scopeId,
     fidelityNot: ["gone"],
     minSignificance: 0.6,
   })
@@ -206,9 +201,8 @@ function getTopSignificanceNodes(
     .slice(0, n);
 }
 
-function getRandomSample(scopeId: string, n: number = 30): MemoryNode[] {
+function getRandomSample(n: number = 30): MemoryNode[] {
   const all = queryNodes({
-    scopeId,
     fidelityNot: ["gone"],
     limit: 10000,
   }).filter((n) => !isCapabilityNode(n));
@@ -626,7 +620,6 @@ export interface ConsolidationResult {
 }
 
 export async function runConsolidation(
-  scopeId: string = "default",
   config: AssistantConfig,
 ): Promise<ConsolidationResult> {
   const start = Date.now();
@@ -641,9 +634,9 @@ export async function runConsolidation(
 
   // Define partitions
   const partitions: Array<{ name: string; nodes: MemoryNode[] }> = [
-    { name: "recent", nodes: getRecentNodes(scopeId) },
-    { name: "significant", nodes: getTopSignificanceNodes(scopeId) },
-    { name: "random", nodes: getRandomSample(scopeId) },
+    { name: "recent", nodes: getRecentNodes() },
+    { name: "significant", nodes: getTopSignificanceNodes() },
+    { name: "random", nodes: getRandomSample() },
   ];
 
   for (const partition of partitions) {
