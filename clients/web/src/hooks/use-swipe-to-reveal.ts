@@ -121,6 +121,7 @@ export function useSwipeToReveal({
   const reset = useCallback(() => {
     gesture.current = null;
     setIsDragging(false);
+    setOffset(0);
   }, []);
 
   const close = useCallback(() => {
@@ -254,9 +255,19 @@ export function useSwipeToReveal({
         setRevealedSide("none");
       }
 
-      reset();
+      // Clear gesture tracking without resetting offset —
+      // the commit logic above already set the final position.
+      gesture.current = null;
+      setIsDragging(false);
     },
     [leadingWidth, trailingWidth, reset],
+  );
+  const onTouchCancel = useCallback(
+    () => {
+      close();
+      reset();
+    },
+    [close, reset],
   );
 
   return {
@@ -268,7 +279,7 @@ export function useSwipeToReveal({
     onTouchStart,
     onTouchMove,
     onTouchEnd,
-    onTouchCancel: close,
+    onTouchCancel,
     close,
   };
 }

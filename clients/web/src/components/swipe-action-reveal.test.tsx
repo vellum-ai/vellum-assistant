@@ -99,7 +99,7 @@ describe("SwipeActionReveal", () => {
         <div>Row content</div>
       </SwipeActionReveal>,
     );
-    expect(html).toContain("var(--danger-base)");
+    expect(html).toContain("var(--system-negative-strong)");
   });
 
   test("non-destructive action uses primary color", () => {
